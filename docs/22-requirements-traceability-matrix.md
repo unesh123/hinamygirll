@@ -31,6 +31,24 @@ Map every final-year MVP requirement to design, phase and acceptance evidence.
 
 Cross-cutting language/personality/security/accessibility requirements are gates on all applicable rows: mixed-language dataset, bounded settings/mood, STRIDE controls, WCAG checks, safe uncertainty, no dependency manipulation, and server-only secrets.
 
+### Phase 1 evidence — 2026-07-30
+
+| Requirement | Phase 1 status | Evidence |
+|---|---|---|
+| MVP-01 | Pass for Phase 1 | Vite PWA manifest/service worker; production offline-reload tests on Pixel 5 and 320×568. |
+| MVP-02 | Pass with approved placeholder | `AvatarEngine`/`ProceduralAvatarEngine`, responsive stage, WebGL-failure browser tests. Licensed VRM loading remains a later asset-gated increment. |
+| MVP-03 | Partial | Hinaa/Hiro profile switching preserves transcript; actual female/male VRM assets remain quarantined. |
+| MVP-04 | Pass for mock | Abortable deterministic provider streams local text with no network or key. |
+| MVP-05 | UI mock only | “Try voice” simulates partial/final input and explicitly requests no permission; real capture remains Phase 2. |
+| MVP-09 | Pass for Phase 1 | All six requested Phase 1 states plus deterministic `/error` component test. |
+| MVP-10 | Pass for placeholder | CSS breathing, blink, gaze and subtle head movement; reduced-motion test and manual Pixel 5 inspection. |
+| MVP-12 | Early partial | Zod mirror rejects extra/bone/file/tool values; mock emotion/gesture cues render. Human timing study remains Phase 4/6. |
+| MVP-13 | Mock partial | Stop aborts active mock generation and enters interrupted state; measured audio stop remains Phase 3. |
+| MVP-17 | Pass | Full local mock and offline PWA shell work without credentials. |
+| MVP-18 | Pass for Phase 1 | 320×568/Pixel 5 tests, text-only, reduced motion and WebGL fallback. Automated quality/FPS governor remains Phase 6. |
+
+Evidence commands and the complete file manifest are recorded in [Phase 1 review](23-phase-1-review.md).
+
 Future-only trace: BYOK, device tools, image generation, payments/subscriptions, continuous vision, Capacitor, marketplace and desktop integrations are `POST-MVP` and cannot become grading dependencies.
 
 ## Alternatives considered

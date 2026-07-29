@@ -1,6 +1,6 @@
 # HINAA blueprint
 
-HINAA is a proposed mobile-first, multilingual Nepali 3D companion and personal assistant. This repository currently contains **Phase 0 architecture and interface specifications only**. Production implementation is intentionally blocked until the owner types `START HINAA PHASE 1`.
+HINAA is a proposed mobile-first, multilingual Nepali 3D companion and personal assistant. The approved **Phase 1 mock companion playground** now lives in `apps/web`; the Phase 0 architecture and interface specifications remain canonical. Phase 2 provider/backend work is intentionally blocked pending review.
 
 ## Decision summary
 
@@ -23,6 +23,7 @@ docs/prompts/          layered prompt specifications (not production prompts)
 openapi/               HTTP API contract
 packages/contracts/    versioned JSON Schemas
 packages/provider-sdk/ provider-independent interface specification
+apps/web/               Phase 1 React PWA and deterministic mock experience
 ```
 
 The existing ZIP, VRM and Unity reference material has not been moved, modified, or approved for shipping.
@@ -37,12 +38,12 @@ python scripts/validate_blueprint.py
 
 The validator checks JSON syntax/schema examples, OpenAPI YAML structure, required documents, local Markdown links, protocol event coverage, and Mermaid source presence.
 
-## Approval gate and exact Phase 1 command
+## Phase 1 local run
 
-Do not run this yet. After explicit approval, the recommended command is:
+From the repository root:
 
 ```powershell
-pnpm create vite@latest apps/web --template react-ts
+pnpm --dir apps/web dev --host 0.0.0.0
 ```
 
-This first command scaffolds only the web client. Dependency versions must be pinned from the official registries on that implementation date.
+Open the printed LAN URL from an Android browser on the same network. No API key or microphone permission is used. Do not begin Phase 2 until the Phase 1 review gate is explicitly approved.

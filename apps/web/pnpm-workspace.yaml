@@ -1,0 +1,5 @@
+minimumReleaseAgeExclude:
+  - jsdom@30.0.1
+
+overrides:
+  filelist>minimatch: 10.2.6

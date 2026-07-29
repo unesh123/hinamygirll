@@ -23,6 +23,20 @@ One person-week (pw) means one student’s available project work for a week, no
 
 PWA shell → mobile VRM playground → base life and five states → mock provider → text transcript → quality/text fallback. Real provider integration begins only in Phase 2.
 
+### Phase 1 completion evidence — 2026-07-30
+
+Status: **implemented; awaiting review gate approval**.
+
+- `apps/web` contains the installable React/TypeScript/Vite PWA, deterministic local mock provider, strict runtime TurnPlan validator, avatar-engine interface and procedural placeholder.
+- Implemented states: idle, listening, thinking, speaking, interrupted and safe error recovery.
+- Base-life placeholder performance includes breathing, blinking, gaze, subtle head movement and bounded emotion/gesture CSS cues. The local VRMs remain quarantined and were not loaded.
+- Controls include simulated microphone/partial transcript, stop, text composer, transcript, companion profiles, text-only, reduced motion, disabled camera and explicit “no capture/no API key” labels.
+- Production PWA build emits manifest/service worker and precaches seven entries. Offline reload passed after first production visit.
+- Automated evidence: 14 Vitest unit/component tests and 8 Playwright tests across Pixel 5 and 320×568 profiles. Formatting, lint, TypeScript, schema tests, production build and Phase 0 blueprint validation pass.
+- Accepted Phase 1 deviation: no Three.js/VRM runtime was installed because no local avatar is licence-approved. The procedural adapter proves the engine boundary and degradation behavior without weakening the asset gate.
+
+Phase 2 remains blocked. Real microphone capture, FastAPI, WebSocket, Azure, Gemini, TTS/STT and credentials were not added.
+
 ### Post-MVP
 
 Capacitor, camera/vision, image/diagram generation, secure tools, BYOK, desktop/mobile integrations, subscriptions, marketplace, original commercial characters and additional regional languages.
@@ -42,4 +56,3 @@ Asset/reviewer/provider delays. Use quarantined placeholders only after licence 
 ## Acceptance criteria
 
 Each phase ends with a demo and evidence artifact; no phase proceeds with unresolved critical security/licence gate.
-
