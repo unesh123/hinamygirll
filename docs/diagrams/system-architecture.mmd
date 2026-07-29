@@ -1,0 +1,15 @@
+flowchart LR
+  U["User"] --> PWA["React PWA: UI, audio, VRM, event reducer"]
+  PWA -->|"HTTPS + secure session"| API["FastAPI modular monolith"]
+  PWA <-->|"WebSocket protocol 1.0"| RT["Realtime gateway"]
+  PWA -.->|"optional ephemeral WebRTC"| RVP["Realtime voice provider"]
+  API --> RT
+  API --> ROUTER["Deterministic provider router"]
+  ROUTER --> STT["STT adapter"]
+  ROUTER --> LLM["LLM adapter"]
+  ROUTER --> TTS["TTS adapter"]
+  API --> DB[("PostgreSQL + pgvector")]
+  API --> KV["Server secret store"]
+  API -.-> CACHE["Optional Redis"]
+  PWA --> AV["Layered VRM performance engine"]
+

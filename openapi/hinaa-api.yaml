@@ -1,0 +1,255 @@
+openapi: 3.1.0
+info:
+  title: HINAA API
+  version: 0.1.0-blueprint
+  description: Phase 0 contract. Tools, BYOK execution, payments and continuous vision are not enabled in the MVP.
+servers:
+  - url: https://api.example.invalid/v1
+    description: Placeholder only
+security:
+  - sessionCookie: []
+paths:
+  /health/live:
+    get:
+      security: []
+      operationId: liveness
+      responses:
+        '200': {description: Process alive, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+  /health/ready:
+    get:
+      security: []
+      operationId: readiness
+      responses:
+        '200': {description: Core dependencies ready, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+        '503': {$ref: '#/components/responses/Error'}
+  /sessions:
+    post:
+      operationId: createSession
+      parameters: [{$ref: '#/components/parameters/Csrf'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSession'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /sessions/{sessionId}:
+    delete:
+      operationId: completeSession
+      parameters: [{$ref: '#/components/parameters/SessionId'}, {$ref: '#/components/parameters/Csrf'}]
+      responses:
+        '204': {description: Completed}
+        '404': {$ref: '#/components/responses/Error'}
+  /sessions/{sessionId}/events:
+    get:
+      operationId: replaySessionEvents
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {name: after, in: query, required: true, schema: {type: integer, minimum: 0}}
+      responses:
+        '200': {description: Retained control events only, content: {application/json: {schema: {type: array, maxItems: 2000, items: {type: object}}}}}
+        '410': {$ref: '#/components/responses/Error'}
+  /realtime/ticket:
+    post:
+      operationId: createRealtimeTicket
+      parameters: [{$ref: '#/components/parameters/Csrf'}]
+      responses:
+        '201': {description: One-time ticket, content: {application/json: {schema: {$ref: '#/components/schemas/RealtimeTicket'}}}}
+        '429': {$ref: '#/components/responses/Error'}
+  /conversations:
+    get:
+      operationId: listConversations
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: User-owned conversations, content: {application/json: {schema: {$ref: '#/components/schemas/ConversationPage'}}}}
+    post:
+      operationId: createConversation
+      parameters: [{$ref: '#/components/parameters/Csrf'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateConversation'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Conversation'}}}}
+  /conversations/{conversationId}/messages:
+    get:
+      operationId: listMessages
+      parameters: [{$ref: '#/components/parameters/ConversationId'}, {$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Messages, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Message'}}}}}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      operationId: sendTextMessage
+      parameters: [{$ref: '#/components/parameters/ConversationId'}, {$ref: '#/components/parameters/Csrf'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SendMessage'}}}}
+      responses:
+        '202': {description: Turn accepted, content: {application/json: {schema: {type: object, required: [turnId], properties: {turnId: {type: string, format: uuid}}}}}}
+        '409': {$ref: '#/components/responses/Error'}
+  /memories:
+    get:
+      operationId: listMemories
+      responses:
+        '200': {description: Approved active memories, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Memory'}}}}}
+    post:
+      operationId: approveMemory
+      parameters: [{$ref: '#/components/parameters/Csrf'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApproveMemory'}}}}
+      responses:
+        '201': {description: Approved, content: {application/json: {schema: {$ref: '#/components/schemas/Memory'}}}}
+        '422': {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteAllMemories
+      parameters: [{$ref: '#/components/parameters/Csrf'}, {name: confirm, in: header, required: true, schema: {const: DELETE ALL MEMORIES}}]
+      responses:
+        '202': {description: Deletion queued}
+  /memories/{memoryId}:
+    patch:
+      operationId: editMemory
+      parameters: [{$ref: '#/components/parameters/MemoryId'}, {$ref: '#/components/parameters/Csrf'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [content], properties: {content: {type: string, minLength: 1, maxLength: 500}}}}}}
+      responses:
+        '200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Memory'}}}}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: forgetMemory
+      parameters: [{$ref: '#/components/parameters/MemoryId'}, {$ref: '#/components/parameters/Csrf'}]
+      responses:
+        '204': {description: Removed from retrieval and purge queued}
+  /providers:
+    get:
+      operationId: listProviderCapabilities
+      responses:
+        '200': {description: Safe provider metadata, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProviderStatus'}}}}}
+  /privacy/export:
+    post:
+      operationId: requestDataExport
+      parameters: [{$ref: '#/components/parameters/Csrf'}]
+      responses:
+        '202': {description: Export queued}
+  /privacy/account:
+    delete:
+      operationId: requestAccountDeletion
+      parameters: [{$ref: '#/components/parameters/Csrf'}]
+      responses:
+        '202': {description: Account deletion queued}
+components:
+  securitySchemes:
+    sessionCookie: {type: apiKey, in: cookie, name: __Host-hinaa_session}
+  parameters:
+    Csrf: {name: X-CSRF-Token, in: header, required: true, schema: {type: string, minLength: 32, maxLength: 256}}
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, format: uuid}}
+    SessionId: {name: sessionId, in: path, required: true, schema: {type: string, format: uuid}}
+    ConversationId: {name: conversationId, in: path, required: true, schema: {type: string, format: uuid}}
+    MemoryId: {name: memoryId, in: path, required: true, schema: {type: string, format: uuid}}
+    Cursor: {name: cursor, in: query, required: false, schema: {type: string, maxLength: 256}}
+    Limit: {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 30}}
+  responses:
+    Error:
+      description: Typed safe error
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Error'}}}
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties: {status: {enum: [ok, degraded]}}
+    CreateSession:
+      type: object
+      additionalProperties: false
+      required: [mode, companionId]
+      properties:
+        mode: {enum: [mock, cascade, realtime]}
+        companionId: {type: string, format: uuid}
+        privateSession: {type: boolean, default: false}
+    Session:
+      type: object
+      additionalProperties: false
+      required: [id, protocolVersion, capabilities, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        protocolVersion: {const: '1.0'}
+        capabilities: {type: array, uniqueItems: true, items: {type: string}}
+        createdAt: {type: string, format: date-time}
+    RealtimeTicket:
+      type: object
+      additionalProperties: false
+      required: [ticket, expiresAt, websocketUrl]
+      properties:
+        ticket: {type: string, minLength: 32}
+        expiresAt: {type: string, format: date-time}
+        websocketUrl: {type: string, format: uri, pattern: '^wss://'}
+    CreateConversation:
+      type: object
+      additionalProperties: false
+      required: [companionId, privacyMode]
+      properties:
+        companionId: {type: string, format: uuid}
+        privacyMode: {enum: [standard, private]}
+    Conversation:
+      type: object
+      additionalProperties: false
+      required: [id, companionId, privacyMode, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        companionId: {type: string, format: uuid}
+        privacyMode: {enum: [standard, private]}
+        title: {type: [string, 'null'], maxLength: 200}
+        createdAt: {type: string, format: date-time}
+    ConversationPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Conversation'}}
+        nextCursor: {type: [string, 'null']}
+    SendMessage:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text: {type: string, minLength: 1, maxLength: 8000}
+        language: {enum: [ne-NP, en-US, hi-IN, mixed, und]}
+    Message:
+      type: object
+      additionalProperties: false
+      required: [id, role, content, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        role: {enum: [user, assistant]}
+        content: {type: string, maxLength: 8000}
+        language: {enum: [ne-NP, en-US, hi-IN, mixed, und]}
+        createdAt: {type: string, format: date-time}
+    ApproveMemory:
+      type: object
+      additionalProperties: false
+      required: [content, category, consentPolicyVersion]
+      properties:
+        content: {type: string, minLength: 1, maxLength: 500}
+        category: {enum: [preference, profile, goal, project, other]}
+        sourceMessageId: {type: string, format: uuid}
+        consentPolicyVersion: {type: string, minLength: 1, maxLength: 40}
+    Memory:
+      type: object
+      additionalProperties: false
+      required: [id, content, category, confirmedAt]
+      properties:
+        id: {type: string, format: uuid}
+        content: {type: string, maxLength: 500}
+        category: {enum: [preference, profile, goal, project, other]}
+        confirmedAt: {type: string, format: date-time}
+    ProviderStatus:
+      type: object
+      additionalProperties: false
+      required: [id, capabilities, state]
+      properties:
+        id: {type: string, maxLength: 80}
+        capabilities: {type: array, items: {type: string}}
+        state: {enum: [healthy, degraded, unavailable, disabled]}
+        userMessage: {type: string, maxLength: 300}
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable, userActionRequired, correlationId]
+      properties:
+        code: {type: string, pattern: '^[A-Z][A-Z0-9_]+$'}
+        message: {type: string, maxLength: 500}
+        retryable: {type: boolean}
+        userActionRequired: {type: boolean}
+        correlationId: {type: string, format: uuid}
+

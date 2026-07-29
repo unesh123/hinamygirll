@@ -1,0 +1,26 @@
+stateDiagram-v2
+  [*] --> Offline
+  Offline --> Idle: session.started
+  Idle --> Listening: microphone.started
+  Listening --> Thinking: transcript.final
+  Thinking --> Speaking: first audio or text playback
+  Speaking --> Interrupted: barge-in / cancel
+  Interrupted --> Listening: microphone active
+  Interrupted --> Idle: cancelled
+  Speaking --> Idle: audio.completed
+  Idle --> Celebrating: positive bounded cue
+  Celebrating --> Idle: clip completed
+  Thinking --> Concerned: validated cue
+  Concerned --> Speaking: response ready
+  Idle --> ErrorRecovery: recoverable error
+  Listening --> ErrorRecovery: capture/provider error
+  Thinking --> ErrorRecovery: provider/schema error
+  Speaking --> ErrorRecovery: playback error
+  ErrorRecovery --> Idle: recovered/fallback
+  ErrorRecovery --> Offline: network/session unavailable
+  note right of Speaking
+    Concurrent layers:
+    base life + state + emotion
+    + gesture + lip-sync
+  end note
+

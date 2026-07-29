@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hinaa.local/schemas/assistant-turn-plan/1.0.json",
+  "title": "AssistantTurnPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["spokenText", "displayText", "language", "emotion", "performance", "memoryCandidates", "toolRequests"],
+  "properties": {
+    "spokenText": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "displayText": {"type": "string", "minLength": 1, "maxLength": 8000},
+    "language": {"enum": ["ne-NP", "en-US", "hi-IN", "mixed"]},
+    "emotion": {"$ref": "#/$defs/emotion"},
+    "performance": {"$ref": "#/$defs/performance"},
+    "beats": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/beat"}},
+    "memoryCandidates": {
+      "type": "array", "maxItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["content", "category", "requiresConfirmation"],
+        "properties": {
+          "content": {"type": "string", "minLength": 1, "maxLength": 500},
+          "category": {"enum": ["preference", "profile", "goal", "project", "other"]},
+          "requiresConfirmation": {"const": true},
+          "sourceMessageId": {"type": "string", "format": "uuid"}
+        }
+      }
+    },
+    "toolRequests": {"type": "array", "maxItems": 0}
+  },
+  "$defs": {
+    "emotion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["primary", "intensity", "valence", "arousal"],
+      "properties": {
+        "primary": {"enum": ["neutral", "happy", "excited", "playful", "shy", "concerned", "sad", "surprised", "thinking"]},
+        "intensity": {"type": "number", "minimum": 0, "maximum": 1},
+        "valence": {"type": "number", "minimum": -1, "maximum": 1},
+        "arousal": {"type": "number", "minimum": -1, "maximum": 1}
+      }
+    },
+    "performance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["facePreset", "gesture", "gazeTarget", "headMotion", "blinkRate"],
+      "properties": {
+        "facePreset": {"enum": ["neutral", "soft_smile", "big_smile", "blush", "pout", "concerned", "surprised", "thinking"]},
+        "gesture": {"enum": ["none", "small_nod", "head_shake", "gentle_head_tilt", "wave", "explain", "celebrate", "reassure", "listening_lean"]},
+        "gazeTarget": {"enum": ["camera", "away", "down", "user-content"]},
+        "headMotion": {"enum": ["none", "subtle", "nod", "shake"]},
+        "blinkRate": {"type": "number", "minimum": 0.1, "maximum": 1}
+      }
+    },
+    "beat": {
+      "type": "object", "additionalProperties": false,
+      "required": ["anchorText", "face", "gesture", "gaze"],
+      "properties": {
+        "anchorText": {"type": "string", "minLength": 1, "maxLength": 80},
+        "face": {"enum": ["neutral", "soft_smile", "big_smile", "blush", "pout", "concerned", "surprised", "thinking"]},
+        "gesture": {"enum": ["none", "small_nod", "head_shake", "gentle_head_tilt", "wave", "explain", "celebrate", "reassure"]},
+        "gaze": {"enum": ["camera", "down", "away", "user-content"]},
+        "intensity": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
+  }
+}
+

@@ -1,0 +1,11 @@
+{
+  "spokenText": "Aww, timile ekdam ramro gareu!",
+  "displayText": "Aww, timile ekdam ramro gareu!",
+  "language": "mixed",
+  "emotion": {"primary": "happy", "intensity": 0.68, "valence": 0.6, "arousal": 0.35},
+  "performance": {"facePreset": "soft_smile", "gesture": "small_nod", "gazeTarget": "camera", "headMotion": "nod", "blinkRate": 0.45},
+  "beats": [{"anchorText": "ramro", "face": "soft_smile", "gesture": "small_nod", "gaze": "camera", "intensity": 0.6}],
+  "memoryCandidates": [],
+  "toolRequests": []
+}
+

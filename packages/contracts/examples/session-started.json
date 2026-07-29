@@ -1,0 +1,12 @@
+{
+  "protocolVersion": "1.0",
+  "eventId": "00000000-0000-4000-8000-000000000001",
+  "sessionId": "00000000-0000-4000-8000-000000000002",
+  "turnId": null,
+  "sequence": 0,
+  "timestamp": "2026-07-30T00:00:00Z",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "type": "session.started",
+  "payload": {"capabilities": ["text", "mock", "cascade"], "resumeExpiresAt": "2026-07-30T00:05:00Z"}
+}
+

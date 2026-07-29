@@ -1,0 +1,30 @@
+sequenceDiagram
+  autonumber
+  actor User
+  participant PWA
+  participant API as FastAPI/Realtime
+  participant STT
+  participant LLM
+  participant TTS
+  participant Avatar
+  User->>PWA: tap mic and speak
+  PWA->>API: microphone.started + audio chunks
+  API->>STT: streaming audio
+  STT-->>API: partial/final transcript
+  API-->>PWA: transcript partial/final
+  API->>LLM: layered prompt + strict schema
+  LLM-->>API: AssistantTurnPlan stream/result
+  API->>API: validate and compile allowlisted cues
+  API-->>PWA: text deltas + emotion/motion cues
+  API->>TTS: spokenText
+  TTS-->>API: audio/timing (if supported)
+  API-->>PWA: audio + viseme frames
+  PWA->>Avatar: schedule against AudioContext clock
+  User->>PWA: barge in
+  PWA->>PWA: stop audio immediately
+  PWA->>API: assistant.interrupted(turnId)
+  API->>STT: begin next turn
+  API-xLLM: cancel old generation
+  API-xTTS: cancel old synthesis
+  API-->>PWA: authoritative interrupted
+

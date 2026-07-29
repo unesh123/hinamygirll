@@ -1,0 +1,13 @@
+flowchart TB
+  REPO["Private Git repository"] --> CI["CI: validate, test, scan, SBOM"]
+  CI --> ART["Immutable signed artifacts"]
+  ART --> WEB["Static PWA host/CDN"]
+  ART --> API["Azure Container Apps or selected pilot host"]
+  API -->|"managed identity"| KV["Azure Key Vault"]
+  API --> PG["Managed PostgreSQL + pgvector"]
+  API --> OBJ["Private object storage + signed URLs"]
+  API --> OBS["Redacted logs, metrics, traces"]
+  PHONE["Android/mobile browser"] --> WEB
+  PHONE <-->|"TLS HTTPS/WSS"| API
+  API --> OFFICIAL["Official provider APIs"]
+
