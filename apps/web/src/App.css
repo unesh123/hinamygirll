@@ -92,6 +92,16 @@
   backdrop-filter: blur(12px);
   font-size: 0.72rem;
 }
+.provider-chip select {
+  max-width: 105px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+}
+.provider-chip option {
+  color: #171320;
+}
 .status-dot {
   width: 7px;
   height: 7px;
@@ -467,6 +477,9 @@
   background: #74334c;
   animation: talk 0.34s ease-in-out infinite alternate;
 }
+.state-speaking .avatar-mouth {
+  transform: scaleY(calc(0.55 + var(--jaw-energy) * 0.85));
+}
 .state-interrupted .avatar-head {
   animation: interrupt 0.35s ease-out;
 }
@@ -787,6 +800,57 @@
   font-size: 0.57rem;
   text-align: center;
 }
+.voice-tools {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+.voice-tools button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 99px;
+  color: #d6d0e2;
+  background: rgba(17, 14, 27, 0.72);
+  font-size: 0.62rem;
+}
+.voice-tools button:disabled {
+  opacity: 0.4;
+}
+.mic-status {
+  position: relative;
+  z-index: 5;
+  min-height: 18px;
+  margin: 6px 0 0;
+  color: #aaa4bc;
+  font-size: 0.61rem;
+  text-align: center;
+}
+.mic-status > span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: #777181;
+}
+.mic-recording > span {
+  background: #ff5f78;
+  box-shadow: 0 0 0 5px rgba(255, 95, 120, 0.14);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+.mic-processing > span,
+.mic-requesting > span {
+  background: #69dcff;
+}
+.mic-denied > span,
+.mic-error > span,
+.mic-unsupported > span {
+  background: #ffca72;
+}
 
 [data-reduced-motion="true"] * {
   animation: none !important;
@@ -930,6 +994,11 @@
     opacity: 0;
   }
 }
+@keyframes mic-pulse {
+  50% {
+    transform: scale(1.35);
+  }
+}
 
 @media (min-width: 760px) {
   .app-shell {
@@ -982,6 +1051,9 @@
   .accessibility-bar button {
     padding-inline: 7px;
     font-size: 0.61rem;
+  }
+  .voice-tools {
+    flex-wrap: wrap;
   }
   .chat-panel {
     padding-inline: 10px;

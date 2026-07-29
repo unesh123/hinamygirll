@@ -15,4 +15,5 @@ coverage/
 *.pfx
 backups/
 data/private/
-
+.cert/
+.runtime/

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+import { BackendConversationProvider } from "../providers/backendConversationProvider";
 import { MockConversationProvider } from "../providers/mockConversationProvider";
 import {
   companionProfiles,
@@ -22,8 +23,16 @@ export interface CompanionController {
   partialTranscript: string;
   streamingText: string;
   activePlan?: AssistantTurnPlan;
-  sendText: (text: string) => Promise<void>;
+  providerMode: "mock" | "real";
+  setProviderMode: (mode: "mock" | "real") => void;
+  sendText: (
+    text: string,
+    options?: { forceBackend?: boolean },
+  ) => Promise<
+    { plan: AssistantTurnPlan; providerLatencyMs?: number } | undefined
+  >;
   startMockListening: () => void;
+  beginListening: () => void;
   stop: () => void;
 }
 
@@ -40,6 +49,7 @@ export function useCompanionController(): CompanionController {
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();
+  const [providerMode, setProviderMode] = useState<"mock" | "real">("mock");
   const provider = useRef(new MockConversationProvider());
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
@@ -60,7 +70,7 @@ export function useCompanionController(): CompanionController {
   }, [clearTimers]);
 
   const sendText = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, options?: { forceBackend?: boolean }) => {
       const text = rawText.trim();
       if (!text) return;
 
@@ -79,7 +89,13 @@ export function useCompanionController(): CompanionController {
 
       try {
         let streamed = "";
-        for await (const event of provider.current.streamTurn({
+        let completedPlan: AssistantTurnPlan | undefined;
+        let providerLatencyMs: number | undefined;
+        const selectedProvider =
+          providerMode === "real" || options?.forceBackend
+            ? new BackendConversationProvider(providerMode)
+            : provider.current;
+        for await (const event of selectedProvider.streamTurn({
           text,
           companionId,
           signal: abortController.signal,
@@ -90,7 +106,8 @@ export function useCompanionController(): CompanionController {
             streamed += event.delta;
             setStreamingText(streamed);
             setState("speaking");
-          } else {
+          } else if (event.type === "plan") {
+            completedPlan = event.plan;
             setActivePlan(event.plan);
             setMessages((current) => [
               ...current,
@@ -104,11 +121,16 @@ export function useCompanionController(): CompanionController {
             setStreamingText("");
             setState("speaking");
             timers.current.push(window.setTimeout(() => setState("idle"), 950));
+          } else {
+            providerLatencyMs = event.latencyMs;
           }
         }
+        return completedPlan
+          ? { plan: completedPlan, providerLatencyMs }
+          : undefined;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError")
-          return;
+          return undefined;
         setStreamingText("");
         setState("error");
         setMessages((current) => [
@@ -116,15 +138,16 @@ export function useCompanionController(): CompanionController {
           {
             id: createId(),
             role: "assistant",
-            text: "Mock response failed safely. Try again or continue with text mode.",
+            text: `Response failed safely. ${error instanceof Error ? error.message : ""} Try mock or text mode.`,
           },
         ]);
+        return undefined;
       } finally {
         if (currentAbort.current === abortController)
           currentAbort.current = undefined;
       }
     },
-    [clearTimers, companionId],
+    [clearTimers, companionId, providerMode],
   );
 
   const startMockListening = useCallback(() => {
@@ -146,6 +169,15 @@ export function useCompanionController(): CompanionController {
     );
   }, [clearTimers, sendText]);
 
+  const beginListening = useCallback(() => {
+    clearTimers();
+    currentAbort.current?.abort();
+    setPartialTranscript("");
+    setStreamingText("");
+    setActivePlan(undefined);
+    setState("listening");
+  }, [clearTimers]);
+
   useEffect(
     () => () => {
       clearTimers();
@@ -162,8 +194,11 @@ export function useCompanionController(): CompanionController {
     partialTranscript,
     streamingText,
     activePlan,
+    providerMode,
+    setProviderMode,
     sendText,
     startMockListening,
+    beginListening,
     stop,
   };
 }

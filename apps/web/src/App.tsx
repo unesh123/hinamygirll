@@ -1,7 +1,10 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import "./App.css";
 import { ProceduralAvatar } from "./features/avatar/ProceduralAvatar";
 import { detectWebGL } from "./features/avatar/webgl";
+import { synthesizeSpeech, transcribeAudio } from "./features/audio/api";
+import { MicrophoneRecorder } from "./features/audio/microphoneRecorder";
+import { useAudioPlayback } from "./features/audio/useAudioPlayback";
 import {
   companionProfiles,
   type CompanionId,
@@ -75,10 +78,32 @@ function CompanionSwitch({
 
 export default function App() {
   const controller = useCompanionController();
+  const playback = useAudioPlayback();
   const systemReducedMotion = useReducedMotionPreference();
   const [reduceMotionOverride, setReduceMotionOverride] = useState(false);
   const [textOnly, setTextOnly] = useState(false);
   const [input, setInput] = useState("");
+  const [micStatus, setMicStatus] = useState<
+    | "idle"
+    | "requesting"
+    | "recording"
+    | "processing"
+    | "denied"
+    | "unsupported"
+    | "error"
+  >("idle");
+  const [voiceDetail, setVoiceDetail] = useState(
+    "No microphone permission requested",
+  );
+  const [latencies, setLatencies] = useState<{
+    stt: number;
+    gemini: number;
+    tts: number;
+    total: number;
+  }>();
+  const recorder = useRef<MicrophoneRecorder | undefined>(undefined);
+  const voiceAbort = useRef<AbortController | undefined>(undefined);
+  const recordingTimer = useRef<number | undefined>(undefined);
   const webglAvailable = useMemo(() => detectWebGL(), []);
   const reducedMotion = systemReducedMotion || reduceMotionOverride;
   const active = ["listening", "thinking", "speaking"].includes(
@@ -86,13 +111,153 @@ export default function App() {
   );
   const status = stateCopy[controller.state];
 
+  const speakPlan = async (text: string, signal: AbortSignal) => {
+    const speech = await synthesizeSpeech(
+      text,
+      controller.companionId,
+      controller.providerMode,
+      signal,
+    );
+    setVoiceDetail(
+      `${controller.providerMode === "mock" ? "Synthetic mock voice" : "Azure voice configured"} · ${speech.provider}`,
+    );
+    await playback.play(speech.blob);
+    return speech.latencyMs;
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const value = input.trim();
     if (!value) return;
     setInput("");
-    void controller.sendText(value);
+    void (async () => {
+      const completed = await controller.sendText(value);
+      if (completed && controller.providerMode === "real") {
+        voiceAbort.current?.abort();
+        voiceAbort.current = new AbortController();
+        try {
+          await speakPlan(completed.plan.spokenText, voiceAbort.current.signal);
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === "AbortError"))
+            setVoiceDetail(
+              "Voice playback failed; the text response is preserved",
+            );
+        }
+      }
+    })();
   };
+
+  async function startRecording() {
+    voiceAbort.current?.abort();
+    playback.stop();
+    const nextRecorder = new MicrophoneRecorder();
+    recorder.current = nextRecorder;
+    setMicStatus("requesting");
+    setVoiceDetail("Waiting for browser microphone permission…");
+    try {
+      await nextRecorder.start();
+      controller.beginListening();
+      setMicStatus("recording");
+      setVoiceDetail(
+        "Microphone active · tap again to process · 20 second maximum",
+      );
+      recordingTimer.current = window.setTimeout(
+        () => void finishRecording(),
+        20_000,
+      );
+    } catch (error) {
+      await nextRecorder.cancel();
+      recorder.current = undefined;
+      if (error instanceof DOMException && error.name === "NotAllowedError") {
+        setMicStatus("denied");
+        setVoiceDetail(
+          "Microphone is off. Enable it in browser settings or use text.",
+        );
+      } else if (
+        error instanceof DOMException &&
+        error.name === "NotSupportedError"
+      ) {
+        setMicStatus("unsupported");
+        setVoiceDetail(
+          "This browser cannot capture audio; text and demo voice still work.",
+        );
+      } else {
+        setMicStatus("error");
+        setVoiceDetail(
+          "Microphone setup failed safely; use text or the no-permission demo.",
+        );
+      }
+    }
+  }
+
+  async function finishRecording() {
+    if (recordingTimer.current) window.clearTimeout(recordingTimer.current);
+    recordingTimer.current = undefined;
+    const activeRecorder = recorder.current;
+    if (!activeRecorder) return;
+    recorder.current = undefined;
+    setMicStatus("processing");
+    setVoiceDetail("Processing this recording in memory…");
+    setLatencies(undefined);
+    const processingStarted = performance.now();
+    voiceAbort.current?.abort();
+    const abort = new AbortController();
+    voiceAbort.current = abort;
+    try {
+      const wav = await activeRecorder.stop();
+      const transcript = await transcribeAudio(
+        wav,
+        controller.providerMode,
+        abort.signal,
+      );
+      setVoiceDetail(
+        `${controller.providerMode === "mock" ? "Mock transcript" : "Azure transcript"} · ${transcript.provider}`,
+      );
+      const completed = await controller.sendText(transcript.text, {
+        forceBackend: true,
+      });
+      if (completed) {
+        const ttsLatency = await speakPlan(
+          completed.plan.spokenText,
+          abort.signal,
+        );
+        setLatencies({
+          stt: transcript.latencyMs,
+          gemini: completed.providerLatencyMs ?? 0,
+          tts: ttsLatency,
+          total: Math.round(performance.now() - processingStarted),
+        });
+      }
+      setMicStatus("idle");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setMicStatus("error");
+      setVoiceDetail(
+        error instanceof Error ? error.message : "Voice turn failed safely",
+      );
+    }
+  }
+
+  const stopAll = () => {
+    if (recordingTimer.current) window.clearTimeout(recordingTimer.current);
+    recordingTimer.current = undefined;
+    void recorder.current?.cancel();
+    recorder.current = undefined;
+    voiceAbort.current?.abort();
+    playback.stop();
+    controller.stop();
+    setMicStatus("idle");
+    setVoiceDetail("Stopped; no captured audio was retained");
+  };
+
+  useEffect(
+    () => () => {
+      if (recordingTimer.current) window.clearTimeout(recordingTimer.current);
+      void recorder.current?.cancel();
+      voiceAbort.current?.abort();
+    },
+    [],
+  );
 
   return (
     <main className={`app-shell companion-${controller.companionId}`}>
@@ -107,15 +272,25 @@ export default function App() {
             </span>
             <div>
               <strong>HINAA</strong>
-              <small>Phase 1 playground</small>
+              <small>Phase 2 voice lab</small>
             </div>
           </div>
-          <div
-            className="provider-chip"
-            title="No network provider is connected"
-          >
-            <span className="status-dot" /> Local mock
-          </div>
+          <label className="provider-chip">
+            <span className="status-dot" />
+            <span className="sr-only">Provider mode</span>
+            <select
+              aria-label="Provider mode"
+              value={controller.providerMode}
+              onChange={(event) =>
+                controller.setProviderMode(
+                  event.target.value as "mock" | "real",
+                )
+              }
+            >
+              <option value="mock">Local mock</option>
+              <option value="real">Real cascade</option>
+            </select>
+          </label>
         </header>
 
         <div className="status-line" role="status" aria-live="polite">
@@ -138,6 +313,7 @@ export default function App() {
             plan={controller.activePlan}
             reducedMotion={reducedMotion}
             textOnly={textOnly}
+            jawEnergy={playback.jawEnergy}
           />
           {!textOnly && (
             <div className="performance-caption">
@@ -185,8 +361,8 @@ export default function App() {
             <button
               className="stop-button"
               type="button"
-              onClick={controller.stop}
-              aria-label="Stop current mock turn"
+              onClick={stopAll}
+              aria-label="Stop current turn"
             >
               <Icon name="stop" /> Stop
             </button>
@@ -196,12 +372,20 @@ export default function App() {
           <button
             className="mic-button"
             type="button"
-            onClick={controller.startMockListening}
-            aria-label="Simulate microphone listening"
-            title="No microphone permission is requested in mock mode"
+            onClick={() =>
+              micStatus === "recording"
+                ? void finishRecording()
+                : void startRecording()
+            }
+            disabled={micStatus === "requesting" || micStatus === "processing"}
+            aria-label={
+              micStatus === "recording"
+                ? "Stop and process microphone recording"
+                : "Start microphone recording"
+            }
           >
             <Icon name="mic" />
-            <span>Try voice</span>
+            <span>{micStatus === "recording" ? "Process" : "Talk"}</span>
           </button>
           <button
             className="camera-button"
@@ -212,6 +396,37 @@ export default function App() {
             Camera off
           </button>
         </div>
+        <div className="voice-tools" aria-label="Voice and fallback controls">
+          <button
+            type="button"
+            onClick={controller.startMockListening}
+            aria-label="Simulate microphone listening without permission"
+          >
+            Demo without mic
+          </button>
+          <button
+            type="button"
+            onClick={() => void playback.replay()}
+            disabled={!playback.hasReplay}
+          >
+            Replay
+          </button>
+          <button
+            type="button"
+            onClick={playback.toggleMute}
+            aria-pressed={playback.muted}
+          >
+            {playback.muted ? "Unmute" : "Mute"}
+          </button>
+        </div>
+        <p className={`mic-status mic-${micStatus}`} role="status">
+          <span aria-hidden="true" /> {voiceDetail}
+          {latencies && (
+            <small data-testid="live-latencies">
+              {` · STT ${latencies.stt} ms · Gemini ${latencies.gemini} ms · TTS ${latencies.tts} ms · total ${latencies.total} ms`}
+            </small>
+          )}
+        </p>
       </section>
 
       <section className="chat-panel" aria-label="Conversation transcript">
@@ -286,7 +501,9 @@ export default function App() {
           </button>
         </form>
         <p className="privacy-note">
-          Deterministic local mock · No API key · No microphone capture
+          {controller.providerMode === "mock"
+            ? "Deterministic mock providers · microphone capture only after tap · no API key"
+            : "Real providers selected · backend-only credentials · session memory only"}
         </p>
       </section>
     </main>

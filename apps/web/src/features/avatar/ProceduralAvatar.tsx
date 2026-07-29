@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { CompanionId, CompanionState } from "../companion/types";
 import { ProceduralAvatarEngine } from "./avatarEngine";
@@ -8,6 +9,7 @@ interface ProceduralAvatarProps {
   plan?: AssistantTurnPlan;
   reducedMotion: boolean;
   textOnly: boolean;
+  jawEnergy?: number;
 }
 
 const engine = new ProceduralAvatarEngine();
@@ -32,6 +34,7 @@ export function ProceduralAvatar(props: ProceduralAvatarProps) {
   return (
     <div
       className={`procedural-stage accent-${frame.companionId} state-${frame.state} emotion-${emotion} gesture-${gesture}`}
+      style={{ "--jaw-energy": frame.jawEnergy ?? 0 } as CSSProperties}
       data-engine={engine.id}
       data-state={frame.state}
       data-emotion={emotion}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hinaa.local/schemas/phase-2-stream-event/1.0.json",
+  "title": "Phase2StreamEvent",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "correlationId"],
+      "properties": {
+        "type": { "const": "thinking" },
+        "correlationId": { "type": "string", "format": "uuid" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "delta"],
+      "properties": {
+        "type": { "const": "text.delta" },
+        "delta": { "type": "string", "minLength": 1 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "plan", "provider"],
+      "properties": {
+        "type": { "const": "plan" },
+        "plan": { "$ref": "assistant-turn-plan.schema.json" },
+        "provider": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "latencyMs"],
+      "properties": {
+        "type": { "const": "usage" },
+        "latencyMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "code", "message", "retryable", "correlationId"],
+      "properties": {
+        "type": { "const": "error" },
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+        "message": { "type": "string", "maxLength": 500 },
+        "retryable": { "type": "boolean" },
+        "correlationId": { "type": "string", "format": "uuid" }
+      }
+    }
+  ]
+}

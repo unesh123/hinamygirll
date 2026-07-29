@@ -27,6 +27,15 @@ Registry `latest` values checked 2026-07-30:
 | PostgreSQL driver | `asyncpg` | 0.31.0 |
 | vector integration | `pgvector` (Python) | 0.5.0 |
 | backend tests | `pytest` | 9.1.1 |
+| API server | `uvicorn` | 0.52.0 |
+| settings | `pydantic-settings` | 2.14.2 |
+| multipart | `python-multipart` | 0.0.32 |
+| Azure speech | `azure-cognitiveservices-speech` | 1.51.1 |
+| Gemini | `google-genai` | 2.15.0 |
+| Python lint/type | `ruff`, `mypy` | 0.16.0, 2.3.0 |
+| Python audit | `pip-audit` | 2.10.1 |
+
+Phase 1/2 reproducibility baseline: Node `v24.13.1`, `pnpm@11.7.0` (pinned in `apps/web/package.json`), Corepack `0.34.6`, and Python `3.14.4` on Windows 11. Phase 2 exact direct dependencies are pinned in `apps/api/requirements*.txt`; the isolated environment installed successfully on Python 3.14. The official Microsoft Speech SDK was selected instead of the separate transcription preview skill/package because the cascade needs both STT and TTS plus raw PCM push streams.
 
 Phase 1 must create lockfiles, check Node/Python support ranges and peer dependencies, run a minimal React/R3F/three-vrm/Vite compatibility spike, and pin exact versions. “Latest” is not automatically safest; patch security advisories and compatibility evidence take priority. PostgreSQL server/pgvector extension versions are selected from the supported Docker/managed-platform matrix then, not inferred from the Python package.
 
@@ -51,4 +60,3 @@ TypeScript 7, Vite 8, Tailwind 4 or React ecosystem peers may expose incompatibi
 ## Sources verified 2026-07-30
 
 [React versions](https://react.dev/versions), [Vite releases](https://vite.dev/releases), [npm package registry](https://www.npmjs.com/), [PyPI package index](https://pypi.org/), [`@pixiv/three-vrm`](https://www.npmjs.com/package/@pixiv/three-vrm).
-

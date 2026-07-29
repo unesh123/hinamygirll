@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: HINAA API
-  version: 0.1.0-blueprint
-  description: Phase 0 contract. Tools, BYOK execution, payments and continuous vision are not enabled in the MVP.
+  version: 0.2.0-phase2
+  description: Phase 2 record-then-process cascade plus the preserved Phase 0 contract. Tools, BYOK execution, payments and continuous vision are not enabled.
 servers:
   - url: https://api.example.invalid/v1
     description: Placeholder only
@@ -111,8 +111,48 @@ paths:
       parameters: [{$ref: '#/components/parameters/MemoryId'}, {$ref: '#/components/parameters/Csrf'}]
       responses:
         '204': {description: Removed from retrieval and purge queued}
+  /conversations/turns:stream:
+    post:
+      security: []
+      operationId: streamPhase2Turn
+      description: Returns validated application events as newline-delimited JSON. The complete TurnPlan is validated before text deltas are emitted.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Phase2TurnRequest'}}}}
+      responses:
+        '200': {description: NDJSON thinking, text.delta, plan, usage or typed error events, content: {application/x-ndjson: {schema: {type: string}}}}
+        '422': {$ref: '#/components/responses/Error'}
+  /speech/transcriptions:
+    post:
+      security: []
+      operationId: transcribePhase2Recording
+      description: Accepts at most 20 seconds / 4 MiB of 16 kHz 16-bit mono PCM WAV; request audio is not retained.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [audio]
+              properties:
+                audio: {type: string, contentMediaType: audio/wav}
+                language: {type: string, default: ne-NP}
+                provider_mode: {enum: [mock, real], default: mock}
+      responses:
+        '200': {description: Final record-then-process transcript, content: {application/json: {schema: {$ref: '#/components/schemas/Phase2Transcript'}}}}
+        '413': {$ref: '#/components/responses/Error'}
+        '415': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /speech/synthesis:
+    post:
+      security: []
+      operationId: synthesizePhase2Speech
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Phase2SpeechRequest'}}}}
+      responses:
+        '200': {description: 16 kHz 16-bit mono PCM WAV, content: {audio/wav: {schema: {type: string, contentMediaType: audio/wav}}}}
+        '422': {$ref: '#/components/responses/Error'}
   /providers:
     get:
+      security: []
       operationId: listProviderCapabilities
       responses:
         '200': {description: Safe provider metadata, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProviderStatus'}}}}}
@@ -252,4 +292,30 @@ components:
         retryable: {type: boolean}
         userActionRequired: {type: boolean}
         correlationId: {type: string, format: uuid}
-
+    Phase2TurnRequest:
+      type: object
+      additionalProperties: false
+      required: [sessionId, text, companionId, language, providerMode]
+      properties:
+        sessionId: {type: string, pattern: '^[A-Za-z0-9_-]+$', minLength: 1, maxLength: 80}
+        text: {type: string, minLength: 1, maxLength: 8000}
+        companionId: {enum: [hinaa, hiro]}
+        language: {enum: [ne-NP, en-US, hi-IN, mixed]}
+        providerMode: {enum: [mock, real]}
+    Phase2Transcript:
+      type: object
+      additionalProperties: false
+      required: [text, language, provider, latencyMs]
+      properties:
+        text: {type: string, minLength: 1, maxLength: 8000}
+        language: {type: string, maxLength: 20}
+        provider: {type: string, maxLength: 100}
+        latencyMs: {type: integer, minimum: 0}
+    Phase2SpeechRequest:
+      type: object
+      additionalProperties: false
+      required: [text, companionId, providerMode]
+      properties:
+        text: {type: string, minLength: 1, maxLength: 4000}
+        companionId: {enum: [hinaa, hiro]}
+        providerMode: {enum: [mock, real]}

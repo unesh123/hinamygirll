@@ -1,6 +1,6 @@
 # HINAA blueprint
 
-HINAA is a proposed mobile-first, multilingual Nepali 3D companion and personal assistant. The approved **Phase 1 mock companion playground** now lives in `apps/web`; the Phase 0 architecture and interface specifications remain canonical. Phase 2 provider/backend work is intentionally blocked pending review.
+HINAA is a proposed mobile-first, multilingual Nepali 3D companion and personal assistant. The approved Phase 1 mock companion is checkpointed. **Phase 2 record-then-process voice and chat** now has an offline-tested FastAPI backend, browser microphone pipeline, provider interfaces and safe mock cascade; real provider verification is stopped at the credential/approval gate.
 
 ## Decision summary
 
@@ -24,6 +24,7 @@ openapi/               HTTP API contract
 packages/contracts/    versioned JSON Schemas
 packages/provider-sdk/ provider-independent interface specification
 apps/web/               Phase 1 React PWA and deterministic mock experience
+apps/api/               Phase 2 FastAPI cascade, provider ports and mocks
 ```
 
 The existing ZIP, VRM and Unity reference material has not been moved, modified, or approved for shipping.
@@ -38,12 +39,14 @@ python scripts/validate_blueprint.py
 
 The validator checks JSON syntax/schema examples, OpenAPI YAML structure, required documents, local Markdown links, protocol event coverage, and Mermaid source presence.
 
-## Phase 1 local run
+## Phase 2 local run
 
 From the repository root:
 
 ```powershell
-pnpm --dir apps/web dev --host 0.0.0.0
+.\scripts\start-phase2.ps1
 ```
 
-Open the printed LAN URL from an Android browser on the same network. No API key or microphone permission is used. Do not begin Phase 2 until the Phase 1 review gate is explicitly approved.
+Open `http://127.0.0.1:5173/` on the PC for mock/text review. The current LAN candidate is `http://192.168.1.83:5173/`; Android microphone access requires the trusted HTTPS workflow in [Phase 2 review](docs/24-phase-2-review.md). The primary mic button requests permission only when tapped; **Demo without mic** preserves the Phase 1 simulator.
+
+Real credentials belong only in ignored `apps/api/.env.local` using `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, and `GEMINI_API_KEY`. Never use a `VITE_*` secret. Mock mode requires no credentials and makes no paid calls. Real calls remain unverified until the owner adds backend credentials and explicitly approves a maximum three-turn test.

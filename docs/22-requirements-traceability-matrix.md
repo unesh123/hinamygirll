@@ -49,6 +49,23 @@ Cross-cutting language/personality/security/accessibility requirements are gates
 
 Evidence commands and the complete file manifest are recorded in [Phase 1 review](23-phase-1-review.md).
 
+### Phase 2 evidence — 2026-07-30
+
+| Requirement | Phase 2 status | Evidence |
+|---|---|---|
+| MVP-04 | Pass in mock/integration; real gated | FastAPI validated NDJSON conversation stream, frontend adapter and strict TurnPlan schema tests. Gemini adapter is configured but not called. |
+| MVP-05 | Pass in browser unit/integration; Android manual gated | Tap-to-start/tap-to-process recorder, permission/error states, PCM conversion, hard 20-second/4-MiB limits and deterministic cleanup test. |
+| MVP-06 | Deferred portion explicit | Phase 2 returns a final record-then-process transcript. Partial transcription remains Phase 3. |
+| MVP-07 | Pass for validated application text stream | NDJSON `thinking`, `text.delta`, `plan`, `usage`, `error` contract; backend/frontend and mobile proxy tests. Provider JSON is fully validated before display streaming. |
+| MVP-08 | Adapter complete; benchmark gated | Official Azure Speech SDK, `ne-NP`, Hemkala/Sagar configuration and 30-sentence fixture. No accuracy/naturalness claim before credential/device test. |
+| MVP-09 | Pass for Phase 2 | UI covers microphone permission/requesting/recording/processing plus existing idle/listening/thinking/speaking/interrupted/error. |
+| MVP-13 | Stop only; barge-in deferred | Stop aborts fetch, microphone tracks, Web Audio playback and jaw animation. Continuous barge-in timing remains Phase 3. |
+| MVP-16 | Pass for Phase 2 boundary | Mock/real selector, provider status, typed missing configuration, timeout/error mapping and no silent paid fallback. |
+| MVP-17 | Pass | Local text simulator and full backend mock tests work without credentials/provider calls. |
+| MVP-18 | Pass for Phase 2 UI | Ten mobile E2E tests across Pixel 5 and 320×568, including offline shell, WebGL loss and backend proxy. Physical Android remains required. |
+
+Full evidence and limitations are in [Phase 2 review](24-phase-2-review.md).
+
 Future-only trace: BYOK, device tools, image generation, payments/subscriptions, continuous vision, Capacitor, marketplace and desktop integrations are `POST-MVP` and cannot become grading dependencies.
 
 ## Alternatives considered
@@ -66,4 +83,3 @@ Rows can drift as scope changes. CI checks IDs; scope changes require supervisor
 ## Acceptance criteria
 
 All 20 rows have passing evidence or an explicitly approved scope change; no “implemented” claim relies only on manual observation.
-

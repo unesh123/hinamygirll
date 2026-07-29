@@ -4,7 +4,7 @@ test("fits the small mobile viewport and completes a mock text turn", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(page.getByText("Local mock", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
   const shell = page.locator("main");
   const box = await shell.boundingBox();
   expect(box?.width).toBeLessThanOrEqual(page.viewportSize()!.width);
@@ -25,7 +25,7 @@ test("supports simulated voice interruption and accessibility modes", async ({
     .getByRole("button", { name: /simulate microphone listening/i })
     .click();
   const stopButton = page.getByRole("button", {
-    name: /Stop current mock turn/,
+    name: /Stop current turn/,
   });
   await expect(stopButton).toBeVisible();
   await stopButton.click();
@@ -72,6 +72,19 @@ test("loads the production PWA shell while offline after first visit", async ({
   });
   await context.setOffline(true);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.getByText("Local mock", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
   await expect(page.getByLabel("Type a message")).toBeEnabled();
+});
+
+test("proxies safe provider metadata without making provider calls", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const status = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/providers");
+    return { ok: response.ok, providers: await response.json() };
+  });
+  expect(status.ok).toBe(true);
+  expect(status.providers[0].id).toBe("mock");
+  await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
 });

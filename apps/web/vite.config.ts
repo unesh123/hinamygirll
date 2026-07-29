@@ -1,18 +1,47 @@
 import { defineConfig } from "vitest/config";
+import { readFileSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vite.dev/config/
+const certPath = process.env.HINAA_DEV_CERT_PATH;
+const keyPath = process.env.HINAA_DEV_KEY_PATH;
+const https =
+  certPath && keyPath
+    ? { cert: readFileSync(certPath), key: readFileSync(keyPath) }
+    : undefined;
+
 export default defineConfig({
+  server: {
+    host: "0.0.0.0",
+    https,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: false,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
+  },
+  preview: {
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: false,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {
-        name: "HINAA Mock Companion",
+        name: "HINAA Voice Companion",
         short_name: "HINAA",
-        description: "Offline-safe Phase 1 mock companion playground",
+        description:
+          "Phase 2 record-then-process companion with offline mock fallback",
         theme_color: "#120f1f",
         background_color: "#120f1f",
         display: "standalone",

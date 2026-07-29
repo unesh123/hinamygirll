@@ -35,7 +35,19 @@ Status: **implemented; awaiting review gate approval**.
 - Automated evidence: 14 Vitest unit/component tests and 8 Playwright tests across Pixel 5 and 320×568 profiles. Formatting, lint, TypeScript, schema tests, production build and Phase 0 blueprint validation pass.
 - Accepted Phase 1 deviation: no Three.js/VRM runtime was installed because no local avatar is licence-approved. The procedural adapter proves the engine boundary and degradation behavior without weakening the asset gate.
 
-Phase 2 remains blocked. Real microphone capture, FastAPI, WebSocket, Azure, Gemini, TTS/STT and credentials were not added.
+At the Phase 1 checkpoint, Phase 2 was still blocked: real microphone capture, FastAPI, WebSocket, Azure, Gemini, TTS/STT and credentials had not been added.
+
+### Phase 2 implementation evidence — 2026-07-30
+
+Status: **offline implementation complete; stopped at credential and physical-device review gate**.
+
+- Added the FastAPI modular monolith, strict configuration, correlation IDs, typed safe errors, exact local CORS, size/duration limits, bounded session memory, provider ports and deterministic STT/LLM/TTS mocks.
+- Added lazy Azure Speech STT/TTS and Gemini structured-output adapters. Official packages, `ne-NP`, `ne-NP-HemkalaNeural` and `ne-NP-SagarNeural` were reverified; no real provider request was made.
+- Added explicit browser microphone capture to 16 kHz mono PCM WAV, track/context cleanup, mock/real routing, validated NDJSON text events, TTS playback/stop/replay/mute and analyser-smoothed jaw motion. The Phase 1 no-permission demo remains available.
+- Added a Vite same-origin `/api` proxy, a tested PowerShell launcher and a certificate-file-based HTTPS option. Trusted certificate generation/import was not performed because it changes trust stores and requires owner approval; Android microphone success is not claimed.
+- Automated offline evidence: 12 backend tests, 19 frontend tests and 10 Pixel 5/320×568 E2E tests, including backend proxy and missing-credential behavior. Full final gate is recorded in [Phase 2 review](24-phase-2-review.md).
+
+Phase 3 remains blocked. Partial STT, WebSocket audio chunks, continuous streaming audio and barge-in are intentionally not implemented.
 
 ### Post-MVP
 

@@ -50,9 +50,7 @@ describe("HINAA companion screen", () => {
     );
     expect(screen.getByText("Listening")).toBeInTheDocument();
     expect(screen.getByTestId("partial-transcript")).toBeInTheDocument();
-    await user.click(
-      screen.getByRole("button", { name: /Stop current mock turn/ }),
-    );
+    await user.click(screen.getByRole("button", { name: /Stop current turn/ }));
     expect(screen.getByText("Interrupted")).toBeInTheDocument();
   });
 

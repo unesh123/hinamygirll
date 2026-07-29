@@ -21,10 +21,19 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: "pnpm build && pnpm preview --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command:
+        "..\\api\\.venv\\Scripts\\python.exe -m uvicorn hinaa_api.main:app --app-dir ..\\api --host 127.0.0.1 --port 8000",
+      url: "http://127.0.0.1:8000/health/live",
+      reuseExistingServer: true,
+      timeout: 120_000,
+    },
+    {
+      command: "pnpm build && pnpm preview --host 127.0.0.1 --port 4173",
+      url: "http://127.0.0.1:4173",
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+  ],
 });

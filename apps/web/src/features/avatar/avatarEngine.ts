@@ -7,6 +7,7 @@ export interface AvatarEngineFrame {
   plan?: AssistantTurnPlan;
   reducedMotion: boolean;
   textOnly: boolean;
+  jawEnergy?: number;
 }
 
 export interface AvatarEngine {

@@ -4,7 +4,8 @@ import type { CompanionId } from "../companion/types";
 export type ConversationProviderEvent =
   | { type: "thinking" }
   | { type: "text.delta"; delta: string }
-  | { type: "plan"; plan: AssistantTurnPlan };
+  | { type: "plan"; plan: AssistantTurnPlan }
+  | { type: "usage"; latencyMs: number };
 
 export interface ConversationRequest {
   text: string;
@@ -14,7 +15,7 @@ export interface ConversationRequest {
 
 export interface ConversationProvider {
   readonly id: string;
-  readonly mode: "mock";
+  readonly mode: "mock" | "real";
   streamTurn(
     request: ConversationRequest,
   ): AsyncGenerator<ConversationProviderEvent>;
