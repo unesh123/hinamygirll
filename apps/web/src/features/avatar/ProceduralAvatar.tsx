@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { CompanionId, CompanionState } from "../companion/types";
 import { ProceduralAvatarEngine } from "./avatarEngine";
+import { usePerformanceClock } from "./usePerformanceClock";
 
 interface ProceduralAvatarProps {
   companionId: CompanionId;
@@ -16,8 +17,20 @@ const engine = new ProceduralAvatarEngine();
 
 export function ProceduralAvatar(props: ProceduralAvatarProps) {
   const frame = engine.getFrame(props);
-  const emotion = frame.plan?.emotion.primary ?? "neutral";
-  const gesture = frame.plan?.performance.gesture ?? "none";
+  const performance = usePerformanceClock({
+    plan: frame.plan,
+    jawEnergy: frame.jawEnergy,
+    reducedMotion: frame.reducedMotion,
+    interrupted: frame.state === "interrupted",
+  });
+  const emotion =
+    performance.emotion !== "neutral"
+      ? performance.emotion
+      : (frame.plan?.emotion.primary ?? "neutral");
+  const gesture =
+    performance.gesture !== "none"
+      ? performance.gesture
+      : (frame.plan?.performance.gesture ?? "none");
 
   if (frame.textOnly) {
     return (
@@ -34,10 +47,13 @@ export function ProceduralAvatar(props: ProceduralAvatarProps) {
   return (
     <div
       className={`procedural-stage accent-${frame.companionId} state-${frame.state} emotion-${emotion} gesture-${gesture}`}
-      style={{ "--jaw-energy": frame.jawEnergy ?? 0 } as CSSProperties}
+      style={{ "--jaw-energy": performance.jawEnergy } as CSSProperties}
       data-engine={engine.id}
       data-state={frame.state}
       data-emotion={emotion}
+      data-gesture={gesture}
+      data-lip-sync={performance.lipSyncLevel}
+      data-perf-generation={String(performance.generation)}
       data-reduced-motion={String(frame.reducedMotion)}
       aria-hidden="true"
     >

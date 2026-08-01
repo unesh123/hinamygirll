@@ -47,7 +47,20 @@ Status: **offline implementation complete; stopped at credential and physical-de
 - Added a Vite same-origin `/api` proxy, a tested PowerShell launcher and a certificate-file-based HTTPS option. Trusted certificate generation/import was not performed because it changes trust stores and requires owner approval; Android microphone success is not claimed.
 - Automated offline evidence: 12 backend tests, 19 frontend tests and 10 Pixel 5/320×568 E2E tests, including backend proxy and missing-credential behavior. Full final gate is recorded in [Phase 2 review](24-phase-2-review.md).
 
-Phase 3 remains blocked. Partial STT, WebSocket audio chunks, continuous streaming audio and barge-in are intentionally not implemented.
+Phase 2 is preserved at local checkpoint `d8653ef`. The authorized Phase 3 implementation is isolated on `phase/3-live-streaming`.
+
+### Phase 3 implementation evidence — 2026-07-30
+
+Status: **offline implementation complete; stopped before the user-assisted real streaming gate**.
+
+- Added protocol `1.0` WebSocket control envelopes, bounded 20–40 ms binary PCM frames, sequence/generation checks, heartbeat, bounded reconnect and safe cancellation while retaining Phase 2 REST/mock fallback.
+- Replaced continuous capture with an AudioWorklet, 16 kHz mono PCM frames, local VAD, ten-frame pre-roll, 700 ms trailing-silence commit, persistent microphone indicator, level meter and speaker/headphone echo thresholds.
+- Added Azure continuous push-stream recognition, selectable fixed `ne-NP` versus auto `ne-NP`/`en-US`/`hi-IN`, safe Gemini arbitrary text deltas followed by a server-validated TurnPlan, ordered phrase TTS and audio-driven jaw motion. No language-mode accuracy winner is claimed before measurement.
+- Added local barge-in that stops playback, advances the generation and cancels STT/LLM/TTS/queued audio; stale-generation server/client events are ignored.
+- Locked Hinaa to `ne-NP-HemkalaNeural` and Hiro to `ne-NP-SagarNeural`, with no voice fallback. Natural/Soft/Lively are bounded development presets, not quality rankings. These are standard Azure Nepali neural voices, not custom anime or cloned identities.
+- Automated evidence includes protocol/schema, duplicate/gap/stale, silence, chunking, cancellation, VAD/echo-threshold, permission fallback and two mobile viewport suites. Real provider calls and acoustic performance remain untested until separate capped approval.
+
+Full commands, manifests, results and limitations are recorded in [Phase 3 review](25-phase-3-review.md).
 
 ### Post-MVP
 

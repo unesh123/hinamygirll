@@ -35,7 +35,7 @@ Registry `latest` values checked 2026-07-30:
 | Python lint/type | `ruff`, `mypy` | 0.16.0, 2.3.0 |
 | Python audit | `pip-audit` | 2.10.1 |
 
-Phase 1/2 reproducibility baseline: Node `v24.13.1`, `pnpm@11.7.0` (pinned in `apps/web/package.json`), Corepack `0.34.6`, and Python `3.14.4` on Windows 11. Phase 2 exact direct dependencies are pinned in `apps/api/requirements*.txt`; the isolated environment installed successfully on Python 3.14. The official Microsoft Speech SDK was selected instead of the separate transcription preview skill/package because the cascade needs both STT and TTS plus raw PCM push streams.
+Phase 1–3 reproducibility baseline: Node `v24.13.1`, `pnpm@11.7.0` (pinned in `apps/web/package.json`), Corepack `0.34.6`, and Python `3.14.4` on Windows 11. Phase 3 adds no dependency: browser AudioWorklet/WebSocket/Web Audio APIs and FastAPI/Starlette WebSockets use the existing pinned runtime. Exact direct backend dependencies remain pinned in `apps/api/requirements*.txt`. The official Microsoft Speech SDK supports both TTS and the continuous raw PCM push stream used here; no separate transcription preview package was added.
 
 Phase 1 must create lockfiles, check Node/Python support ranges and peer dependencies, run a minimal React/R3F/three-vrm/Vite compatibility spike, and pin exact versions. “Latest” is not automatically safest; patch security advisories and compatibility evidence take priority. PostgreSQL server/pgvector extension versions are selected from the supported Docker/managed-platform matrix then, not inferred from the Python package.
 

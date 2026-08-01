@@ -2,18 +2,36 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from time import perf_counter
+from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from . import __version__
 from .audio import validate_wav
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
-from .models import ProviderStatus, SpeechRequest, TranscriptResponse, TurnRequest
+from .models import ProviderStatus, SpeechRequest, TranscriptResponse, TurnRequest, VoiceProfile
+from .persistence import MemoryService, get_session_factory, init_db
+from .persistence.auth import AuthContext, auth_dependency_factory
+from .persistence.db import reset_session_factory
+from .prompts import PROMPT_VERSION
+from .realtime import RealtimeGateway
 from .services import ConversationService
+from .voice_profiles import public_profiles
+
+
+class RememberBody(BaseModel):
+    content: Annotated[str, Field(min_length=1, max_length=500)]
+    category: Annotated[str, Field(default="other", max_length=40)] = "other"
+    sourceTurnRef: str | None = None
+
+
+class MemoryToggleBody(BaseModel):
+    enabled: bool
 
 
 def _correlation_id(value: str | None) -> str:
@@ -26,6 +44,18 @@ def _correlation_id(value: str | None) -> str:
 def create_app(settings: Settings | None = None) -> FastAPI:
     active_settings = settings or get_settings()
     service = ConversationService(active_settings)
+    realtime = RealtimeGateway(active_settings, service)
+    reset_session_factory()
+    memory_service = (
+        MemoryService(init_db(active_settings))
+        if active_settings.persistence_enabled
+        else None
+    )
+    require_auth = (
+        auth_dependency_factory(active_settings, memory_service)
+        if memory_service is not None
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # type: ignore[no-untyped-def]
@@ -40,12 +70,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = active_settings
     app.state.service = service
+    app.state.memory_service = memory_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Correlation-ID"],
+        allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Correlation-ID", "Authorization", "X-HINAA-Dev-User"],
         expose_headers=["X-Correlation-ID", "X-HINAA-Provider", "X-HINAA-Latency-Ms"],
     )
     app.add_exception_handler(HinaaError, hinaa_error_handler)  # type: ignore[arg-type]
@@ -75,6 +106,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "status": "ok" if ready else "degraded",
                 "mode": active_settings.provider_mode,
                 "missingConfiguration": missing if not ready else [],
+                "persistenceEnabled": active_settings.persistence_enabled,
+                "authMode": active_settings.auth_mode,
+                "promptVersion": PROMPT_VERSION,
             },
         )
 
@@ -108,6 +142,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ),
         ]
+
+    @app.get("/v1/voice-profiles", response_model=list[VoiceProfile])
+    async def voice_profiles() -> list[VoiceProfile]:
+        return public_profiles(
+            active_settings.azure_speech_female_voice,
+            active_settings.azure_speech_male_voice,
+        )
+
+    @app.websocket("/v1/realtime")
+    async def realtime_session(websocket: WebSocket) -> None:
+        await realtime.handle(websocket)
 
     @app.post("/v1/speech/transcriptions", response_model=TranscriptResponse)
     async def transcribe(
@@ -170,6 +215,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Content-Disposition": 'inline; filename="hinaa-turn.wav"',
             },
         )
+
+    if memory_service is not None and require_auth is not None:
+
+        @app.get("/v1/privacy/status")
+        async def privacy_status(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:
+            return memory_service.privacy_status(auth.user_id)
+
+        @app.patch("/v1/privacy/memory")
+        async def toggle_memory(
+            body: MemoryToggleBody, auth: AuthContext = Depends(require_auth)
+        ) -> dict[str, object]:
+            return memory_service.set_memory_enabled(auth.user_id, body.enabled)
+
+        @app.get("/v1/privacy/memories")
+        async def list_memories(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:
+            return {"memories": memory_service.list_memories(auth.user_id)}
+
+        @app.post("/v1/privacy/memories")
+        async def remember(
+            body: RememberBody, auth: AuthContext = Depends(require_auth)
+        ) -> dict[str, object]:
+            return memory_service.remember(
+                auth.user_id,
+                body.content,
+                category=body.category,
+                source_turn_ref=body.sourceTurnRef,
+                explicit=True,
+            )
+
+        @app.delete("/v1/privacy/memories/{memory_id}")
+        async def forget_memory(
+            memory_id: str, auth: AuthContext = Depends(require_auth)
+        ) -> dict[str, object]:
+            return memory_service.forget(auth.user_id, memory_id)
+
+        @app.delete("/v1/privacy/conversations/{conversation_id}")
+        async def clear_conversation(
+            conversation_id: str, auth: AuthContext = Depends(require_auth)
+        ) -> dict[str, object]:
+            return memory_service.clear_conversation(auth.user_id, conversation_id)
+
+        @app.get("/v1/privacy/export")
+        async def export_data(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:
+            return memory_service.export_data(auth.user_id)
+
+        @app.delete("/v1/privacy/account")
+        async def delete_all(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:
+            return memory_service.delete_all(auth.user_id)
 
     return app
 

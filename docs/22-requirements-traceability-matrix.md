@@ -66,6 +66,22 @@ Evidence commands and the complete file manifest are recorded in [Phase 1 review
 
 Full evidence and limitations are in [Phase 2 review](24-phase-2-review.md).
 
+### Phase 3 evidence — 2026-07-30
+
+| Requirement | Phase 3 status | Evidence |
+|---|---|---|
+| MVP-05 | Pass offline; physical Android gated | AudioWorklet continuous capture, automatic local VAD, persistent indicator, 20 ms PCM frames, track/node/context cleanup and deterministic permission fallback. |
+| MVP-06 | Pass for mock/protocol; Azure measurement gated | Ordered `stt.partial`/`stt.final`, Azure continuous push-stream adapter, empty/silent-turn rejection and fixed-vs-auto selector without an unsupported accuracy claim. |
+| MVP-07 | Pass offline; real first-token gated | Gemini live adapter emits sanitized arbitrary chunks; performance controls remain withheld until the complete server-built TurnPlan validates. |
+| MVP-08 | Implementation pass; quality benchmark gated | Explicit Hemkala/Sagar profiles, requested/actual metadata, bounded SSML presets and visible no-fallback voice errors. No custom/anime voice claim. |
+| MVP-09 | Pass for Phase 3 | Live connecting/listening/thinking/speaking/interrupted/error states and persistent microphone detail/level remain accessible with text-only/reduced-motion modes. |
+| MVP-13 | Pass offline; acoustic p95 gated | Local playback stop, shared cancellation generation, queued-audio invalidation, duplicate/stale rejection and speaker/headphone VAD thresholds. UI labels latency targets as goals until measured. |
+| MVP-16 | Pass for Phase 3 boundary | Versioned gateway, bounded frames/buffer/idle timeout, heartbeat, three bounded reconnect attempts, typed errors and preserved explicit mock/REST fallback. |
+| MVP-17 | Pass | Synthetic WebSocket E2E and backend mock turns complete without microphone, credentials or provider calls. |
+| MVP-18 | Pass for Phase 3 UI | Pixel 5 and 320×568 suites cover live controls, fallback, WebGL loss, text-only/reduced motion and offline shell. Physical weak-device audio remains Phase 6. |
+
+Phase 3 evidence is detailed in [Phase 3 review](25-phase-3-review.md). Real latency, Nepali STT accuracy, echo behavior and voice quality are explicitly not passed by automated mock evidence.
+
 Future-only trace: BYOK, device tools, image generation, payments/subscriptions, continuous vision, Capacitor, marketplace and desktop integrations are `POST-MVP` and cannot become grading dependencies.
 
 ## Alternatives considered

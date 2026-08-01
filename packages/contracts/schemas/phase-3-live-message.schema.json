@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hinaa.local/schemas/phase-3-live-message/1.0.json",
+  "title": "HINAA Phase 3 live WebSocket message",
+  "oneOf": [
+    {"$ref": "#/$defs/hello"},
+    {"$ref": "#/$defs/audioStart"},
+    {"$ref": "#/$defs/audioFrame"},
+    {"$ref": "#/$defs/audioCommit"},
+    {"$ref": "#/$defs/interrupt"},
+    {"$ref": "#/$defs/ping"},
+    {"$ref": "#/$defs/close"},
+    {"$ref": "#/$defs/serverEvent"}
+  ],
+  "$defs": {
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocolVersion", "sessionId", "companionId", "providerMode", "generation", "language", "languageMode", "calibration"],
+      "properties": {
+        "type": {"const": "session.hello"},
+        "protocolVersion": {"const": "1.0"},
+        "sessionId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$", "minLength": 1, "maxLength": 80},
+        "companionId": {"enum": ["hinaa", "hiro"]},
+        "providerMode": {"enum": ["mock", "real"]},
+        "generation": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "language": {"enum": ["ne-NP", "en-US", "hi-IN", "mixed"]},
+        "languageMode": {"enum": ["fixed-ne-NP", "auto"]},
+        "calibration": {"enum": ["natural", "soft", "lively"]}
+      }
+    },
+    "audioStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "generation"],
+      "properties": {"type": {"const": "audio.start"}, "generation": {"type": "integer", "minimum": 0}}
+    },
+    "audioFrame": {
+      "type": "object",
+      "description": "The next WebSocket message must be the corresponding raw PCM-S16LE binary frame.",
+      "additionalProperties": false,
+      "required": ["type", "sequence", "generation", "capturedAtMs", "byteLength"],
+      "properties": {
+        "type": {"const": "audio.frame"},
+        "sequence": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "generation": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "capturedAtMs": {"type": "number", "minimum": 0},
+        "byteLength": {"type": "integer", "minimum": 640, "maximum": 1280, "multipleOf": 2}
+      }
+    },
+    "audioCommit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "generation", "endedAtMs"],
+      "properties": {
+        "type": {"const": "audio.commit"},
+        "generation": {"type": "integer", "minimum": 0},
+        "endedAtMs": {"type": "number", "minimum": 0},
+        "mockTranscript": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "interrupt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "generation"],
+      "properties": {"type": {"const": "interrupt"}, "generation": {"type": "integer", "minimum": 0}}
+    },
+    "ping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sentAtMs"],
+      "properties": {"type": {"const": "ping"}, "sentAtMs": {"type": "number", "minimum": 0}}
+    },
+    "close": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {"type": {"const": "session.close"}}
+    },
+    "serverEvent": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type", "protocolVersion", "sessionId", "turn", "generation", "serverAtMs"],
+      "properties": {
+        "type": {"enum": ["session.ready", "audio.started", "stt.partial", "stt.final", "assistant.thinking", "assistant.text.delta", "assistant.plan", "tts.audio", "turn.complete", "turn.cancelled", "event.ignored", "pong", "error"]},
+        "protocolVersion": {"const": "1.0"},
+        "sessionId": {"type": "string", "minLength": 1, "maxLength": 80},
+        "turn": {"type": "integer", "minimum": 0},
+        "generation": {"type": "integer", "minimum": 0},
+        "serverAtMs": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

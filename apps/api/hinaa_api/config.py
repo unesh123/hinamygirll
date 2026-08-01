@@ -35,6 +35,25 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = 30.0
     session_turn_limit: int = 8
     session_limit: int = 64
+    session_history_char_limit: int = Field(4_000, alias="HINAA_SESSION_HISTORY_CHAR_LIMIT")
+    default_companion: Literal["hinaa", "hiro"] = Field("hinaa", alias="HINAA_DEFAULT_COMPANION")
+    prompt_debug_metadata: bool = Field(False, alias="HINAA_PROMPT_DEBUG_METADATA")
+    personality_affection: float = Field(0.55, alias="HINAA_PERSONALITY_AFFECTION")
+    personality_sass: float = Field(0.25, alias="HINAA_PERSONALITY_SASS")
+    personality_energy: float = Field(0.55, alias="HINAA_PERSONALITY_ENERGY")
+    personality_humor: float = Field(0.4, alias="HINAA_PERSONALITY_HUMOR")
+    personality_proactivity: float = Field(0.35, alias="HINAA_PERSONALITY_PROACTIVITY")
+    realtime_protocol_version: str = "1.0"
+    realtime_max_frame_bytes: int = 1_280
+    realtime_max_buffer_bytes: int = 320_000
+    realtime_idle_timeout_seconds: float = 35.0
+    realtime_commit_timeout_seconds: float = 8.0
+    database_url: str = Field("sqlite+pysqlite:///:memory:", alias="HINAA_DATABASE_URL")
+    auth_mode: Literal["dev", "oidc"] = Field("dev", alias="HINAA_AUTH_MODE")
+    dev_auth_subject: str = Field("local-dev-user", alias="HINAA_DEV_AUTH_SUBJECT")
+    oidc_issuer: str | None = Field(None, alias="HINAA_OIDC_ISSUER")
+    allow_oidc_scaffold_tokens: bool = Field(False, alias="HINAA_ALLOW_OIDC_SCAFFOLD_TOKENS")
+    persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

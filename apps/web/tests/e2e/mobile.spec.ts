@@ -88,3 +88,95 @@ test("proxies safe provider metadata without making provider calls", async ({
   expect(status.providers[0].id).toBe("mock");
   await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
 });
+
+test("runs a synthetic mock WebSocket turn without microphone or provider calls", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const eventTypes = await page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const types: string[] = [];
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(
+          `${protocol}//${location.host}/api/v1/realtime`,
+        );
+        const timeout = window.setTimeout(
+          () => reject(new Error("mock realtime timeout")),
+          8000,
+        );
+        socket.onopen = () =>
+          socket.send(
+            JSON.stringify({
+              type: "session.hello",
+              protocolVersion: "1.0",
+              sessionId: "mobile-e2e",
+              companionId: "hinaa",
+              providerMode: "mock",
+              generation: 1,
+              language: "mixed",
+              languageMode: "fixed-ne-NP",
+              calibration: "natural",
+            }),
+          );
+        socket.onerror = () => reject(new Error("mock realtime socket error"));
+        socket.onmessage = (message) => {
+          const event = JSON.parse(message.data as string) as { type: string };
+          types.push(event.type);
+          if (event.type === "session.ready") {
+            socket.send(JSON.stringify({ type: "audio.start", generation: 1 }));
+          } else if (event.type === "audio.started") {
+            const pcm = new Int16Array(320);
+            pcm.fill(2000);
+            socket.send(
+              JSON.stringify({
+                type: "audio.frame",
+                sequence: 0,
+                generation: 1,
+                capturedAtMs: 20,
+                byteLength: pcm.byteLength,
+              }),
+            );
+            socket.send(pcm.buffer);
+          } else if (event.type === "stt.partial") {
+            socket.send(
+              JSON.stringify({
+                type: "audio.commit",
+                generation: 1,
+                endedAtMs: 40,
+                mockTranscript: "नमस्ते हिना।",
+              }),
+            );
+          } else if (event.type === "turn.complete") {
+            window.clearTimeout(timeout);
+            socket.close();
+            resolve(types);
+          }
+        };
+      }),
+  );
+  expect(eventTypes).toContain("assistant.text.delta");
+  expect(eventTypes).toContain("assistant.plan");
+  expect(eventTypes).toContain("tts.audio");
+  expect(eventTypes.at(-1)).toBe("turn.complete");
+});
+
+test("keeps text fallback available when live microphone permission is denied", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () =>
+          Promise.reject(
+            new DOMException("Denied for test", "NotAllowedError"),
+          ),
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start Live Conversation" }).click();
+  await expect(page.getByText(/Microphone permission denied/)).toBeVisible();
+  await expect(page.getByLabel("Type a message")).toBeEnabled();
+});

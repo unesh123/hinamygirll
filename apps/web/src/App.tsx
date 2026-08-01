@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import "./App.css";
 import { ProceduralAvatar } from "./features/avatar/ProceduralAvatar";
+import { PrivacyPanel } from "./features/privacy/PrivacyPanel";
 import { detectWebGL } from "./features/avatar/webgl";
 import { synthesizeSpeech, transcribeAudio } from "./features/audio/api";
 import { MicrophoneRecorder } from "./features/audio/microphoneRecorder";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
+import { useLiveConversation } from "./features/audio/useLiveConversation";
 import {
   companionProfiles,
   type CompanionId,
@@ -14,10 +16,10 @@ import { useCompanionController } from "./features/companion/useCompanionControl
 import { useReducedMotionPreference } from "./shared/useReducedMotion";
 
 const stateCopy: Record<CompanionState, { label: string; detail: string }> = {
-  idle: { label: "Ready", detail: "Mock mode is waiting" },
-  listening: { label: "Listening", detail: "Simulated microphone input" },
-  thinking: { label: "Thinking", detail: "Building a local response" },
-  speaking: { label: "Speaking", detail: "Playing a simulated performance" },
+  idle: { label: "Ready", detail: "Choose live, push-to-talk, or text" },
+  listening: { label: "Listening", detail: "Microphone input is active" },
+  thinking: { label: "Thinking", detail: "Preparing a safe response" },
+  speaking: { label: "Speaking", detail: "Playing the response performance" },
   interrupted: { label: "Interrupted", detail: "The active turn was stopped" },
   error: { label: "Error", detail: "Mock fallback is still available" },
 };
@@ -82,6 +84,15 @@ export default function App() {
   const systemReducedMotion = useReducedMotionPreference();
   const [reduceMotionOverride, setReduceMotionOverride] = useState(false);
   const [textOnly, setTextOnly] = useState(false);
+  const [calibration, setCalibration] = useState<"natural" | "soft" | "lively">(
+    "natural",
+  );
+  const [outputMode, setOutputMode] = useState<"headphones" | "speaker">(
+    "speaker",
+  );
+  const [languageMode, setLanguageMode] = useState<"fixed-ne-NP" | "auto">(
+    "fixed-ne-NP",
+  );
   const [input, setInput] = useState("");
   const [micStatus, setMicStatus] = useState<
     | "idle"
@@ -101,14 +112,21 @@ export default function App() {
     tts: number;
     total: number;
   }>();
+  const live = useLiveConversation({
+    controller,
+    playback,
+    calibration,
+    outputMode,
+    languageMode,
+  });
   const recorder = useRef<MicrophoneRecorder | undefined>(undefined);
   const voiceAbort = useRef<AbortController | undefined>(undefined);
   const recordingTimer = useRef<number | undefined>(undefined);
   const webglAvailable = useMemo(() => detectWebGL(), []);
   const reducedMotion = systemReducedMotion || reduceMotionOverride;
-  const active = ["listening", "thinking", "speaking"].includes(
-    controller.state,
-  );
+  const active =
+    live.active ||
+    ["listening", "thinking", "speaking"].includes(controller.state);
   const status = stateCopy[controller.state];
 
   const speakPlan = async (text: string, signal: AbortSignal) => {
@@ -129,6 +147,7 @@ export default function App() {
     event.preventDefault();
     const value = input.trim();
     if (!value) return;
+    if (live.active) live.stop();
     setInput("");
     void (async () => {
       const completed = await controller.sendText(value);
@@ -148,6 +167,7 @@ export default function App() {
   };
 
   async function startRecording() {
+    if (live.active) live.stop();
     voiceAbort.current?.abort();
     playback.stop();
     const nextRecorder = new MicrophoneRecorder();
@@ -245,7 +265,8 @@ export default function App() {
     recorder.current = undefined;
     voiceAbort.current?.abort();
     playback.stop();
-    controller.stop();
+    if (live.active) live.stop();
+    else controller.stop();
     setMicStatus("idle");
     setVoiceDetail("Stopped; no captured audio was retained");
   };
@@ -272,7 +293,7 @@ export default function App() {
             </span>
             <div>
               <strong>HINAA</strong>
-              <small>Phase 2 voice lab</small>
+              <small>Phase 3 realtime lab</small>
             </div>
           </div>
           <label className="provider-chip">
@@ -281,6 +302,7 @@ export default function App() {
             <select
               aria-label="Provider mode"
               value={controller.providerMode}
+              disabled={live.active}
               onChange={(event) =>
                 controller.setProviderMode(
                   event.target.value as "mock" | "real",
@@ -330,8 +352,113 @@ export default function App() {
 
         <CompanionSwitch
           value={controller.companionId}
-          onChange={controller.setCompanionId}
+          onChange={(id) => {
+            if (live.active) live.stop();
+            controller.setCompanionId(id);
+          }}
         />
+
+        <PrivacyPanel />
+
+        <section className="live-panel" aria-label="Live conversation controls">
+          <div className="live-options">
+            <label>
+              Voice feel
+              <select
+                value={calibration}
+                onChange={(event) =>
+                  setCalibration(
+                    event.target.value as "natural" | "soft" | "lively",
+                  )
+                }
+                disabled={live.active}
+              >
+                <option value="natural">Natural</option>
+                <option value="soft">Soft</option>
+                <option value="lively">Lively</option>
+              </select>
+            </label>
+            <label>
+              Audio output
+              <select
+                value={outputMode}
+                onChange={(event) =>
+                  setOutputMode(event.target.value as "headphones" | "speaker")
+                }
+                disabled={live.active}
+              >
+                <option value="speaker">Speaker</option>
+                <option value="headphones">Headphones</option>
+              </select>
+            </label>
+            <label>
+              Recognition
+              <select
+                value={languageMode}
+                onChange={(event) =>
+                  setLanguageMode(event.target.value as "fixed-ne-NP" | "auto")
+                }
+                disabled={live.active}
+              >
+                <option value="fixed-ne-NP">Fixed ne-NP</option>
+                <option value="auto">Auto ne/en/hi</option>
+              </select>
+            </label>
+          </div>
+          <button
+            className="live-button"
+            type="button"
+            onClick={() => (live.active ? live.stop() : void live.start())}
+            aria-pressed={live.active}
+          >
+            <Icon name={live.active ? "stop" : "mic"} />
+            {live.active ? "Stop Live Conversation" : "Start Live Conversation"}
+          </button>
+          <div className="live-mic" role="status" aria-live="polite">
+            <span
+              className={live.active ? "live-mic-dot active" : "live-mic-dot"}
+              aria-hidden="true"
+            />
+            <span>{live.detail}</span>
+            <meter
+              min="0"
+              max="0.2"
+              value={Math.min(0.2, live.microphoneLevel)}
+              aria-label="Live microphone level"
+            />
+          </div>
+          {live.voiceMetadata && (
+            <small className="voice-metadata">{live.voiceMetadata}</small>
+          )}
+          {import.meta.env.DEV && live.metrics.totalMs !== undefined && (
+            <div className="latency-strip" data-testid="streaming-latencies">
+              Goal / measured: partial ≤500 ms · final ≤900 ms · first text ≤800
+              ms · audible ≤1800 ms · barge ≤150 ms
+              <br />
+              STT {live.metrics.sttMs ?? "—"} · Gemini first{" "}
+              {live.metrics.llmFirstDeltaMs ?? "—"} · Gemini total{" "}
+              {live.metrics.llmMs ?? "—"} · TTS {live.metrics.ttsMs ?? "—"} ·
+              turn {live.metrics.totalMs ?? "—"} · barge{" "}
+              {live.metrics.bargeInStopMs ?? "not tested"} ms
+              <br />
+              Browser: partial {live.metrics.partialFromSpeechMs ?? "—"} · final{" "}
+              {live.metrics.finalAfterSpeechMs ?? "—"} · first text{" "}
+              {live.metrics.firstTextAfterFinalMs ?? "—"} · first audible{" "}
+              {live.metrics.firstAudibleAfterSpeechMs ?? "—"} · playback
+              complete {live.metrics.playbackCompleteAfterSpeechMs ?? "—"} ms
+            </div>
+          )}
+          <p className="voice-disclosure">
+            Hemkala and Sagar are standard Azure Nepali neural voices, not
+            custom anime voices. A unique Hinaa voice requires a licensed,
+            consenting voice actor or approved dataset.
+          </p>
+          {import.meta.env.DEV && (
+            <button className="calibration-sample" type="button" disabled>
+              Generate calibration sample · separate live-call approval required
+            </button>
+          )}
+        </section>
 
         <div className="accessibility-bar" aria-label="Accessibility controls">
           <button
@@ -385,13 +512,15 @@ export default function App() {
             }
           >
             <Icon name="mic" />
-            <span>{micStatus === "recording" ? "Process" : "Talk"}</span>
+            <span>
+              {micStatus === "recording" ? "Process" : "Push-to-talk"}
+            </span>
           </button>
           <button
             className="camera-button"
             type="button"
             disabled
-            title="Camera is outside Phase 1"
+            title="Camera is outside Phase 3"
           >
             Camera off
           </button>

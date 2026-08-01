@@ -101,12 +101,21 @@ class AssistantTurnPlan(StrictModel):
     toolRequests: Annotated[list[None], Field(max_length=0)]
 
 
+class PersonalityRequest(StrictModel):
+    affection: Annotated[float, Field(ge=0, le=0.8)] | None = None
+    sass: Annotated[float, Field(ge=0, le=0.7)] | None = None
+    energy: Annotated[float, Field(ge=0, le=0.9)] | None = None
+    humor: Annotated[float, Field(ge=0, le=0.8)] | None = None
+    proactivity: Annotated[float, Field(ge=0, le=0.6)] | None = None
+
+
 class TurnRequest(StrictModel):
     sessionId: Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")]
     text: Annotated[str, Field(min_length=1, max_length=8000)]
     companionId: CompanionId = "hinaa"
     language: Language = "mixed"
     providerMode: ProviderMode = "mock"
+    personality: PersonalityRequest | None = None
 
 
 class SpeechRequest(StrictModel):
@@ -127,3 +136,20 @@ class ProviderStatus(StrictModel):
     capabilities: list[str]
     state: Literal["healthy", "degraded", "unavailable", "disabled"]
     userMessage: str
+
+
+class VoiceCalibration(StrictModel):
+    id: Literal["natural", "soft", "lively"]
+    label: str
+    rate: Annotated[float, Field(ge=0.8, le=1.2)]
+    pitchSemitones: Annotated[float, Field(ge=-3, le=3)]
+    volume: Annotated[float, Field(ge=0.7, le=1)]
+
+
+class VoiceProfile(StrictModel):
+    companionId: CompanionId
+    provider: Literal["azure-speech"]
+    requestedVoice: str
+    locale: Literal["ne-NP"]
+    identityDisclosure: str
+    calibrations: list[VoiceCalibration]

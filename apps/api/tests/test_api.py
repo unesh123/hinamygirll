@@ -15,10 +15,27 @@ def test_health_and_provider_readiness_are_safe(client: TestClient) -> None:
     assert client.get("/health/live").json()["status"] == "ok"
     ready = client.get("/health/ready")
     assert ready.status_code == 200
-    assert ready.json() == {"status": "ok", "mode": "mock", "missingConfiguration": []}
+    body = ready.json()
+    assert body["status"] == "ok"
+    assert body["mode"] == "mock"
+    assert body["missingConfiguration"] == []
+    assert body["persistenceEnabled"] is True
+    assert "promptVersion" in body
     providers = client.get("/v1/providers").json()
     assert providers[0]["state"] == "healthy"
     assert providers[1]["state"] == "unavailable"
+
+
+def test_voice_profiles_disclose_standard_nepali_voices(client: TestClient) -> None:
+    profiles = client.get("/v1/voice-profiles").json()
+    assert profiles[0]["requestedVoice"] == "ne-NP-HemkalaNeural"
+    assert profiles[1]["requestedVoice"] == "ne-NP-SagarNeural"
+    assert "not a custom anime" in profiles[0]["identityDisclosure"]
+    assert [item["id"] for item in profiles[0]["calibrations"]] == [
+        "natural",
+        "soft",
+        "lively",
+    ]
 
 
 def test_mock_transcription_accepts_valid_bounded_pcm_wav(client: TestClient) -> None:

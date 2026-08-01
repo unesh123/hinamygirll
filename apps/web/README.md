@@ -1,6 +1,6 @@
-# HINAA web — Phase 1
+# HINAA web — Phase 3
 
-Mobile-first deterministic mock companion playground. It uses no microphone capture, credentials, external AI provider or unapproved VRM.
+Mobile-first companion playground with AudioWorklet capture, local VAD, realtime WebSocket events, ordered audio playback and preserved mock/REST/text fallbacks. Credentials never enter the frontend, and the unapproved local VRM remains quarantined.
 
 ## Commands
 
@@ -15,6 +15,6 @@ pnpm test:e2e
 pnpm build
 ```
 
-Open the LAN URL printed by Vite on an Android browser. The procedural avatar is an implementation of the avatar-engine interface and is intentionally replaceable by a licensed VRM adapter in a later approved phase.
+Use PC loopback for microphone review. A LAN Android microphone test requires a trusted HTTPS origin. The procedural avatar is intentionally replaceable by a licensed VRM adapter after the asset gate.
 
-Use `/error` as a text message to test the safe error state. The “Try voice” control simulates partial transcription and clearly does not request microphone permission.
+**Start Live Conversation** keeps a visible microphone indicator, detects speech and commits after bounded trailing silence. **Push-to-talk**, text, and **Demo without mic** remain fallback paths. Development calibration controls do not generate a provider sample without separate approval.

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-interface PlaybackController {
+export interface PlaybackController {
   playing: boolean;
   muted: boolean;
   hasReplay: boolean;
   jawEnergy: number;
-  play: (blob: Blob) => Promise<void>;
+  play: (blob: Blob, onStarted?: () => void) => Promise<void>;
   replay: () => Promise<void>;
   stop: () => void;
   toggleMute: () => void;
@@ -21,6 +21,7 @@ export function useAudioPlayback(): PlaybackController {
   const objectUrl = useRef<string | undefined>(undefined);
   const frame = useRef<number | undefined>(undefined);
   const context = useRef<AudioContext | undefined>(undefined);
+  const finishPlayback = useRef<(() => void) | undefined>(undefined);
 
   const stop = useCallback(() => {
     if (frame.current) cancelAnimationFrame(frame.current);
@@ -32,12 +33,14 @@ export function useAudioPlayback(): PlaybackController {
     objectUrl.current = undefined;
     if (context.current?.state !== "closed") void context.current?.close();
     context.current = undefined;
+    finishPlayback.current?.();
+    finishPlayback.current = undefined;
     setJawEnergy(0);
     setPlaying(false);
   }, []);
 
   const play = useCallback(
-    async (blob: Blob) => {
+    async (blob: Blob, onStarted?: () => void) => {
       stop();
       lastBlob.current = blob;
       setHasReplay(true);
@@ -62,12 +65,16 @@ export function useAudioPlayback(): PlaybackController {
         setJawEnergy((current) => current * 0.62 + Math.min(1, rms * 5) * 0.38);
         frame.current = requestAnimationFrame(animate);
       };
-      element.onended = stop;
-      element.onerror = stop;
       await audioContext.resume();
       await element.play();
       setPlaying(true);
+      onStarted?.();
       animate();
+      await new Promise<void>((resolve) => {
+        finishPlayback.current = resolve;
+        element.onended = stop;
+        element.onerror = stop;
+      });
     },
     [muted, stop],
   );

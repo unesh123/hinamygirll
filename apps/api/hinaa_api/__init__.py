@@ -1,3 +1,3 @@
-"""HINAA Phase 2 API."""
+"""HINAA Phase 3 API."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

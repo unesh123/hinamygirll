@@ -34,6 +34,12 @@ export interface CompanionController {
   startMockListening: () => void;
   beginListening: () => void;
   stop: () => void;
+  applyLivePartial: (text: string) => void;
+  applyLiveFinal: (text: string) => void;
+  applyLiveDelta: (delta: string) => void;
+  applyLivePlan: (plan: AssistantTurnPlan) => void;
+  applyLiveError: (message: string) => void;
+  setLiveState: (state: CompanionState) => void;
 }
 
 export function useCompanionController(): CompanionController {
@@ -178,6 +184,46 @@ export function useCompanionController(): CompanionController {
     setState("listening");
   }, [clearTimers]);
 
+  const applyLivePartial = useCallback((text: string) => {
+    setPartialTranscript(text);
+    setState("listening");
+  }, []);
+
+  const applyLiveFinal = useCallback((text: string) => {
+    setPartialTranscript("");
+    setStreamingText("");
+    setMessages((current) => [
+      ...current,
+      { id: createId(), role: "user", text },
+    ]);
+    setState("thinking");
+  }, []);
+
+  const applyLiveDelta = useCallback((delta: string) => {
+    setStreamingText((current) => current + delta);
+    setState("speaking");
+  }, []);
+
+  const applyLivePlan = useCallback((plan: AssistantTurnPlan) => {
+    setActivePlan(plan);
+    setStreamingText("");
+    setMessages((current) => [
+      ...current,
+      { id: createId(), role: "assistant", text: plan.displayText, plan },
+    ]);
+    setState("speaking");
+  }, []);
+
+  const applyLiveError = useCallback((message: string) => {
+    setPartialTranscript("");
+    setStreamingText("");
+    setState("error");
+    setMessages((current) => [
+      ...current,
+      { id: createId(), role: "assistant", text: message },
+    ]);
+  }, []);
+
   useEffect(
     () => () => {
       clearTimers();
@@ -200,5 +246,11 @@ export function useCompanionController(): CompanionController {
     startMockListening,
     beginListening,
     stop,
+    applyLivePartial,
+    applyLiveFinal,
+    applyLiveDelta,
+    applyLivePlan,
+    applyLiveError,
+    setLiveState: setState,
   };
 }

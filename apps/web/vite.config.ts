@@ -19,6 +19,7 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: false,
+        ws: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
@@ -28,6 +29,7 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: false,
+        ws: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
@@ -41,7 +43,7 @@ export default defineConfig({
         name: "HINAA Voice Companion",
         short_name: "HINAA",
         description:
-          "Phase 2 record-then-process companion with offline mock fallback",
+          "Phase 3 realtime companion with offline mock and REST fallback",
         theme_color: "#120f1f",
         background_color: "#120f1f",
         display: "standalone",

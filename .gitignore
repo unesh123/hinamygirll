@@ -1,19 +1,71 @@
+# Secrets and local env
 .env
 .env.*
 !.env.example
-node_modules/
+apps/api/.env.local
+**/.env.local
+
+# Python
 .venv/
-__pycache__/
+**/__pycache__/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+.Python
+
+# Node / web
+node_modules/
+apps/web/dist/
+apps/web/dev-dist/
 dist/
 build/
 coverage/
+*.tsbuildinfo
+
+# Playwright / test artifacts
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+**/test-results/
+**/playwright-report/
+*.webm
+*.mp4
+
+# Databases and local state
+*.db
+*.sqlite
+*.sqlite3
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+crash.*.log
+
+# Certificates, keys, logs, audio captures
 *.log
 *.key
 *.pem
 *.p12
 *.pfx
+*.wav
+*.pcm
 backups/
 data/private/
 .cert/
 .runtime/
+logs/
+
+# Quarantined / unlicensed local assets (do not ship)
+*.vrm
+*.zip
+52blendshapes-for-VRoid-face-main/
+AnimationClipToVrmaSample-main/
+5447297406763866907.vrm
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

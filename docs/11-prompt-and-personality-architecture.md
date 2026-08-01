@@ -28,6 +28,8 @@ Companion profiles differ in wording/style examples, not policy. Settings are no
 
 Specifications live in [prompts](prompts/README.md): female/male identity, performance planner, memory extractor, summarizer, tool planner, vision interpretation, Nepali style and error recovery. They define inputs, outputs and tests rather than claiming final production wording.
 
+**Runtime (Tier A):** deterministic assembly is implemented in `apps/api/hinaa_api/prompts/` and documented in [TIER-A-RUNTIME.md](prompts/TIER-A-RUNTIME.md). Spec Markdown remains design intent; Python layers are the executable source of truth for current builds.
+
 ### Injection tests
 
 Test indirect instructions in web/file/camera/tool/memory content; fake system tags; Unicode/encoding; requests for secrets; schema breakout; filename/bone/tool injection; memory poisoning; multilingual jailbreak; and instruction conflicts. Expected behavior is ignore hostile instruction, preserve relevant data, explain refusal only when useful, and never escalate privilege.

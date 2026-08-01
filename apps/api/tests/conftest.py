@@ -27,6 +27,9 @@ def settings() -> Settings:
         AZURE_SPEECH_KEY="",
         AZURE_SPEECH_REGION="",
         GEMINI_API_KEY="",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_AUTH_MODE="dev",
+        HINAA_PERSISTENCE_ENABLED=True,
         _env_file=None,
     )
 

@@ -1,8 +1,14 @@
 openapi: 3.1.0
 info:
   title: HINAA API
-  version: 0.2.0-phase2
-  description: Phase 2 record-then-process cascade plus the preserved Phase 0 contract. Tools, BYOK execution, payments and continuous vision are not enabled.
+  version: 0.3.0-phase3
+  description: Phase 3 live streaming plus preserved Phase 2 REST/mock fallbacks and the Phase 0 contract. Tools, BYOK execution, payments and continuous vision are not enabled.
+x-websocket:
+  path: /v1/realtime
+  protocolVersion: '1.0'
+  controlSchema: ../packages/contracts/schemas/phase-3-live-message.schema.json
+  binaryFrames: PCM-S16LE mono at 16 kHz, 640-1280 bytes (20-40 ms), immediately following an audio.frame descriptor
+  cancellation: monotonic generation; stale generations are ignored
 servers:
   - url: https://api.example.invalid/v1
     description: Placeholder only
@@ -156,6 +162,13 @@ paths:
       operationId: listProviderCapabilities
       responses:
         '200': {description: Safe provider metadata, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProviderStatus'}}}}}
+  /voice-profiles:
+    get:
+      security: []
+      operationId: listVoiceProfiles
+      description: Returns safe immutable voice identity and calibration metadata. It never returns credentials and does not call a provider.
+      responses:
+        '200': {description: Hemkala/Sagar voice profiles and bounded tuning presets, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/VoiceProfile'}}}}}
   /privacy/export:
     post:
       operationId: requestDataExport
@@ -282,6 +295,30 @@ components:
         capabilities: {type: array, items: {type: string}}
         state: {enum: [healthy, degraded, unavailable, disabled]}
         userMessage: {type: string, maxLength: 300}
+    VoiceProfile:
+      type: object
+      additionalProperties: false
+      required: [companionId, provider, requestedVoice, locale, identityDisclosure, calibrations]
+      properties:
+        companionId: {enum: [hinaa, hiro]}
+        provider: {const: azure-speech}
+        requestedVoice: {enum: [ne-NP-HemkalaNeural, ne-NP-SagarNeural]}
+        locale: {const: ne-NP}
+        identityDisclosure: {type: string, maxLength: 500}
+        calibrations:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, label, rate, pitchSemitones, volume]
+            properties:
+              id: {enum: [natural, soft, lively]}
+              label: {type: string, maxLength: 30}
+              rate: {type: number, minimum: 0.8, maximum: 1.2}
+              pitchSemitones: {type: number, minimum: -3, maximum: 3}
+              volume: {type: number, minimum: 0.7, maximum: 1}
     Error:
       type: object
       additionalProperties: false
@@ -302,6 +339,17 @@ components:
         companionId: {enum: [hinaa, hiro]}
         language: {enum: [ne-NP, en-US, hi-IN, mixed]}
         providerMode: {enum: [mock, real]}
+        personality:
+          type: object
+          additionalProperties: false
+          description: Optional bounded expression controls; omitted fields use server defaults.
+          properties:
+            affection: {type: number, minimum: 0, maximum: 0.8}
+            sass: {type: number, minimum: 0, maximum: 0.7}
+            energy: {type: number, minimum: 0, maximum: 0.9}
+            humor: {type: number, minimum: 0, maximum: 0.8}
+            proactivity: {type: number, minimum: 0, maximum: 0.6}
+
     Phase2Transcript:
       type: object
       additionalProperties: false

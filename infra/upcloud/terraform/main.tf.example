@@ -1,0 +1,18 @@
+# EXAMPLE ONLY — do not apply without owner authorization gates.
+# terraform {
+#   required_providers {
+#     upcloud = {
+#       source  = "UpCloudLtd/upcloud"
+#       version = "~> 5.0"
+#     }
+#   }
+# }
+#
+# Suggested staging shape (confirm against live catalog/pricing):
+# - 1x Cloud Server (smallest that runs FastAPI + reverse proxy)
+# - Managed PostgreSQL if available in account/region
+# - Firewall: 22 (admin IP), 80/443 public
+# - Tags: project=hinaa, env=staging, owner=<you>
+#
+# Never commit provider credentials or private keys.
+# Keep state out of git.
