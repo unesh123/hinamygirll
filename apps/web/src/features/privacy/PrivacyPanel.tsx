@@ -19,14 +19,18 @@ async function privacyFetch(path: string, init?: RequestInit) {
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
     };
-    throw new Error(body.message ?? `Privacy request failed (${response.status})`);
+    throw new Error(
+      body.message ?? `Privacy request failed (${response.status})`,
+    );
   }
   return response.json();
 }
 
 export function PrivacyPanel() {
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<string>("Memory controls use dev auth locally.");
+  const [status, setStatus] = useState<string>(
+    "Memory controls use dev auth locally.",
+  );
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -109,10 +113,18 @@ export function PrivacyPanel() {
             />
           </label>
           <div className="privacy-actions">
-            <button type="button" disabled={busy} onClick={() => void remember()}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void remember()}
+            >
               Remember
             </button>
-            <button type="button" disabled={busy} onClick={() => void refresh()}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void refresh()}
+            >
               Refresh
             </button>
           </div>
@@ -131,8 +143,8 @@ export function PrivacyPanel() {
             ))}
           </ul>
           <small>
-            HINAA is an artificial assistant. Durable memory is consent-based and
-            never grants device control.
+            HINAA is an artificial assistant. Durable memory is consent-based
+            and never grants device control.
           </small>
         </div>
       )}

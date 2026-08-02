@@ -15,19 +15,19 @@ export interface MockProviderOptions {
 const responses = [
   {
     match: /assignment|बुझ|explain/i,
-    text: "Sure! Assignment ko main idea lai sano steps ma break garau. Pahila question ko goal herau, ani एउटा example बनाऔँ।",
+    text: "Mock modeले assignment साँच्चै बुझेको होइन। Real response चाहियो भने Microsoft voice + OpenAI brain mode प्रयोग गर।",
     emotion: "thinking",
     gesture: "explain",
   },
   {
     match: /mood|off|sad|दुख|मन/i,
-    text: "Aaja ali heavy feel bhairako jasto cha—ma गलत पनि हुन सक्छु। Ekchin slow down garne कि kura share garne?",
+    text: "Mock mode हो, तर UI test को लागि: slow down गर, एक सानो step रोज, अनि real modeमा कुरा गर।",
     emotion: "concerned",
     gesture: "reassure",
   },
   {
     match: /hello|hi|namaste|नमस्ते/i,
-    text: "Namaste! Mock mode ekdam ready cha. Text, states, animation वा interruption जे test गरे पनि हुन्छ।",
+    text: "Namaste! Mock mode UI test मात्र हो। Real understanding चाहियो भने Microsoft voice + OpenAI brain use गर।",
     emotion: "happy",
     gesture: "wave",
   },
@@ -67,9 +67,9 @@ export function buildMockPlan(
 ): AssistantTurnPlan {
   const selected = responses.find((response) => response.match.test(text));
   const fallback = [
-    "Yo deterministic mock response ho—real AI वा cloud service connect भएको छैन। हामी UI र avatar behaviour safely test गर्दैछौँ।",
-    "Bujheँ! अहिले mock mode le fixed, repeatable answer दिन्छ। Phase 2 अघि कुनै API key चाहिँदैन।",
-    "Nice test! HINAA ko state, transcript र motion cue अहिले local mock बाट चलिरहेका छन्।",
+    "Mock mode UI test हो। Real speech understanding active छैन।",
+    "Demo response only: Hinaa को real brain/voice test गर्न Microsoft voice + OpenAI brain चाहिन्छ।",
+    "Mock fallback active छ, so यो fixed/safe demo reply हो—not a real AI answer.",
   ][stableIndex(text) % 3];
   const displayText = selected?.text ?? fallback;
   const primary =

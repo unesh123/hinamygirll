@@ -67,12 +67,12 @@ def schema_repair_contents(invalid_raw: str) -> str:
         "The previous model output was invalid against AssistantTurnPlan.\n"
         "Correct it into valid JSON only. Do not add new user facts.\n"
         f"{_SCHEMA_HINT}\n"
-        f"<invalid_output trusted=\"false\">\n{clipped}\n</invalid_output>"
+        f'<invalid_output trusted="false">\n{clipped}\n</invalid_output>'
     )
 
 
 def validate_or_none(raw: str) -> AssistantTurnPlan | None:
     try:
         return parse_turn_plan(raw)
-    except (json.JSONDecodeError, ValidationError, ValueError):
+    except json.JSONDecodeError, ValidationError, ValueError:
         return None

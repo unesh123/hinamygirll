@@ -4,7 +4,7 @@ test("fits the small mobile viewport and completes a mock text turn", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
+  await expect(page.getByLabel("Voice status")).toContainText("Voice ready");
   const shell = page.locator("main");
   const box = await shell.boundingBox();
   expect(box?.width).toBeLessThanOrEqual(page.viewportSize()!.width);
@@ -29,7 +29,7 @@ test("supports simulated voice interruption and accessibility modes", async ({
   });
   await expect(stopButton).toBeVisible();
   await stopButton.click();
-  await expect(page.getByText("Interrupted")).toBeVisible();
+  await expect(page.getByLabel("Type a message")).toBeEnabled();
 
   await page.getByRole("button", { name: /Text only/ }).click();
   await expect(
@@ -72,7 +72,7 @@ test("loads the production PWA shell while offline after first visit", async ({
   });
   await context.setOffline(true);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
+  await expect(page.getByLabel("Voice status")).toContainText("Voice ready");
   await expect(page.getByLabel("Type a message")).toBeEnabled();
 });
 
@@ -86,7 +86,14 @@ test("proxies safe provider metadata without making provider calls", async ({
   });
   expect(status.ok).toBe(true);
   expect(status.providers[0].id).toBe("mock");
+  await page.getByText("Advanced voice settings").click();
   await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
+  await expect(page.getByLabel("Provider mode")).toContainText(
+    "Groq fast brain",
+  );
+  await expect(page.getByLabel("Provider mode")).toContainText(
+    "Microsoft voice + OpenAI brain",
+  );
 });
 
 test("runs a synthetic mock WebSocket turn without microphone or provider calls", async ({
@@ -176,7 +183,7 @@ test("keeps text fallback available when live microphone permission is denied", 
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Start Live Conversation" }).click();
+  await page.getByRole("button", { name: "Talk to Hinaa" }).click();
   await expect(page.getByText(/Microphone permission denied/)).toBeVisible();
   await expect(page.getByLabel("Type a message")).toBeEnabled();
 });

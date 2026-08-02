@@ -1,9 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import "./App.css";
 import { ProceduralAvatar } from "./features/avatar/ProceduralAvatar";
+import {
+  AVATAR_THEMES,
+  loadAvatarTheme,
+  saveAvatarTheme,
+  type AvatarThemeId,
+} from "./features/avatar/themes";
 import { PrivacyPanel } from "./features/privacy/PrivacyPanel";
 import { detectWebGL } from "./features/avatar/webgl";
-import { synthesizeSpeech, transcribeAudio } from "./features/audio/api";
+import {
+  fetchProviderStatuses,
+  synthesizeSpeech,
+  transcribeAudio,
+  type ProviderStatus,
+  type ProviderMode,
+} from "./features/audio/api";
 import { MicrophoneRecorder } from "./features/audio/microphoneRecorder";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
 import { useLiveConversation } from "./features/audio/useLiveConversation";
@@ -16,13 +28,29 @@ import { useCompanionController } from "./features/companion/useCompanionControl
 import { useReducedMotionPreference } from "./shared/useReducedMotion";
 
 const stateCopy: Record<CompanionState, { label: string; detail: string }> = {
-  idle: { label: "Ready", detail: "Choose live, push-to-talk, or text" },
+  idle: { label: "Ready", detail: "Talk naturally or type a message" },
   listening: { label: "Listening", detail: "Microphone input is active" },
   thinking: { label: "Thinking", detail: "Preparing a safe response" },
   speaking: { label: "Speaking", detail: "Playing the response performance" },
   interrupted: { label: "Interrupted", detail: "The active turn was stopped" },
   error: { label: "Error", detail: "Mock fallback is still available" },
 };
+
+function voiceModeLabel(mode: ProviderMode): string {
+  if (mode === "mock") return "Synthetic mock voice";
+  if (mode === "local") return "Zero-credit local placeholder voice";
+  if (mode === "groq") return "Groq brain with local placeholder voice";
+  if (mode === "openai") return "Microsoft neural voice";
+  return "Azure voice configured";
+}
+
+function transcriptModeLabel(mode: ProviderMode): string {
+  if (mode === "mock") return "Mock transcript";
+  if (mode === "local") return "Local STT unavailable";
+  if (mode === "groq") return "Local STT for Groq unavailable";
+  if (mode === "openai") return "Microsoft Speech transcript";
+  return "Azure transcript";
+}
 
 function Icon({ name }: { name: "mic" | "stop" | "send" | "text" | "motion" }) {
   const paths = {
@@ -80,6 +108,7 @@ function CompanionSwitch({
 
 export default function App() {
   const controller = useCompanionController();
+  const { setBrainModel, setProviderMode } = controller;
   const playback = useAudioPlayback();
   const systemReducedMotion = useReducedMotionPreference();
   const [reduceMotionOverride, setReduceMotionOverride] = useState(false);
@@ -103,9 +132,17 @@ export default function App() {
     | "unsupported"
     | "error"
   >("idle");
+  const [avatarTheme, setAvatarTheme] = useState<AvatarThemeId>(() =>
+    loadAvatarTheme(),
+  );
+  const [lowPerformance, setLowPerformance] = useState(false);
   const [voiceDetail, setVoiceDetail] = useState(
     "No microphone permission requested",
   );
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(
+    [],
+  );
+  const [providersLoaded, setProvidersLoaded] = useState(false);
   const [latencies, setLatencies] = useState<{
     stt: number;
     gemini: number;
@@ -122,12 +159,85 @@ export default function App() {
   const recorder = useRef<MicrophoneRecorder | undefined>(undefined);
   const voiceAbort = useRef<AbortController | undefined>(undefined);
   const recordingTimer = useRef<number | undefined>(undefined);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const providerAutoSelected = useRef(false);
+  const providerManuallySelected = useRef(false);
   const webglAvailable = useMemo(() => detectWebGL(), []);
   const reducedMotion = systemReducedMotion || reduceMotionOverride;
   const active =
     live.active ||
     ["listening", "thinking", "speaking"].includes(controller.state);
   const status = stateCopy[controller.state];
+  const localProvider = providerStatuses.find((item) => item.id === "local");
+  const openaiProvider = providerStatuses.find((item) => item.id === "openai");
+  const customProvider = providerStatuses.find((item) => item.id === "custom");
+  const geminiProvider = providerStatuses.find((item) => item.id === "gemini");
+  const azureSpeechProvider = providerStatuses.find(
+    (item) => item.id === "azure-speech",
+  );
+  const openaiModelOptions =
+    openaiProvider?.capabilities
+      .filter((capability) => capability.startsWith("model:"))
+      .map((capability) => capability.slice("model:".length)) ?? [];
+  const openaiDefaultModel = openaiProvider?.capabilities
+    .find((capability) => capability.startsWith("default-model:"))
+    ?.slice("default-model:".length);
+  const customModelOptions =
+    customProvider?.capabilities
+      .filter((capability) => capability.startsWith("model:"))
+      .map((capability) => capability.slice("model:".length)) ?? [];
+  const customDefaultModel = customProvider?.capabilities
+    .find((capability) => capability.startsWith("default-model:"))
+    ?.slice("default-model:".length);
+  const geminiModelOptions =
+    geminiProvider?.capabilities
+      .filter((capability) => capability.startsWith("model:"))
+      .map((capability) => capability.slice("model:".length)) ?? [];
+  const geminiDefaultModel = geminiProvider?.capabilities
+    .find((capability) => capability.startsWith("default-model:"))
+    ?.slice("default-model:".length);
+  const activeBrainModelOptions =
+    controller.providerMode === "custom"
+      ? customModelOptions
+      : controller.providerMode === "real"
+        ? geminiModelOptions
+        : openaiModelOptions;
+  const activeBrainDefault =
+    controller.providerMode === "custom"
+      ? customDefaultModel
+      : controller.providerMode === "real"
+        ? geminiDefaultModel
+        : openaiDefaultModel;
+  const localSttReady =
+    localProvider?.capabilities.includes("stt") &&
+    localProvider.state === "healthy";
+  const microsoftSpeechReady = azureSpeechProvider?.state === "healthy";
+  const modeAvailability: Record<ProviderMode, boolean> = {
+    mock: true,
+    local: true,
+    groq: false, // hidden / no key
+    // Brain providers work for text chat even without Azure voice
+    openai: openaiProvider?.state === "healthy",
+    custom: customProvider?.state === "healthy",
+    real: geminiProvider?.state === "healthy",
+  };
+  const localMicBlocked = controller.providerMode === "local" && localSttReady !== true;
+  const providerNotice =
+    controller.providerMode === "local"
+      ? (localProvider?.userMessage ??
+        "Zero-credit local text and placeholder voice are ready; local microphone STT is not configured.")
+      : undefined;
+  const voiceReadyLabel = localMicBlocked
+    ? "Voice setup needed"
+    : controller.providerMode === "custom"
+      ? "Custom brain"
+      : controller.providerMode === "openai"
+        ? "OpenAI + Microsoft"
+        : controller.providerMode === "real"
+          ? "Cloud cascade"
+          : controller.providerMode === "local"
+            ? "Zero-credit"
+            : "Ready";
 
   const speakPlan = async (text: string, signal: AbortSignal) => {
     const speech = await synthesizeSpeech(
@@ -137,7 +247,7 @@ export default function App() {
       signal,
     );
     setVoiceDetail(
-      `${controller.providerMode === "mock" ? "Synthetic mock voice" : "Azure voice configured"} · ${speech.provider}`,
+      `${voiceModeLabel(controller.providerMode)} · ${speech.provider}`,
     );
     await playback.play(speech.blob);
     return speech.latencyMs;
@@ -151,7 +261,7 @@ export default function App() {
     setInput("");
     void (async () => {
       const completed = await controller.sendText(value);
-      if (completed && controller.providerMode === "real") {
+      if (completed) {
         voiceAbort.current?.abort();
         voiceAbort.current = new AbortController();
         try {
@@ -167,6 +277,14 @@ export default function App() {
   };
 
   async function startRecording() {
+    if (localMicBlocked) {
+      setMicStatus("error");
+      setVoiceDetail(
+        "Local microphone STT is not configured. Use text, Demo without mic, or configure HINAA_LOCAL_STT_COMMAND.",
+      );
+      controller.setLiveState("idle");
+      return;
+    }
     if (live.active) live.stop();
     voiceAbort.current?.abort();
     playback.stop();
@@ -231,7 +349,7 @@ export default function App() {
         abort.signal,
       );
       setVoiceDetail(
-        `${controller.providerMode === "mock" ? "Mock transcript" : "Azure transcript"} · ${transcript.provider}`,
+        `${transcriptModeLabel(controller.providerMode)} · ${transcript.provider}`,
       );
       const completed = await controller.sendText(transcript.text, {
         forceBackend: true,
@@ -280,6 +398,83 @@ export default function App() {
     [],
   );
 
+  useEffect(() => {
+    const abort = new AbortController();
+    let retryTimer: number | undefined;
+
+    const loadProviders = () => {
+      void fetchProviderStatuses(abort.signal)
+        .then((statuses) => {
+          setProviderStatuses(statuses);
+          setProvidersLoaded(true);
+          const byId = new Map(statuses.map((item) => [item.id, item]));
+          const microsoftVoiceReady =
+            byId.get("azure-speech")?.state === "healthy";
+          const customBrainReady = byId.get("custom")?.state === "healthy";
+          const openaiBrainReady = byId.get("openai")?.state === "healthy";
+          if (
+            (customBrainReady || openaiBrainReady) &&
+            !providerAutoSelected.current &&
+            !providerManuallySelected.current
+          ) {
+            providerAutoSelected.current = true;
+            const selectedProvider = customBrainReady ? "custom" : "openai";
+            setProviderMode(selectedProvider);
+            const selectedCapabilities = byId.get(selectedProvider)?.capabilities ?? [];
+            const defaultModel = selectedCapabilities
+              .find((capability) => capability.startsWith("default-model:"))
+              ?.slice("default-model:".length);
+            const firstModel = selectedCapabilities
+              .find((capability) => capability.startsWith("model:"))
+              ?.slice("model:".length);
+            if (defaultModel || firstModel) setBrainModel(defaultModel ?? firstModel!);
+            setVoiceDetail(
+              microsoftVoiceReady
+                ? selectedProvider === "custom"
+                  ? "Custom gateway + Microsoft voice ready"
+                  : "Microsoft voice + OpenAI brain ready"
+                : selectedProvider === "custom"
+                  ? "Custom gateway ready · text chat active"
+                  : "OpenAI brain ready · text chat active",
+            );
+          }
+        })
+        .catch(() => {
+          // Keep retrying until backend is up
+          retryTimer = window.setTimeout(loadProviders, 8000);
+        });
+    };
+
+    loadProviders();
+    return () => {
+      abort.abort();
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [setBrainModel, setProviderMode]);
+
+  useEffect(() => {
+    if (providerNotice) setVoiceDetail(providerNotice);
+  }, [providerNotice]);
+
+  // Auto-scroll to bottom when messages or streaming text changes
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [controller.messages, controller.streamingText, controller.state]);
+
+  const setProviderModeWithDefaultModel = (mode: ProviderMode) => {
+    providerManuallySelected.current = true;
+    controller.setProviderMode(mode);
+    const model =
+      mode === "custom"
+        ? (customDefaultModel ?? customModelOptions[0])
+        : mode === "openai"
+          ? (openaiDefaultModel ?? openaiModelOptions[0])
+          : mode === "real"
+            ? (geminiDefaultModel ?? geminiModelOptions[0])
+            : undefined;
+    if (model) controller.setBrainModel(model);
+  };
+
   return (
     <main className={`app-shell companion-${controller.companionId}`}>
       <section
@@ -296,23 +491,10 @@ export default function App() {
               <small>Phase 3 realtime lab</small>
             </div>
           </div>
-          <label className="provider-chip">
+          <div className="provider-chip" aria-label="Voice status">
             <span className="status-dot" />
-            <span className="sr-only">Provider mode</span>
-            <select
-              aria-label="Provider mode"
-              value={controller.providerMode}
-              disabled={live.active}
-              onChange={(event) =>
-                controller.setProviderMode(
-                  event.target.value as "mock" | "real",
-                )
-              }
-            >
-              <option value="mock">Local mock</option>
-              <option value="real">Real cascade</option>
-            </select>
-          </label>
+            <span>{voiceReadyLabel}</span>
+          </div>
         </header>
 
         <div className="status-line" role="status" aria-live="polite">
@@ -336,6 +518,8 @@ export default function App() {
             reducedMotion={reducedMotion}
             textOnly={textOnly}
             jawEnergy={playback.jawEnergy}
+            theme={avatarTheme}
+            lowPerformance={lowPerformance}
           />
           {!textOnly && (
             <div className="performance-caption">
@@ -361,62 +545,142 @@ export default function App() {
         <PrivacyPanel />
 
         <section className="live-panel" aria-label="Live conversation controls">
-          <div className="live-options">
-            <label>
-              Voice feel
-              <select
-                value={calibration}
-                onChange={(event) =>
-                  setCalibration(
-                    event.target.value as "natural" | "soft" | "lively",
-                  )
+          <div className="engine-strip" aria-label="Choose brain and voice engine">
+            {(
+              [
+                ["local", "Zero-credit", "Free · text only"],
+                ["custom", "Custom cascade", "17 gateway models"],
+                ["openai", "OpenAI", "Official GPT models"],
+                ["real", "Cloud cascade", "11 Gemini models"],
+                ["mock", "Demo", "No API needed"],
+              ] as const
+            ).map(([mode, label, detail]) => (
+              <button
+                key={mode}
+                type="button"
+                className={
+                  controller.providerMode === mode ? "selected" : undefined
                 }
-                disabled={live.active}
-              >
-                <option value="natural">Natural</option>
-                <option value="soft">Soft</option>
-                <option value="lively">Lively</option>
-              </select>
-            </label>
-            <label>
-              Audio output
-              <select
-                value={outputMode}
-                onChange={(event) =>
-                  setOutputMode(event.target.value as "headphones" | "speaker")
+                aria-pressed={controller.providerMode === mode}
+                disabled={live.active || (!providersLoaded ? false : !modeAvailability[mode])}
+                title={
+                  !providersLoaded
+                    ? "Checking availability…"
+                    : modeAvailability[mode]
+                    ? undefined
+                    : mode === "custom"
+                      ? "Custom gateway API key or URL is not configured."
+                      : mode === "openai"
+                        ? "OpenAI key is not configured in the backend."
+                        : mode === "real"
+                          ? "Gemini API key is not configured."
+                          : undefined
                 }
-                disabled={live.active}
+                onClick={() => {
+                  setProviderModeWithDefaultModel(mode);
+                }}
               >
-                <option value="speaker">Speaker</option>
-                <option value="headphones">Headphones</option>
-              </select>
-            </label>
-            <label>
-              Recognition
-              <select
-                value={languageMode}
-                onChange={(event) =>
-                  setLanguageMode(event.target.value as "fixed-ne-NP" | "auto")
-                }
-                disabled={live.active}
-              >
-                <option value="fixed-ne-NP">Fixed ne-NP</option>
-                <option value="auto">Auto ne/en/hi</option>
-              </select>
-            </label>
+                <span>{label}</span>
+                <small>
+                  {!providersLoaded
+                    ? "Checking…"
+                    : modeAvailability[mode]
+                    ? detail
+                    : "Unavailable"}
+                </small>
+              </button>
+            ))}
           </div>
-          <button
-            className="live-button"
-            type="button"
-            onClick={() => (live.active ? live.stop() : void live.start())}
-            aria-pressed={live.active}
-          >
-            <Icon name={live.active ? "stop" : "mic"} />
-            {live.active ? "Stop Live Conversation" : "Start Live Conversation"}
-          </button>
+          <div className="live-session-controls">
+            <button
+              className="live-button"
+              type="button"
+              onClick={() => (live.active ? live.stop() : void live.start())}
+              aria-pressed={live.active}
+              disabled={!live.active && localMicBlocked}
+              title={
+                localMicBlocked
+                  ? "Configure HINAA_LOCAL_STT_COMMAND before using local hands-free mic."
+                  : undefined
+              }
+            >
+              <Icon name={live.active ? "stop" : "mic"} />
+              {live.active ? "Stop listening" : "Talk to Hinaa"}
+            </button>
+            {live.active && (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => (live.paused ? live.resume() : live.pause())}
+                aria-pressed={live.paused}
+              >
+                {live.paused ? "Resume listening" : "Pause listening"}
+              </button>
+            )}
+          </div>
+          {(controller.providerMode === "openai" ||
+            controller.providerMode === "custom" ||
+            controller.providerMode === "real") && (
+            <div className="live-options quick-brain-controls">
+              <label>
+                Brain model
+                <select
+                  aria-label="Brain model"
+                  value={controller.brainModel}
+                  onChange={(event) =>
+                    controller.setBrainModel(event.target.value)
+                  }
+                  disabled={live.active}
+                >
+                  {(activeBrainModelOptions.length
+                    ? activeBrainModelOptions
+                    : [controller.brainModel]
+                  ).map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <small>
+                Active backend default:{" "}
+                {activeBrainDefault ?? controller.brainModel}. If one model is
+                rate-limited, switch here and try again.
+              </small>
+            </div>
+          )}
+          {localMicBlocked && (
+            <div className="notice" role="note">
+              Zero-credit brain is working for typed chat and placeholder voice.
+              Local microphone understanding needs an offline STT command, so
+              hands-free local mic is disabled instead of failing repeatedly.
+            </div>
+          )}
+          <p className="live-privacy-note">
+            Microphone starts only after you tap Start and grant permission. No
+            per-turn mic button is required while the session is active. Stop
+            ends capture immediately.
+            {controller.providerMode === "mock"
+              ? " Mock live uses one fixed demo transcript and pauses after one turn; use text or a real/local STT provider for your actual words."
+              : controller.providerMode === "local"
+                ? " Local mode never spends credits; microphone STT is still text/mock-only until offline models are installed."
+                : controller.providerMode === "groq"
+                  ? microsoftSpeechReady
+                    ? " Groq mode uses Groq for the brain and Microsoft Speech for listening/speaking."
+                    : " Groq mode needs Microsoft Speech or local STT before microphone speech works."
+                  : controller.providerMode === "custom"
+                    ? " Custom gateway mode uses your separate model API for the brain and Microsoft Speech for listening/speaking."
+                  : controller.providerMode === "openai"
+                    ? " Microsoft voice mode uses Azure Speech for listening/speaking and OpenAI for the brain."
+                    : " Live mode uses real providers only; outages are shown truthfully."}
+          </p>
           <div className="live-mic" role="status" aria-live="polite">
             <span
-              className={live.active ? "live-mic-dot active" : "live-mic-dot"}
+              className={
+                live.active && !live.paused
+                  ? "live-mic-dot active"
+                  : "live-mic-dot"
+              }
               aria-hidden="true"
             />
             <span>{live.detail}</span>
@@ -435,8 +699,8 @@ export default function App() {
               Goal / measured: partial ≤500 ms · final ≤900 ms · first text ≤800
               ms · audible ≤1800 ms · barge ≤150 ms
               <br />
-              STT {live.metrics.sttMs ?? "—"} · Gemini first{" "}
-              {live.metrics.llmFirstDeltaMs ?? "—"} · Gemini total{" "}
+              STT {live.metrics.sttMs ?? "—"} · Brain first{" "}
+              {live.metrics.llmFirstDeltaMs ?? "—"} · Brain total{" "}
               {live.metrics.llmMs ?? "—"} · TTS {live.metrics.ttsMs ?? "—"} ·
               turn {live.metrics.totalMs ?? "—"} · barge{" "}
               {live.metrics.bargeInStopMs ?? "not tested"} ms
@@ -453,11 +717,129 @@ export default function App() {
             custom anime voices. A unique Hinaa voice requires a licensed,
             consenting voice actor or approved dataset.
           </p>
-          {import.meta.env.DEV && (
-            <button className="calibration-sample" type="button" disabled>
-              Generate calibration sample · separate live-call approval required
-            </button>
-          )}
+          <details className="advanced-voice-settings">
+            <summary>Advanced voice settings</summary>
+            <div className="live-options">
+              <label>
+                Provider
+                <select
+                  aria-label="Provider mode"
+                  value={controller.providerMode}
+                  disabled={live.active}
+                  onChange={(event) => {
+                    setProviderModeWithDefaultModel(
+                      event.target.value as ProviderMode,
+                    );
+                  }}
+                >
+                  <option value="mock">Safe local demo</option>
+                  <option value="local">Zero-credit brain</option>
+                  <option value="groq">Groq fast brain</option>
+                  <option value="custom">Custom gateway + Microsoft</option>
+                  <option value="openai">Microsoft voice + OpenAI brain</option>
+                  <option value="real">Cloud cascade: Gemini + Microsoft</option>
+                </select>
+              </label>
+              {(controller.providerMode === "openai" ||
+                controller.providerMode === "custom" ||
+                controller.providerMode === "real") && (
+                <label>
+                  Brain model (same as quick selector)
+                  <select
+                    aria-label="Advanced model picker"
+                    value={controller.brainModel}
+                    onChange={(event) =>
+                      controller.setBrainModel(event.target.value)
+                    }
+                    disabled={live.active}
+                  >
+                    {(activeBrainModelOptions.length
+                      ? activeBrainModelOptions
+                      : [controller.brainModel]
+                    ).map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label>
+                Voice feel
+                <select
+                  value={calibration}
+                  onChange={(event) =>
+                    setCalibration(
+                      event.target.value as "natural" | "soft" | "lively",
+                    )
+                  }
+                  disabled={live.active}
+                >
+                  <option value="natural">Natural</option>
+                  <option value="soft">Soft</option>
+                  <option value="lively">Lively</option>
+                </select>
+              </label>
+              <label>
+                Audio output
+                <select
+                  value={outputMode}
+                  onChange={(event) =>
+                    setOutputMode(
+                      event.target.value as "headphones" | "speaker",
+                    )
+                  }
+                  disabled={live.active}
+                >
+                  <option value="speaker">Speaker</option>
+                  <option value="headphones">Headphones</option>
+                </select>
+              </label>
+              <label>
+                Recognition
+                <select
+                  value={languageMode}
+                  onChange={(event) =>
+                    setLanguageMode(
+                      event.target.value as "fixed-ne-NP" | "auto",
+                    )
+                  }
+                  disabled={live.active}
+                >
+                  <option value="fixed-ne-NP">Fixed ne-NP</option>
+                  <option value="auto">Auto ne/en/hi</option>
+                </select>
+              </label>
+              <label className="theme-picker">
+                Visual style
+                <select
+                  aria-label="Avatar visual style"
+                  value={avatarTheme}
+                  onChange={(event) => {
+                    const next = event.target.value as AvatarThemeId;
+                    setAvatarTheme(next);
+                    saveAvatarTheme(next);
+                  }}
+                >
+                  {AVATAR_THEMES.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {theme.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="ghost-button"
+                type="button"
+                aria-pressed={lowPerformance}
+                onClick={() => setLowPerformance((value) => !value)}
+              >
+                {lowPerformance
+                  ? "Auto performance on"
+                  : "Auto performance off"}
+              </button>
+            </div>
+          </details>
         </section>
 
         <div className="accessibility-bar" aria-label="Accessibility controls">
@@ -504,26 +886,28 @@ export default function App() {
                 ? void finishRecording()
                 : void startRecording()
             }
-            disabled={micStatus === "requesting" || micStatus === "processing"}
+            disabled={
+              micStatus === "requesting" ||
+              micStatus === "processing" ||
+              localMicBlocked
+            }
+            title={
+              localMicBlocked
+                ? "Local STT command is not configured. Use text or Demo without mic."
+                : undefined
+            }
             aria-label={
               micStatus === "recording"
-                ? "Stop and process microphone recording"
+                ? "Finish recording and send voice"
                 : "Start microphone recording"
             }
           >
             <Icon name="mic" />
             <span>
-              {micStatus === "recording" ? "Process" : "Push-to-talk"}
+              {micStatus === "recording" ? "Send voice" : "Tap to talk"}
             </span>
           </button>
-          <button
-            className="camera-button"
-            type="button"
-            disabled
-            title="Camera is outside Phase 3"
-          >
-            Camera off
-          </button>
+          <span className="control-spacer" />
         </div>
         <div className="voice-tools" aria-label="Voice and fallback controls">
           <button
@@ -552,7 +936,7 @@ export default function App() {
           <span aria-hidden="true" /> {voiceDetail}
           {latencies && (
             <small data-testid="live-latencies">
-              {` · STT ${latencies.stt} ms · Gemini ${latencies.gemini} ms · TTS ${latencies.tts} ms · total ${latencies.total} ms`}
+              {` · STT ${latencies.stt} ms · Brain ${latencies.gemini} ms · TTS ${latencies.tts} ms · total ${latencies.total} ms`}
             </small>
           )}
         </p>
@@ -564,7 +948,17 @@ export default function App() {
             <small>Conversation with</small>
             <strong>{companionProfiles[controller.companionId].name}</strong>
           </div>
-          <span>Saved nowhere</span>
+          <span>
+            {controller.providerMode === "custom"
+              ? controller.brainModel || "Custom cascade"
+              : controller.providerMode === "real"
+                ? "Cloud cascade"
+                : controller.providerMode === "openai"
+                  ? "OpenAI"
+                  : controller.providerMode === "local"
+                    ? "Zero-credit"
+                    : "Demo"}
+          </span>
         </header>
         <div
           className="transcript"
@@ -572,16 +966,30 @@ export default function App() {
           aria-live="polite"
           aria-relevant="additions text"
         >
+          {controller.messages.length === 0 &&
+            !controller.streamingText &&
+            controller.state !== "thinking" && (
+              <div className="transcript-empty">
+                <span aria-hidden="true">✦</span>
+                <p>Say hi or type a message to start</p>
+              </div>
+            )}
           {controller.messages.map((message) => (
             <article
               className={`message message-${message.role}`}
               key={message.id}
             >
-              <small>
-                {message.role === "assistant"
-                  ? companionProfiles[controller.companionId].name
-                  : "You"}
-              </small>
+              <div className="message-header">
+                <small>
+                  {message.role === "assistant"
+                    ? companionProfiles[controller.companionId].name
+                    : "You"}
+                </small>
+                <time>{message.id.slice(-4) /* stable per-message marker */
+                  ? new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  : ""}
+                </time>
+              </div>
               <p>{message.text}</p>
             </article>
           ))}
@@ -590,7 +998,9 @@ export default function App() {
               className="message message-user partial"
               data-testid="partial-transcript"
             >
-              <small>You · simulated partial</small>
+              <div className="message-header">
+                <small>You · partial</small>
+              </div>
               <p>{controller.partialTranscript}</p>
             </article>
           )}
@@ -599,15 +1009,38 @@ export default function App() {
               className="message message-assistant streaming"
               data-testid="streaming-text"
             >
-              <small>
-                {companionProfiles[controller.companionId].name} · streaming
-              </small>
+              <div className="message-header">
+                <small>
+                  {companionProfiles[controller.companionId].name} · typing
+                </small>
+              </div>
               <p>
                 {controller.streamingText}
                 <span className="cursor" aria-hidden="true" />
               </p>
             </article>
           )}
+          {controller.state === "thinking" &&
+            !controller.streamingText &&
+            !controller.partialTranscript && (
+              <article
+                className="message message-assistant thinking-message"
+                aria-label={`${companionProfiles[controller.companionId].name} is thinking`}
+              >
+                <div className="message-header">
+                  <small>{companionProfiles[controller.companionId].name}</small>
+                </div>
+                <p>
+                  <span className="thinking-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="sr-only">Thinking...</span>
+                </p>
+              </article>
+            )}
+          <div ref={transcriptEndRef} aria-hidden="true" />
         </div>
         <form className="composer" onSubmit={submit}>
           <label htmlFor="message-input" className="sr-only">
@@ -631,8 +1064,14 @@ export default function App() {
         </form>
         <p className="privacy-note">
           {controller.providerMode === "mock"
-            ? "Deterministic mock providers · microphone capture only after tap · no API key"
-            : "Real providers selected · backend-only credentials · session memory only"}
+            ? "Demo mode · no API calls · deterministic responses"
+            : controller.providerMode === "local"
+              ? "Zero-credit brain · typed chat works · local mic STT pending"
+              : controller.providerMode === "custom"
+                ? `Custom gateway · ${controller.brainModel || "cx/gpt-5.6-sol"} · backend-only key`
+                : controller.providerMode === "openai"
+                  ? "OpenAI GPT · Microsoft Speech · backend-only credentials"
+                  : "Gemini Cloud cascade · Microsoft Speech · backend-only credentials"}
         </p>
       </section>
     </main>

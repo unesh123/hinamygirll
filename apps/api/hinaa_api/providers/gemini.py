@@ -17,6 +17,7 @@ from ..prompts import (
     validate_or_none,
 )
 from .base import ProviderResult
+from .timing import ProviderTiming
 
 
 def _sanitize_delta(value: str) -> str:
@@ -88,9 +89,15 @@ class GeminiLLMProvider:
                 True,
             )
         started = perf_counter()
+        timing = ProviderTiming()
+        # Fresh client per call today — no shared HTTP session across turns.
         client = genai.Client(api_key=self._key)
+        timing.mark("provider_client_ready")
         chunks: list[str] = []
+        provider_events = 0
         try:
+            # thinking_config is intentionally unset here; model defaults may still
+            # apply server-side for gemini-*-flash variants (observe via stages).
             stream = await client.aio.models.generate_content_stream(
                 model=self._model,
                 contents=prompt.user_contents,
@@ -101,8 +108,12 @@ class GeminiLLMProvider:
                     response_mime_type="text/plain",
                 ),
             )
+            timing.mark("request_sent")
             size = 0
             async for response in stream:
+                provider_events += 1
+                if provider_events == 1:
+                    timing.mark("first_provider_event")
                 delta = _sanitize_delta(response.text or "")
                 if not delta:
                     continue
@@ -112,7 +123,9 @@ class GeminiLLMProvider:
                 delta = delta[:remaining]
                 size += len(delta)
                 chunks.append(delta)
+                timing.mark("first_text_delta")
                 await emit_delta(delta)
+            timing.mark("text_complete")
             answer = "".join(chunks).strip()
             if not answer:
                 raise HinaaError(
@@ -124,14 +137,21 @@ class GeminiLLMProvider:
                 language=language,
                 depth=prompt.response_depth,
             )
+            timing.mark("plan_parsed")
+            timing.mark("plan_validated")
         except HinaaError:
             raise
         except Exception as error:
             raise self._map_provider_error(error) from error
         finally:
             await client.aio.aclose()
+        stages = timing.snapshot()
+        stages["provider_events"] = provider_events
         return ProviderResult(
-            plan, f"{self.id}:{self._model}", int((perf_counter() - started) * 1000)
+            plan,
+            f"{self.id}:{self._model}",
+            int((perf_counter() - started) * 1000),
+            stages=stages,
         )
 
     async def _stream_json(self, client: genai.Client, prompt: PromptPackage) -> str:
@@ -192,12 +212,8 @@ class GeminiLLMProvider:
                 user_action_required=True,
             )
         if "429" in redacted or "quota" in redacted:
-            return HinaaError(
-                "PROVIDER_RATE_LIMIT", "Gemini is busy right now.", 429, True
-            )
-        return HinaaError(
-            "PROVIDER_UNAVAILABLE", "Gemini is unavailable safely.", 502, True
-        )
+            return HinaaError("PROVIDER_RATE_LIMIT", "Gemini is busy right now.", 429, True)
+        return HinaaError("PROVIDER_UNAVAILABLE", "Gemini is unavailable safely.", 502, True)
 
 
 __all__ = ["GeminiLLMProvider"]

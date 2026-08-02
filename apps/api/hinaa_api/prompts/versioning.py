@@ -12,5 +12,7 @@ SCHEMA_CONTRACT_VERSION = "assistant-turn-plan-1.0"
 
 def fingerprint_layers(layer_payloads: list[dict[str, object]]) -> str:
     """Stable SHA-256 over normalized non-secret layer metadata and text."""
-    canonical = json.dumps(layer_payloads, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    canonical = json.dumps(
+        layer_payloads, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

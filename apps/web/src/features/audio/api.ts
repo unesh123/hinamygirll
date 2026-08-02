@@ -1,4 +1,26 @@
-export type ProviderMode = "mock" | "real";
+export type ProviderMode =
+  | "mock"
+  | "local"
+  | "groq"
+  | "openai"
+  | "custom"
+  | "real";
+
+export interface ProviderStatus {
+  id: string;
+  capabilities: string[];
+  state: "healthy" | "degraded" | "unavailable" | "disabled";
+  userMessage: string;
+}
+
+export async function fetchProviderStatuses(
+  signal?: AbortSignal,
+): Promise<ProviderStatus[]> {
+  const response = await fetch("/api/v1/providers", { signal });
+  if (!response.ok)
+    throw new Error(`Provider status failed (${response.status})`);
+  return (await response.json()) as ProviderStatus[];
+}
 
 interface TranscriptResult {
   text: string;

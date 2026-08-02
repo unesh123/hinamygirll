@@ -73,7 +73,10 @@ export class PerformanceScheduler {
     this.jawEnergy = Math.max(0, Math.min(1, energy));
   }
 
-  loadFromPlan(plan: AssistantTurnPlan, generation?: number): PerformanceSequence {
+  loadFromPlan(
+    plan: AssistantTurnPlan,
+    generation?: number,
+  ): PerformanceSequence {
     const gen = generation ?? this.generation;
     if (generation !== undefined && generation !== this.generation) {
       // Stale plan — ignore.
@@ -133,7 +136,8 @@ export class PerformanceScheduler {
     if (this.reducedMotion) {
       for (const cue of cues) {
         cue.intensity = Math.min(cue.intensity, 0.25);
-        if (cue.kind === "gesture") cue.durationMs = Math.min(cue.durationMs, 400);
+        if (cue.kind === "gesture")
+          cue.durationMs = Math.min(cue.durationMs, 400);
       }
     }
     const sequence = performanceSequenceSchema.parse({

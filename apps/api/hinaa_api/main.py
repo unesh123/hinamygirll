@@ -15,7 +15,7 @@ from .audio import validate_wav
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, TranscriptResponse, TurnRequest, VoiceProfile
-from .persistence import MemoryService, get_session_factory, init_db
+from .persistence import MemoryService, init_db
 from .persistence.auth import AuthContext, auth_dependency_factory
 from .persistence.db import reset_session_factory
 from .prompts import PROMPT_VERSION
@@ -47,9 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     realtime = RealtimeGateway(active_settings, service)
     reset_session_factory()
     memory_service = (
-        MemoryService(init_db(active_settings))
-        if active_settings.persistence_enabled
-        else None
+        MemoryService(init_db(active_settings)) if active_settings.persistence_enabled else None
     )
     require_auth = (
         auth_dependency_factory(active_settings, memory_service)
@@ -98,8 +96,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health/ready")
     async def readiness() -> JSONResponse:
-        missing = active_settings.missing_real_configuration()
-        ready = active_settings.provider_mode == "mock" or not missing
+        if active_settings.provider_mode == "openai":
+            missing = active_settings.missing_openai_voice_configuration()
+        elif active_settings.provider_mode == "custom":
+            missing = active_settings.missing_custom_voice_configuration()
+        elif active_settings.provider_mode == "real":
+            missing = active_settings.missing_real_configuration()
+        else:
+            missing = []
+        ready = not missing
         return JSONResponse(
             status_code=200 if ready else 503,
             content={
@@ -122,6 +127,84 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 userMessage="Deterministic local mock is ready.",
             ),
             ProviderStatus(
+                id="local",
+                capabilities=[
+                    "llm",
+                    "zero-credit",
+                    "offline",
+                    "stt" if active_settings.local_stt_configured else "stt-unconfigured",
+                    "tts" if active_settings.local_tts_configured else "tts-placeholder",
+                ],
+                state="healthy" if active_settings.local_stt_configured else "degraded",
+                userMessage=(
+                    "Zero-credit local text brain, STT command and TTS command are ready."
+                    if active_settings.local_stt_configured and active_settings.local_tts_configured
+                    else "Zero-credit local text brain and fast placeholder voice are ready; "
+                    "configure local STT/TTS commands for fully local microphone speech."
+                ),
+            ),
+            ProviderStatus(
+                id="groq",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "official",
+                    "stt:azure-speech"
+                    if active_settings.azure_configured
+                    else "stt-local-required",
+                    "tts:azure-speech"
+                    if active_settings.azure_configured
+                    else "tts-placeholder",
+                ],
+                state="healthy" if active_settings.groq_configured else "unavailable",
+                userMessage=(
+                    "Backend Groq configuration is present; Microsoft Speech will handle voice."
+                    if active_settings.groq_configured and active_settings.azure_configured
+                    else "Backend Groq configuration is present; no live call has been made."
+                    if active_settings.groq_configured
+                    else "Groq API key is not configured in the backend."
+                ),
+            ),
+            ProviderStatus(
+                id="openai",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "official",
+                    f"default-model:{active_settings.active_openai_model}",
+                    *[f"model:{model}" for model in active_settings.openai_allowed_models],
+                ],
+                state="healthy" if active_settings.openai_configured else "unavailable",
+                userMessage=(
+                    "Backend OpenAI configuration is present; no live call has been made. "
+                    f"Key source: {active_settings.active_openai_key_label}."
+                    if active_settings.openai_configured
+                    else "OpenAI API key is not configured in the backend."
+                ),
+            ),
+            ProviderStatus(
+                id="custom",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_custom_model}",
+                    *[f"model:{model}" for model in active_settings.custom_allowed_models],
+                ],
+                state="healthy" if active_settings.custom_configured else "unavailable",
+                userMessage=(
+                    "Custom model gateway configuration is present; no live call has been made."
+                    if active_settings.custom_configured
+                    else (
+                        "Custom model gateway needs OPENAI_CODEX_API_KEY "
+                        "and OPENAI_CODEX_BASE_URL."
+                    )
+                ),
+            ),
+            ProviderStatus(
                 id="azure-speech",
                 capabilities=["stt", "tts", "ne-NP", "pcm-wav"],
                 state="healthy" if active_settings.azure_configured else "unavailable",
@@ -133,7 +216,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             ProviderStatus(
                 id="gemini",
-                capabilities=["llm", "structured-turn-plan", "text-stream"],
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    f"default-model:{active_settings.gemini_model}",
+                    *[f"model:{model}" for model in active_settings.gemini_allowed_models],
+                ],
                 state="healthy" if active_settings.gemini_configured else "unavailable",
                 userMessage=(
                     "Backend configuration is present; no live call has been made."
@@ -160,8 +249,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         language: str = Form("ne-NP"),
         provider_mode: str = Form("mock"),
     ) -> TranscriptResponse:
-        if provider_mode not in {"mock", "real"}:
-            raise HinaaError("PROVIDER_MODE_INVALID", "Choose mock or real mode.", 422, False, True)
+        if provider_mode not in {"mock", "local", "groq", "openai", "custom", "real"}:
+            raise HinaaError(
+                "PROVIDER_MODE_INVALID",
+                "Choose mock, local, groq, openai, custom or real mode.",
+                422,
+                False,
+                True,
+            )
         if audio.content_type not in {"audio/wav", "audio/wave", "audio/x-wav"}:
             raise HinaaError("AUDIO_FORMAT_UNSUPPORTED", "Upload PCM WAV audio.", 415, False, True)
         data = await audio.read(active_settings.max_audio_bytes + 1)

@@ -50,13 +50,42 @@ def validate_wav(data: bytes, *, max_seconds: float) -> bytes:
 
 
 def synthesize_mock_wav(text: str) -> bytes:
-    duration = min(4.0, max(0.45, len(text) * 0.032))
+    return synthesize_placeholder_wav(text, voice_style="neutral")
+
+
+def pcm_to_wav(pcm: bytes) -> bytes:
+    output = io.BytesIO()
+    with wave.open(output, "wb") as target:
+        target.setnchannels(CHANNELS)
+        target.setsampwidth(SAMPLE_WIDTH)
+        target.setframerate(SAMPLE_RATE)
+        target.writeframes(pcm)
+    return output.getvalue()
+
+
+def synthesize_placeholder_wav(text: str, *, voice_style: str = "neutral") -> bytes:
+    """Fast offline placeholder voice with distinct Hinaa/Hiro timbre.
+
+    This is not intelligible TTS. It exists so animation/playback/latency paths
+    stay testable without cloud calls while real local engines are optional.
+    """
+    duration = min(4.8, max(0.45, len(text) * 0.034))
+    if voice_style == "hinaa":
+        base_hz, brightness, tremolo = 220.0, 0.34, 4.6
+    elif voice_style == "hiro":
+        base_hz, brightness, tremolo = 145.0, 0.22, 3.8
+    else:
+        base_hz, brightness, tremolo = 185.0, 0.28, 3.2
     frames = bytearray()
     for index in range(int(SAMPLE_RATE * duration)):
         time = index / SAMPLE_RATE
         envelope = min(1.0, time * 10, (duration - time) * 10)
-        syllable = 0.35 + 0.65 * abs(math.sin(time * math.pi * 3.2))
-        value = int(3100 * envelope * syllable * math.sin(2 * math.pi * 185 * time))
+        syllable = 0.34 + 0.66 * abs(math.sin(time * math.pi * tremolo))
+        vowel_sweep = 1 + 0.035 * math.sin(time * math.pi * 1.7)
+        fundamental = math.sin(2 * math.pi * base_hz * vowel_sweep * time)
+        harmonic = brightness * math.sin(2 * math.pi * base_hz * 2.01 * time)
+        breath = 0.08 * math.sin(2 * math.pi * 47 * time)
+        value = int(2900 * envelope * syllable * (fundamental + harmonic + breath))
         frames.extend(struct.pack("<h", value))
     output = io.BytesIO()
     with wave.open(output, "wb") as target:

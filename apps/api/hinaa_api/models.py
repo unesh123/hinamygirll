@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Language = Literal["ne-NP", "en-US", "hi-IN", "mixed"]
-ProviderMode = Literal["mock", "real"]
+ProviderMode = Literal["mock", "local", "groq", "openai", "custom", "real"]
 CompanionId = Literal["hinaa", "hiro"]
 
 
@@ -115,6 +115,10 @@ class TurnRequest(StrictModel):
     companionId: CompanionId = "hinaa"
     language: Language = "mixed"
     providerMode: ProviderMode = "mock"
+    brainModel: Annotated[
+        str | None,
+        Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
+    ] = None
     personality: PersonalityRequest | None = None
 
 

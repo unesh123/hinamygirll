@@ -30,6 +30,10 @@ class ClientHello(StrictModel):
     language: Language = "mixed"
     languageMode: Literal["fixed-ne-NP", "auto"] = "fixed-ne-NP"
     calibration: Literal["natural", "soft", "lively"] = "natural"
+    brainModel: Annotated[
+        str | None,
+        Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
+    ] = None
 
 
 class FrameDescriptor(StrictModel):
@@ -73,13 +77,24 @@ def _has_speech(pcm: bytes) -> bool:
     return energy**0.5 >= 220
 
 
-def segment_phrases(text: str, limit: int = 180) -> list[str]:
-    chunks = [part.strip() for part in re.split(r"(?<=[.!?।])\s+", text) if part.strip()]
+def segment_phrases(text: str, limit: int = 160) -> list[str]:
+    """Split spoken text into TTS-friendly phrases without breaking technical tokens."""
+    # Strip markdown markers only; preserve underscores in env vars / identifiers.
+    cleaned = re.sub(r"[`*#>]+", " ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return []
+    chunks = [part.strip() for part in re.split(r"(?<=[.!?।…])\s+", cleaned) if part.strip()]
     result: list[str] = []
-    for chunk in chunks or [text.strip()]:
+    for chunk in chunks or [cleaned]:
         while len(chunk) > limit:
-            split_at = chunk.rfind(" ", 0, limit)
-            split_at = split_at if split_at > 20 else limit
+            window = chunk[:limit]
+            # Prefer whitespace; avoid cutting mid URL/path/env/decimal when possible.
+            split_at = window.rfind(" ")
+            if split_at <= 20 or re.search(
+                r"(https?:\/\/\S*|[A-Za-z]:\\|\.[0-9]+|[A-Z_]{2,}=)$", window[:split_at]
+            ):
+                split_at = limit
             result.append(chunk[:split_at].strip())
             chunk = chunk[split_at:].strip()
         if chunk:
@@ -173,9 +188,13 @@ class RealtimeGateway:
             session.audio.clear()
             session.speech_detected = False
             session.partial_sent = False
-            if session.hello.providerMode == "real":
+            if session.hello.providerMode in {"real", "openai", "custom"} or (
+                session.hello.providerMode == "groq" and self.settings.azure_configured
+            ):
                 session.live_stt = await self.service.start_live_stt(
-                    session.hello.language, session.hello.languageMode
+                    session.hello.language,
+                    session.hello.languageMode,
+                    session.hello.providerMode,
                 )
             await self._send(websocket, session, "audio.started", {})
             return
@@ -256,9 +275,22 @@ class RealtimeGateway:
             stt_started = perf_counter()
             if session.hello.providerMode == "mock":
                 transcript = (
-                    commit.mockTranscript or "Namaste HINAA, aaja ko assignment explain gara na"
+                    commit.mockTranscript
+                    or "Mock microphone demo transcript. Real speech recognition is not active."
                 )
                 stt_provider = "mock-stt-live-v1"
+            elif session.hello.providerMode in {"local", "groq"} and session.live_stt is None:
+                if not commit.mockTranscript:
+                    raise HinaaError(
+                        "LOCAL_STT_UNAVAILABLE",
+                        "Local microphone recognition is not installed yet. "
+                        "Use text, mock voice mode, or configure HINAA_LOCAL_STT_COMMAND.",
+                        503,
+                        retryable=False,
+                        user_action_required=True,
+                    )
+                transcript = commit.mockTranscript
+                stt_provider = f"{session.hello.providerMode}-stt-scripted-v1"
             else:
                 if session.live_stt is None:
                     raise HinaaError(
@@ -300,6 +332,7 @@ class RealtimeGateway:
                     companionId=session.hello.companionId,
                     language=session.hello.language,
                     providerMode=session.hello.providerMode,
+                    brainModel=session.hello.brainModel,
                 ),
                 emit_delta,
             )
@@ -311,14 +344,30 @@ class RealtimeGateway:
                 "assistant.plan",
                 {"plan": plan_result.value.model_dump(), "provider": plan_result.provider},
             )
+            from .voice_performance import plan_voice_performance, speech_text_for_tts
+
             voice = resolve_voice(
                 session.hello.companionId,
                 self.settings.azure_speech_female_voice,
                 self.settings.azure_speech_male_voice,
             )
             tuning = resolve_calibration(session.hello.calibration)
+            voice_plan = plan_voice_performance(
+                user_text=transcript,
+                reply_text=plan_result.value.spokenText,
+                depth="conversational",
+            )
+            # Blend session calibration with bounded voice-performance plan.
+            effective_rate = max(0.85, min(1.15, tuning.rate * voice_plan.pace))
+            effective_pitch = max(
+                -2.0, min(2.0, tuning.pitch_semitones + voice_plan.pitch_semitones)
+            )
+            effective_volume = max(0.75, min(1.0, tuning.volume * voice_plan.volume))
             tts_total = 0
-            phrases = segment_phrases(plan_result.value.spokenText)
+            spoken = speech_text_for_tts(plan_result.value.spokenText)
+            phrases = segment_phrases(spoken)
+            # Bound queue: avoid unbounded TTS backlog on long replies.
+            phrases = phrases[:8]
             for index, phrase in enumerate(phrases):
                 tts_started = perf_counter()
                 speech = await self.service.synthesize_text(
@@ -326,6 +375,9 @@ class RealtimeGateway:
                     session.hello.companionId,
                     session.hello.providerMode,
                     session.hello.calibration,
+                    rate=effective_rate,
+                    pitch_semitones=effective_pitch,
+                    volume=effective_volume,
                 )
                 tts_ms = int((perf_counter() - tts_started) * 1000)
                 tts_total += tts_ms
@@ -342,12 +394,17 @@ class RealtimeGateway:
                         "provider": speech.provider,
                         "requestedVoice": voice,
                         "actualVoice": voice
-                        if session.hello.providerMode == "real"
-                        else "mock-tone",
+                        if session.hello.providerMode in {"real", "openai", "custom"}
+                        or (
+                            session.hello.providerMode == "groq"
+                            and self.settings.azure_configured
+                        )
+                        else f"{session.hello.providerMode}-tone",
                         "calibration": session.hello.calibration,
-                        "rate": tuning.rate,
-                        "pitchSemitones": tuning.pitch_semitones,
-                        "volume": tuning.volume,
+                        "voiceMode": voice_plan.mode,
+                        "rate": effective_rate,
+                        "pitchSemitones": effective_pitch,
+                        "volume": effective_volume,
                         "latencyMs": tts_ms,
                     },
                 )

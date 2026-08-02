@@ -4,7 +4,7 @@
 
 **Product names:** Project folder `HINAMYGIRL`. Product **HINAA**. Companions: **Hinaa** (female) and **Hiro** (male). User often says “Hina” = Hinaa companion + whole system.
 
-**Date context:** Phase 0–3 offline work complete as of 2026-07-30. Branch for Phase 3: `phase/3-live-streaming`. Phase 2 checkpoint: `d8653ef`. Phase 3 often uncommitted. Do not begin Phase 4, commit, or push unless the owner explicitly asks.
+**Date context:** Local checkpoint `24f7071` on `phase/3-live-streaming`. Hands-free local-live offline stack is in progress on the working tree (turn-taking, phrase TTS, themes, mobile HTTPS script). Real Gemini/Azure evaluation remains owner-gated. Do not commit/push/provision UpCloud unless the owner explicitly asks.
 
 ---
 
@@ -48,6 +48,10 @@ A high-level advanced Hina means:
 | Session memory (last N turns, in-process RAM) | ✅ ephemeral |
 | Phase 3 WebSocket `/v1/realtime` protocol 1.0 | ✅ offline tested |
 | AudioWorklet PCM, local VAD, barge-in by generation | ✅ |
+| Hands-free TurnTakingController + pause/resume | ✅ offline |
+| Phrase streaming + VoicePerformancePlan (Azure-bounded) | ✅ offline |
+| Procedural themes (soft/futuristic/expressive/minimal/night) | ✅ offline |
+| Mobile local HTTPS/LAN script + docs/48 | ✅ prepared |
 | Procedural CSS avatar (breath/blink/gaze/jaw energy) | ✅ |
 | Automated tests (API, contracts, Vitest, Playwright) | ✅ |
 
@@ -68,7 +72,7 @@ A high-level advanced Hina means:
 | Eval suite / Nepali quality benchmarks with real calls | ❌ Phase 6 | 0 live provider calls claimed in Phase 3 review |
 | Phase 3 git commit / push | ⚠️ | Owner decision |
 
-**Bottom line:** Pipeline is real. Tier A layered conversation brain is now wired offline (distinct companions, multilingual policy, bounded personality, schema fallback). Durable memory and VRM presence are still missing. Real Gemini/Azure conversational quality remains owner-gated and unmeasured.
+**Bottom line:** Hands-free local-live loop is implemented offline (mic → VAD/turn-taking → Azure STT path → Gemini stream → phrase TTS → procedural avatar). Mock cannot silently answer a real-mode session. Durable memory is scaffolded; VRM remains quarantined. Real Gemini/Azure conversational quality remains owner-gated and unmeasured.
 
 ---
 
@@ -303,9 +307,18 @@ python scripts/validate_blueprint.py
 # Phase 3 mock/realtime UI
 .\scripts\start-phase3.ps1
 # → http://127.0.0.1:5173/
+
+# Opt-in phone testing on trusted LAN (not production)
+.\scripts\start-mobile-local.ps1 -Lan
+# Stop: .\scripts\start-mobile-local.ps1 -Stop
+
+# Owner-gated tiny real provider eval (set env in THIS shell first)
+$env:HINAA_ALLOW_PAID_PROVIDER_TEST="1"
+$env:HINAA_PAID_PROVIDER_TEST_CONFIRM="I_UNDERSTAND_THIS_MAY_COST_MONEY"
+apps\api\.venv\Scripts\python.exe scripts\run_tier_a_provider_gate.py --max-turns 2
 ```
 
-Mock needs no keys. Real providers need `apps/api/.env.local` and **explicit owner approval** for paid streaming tests.
+Mock needs no keys. Real providers need `apps/api/.env.local` and **explicit owner approval** for paid streaming tests. See `docs/42`–`50`, `docs/28`.
 
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in capped real-provider validation for Tier A conversation brain.
 
-DISABLED BY DEFAULT. This script can incur Azure Speech and Gemini charges.
+DISABLED BY DEFAULT. This script can incur Gemini charges (Azure is NOT called).
 
 Required explicit confirmation:
   set HINAA_ALLOW_PAID_PROVIDER_TEST=1
@@ -11,6 +11,14 @@ Then run from repository root with apps/api/.env.local configured:
   apps\\api\\.venv\\Scripts\\python.exe scripts\\run_tier_a_provider_gate.py --max-turns 2
 
 It never prints secret keys. It only reports observable timings and schema validity.
+
+Coverage of this gate (important):
+  - Gemini create_live_plan via generate_content_stream (text/plain)
+  - Server-side AssistantTurnPlan construction after text completes
+  - NOT Azure STT
+  - NOT Azure TTS
+  - NOT WebSocket /v1/realtime
+  - NOT REST structured JSON AssistantTurnPlan generation
 """
 
 from __future__ import annotations
@@ -62,13 +70,16 @@ async def _run(max_turns: int) -> int:
         ),
     ][: max(1, min(max_turns, 2))]
 
-    print("Tier A paid provider gate starting (capped at 2 turns).")
-    print(f"model={settings.gemini_model}")
+    print("Tier A paid provider gate started with a maximum of two turns.")
+    print("Configured model:")
+    print(settings.gemini_model)
+    print("Path: ConversationService.create_live_plan → Gemini generate_content_stream")
+    print("Azure STT/TTS: not exercised by this gate")
     for index, text in enumerate(prompts, start=1):
-        started = perf_counter()
+        wall_started = perf_counter()
         first_delta_ms: int | None = None
 
-        async def emit(delta: str, _started=started) -> None:
+        async def emit(delta: str, _started=wall_started) -> None:
             nonlocal first_delta_ms
             if first_delta_ms is None:
                 first_delta_ms = int((perf_counter() - _started) * 1000)
@@ -81,7 +92,7 @@ async def _run(max_turns: int) -> int:
             providerMode="real",
         )
         result = await service.create_live_plan(request, emit)
-        total_ms = int((perf_counter() - started) * 1000)
+        total_ms = int((perf_counter() - wall_started) * 1000)
         # Do not print full spoken content (may contain private phrasing).
         print(
             {
@@ -98,6 +109,11 @@ async def _run(max_turns: int) -> int:
                 "gesture": result.value.performance.gesture,
                 "toolRequests": result.value.toolRequests,
                 "language": result.value.language,
+                "stagesMs": result.stages,
+                "firstDeltaMeaning": (
+                    "wall-clock ms until first emit_delta callback from a non-empty "
+                    "sanitized stream chunk (not plan validation)"
+                ),
             }
         )
     print("Done. Review timings and language quality manually. No commit performed.")

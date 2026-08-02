@@ -19,13 +19,14 @@ export const companionProfiles: Record<
   hinaa: {
     name: "Hinaa",
     label: "Warm & playful",
-    greeting: "Namaste! Ma Hinaa ko mock mode ho. K kura test garne?",
+    greeting:
+      "Namaste! Hinaa ready cha. Real voice mode ready bhaye Talk to Hinaa थिच्नु, natra text bata test garna milcha.",
     accent: "rose",
   },
   hiro: {
     name: "Hiro",
     label: "Calm & helpful",
-    greeting: "Namaste! Ma Hiro ko mock mode ho. Ke test garau, bro?",
+    greeting: "Namaste! Hiro ready cha. Talk or type—ma help garna ready chu.",
     accent: "indigo",
   },
 };

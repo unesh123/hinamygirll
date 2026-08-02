@@ -89,7 +89,7 @@ class MockSTTProvider:
 
     async def transcribe(self, pcm: bytes, language: str) -> ProviderResult[str]:
         started = perf_counter()
-        text = "Namaste HINAA, aaja ko assignment explain gara na"
+        text = "Mock microphone demo transcript. Real speech recognition is not active."
         return ProviderResult(text, self.id, int((perf_counter() - started) * 1000))
 
 

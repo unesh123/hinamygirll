@@ -56,7 +56,9 @@ async def test_mock_companions_differ_and_stay_schema_valid(settings: Settings) 
     assert hinaa.value.displayText != hiro.value.displayText
     assert hinaa.value.toolRequests == []
     assert hiro.value.toolRequests == []
-    assert "yahi chu" in hinaa.value.displayText.lower() or "suru" in hinaa.value.displayText.lower()
+    assert (
+        "yahi chu" in hinaa.value.displayText.lower() or "suru" in hinaa.value.displayText.lower()
+    )
 
 
 @pytest.mark.asyncio
@@ -95,7 +97,13 @@ async def test_injection_corpus_mock_redirect(settings: Settings) -> None:
         )
         result = await provider.create_plan(text, "hinaa", "en-US", (), prompt)
         lowered = result.value.displayText.lower()
-        assert "api key" not in lowered or "won't" in lowered or "share gardina" in lowered or "artificial" in lowered or "ai assistant" in lowered
+        assert (
+            "api key" not in lowered
+            or "won't" in lowered
+            or "share gardina" in lowered
+            or "artificial" in lowered
+            or "ai assistant" in lowered
+        )
         assert result.value.toolRequests == []
         assert "sk-" not in lowered
 
@@ -127,7 +135,13 @@ def test_optional_personality_request_is_backward_compatible(client: TestClient)
             "companionId": "hinaa",
             "language": "en-US",
             "providerMode": "mock",
-            "personality": {"affection": 0.8, "sass": 0.1, "energy": 0.5, "humor": 0.2, "proactivity": 0.4},
+            "personality": {
+                "affection": 0.8,
+                "sass": 0.1,
+                "energy": 0.5,
+                "humor": 0.2,
+                "proactivity": 0.4,
+            },
         },
     )
     assert response.status_code == 200
@@ -163,4 +177,4 @@ def test_build_turn_prompt_includes_history_delimiters(settings: Settings) -> No
     )
     assert prompt.interaction_mode == "realtime"
     assert "<conversation_history" in prompt.user_contents
-    assert "trusted=\"false\"" in prompt.user_contents
+    assert 'trusted="false"' in prompt.user_contents

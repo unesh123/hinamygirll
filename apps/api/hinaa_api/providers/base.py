@@ -13,6 +13,8 @@ class ProviderResult[T]:
     value: T
     provider: str
     latency_ms: int
+    # Sanitized ms-from-start stages only; never prompt/secret content.
+    stages: dict[str, int] | None = None
 
 
 class STTProvider(Protocol):

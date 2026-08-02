@@ -115,9 +115,7 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
     layers.sort(key=lambda layer: layer.priority)
 
     system_parts = [
-        layer.text
-        for layer in layers
-        if layer.trusted and layer.name not in {"approved_memory"}
+        layer.text for layer in layers if layer.trusted and layer.name not in {"approved_memory"}
     ]
     # Keep memory in system as application-trusted application state, but after policy.
     memory_layer = next(layer for layer in layers if layer.name == "approved_memory")

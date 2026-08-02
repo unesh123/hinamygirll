@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { CompanionId, CompanionState } from "../companion/types";
 import { ProceduralAvatarEngine } from "./avatarEngine";
+import type { AvatarThemeId } from "./themes";
 import { usePerformanceClock } from "./usePerformanceClock";
 
 interface ProceduralAvatarProps {
@@ -11,16 +12,19 @@ interface ProceduralAvatarProps {
   reducedMotion: boolean;
   textOnly: boolean;
   jawEnergy?: number;
+  theme?: AvatarThemeId;
+  lowPerformance?: boolean;
 }
 
 const engine = new ProceduralAvatarEngine();
 
 export function ProceduralAvatar(props: ProceduralAvatarProps) {
   const frame = engine.getFrame(props);
+  const theme = props.theme ?? "soft";
   const performance = usePerformanceClock({
     plan: frame.plan,
     jawEnergy: frame.jawEnergy,
-    reducedMotion: frame.reducedMotion,
+    reducedMotion: frame.reducedMotion || Boolean(props.lowPerformance),
     interrupted: frame.state === "interrupted",
   });
   const emotion =
@@ -31,6 +35,9 @@ export function ProceduralAvatar(props: ProceduralAvatarProps) {
     performance.gesture !== "none"
       ? performance.gesture
       : (frame.plan?.performance.gesture ?? "none");
+  // Smooth jaw: attack/release style damping with noise floor.
+  const rawJaw = performance.jawEnergy;
+  const jaw = rawJaw < 0.04 ? 0 : Math.min(1, rawJaw * 1.15);
 
   if (frame.textOnly) {
     return (
@@ -46,12 +53,13 @@ export function ProceduralAvatar(props: ProceduralAvatarProps) {
 
   return (
     <div
-      className={`procedural-stage accent-${frame.companionId} state-${frame.state} emotion-${emotion} gesture-${gesture}`}
-      style={{ "--jaw-energy": performance.jawEnergy } as CSSProperties}
+      className={`procedural-stage theme-${theme} accent-${frame.companionId} state-${frame.state} emotion-${emotion} gesture-${gesture}${props.lowPerformance ? " low-perf" : ""}`}
+      style={{ "--jaw-energy": jaw } as CSSProperties}
       data-engine={engine.id}
       data-state={frame.state}
       data-emotion={emotion}
       data-gesture={gesture}
+      data-theme={theme}
       data-lip-sync={performance.lipSyncLevel}
       data-perf-generation={String(performance.generation)}
       data-reduced-motion={String(frame.reducedMotion)}

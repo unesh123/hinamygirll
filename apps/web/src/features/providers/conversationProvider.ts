@@ -11,11 +11,12 @@ export interface ConversationRequest {
   text: string;
   companionId: CompanionId;
   signal: AbortSignal;
+  brainModel?: string;
 }
 
 export interface ConversationProvider {
   readonly id: string;
-  readonly mode: "mock" | "real";
+  readonly mode: "mock" | "local" | "groq" | "openai" | "custom" | "real";
   streamTurn(
     request: ConversationRequest,
   ): AsyncGenerator<ConversationProviderEvent>;

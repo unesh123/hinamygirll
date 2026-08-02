@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+import type { ProviderMode } from "../audio/api";
 import { BackendConversationProvider } from "../providers/backendConversationProvider";
 import { MockConversationProvider } from "../providers/mockConversationProvider";
 import {
@@ -23,8 +24,10 @@ export interface CompanionController {
   partialTranscript: string;
   streamingText: string;
   activePlan?: AssistantTurnPlan;
-  providerMode: "mock" | "real";
-  setProviderMode: (mode: "mock" | "real") => void;
+  providerMode: ProviderMode;
+  setProviderMode: (mode: ProviderMode) => void;
+  brainModel: string;
+  setBrainModel: (model: string) => void;
   sendText: (
     text: string,
     options?: { forceBackend?: boolean },
@@ -55,7 +58,8 @@ export function useCompanionController(): CompanionController {
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();
-  const [providerMode, setProviderMode] = useState<"mock" | "real">("mock");
+  const [providerMode, setProviderMode] = useState<ProviderMode>("mock");
+  const [brainModel, setBrainModel] = useState("gpt-5-mini");
   const provider = useRef(new MockConversationProvider());
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
@@ -98,13 +102,14 @@ export function useCompanionController(): CompanionController {
         let completedPlan: AssistantTurnPlan | undefined;
         let providerLatencyMs: number | undefined;
         const selectedProvider =
-          providerMode === "real" || options?.forceBackend
+          providerMode !== "mock" || options?.forceBackend
             ? new BackendConversationProvider(providerMode)
             : provider.current;
         for await (const event of selectedProvider.streamTurn({
           text,
           companionId,
           signal: abortController.signal,
+          brainModel,
         })) {
           if (event.type === "thinking") {
             setState("thinking");
@@ -137,6 +142,10 @@ export function useCompanionController(): CompanionController {
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError")
           return undefined;
+        const message = error instanceof Error ? error.message : "";
+        const friendly = message.includes("PROVIDER_RATE_LIMIT")
+          ? "The selected brain key/model is rate limited. Switch the Brain model, wait a moment, or use the Codex key source."
+          : `Response failed safely. ${message} Try another brain model or text mode.`;
         setStreamingText("");
         setState("error");
         setMessages((current) => [
@@ -144,7 +153,7 @@ export function useCompanionController(): CompanionController {
           {
             id: createId(),
             role: "assistant",
-            text: `Response failed safely. ${error instanceof Error ? error.message : ""} Try mock or text mode.`,
+            text: friendly,
           },
         ]);
         return undefined;
@@ -153,7 +162,7 @@ export function useCompanionController(): CompanionController {
           currentAbort.current = undefined;
       }
     },
-    [clearTimers, companionId, providerMode],
+    [brainModel, clearTimers, companionId, providerMode],
   );
 
   const startMockListening = useCallback(() => {
@@ -162,13 +171,17 @@ export function useCompanionController(): CompanionController {
     setStreamingText("");
     setActivePlan(undefined);
     setState("listening");
-    setPartialTranscript("Aaja ko…");
+    setPartialTranscript("Mock demo…");
     timers.current.push(
-      window.setTimeout(() => setPartialTranscript("Aaja ko assignment…"), 320),
+      window.setTimeout(
+        () => setPartialTranscript("Mock microphone demo…"),
+        320,
+      ),
     );
     timers.current.push(
       window.setTimeout(() => {
-        const finalText = "Aaja ko assignment malai explain gardeu na";
+        const finalText =
+          "Mock microphone demo transcript. Real speech recognition is not active.";
         setPartialTranscript(finalText);
         void sendText(finalText);
       }, 820),
@@ -242,6 +255,8 @@ export function useCompanionController(): CompanionController {
     activePlan,
     providerMode,
     setProviderMode,
+    brainModel,
+    setBrainModel,
     sendText,
     startMockListening,
     beginListening,
