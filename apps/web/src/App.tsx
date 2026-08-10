@@ -85,6 +85,7 @@ export default function App() {
   const [actionChips, setActionChips] = useState<ActionChip[]>([]);
   const [contextSources] = useState<any[]>([]);
   const [avatarMode, setAvatarMode] = useState<PresenceMode>("portrait");
+  const [avatarModel, setAvatarModel] = useState("/models/model_5447.vrm");
 
   const prevMessageCount = useRef(0);
   const routing = useProviderRouting(settings.provider, providers);
@@ -188,15 +189,34 @@ export default function App() {
 
           {/* Center: Avatar LEFT, Chat RIGHT */}
           <div className="layout-body">
-            {/* Left: Avatar */}
+            {/* Left: Avatar + Model Switcher */}
             <div className="avatar-pane">
               <AvatarPresence
                 mode={avatarMode}
                 state={controller.state}
                 jawEnergy={playback.jawEnergy}
-                modelUrl="/models/hinaa.vrm"
+                speakingRef={playback.playingRef}
+                modelUrl={avatarModel}
                 onModeChange={setAvatarMode}
               />
+              {/* VRM Model Switcher */}
+              <div className="vrm-switcher" role="group" aria-label="Switch 3D model">
+                {([
+                  { url: "/models/model_5447.vrm", label: "Hinaa A" },
+                  { url: "/models/AvatarSample_E.vrm", label: "Hinaa B" },
+                  { url: "/models/hinaa.vrm", label: "Hinaa C" },
+                ] as { url: string; label: string }[]).map((m) => (
+                  <button
+                    key={m.url}
+                    type="button"
+                    className={`vrm-pill${avatarModel === m.url ? " vrm-pill--active" : ""}`}
+                    onClick={() => setAvatarModel(m.url)}
+                    title={m.label}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Right: Chat */}
