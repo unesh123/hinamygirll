@@ -19,14 +19,13 @@ import type { CompanionState } from "../../features/companion/types";
 
 export type PresenceMode = "portrait" | "closeup" | "full" | "hidden";
 
-/* ─── Camera presets ───────────────────────────────────────
- * Portrait: framed on face — camera high, target at face level.
- * Full: whole body head to toe.
- * Closeup: tight face shot.
+/* ─── Camera presets ─────────────────────────────────────
+ * Universal settings that work across all 3 VRM models.
+ * Y=1.38 is roughly mid-face for both short and tall models.
  */
 const CAMERAS: Record<PresenceMode, { pos: [number,number,number]; target: [number,number,number]; fov: number }> = {
-  closeup:  { pos: [0, 1.62, 0.60], target: [0, 1.60, 0], fov: 22 },   // tight face
-  portrait: { pos: [0, 1.58, 1.20], target: [0, 1.52, 0], fov: 28 },   // face + chest
+  closeup:  { pos: [0, 1.42, 0.65], target: [0, 1.38, 0], fov: 24 },   // tight face
+  portrait: { pos: [0, 1.42, 1.15], target: [0, 1.35, 0], fov: 30 },   // face + upper body
   full:     { pos: [0, 0.85, 2.20], target: [0, 0.75, 0], fov: 44 },   // head to toe
   hidden:   { pos: [0, 1.0,  3.0],  target: [0, 1.0,  0], fov: 35 },
 };
