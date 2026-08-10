@@ -133,7 +133,8 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
       if (isVrm0) {
         try { VRMUtils.rotateVRM0(v); } catch { v.scene.rotation.y = Math.PI; }
       } else {
-        v.scene.rotation.y = 0; // VRM 1.0: faces +Z by default in three-vrm v3
+        // Hinaa C (VRM 1.0) was exported backwards (-Z), so we rotate 180 degrees.
+        v.scene.rotation.y = modelUrl.includes("hinaa.vrm") ? Math.PI : 0;
       }
 
       // Disable auto look-at

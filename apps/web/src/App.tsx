@@ -212,8 +212,8 @@ export default function App() {
               <AvatarPresence
                 mode={avatarMode}
                 state={controller.state}
-                jawEnergy={live.jawEnergy}
-                speakingRef={live.speakingRef}
+                jawEnergy={playback.jawEnergy}
+                speakingRef={playback.playingRef}
                 modelUrl={avatarModel}
                 onModeChange={setAvatarMode}
                 faceExpressions={faceActive ? faceTrack.expressions : null}
