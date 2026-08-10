@@ -134,7 +134,7 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
         try { VRMUtils.rotateVRM0(v); } catch { v.scene.rotation.y = Math.PI; }
       } else {
         // Hinaa C (VRM 1.0) was exported backwards (-Z), so we rotate 180 degrees.
-        v.scene.rotation.y = modelUrl.includes("hinaa.vrm") ? Math.PI : 0;
+        v.scene.rotation.y = url.includes("hinaa.vrm") ? Math.PI : 0;
       }
 
       // Disable auto look-at
