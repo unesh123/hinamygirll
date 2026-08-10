@@ -302,9 +302,9 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
         )
       );
 
-      for (const req of lastMessage.plan.toolRequests) {
+      for (const req of lastMessage.plan!.toolRequests) {
         try {
-          const res = await fetch("http://localhost:8000/v1/tools/execute", {
+          const res = await fetch("/api/v1/tools/execute", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(req),

@@ -2,42 +2,46 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
-describe("HINAA Gemini-mobile stage", () => {
+describe("HINAA workspace shell", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("renders the main stage with brand and status", () => {
+  it("renders the shell with brand and live status", () => {
     render(<App />);
-    expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getByText("HINAA")).toBeInTheDocument();
-    // Header status pill shows the live state…
+    expect(screen.getAllByText("HINAA").length).toBeGreaterThan(0);
     expect(document.querySelector(".header-status")).toHaveTextContent(
       "Ready",
     );
-    // …and the companion profile card carries identity + same state.
-    const card = document.querySelector(".companion-profile-card");
-    expect(card).not.toBeNull();
-    expect(card).toHaveTextContent("Hinaa");
-    expect(card).toHaveTextContent("Ready");
+  });
+
+  it("shows the animated welcome greeting on first load", () => {
+    render(<App />);
+    expect(screen.getByText(/Hello, Unesh/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/What would you like to do\?/i),
+    ).toBeInTheDocument();
   });
 
   it("does NOT show any Start/Talk/Tap buttons", () => {
     render(<App />);
-    expect(screen.queryByRole("button", { name: /Start Live Session/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Tap to talk/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Talk to Hinaa/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Start Live Session/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Tap to talk/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Talk to Hinaa/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("shows the text composer fallback when live voice is not active", () => {
+  it("shows the composer with mic and send controls", () => {
     render(<App />);
-    expect(screen.getByLabelText("Type a message")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Message Hinaa/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Start microphone")).toBeInTheDocument();
+    expect(screen.getByLabelText("Send message")).toBeInTheDocument();
   });
 
-  it("shows tap hint when idle", () => {
-    render(<App />);
-    expect(screen.getByText(/Tap anywhere to start talking/i)).toBeInTheDocument();
-  });
-
-  it("has settings trigger accessible", () => {
+  it("has header banner with settings trigger accessible", () => {
     render(<App />);
     expect(screen.getByRole("banner")).toBeInTheDocument();
   });
@@ -45,14 +49,12 @@ describe("HINAA Gemini-mobile stage", () => {
   it("system errors do not appear in the conversation", () => {
     render(<App />);
     expect(screen.queryByText(/safety limit/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/microphone frame was lost/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/microphone frame was lost/i),
+    ).not.toBeInTheDocument();
   });
 
   it.todo(
-    "Auto-starts listening on mount — requires browser mic permission mock"
-  );
-
-  it.todo(
-    "Tap anywhere restarts session after error — requires mic permission mock"
+    "Auto-starts listening on mount — requires browser mic permission mock",
   );
 });

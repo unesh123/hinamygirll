@@ -9,10 +9,11 @@ import {
   Search, Image, Globe, Code, Music, Mail, Calendar,
   FileText, Brain, Sparkles, Lightbulb, Mic, Wrench,
 } from "lucide-react";
+import type { IconComponent } from "../../shared/iconType";
 
 export interface Suggestion {
   id: string;
-  icon: React.ElementType;
+  icon: IconComponent;
   label: string;
   description: string;
   color: string;

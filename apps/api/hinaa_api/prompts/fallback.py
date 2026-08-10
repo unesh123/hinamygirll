@@ -74,5 +74,5 @@ def schema_repair_contents(invalid_raw: str) -> str:
 def validate_or_none(raw: str) -> AssistantTurnPlan | None:
     try:
         return parse_turn_plan(raw)
-    except json.JSONDecodeError, ValidationError, ValueError:
+    except (json.JSONDecodeError, ValidationError, ValueError):
         return None

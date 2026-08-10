@@ -75,7 +75,10 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     avatarStyle: "auto",
   },
   provider: {
-    preferredMode: "cx-gateway",
+    // "auto" picks the best healthy provider (real → openai → custom →
+    // agent-router → local → mock). A hard-coded paid gateway default gave
+    // fresh installs an instant "Connection Issue" — never do that.
+    preferredMode: "auto",
     preferredModelByProvider: {},
   },
 };

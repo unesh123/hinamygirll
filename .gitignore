@@ -69,3 +69,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Leaked runtime/debug artifacts
+persona_check_output.txt

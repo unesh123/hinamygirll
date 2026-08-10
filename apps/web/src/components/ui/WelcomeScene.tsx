@@ -1,9 +1,9 @@
-import React from 'react';
 import { motion } from 'framer-motion';
 import { Search, Sparkles, Briefcase, Mic } from 'lucide-react';
+import type { IconComponent } from '../../shared/iconType';
 
 interface WelcomeCard {
-  icon: React.ElementType;
+  icon: IconComponent;
   title: string;
   desc: string;
   action: string;

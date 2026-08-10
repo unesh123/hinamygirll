@@ -107,7 +107,6 @@ export const KnowledgeConvergence: React.FC<KnowledgeConvergenceProps> = ({
   showBadge = true,
   sources = defaultSourcesList,
   dotColor = "#0284c7", // Skyblue Theme Accent
-  glowIntensity = "high",
   onTargetClick,
 }) => {
   const [hoveredId, setHoveredId] = useState<string | null>(null);

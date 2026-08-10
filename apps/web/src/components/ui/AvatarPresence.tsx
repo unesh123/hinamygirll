@@ -3,12 +3,13 @@
  * Head stays stable (no spinning). Arms down. Fast & smooth.
  */
 
-import React, { Suspense, useState, useRef, useEffect, useMemo } from "react";
+import type * as React from "react";
+import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows } from "@react-three/drei";
 import { motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRM, VRMExpressionPresetName } from "@pixiv/three-vrm";
+import { VRMLoaderPlugin, VRM, VRMUtils, VRMExpressionPresetName } from "@pixiv/three-vrm";
 import * as THREE from "three";
 import { Maximize2 } from "lucide-react";
 import type { CompanionState } from "../../features/companion/types";
@@ -16,30 +17,66 @@ import type { CompanionState } from "../../features/companion/types";
 export type PresenceMode = "closeup" | "portrait" | "full" | "hidden";
 
 /* ─── Relaxed idle: arms down, elbows bent ────────────── */
+/*
+ * Angles are for three-vrm NORMALIZED bones (T-pose baseline, model facing
+ * +Z). The left arm extends +X, so a NEGATIVE Z rotation lowers it toward
+ * the body; the right arm mirrors with a positive Z rotation. (The previous
+ * signs were inverted, which raised both hands to the face.)
+ */
 const RELAXED_IDLE: Record<string, [number, number, number]> = {
-  leftUpperArm:  [0.1, -0.3, 1.2],
-  leftLowerArm:  [0, 0, 0.15],
-  leftHand:      [-0.2, 0, 0.1],
-  rightUpperArm: [0.1, 0.3, -1.2],
-  rightLowerArm: [0, 0, -0.15],
-  rightHand:     [-0.2, 0, -0.1],
+  leftUpperArm:  [0.05, 0, -1.15],
+  leftLowerArm:  [0, 0, -0.25],
+  leftHand:      [0, 0, -0.08],
+  rightUpperArm: [0.05, 0, 1.15],
+  rightLowerArm: [0, 0, 0.25],
+  rightHand:     [0, 0, 0.08],
 };
 
-/* ─── Camera per mode ──────────────────────────────────── */
-const CAMERAS: Record<PresenceMode, { pos: [number, number, number]; target: [number, number, number]; fov: number }> = {
-  closeup:  { pos: [0, 1.6, 0.65], target: [0, 1.55, 0], fov: 24 },
-  portrait: { pos: [0, 1.35, 1.4], target: [0, 1.3, 0], fov: 28 },
-  full:     { pos: [0, 0.8, 2.2], target: [0, 0.8, 0], fov: 32 },
-  hidden:   { pos: [0, 0.5, 3.0], target: [0, 0.5, 0], fov: 35 },
-};
+/* ─── Measured model anchors (Phase 15: no magic camera numbers) ── */
+export interface ModelAnchors {
+  /** World Y of the eye midpoint (falls back to 92% of height). */
+  eyeY: number;
+  /** World Y of the chest anchor. */
+  chestY: number;
+  /** Model bounding-box height (after grounding at y=0). */
+  height: number;
+  /** Bounding-box vertical center. */
+  centerY: number;
+}
+
+/** Camera framing derived from the measured skeleton, per presence mode. */
+function cameraForMode(mode: PresenceMode, a: ModelAnchors): { pos: [number, number, number]; target: [number, number, number]; fov: number } {
+  switch (mode) {
+    case "closeup": {
+      // Head and shoulders: look at the eyes from just below eye level.
+      const t = a.eyeY - a.height * 0.02;
+      return { pos: [0, t, a.height * 0.42], target: [0, t, 0], fov: 24 };
+    }
+    case "full": {
+      // Whole body in frame with a little breathing room.
+      const fov = 32;
+      const dist = (a.height * 0.62) / Math.tan((fov * Math.PI) / 360);
+      return { pos: [0, a.centerY, dist * 0.55], target: [0, a.centerY, 0], fov };
+    }
+    case "portrait":
+    default: {
+      // Chest-up portrait: eyes in the upper third, chest at the bottom.
+      const t = (a.eyeY + a.chestY) / 2;
+      return { pos: [0, t, a.height * 0.78], target: [0, t, 0], fov: 28 };
+    }
+  }
+}
+
+const DEFAULT_ANCHORS: ModelAnchors = { eyeY: 1.45, chestY: 1.15, height: 1.6, centerY: 0.8 };
 
 /* ─── VRM Model ────────────────────────────────────────── */
 function Model({
-  url, state, isSpeaking, jawEnergy, mode,
+  url, state, isSpeaking, jawEnergy, onLoadFailed, onAnchors,
 }: {
   url: string; state: CompanionState; isSpeaking: boolean;
   jawEnergy?: React.MutableRefObject<number>;
-  mode: PresenceMode;
+  onLoadFailed?: () => void;
+  onAnchors?: (a: ModelAnchors) => void;
 }) {
   const vrmRef = useRef<VRM | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -55,20 +92,58 @@ function Model({
     ldr.crossOrigin = "anonymous";
     ldr.register(p => new VRMLoaderPlugin(p));
 
-    ldr.load(url, gltf => {
+    // Fallback chain: requested model → committed backup model. The main
+    // `hinaa.vrm` slot is a gitignored drop-in slot for the user's own VRoid
+    // export, so fresh clones only ship `hinaa.vrm.bak` (MIT licensed).
+    const candidates = url.endsWith("/hinaa.vrm") ? [url, `${url}.bak`] : [url];
+
+    const tryLoad = (index: number) => {
       if (!ok) return;
-      const v = gltf.userData.vrm as VRM;
-      if (!v) return;
-      v.scene.traverse((o: THREE.Object3D) => {
-        o.frustumCulled = false;
-        if ((o as THREE.Mesh).isMesh) ((o as THREE.Mesh).material as THREE.Material).side = THREE.DoubleSide;
-      });
-      v.scene.rotation.y = Math.PI;
-      vrmRef.current = v;
-      setLoaded(true);
-    }, undefined, () => { if (ok) setFailed(true); });
+      if (index >= candidates.length) {
+        setFailed(true);
+        onLoadFailed?.();
+        return;
+      }
+      ldr.load(candidates[index], gltf => {
+        if (!ok) return;
+        const v = gltf.userData.vrm as VRM;
+        if (!v) { tryLoad(index + 1); return; }
+        v.scene.traverse((o: THREE.Object3D) => {
+          o.frustumCulled = false;
+          if ((o as THREE.Mesh).isMesh) ((o as THREE.Mesh).material as THREE.Material).side = THREE.DoubleSide;
+        });
+        // Face the camera: VRM 0.x models load facing -Z; rotateVRM0 turns
+        // them to the VRM 1.0 convention (+Z, toward our camera). VRM 1.0
+        // models are untouched. Never hard-code a 180° flip here.
+        VRMUtils.rotateVRM0(v);
+
+        // Ground the feet at y=0 and measure real anchors from the skeleton.
+        v.scene.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(v.scene);
+        v.scene.position.y -= box.min.y;
+        v.scene.updateMatrixWorld(true);
+        const grounded = new THREE.Box3().setFromObject(v.scene);
+        const height = grounded.max.y - grounded.min.y;
+        const centerY = (grounded.max.y + grounded.min.y) / 2;
+        const worldY = (bone: string): number | null => {
+          const node = v.humanoid?.getNormalizedBoneNode(bone as Parameters<NonNullable<VRM["humanoid"]>["getNormalizedBoneNode"]>[0]);
+          if (!node) return null;
+          const pos = new THREE.Vector3();
+          node.getWorldPosition(pos);
+          return pos.y;
+        };
+        const headY = worldY("head");
+        const eyeY = worldY("leftEye") ?? (headY !== null ? headY + height * 0.035 : height * 0.92);
+        const chestY = worldY("upperChest") ?? worldY("chest") ?? height * 0.72;
+        onAnchors?.({ eyeY, chestY, height, centerY });
+
+        vrmRef.current = v;
+        setLoaded(true);
+      }, undefined, () => { if (ok) tryLoad(index + 1); });
+    };
+    tryLoad(0);
     return () => { ok = false; };
-  }, [url]);
+  }, [url, onLoadFailed, onAnchors]);
 
   useFrame((_, dt) => {
     const vrm = vrmRef.current;
@@ -106,17 +181,14 @@ function Model({
 
     // ── Apply relaxed idle AFTER update (prevents T-pose) ──
     // Use SET not ADD — prevents accumulation/spinning
+    // Normalized bones are rest-pose relative (T-pose baseline), so the same
+    // angles produce the same relaxed pose on ANY humanoid VRM. Raw bones
+    // bake each model's own rest pose and gave lifted "doll hands" on some
+    // assets — only use them if the normalized rig is missing.
     for (const [bn, r] of Object.entries(RELAXED_IDLE)) {
-      const raw = (hd as any).getRawBoneNode?.(bn) as THREE.Bone | null;
-      const norm = hd.getNormalizedBoneNode(bn as any);
-      const bone = raw || norm;
+      const bone = hd.getNormalizedBoneNode(bn as any) ?? (hd as any).getRawBoneNode?.(bn) as THREE.Bone | null;
       if (bone) bone.rotation.set(r[0], r[1], r[2]);
     }
-    // Elbows bent
-    const le = (hd as any).getRawBoneNode?.("leftLowerArm") || hd.getNormalizedBoneNode("leftLowerArm" as any);
-    const re = (hd as any).getRawBoneNode?.("rightLowerArm") || hd.getNormalizedBoneNode("rightLowerArm" as any);
-    if (le) le.rotation.set(0, 0, 0.35);
-    if (re) re.rotation.set(0, 0, -0.35);
 
     // ── Breathing: chest only, SET not ADD ─────────────
     const chest = hd.getNormalizedBoneNode("chest" as any);
@@ -139,23 +211,33 @@ function Model({
 }
 
 /* ─── Camera ───────────────────────────────────────────── */
-function Cam({ mode }: { mode: PresenceMode }) {
-  const cfg = CAMERAS[mode] || CAMERAS.portrait;
+function Cam({ mode, anchors }: { mode: PresenceMode; anchors: ModelAnchors }) {
+  const cfg = cameraForMode(mode, anchors);
   const c = useThree(s => s.camera);
   const pRef = useRef(new THREE.Vector3(...cfg.pos));
   const tRef = useRef(new THREE.Vector3(...cfg.target));
+  const fovRef = useRef(cfg.fov);
+  const snappedRef = useRef(false);
 
   useEffect(() => {
     pRef.current.set(...cfg.pos);
     tRef.current.set(...cfg.target);
-  }, [mode]);
+    fovRef.current = cfg.fov;
+    // First real measurement: snap instead of a long lerp from nowhere.
+    if (!snappedRef.current) {
+      c.position.copy(pRef.current);
+      c.lookAt(tRef.current);
+      snappedRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, anchors, c]);
 
   useFrame((_, dt) => {
     const smooth = 1 - Math.exp(-Math.min(dt, 0.1) * 4);
     c.position.lerp(pRef.current, smooth);
     c.lookAt(tRef.current);
     if (c instanceof THREE.PerspectiveCamera) {
-      c.fov += (cfg.fov - c.fov) * smooth;
+      c.fov += (fovRef.current - c.fov) * smooth;
       c.updateProjectionMatrix();
     }
   });
@@ -163,7 +245,7 @@ function Cam({ mode }: { mode: PresenceMode }) {
 }
 
 /* ─── Fallback ──────────────────────────────────────────── */
-function AvatarFallback({ state }: { state: CompanionState }) {
+function AvatarFallback({ state, failed = false }: { state: CompanionState; failed?: boolean }) {
   return (
     <div style={{
       width: "100%", height: "100%", display: "flex", flexDirection: "column",
@@ -183,6 +265,12 @@ function AvatarFallback({ state }: { state: CompanionState }) {
           {state === "idle" ? "Ready" : state === "listening" ? "Listening…" :
            state === "speaking" ? "Speaking…" : state === "thinking" ? "Thinking…" : "Present"}
         </div>
+        {failed && (
+          <div style={{ fontSize: "0.68rem", marginTop: 8, color: "#94a3b8", maxWidth: 220 }}>
+            3D model unavailable — place a VRoid export at
+            {" "}<code>public/models/hinaa.vrm</code> and restart the dev server.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -203,8 +291,14 @@ export function AvatarPresence({
   onModeChange,
 }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
+  const [modelFailed, setModelFailed] = useState(false);
+  const [anchors, setAnchors] = useState<ModelAnchors>(DEFAULT_ANCHORS);
+  const handleLoadFailed = useCallback(() => setModelFailed(true), []);
+  const handleAnchors = useCallback((a: ModelAnchors) => setAnchors(a), []);
 
   if (mode === "hidden") return null;
+
+  const showFallback = webglFailed || modelFailed;
 
   const cycle = () => {
     const modes: PresenceMode[] = ["closeup", "portrait", "full"];
@@ -217,7 +311,7 @@ export function AvatarPresence({
       {/* Soft halo */}
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse 60% 60% at 50% 40%, rgba(103,232,249,0.06) 0%, transparent 70%)", pointerEvents: "none", zIndex: 0 }} />
 
-      {!webglFailed && (
+      {!showFallback && (
         <Canvas
           style={{ position: "absolute", inset: 0, zIndex: 1 }}
           dpr={[1, 1.5]}
@@ -227,18 +321,18 @@ export function AvatarPresence({
           }}
         >
           <Suspense fallback={null}>
-            <Cam mode={mode} />
+            <Cam mode={mode} anchors={anchors} />
             <ambientLight intensity={1.0} color="#fffdf7" />
             <directionalLight position={[2, 3, 2]} intensity={1.2} color="#fffcf5" />
             <spotLight position={[-3, 1.5, 2]} intensity={1.5} color="#a7f3d0" angle={0.6} penumbra={0.5} />
             <spotLight position={[3, 1.5, -1]} intensity={1.2} color="#c4b5fd" angle={0.5} penumbra={0.5} />
             <pointLight position={[0, 1.2, 2]} intensity={0.5} color="#fff8f0" />
-            <Model url={modelUrl} state={state} isSpeaking={state === "speaking"} jawEnergy={jawEnergy} mode={mode} />
-            <ContactShadows resolution={256} scale={3} blur={2} opacity={0.2} far={1.5} position={[0, -1.0, 0]} color="#1e293b" />
+            <Model url={modelUrl} state={state} isSpeaking={state === "speaking"} jawEnergy={jawEnergy} onLoadFailed={handleLoadFailed} onAnchors={handleAnchors} />
+            <ContactShadows resolution={256} scale={3} blur={2} opacity={0.22} far={1.5} position={[0, 0.01, 0]} color="#1e293b" />
           </Suspense>
         </Canvas>
       )}
-      {webglFailed && <AvatarFallback state={state} />}
+      {showFallback && <AvatarFallback state={state} failed={modelFailed} />}
 
       {/* Mode toggle */}
       <div style={{ position: "absolute", bottom: 8, right: 8, zIndex: 5 }}>

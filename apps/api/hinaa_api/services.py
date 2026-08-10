@@ -266,6 +266,43 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_openai_brain(self) -> None:
+        if self.settings.active_openai_key is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "OpenAI brain is not configured. Missing backend variable: OPENAI_API_KEY.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_custom_brain(self) -> None:
+        missing: list[str] = []
+        if not self.settings.openai_codex_api_key or not (
+            self.settings.openai_codex_api_key.get_secret_value()
+        ):
+            missing.append("OPENAI_CODEX_API_KEY")
+        if not self.settings.active_custom_base_url:
+            missing.append("OPENAI_CODEX_BASE_URL")
+        if missing:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Custom model gateway is not configured. "
+                f"Missing backend variables: {', '.join(missing)}.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_agent_router_brain(self) -> None:
+        if not self.settings.agent_router_api_key or not (
+            self.settings.agent_router_api_key.get_secret_value()
+        ):
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Agent Router is not configured. Missing backend variable: AGENT_ROUTER_API_KEY.",
+                503,
+                user_action_required=True,
+            )
+
     def stt(self, mode: str) -> STTProvider:
         if mode == "mock":
             return self.mock_stt
@@ -304,7 +341,7 @@ class ProviderRouter:
                 self.settings.groq_api_key.get_secret_value(), self.settings.groq_model
             )
         if mode == "openai":
-            self._require_openai_voice()
+            self._require_openai_brain()
             active_openai_key = self.settings.active_openai_key
             assert active_openai_key
             try:
@@ -319,7 +356,7 @@ class ProviderRouter:
                 ) from error
             return OpenAILLMProvider(active_openai_key.get_secret_value(), model)
         if mode == "custom":
-            self._require_custom_voice()
+            self._require_custom_brain()
             active_custom_key = self.settings.active_custom_key
             active_custom_base_url = self.settings.active_custom_base_url
             assert active_custom_key and active_custom_base_url
@@ -341,7 +378,7 @@ class ProviderRouter:
                 provider_id="custom",
             )
         if mode == "agent-router":
-            self._require_agent_router_voice()
+            self._require_agent_router_brain()
             active_agent_router_key = self.settings.active_agent_router_key
             active_agent_router_base_url = self.settings.active_agent_router_base_url
             assert active_agent_router_key and active_agent_router_base_url

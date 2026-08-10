@@ -100,13 +100,11 @@ CHARACTER_STAY_MARKERS = (
 
 VISUAL_STATE_MARKERS = (
     "VISUAL IDENTITY",
-    "violet-blue",
-    "deep violet mixed with cyan",
-    "subtle ring inside your iris",
-    "translucent crystalline core near your collarbone",
-    "soft cyan = listening",
-    "violet = reasoning",
-    "blue = speaking",
+    "pearl-white, frosted-glass workspace",
+    "softly lit anime companion",
+    "pale lavender = listening",
+    "icy cyan = reasoning",
+    "soft mint = speaking",
     "white = idle",
     "amber = confirmation needed",
     "red = genuine failure",
@@ -171,8 +169,8 @@ def test_hinaa_identity_ships_visual_state_and_listening_contract() -> None:
         assert marker in HINAA_IDENTITY, f"Missing listening-behavior rule: {marker}"
     # The core state mapping and listening posture reach the realtime instruction.
     realtime = assemble_prompt(_input(interaction_mode="realtime"))  # type: ignore[arg-type]
-    assert "crystalline core" in realtime.system_instruction
-    assert "soft cyan = listening" in realtime.system_instruction
+    assert "VISUAL IDENTITY" in realtime.system_instruction
+    assert "pale lavender = listening" in realtime.system_instruction
     assert "LISTENING BEHAVIOR" in realtime.system_instruction
 
 

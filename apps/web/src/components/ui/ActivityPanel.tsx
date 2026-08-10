@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, Circle, Loader2, XCircle, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { CheckCircle2, Circle, XCircle, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 
 export type StepStatus = 'pending' | 'active' | 'done' | 'error' | 'cancelled';
 
@@ -35,7 +35,6 @@ const StatusIcon = ({ status }: { status: StepStatus }) => {
 
 export function ActivityPanel({ steps, title = 'Working on your request', collapsed: initialCollapsed = false }: ActivityPanelProps) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
-  const activeCount = steps.filter(s => s.status !== 'done' && s.status !== 'error').length;
   const doneCount = steps.filter(s => s.status === 'done').length;
 
   if (steps.length === 0) return null;

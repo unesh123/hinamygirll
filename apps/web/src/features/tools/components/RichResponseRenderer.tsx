@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import styles from "./RichResponseRenderer.module.css";
 
 interface Props {

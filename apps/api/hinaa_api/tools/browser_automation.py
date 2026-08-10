@@ -16,7 +16,7 @@ async def _get_page() -> Page:
         if _playwright is None:
             _playwright = await async_playwright().start()
         if _browser is None or not _browser.is_connected():
-            _browser = await _playwright.chromium.launch(headless=False)
+            _browser = await _playwright.chromium.launch(headless=True)
         context = await _browser.new_context(
             viewport={'width': 1280, 'height': 800},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'

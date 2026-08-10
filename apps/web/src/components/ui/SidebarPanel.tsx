@@ -3,11 +3,9 @@
  * Each nav section has its own panel: Chat, Voice, Tasks, Files, Memory, Tools.
  */
 
-import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  MessageSquare, Mic, CheckSquare, FolderOpen, Brain, Wrench, X,
-  Plus, Clock, File, Star, Trash2,
+  MessageSquare, X, Plus, File,
 } from "lucide-react";
 import type { NavSection } from "./NavRail";
 

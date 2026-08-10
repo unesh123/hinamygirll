@@ -1,6 +1,6 @@
-import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Globe, Image as ImageIcon, Music, Mail } from 'lucide-react';
+import type { IconComponent } from '../../shared/iconType';
 import KnowledgeConvergence from '../lightswind/knowledge-convergence';
 import { SourceCard, type SourceItem } from './SourceCard';
 
@@ -23,7 +23,7 @@ const MODE_LABELS: Record<ContextMode, string> = {
   browser: 'Browser',
 };
 
-const MODE_ICONS: Record<ContextMode, React.ElementType | null> = {
+const MODE_ICONS: Record<ContextMode, IconComponent | null> = {
   hidden: null,
   research: Globe,
   images: ImageIcon,

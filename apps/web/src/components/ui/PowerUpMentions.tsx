@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Image, Globe, Code, Music, Mail, Calendar,
   FileText, Brain, Sparkles, Wrench, Cpu, Download,
-  ExternalLink, MessageSquare, Bot, type LucideIcon,
+  ExternalLink, Bot, type LucideIcon,
 } from "lucide-react";
 
 export interface PowerUp {

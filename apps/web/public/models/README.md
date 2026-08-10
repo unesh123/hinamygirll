@@ -13,8 +13,15 @@ no code changes needed. Drop in your own VRoid Studio export over it any time.
   re-license.
   SHA-256: `00d914951da30714aad2d5e63da1fb60816b407a9b630f56b11a3ef955933d9d`
   See `docs/ASSET_LICENSES.md` for the full licence row.
-- Previous bundled model backed up at `hinaa.vrm.bak` (19 MB, MIT anime-girl,
+- Committed fallback model at `hinaa.vrm.bak` (19 MB, VRM 1.0,
+  「聖翔院ターナローゼ」 by はにゃりん,
   SHA-256 `ef55df5369e197e8b7f696ef853f566be178f075a4887bb264da1b33be6f8ea0`).
+  Embedded VRM 1.0 licence: avatar use by everyone, redistribution and
+  modification allowed, **commercial use personal/non-profit only, credit
+  required**. (An earlier note here calling it “MIT” was wrong — see
+  `docs/HINAA_VRM_AUDIT.md` for the full parsed licence.)
+  The app auto-falls back to this file when `hinaa.vrm` is absent, so fresh
+  clones always render the 3D avatar.
 
 ## How to replace it with your own model
 
@@ -40,7 +47,9 @@ avatar if the network sample can't load.
   commercial use **disallowed**. Re-verify the VRoid Hub licence page
   (`rurunerune.booth.pm`) before any commercial release. Source + checksum
   recorded in `docs/ASSET_LICENSES.md`.
-- Previous bundled model (`hinaa.vrm.bak`): MIT-licensed upstream repo.
+- Committed fallback (`hinaa.vrm.bak`): VRM 1.0 embedded licence — personal/
+  non-profit commercial terms, credit required (parsed from the asset itself;
+  see `docs/HINAA_VRM_AUDIT.md`).
 - Your own VRoid Studio export is covered by the [VRoid Studio licence](https://vroid.com/en/studio/terms)
   for personal use (check the version you exported with).
 - Record the exact licence, provenance, and checksum in

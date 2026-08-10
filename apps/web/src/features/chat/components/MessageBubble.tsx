@@ -36,7 +36,6 @@ function renderMarkdown(text: string): string {
 
 export const MessageBubble = memo(function MessageBubble({
   message,
-  companionName = "HINAA",
   isStreaming = false,
   isPartial = false,
   isThinking = false,
@@ -60,7 +59,6 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [message.createdAt]);
 
-  const isLong = message.text.length > 120;
   const renderedHTML = useMemo(() => renderMarkdown(message.text), [message.text]);
 
   return (

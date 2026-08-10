@@ -368,6 +368,19 @@ body {
   color: var(--text-secondary);
 }
 
+.header-mock-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #92600a;
+  background: rgba(253, 230, 138, 0.45);
+  border: 1px solid rgba(217, 158, 33, 0.35);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: help;
+}
+
 .header-status-dot {
   width: 7px;
   height: 7px;

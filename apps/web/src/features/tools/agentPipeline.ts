@@ -9,7 +9,7 @@
  * - Code Analysis → Explain → Fix
  */
 
-import { toolEventBus, createToolEvent, type ToolEvent } from "./toolRegistry";
+import { toolEventBus, createToolEvent } from "./toolRegistry";
 
 export type PipelineStepStatus = "pending" | "active" | "completed" | "failed" | "cancelled";
 

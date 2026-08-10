@@ -187,7 +187,8 @@ def test_openai_voice_mode_missing_configuration_returns_typed_stream_error(
     assert error["type"] == "error"
     assert error["code"] == "PROVIDER_CONFIGURATION_MISSING"
     assert "OPENAI_API_KEY" in error["message"]
-    assert "AZURE_SPEECH_KEY" in error["message"]
+    # Voice credentials are no longer required for text turns: the brain (LLM)
+    # config is validated on its own and STT/TTS report separately.
 
 
 def test_custom_provider_uses_codex_gateway_key_without_exposing_secret() -> None:

@@ -5,7 +5,6 @@
 
 import { Fragment } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { GeneratingLoader } from "../../../components/ui/GeneratingLoader";
 import { useAutoScroll } from "../hooks/useAutoScroll";
 import type { TranscriptMessage } from "../../companion/types";
 import { MessageBubble } from "./MessageBubble";
@@ -76,16 +75,14 @@ export function TranscriptView({
   }
 
   /* ── Conversation view ────────────────────────────────────── */
-  const isPreviousUser = (i: number) =>
-    i > 0 && messages[i - 1]?.role === "user";
-
   return (
     <div className={styles.container} ref={scrollRef}>
       {messages.map((msg, i) => {
         const prev = messages[i - 1];
-        const showDivider =
+        const showDivider = Boolean(
           prev?.createdAt &&
-          gapSeconds(prev.createdAt, msg.createdAt) > TURN_GAP_SECONDS;
+            gapSeconds(prev.createdAt, msg.createdAt) > TURN_GAP_SECONDS,
+        );
 
         const isGroupStart =
           i === 0 ||
@@ -166,7 +163,7 @@ export function TranscriptView({
         {showJump && (
           <motion.button
             className={styles.jumpBtn}
-            onClick={scrollToBottom}
+            onClick={() => scrollToBottom()}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}

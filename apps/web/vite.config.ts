@@ -17,6 +17,9 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     https,
+    // Allow reverse-proxied preview hosts (e.g. sandboxed *.e2b.app previews)
+    // in addition to localhost/LAN dev access.
+    allowedHosts: [".e2b.app"],
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",
@@ -27,6 +30,7 @@ export default defineConfig({
     },
   },
   preview: {
+    allowedHosts: [".e2b.app"],
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",

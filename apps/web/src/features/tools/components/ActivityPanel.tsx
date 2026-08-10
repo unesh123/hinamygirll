@@ -14,8 +14,6 @@ interface Props {
 export function ActivityPanel({ activities }: Props) {
   // Only show active or recently completed activities
   // If all are complete, it could be hidden, but we show a success state briefly.
-  const allComplete = activities.every((a) => a.status === "complete");
-
   return (
     <motion.div
       className={styles.panel}

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Generic, Protocol, TypeVar
 
 from ..models import AssistantTurnPlan, CompanionId, Language
 from ..prompts import PromptPackage
 
+T = TypeVar("T")
+
 
 @dataclass(frozen=True, slots=True)
-class ProviderResult[T]:
+class ProviderResult(Generic[T]):
     value: T
     provider: str
     latency_ms: int

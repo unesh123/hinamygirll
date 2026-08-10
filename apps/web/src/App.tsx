@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import { motion } from "framer-motion";
+import { Search, Sparkles, Briefcase, Mic } from "lucide-react";
 import { TranscriptView } from "./features/chat/components/TranscriptView";
-import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
 import { FullScreenAura } from "./components/ui/FullScreenAura";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
 import { PremiumComposer } from "./components/ui/PremiumComposer";
 import ParticleOrbitEffect from "./components/lightswind/ParticleOrbitEffect";
 import { AvatarPresence, type PresenceMode } from "./components/ui/AvatarPresence";
-import { HinaDrawer } from "./components/lightswind/Drawer";
 import { SidebarProvider } from "./components/lightswind/Sidebar";
 import { synthesizeSpeech } from "./features/audio/api";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
@@ -27,6 +26,7 @@ import { ActionChips, type ActionChip } from "./components/ui/ActionChips";
 import { ContextWorkspace, type ContextMode } from "./components/ui/ContextWorkspace";
 import { SidebarPanel } from "./components/ui/SidebarPanel";
 import { MemoryPanel } from "./components/ui/MemoryPanel";
+import type { SourceItem } from "./components/ui/SourceCard";
 import type { PowerUp } from "./components/ui/PowerUpMentions";
 import useMemory from "./features/memory/useMemory";
 
@@ -69,10 +69,6 @@ export default function App() {
   useSettingsPersistence(settings);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<"info" | "image" | "web" | "music" | "slides" | "code">("info");
-  const [drawerTitle, setDrawerTitle] = useState("");
-  const [drawerContent, setDrawerContent] = useState<React.ReactNode>(null);
   const [input, setInput] = useState("");
   const [searching, setSearching] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
@@ -83,7 +79,7 @@ export default function App() {
   const [contextMode, setContextMode] = useState<ContextMode>("hidden");
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [actionChips, setActionChips] = useState<ActionChip[]>([]);
-  const [contextSources] = useState<any[]>([]);
+  const [contextSources, setContextSources] = useState<SourceItem[]>([]);
   const [avatarMode, setAvatarMode] = useState<PresenceMode>("portrait");
 
   const prevMessageCount = useRef(0);
@@ -98,6 +94,48 @@ export default function App() {
     setAvatarMode("portrait");
   }, [live.active, controller.state]);
 
+
+  /* ─── Real web search via backend tool ───────────────── */
+  const runWebSearch = useCallback(async (query: string) => {
+    setContextMode("research");
+    setSearching(true);
+    setAgentSteps([
+      { id: "u", label: "Understanding", status: "done" },
+      { id: "s", label: `Searching the web for “${query}”`, status: "active" },
+    ]);
+    try {
+      const res = await fetch("/api/v1/tools/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toolName: "web_search", parameters: { query } }),
+      });
+      const payload = await res.json();
+      const toolError: string | undefined = payload?.error ?? payload?.data?.error;
+      if (toolError) throw new Error(toolError);
+      const results: Array<{ title: string; url: string; snippet: string }> =
+        payload?.data?.results ?? [];
+      setContextSources(
+        results.map((r, i) => {
+          let domain = "";
+          try { domain = new URL(r.url.startsWith("http") ? r.url : `https://${r.url}`).hostname; } catch { domain = r.url; }
+          return { id: `src-${i}`, title: r.title, domain, snippet: r.snippet, url: r.url.startsWith("http") ? r.url : `https://${r.url}` };
+        }),
+      );
+      setAgentSteps([
+        { id: "u", label: "Understanding", status: "done" },
+        { id: "s", label: `Found ${results.length} sources`, status: "done" },
+      ]);
+    } catch {
+      setAgentSteps([
+        { id: "u", label: "Understanding", status: "done" },
+        { id: "s", label: "Web search failed — backend not reachable", status: "error" },
+      ]);
+      setContextSources([]);
+    } finally {
+      setSearching(false);
+    }
+  }, []);
+
   /* ─── Submit ─────────────────────────────────────────── */
   const submit = useCallback((event?: any) => {
     if (event && "preventDefault" in event) event.preventDefault();
@@ -106,17 +144,19 @@ export default function App() {
     const imageData = attachedImage;
     setInput("");
     setAttachedImage(null);
+    const searchMatch = text.match(/^(?:search(?: the web)?(?: for)?|look up|research)\s*:?\s+(.+)$/i);
+    if (searchMatch) void runWebSearch(searchMatch[1].trim());
     void (async () => {
       const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
       const spoken = result?.plan?.spokenText ?? result?.plan?.displayText;
       if (!spoken || (controller.routing.activeMode ?? "mock") === "mock") return;
       try { const s = await synthesizeSpeech(spoken, controller.companionId, controller.routing.activeMode ?? "mock", new AbortController().signal); await playback.play(s.blob); } catch {}
     })();
-  }, [input, live.active, controller, playback, attachedImage]);
+  }, [input, live.active, controller, playback, attachedImage, runWebSearch]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
     const map: Record<string, () => void> = {
-      "search-web": () => { setContextMode("research"); setSearching(true); },
+      "search-web": () => setContextMode("research"),
       "image-search": () => setContextMode("images"),
       "browser-navigate": () => setContextMode("browser"),
       "play-music": () => window.open("https://www.youtube.com/results?search_query=hindi+songs", "_blank"),
@@ -144,20 +184,20 @@ export default function App() {
     const yt = extractYouTubeIntent(last.text); if (yt) window.open(yt, "_blank", "noopener,noreferrer");
   }, [controller.messages]);
 
-  /* ─── Agent steps ────────────────────────────────────── */
+  /* ─── Agent steps (honest: only real work is shown) ──── */
   useEffect(() => {
     if (controller.state === "thinking") {
-      const lu = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
-      if (/search|find|research|look up/i.test(lu)) {
-        setContextMode("research"); setSearching(true);
-        setAgentSteps([{ id: "u", label: "Understanding", status: "done" }, { id: "s", label: "Searching", status: "active" }, { id: "a", label: "Preparing answer", status: "pending" }]);
-        setTimeout(() => setSearching(false), 3000);
-      } else setAgentSteps([{ id: "u", label: "Understanding", status: "done" }, { id: "p", label: "Processing", status: "active" }]);
+      setAgentSteps(prev => (prev.some(step => step.status === "active")
+        ? prev
+        : [{ id: "u", label: "Understanding", status: "done" }, { id: "p", label: "Preparing answer", status: "active" }]));
     } else if (controller.state === "speaking" || controller.state === "idle") {
-      setAgentSteps(prev => prev.map(s => ({ ...s, status: "done" as const })));
+      setAgentSteps(prev => prev.map(step => (step.status === "active" ? { ...step, status: "done" as const } : step)));
       const t = setTimeout(() => setAgentSteps([]), 3000); return () => clearTimeout(t);
+    } else if (controller.state === "error") {
+      setAgentSteps(prev => prev.map(step => (step.status === "active" ? { ...step, status: "error" as const } : step)));
+      const t = setTimeout(() => setAgentSteps([]), 4000); return () => clearTimeout(t);
     }
-  }, [controller.state, controller.messages]);
+  }, [controller.state]);
 
   /* ─── Action chips ───────────────────────────────────── */
   useEffect(() => {
@@ -165,12 +205,12 @@ export default function App() {
     const msgs = controller.messages; if (msgs.length === 0) return;
     const last = msgs[msgs.length - 1]; if (last?.role !== "assistant") return;
     const txt = last.text.toLowerCase(); const chips: ActionChip[] = [];
-    if (/search|source|found/i.test(txt)) chips.push({ id: "src", label: "Sources", icon: "search" });
+    if (contextSources.length > 0) chips.push({ id: "src", label: "Sources", icon: "search" });
     if (/image|photo/i.test(txt)) chips.push({ id: "img", label: "Images", icon: "image" });
     if (/code|```/i.test(txt)) chips.push({ id: "code", label: "Explain", icon: "book" });
     chips.push({ id: "cont", label: "Continue", icon: "default" });
     setActionChips(chips.slice(0, 4));
-  }, [controller.messages, controller.state]);
+  }, [controller.messages, controller.state, contextSources.length]);
 
   const showWelcome = controller.messages.length <= 1 && !controller.streamingText && !controller.partialTranscript && controller.state === "idle" && !live.active;
 
@@ -210,6 +250,16 @@ export default function App() {
                   <span className="brand-name">HINAA</span>
                 </div>
                 <div className="header-right">
+                  {["mock", "local"].includes(routing.activeMode ?? "mock") && (
+                    <span
+                      className="header-mock-badge"
+                      title={(routing.activeMode ?? "mock") === "mock"
+                        ? "No AI provider is connected — responses are canned demo output. Configure a provider in Settings."
+                        : "Running on the zero-credit local brain — connect a real AI provider in Settings for full conversations."}
+                    >
+                      {(routing.activeMode ?? "mock") === "mock" ? "Mock mode" : "Offline brain"}
+                    </span>
+                  )}
                   <span className="header-status"><span className="header-status-dot" />{stateLabels[controller.state]}</span>
                   <SearchingLoader visible={searching} />
                   <SettingsTrigger onClick={() => setSettingsOpen(true)} isOpen={settingsOpen} />
@@ -226,10 +276,10 @@ export default function App() {
                     <motion.p className="welcome-subtitle" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }}>Main tumhare liye ready hoon. What would you like to do?</motion.p>
                     <motion.div className="welcome-cards" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
                       {[
-                        { icon: "🔍", title: "Research", desc: "Search with sources", action: "research" },
-                        { icon: "✨", title: "Create", desc: "Images, documents, ideas", action: "create" },
-                        { icon: "💼", title: "Continue work", desc: "Projects & tasks", action: "work" },
-                        { icon: "🎤", title: "Talk to HINAA", desc: "Voice conversation", action: "voice" },
+                        { icon: <Search size={20} style={{ color: "#0891b2" }} />, title: "Research", desc: "Search with sources", action: "research" },
+                        { icon: <Sparkles size={20} style={{ color: "#7c3aed" }} />, title: "Create", desc: "Images, documents, ideas", action: "create" },
+                        { icon: <Briefcase size={20} style={{ color: "#059669" }} />, title: "Continue work", desc: "Projects & tasks", action: "work" },
+                        { icon: <Mic size={20} style={{ color: "#d97706" }} />, title: "Talk to HINAA", desc: "Voice conversation", action: "voice" },
                       ].map((c, i) => (
                         <motion.div key={c.action} className="welcome-card" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 + i * 0.08 }} onClick={() => handleWelcome(c.action)} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
                           <div className="welcome-card-icon">{c.icon}</div>
@@ -246,7 +296,7 @@ export default function App() {
                     onWelcomeAction={handleWelcome} />
                 )}
 
-                {actionChips.length > 0 && controller.state === "idle" && (
+                {!showWelcome && actionChips.length > 0 && controller.state === "idle" && (
                   <ActionChips chips={actionChips} onChip={c => {
                     if (c.id === "src") setContextMode("research"); else if (c.id === "img") setContextMode("images"); else setInput((c.label || "") + ": ");
                   }} />
@@ -277,7 +327,6 @@ export default function App() {
           <ProviderSettings provider={settings.provider} providers={providers} onChange={setProvider} activeMode={routing.activeMode as any} />
           <DiagnosticsSettings providers={providers} />
         </SettingsDialog>
-        <HinaDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} mode={drawerMode} title={drawerTitle} side="bottom">{drawerContent}</HinaDrawer>
       </div>
     </SidebarProvider>
   );

@@ -3,15 +3,16 @@
  * Categories: facts, preferences, workflows, tasks, conversations.
  */
 
-import React, { useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain, Search, Trash2, Edit3, Check, X, Tag,
   Star, Bookmark, Clock, MessageSquare,
 } from "lucide-react";
+import type { IconComponent } from "../../shared/iconType";
 import useMemory, { type MemoryEntry } from "../../features/memory/useMemory";
 
-const CATEGORY_CONFIG: Record<MemoryEntry["category"], { icon: React.ElementType; color: string; label: string }> = {
+const CATEGORY_CONFIG: Record<MemoryEntry["category"], { icon: IconComponent; color: string; label: string }> = {
   fact: { icon: Star, color: "#f59e0b", label: "Facts" },
   preference: { icon: Bookmark, color: "#ec4899", label: "Preferences" },
   workflow: { icon: Tag, color: "#8b5cf6", label: "Workflows" },
@@ -25,7 +26,7 @@ interface MemoryPanelProps {
 }
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
-  const { entries, removeMemory, updateMemory, confirmMemory, searchMemory } = useMemory();
+  const { entries, removeMemory, updateMemory, searchMemory } = useMemory();
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
