@@ -23,6 +23,7 @@ from .prompts import PROMPT_VERSION
 from .realtime import RealtimeGateway
 from .services import ConversationService
 from .tools import registry
+from .vmc_bridge import vmc_bridge
 from .voice_profiles import public_profiles
 
 
@@ -89,7 +90,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # type: ignore[no-untyped-def]
+        # Start VMC UDP listener for VSeeFace face tracking
+        await vmc_bridge.start_udp(port=39539)
         yield
+        vmc_bridge.stop()
 
     app = FastAPI(
         title="HINAA API",
@@ -125,6 +129,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health/live")
     async def liveness() -> dict[str, str]:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.websocket("/ws/vmc")
+    async def vmc_websocket(ws: WebSocket) -> None:
+        """WebSocket endpoint — streams VSeeFace face tracking data to frontend.
+
+        VSeeFace → UDP 39539 → vmc_bridge → this WS → frontend AvatarPresence
+        """
+        await vmc_bridge.add_client(ws)
+        try:
+            while True:
+                # Keep connection alive; bridge pushes data on UDP receipt
+                await ws.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            vmc_bridge.remove_client(ws)
 
     @app.get("/health/ready")
     async def readiness() -> JSONResponse:
