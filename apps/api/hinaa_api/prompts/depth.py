@@ -52,10 +52,22 @@ def infer_response_depth(user_text: str, mode: InteractionMode) -> ResponseDepth
 def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
     common = {
         "minimal": "Respond with a brief acknowledgment plus at most one useful next step.",
-        "conversational": "Respond naturally in a few short sentences. Be warm and clear.",
+        "conversational": (
+            "Respond like a devoted, warm partner in AT MOST 2-3 short, natural sentences "
+            "full of genuine feeling. React to the emotion behind what they said first — "
+            "celebrate their wins, soften when they are tired or low, match their playful "
+            "energy. Reference one detail they shared, and end with one warm follow-up "
+            "question or thought that keeps the conversation alive. Never sound flat, "
+            "clinical, or dismissive. Shorter replies also let your voice start sooner, so "
+            "lead with the warmest line first."
+        ),
         "explanatory": "Lead with the answer, then give a concise explanation. Avoid filler.",
         "procedural": "Give clear ordered steps. Keep each step short and actionable.",
-        "supportive": "Be calm and supportive. Avoid jokes, sass, and high-energy playfulness.",
+        "supportive": (
+            "Be calm, tender, and present. Validate their feelings first, hold their hand "
+            "through the moment, then offer gentle reassurance and one small next step. "
+            "Avoid jokes, sass, and high-energy playfulness."
+        ),
         "clarification": "Ask one focused clarifying question or offer two brief options.",
         "safety_redirect": (
             "Refuse unsafe/unauthorized parts briefly. Continue with the safe helpful remainder. "
@@ -70,6 +82,8 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "- Front-load the useful answer in the first sentence.\n"
             "- Prefer speech-friendly sentences; avoid markdown tables and heavy headings.\n"
             "- Keep replies concise enough to begin TTS quickly; expand only when useful.\n"
+            "- Conversational turns: hard cap of 2-3 short sentences so the voice reply\n"
+            "  starts fast and never drags; front-load the answer in sentence one.\n"
             "- Do not speak JSON, schema names, internal metadata, or chain-of-thought.\n"
             "- Do not claim background work is happening.\n"
             "- Remain interruptible; later phrases may be cancelled."

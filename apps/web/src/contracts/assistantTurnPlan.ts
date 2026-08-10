@@ -84,6 +84,13 @@ const memoryCandidateSchema = z
   })
   .strict();
 
+const toolRequestSchema = z
+  .object({
+    toolName: z.string().min(1).max(100),
+    parameters: z.record(z.string(), z.any()),
+  })
+  .strict();
+
 export const assistantTurnPlanSchema = z
   .object({
     spokenText: z.string().min(1).max(4000),
@@ -93,7 +100,7 @@ export const assistantTurnPlanSchema = z
     performance: performanceSchema,
     beats: z.array(beatSchema).max(12).optional(),
     memoryCandidates: z.array(memoryCandidateSchema).max(3),
-    toolRequests: z.array(z.never()).max(0),
+    toolRequests: z.array(toolRequestSchema).max(5),
   })
   .strict();
 

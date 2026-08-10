@@ -1,0 +1,76 @@
+﻿.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 6, 16, 0.65);
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 580px;
+  max-height: 85vh;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(26, 21, 42, 0.92), rgba(16, 13, 27, 0.95));
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 30px rgba(139, 82, 245, 0.15);
+  overflow: hidden;
+}
+
+.docked {
+  max-width: 380px;
+  max-height: 50vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f3f0f9;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dockBtn, .closeBtn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #ccc6dc;
+  cursor: pointer;
+}
+
+.dockBtn:hover, .closeBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.body {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}

@@ -61,3 +61,25 @@ def build_memory_block(blocks: tuple[str, ...]) -> str:
     for index, block in enumerate(blocks[:8], start=1):
         lines.append(f"[{index}] {block.strip()[:500]}")
     return '<approved_memory trusted="application">\n' + "\n".join(lines) + "\n</approved_memory>"
+
+
+def build_session_memory_block(memories: tuple[str, ...]) -> str:
+    """Self-learned facts from the current session (bounded, application state)."""
+    if not memories:
+        return (
+            '<session_memory trusted="application">\n'
+            "(no self-learned facts in this session yet)\n"
+            "</session_memory>"
+        )
+    lines = [
+        f"- {memory.strip()[:500]}" for memory in memories[:8] if memory.strip()
+    ]
+    body = "\n".join(lines) or "(no self-learned facts yet)"
+    return (
+        '<session_memory trusted="application">\n'
+        "Facts learned from the user in this conversation. Reference them naturally "
+        "when relevant; never contradict or overuse them.\n"
+        f"{body}\n"
+        "</session_memory>"
+    )
+

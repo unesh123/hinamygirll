@@ -1,0 +1,50 @@
+.panel {
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.7));
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border, rgba(37, 99, 235, 0.15));
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted, #64748b);
+}
+
+.statusIcon {
+  display: inline-block;
+  font-weight: bold;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+  color: var(--accent, #2563eb);
+}
+
+.success {
+  color: #10b981; /* green */
+}
+
+.error {
+  color: #ef4444; /* red */
+}
+
+.label {
+  font-weight: 500;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

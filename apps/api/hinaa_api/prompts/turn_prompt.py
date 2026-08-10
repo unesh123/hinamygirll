@@ -26,6 +26,8 @@ def build_turn_prompt(
     history: tuple[tuple[str, str], ...],
     settings: Settings,
     interaction_mode: InteractionMode,
+    session_memories: tuple[str, ...] = (),
+    approved_memory_blocks: tuple[str, ...] = (),
 ) -> PromptPackage:
     inp = PromptInput(
         companion_id=request.companionId,
@@ -36,5 +38,8 @@ def build_turn_prompt(
         language=request.language,
         max_history_turns=settings.session_turn_limit * 2,
         max_history_chars=settings.session_history_char_limit,
+        session_memories=session_memories,
+        approved_memory_blocks=approved_memory_blocks,
+        visible_actions=request.visibleActions,
     )
     return assemble_prompt(inp)

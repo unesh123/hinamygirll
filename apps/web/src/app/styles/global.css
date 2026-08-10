@@ -1,0 +1,219 @@
+/*
+ * HINAA Global Styles
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Base reset, typography, scrollbars, focus styles, and utility classes.
+ * Imports design tokens first.
+ *
+ * Font loading: Inter is loaded via <link> in index.html (non-blocking,
+ * font-display:swap). System-ui renders immediately if Inter is unavailable.
+ */
+
+@import "./tokens.css";
+
+/* ── Reset ─────────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-canvas);
+  min-height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Typography ────────────────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-text-primary);
+}
+
+p { line-height: var(--leading-relaxed); }
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+a:hover { color: var(--color-accent-hover); }
+
+strong { font-weight: var(--weight-semibold); }
+small  { font-size: var(--text-sm); }
+
+code, kbd, pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* ── Focus ring — visible, not intrusive ───────────────────────────────────── */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-default) transparent;
+}
+*::-webkit-scrollbar        { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track  { background: transparent; }
+*::-webkit-scrollbar-thumb  { background: var(--color-border-default); border-radius: var(--radius-full); }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }
+
+/* ── Buttons reset ─────────────────────────────────────────────────────────── */
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  line-height: 1;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+/* ── Form elements ─────────────────────────────────────────────────────────── */
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+textarea { resize: none; }
+
+/* ── Images ────────────────────────────────────────────────────────────────── */
+img, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* ── Selection ─────────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--color-accent-subtle);
+  color: var(--color-text-primary);
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Screen reader only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Truncate text */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Glass surface */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* Flex helpers */
+.flex         { display: flex; }
+.flex-col     { display: flex; flex-direction: column; }
+.flex-1       { flex: 1 1 0%; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2  { gap: var(--space-2); }
+.gap-3  { gap: var(--space-3); }
+.gap-4  { gap: var(--space-4); }
+
+/* Text utilities */
+.text-primary   { color: var(--color-text-primary); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-muted     { color: var(--color-text-muted); }
+.text-accent    { color: var(--color-accent); }
+
+/* Status dot */
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+.status-dot[data-state="healthy"]     { background: var(--color-success); }
+.status-dot[data-state="degraded"]    { background: var(--color-warning); }
+.status-dot[data-state="unavailable"] { background: var(--color-text-muted); }
+.status-dot[data-state="error"]       { background: var(--color-danger); }
+.status-dot[data-state="checking"] {
+  background: var(--color-accent);
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Divider */
+.divider {
+  width: 100%;
+  height: 1px;
+  background: var(--color-border-subtle);
+}

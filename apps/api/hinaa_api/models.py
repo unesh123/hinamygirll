@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 Language = Literal["ne-NP", "en-US", "hi-IN", "mixed"]
-ProviderMode = Literal["mock", "local", "groq", "openai", "custom", "real"]
+ProviderMode = Literal["mock", "local", "groq", "openai", "custom", "real", "agent-router", "cx-gateway", "gemini-live"]
 CompanionId = Literal["hinaa", "hiro"]
 
 
@@ -90,6 +90,10 @@ class MemoryCandidate(StrictModel):
     sourceMessageId: str | None = None
 
 
+class ToolRequest(StrictModel):
+    toolName: Annotated[str, Field(min_length=1, max_length=100)]
+    parameters: dict[str, Any]
+
 class AssistantTurnPlan(StrictModel):
     spokenText: Annotated[str, Field(min_length=1, max_length=4000)]
     displayText: Annotated[str, Field(min_length=1, max_length=8000)]
@@ -98,7 +102,7 @@ class AssistantTurnPlan(StrictModel):
     performance: Performance
     beats: Annotated[list[Beat], Field(max_length=12)] = Field(default_factory=list)
     memoryCandidates: Annotated[list[MemoryCandidate], Field(max_length=3)]
-    toolRequests: Annotated[list[None], Field(max_length=0)]
+    toolRequests: Annotated[list[ToolRequest], Field(max_length=5)]
 
 
 class PersonalityRequest(StrictModel):
@@ -119,6 +123,7 @@ class TurnRequest(StrictModel):
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
     ] = None
+    visibleActions: list[str] = Field(default_factory=list)
     personality: PersonalityRequest | None = None
 
 

@@ -4,94 +4,200 @@ export interface PlaybackController {
   playing: boolean;
   muted: boolean;
   hasReplay: boolean;
-  jawEnergy: number;
+  jawEnergy: React.MutableRefObject<number>;
   play: (blob: Blob, onStarted?: () => void) => Promise<void>;
   replay: () => Promise<void>;
   stop: () => void;
   toggleMute: () => void;
 }
 
+/**
+ * Gapless, stall-proof speech playback.
+ */
 export function useAudioPlayback(): PlaybackController {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [hasReplay, setHasReplay] = useState(false);
-  const [jawEnergy, setJawEnergy] = useState(0);
-  const audio = useRef<HTMLAudioElement | undefined>(undefined);
-  const lastBlob = useRef<Blob | undefined>(undefined);
-  const objectUrl = useRef<string | undefined>(undefined);
-  const frame = useRef<number | undefined>(undefined);
-  const context = useRef<AudioContext | undefined>(undefined);
-  const finishPlayback = useRef<(() => void) | undefined>(undefined);
+  
+  // Use a ref instead of state for 60fps high-frequency updates to prevent React from re-rendering the entire app
+  const jawEnergy = useRef(0);
+
+  const contextRef = useRef<AudioContext | null>(null);
+  const masterRef = useRef<GainNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const endedAtRef = useRef(0);
+  const lastBlobRef = useRef<Blob | null>(null);
+  const sessionRef = useRef(0);
+  const frameRef = useRef<number | undefined>(undefined);
+  const mutedRef = useRef(false);
+  const playingRef = useRef(false);
+
+  const ensureGraph = useCallback(() => {
+    if (contextRef.current) return contextRef.current;
+    const context = new AudioContext({ latencyHint: "interactive" });
+    const master = context.createGain();
+    master.gain.value = mutedRef.current ? 0 : 1;
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.6;
+    master.connect(analyser);
+    analyser.connect(context.destination);
+    contextRef.current = context;
+    masterRef.current = master;
+    analyserRef.current = analyser;
+    return context;
+  }, []);
+
+  const syncPlaying = useCallback(() => {
+    const next = sourcesRef.current.size > 0;
+    if (next === playingRef.current) return;
+    playingRef.current = next;
+    if (!next && frameRef.current !== undefined) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = undefined;
+    }
+    setPlaying(next);
+  }, []);
 
   const stop = useCallback(() => {
-    if (frame.current) cancelAnimationFrame(frame.current);
-    frame.current = undefined;
-    audio.current?.pause();
-    if (audio.current) audio.current.src = "";
-    audio.current = undefined;
-    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-    objectUrl.current = undefined;
-    if (context.current?.state !== "closed") void context.current?.close();
-    context.current = undefined;
-    finishPlayback.current?.();
-    finishPlayback.current = undefined;
-    setJawEnergy(0);
-    setPlaying(false);
-  }, []);
+    sessionRef.current += 1;
+    for (const source of sourcesRef.current) {
+      try {
+        source.onended = null;
+        source.stop();
+      } catch {
+        // Already stopped — nothing to do.
+      }
+    }
+    sourcesRef.current.clear();
+    endedAtRef.current = 0;
+    if (frameRef.current !== undefined) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = undefined;
+    }
+    jawEnergy.current = 0;
+    syncPlaying();
+  }, [syncPlaying]);
 
   const play = useCallback(
     async (blob: Blob, onStarted?: () => void) => {
-      stop();
-      lastBlob.current = blob;
+      const session = sessionRef.current;
+      let context: AudioContext;
+      try {
+        context = ensureGraph();
+      } catch {
+        return; // Web Audio unavailable — keep the conversation flowing silently.
+      }
+      if (context.state === "suspended") {
+        try {
+          await context.resume();
+        } catch {
+          return;
+        }
+      }
+      if (session !== sessionRef.current) return; // stopped while resuming
+
+      let bytes: ArrayBuffer;
+      let buffer: AudioBuffer;
+      try {
+        bytes = await blob.arrayBuffer();
+        if (session !== sessionRef.current) return;
+        buffer = await context.decodeAudioData(bytes);
+      } catch {
+        return; // Undecodable chunk — skip it, never stall the queue.
+      }
+      if (session !== sessionRef.current || !masterRef.current) return;
+
+      lastBlobRef.current = blob;
       setHasReplay(true);
-      const element = new Audio();
-      element.muted = muted;
-      objectUrl.current = URL.createObjectURL(blob);
-      element.src = objectUrl.current;
-      audio.current = element;
-      const audioContext = new AudioContext({ latencyHint: "interactive" });
-      context.current = audioContext;
-      const source = audioContext.createMediaElementSource(element);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyser.connect(audioContext.destination);
-      const samples = new Uint8Array(analyser.frequencyBinCount);
-      const animate = () => {
-        analyser.getByteTimeDomainData(samples);
-        let sum = 0;
-        for (const value of samples) sum += ((value - 128) / 128) ** 2;
-        const rms = Math.sqrt(sum / samples.length);
-        setJawEnergy((current) => current * 0.62 + Math.min(1, rms * 5) * 0.38);
-        frame.current = requestAnimationFrame(animate);
+
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(masterRef.current);
+      // Schedule immediately after the previous chunk's computed end with a
+      // small overlap so consecutive segments sound like one continuous voice.
+      const startAt = Math.max(
+        context.currentTime + 0.02,
+        endedAtRef.current - 0.025,
+      );
+      endedAtRef.current = startAt + buffer.duration;
+      sourcesRef.current.add(source);
+      syncPlaying();
+
+      source.onended = () => {
+        sourcesRef.current.delete(source);
+        syncPlaying();
       };
-      await audioContext.resume();
-      await element.play();
-      setPlaying(true);
+      // Watchdog: a source that never fires onended must never freeze playback.
+      window.setTimeout(() => {
+        if (sourcesRef.current.has(source)) {
+          sourcesRef.current.delete(source);
+          syncPlaying();
+        }
+      }, Math.ceil((buffer.duration + 2) * 1000));
+
+      try {
+        source.start(startAt);
+      } catch {
+        sourcesRef.current.delete(source);
+        syncPlaying();
+        return;
+      }
+
+      // Jaw-energy analyser loop (drives avatar lip motion).
+      if (frameRef.current === undefined && analyserRef.current) {
+        const analyser = analyserRef.current;
+        const samples = new Uint8Array(analyser.fftSize);
+        const tick = () => {
+          analyser.getByteTimeDomainData(samples);
+          let sum = 0;
+          for (const value of samples) sum += ((value - 128) / 128) ** 2;
+          const rms = Math.sqrt(sum / samples.length);
+          jawEnergy.current = jawEnergy.current * 0.62 + Math.min(1, rms * 5) * 0.38;
+          frameRef.current = window.requestAnimationFrame(tick);
+        };
+        frameRef.current = window.requestAnimationFrame(tick);
+      }
+
       onStarted?.();
-      animate();
-      await new Promise<void>((resolve) => {
-        finishPlayback.current = resolve;
-        element.onended = stop;
-        element.onerror = stop;
-      });
     },
-    [muted, stop],
+    [ensureGraph, syncPlaying],
   );
 
   const replay = useCallback(async () => {
-    if (lastBlob.current) await play(lastBlob.current);
+    if (lastBlobRef.current) await play(lastBlobRef.current);
   }, [play]);
 
   const toggleMute = useCallback(() => {
-    setMuted((value) => {
-      const next = !value;
-      if (audio.current) audio.current.muted = next;
-      return next;
-    });
+    mutedRef.current = !mutedRef.current;
+    setMuted(mutedRef.current);
+    if (masterRef.current)
+      masterRef.current.gain.value = mutedRef.current ? 0 : 1;
   }, []);
 
-  useEffect(() => stop, [stop]);
+  useEffect(
+    () => () => {
+      sessionRef.current += 1;
+      for (const source of sourcesRef.current) {
+        try {
+          source.onended = null;
+          source.stop();
+        } catch {
+          // Already stopped.
+        }
+      }
+      sourcesRef.current.clear();
+      if (frameRef.current !== undefined)
+        window.cancelAnimationFrame(frameRef.current);
+      if (contextRef.current?.state !== "closed")
+        void contextRef.current?.close();
+      contextRef.current = null;
+      masterRef.current = null;
+      analyserRef.current = null;
+    },
+    [],
+  );
 
   return {
     playing,

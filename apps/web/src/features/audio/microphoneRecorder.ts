@@ -29,13 +29,20 @@ export class MicrophoneRecorder {
     await this.context.resume();
     this.sampleRate = this.context.sampleRate;
     this.source = this.context.createMediaStreamSource(this.stream);
+    
+    // High-pass filter at 75Hz to strip sub-bass fan rumble without cutting low vocal fundamentals
+    const filter = this.context.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 75;
+
     this.processor = this.context.createScriptProcessor(4096, 1, 1);
     this.sink = this.context.createGain();
     this.sink.gain.value = 0;
     this.processor.onaudioprocess = (event) => {
       this.chunks.push(event.inputBuffer.getChannelData(0).slice());
     };
-    this.source.connect(this.processor);
+    this.source.connect(filter);
+    filter.connect(this.processor);
     this.processor.connect(this.sink);
     this.sink.connect(this.context.destination);
   }

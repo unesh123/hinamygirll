@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import tailwindcss from "@tailwindcss/vite";
 
 // https://vite.dev/config/
 const certPath = process.env.HINAA_DEV_CERT_PATH;
@@ -34,8 +36,29 @@ export default defineConfig({
       },
     },
   },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   plugins: [
+    tailwindcss(),
     react(),
+    {
+      // Serves .vrm assets with a real MIME type (Vite has no built-in
+      // mapping). Kept inline so it type-checks as a real Plugin for the
+      // `tsc -b` step Playwright's webServer runs.
+      name: "vrm-mime",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const url = req.url ?? "";
+          if (url.split("?")[0].endsWith(".vrm")) {
+            res.setHeader("Content-Type", "model/vrm");
+          }
+          next();
+        });
+      },
+    },
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],

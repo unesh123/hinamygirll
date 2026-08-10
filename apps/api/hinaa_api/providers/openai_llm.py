@@ -45,6 +45,12 @@ def _custom_text_from_raw(raw: str) -> str:
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
+    if isinstance(payload, list):
+        # A JSON array is likely broken chat output; speak the joined pieces
+        # rather than raw JSON syntax.
+        parts = [item for item in payload if isinstance(item, str) and item.strip()]
+        if parts:
+            return " ".join(parts)
     return cleaned
 
 
@@ -85,13 +91,30 @@ class OpenAILLMProvider:
         try:
             raw = await self._chat_json(prompt)
             plan = validate_or_none(raw)
-            if plan is None and self._provider_id == "custom" and raw.strip():
+            if (
+                plan is None
+                and self._provider_id in {"custom", "cx-gateway"}
+                and raw.strip()
+            ):
+                # Reasoning/gateway models often answer in plain prose even when
+                # asked for JSON. Turn the prose itself into a valid plan so the
+                # CX brain (gpt-5.6-sol) never degrades to the canned fallback.
                 fallback_text = _custom_text_from_raw(raw)
                 plan = build_plan_from_text(
                     text=fallback_text,
                     companion_id=companion_id,
                     language=language,
                     depth=prompt.response_depth,
+                )
+            if plan is None and self._provider_id in {"custom", "cx-gateway"}:
+                # Prose-recovery is the real path for gateway models; a schema
+                # repair round trip would send response_format these gateways
+                # may reject. Fail typed instead of burning a second call.
+                raise HinaaError(
+                    "MODEL_RESPONSE_INVALID",
+                    "The model returned an invalid safe response plan.",
+                    502,
+                    True,
                 )
             if plan is None:
                 repaired = await self._repair_json(raw)
@@ -171,7 +194,7 @@ class OpenAILLMProvider:
         )
 
     async def _chat_json(self, prompt: PromptPackage) -> str:
-        if self._provider_id == "custom":
+        if self._provider_id in {"custom", "cx-gateway"}:
             return await self._chat_text(prompt)
         payload = {
             "model": self._model,
@@ -188,7 +211,8 @@ class OpenAILLMProvider:
             )
         self._raise_for_status(response)
         data = response.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content")
+        choices = data.get("choices") or []
+        content = choices[0].get("message", {}).get("content") if choices else None
         return content if isinstance(content, str) else ""
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
@@ -196,9 +220,11 @@ class OpenAILLMProvider:
             "model": self._model,
             "messages": _messages(prompt),
             "temperature": 0.35,
-            "max_tokens": 700,
+            # Reasoning models spend hidden tokens before the answer; a small
+            # cap starves the visible reply entirely.
+            "max_tokens": 2200,
         }
-        async with httpx.AsyncClient(timeout=22.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
                 self._chat_url(),
                 headers=self._headers(),
@@ -206,7 +232,8 @@ class OpenAILLMProvider:
             )
         self._raise_for_status(response)
         data = response.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content")
+        choices = data.get("choices") or []
+        content = choices[0].get("message", {}).get("content") if choices else None
         return content if isinstance(content, str) else ""
 
     async def _repair_json(self, invalid_raw: str) -> str:
@@ -231,18 +258,34 @@ class OpenAILLMProvider:
             )
         self._raise_for_status(response)
         data = response.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content")
+        choices = data.get("choices") or []
+        content = choices[0].get("message", {}).get("content") if choices else None
         return content if isinstance(content, str) else ""
 
     async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
-        payload = {
-            "model": self._model,
-            "messages": _messages(prompt),
-            "temperature": 0.45,
-            "max_completion_tokens": 600,
-            "stream": True,
-        }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        if self._provider_id in {"custom", "cx-gateway"}:
+            # OpenAI-compatible gateways host reasoning models (e.g. Kimi,
+            # cx/gpt-5.6-sol) that spend tokens on hidden "reasoning_content"
+            # before any spoken "content". A small cap starves the actual
+            # answer, so allow more headroom and a longer gateway timeout.
+            payload: dict[str, object] = {
+                "model": self._model,
+                "messages": _messages(prompt),
+                "temperature": 0.45,
+                "max_tokens": 2200,
+                "stream": True,
+            }
+            timeout = 90.0
+        else:
+            payload = {
+                "model": self._model,
+                "messages": _messages(prompt),
+                "temperature": 0.45,
+                "max_completion_tokens": 600,
+                "stream": True,
+            }
+            timeout = 30.0
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
                 "POST",
                 self._chat_url(),
@@ -260,7 +303,14 @@ class OpenAILLMProvider:
                         data = json.loads(event)
                     except json.JSONDecodeError:
                         continue
-                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                    choices = data.get("choices") or []
+                    if not choices:
+                        # Usage/heartbeat events legally carry no choices;
+                        # indexing [0] here used to crash the whole live turn.
+                        continue
+                    delta = choices[0].get("delta", {}).get("content")
+                    # reasoning_content (private chain-of-thought) is
+                    # intentionally never yielded or spoken.
                     if isinstance(delta, str):
                         yield delta
 
@@ -327,7 +377,11 @@ class OpenAILLMProvider:
         )
 
     def _provider_label(self) -> str:
-        return "Custom model gateway" if self._provider_id == "custom" else "OpenAI"
+        if self._provider_id == "cx-gateway":
+            return "CX gateway"
+        if self._provider_id == "custom":
+            return "Custom model gateway"
+        return "OpenAI"
 
 
 __all__ = ["OpenAILLMProvider"]

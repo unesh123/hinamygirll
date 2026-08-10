@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from .companions import companion_identity_layer, companion_style_marker
-from .context import build_history_block, build_memory_block, build_user_block
+from .context import (
+    build_history_block,
+    build_memory_block,
+    build_session_memory_block,
+    build_user_block,
+)
 from .depth import depth_guidance, infer_response_depth
 from .language import LANGUAGE_LAYER, language_hint
 from .models import PromptInput, PromptLayer, PromptPackage
 from .performance import PERFORMANCE_SCHEMA_LAYER
 from .safety import PRODUCT_IDENTITY_LAYER, SAFETY_LAYER, TOOL_POLICY_LAYER
+from ..tools import registry
 from .versioning import (
     COMPANION_PROFILE_VERSION,
     LANGUAGE_POLICY_VERSION,
@@ -82,7 +88,7 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             trusted=True,
             text=depth_guidance(depth, inp.interaction_mode),
         ),
-        PromptLayer(name="tool_policy", priority=7, trusted=True, text=TOOL_POLICY_LAYER),
+        PromptLayer(name="tool_policy", priority=7, trusted=True, text=TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()),
         PromptLayer(
             name="schema_contract",
             priority=8,
@@ -96,8 +102,14 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             text=build_memory_block(inp.approved_memory_blocks),
         ),
         PromptLayer(
-            name="conversation_history",
+            name="session_memory",
             priority=10,
+            trusted=True,
+            text=build_session_memory_block(inp.session_memories),
+        ),
+        PromptLayer(
+            name="conversation_history",
+            priority=11,
             trusted=False,
             text=build_history_block(
                 inp.recent_turns,
@@ -114,19 +126,35 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
     ]
     layers.sort(key=lambda layer: layer.priority)
 
+    # Application-trusted memory layers (approved long-term + self-learned session
+    # facts) stay in the system instruction after policy but before untrusted
+    # history. The filter excludes them from the generic system_parts list so
+    # they can be appended in deterministic layer-priority order.
     system_parts = [
-        layer.text for layer in layers if layer.trusted and layer.name not in {"approved_memory"}
+        layer.text
+        for layer in layers
+        if layer.trusted and layer.name not in {"approved_memory", "session_memory"}
     ]
-    # Keep memory in system as application-trusted application state, but after policy.
-    memory_layer = next(layer for layer in layers if layer.name == "approved_memory")
-    system_instruction = "\n\n".join([*system_parts, memory_layer.text])
+    memory_layers = [
+        layer.text
+        for layer in layers
+        if layer.name in {"approved_memory", "session_memory"}
+    ]
+    system_instruction = "\n\n".join([*system_parts, *memory_layers])
 
     history = next(layer for layer in layers if layer.name == "conversation_history")
     user_msg = next(layer for layer in layers if layer.name == "user_message")
+    
+    screen_context = ""
+    if inp.visible_actions:
+        actions_str = "\n".join(f"- {a}" for a in inp.visible_actions)
+        screen_context = f"\nVisible UI Actions (can be triggered by tools if requested):\n{actions_str}\n"
+
     user_contents = (
         f"Companion style marker: {companion_style_marker(inp.companion_id)}\n"
         f"Interaction mode: {inp.interaction_mode}\n"
-        f"Response depth: {depth}\n\n"
+        f"Response depth: {depth}\n"
+        f"{screen_context}\n"
         f"{history.text}\n\n"
         f"{user_msg.text}"
     )

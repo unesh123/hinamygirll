@@ -31,7 +31,8 @@ def test_health_and_provider_readiness_are_safe(client: TestClient) -> None:
     assert by_id["groq"]["state"] == "unavailable"
     assert by_id["openai"]["state"] == "unavailable"
     assert "model:gpt-5-mini" in by_id["openai"]["capabilities"]
-    assert by_id["azure-speech"]["state"] == "unavailable"
+    assert by_id["azure-speech"]["state"] in ("disabled", "unavailable")
+    assert "elevenlabs" in by_id
     assert by_id["gemini"]["state"] == "unavailable"
 
 

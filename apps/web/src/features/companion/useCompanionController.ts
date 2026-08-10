@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
-import type { ProviderMode } from "../audio/api";
 import { BackendConversationProvider } from "../providers/backendConversationProvider";
 import { MockConversationProvider } from "../providers/mockConversationProvider";
 import {
@@ -9,6 +8,7 @@ import {
   type CompanionState,
   type TranscriptMessage,
 } from "./types";
+import type { ProviderRuntimeSelection } from "../providers/utils/resolveProviderSelection";
 
 function createId(): string {
   return (
@@ -16,18 +16,29 @@ function createId(): string {
   );
 }
 
+function createMessage(
+  role: "user" | "assistant",
+  text: string,
+  extra?: Partial<TranscriptMessage>,
+): TranscriptMessage {
+  return {
+    id: createId(),
+    role,
+    text,
+    createdAt: new Date().toISOString(),
+    ...extra,
+  };
+}
+
 export interface CompanionController {
   companionId: CompanionId;
-  setCompanionId: (id: CompanionId) => void;
+  switchCompanion: (id: CompanionId) => void;
   state: CompanionState;
   messages: TranscriptMessage[];
   partialTranscript: string;
   streamingText: string;
+  routing: ProviderRuntimeSelection;
   activePlan?: AssistantTurnPlan;
-  providerMode: ProviderMode;
-  setProviderMode: (mode: ProviderMode) => void;
-  brainModel: string;
-  setBrainModel: (model: string) => void;
   sendText: (
     text: string,
     options?: { forceBackend?: boolean },
@@ -45,21 +56,19 @@ export interface CompanionController {
   setLiveState: (state: CompanionState) => void;
 }
 
-export function useCompanionController(): CompanionController {
+export interface CompanionControllerOptions {
+  routing: ProviderRuntimeSelection;
+}
+
+export function useCompanionController({ routing }: CompanionControllerOptions): CompanionController {
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
   const [messages, setMessages] = useState<TranscriptMessage[]>([
-    {
-      id: createId(),
-      role: "assistant",
-      text: companionProfiles.hinaa.greeting,
-    },
+    createMessage("assistant", companionProfiles.hinaa.greeting),
   ]);
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();
-  const [providerMode, setProviderMode] = useState<ProviderMode>("mock");
-  const [brainModel, setBrainModel] = useState("gpt-5-mini");
   const provider = useRef(new MockConversationProvider());
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
@@ -68,6 +77,25 @@ export function useCompanionController(): CompanionController {
     for (const timer of timers.current) window.clearTimeout(timer);
     timers.current = [];
   }, []);
+
+  // Switching companion starts a fresh log with their own greeting, clears
+  // any in-flight turn, and returns the stage to idle. Re-selecting the
+  // already-active companion is a no-op — the transcript is left untouched.
+  const switchCompanion = useCallback(
+    (id: CompanionId) => {
+      if (id === companionId) return;
+      clearTimers();
+      currentAbort.current?.abort();
+      currentAbort.current = undefined;
+      setCompanionId(id);
+      setPartialTranscript("");
+      setStreamingText("");
+      setActivePlan(undefined);
+      setMessages([createMessage("assistant", companionProfiles[id].greeting)]);
+      setState("idle");
+    },
+    [clearTimers, companionId],
+  );
 
   const stop = useCallback(() => {
     clearTimers();
@@ -90,7 +118,7 @@ export function useCompanionController(): CompanionController {
       currentAbort.current = abortController;
       setMessages((current) => [
         ...current,
-        { id: createId(), role: "user", text },
+        createMessage("user", text),
       ]);
       setPartialTranscript("");
       setStreamingText("");
@@ -101,15 +129,20 @@ export function useCompanionController(): CompanionController {
         let streamed = "";
         let completedPlan: AssistantTurnPlan | undefined;
         let providerLatencyMs: number | undefined;
+        // Snapshot routing for this turn so it can't change mid-stream
+        const turnMode = routing.activeMode ?? "mock";
+        const turnModel = routing.activeModel ?? "";
+        
         const selectedProvider =
-          providerMode !== "mock" || options?.forceBackend
-            ? new BackendConversationProvider(providerMode)
+          turnMode !== "mock" || options?.forceBackend
+            ? new BackendConversationProvider(turnMode)
             : provider.current;
+            
         for await (const event of selectedProvider.streamTurn({
           text,
           companionId,
           signal: abortController.signal,
-          brainModel,
+          brainModel: turnModel,
         })) {
           if (event.type === "thinking") {
             setState("thinking");
@@ -122,12 +155,7 @@ export function useCompanionController(): CompanionController {
             setActivePlan(event.plan);
             setMessages((current) => [
               ...current,
-              {
-                id: createId(),
-                role: "assistant",
-                text: event.plan.displayText,
-                plan: event.plan,
-              },
+              createMessage("assistant", event.plan.displayText, { plan: event.plan }),
             ]);
             setStreamingText("");
             setState("speaking");
@@ -150,11 +178,7 @@ export function useCompanionController(): CompanionController {
         setState("error");
         setMessages((current) => [
           ...current,
-          {
-            id: createId(),
-            role: "assistant",
-            text: friendly,
-          },
+          createMessage("assistant", friendly),
         ]);
         return undefined;
       } finally {
@@ -162,7 +186,7 @@ export function useCompanionController(): CompanionController {
           currentAbort.current = undefined;
       }
     },
-    [brainModel, clearTimers, companionId, providerMode],
+    [clearTimers, companionId, routing],
   );
 
   const startMockListening = useCallback(() => {
@@ -207,7 +231,7 @@ export function useCompanionController(): CompanionController {
     setStreamingText("");
     setMessages((current) => [
       ...current,
-      { id: createId(), role: "user", text },
+      createMessage("user", text),
     ]);
     setState("thinking");
   }, []);
@@ -222,19 +246,15 @@ export function useCompanionController(): CompanionController {
     setStreamingText("");
     setMessages((current) => [
       ...current,
-      { id: createId(), role: "assistant", text: plan.displayText, plan },
+      createMessage("assistant", plan.displayText, { plan }),
     ]);
     setState("speaking");
   }, []);
 
   const applyLiveError = useCallback((message: string) => {
-    setPartialTranscript("");
+    setPartialTranscript(message);
     setStreamingText("");
     setState("error");
-    setMessages((current) => [
-      ...current,
-      { id: createId(), role: "assistant", text: message },
-    ]);
   }, []);
 
   useEffect(
@@ -245,18 +265,100 @@ export function useCompanionController(): CompanionController {
     [clearTimers],
   );
 
+  const processedToolMessageIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (
+      !lastMessage ||
+      lastMessage.role !== "assistant" ||
+      !lastMessage.plan?.toolRequests ||
+      lastMessage.plan.toolRequests.length === 0
+    ) {
+      return;
+    }
+
+    if (processedToolMessageIds.current.has(lastMessage.id)) {
+      return;
+    }
+
+    processedToolMessageIds.current.add(lastMessage.id);
+
+    const runTools = async () => {
+      // Mark as running
+      setMessages((current) =>
+        current.map((msg) =>
+          msg.id === lastMessage.id
+            ? {
+                ...msg,
+                toolActivity: lastMessage.plan!.toolRequests.map((req: any) => ({
+                  id: req.toolName,
+                  status: "running",
+                  label: `Running ${req.toolName}...`,
+                })),
+                toolResults: [],
+              }
+            : msg
+        )
+      );
+
+      for (const req of lastMessage.plan.toolRequests) {
+        try {
+          const res = await fetch("http://localhost:8000/v1/tools/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(req),
+          });
+          const data = await res.json();
+
+          setMessages((current) =>
+            current.map((msg) => {
+              if (msg.id !== lastMessage.id) return msg;
+              const results = msg.toolResults || [];
+              const act = msg.toolActivity || [];
+              return {
+                ...msg,
+                toolResults: [...results, { toolName: (req as any).toolName, result: data.data }],
+                toolActivity: act.map((a) =>
+                  a.id === (req as any).toolName
+                    ? { ...a, status: "complete", label: `Completed ${(req as any).toolName}` }
+                    : a
+                ),
+              };
+            })
+          );
+        } catch (e) {
+          console.error("Tool execution failed", e);
+          setMessages((current) =>
+            current.map((msg) => {
+              if (msg.id !== lastMessage.id) return msg;
+              const act = msg.toolActivity || [];
+              return {
+                ...msg,
+                toolActivity: act.map((a) =>
+                  a.id === (req as any).toolName
+                    ? { ...a, status: "error", label: `Failed ${(req as any).toolName}` }
+                    : a
+                ),
+              };
+            })
+          );
+        }
+      }
+    };
+
+    void runTools();
+  }, [messages]);
+
   return {
     companionId,
-    setCompanionId,
+    switchCompanion,
     state,
     messages,
     partialTranscript,
     streamingText,
+    routing,
     activePlan,
-    providerMode,
-    setProviderMode,
-    brainModel,
-    setBrainModel,
     sendText,
     startMockListening,
     beginListening,

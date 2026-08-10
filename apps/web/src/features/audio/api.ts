@@ -4,7 +4,10 @@ export type ProviderMode =
   | "groq"
   | "openai"
   | "custom"
-  | "real";
+  | "real"
+  | "agent-router"
+  | "cx-gateway"
+  | "gemini-live";
 
 export interface ProviderStatus {
   id: string;

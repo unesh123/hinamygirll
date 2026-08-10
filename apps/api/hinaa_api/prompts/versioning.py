@@ -5,7 +5,7 @@ import json
 
 PROMPT_VERSION = "tier-a-conversation-brain-1.0.0"
 SAFETY_POLICY_VERSION = "safety-1.0.0"
-COMPANION_PROFILE_VERSION = "companions-1.0.0"
+COMPANION_PROFILE_VERSION = "companions-1.4.0"
 LANGUAGE_POLICY_VERSION = "language-1.0.0"
 SCHEMA_CONTRACT_VERSION = "assistant-turn-plan-1.0"
 

@@ -146,43 +146,39 @@ describe("TurnTakingController", () => {
 
   it("barge-in when assistant is playing and energy rises", () => {
     const controller = new TurnTakingController({ startFrames: 2 });
-    controller.process({
-      level: 0.2,
-      assistantPlaying: true,
-      partialText: "",
-      sessionActive: true,
-      paused: false,
-    });
-    const second = controller.process({
-      level: 0.2,
-      assistantPlaying: true,
-      partialText: "",
-      sessionActive: true,
-      paused: false,
-    });
-    expect(second.bargeIn).toBe(true);
-    expect(second.state).toBe("interrupted");
+    // Barge-in is intentional: it requires sustained voice (bargeInFrames = 8
+    // frames, ~160ms) so playback echo can never cut Hinaa off.
+    const frames = [...Array(8).fill(0.2)];
+    const decisions = frames.map(() =>
+      controller.process({
+        level: 0.2,
+        assistantPlaying: true,
+        partialText: "",
+        sessionActive: true,
+        paused: false,
+      }),
+    );
+    expect(decisions.some((d) => d.bargeIn)).toBe(true);
+    expect(decisions.at(-1)?.state).toBe("interrupted");
   });
 
   it("repeated barge-in stays interruptible", () => {
     const controller = new TurnTakingController({ startFrames: 1 });
-    const a = controller.process({
-      level: 0.3,
-      assistantPlaying: true,
-      partialText: "x",
-      sessionActive: true,
-      paused: false,
-    });
+    const run = () =>
+      [...Array(8).fill(0.3)].map(() =>
+        controller.process({
+          level: 0.3,
+          assistantPlaying: true,
+          partialText: "x",
+          sessionActive: true,
+          paused: false,
+        }),
+      );
+    const a = run();
     controller.resetSpeech();
     controller.setSessionState("speaking");
-    const b = controller.process({
-      level: 0.3,
-      assistantPlaying: true,
-      partialText: "y",
-      sessionActive: true,
-      paused: false,
-    });
-    expect(a.bargeIn || b.bargeIn).toBe(true);
+    const b = run();
+    expect(a.some((d) => d.bargeIn) || b.some((d) => d.bargeIn)).toBe(true);
   });
 
   it("paused session never commits", () => {

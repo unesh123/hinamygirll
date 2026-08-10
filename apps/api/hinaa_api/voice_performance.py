@@ -28,8 +28,13 @@ class VoicePerformancePlan(BaseModel):
     energy: Annotated[float, Field(ge=0.0, le=1.0)] = 0.45
 
 
+# Provider/product names (gemini, azure) are deliberately NOT tech-task
+# signals: saying "gemini ai assistant made by google" or "azure" must not
+# flatten her into the professional (flat, robotic) delivery — that is exactly
+# the "she stops being herself when I mention AI" complaint. Only genuine
+# coding/task words flip the delivery.
 _TECH = re.compile(
-    r"\b(code|bug|api|error|debug|typescript|fastapi|websocket|gemini|azure|sql|http)\b",
+    r"\b(code|bug|api|error|debug|typescript|fastapi|websocket|sql|http)\b",
     re.IGNORECASE,
 )
 _SERIOUS = re.compile(
@@ -62,7 +67,7 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
             pace=0.94,
             pitch_semitones=-0.4,
             volume=0.9,
-            warmth=0.7,
+            warmth=0.75,
             energy=0.3,
         )
     if _TECH.search(text) or depth in {"procedural", "explanatory"}:
@@ -71,7 +76,7 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
             pace=0.98,
             pitch_semitones=0.0,
             volume=1.0,
-            warmth=0.35,
+            warmth=0.4,
             energy=0.4,
         )
     if _CELEBRATE.search(text):
@@ -80,7 +85,7 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
             pace=1.06,
             pitch_semitones=0.8,
             volume=1.0,
-            warmth=0.6,
+            warmth=0.75,
             energy=0.7,
         )
     if _GREET.search(text):
@@ -89,7 +94,7 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
             pace=1.04,
             pitch_semitones=0.5,
             volume=1.0,
-            warmth=0.65,
+            warmth=0.7,
             energy=0.6,
         )
     if depth == "thoughtful" or "thinking" in reply_text.lower():
@@ -98,10 +103,10 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
             pace=0.96,
             pitch_semitones=-0.2,
             volume=0.95,
-            warmth=0.55,
+            warmth=0.6,
             energy=0.35,
         )
-    return VoicePerformancePlan(mode="warm", pace=1.0, pitch_semitones=0.2, warmth=0.6, energy=0.45)
+    return VoicePerformancePlan(mode="warm", pace=1.0, pitch_semitones=0.2, warmth=0.7, energy=0.5)
 
 
 def speech_text_for_tts(display_text: str) -> str:

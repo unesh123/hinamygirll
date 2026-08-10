@@ -1,7 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./index.css";
+import "./app/styles/global.css";
 import App from "./App.tsx";
+
+// NOTE: BrowserRouter removed — no routes are registered yet.
+// Reintroduce when /playground, /settings, or another genuine route exists.
 
 if (import.meta.env.DEV && "serviceWorker" in navigator) {
   void navigator.serviceWorker

@@ -70,6 +70,36 @@ def test_session_memory_is_bounded_and_deletable() -> None:
     assert memory.context("three") == ()
 
 
+def test_session_self_learning_extracts_and_bounds_facts() -> None:
+    memory = SessionMemory(session_limit=2, turn_limit=8)
+    memory.append_turn("one", "My name is Prabin and I love coding", "a1")
+    memory.append_turn("one", "I like hiking too", "a2")
+    facts = memory.learned_memories("one")
+    assert any("Prabin" in fact for fact in facts)
+    assert any("likes" in fact.lower() and "coding" in fact.lower() for fact in facts)
+    assert any("hiking" in fact for fact in facts)
+    # Bounded: at most the configured cap regardless of how much the user says.
+    for _ in range(30):
+        memory.append_turn("one", "I like biryani", "a")
+    assert len(memory.learned_memories("one")) <= 8
+    # Eviction also drops learned facts so the map cannot grow unboundedly.
+    memory.append_turn("two", "x", "y")
+    memory.append_turn("three", "x", "y")
+    memory.append_turn("four", "x", "y")
+    assert memory.learned_memories("one") == ()
+    memory.clear("three")
+    assert memory.learned_memories("three") == ()
+
+
+def test_session_self_learning_avoids_false_positive_names() -> None:
+    memory = SessionMemory(session_limit=2, turn_limit=8)
+    # "I am going" / "ma garchhu" must NOT be captured as a user name.
+    memory.append_turn("one", "I am going to the market", "a")
+    memory.append_turn("one", "ma garchhu bhane", "a")
+    facts = memory.learned_memories("one")
+    assert all("name" not in fact.lower() for fact in facts)
+
+
 @pytest.mark.asyncio
 async def test_timeout_fixture_does_not_retry_after_visible_output() -> None:
     with pytest.raises(TimeoutError):

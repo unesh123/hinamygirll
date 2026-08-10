@@ -23,6 +23,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $web 'node_modules'))) {
 
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 
+# Durable local memory: keep learned facts across restarts (file-backed SQLite).
+# Tests and CI use their own explicit in-memory URLs; the dev launcher must not.
+$env:HINAA_DATABASE_URL = "sqlite+pysqlite:///./.runtime/hinaa.db"
+
 $apiReady = $false
 try {
     $health = Invoke-RestMethod 'http://127.0.0.1:8000/health/live' -TimeoutSec 2

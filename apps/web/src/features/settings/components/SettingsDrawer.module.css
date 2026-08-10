@@ -1,0 +1,133 @@
+/* SettingsDrawer.module.css */
+
+/* ── Backdrop ────────────────────────────────────────────────────────────── */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  background: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: backdrop-in var(--duration-normal) var(--ease-decelerate);
+}
+
+/* ── Drawer panel ────────────────────────────────────────────────────────── */
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(360px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: #064e3bfff;
+  --color-bg-elevated: #064e3bfff;
+  --color-bg-surface: #f0f6ff;
+  --color-bg-overlay: #f0f6ff;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748b;
+  --color-border-subtle: rgba(37, 99, 235, 0.12);
+  --color-border-default: rgba(37, 99, 235, 0.2);
+  border-left: 1px solid rgba(37, 99, 235, 0.15);
+  box-shadow: -4px 0 24px rgba(37, 99, 235, 0.12);
+  animation: slide-in var(--duration-normal) var(--ease-decelerate);
+}
+
+/* Mobile: bottom sheet */
+@media (max-width: 480px) {
+  .drawer {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 92dvh;
+    border-left: none;
+    border-top: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: slide-up var(--duration-normal) var(--ease-decelerate);
+  }
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-subtle);
+  flex-shrink: 0;
+  background: var(--color-bg-elevated);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.closeBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-overlay);
+  border-color: var(--color-border-subtle);
+}
+
+.closeBtn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* ── Scrollable content ──────────────────────────────────────────────────── */
+.content {
+  flex: 1 1 0%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) 0 var(--safe-bottom, 24px);
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* Reduced motion: skip transforms, just fade */
+[data-reduced-motion="true"] .drawer,
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: backdrop-in var(--duration-fast) var(--ease-standard);
+    transform: none !important;
+  }
+}

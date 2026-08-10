@@ -1,0 +1,159 @@
+/**
+ * MessageBubble — premium animated message with framer-motion.
+ * Assistants get document-style spacious content; users get compact glass bubbles.
+ * Streaming reveals words with subtle upward blur-to-clear animation.
+ */
+
+import { memo, useMemo } from "react";
+import { motion } from "framer-motion";
+import type { TranscriptMessage } from "../../companion/types";
+import styles from "./MessageBubble.module.css";
+
+interface Props {
+  message: TranscriptMessage;
+  companionName?: string;
+  isStreaming?: boolean;
+  isPartial?: boolean;
+  isThinking?: boolean;
+  isGroupStart?: boolean;
+  "aria-label"?: string;
+  "data-testid"?: string;
+}
+
+/** Simple markdown-to-HTML for inline formatting */
+function renderMarkdown(text: string): string {
+  let html = text
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    // Italic
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    // Inline code
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return html;
+}
+
+export const MessageBubble = memo(function MessageBubble({
+  message,
+  companionName = "HINAA",
+  isStreaming = false,
+  isPartial = false,
+  isThinking = false,
+  isGroupStart = true,
+  "aria-label": ariaLabel,
+  "data-testid": testId,
+}: Props) {
+  const isUser = message.role === "user";
+  const isError =
+    message.text.startsWith("Response failed safely.") ||
+    message.text.includes("rate limited");
+
+  const formattedTime = useMemo(() => {
+    try {
+      return new Date(message.createdAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  }, [message.createdAt]);
+
+  const isLong = message.text.length > 120;
+  const renderedHTML = useMemo(() => renderMarkdown(message.text), [message.text]);
+
+  return (
+    <motion.article
+      className={[
+        styles.bubble,
+        isUser ? styles.user : styles.assistant,
+        isGroupStart ? styles.groupStart : styles.grouped,
+        isStreaming ? styles.streaming : "",
+        isPartial ? styles.partial : "",
+        isThinking ? styles.thinking : "",
+        isError ? styles.error : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-role={message.role}
+      data-group-start={isGroupStart ? "true" : "false"}
+      data-testid={testId}
+      aria-label={ariaLabel}
+      initial={{ opacity: 0, y: 12, x: isUser ? 16 : -16 }}
+      animate={{ opacity: 1, y: 0, x: 0 }}
+      transition={{ duration: 0.4, ease: [0.22, 0.61, 0.36, 1] }}
+      layout="position"
+    >
+      {/* HINAA identity chip */}
+      {!isUser && isGroupStart && !isThinking && (
+        <motion.span
+          className={styles.chip}
+          aria-hidden="true"
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ delay: 0.08, duration: 0.35, ease: [0.34, 1.56, 0.64, 1] }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+        </motion.span>
+      )}
+
+      <div className={styles.stack}>
+        {/* Thinking dots */}
+        {isThinking ? (
+          <div className={styles.thinkingDots} aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <motion.span
+                key={i}
+                className={styles.dot}
+                animate={{ y: [0, -6, 0] }}
+                transition={{
+                  duration: 0.8,
+                  repeat: Infinity,
+                  delay: i * 0.15,
+                  ease: "easeInOut",
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className={styles.content}>
+            <div className={styles.text}>
+              {isStreaming && message.text ? (
+                <>
+                  <span dangerouslySetInnerHTML={{ __html: renderedHTML }} />
+                  <span className={styles.cursor} aria-hidden="true" />
+                </>
+              ) : isUser ? (
+                message.text
+              ) : (
+                <span dangerouslySetInnerHTML={{ __html: renderedHTML }} />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        {!isThinking && (
+          <div className={styles.footer}>
+            {isPartial ? (
+              <span className={styles.partialLabel}>speaking…</span>
+            ) : isStreaming ? (
+              <span className={styles.partialLabel}>writing…</span>
+            ) : (
+              <time
+                className={styles.time}
+                dateTime={message.createdAt}
+                title={new Date(message.createdAt).toLocaleString()}
+              >
+                {formattedTime}
+              </time>
+            )}
+          </div>
+        )}
+      </div>
+    </motion.article>
+  );
+});

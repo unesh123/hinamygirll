@@ -33,6 +33,12 @@ describe("MicrophoneRecorder", () => {
         disconnect: disconnectSource,
       })),
       createScriptProcessor: vi.fn(() => processor),
+      createBiquadFilter: vi.fn(() => ({
+        type: "",
+        frequency: { value: 0 },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      })),
       createGain: vi.fn(() => ({
         gain: { value: 1 },
         connect: vi.fn(),

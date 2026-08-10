@@ -18,6 +18,8 @@ export type TurnTakingState =
 export interface TurnTakingConfig {
   /** Frames above threshold before speech start (~20ms each). */
   startFrames: number;
+  /** Frames required for intentional user barge-in while assistant speaks. */
+  bargeInFrames: number;
   /** Minimum voiced frames before a commit is allowed. */
   minimumSpeechFrames: number;
   /** Short silence treated as hesitation, not end-of-turn. */
@@ -35,15 +37,16 @@ export interface TurnTakingConfig {
 }
 
 export const DEFAULT_TURN_TAKING: TurnTakingConfig = {
-  startFrames: 3,
-  minimumSpeechFrames: 5,
-  hesitationFrames: 12,
-  endOfTurnFrames: 28,
-  maxSilenceFrames: 45,
+  startFrames: 2,
+  bargeInFrames: 8,           // Requires ~160ms of sustained intentional voice to interrupt
+  minimumSpeechFrames: 3,
+  hesitationFrames: 8,
+  endOfTurnFrames: 12,
+  maxSilenceFrames: 20,
   maxSpeechFrames: 1_500,
-  startThreshold: 0.025,
-  speakerThreshold: 0.07,
-  minimumTranscriptChars: 2,
+  startThreshold: 0.003,       // Sensitive speech start (0.003 ensures reliable capture on all mics)
+  speakerThreshold: 0.095,      // High threshold to ignore room noise / speaker bleed during playback
+  minimumTranscriptChars: 1,
 };
 
 export interface TurnTakingInput {
@@ -85,6 +88,7 @@ export class TurnTakingController {
   private speaking = false;
   private lastPartial = "";
   private lastCommitFingerprint = "";
+  private noiseFloor = 0.005; // Adaptive background noise baseline (e.g. laptop fans)
   private readonly config: TurnTakingConfig;
 
   constructor(config: Partial<TurnTakingConfig> = {}) {
@@ -133,13 +137,29 @@ export class TurnTakingController {
       };
     }
 
+    // Adaptive noise floor tracking when user is silent & assistant is not playing
+    if (!this.speaking && !input.assistantPlaying) {
+      this.noiseFloor = this.noiseFloor * 0.95 + input.level * 0.05;
+    }
+
+    // Dynamic thresholds relative to baseline noise floor (e.g. laptop fan noise)
+    const dynamicStartThreshold = Math.max(
+      0.012,
+      this.noiseFloor * 2.2 + 0.008
+    );
+    const dynamicBargeInThreshold = Math.max(
+      0.12,
+      this.noiseFloor * 3.5 + 0.08
+    );
+
     const threshold = input.assistantPlaying
-      ? this.config.speakerThreshold
-      : this.config.startThreshold;
+      ? dynamicBargeInThreshold
+      : dynamicStartThreshold;
+
     const hot = input.level >= threshold;
     this.hotFrames = hot ? this.hotFrames + 1 : 0;
     const bargeIn =
-      input.assistantPlaying && this.hotFrames === this.config.startFrames;
+      input.assistantPlaying && this.hotFrames === this.config.bargeInFrames;
 
     if (input.partialText.trim()) this.lastPartial = input.partialText.trim();
 
@@ -208,12 +228,26 @@ export class TurnTakingController {
         this.state = "committing";
       } else if (
         enoughSpeech &&
-        (this.quietFrames >= this.config.maxSilenceFrames || hardMax) &&
-        !hasTranscript
+        // Without a transcript we can only infer speech from sustained energy:
+        // a few frames of noise should never commit (and burn a backend call).
+        this.voicedFrames >= Math.max(this.config.minimumSpeechFrames * 2, 4) &&
+        this.quietFrames >= this.config.maxSilenceFrames
       ) {
-        this.resetSpeech();
-        this.state = "listening";
-        reason = "empty_or_noise_rejected";
+        // Even if STT hasn't returned partials yet, commit if the user clearly
+        // spoke for a sustained stretch and has been silent long enough.
+        // Backend STT will transcribe from the audio.
+        const fingerprint = `silent_commit|${this.voicedFrames}`;
+        if (fingerprint !== this.lastCommitFingerprint) {
+          this.lastCommitFingerprint = fingerprint;
+          speechCommit = true;
+          reason = "silence_commit_no_partial";
+          this.resetSpeech();
+          this.state = "committing";
+        } else {
+          this.resetSpeech();
+          this.state = "listening";
+          reason = "noise_rejected";
+        }
       }
     } else if (this.hotFrames > 0) {
       this.state = "possible_speech";

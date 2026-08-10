@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import re
 import struct
 from contextlib import suppress
@@ -9,14 +10,16 @@ from dataclasses import dataclass, field
 from time import monotonic_ns, perf_counter
 from typing import Annotated, Literal
 
+logger = logging.getLogger("hinaa.realtime")
+
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import Field, ValidationError
 
 from .config import Settings
 from .errors import HinaaError
 from .models import CompanionId, Language, ProviderMode, StrictModel, TurnRequest
-from .providers.azure_speech import AzureContinuousRecognizer
 from .services import ConversationService
+from .voice_performance import plan_voice_performance, speech_text_for_tts
 from .voice_profiles import resolve_calibration, resolve_voice
 
 
@@ -48,12 +51,14 @@ class CommitMessage(StrictModel):
     type: Literal["audio.commit"]
     generation: Annotated[int, Field(ge=0, le=1_000_000)]
     endedAtMs: Annotated[float, Field(ge=0)]
+    visibleActions: list[str] = Field(default_factory=list)
     mockTranscript: Annotated[str | None, Field(min_length=1, max_length=500)] = None
 
 
 @dataclass(slots=True)
 class LiveSession:
     hello: ClientHello
+    user_id: str | None = None
     expected_sequence: int = 0
     audio: bytearray = field(default_factory=bytearray)
     speech_detected: bool = False
@@ -61,7 +66,6 @@ class LiveSession:
     turn: int = 0
     processing: asyncio.Task[None] | None = None
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    live_stt: AzureContinuousRecognizer | None = None
 
 
 def _timestamp_ms() -> float:
@@ -74,7 +78,42 @@ def _has_speech(pcm: bytes) -> bool:
     count = len(pcm) // 2
     samples = struct.unpack(f"<{count}h", pcm[: count * 2])
     energy = sum(sample * sample for sample in samples) / count
-    return energy**0.5 >= 220
+    return energy**0.5 >= 30
+
+
+def _is_dead_silence(pcm: bytes) -> bool:
+    """True only for effectively all-zero audio (no signal at all).
+
+    Frontend VAD is trusted for quiet mics, but a fully digital-zero buffer is
+    never speech — rejecting it before STT avoids burning a paid transcription
+    call on silence and keeps the typed AUDIO_NO_SIGNAL contract.
+    """
+    if not pcm:
+        return True
+    # Sample every byte in the buffer; all-zero PCM16 (0x00 0x00) has no signal.
+    return not any(pcm)
+
+
+
+def _tts_media_type(provider_id: str, elevenlabs_output_format: str) -> str:
+    """Return the real audio MIME type for the bytes a TTS provider produced.
+
+    Previously this event field was hardcoded to "audio/wav" for every
+    provider. ElevenLabs returns MP3 (per ELEVENLABS_OUTPUT_FORMAT, e.g.
+    mp3_44100_128) — mislabeling those bytes as audio/wav is silently
+    incorrect and is a real cause of "she isn't speaking" on stricter mobile
+    audio decoders even though it often accidentally plays on desktop Chrome
+    because browsers sniff content instead of trusting the MIME string.
+    """
+    if provider_id == "elevenlabs":
+        if elevenlabs_output_format.startswith("mp3"):
+            return "audio/mpeg"
+        if elevenlabs_output_format.startswith("pcm"):
+            return "audio/pcm"
+        if elevenlabs_output_format.startswith("ulaw"):
+            return "audio/basic"
+        return "audio/mpeg"
+    return "audio/wav"
 
 
 def segment_phrases(text: str, limit: int = 160) -> list[str]:
@@ -107,7 +146,7 @@ class RealtimeGateway:
         self.settings = settings
         self.service = service
 
-    async def handle(self, websocket: WebSocket) -> None:
+    async def handle(self, websocket: WebSocket, *, user_id: str | None = None) -> None:
         await websocket.accept()
         session: LiveSession | None = None
         try:
@@ -115,7 +154,8 @@ class RealtimeGateway:
                 websocket.receive_json(), timeout=self.settings.realtime_idle_timeout_seconds
             )
             hello = ClientHello.model_validate(first)
-            session = LiveSession(hello=hello)
+            session = LiveSession(hello=hello, user_id=user_id)
+            logger.info("realtime: <<< session.hello mode=%s companion=%s", hello.providerMode, hello.companionId)
             await self._send(
                 websocket,
                 session,
@@ -138,21 +178,27 @@ class RealtimeGateway:
                 if message.get("type") == "websocket.disconnect":
                     break
                 if message.get("text") is None:
+                    logger.warning("realtime: binary received without JSON descriptor — BINARY_DESCRIPTOR_REQUIRED sent")
                     await self._error(websocket, session, "BINARY_DESCRIPTOR_REQUIRED", False)
                     continue
+                msg_type = ""
+                try:
+                    import json as _json
+                    msg_type = _json.loads(message["text"]).get("type", "?")
+                except Exception:
+                    pass
+                logger.info("realtime: <<< %s", msg_type)
                 await self._control(websocket, session, message["text"])
-        except WebSocketDisconnect, TimeoutError:
+        except (WebSocketDisconnect, TimeoutError):
             pass
-        except ValidationError:
+        except ValidationError as e:
+            logger.error("realtime: ClientHello validation failed: %s", e)
             await self._error(websocket, session, "PROTOCOL_MESSAGE_INVALID", False)
         finally:
             if session and session.processing:
                 session.processing.cancel()
                 with suppress(asyncio.CancelledError):
                     await session.processing
-            if session and session.live_stt:
-                with suppress(Exception):
-                    await session.live_stt.cancel()
             with suppress(RuntimeError):
                 await websocket.close()
 
@@ -162,7 +208,7 @@ class RealtimeGateway:
         try:
             value = json.loads(raw)
             message_type = value.get("type")
-        except json.JSONDecodeError, AttributeError:
+        except (json.JSONDecodeError, AttributeError):
             await self._error(websocket, session, "PROTOCOL_MESSAGE_INVALID", False)
             return
         if message_type == "ping":
@@ -188,14 +234,6 @@ class RealtimeGateway:
             session.audio.clear()
             session.speech_detected = False
             session.partial_sent = False
-            if session.hello.providerMode in {"real", "openai", "custom"} or (
-                session.hello.providerMode == "groq" and self.settings.azure_configured
-            ):
-                session.live_stt = await self.service.start_live_stt(
-                    session.hello.language,
-                    session.hello.languageMode,
-                    session.hello.providerMode,
-                )
             await self._send(websocket, session, "audio.started", {})
             return
         if message_type == "audio.frame":
@@ -220,17 +258,6 @@ class RealtimeGateway:
                 await self._error(websocket, session, "AUDIO_BUFFER_LIMIT", False)
                 return
             session.audio.extend(frame)
-            if session.live_stt:
-                session.live_stt.write(frame)
-                await asyncio.sleep(0)
-                for event in session.live_stt.pending_events():
-                    if event.kind == "partial" and event.text:
-                        await self._send(
-                            websocket,
-                            session,
-                            "stt.partial",
-                            {"text": event.text, "provider": "azure-speech-continuous"},
-                        )
             session.expected_sequence += 1
             session.speech_detected = session.speech_detected or _has_speech(frame)
             if (
@@ -253,12 +280,21 @@ class RealtimeGateway:
                     websocket, session, "event.ignored", {"reason": "stale-generation"}
                 )
                 return
+            if _is_dead_silence(bytes(session.audio)):
+                # All-zero capture is never speech, even if the frontend VAD
+                # fired on a glitch. Reject before any provider call.
+                await self._error(
+                    websocket, session, "AUDIO_NO_SIGNAL", True, commit.generation
+                )
+                return
             if not session.speech_detected:
-                await self._error(websocket, session, "AUDIO_NO_SIGNAL", True)
-                return
+                # Trust the frontend's VAD (which already fired audio.start).
+                # The backend _has_speech might be too strict for quiet mics.
+                session.speech_detected = True
             if session.processing and not session.processing.done():
-                await self._error(websocket, session, "TURN_ALREADY_ACTIVE", True)
-                return
+                session.processing.cancel()
+                with suppress(asyncio.CancelledError):
+                    await session.processing
             session.turn += 1
             session.processing = asyncio.create_task(
                 self._process_turn(websocket, session, commit), name=f"live-turn-{session.turn}"
@@ -279,28 +315,24 @@ class RealtimeGateway:
                     or "Mock microphone demo transcript. Real speech recognition is not active."
                 )
                 stt_provider = "mock-stt-live-v1"
-            elif session.hello.providerMode in {"local", "groq"} and session.live_stt is None:
-                if not commit.mockTranscript:
-                    raise HinaaError(
-                        "LOCAL_STT_UNAVAILABLE",
-                        "Local microphone recognition is not installed yet. "
-                        "Use text, mock voice mode, or configure HINAA_LOCAL_STT_COMMAND.",
-                        503,
-                        retryable=False,
-                        user_action_required=True,
-                    )
+            elif commit.mockTranscript and session.hello.providerMode in {"local", "groq"}:
                 transcript = commit.mockTranscript
                 stt_provider = f"{session.hello.providerMode}-stt-scripted-v1"
             else:
-                if session.live_stt is None:
-                    raise HinaaError(
-                        "STT_FAILED", "Live speech recognition is not active.", 409, True
-                    )
-                stt_result = await session.live_stt.finish()
-                session.live_stt = None
+                stt_result = await self.service.transcribe(
+                    bytes(session.audio), session.hello.language, session.hello.providerMode
+                )
                 transcript, stt_provider = stt_result.value, stt_result.provider
             if not transcript.strip():
-                raise HinaaError("AUDIO_NO_SIGNAL", "No speech was recognized.", 422, True)
+                logger.info("realtime: STT returned empty transcript; cancelling turn safely")
+                await self._send_current(
+                    websocket,
+                    session,
+                    generation,
+                    "turn.cancelled",
+                    {"cancelledGeneration": generation, "generation": generation, "reason": "no_speech_detected"},
+                )
+                return
             stt_ms = int((perf_counter() - stt_started) * 1000)
             await self._send_current(
                 websocket,
@@ -312,9 +344,31 @@ class RealtimeGateway:
             await self._send_current(websocket, session, generation, "assistant.thinking", {})
             llm_started = perf_counter()
             first_delta_ms: int | None = None
+            sentence_tasks: list[tuple[str, asyncio.Task]] = []
+            sentence_buffer = ""
+
+            voice = resolve_voice(
+                session.hello.companionId,
+                self.settings.azure_speech_female_voice,
+                self.settings.azure_speech_male_voice,
+            )
+            tuning = resolve_calibration(session.hello.calibration)
+            effective_rate = tuning.rate
+            effective_pitch = tuning.pitch_semitones
+            effective_volume = tuning.volume
+
+            # ONE consistent delivery mode for the WHOLE turn. Per-sentence
+            # modes made her voice change tone between every sentence (warm →
+            # professional → celebratory) which sounds broken, not expressive.
+            # A real person holds a steady tone; emotion lives in the words.
+            voice_plan = plan_voice_performance(
+                user_text=transcript,
+                reply_text="",
+                depth="conversational",
+            )
 
             async def emit_delta(delta: str) -> None:
-                nonlocal first_delta_ms
+                nonlocal first_delta_ms, sentence_buffer
                 if first_delta_ms is None:
                     first_delta_ms = int((perf_counter() - llm_started) * 1000)
                 await self._send_current(
@@ -324,6 +378,27 @@ class RealtimeGateway:
                     "assistant.text.delta",
                     {"delta": delta},
                 )
+                sentence_buffer += delta
+                # Only split on natural clause punctuation or complete word boundaries (space after 80+ chars)
+                has_punct = any(p in delta for p in [".", "!", "?", "।", "\n", ",", ";"])
+                has_word_break = " " in delta and len(sentence_buffer) >= 80
+                if has_punct or has_word_break:
+                    phrase_text = sentence_buffer.strip()
+                    sentence_buffer = ""
+                    if phrase_text and len(phrase_text) >= 2:
+                        task = asyncio.create_task(
+                            self.service.synthesize_text(
+                                phrase_text,
+                                session.hello.companionId,
+                                session.hello.providerMode,
+                                session.hello.calibration,
+                                rate=effective_rate,
+                                pitch_semitones=effective_pitch,
+                                volume=effective_volume,
+                                delivery_mode=voice_plan.mode,
+                            )
+                        )
+                        sentence_tasks.append((phrase_text, task))
 
             plan_result = await self.service.create_live_plan(
                 TurnRequest(
@@ -333,8 +408,10 @@ class RealtimeGateway:
                     language=session.hello.language,
                     providerMode=session.hello.providerMode,
                     brainModel=session.hello.brainModel,
+                    visibleActions=commit.visibleActions,
                 ),
                 emit_delta,
+                user_id=session.user_id,
             )
             llm_ms = int((perf_counter() - llm_started) * 1000)
             await self._send_current(
@@ -344,41 +421,53 @@ class RealtimeGateway:
                 "assistant.plan",
                 {"plan": plan_result.value.model_dump(), "provider": plan_result.provider},
             )
-            from .voice_performance import plan_voice_performance, speech_text_for_tts
 
-            voice = resolve_voice(
-                session.hello.companionId,
-                self.settings.azure_speech_female_voice,
-                self.settings.azure_speech_male_voice,
-            )
-            tuning = resolve_calibration(session.hello.calibration)
-            voice_plan = plan_voice_performance(
-                user_text=transcript,
-                reply_text=plan_result.value.spokenText,
-                depth="conversational",
-            )
-            # Blend session calibration with bounded voice-performance plan.
-            effective_rate = max(0.85, min(1.15, tuning.rate * voice_plan.pace))
-            effective_pitch = max(
-                -2.0, min(2.0, tuning.pitch_semitones + voice_plan.pitch_semitones)
-            )
-            effective_volume = max(0.75, min(1.0, tuning.volume * voice_plan.volume))
-            tts_total = 0
-            spoken = speech_text_for_tts(plan_result.value.spokenText)
-            phrases = segment_phrases(spoken)
-            # Bound queue: avoid unbounded TTS backlog on long replies.
-            phrases = phrases[:8]
-            for index, phrase in enumerate(phrases):
-                tts_started = perf_counter()
-                speech = await self.service.synthesize_text(
-                    phrase,
-                    session.hello.companionId,
-                    session.hello.providerMode,
-                    session.hello.calibration,
-                    rate=effective_rate,
-                    pitch_semitones=effective_pitch,
-                    volume=effective_volume,
+            # Pick up any trailing text buffer
+            if sentence_buffer.strip():
+                phrase_text = sentence_buffer.strip()
+                sentence_buffer = ""
+                task = asyncio.create_task(
+                    self.service.synthesize_text(
+                        phrase_text,
+                        session.hello.companionId,
+                        session.hello.providerMode,
+                        session.hello.calibration,
+                        rate=effective_rate,
+                        pitch_semitones=effective_pitch,
+                        volume=effective_volume,
+                        delivery_mode=voice_plan.mode,
+                    )
                 )
+                sentence_tasks.append((phrase_text, task))
+
+            # Fallback if sentence_tasks is empty (e.g. non-streaming provider)
+            if not sentence_tasks:
+                spoken = speech_text_for_tts(plan_result.value.spokenText)
+                phrases = segment_phrases(spoken)[:35]
+                for phrase in phrases:
+                    task = asyncio.create_task(
+                        self.service.synthesize_text(
+                            phrase,
+                            session.hello.companionId,
+                            session.hello.providerMode,
+                            session.hello.calibration,
+                            rate=effective_rate,
+                            pitch_semitones=effective_pitch,
+                            volume=effective_volume,
+                            delivery_mode=voice_plan.mode,
+                        )
+                    )
+                    sentence_tasks.append((phrase, task))
+
+            tts_total = 0
+            total_segments = len(sentence_tasks)
+            for index, (phrase, task) in enumerate(sentence_tasks):
+                tts_started = perf_counter()
+                try:
+                    speech = await task
+                except Exception as err:
+                    logger.error("TTS pre-synthesis failed for segment %d: %s", index, err)
+                    continue
                 tts_ms = int((perf_counter() - tts_started) * 1000)
                 tts_total += tts_ms
                 await self._send_current(
@@ -388,13 +477,15 @@ class RealtimeGateway:
                     "tts.audio",
                     {
                         "segment": index,
-                        "segments": len(phrases),
+                        "segments": total_segments,
                         "audioBase64": base64.b64encode(speech.value).decode("ascii"),
-                        "mediaType": "audio/wav",
+                        "mediaType": _tts_media_type(
+                            speech.provider, self.settings.elevenlabs_output_format
+                        ),
                         "provider": speech.provider,
                         "requestedVoice": voice,
                         "actualVoice": voice
-                        if session.hello.providerMode in {"real", "openai", "custom"}
+                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router"}
                         or (
                             session.hello.providerMode == "groq"
                             and self.settings.azure_configured
@@ -425,9 +516,18 @@ class RealtimeGateway:
         except asyncio.CancelledError:
             raise
         except HinaaError as error:
+            logger.warning(
+                "realtime: turn failed with HinaaError code=%s retryable=%s",
+                error.code,
+                error.retryable,
+            )
             await self._error(websocket, session, error.code, error.retryable, generation)
         except Exception:
+            logger.exception("realtime: turn failed with an unhandled exception")
             await self._error(websocket, session, "REALTIME_TURN_FAILED", True, generation)
+        finally:
+            session.audio.clear()
+            session.processing = None
 
     async def _interrupt(self, websocket: WebSocket, session: LiveSession, generation: int) -> None:
         previous = session.hello.generation
@@ -436,9 +536,6 @@ class RealtimeGateway:
             session.processing.cancel()
             with suppress(asyncio.CancelledError):
                 await session.processing
-        if session.live_stt:
-            await session.live_stt.cancel()
-            session.live_stt = None
         session.processing = None
         session.audio.clear()
         await self._send(

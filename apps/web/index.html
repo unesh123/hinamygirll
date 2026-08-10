@@ -7,12 +7,35 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#120f1f" />
+    <meta name="theme-color" content="#fafbff" />
     <meta
       name="description"
-      content="HINAA Phase 1 deterministic mock companion"
+      content="HINAA — Your intelligent AI workspace. Voice, text, research, and tools."
     />
-    <title>HINAA — Mock Companion</title>
+    <title>HINAA — AI Workspace</title>
+
+    <!-- Google Fonts: Orbitron, Plus Jakarta Sans, Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!--
+      Theme sync: applies the saved theme before first paint to prevent flash.
+      Reads hinaa_settings_v1 from localStorage; falls back to system preference.
+    -->
+    <script>
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem("hinaa_settings_v1") || "{}");
+          var theme = (s.appearance && s.appearance.theme) || "light";
+          if (theme === "dark") {
+            document.documentElement.setAttribute("data-theme", "dark");
+          } else {
+            document.documentElement.setAttribute("data-theme", "light");
+          }
+        } catch (_) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

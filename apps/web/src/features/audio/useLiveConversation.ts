@@ -55,6 +55,10 @@ interface LiveOptions {
 }
 
 function websocketUrl(): string {
+  // Always connect same-origin through /api. In dev the Vite proxy forwards
+  // the WebSocket upgrade to the backend (verified end-to-end). Connecting
+  // directly to :8000 broke two real cases: phones on the LAN (uvicorn only
+  // listens on 127.0.0.1) and HTTPS dev (wss:// to a plain-HTTP backend).
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/api/v1/realtime`;
 }
@@ -98,6 +102,8 @@ export function useLiveConversation({
   const heartbeat = useRef<number | undefined>(undefined);
   const playbackQueue = useRef(Promise.resolve());
   const playbackState = useRef(false);
+  const wasPlayingRef = useRef(false);
+  const manualAudioStop = useRef(false);
   const speechStartedAt = useRef<number | undefined>(undefined);
   const speechEndedAt = useRef<number | undefined>(undefined);
   const finalAt = useRef<number | undefined>(undefined);
@@ -111,6 +117,29 @@ export function useLiveConversation({
   const callbacks = useRef({ controller, playback });
   callbacks.current = { controller, playback };
   playbackState.current = playback.playing;
+
+  // Gapless playback resolves play() at schedule time, so end-of-speech
+  // timing is measured from the real audio drain (sources -> 0), never from
+  // a per-chunk promise that could lie or stall.
+  useEffect(() => {
+    const was = wasPlayingRef.current;
+    wasPlayingRef.current = playback.playing;
+    if (was && !playback.playing) {
+      if (manualAudioStop.current) {
+        manualAudioStop.current = false;
+        return;
+      }
+      if (speechEndedAt.current !== undefined) {
+        latency.current.mark("final_audio");
+        setMetrics((value) => ({
+          ...value,
+          playbackCompleteAfterSpeechMs: Math.round(
+            performance.now() - speechEndedAt.current!,
+          ),
+        }));
+      }
+    }
+  }, [playback.playing]);
 
   const sendJson = useCallback((value: object) => {
     if (socket.current?.readyState === WebSocket.OPEN)
@@ -135,6 +164,7 @@ export function useLiveConversation({
 
   const beginSpeech = useCallback(() => {
     if (playbackState.current) {
+      manualAudioStop.current = true;
       callbacks.current.playback.stop();
       playbackState.current = false;
       generation.current += 1;
@@ -172,8 +202,10 @@ export function useLiveConversation({
       });
       setMetrics((current) => ({ ...current, turnState: decision.state }));
 
-      if (decision.bargeIn) {
+      // Only allow true intentional user barge-in (level >= 0.22) so assistant speaker output never cuts her off mid-sentence
+      if (decision.bargeIn && level >= 0.22) {
         const started = performance.now();
+        manualAudioStop.current = true;
         callbacks.current.playback.stop();
         playbackState.current = false;
         generation.current += 1;
@@ -314,18 +346,6 @@ export function useLiveConversation({
             }));
           }
         });
-        if (
-          event.segment === (event.segments ?? 0) - 1 &&
-          speechEndedAt.current !== undefined
-        ) {
-          latency.current.mark("final_audio");
-          setMetrics((value) => ({
-            ...value,
-            playbackCompleteAfterSpeechMs: Math.round(
-              performance.now() - speechEndedAt.current!,
-            ),
-          }));
-        }
       });
     } else if (event.type === "turn.complete") {
       latency.current.mark("turn_completed");
@@ -337,7 +357,7 @@ export function useLiveConversation({
         ttsMs: event.ttsMs,
         totalMs: event.totalMs,
       }));
-      if (current.controller.providerMode === "mock") {
+      if (current.controller.routing.activeMode === "mock") {
         pausedRef.current = true;
         setPaused(true);
         capturing.current = false;
@@ -373,17 +393,13 @@ export function useLiveConversation({
       turnTaking.current.setSessionState(
         liveProviderUnavailable ? "provider_unavailable" : "error",
       );
-      current.controller.applyLiveError(
-        event.message ??
-          (liveProviderUnavailable
-            ? "Live providers are temporarily unavailable. Text fallback remains."
-            : `Live session stopped safely (${code}).`),
-      );
       setStatus("error");
       setDetail(
-        liveProviderUnavailable
-          ? "Provider unavailable · no mock reply was substituted"
-          : "Live turn failed · text fallback remains available",
+        code === "PROVIDER_KEY_INVALID"
+          ? "Brain provider key rejected · fix the API key in backend .env.local"
+          : liveProviderUnavailable
+            ? `Provider unavailable (${code})`
+            : `Live turn failed (${code})`,
       );
     }
   }, []);
@@ -398,12 +414,13 @@ export function useLiveConversation({
         protocolVersion: "1.0",
         sessionId: "browser-live",
         companionId: callbacks.current.controller.companionId,
-        providerMode: callbacks.current.controller.providerMode,
+        providerMode: callbacks.current.controller.routing.activeMode ?? "mock",
         brainModel:
-          callbacks.current.controller.providerMode === "openai" ||
-          callbacks.current.controller.providerMode === "custom" ||
-          callbacks.current.controller.providerMode === "real"
-            ? callbacks.current.controller.brainModel
+          callbacks.current.controller.routing.activeMode === "custom" ||
+          callbacks.current.controller.routing.activeMode === "openai" ||
+          callbacks.current.controller.routing.activeMode === "real" ||
+          callbacks.current.controller.routing.activeMode === "agent-router"
+            ? callbacks.current.controller.routing.activeModel ?? undefined
             : undefined,
         generation: generation.current,
         language: "mixed",
@@ -455,13 +472,13 @@ export function useLiveConversation({
     latency.current.reset();
     latency.current.mark("live_session_started");
     turnTaking.current = new TurnTakingController({
-      startThreshold: 0.025,
-      speakerThreshold: outputMode === "speaker" ? 0.07 : 0.035,
-      startFrames: 3,
-      minimumSpeechFrames: 5,
-      hesitationFrames: 12,
-      endOfTurnFrames: 28,
-      maxSilenceFrames: 45,
+      startThreshold: 0.006,
+      speakerThreshold: outputMode === "speaker" ? 0.015 : 0.008,
+      startFrames: 2,
+      minimumSpeechFrames: 3,
+      hesitationFrames: 10,
+      endOfTurnFrames: 22,
+      maxSilenceFrames: 38,
     });
     turnTaking.current.setSessionState("initializing");
     try {
@@ -474,13 +491,19 @@ export function useLiveConversation({
         },
         video: false,
       });
-      const context = new AudioContext({ latencyHint: "interactive" });
+      const context = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+      // Chrome suspends AudioContext by default — must resume to start mic processing
+      if (context.state === "suspended") {
+        await context.resume();
+      }
       await context.audioWorklet.addModule("/worklets/pcm-capture.js");
       const mediaSource = context.createMediaStreamSource(media);
       const node = new AudioWorkletNode(context, "hinaa-pcm-capture");
       const silent = context.createGain();
       silent.gain.value = 0;
-      mediaSource.connect(node).connect(silent).connect(context.destination);
+      mediaSource.connect(node);
+      node.connect(silent);
+      silent.connect(context.destination);
       node.port.onmessage = (message: MessageEvent) => {
         const value = message.data as { frame: ArrayBuffer; level: number };
         handleWorkletFrame(value.frame, value.level);
@@ -490,7 +513,7 @@ export function useLiveConversation({
       source.current = mediaSource;
       worklet.current = node;
       active.current = true;
-      const mode = callbacks.current.controller.providerMode;
+      const mode = callbacks.current.controller.routing.activeMode ?? "mock";
       setDetail(
         mode === "mock"
           ? "Diagnostic mock live · fixed demo transcript · pauses after one turn"
@@ -511,6 +534,9 @@ export function useLiveConversation({
           ? "Microphone permission denied · text mode still works"
           : "Live microphone setup failed safely · use text fallback",
       );
+      // Mirror the failure into the companion state so the header pill and the
+      // avatar show the error too, not just the stage status bar.
+      callbacks.current.controller.setLiveState("error");
     }
   }, [connect, handleWorkletFrame, outputMode]);
 
@@ -551,6 +577,7 @@ export function useLiveConversation({
     for (const track of stream.current?.getTracks() ?? []) track.stop();
     if (audioContext.current?.state !== "closed")
       void audioContext.current?.close();
+    if (playbackState.current) manualAudioStop.current = true;
     callbacks.current.playback.stop();
     stream.current = undefined;
     worklet.current = undefined;

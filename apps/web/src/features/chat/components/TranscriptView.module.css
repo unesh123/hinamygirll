@@ -1,0 +1,146 @@
+/* TranscriptView.module.css — Cinematic spatial document layout */
+
+.container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 24px 20px 8px;
+  scroll-behavior: smooth;
+}
+
+.container::-webkit-scrollbar { width: 4px; }
+.container::-webkit-scrollbar-track { background: transparent; }
+.container::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 2px; }
+
+/* ── Empty State ─────────────────────────────────────────────── */
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.emptyGlyph {
+  font-size: 3rem;
+  display: block;
+  filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.4));
+}
+
+.greetingTitle {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #1a1f2e;
+  line-height: 1.1;
+  margin: 0;
+  position: relative;
+}
+
+.subtitle {
+  font-size: 1.05rem;
+  color: #64748b;
+  margin: 0;
+  font-weight: 400;
+  max-width: 420px;
+}
+
+/* Welcome action cards grid */
+.welcomeCards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  max-width: 520px;
+  width: 100%;
+}
+
+.welcomeCard {
+  padding: 18px;
+  background: rgba(255,255,255,0.65);
+  backdrop-filter: blur(16px);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.8);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.04);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-align: left;
+}
+
+.welcomeCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.82);
+}
+
+.welcomeCardIcon {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.welcomeCardTitle {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #1a1f2e;
+  margin-bottom: 3px;
+}
+
+.welcomeCardDesc {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+/* ── Time Divider ────────────────────────────────────────────── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 12px;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* ── Jump to Bottom ──────────────────────────────────────────── */
+.jumpBtn {
+  position: sticky;
+  bottom: 16px;
+  align-self: flex-end;
+  margin-right: 4px;
+  padding: 7px 14px;
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.9);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.jumpBtn:hover {
+  background: rgba(255,255,255,0.95);
+  color: #1a1f2e;
+  transform: translateY(-1px);
+}

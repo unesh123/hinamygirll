@@ -1,0 +1,41 @@
+/* SettingsTrigger.module.css */
+
+.trigger {
+  /* 44×44px touch target — WCAG 2.5.8 minimum */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+  flex-shrink: 0;
+}
+
+.trigger:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-overlay);
+  border-color: var(--color-border-subtle);
+}
+
+.trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.trigger.active {
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-color: var(--color-border-focus);
+}
+
+.icon {
+  flex-shrink: 0;
+  pointer-events: none;
+}

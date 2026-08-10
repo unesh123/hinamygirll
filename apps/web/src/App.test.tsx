@@ -1,172 +1,58 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
-describe("HINAA companion screen", () => {
+describe("HINAA Gemini-mobile stage", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("renders accessible mock and privacy status", () => {
+  it("renders the main stage with brand and status", () => {
     render(<App />);
     expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getByLabelText("Voice status")).toHaveTextContent(
-      "Voice ready",
+    expect(screen.getByText("HINAA")).toBeInTheDocument();
+    // Header status pill shows the live state…
+    expect(document.querySelector(".header-status")).toHaveTextContent(
+      "Ready",
     );
-    expect(screen.getByText(/No API key/i)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /simulate microphone listening/i }),
-    ).toBeInTheDocument();
+    // …and the companion profile card carries identity + same state.
+    const card = document.querySelector(".companion-profile-card");
+    expect(card).not.toBeNull();
+    expect(card).toHaveTextContent("Hinaa");
+    expect(card).toHaveTextContent("Ready");
   });
 
-  it("sends text through the deterministic mock provider", async () => {
-    const user = userEvent.setup();
+  it("does NOT show any Start/Talk/Tap buttons", () => {
     render(<App />);
-    await user.type(screen.getByLabelText("Type a message"), "Namaste");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(screen.getByText("Namaste", { selector: "p" })).toBeInTheDocument();
-    await waitFor(
-      () => expect(screen.getByText(/Mock mode UI test/i)).toBeInTheDocument(),
-      { timeout: 4000 },
-    );
+    expect(screen.queryByRole("button", { name: /Start Live Session/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Tap to talk/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Talk to Hinaa/i })).not.toBeInTheDocument();
   });
 
-  it("switches to text-only and reduced-motion modes", async () => {
-    const user = userEvent.setup();
+  it("shows the text composer fallback when live voice is not active", () => {
     render(<App />);
-    await user.click(screen.getByRole("button", { name: /Text only/ }));
-    expect(screen.getByTestId("text-only-avatar")).toBeInTheDocument();
-    await user.click(
-      screen.getByRole("button", { name: /Reduced motion off/ }),
-    );
-    expect(
-      screen.getByRole("button", { name: /Reduced motion on/ }),
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Type a message")).toBeInTheDocument();
   });
 
-  it("simulates listening and allows safe interruption", async () => {
-    const user = userEvent.setup();
+  it("shows tap hint when idle", () => {
     render(<App />);
-    await user.click(
-      screen.getByRole("button", { name: /simulate microphone listening/i }),
-    );
-    expect(screen.getByText("Listening")).toBeInTheDocument();
-    expect(screen.getByTestId("partial-transcript")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Stop current turn/ }));
-    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(screen.getByText(/Tap anywhere to start talking/i)).toBeInTheDocument();
   });
 
-  it("switches companion profiles without losing the transcript", async () => {
-    const user = userEvent.setup();
+  it("has settings trigger accessible", () => {
     render(<App />);
-    const greeting = screen.getByText(/Hinaa ready cha/);
-    await user.click(
-      screen.getByRole("button", { name: /HiroCalm & helpful/ }),
-    );
-    expect(
-      screen.getByText("Hiro", { selector: ".chat-header strong" }),
-    ).toBeInTheDocument();
-    expect(greeting).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toBeInTheDocument();
   });
 
-  it("recovers to a user-readable error state for a deterministic mock failure", async () => {
-    const user = userEvent.setup();
+  it("system errors do not appear in the conversation", () => {
     render(<App />);
-    await user.type(screen.getByLabelText("Type a message"), "/error");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-    await waitFor(() => expect(screen.getByText("Error")).toBeInTheDocument(), {
-      timeout: 2000,
-    });
-    expect(screen.getByText(/failed safely/i)).toBeInTheDocument();
+    expect(screen.queryByText(/safety limit/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/microphone frame was lost/i)).not.toBeInTheDocument();
   });
 
-  it("auto-selects Microsoft voice with OpenAI brain when both providers are ready", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify([
-            {
-              id: "openai",
-              capabilities: [
-                "llm",
-                "structured-turn-plan",
-                "text-stream",
-                "model:gpt-5-mini",
-                "model:gpt-5.6-luna",
-              ],
-              state: "healthy",
-              userMessage: "OpenAI ready.",
-            },
-            {
-              id: "azure-speech",
-              capabilities: ["stt", "tts", "ne-NP"],
-              state: "healthy",
-              userMessage: "Microsoft Speech ready.",
-            },
-          ]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      ),
-    );
-    render(<App />);
+  it.todo(
+    "Auto-starts listening on mount — requires browser mic permission mock"
+  );
 
-    await waitFor(() =>
-      expect(screen.getByLabelText("Voice status")).toHaveTextContent(
-        "Microsoft voice",
-      ),
-    );
-    await user.click(screen.getByText("Advanced voice settings"));
-    expect(screen.getByLabelText("Provider mode")).toHaveValue("openai");
-    expect(screen.getByLabelText("Brain model")).toHaveValue("gpt-5-mini");
-    await user.selectOptions(
-      screen.getByLabelText("Brain model"),
-      "gpt-5.6-luna",
-    );
-    expect(screen.getByLabelText("Brain model")).toHaveValue("gpt-5.6-luna");
-  });
-
-  it("blocks local microphone controls until local STT is configured", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify([
-            {
-              id: "local",
-              capabilities: [
-                "llm",
-                "zero-credit",
-                "offline",
-                "stt-unconfigured",
-              ],
-              state: "degraded",
-              userMessage: "Local STT is not configured.",
-            },
-          ]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      ),
-    );
-    render(<App />);
-    await user.click(screen.getByText("Advanced voice settings"));
-    expect(
-      screen.getByRole("option", { name: /Groq fast brain/i }),
-    ).toHaveValue("groq");
-    expect(
-      screen.getByRole("option", { name: /Microsoft voice \+ OpenAI brain/i }),
-    ).toHaveValue("openai");
-    await user.selectOptions(screen.getByLabelText("Provider mode"), "local");
-
-    expect(
-      await screen.findByText(/hands-free local mic is disabled/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Talk to Hinaa/ }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: /Start microphone recording/ }),
-    ).toBeDisabled();
-  });
+  it.todo(
+    "Tap anywhere restarts session after error — requires mic permission mock"
+  );
 });

@@ -19,7 +19,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real"] = Field(
+    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "agent-router", "cx-gateway", "gemini-live"] = Field(
         "mock", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     groq_model: str = Field("llama-3.1-8b-instant", alias="GROQ_MODEL")
     openai_api_key: SecretStr | None = Field(None, alias="OPENAI_API_KEY")
     openai_model: str = Field("gpt-5-mini", alias="OPENAI_MODEL")
+    # Fast brain for casual chat: reasoning models (cx/gpt-5.6-sol, agent
+    # router) burn hidden tokens before the first visible one, which makes
+    # small talk feel slow. Short social turns route to this non-reasoning
+    # model when an OpenAI key is present; deep work keeps the reasoning brain.
+    openai_fast_model: str = Field("gpt-5-mini", alias="HINAA_OPENAI_FAST_MODEL")
     openai_codex_api_key: SecretStr | None = Field(None, alias="OPENAI_CODEX_API_KEY")
     openai_codex_model: str = Field("gpt-5-mini", alias="OPENAI_CODEX_MODEL")
     openai_codex_base_url: str | None = Field(
@@ -63,15 +68,49 @@ class Settings(BaseSettings):
         "gpt-5-mini,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol,gpt-5.4-mini,gpt-5.4-nano",
         alias="HINAA_OPENAI_ALLOWED_MODELS",
     )
+    # CX Gateway — separate provider for cx/gpt-5.6-sol and similar models
+    # Set CX_GATEWAY_API_KEY + CX_GATEWAY_BASE_URL to enable.
+    cx_gateway_api_key: SecretStr | None = Field(None, alias="CX_GATEWAY_API_KEY")
+    cx_gateway_base_url: str | None = Field(None, alias="CX_GATEWAY_BASE_URL")
+    cx_gateway_model: str = Field("cx/gpt-5.6-sol", alias="CX_GATEWAY_MODEL")
+    cx_gateway_allowed_models_raw: str = Field(
+        "cx/gpt-5.6-sol",
+        alias="CX_GATEWAY_ALLOWED_MODELS",
+    )
+    agent_router_api_key: SecretStr | None = Field(None, alias="AGENT_ROUTER_API_KEY")
+    agent_router_model: str = Field("gpt-5.6-sol", alias="AGENT_ROUTER_MODEL")
+    agent_router_base_url: str | None = Field(None, alias="AGENT_ROUTER_BASE_URL")
+    agent_router_allowed_models_raw: str = Field(
+        "gpt-5.6-sol,claude-opus-4.8,opus-5",
+        alias="AGENT_ROUTER_ALLOWED_MODELS",
+    )
     azure_speech_female_voice: str = Field("ne-NP-HemkalaNeural", alias="AZURE_SPEECH_FEMALE_VOICE")
     azure_speech_male_voice: str = Field("ne-NP-SagarNeural", alias="AZURE_SPEECH_MALE_VOICE")
+    elevenlabs_api_key: SecretStr | None = Field(None, alias="ELEVENLABS_API_KEY")
+    elevenlabs_base_url: str = Field("https://api.elevenlabs.io", alias="ELEVENLABS_BASE_URL")
+    elevenlabs_voice_id: str = Field("TRnaQb7q41oL7sV0w6Bu", alias="ELEVENLABS_VOICE_ID")
+    elevenlabs_hinaa_voice_id: str = Field("TRnaQb7q41oL7sV0w6Bu", alias="ELEVENLABS_HINAA_VOICE_ID")
+    elevenlabs_hiro_voice_id: str = Field("ErXwobaYiN019PkySvjV", alias="ELEVENLABS_HIRO_VOICE_ID")
+    elevenlabs_model_id: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_MODEL_ID")
+    elevenlabs_stt_model_id: str = Field("scribe_v2", alias="ELEVENLABS_STT_MODEL_ID")
+    elevenlabs_tts_model_fast: str = Field("eleven_flash_v2_5", alias="ELEVENLABS_TTS_MODEL_FAST")
+    elevenlabs_tts_model_expressive: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_TTS_MODEL_EXPRESSIVE")
+    elevenlabs_output_format: str = Field("mp3_44100_128", alias="ELEVENLABS_OUTPUT_FORMAT")
+    elevenlabs_language_policy: str = Field("auto", alias="ELEVENLABS_LANGUAGE_POLICY")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"],
         alias="HINAA_ALLOWED_ORIGINS",
     )
     max_audio_bytes: int = 4 * 1024 * 1024
     max_audio_seconds: float = 20.0
-    provider_timeout_seconds: float = 60.0
+    # Media (STT/TTS) calls fail fast — an 8s budget is plenty for a single
+    # transcription or synthesis request.
+    provider_timeout_seconds: float = 8.0
+    # Brain (LLM) calls get a far larger budget: reasoning models such as
+    # cx/gpt-5.6-sol burn hidden ``reasoning_content`` tokens before the first
+    # visible token, so the old 8s media timeout killed the whole turn mid-
+    # thought ("stuck in the middle" then a canned fallback reply).
+    llm_timeout_seconds: float = Field(60.0, alias="HINAA_LLM_TIMEOUT_SECONDS")
     local_command_timeout_seconds: float = Field(12.0, alias="HINAA_LOCAL_COMMAND_TIMEOUT_SECONDS")
     local_stt_command: str | None = Field(None, alias="HINAA_LOCAL_STT_COMMAND")
     local_tts_command: str | None = Field(None, alias="HINAA_LOCAL_TTS_COMMAND")
@@ -80,9 +119,9 @@ class Settings(BaseSettings):
     session_history_char_limit: int = Field(4_000, alias="HINAA_SESSION_HISTORY_CHAR_LIMIT")
     default_companion: Literal["hinaa", "hiro"] = Field("hinaa", alias="HINAA_DEFAULT_COMPANION")
     prompt_debug_metadata: bool = Field(False, alias="HINAA_PROMPT_DEBUG_METADATA")
-    personality_affection: float = Field(0.55, alias="HINAA_PERSONALITY_AFFECTION")
-    personality_sass: float = Field(0.25, alias="HINAA_PERSONALITY_SASS")
-    personality_energy: float = Field(0.55, alias="HINAA_PERSONALITY_ENERGY")
+    personality_affection: float = Field(0.7, alias="HINAA_PERSONALITY_AFFECTION")
+    personality_sass: float = Field(0.3, alias="HINAA_PERSONALITY_SASS")
+    personality_energy: float = Field(0.65, alias="HINAA_PERSONALITY_ENERGY")
     personality_humor: float = Field(0.4, alias="HINAA_PERSONALITY_HUMOR")
     personality_proactivity: float = Field(0.35, alias="HINAA_PERSONALITY_PROACTIVITY")
     realtime_protocol_version: str = "1.0"
@@ -166,6 +205,55 @@ class Settings(BaseSettings):
         )
 
     @property
+    def agent_router_configured(self) -> bool:
+        return bool(
+            self.agent_router_api_key
+            and self.agent_router_api_key.get_secret_value()
+        )
+
+    @property
+    def cx_gateway_configured(self) -> bool:
+        return bool(
+            self.cx_gateway_api_key
+            and self.cx_gateway_api_key.get_secret_value()
+            and self.cx_gateway_base_url
+        )
+
+    @property
+    def active_cx_key(self) -> SecretStr | None:
+        if self.cx_gateway_api_key and self.cx_gateway_api_key.get_secret_value():
+            return self.cx_gateway_api_key
+        return None
+
+    @property
+    def cx_allowed_models(self) -> list[str]:
+        models = [m.strip() for m in self.cx_gateway_allowed_models_raw.split(",") if m.strip()]
+        return models or [self.cx_gateway_model]
+
+    @property
+    def active_cx_base_url(self) -> str | None:
+        value = (self.cx_gateway_base_url or "").strip().rstrip("/")
+        if not value:
+            return None
+        return value if value.endswith("/v1") else f"{value}/v1"
+
+    def resolve_cx_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.cx_gateway_model
+        if model not in self.cx_allowed_models:
+            allowed = ", ".join(self.cx_allowed_models)
+            raise ValueError(f"CX gateway model not in CX_GATEWAY_ALLOWED_MODELS: {allowed}")
+        return model
+
+
+    @property
+    def elevenlabs_configured(self) -> bool:
+        return bool(
+            self.elevenlabs_api_key
+            and self.elevenlabs_api_key.get_secret_value()
+            and self.elevenlabs_voice_id
+        )
+
+    @property
     def active_openai_key(self) -> SecretStr | None:
         if self.openai_api_key and self.openai_api_key.get_secret_value():
             return self.openai_api_key
@@ -231,6 +319,44 @@ class Settings(BaseSettings):
         return model
 
     @property
+    def active_agent_router_key(self) -> SecretStr | None:
+        if self.agent_router_api_key and self.agent_router_api_key.get_secret_value():
+            return self.agent_router_api_key
+        return None
+
+    @property
+    def active_agent_router_model(self) -> str:
+        return self.agent_router_model
+
+    @property
+    def active_agent_router_base_url(self) -> str | None:
+        value = (self.agent_router_base_url or "").strip().rstrip("/")
+        if not value:
+            return None
+        return value if value.endswith("/v1") else f"{value}/v1"
+
+    @property
+    def agent_router_allowed_models(self) -> list[str]:
+        configured = [
+            model.strip()
+            for model in self.agent_router_allowed_models_raw.split(",")
+            if model.strip()
+        ]
+        models = configured or [self.agent_router_model]
+        if self.agent_router_model and self.agent_router_model not in models:
+            models.insert(0, self.agent_router_model)
+        return models
+
+    def resolve_agent_router_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_agent_router_model
+        if model not in self.agent_router_allowed_models:
+            allowed = ", ".join(self.agent_router_allowed_models)
+            raise ValueError(
+                f"Agent router model is not in AGENT_ROUTER_ALLOWED_MODELS: {allowed}"
+            )
+        return model
+
+    @property
     def active_openai_key_label(self) -> Literal["primary", "codex", "none"]:
         if self.active_openai_key is None:
             return "none"
@@ -244,36 +370,45 @@ class Settings(BaseSettings):
     def local_tts_configured(self) -> bool:
         return bool(self.local_tts_command and self.local_tts_command.strip())
 
+    @property
+    def has_voice_provider(self) -> bool:
+        return self.elevenlabs_configured or (
+            bool(self.azure_speech_key and self.azure_speech_key.get_secret_value())
+            and bool(self.azure_speech_region)
+        )
+
     def missing_real_configuration(self) -> list[str]:
         missing: list[str] = []
-        if not self.azure_speech_key or not self.azure_speech_key.get_secret_value():
-            missing.append("AZURE_SPEECH_KEY")
-        if not self.azure_speech_region:
-            missing.append("AZURE_SPEECH_REGION")
+        if not self.has_voice_provider:
+            missing.append("ELEVENLABS_API_KEY (or AZURE_SPEECH_KEY + AZURE_SPEECH_REGION)")
         if not self.gemini_api_key or not self.gemini_api_key.get_secret_value():
             missing.append("GEMINI_API_KEY")
         return missing
 
     def missing_openai_voice_configuration(self) -> list[str]:
         missing: list[str] = []
-        if not self.azure_speech_key or not self.azure_speech_key.get_secret_value():
-            missing.append("AZURE_SPEECH_KEY")
-        if not self.azure_speech_region:
-            missing.append("AZURE_SPEECH_REGION")
+        if not self.has_voice_provider:
+            missing.append("ELEVENLABS_API_KEY (or AZURE_SPEECH_KEY + AZURE_SPEECH_REGION)")
         if self.active_openai_key is None:
             missing.append("OPENAI_API_KEY")
         return missing
 
     def missing_custom_voice_configuration(self) -> list[str]:
         missing: list[str] = []
-        if not self.azure_speech_key or not self.azure_speech_key.get_secret_value():
-            missing.append("AZURE_SPEECH_KEY")
-        if not self.azure_speech_region:
-            missing.append("AZURE_SPEECH_REGION")
+        if not self.has_voice_provider:
+            missing.append("ELEVENLABS_API_KEY (or AZURE_SPEECH_KEY + AZURE_SPEECH_REGION)")
         if not self.openai_codex_api_key or not self.openai_codex_api_key.get_secret_value():
             missing.append("OPENAI_CODEX_API_KEY")
         if not self.active_custom_base_url:
             missing.append("OPENAI_CODEX_BASE_URL")
+        return missing
+
+    def missing_agent_router_voice_configuration(self) -> list[str]:
+        missing: list[str] = []
+        if not self.has_voice_provider:
+            missing.append("ELEVENLABS_API_KEY (or AZURE_SPEECH_KEY + AZURE_SPEECH_REGION)")
+        if not self.agent_router_api_key or not self.agent_router_api_key.get_secret_value():
+            missing.append("AGENT_ROUTER_API_KEY")
         return missing
 
 

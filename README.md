@@ -1,11 +1,11 @@
 # HINAA blueprint
 
-HINAA is a proposed mobile-first, multilingual Nepali 3D companion and personal assistant. Phase 2 is checkpointed. **Phase 3 live streaming and interruption** now has an offline-tested WebSocket protocol, AudioWorklet capture, local VAD, partial/final events, streamed text, ordered phrase audio and generation-based barge-in; real streaming-provider verification remains at the separate user-assisted review gate.
+HINAA is a mobile-first, multilingual Nepali AI companion and personal assistant. Phase 3 live streaming and hands-free conversation feature ElevenLabs TTS (Simran voice `TRnaQb7q41oL7sV0w6Bu`), ElevenLabs Scribe v2 STT architecture, Google Gemini Brain cascade, a unified `HinaaExperienceState` state machine, 50-scene `MotionScene` system, `PlaybackLeakGuard` self-echo protection, and barge-in audio interruption; real streaming microphone verification remains at the owner-gated review scripts.
 
 ## Decision summary
 
-- Final-year MVP: installable React/TypeScript/Vite PWA, two selectable VRM companions, text and tap-to-talk, streaming transcription/text/audio, barge-in, bounded emotion/motion, explicit memory, mock mode, and mobile degradation.
-- Architecture: one FastAPI modular monolith, PostgreSQL + pgvector, a provider router, WebSocket application events, optional provider-direct WebRTC, and browser-side Three.js/React Three Fiber/`@pixiv/three-vrm` rendering.
+- Final-year MVP: installable React/TypeScript/Vite PWA, selectable companions (Hinaa & Hiro), text chat and continuous hands-free voice sessions, streaming transcription/text/audio, barge-in, bounded voice performance planner, explicit memory, mock mode, and mobile degradation.
+- Architecture: FastAPI modular monolith backend, PostgreSQL + pgvector, ElevenLabs provider integration (server-side keys only), WebSocket realtime events, and procedural web visual core.
 - Default benchmark candidate: Gemini Developer API for conversation and Azure Speech `ne-NP` for STT/TTS. Provider and model identifiers remain configuration, never code assumptions.
 - Safety: no autonomous device control, background surveillance, payments, unrestricted tools, or BYOK execution in the MVP.
 - Local assets already present are quarantined until their exact embedded VRM licences, provenance, and redistribution terms are recorded in [ASSET_LICENSES.md](docs/ASSET_LICENSES.md).

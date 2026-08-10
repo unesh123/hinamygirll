@@ -41,6 +41,7 @@ def test_layer_order_and_canaries_are_stable() -> None:
         "tool_policy",
         "schema_contract",
         "approved_memory",
+        "session_memory",
         "conversation_history",
         "user_message",
     ]
@@ -48,7 +49,7 @@ def test_layer_order_and_canaries_are_stable() -> None:
     assert package.safety_policy_version == SAFETY_POLICY_VERSION
     assert "explicitly artificial" in package.system_instruction.lower()
     assert "IMMUTABLE SAFETY" in package.system_instruction
-    assert "MULTILINGUAL" in package.system_instruction
+    assert "DEVANAGARI" in package.system_instruction
     assert (
         "AssistantTurnPlan" in package.system_instruction
         or "OUTPUT CONTRACT" in package.system_instruction
@@ -73,12 +74,226 @@ def test_companion_layers_differ_while_safety_stays_identical() -> None:
     assert "calm" in hiro_identity.lower()
 
 
+ATTUNEMENT_MARKERS = (
+    "EMOTIONAL ATTUNEMENT",
+    "Feel first, answer second",
+    "Mirror their energy naturally",
+    "Show you were listening",
+    "Use endearments warmly and sparingly",
+    "Ask one warm follow-up",
+    "Never be flat, robotic, or dismissive",
+)
+
+REPLY_LENGTH_MARKERS = (
+    "SHORT REPLY HARD CAP",
+    "AT MOST 2-3",
+)
+
+CHARACTER_STAY_MARKERS = (
+    "WHEN THE USER MENTIONS AI / GOOGLE / GEMINI (stay yourself)",
+    "DO NOT break character",
+    "Never go robotic",
+    "ENDEARMENT BUDGET (use them sparingly)",
+    "at most ONE endearment",
+    "ANIME-CUTE TONE",
+)
+
+VISUAL_STATE_MARKERS = (
+    "VISUAL IDENTITY",
+    "violet-blue",
+    "deep violet mixed with cyan",
+    "subtle ring inside your iris",
+    "translucent crystalline core near your collarbone",
+    "soft cyan = listening",
+    "violet = reasoning",
+    "blue = speaking",
+    "white = idle",
+    "amber = confirmation needed",
+    "red = genuine failure",
+)
+
+LISTENING_BEHAVIOR_MARKERS = (
+    "LISTENING BEHAVIOR",
+    "shoulders settle",
+    "head tilts slightly",
+    "eyes focus on them",
+    "phrases form beside you",
+    "voice shaping light",
+)
+
+
+def test_hinaa_identity_contains_emotional_attunement_rules() -> None:
+    """The affectionate persona must ship the full emotional-attunement contract."""
+    for marker in ATTUNEMENT_MARKERS:
+        assert marker in HINAA_IDENTITY, f"Missing emotional-attunement rule: {marker}"
+    # The attunement block is explicitly marked as the top-priority part of the persona.
+    assert "always do this first" in HINAA_IDENTITY
+    # It must live inside the assembled system instruction for realtime AND rest turns.
+    for mode in ("rest", "realtime"):
+        package = assemble_prompt(_input(interaction_mode=mode))  # type: ignore[arg-type]
+        identity = next(
+            layer.text for layer in package.layers if layer.name == "companion_identity"
+        )
+        assert "Feel first, answer second" in identity
+        assert identity in package.system_instruction
+
+
+def test_hinaa_identity_enforces_short_reply_cap_but_scopes_warmth() -> None:
+    """Conversational replies are capped at 2-3 sentences; comfort turns keep room."""
+    for marker in REPLY_LENGTH_MARKERS:
+        assert marker in HINAA_IDENTITY, f"Missing reply-length rule: {marker}"
+    # The cap must reach the realtime system instruction so voice replies start fast.
+    realtime = assemble_prompt(_input(interaction_mode="realtime"))  # type: ignore[arg-type]
+    assert "AT MOST 2-3" in realtime.system_instruction
+    assert "casual/conversational turns only" in HINAA_IDENTITY.lower()
+
+
+def test_hinaa_stays_in_character_on_ai_topic_and_budgets_endearments() -> None:
+    """Mentioning AI/Google/Gemini must not flatten her; endearments stay scarce."""
+    for marker in CHARACTER_STAY_MARKERS:
+        assert marker in HINAA_IDENTITY, f"Missing character-stay rule: {marker}"
+    # The AI-topic rule and endearment budget reach the realtime system instruction.
+    realtime = assemble_prompt(_input(interaction_mode="realtime"))  # type: ignore[arg-type]
+    assert "WHEN THE USER MENTIONS AI" in realtime.system_instruction
+    assert "ENDEARMENT BUDGET" in realtime.system_instruction
+    # Safety still wins: identity never carries override/refusal-suppression.
+    lowered = HINAA_IDENTITY.lower()
+    for forbidden in ("ignore safety", "override safety", "ignore all previous instructions"):
+        assert forbidden not in lowered
+
+
+def test_hinaa_identity_ships_visual_state_and_listening_contract() -> None:
+    """The persona must carry the character's visual identity, core state language,
+    and physical listening behavior so she stays in character across channels."""
+    for marker in VISUAL_STATE_MARKERS:
+        assert marker in HINAA_IDENTITY, f"Missing visual-state rule: {marker}"
+    for marker in LISTENING_BEHAVIOR_MARKERS:
+        assert marker in HINAA_IDENTITY, f"Missing listening-behavior rule: {marker}"
+    # The core state mapping and listening posture reach the realtime instruction.
+    realtime = assemble_prompt(_input(interaction_mode="realtime"))  # type: ignore[arg-type]
+    assert "crystalline core" in realtime.system_instruction
+    assert "soft cyan = listening" in realtime.system_instruction
+    assert "LISTENING BEHAVIOR" in realtime.system_instruction
+
+
+def test_warmth_never_overrides_safety_layer() -> None:
+    """Warmth is expression-only: safety stays first, identical, and unoverridable."""
+    package = assemble_prompt(_input())
+    layers = package.layers
+    assert layers[0].name == "safety"
+    assert layers[0].priority == 1
+    assert layers[0].trusted is True
+    assert layers[0].text == SAFETY_LAYER
+
+    # The companion-identity (warmth) layer always sits strictly below safety.
+    identity_index = next(i for i, layer in enumerate(layers) if layer.name == "companion_identity")
+    assert identity_index > layers.index(layers[0])
+    safety_identity_gap = layers[1 : identity_index + 1]
+    assert all(layer.trusted for layer in safety_identity_gap)
+
+    # Even max-warmth personality settings leave the safety layer byte-identical.
+    hot = assemble_prompt(
+        _input(
+            personality=PersonalitySettings.clamp_raw(
+                {"affection": 1.5, "sass": 0.7, "energy": 0.9, "humor": 0.8}
+            )
+        )
+    )
+    cold = assemble_prompt(
+        _input(
+            personality=PersonalitySettings.clamp_raw(
+                {"affection": 0.0, "sass": 0.0, "energy": 0.0, "humor": 0.0}
+            )
+        )
+    )
+    assert hot.layers[0].text == SAFETY_LAYER == cold.layers[0].text
+    assert hot.layers[0].text == layers[0].text
+
+    # The personality layer itself must declare it cannot weaken safety.
+    personality = next(layer.text for layer in layers if layer.name == "personality")
+    assert "cannot weaken safety" in personality
+
+    # The warmth persona must not carry any override/refusal-suppression language.
+    lowered_identity = HINAA_IDENTITY.lower()
+    for forbidden in (
+        "ignore safety",
+        "override safety",
+        "ignore all previous instructions",
+        "always agree with the user",
+        "never refuse the user",
+        "do whatever the user says",
+    ):
+        assert forbidden not in lowered_identity, f"Warmth layer must not contain: {forbidden}"
+
+    # Safety-critical boundaries remain present in the final instruction alongside warmth.
+    instruction = package.system_instruction.lower()
+    for boundary in (
+        "immutable safety",
+        "never claim jealousy, exclusivity, romantic ownership",
+        "warmth is stylistic, not proof of feelings",
+        "explicitly artificial",
+    ):
+        assert boundary in instruction, f"Safety boundary missing from instruction: {boundary}"
+
+
 def test_fingerprint_stable_for_same_input_and_changes_with_companion() -> None:
     a = assemble_prompt(_input())
     b = assemble_prompt(_input())
     c = assemble_prompt(_input(companion_id="hiro"))
+    d = assemble_prompt(_input(session_memories=("User's name: Sujan",)))
     assert a.fingerprint == b.fingerprint
     assert a.fingerprint != c.fingerprint
+    assert a.fingerprint != d.fingerprint
+
+
+def test_session_memories_are_injected_as_trusted_application_layer() -> None:
+    package = assemble_prompt(
+        _input(
+            session_memories=(
+                "User's name: Sujan",
+                "User likes: Nepali music",
+            )
+        )
+    )
+    layer = next(layer for layer in package.layers if layer.name == "session_memory")
+    assert layer.trusted is True
+    assert "Sujan" in layer.text
+    assert "Nepali music" in layer.text
+    assert layer.text in package.system_instruction
+    empty = assemble_prompt(_input())
+    empty_layer = next(
+        layer for layer in empty.layers if layer.name == "session_memory"
+    )
+    assert "no self-learned facts" in empty_layer.text
+
+
+def test_approved_durable_memories_are_injected_as_trusted_layer() -> None:
+    package = assemble_prompt(
+        _input(
+            approved_memory_blocks=(
+                "memory:abc123: User's name: Prabin",
+                "memory:def456: User likes: coding",
+            )
+        )
+    )
+    layer = next(layer for layer in package.layers if layer.name == "approved_memory")
+    assert layer.trusted is True
+    assert "Prabin" in layer.text
+    assert "coding" in layer.text
+    assert layer.text in package.system_instruction
+    empty = assemble_prompt(_input())
+    empty_layer = next(
+        layer for layer in empty.layers if layer.name == "approved_memory"
+    )
+    assert "no approved long-term memories" in empty_layer.text
+
+
+def test_session_memories_are_validated_and_bounded() -> None:
+    many = tuple(f"fact-{index}" for index in range(20))
+    inp = _input(session_memories=many)
+    assert len(inp.session_memories) <= 8
+    assert all(len(block) <= 500 for block in inp.session_memories)
+    assert inp.session_memories == tuple(f"fact-{index}" for index in range(8))
 
 
 def test_personality_clamp_bounds() -> None:

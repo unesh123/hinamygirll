@@ -54,3 +54,33 @@ class TTSProvider(Protocol):
     id: str
 
     async def synthesize(self, text: str, voice: str) -> ProviderResult[bytes]: ...
+
+
+class SpeechToTextProvider(STTProvider, Protocol):
+    pass
+
+
+class TextToSpeechProvider(TTSProvider, Protocol):
+    pass
+
+
+class RealtimeTranscriptionSession(Protocol):
+    session_id: str
+
+    async def send_audio(self, pcm_chunk: bytes) -> None: ...
+    async def close(self) -> None: ...
+
+
+class RealtimeSynthesisSession(Protocol):
+    session_id: str
+
+    async def send_text_delta(self, text_delta: str) -> None: ...
+    async def close(self) -> None: ...
+
+
+class VoiceAlignmentSource(Protocol):
+    async def get_alignment_events(self) -> AsyncIterator[dict]: ...
+
+
+class VoicePerformancePlanner(Protocol):
+    def plan_delivery(self, semantic_mode: str, companion_id: str) -> dict: ...

@@ -14,20 +14,20 @@ export interface MockProviderOptions {
 
 const responses = [
   {
-    match: /assignment|बुझ|explain/i,
-    text: "Mock modeले assignment साँच्चै बुझेको होइन। Real response चाहियो भने Microsoft voice + OpenAI brain mode प्रयोग गर।",
+    match: /assignment|समझाओ|explain|बुझ/i,
+    text: "Main abhi mock mode mein hoon, isliye main assignment ko genuinely explain nahi kar sakti. Real response ke liye aap real provider mode enable kar sakte ho — jaise Gemini ya OpenAI brain. Settings mein jaake provider select karo.",
     emotion: "thinking",
     gesture: "explain",
   },
   {
-    match: /mood|off|sad|दुख|मन/i,
-    text: "Mock mode हो, तर UI test को लागि: slow down गर, एक सानो step रोज, अनि real modeमा कुरा गर।",
+    match: /mood|off|sad|दुख|upset|tired|थक/i,
+    text: "Main samajh sakti hoon ki aap kaisa feel kar rahe ho. Main yahaan hoon aapke liye — chahe baat karni ho, music sun na ho, ya kuch search karna ho. Just tell me what you need.",
     emotion: "concerned",
     gesture: "reassure",
   },
   {
-    match: /hello|hi|namaste|नमस्ते/i,
-    text: "Namaste! Mock mode UI test मात्र हो। Real understanding चाहियो भने Microsoft voice + OpenAI brain use गर।",
+    match: /hello|hi|namaste|नमस्ते|hey/i,
+    text: "Namaste! Main HINAA hoon — aapki AI assistant. Main abhi mock mode mein hoon. Real conversations ke liye aap Settings mein jaake Gemini ya OpenAI brain select kar sakte ho. Tab main real-time web search, image generation, aur bahut kuch kar paungi.",
     emotion: "happy",
     gesture: "wave",
   },
@@ -67,9 +67,9 @@ export function buildMockPlan(
 ): AssistantTurnPlan {
   const selected = responses.find((response) => response.match.test(text));
   const fallback = [
-    "Mock mode UI test हो। Real speech understanding active छैन।",
-    "Demo response only: Hinaa को real brain/voice test गर्न Microsoft voice + OpenAI brain चाहिन्छ।",
-    "Mock fallback active छ, so यो fixed/safe demo reply हो—not a real AI answer.",
+    "Main abhi mock mode mein hoon. Yeh ek demo response hai — real AI response nahi hai. Real brain ke liye Settings mein jaake Gemini ya OpenAI select karo.",
+    "HINAA mock mode: Main aapke sawaal ko samajh rahi hoon, lekin real answer dene ke liye mujhe ek real AI brain ki zaroorat hai. Settings > Provider mein jaake select karo.",
+    "Demo mode active hai. Real conversations, web search, image generation aur tools use karne ke liye kripya real provider mode enable karein.",
   ][stableIndex(text) % 3];
   const displayText = selected?.text ?? fallback;
   const primary =

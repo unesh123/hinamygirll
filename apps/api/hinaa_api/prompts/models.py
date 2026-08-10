@@ -23,9 +23,9 @@ class StrictModel(BaseModel):
 
 
 class PersonalitySettings(StrictModel):
-    affection: Annotated[float, Field(ge=0.0, le=0.8)] = 0.55
-    sass: Annotated[float, Field(ge=0.0, le=0.7)] = 0.25
-    energy: Annotated[float, Field(ge=0.0, le=0.9)] = 0.55
+    affection: Annotated[float, Field(ge=0.0, le=0.8)] = 0.7
+    sass: Annotated[float, Field(ge=0.0, le=0.7)] = 0.3
+    energy: Annotated[float, Field(ge=0.0, le=0.9)] = 0.65
     humor: Annotated[float, Field(ge=0.0, le=0.8)] = 0.4
     proactivity: Annotated[float, Field(ge=0.0, le=0.6)] = 0.35
 
@@ -68,7 +68,21 @@ class PromptInput(StrictModel):
     max_history_turns: Annotated[int, Field(ge=0, le=32)] = 8
     max_history_chars: Annotated[int, Field(ge=200, le=20_000)] = 4_000
     approved_memory_blocks: tuple[str, ...] = ()
+    # Self-learned facts extracted from this session's conversation. They are
+    # application-trusted state (bounded, never raw untrusted text) and are
+    # injected as a dedicated prompt layer like approved memory.
+    session_memories: tuple[str, ...] = ()
+    visible_actions: list[str] = Field(default_factory=list)
 
+    @field_validator("session_memories")
+    @classmethod
+    def validate_session_memories(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        cleaned: list[str] = []
+        for block in value:
+            text = block.strip()
+            if text:
+                cleaned.append(text[:500])
+        return tuple(cleaned[:8])
     @field_validator("recent_turns")
     @classmethod
     def validate_roles(cls, value: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:

@@ -11,6 +11,23 @@
 - Alembic listed as dependency; schema bootstrap via `Base.metadata.create_all` for offline/dev
 - pgvector: **deferred** (not required for basic memory)
 
+## Self-learned facts → durable store (owner-approved 2026-08-09)
+
+Session self-learning (name/likes/work topics extracted from conversation) now
+mirrors into the durable `MemoryService` so Hinaa remembers across restarts:
+
+- After every turn (`create_plan` and `create_live_plan`), newly learned facts
+  are pushed to the durable store as **approved** memories for the resolved user
+  (dev auth header `X-HINAA-Dev-User`, falls back to `HINAA_DEV_AUTH_SUBJECT`).
+- The write is best-effort: `MEMORY_DISABLED`, `MEMORY_SENSITIVE_BLOCKED` and
+  other store errors are swallowed (logged) and never fail the live turn.
+- Durable approved blocks are injected into every prompt via the existing
+  `approved_memory` application-trusted layer; ephemeral session facts that
+  already exist durably are de-duplicated so facts are not double-injected.
+- Consent model: each store write logs a `MemoryConsent` audit event, the user
+  memory toggle is the master switch, and the sensitive-content filter still
+  blocks credential-like strings. See ADR-007 for the baseline policy.
+
 ## API
 
 | Method | Path | Purpose |
@@ -37,4 +54,3 @@
 - PostgreSQL RLS policies in-database
 - Managed DB restore drill
 - Privacy dashboard UI polish (API exists; frontend panel may be minimal)
-- Automatic prompt injection of approved memories into every live turn (service helper exists: `approved_memory_blocks`)

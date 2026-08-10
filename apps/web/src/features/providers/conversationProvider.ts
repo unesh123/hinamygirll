@@ -1,6 +1,8 @@
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { CompanionId } from "../companion/types";
 
+import type { ProviderMode } from "./types/provider";
+
 export type ConversationProviderEvent =
   | { type: "thinking" }
   | { type: "text.delta"; delta: string }
@@ -16,7 +18,7 @@ export interface ConversationRequest {
 
 export interface ConversationProvider {
   readonly id: string;
-  readonly mode: "mock" | "local" | "groq" | "openai" | "custom" | "real";
+  readonly mode: ProviderMode;
   streamTurn(
     request: ConversationRequest,
   ): AsyncGenerator<ConversationProviderEvent>;

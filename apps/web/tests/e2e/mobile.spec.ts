@@ -1,49 +1,105 @@
 import { expect, test } from "@playwright/test";
+import { isolateSettings } from "./helpers";
 
 test("fits the small mobile viewport and completes a mock text turn", async ({
   page,
 }) => {
+  await isolateSettings(page);
   await page.goto("/");
-  await expect(page.getByLabel("Voice status")).toContainText("Voice ready");
   const shell = page.locator("main");
   const box = await shell.boundingBox();
   expect(box?.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 
+  // Pin provider to Demo (mock, offline) and avatar to the 2D procedural
+  // engine (no remote VRM fetch) so the turn is deterministic.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page
+    .getByTestId("settings-dialog")
+    .getByLabel("AI provider")
+    .selectOption({ label: "Demo" });
+  await page
+    .getByTestId("settings-dialog")
+    .getByLabel("Avatar style")
+    .selectOption({ label: "2D avatar" });
+  await page
+    .getByTestId("settings-dialog")
+    .getByRole("button", { name: "Close settings" })
+    .click();
+
   await page.getByLabel("Type a message").fill("Aaja mood ali off cha");
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText(/heavy feel bhairako/)).toBeVisible({
-    timeout: 5000,
+  await expect(page.getByTestId("transcript")).toContainText("slow down", {
+    timeout: 8000,
   });
-  await expect(page.locator('[data-emotion="concerned"]')).toBeVisible();
+  // The avatar carries the planned emotion while she speaks the reply.
+  const avatar = page.locator('[data-engine="procedural-avatar-v1"]');
+  await expect(avatar).toHaveAttribute("data-state", "speaking", {
+    timeout: 8000,
+  });
+  await expect(avatar).toHaveAttribute("data-emotion", "concerned");
 });
 
-test("supports simulated voice interruption and accessibility modes", async ({
+test("supports text-only avatar mode and reduced-motion settings", async ({
   page,
 }) => {
+  await isolateSettings(page);
   await page.goto("/");
-  await page
-    .getByRole("button", { name: /simulate microphone listening/i })
-    .click();
-  const stopButton = page.getByRole("button", {
-    name: /Stop current turn/,
-  });
-  await expect(stopButton).toBeVisible();
-  await stopButton.click();
-  await expect(page.getByLabel("Type a message")).toBeEnabled();
 
-  await page.getByRole("button", { name: /Text only/ }).click();
+  // Pin the avatar to the 2D procedural engine so the default VRM fetch can't
+  // stall the stage in the test environment.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page
+    .getByTestId("settings-dialog")
+    .getByLabel("Avatar style")
+    .selectOption({ label: "2D avatar" });
+  await page
+    .getByTestId("settings-dialog")
+    .getByRole("button", { name: "Close settings" })
+    .click();
+
+  const avatar = page.locator('[data-engine="procedural-avatar-v1"]').first();
+  await expect(avatar).toBeVisible({ timeout: 10000 });
+
+  // Reduced motion: select it in settings and the avatar reports it.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page
+    .getByTestId("settings-dialog")
+    .getByLabel("Motion")
+    .selectOption({ label: "Reduced motion" });
+  await page
+    .getByTestId("settings-dialog")
+    .getByRole("button", { name: "Close settings" })
+    .click();
+  // The avatar is still visible here — the text-only step comes after, so the
+  // reduced-motion attribute is readable before it swaps to the fallback card.
+  await expect(avatar).toHaveAttribute("data-reduced-motion", "true");
+
+  // Text-only mode: hide the avatar in Appearance settings. The row label
+  // wraps the visually-hidden input, so clicking the label toggles it the way
+  // a real user (or keyboard) would, and React's onChange fires.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page
+    .getByTestId("settings-dialog")
+    .getByText("Show avatar")
+    .first()
+    .click();
+  await page
+    .getByTestId("settings-dialog")
+    .getByRole("button", { name: "Close settings" })
+    .click();
   await expect(
     page.getByText(
       "Avatar motion is paused. Conversation controls still work.",
     ),
   ).toBeVisible();
-  await page.getByRole("button", { name: /Reduced motion off/ }).click();
-  await expect(
-    page.getByRole("button", { name: /Reduced motion on/ }),
-  ).toHaveAttribute("aria-pressed", "true");
+
+  await expect(page.getByLabel("Type a message")).toBeEnabled();
 });
 
-test("shows a graceful WebGL message without losing chat", async ({ page }) => {
+test("falls back to the procedural avatar when WebGL is unavailable", async ({
+  page,
+}) => {
+  await isolateSettings(page);
   await page.addInitScript(() => {
     const original = HTMLCanvasElement.prototype.getContext;
     HTMLCanvasElement.prototype.getContext = function (
@@ -56,29 +112,42 @@ test("shows a graceful WebGL message without losing chat", async ({ page }) => {
     } as typeof HTMLCanvasElement.prototype.getContext;
   });
   await page.goto("/");
-  await expect(page.getByText(/WebGL is unavailable/)).toBeVisible();
+
+  // Pin the avatar to the 2D procedural engine (no WebGL needed) so the
+  // conversation stays usable on WebGL-less devices.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page
+    .getByTestId("settings-dialog")
+    .getByLabel("Avatar style")
+    .selectOption({ label: "2D avatar" });
+  await page
+    .getByTestId("settings-dialog")
+    .getByRole("button", { name: "Close settings" })
+    .click();
+
+  await expect(
+    page.locator('[data-engine="procedural-avatar-v1"]').first(),
+  ).toBeVisible({ timeout: 10000 });
   await expect(page.getByLabel("Type a message")).toBeEnabled();
 });
 
-test("loads the production PWA shell while offline after first visit", async ({
+test("keeps the shell usable when the backend is unreachable", async ({
   page,
-  context,
 }) => {
+  await isolateSettings(page);
+  // Block the provider-status fetch so the app renders without backend metadata.
+  await page.route("**/api/v1/providers", (route) => route.abort());
   await page.goto("/");
-  await page.evaluate(async () => {
-    if (!("serviceWorker" in navigator))
-      throw new Error("Service worker unsupported");
-    await navigator.serviceWorker.ready;
-  });
-  await context.setOffline(true);
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.getByLabel("Voice status")).toContainText("Voice ready");
+  await expect(page.locator("main.hinaa-stage")).toBeVisible();
   await expect(page.getByLabel("Type a message")).toBeEnabled();
+  // The header status pill shows the idle state even without provider info.
+  await expect(page.locator(".header-status")).toContainText("Ready");
 });
 
 test("proxies safe provider metadata without making provider calls", async ({
   page,
 }) => {
+  await isolateSettings(page);
   await page.goto("/");
   const status = await page.evaluate(async () => {
     const response = await fetch("/api/v1/providers");
@@ -86,19 +155,21 @@ test("proxies safe provider metadata without making provider calls", async ({
   });
   expect(status.ok).toBe(true);
   expect(status.providers[0].id).toBe("mock");
-  await page.getByText("Advanced voice settings").click();
-  await expect(page.getByLabel("Provider mode")).toHaveValue("mock");
-  await expect(page.getByLabel("Provider mode")).toContainText(
-    "Groq fast brain",
-  );
-  await expect(page.getByLabel("Provider mode")).toContainText(
-    "Microsoft voice + OpenAI brain",
-  );
+  // The settings dialog exposes the provider picker with the safe demo option.
+  await page.getByRole("button", { name: "Settings" }).click();
+  const provider = page
+    .getByTestId("settings-dialog")
+    .getByLabel("AI provider");
+  await expect(provider).toBeVisible();
+  await expect(provider).toContainText("Demo");
+  await expect(provider).toContainText("CX Gateway");
+  await expect(provider).toContainText("Gemini Live");
 });
 
 test("runs a synthetic mock WebSocket turn without microphone or provider calls", async ({
   page,
 }) => {
+  await isolateSettings(page);
   await page.goto("/");
   const eventTypes = await page.evaluate(
     () =>
@@ -171,6 +242,7 @@ test("runs a synthetic mock WebSocket turn without microphone or provider calls"
 test("keeps text fallback available when live microphone permission is denied", async ({
   page,
 }) => {
+  await isolateSettings(page);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -183,7 +255,10 @@ test("keeps text fallback available when live microphone permission is denied", 
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Talk to Hinaa" }).click();
-  await expect(page.getByText(/Microphone permission denied/)).toBeVisible();
+  // Tap the stage to start a live session — the mic request fails safely.
+  await page.locator("main.hinaa-stage").click();
+  await expect(page.getByText(/permission denied/i)).toBeVisible({
+    timeout: 8000,
+  });
   await expect(page.getByLabel("Type a message")).toBeEnabled();
 });

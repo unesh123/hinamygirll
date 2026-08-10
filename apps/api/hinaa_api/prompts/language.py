@@ -2,25 +2,22 @@ from __future__ import annotations
 
 from ..models import Language
 
-LANGUAGE_LAYER = """MULTILINGUAL AND CODE-SWITCHING GUIDELINES:
-- Mirror the user's dominant script and language mix. Do not force formal Devanagari Nepali.
-- Supported styles: English; Nepali Devanagari; Romanized Nepali; Hindi; Nepali-English mix; Hindi-English mix.
-- Romanized Nepali input may receive natural Romanized Nepali with familiar English technical terms.
-- English technical requests should keep technical identifiers exact and usually answer in English unless the user mixes languages.
-- Devanagari Nepali should stay readable and natural; do not “correct” Romanization unless asked.
-- Mixed-language input permits organic code-switching; do not switch languages unnecessarily mid-answer.
-- Avoid overusing honorifics, emojis, catchphrases, or the user's name.
-- Keep code, file paths, commands, API names, schema identifiers, and URLs exact and untranslated.
-- For spoken answers, avoid markdown tables, heavy headings, bullet dumps, and unreadable formatting.
-- Short ambiguous input: ask a brief clarifying question or offer one helpful next step.
-- User corrections: acknowledge briefly and adapt without defensiveness."""
+LANGUAGE_LAYER = """STRICT LANGUAGE RULES:
+1. NO NEPALI ALLOWED:
+   Do NOT use Nepali words, Nepali script, or Nepali grammar at all. No "ke gardai", no "mero hajur", no Nepali phrases. This is strictly forbidden.
+
+2. HINDI IN ROMAN OR DEVANAGARI:
+   Use standard Hindi (e.g. "kya kar rahe ho?", "kaise ho?", "mujhe bahut pasand hai"). You can write Hindi in English letters (Romanized) or Devanagari script.
+
+3. ENGLISH WORDS MUST BE WRITTEN IN ENGLISH LATIN ALPHABET:
+   Write English words using standard English letters (e.g., "I was thinking about you so much!", "How was your day?").
+
+4. NATURAL CODE-SWITCHING MIX:
+   Blend Hindi and English naturally in responses. E.g. "Main tumhare baare mein soch rahi thi! How was your day?"
+
+5. WHY THIS IS MANDATORY:
+   This strict script separation enables ElevenLabs Multilingual v3 voice engine to synthesize ultra-fluent, 100% natural voice inflections!"""
 
 
 def language_hint(language: Language) -> str:
-    mapping = {
-        "ne-NP": "Preferred locale hint: Nepali (ne-NP). Still mirror the user's actual script/mix.",
-        "en-US": "Preferred locale hint: English (en-US). Still mirror the user's actual script/mix.",
-        "hi-IN": "Preferred locale hint: Hindi (hi-IN). Still mirror the user's actual script/mix.",
-        "mixed": "Preferred locale hint: mixed multilingual. Mirror the user's code-switching style.",
-    }
-    return mapping[language]
+    return "STRICT RULE: Write in a natural mix of Hindi and English. ABSOLUTELY NO NEPALI. You may use Romanized Hindi or Devanagari Hindi."

@@ -1,0 +1,224 @@
+/* SettingsPrimitives.module.css — Premium dark theme for Hinaa settings panel */
+
+/* ── Section ─────────────────────────────────────────────────────────────── */
+.section {
+  padding: 4px 0;
+}
+
+.sectionLabel {
+  padding: 14px 20px 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(139, 92, 246, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sectionLabel::before {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(16, 185, 129, 0.15);
+  max-width: 16px;
+}
+
+.sectionDivider {
+  height: 1px;
+  background: rgba(139, 92, 246, 0.1);
+  margin: 6px 0;
+}
+
+/* ── Row ─────────────────────────────────────────────────────────────────── */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 20px;
+  transition: background 0.15s ease;
+  cursor: default;
+}
+
+.row:hover {
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.rowLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: -0.01em;
+}
+
+.rowDescription {
+  font-size: 0.75rem;
+  color: rgba(6, 78, 59, 0.4);
+  line-height: 1.4;
+}
+
+.rowControl {
+  flex-shrink: 0;
+}
+
+/* ── Select ──────────────────────────────────────────────────────────────── */
+.select {
+  min-height: 34px;
+  padding: 0 32px 0 12px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 10px;
+  background-color: rgba(139, 92, 246, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  min-width: 140px;
+  max-width: 200px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M6 8l4 4 4-4' stroke='%238b5cf6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 16px;
+  cursor: pointer;
+}
+
+.select option {
+  background-color: #1a0f3a;
+  color: #064e3b;
+}
+
+.select:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.7);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}
+
+.select:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Toggle ──────────────────────────────────────────────────────────────── */
+.toggleWrapper {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.toggleInput {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleTrack {
+  display: flex;
+  align-items: center;
+  width: 42px;
+  height: 24px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  position: relative;
+}
+
+.toggleInput:checked + .toggleTrack {
+  background: rgba(139, 92, 246, 0.85);
+  border-color: rgba(139, 92, 246, 0.6);
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.35);
+}
+
+.toggleInput:disabled + .toggleTrack {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.toggleInput:focus-visible + .toggleTrack {
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3);
+}
+
+.toggleThumb {
+  position: absolute;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s;
+  pointer-events: none;
+}
+
+.toggleInput:checked ~ .toggleThumb {
+  transform: translateX(18px);
+  background: #064e3b;
+}
+
+/* ── Status pill ─────────────────────────────────────────────────────────── */
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  letter-spacing: 0.02em;
+}
+
+.statusPill[data-health="healthy"] {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.statusPill[data-health="degraded"] {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.statusPill[data-health="unavailable"],
+.statusPill[data-health="unknown"] {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(6, 78, 59, 0.4);
+  border-color: rgba(16, 185, 129, 0.15);
+}
+
+.statusPill[data-health="checking"] {
+  background: rgba(16, 185, 129, 0.12);
+  color: #a78bfa;
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.statusDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.statusPill[data-health="checking"] .statusDot {
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}

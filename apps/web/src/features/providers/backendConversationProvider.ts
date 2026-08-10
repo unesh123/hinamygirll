@@ -5,7 +5,7 @@ import type {
   ConversationRequest,
 } from "./conversationProvider";
 
-type ProviderMode = "mock" | "local" | "groq" | "openai" | "custom" | "real";
+type ProviderMode = "mock" | "local" | "groq" | "openai" | "custom" | "real" | "agent-router" | "cx-gateway" | "gemini-live";
 
 interface StreamEvent {
   type: "thinking" | "text.delta" | "plan" | "usage" | "error";
@@ -28,14 +28,7 @@ export class BackendConversationProvider implements ConversationProvider {
   async *streamTurn(
     request: ConversationRequest,
   ): AsyncGenerator<ConversationProviderEvent> {
-    const payload: {
-      sessionId: string;
-      text: string;
-      companionId: ConversationRequest["companionId"];
-      language: "mixed";
-      providerMode: ProviderMode;
-      brainModel?: string;
-    } = {
+    const payload: Record<string, any> = {
       sessionId: "browser-session",
       text: request.text,
       companionId: request.companionId,
@@ -45,6 +38,7 @@ export class BackendConversationProvider implements ConversationProvider {
     if (
       (this.mode === "openai" ||
         this.mode === "custom" ||
+        this.mode === "agent-router" ||
         this.mode === "real") &&
       request.brainModel
     ) {
