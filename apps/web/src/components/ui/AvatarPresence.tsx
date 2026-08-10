@@ -187,9 +187,19 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
     t.current += dt;
 
     const em  = vrm.expressionManager;
-    const has = (n: string) => availRef.current.has(n);
-    const set = (n: VRMExpressionPresetName, v: number) => {
-      if (has(n)) { try { em!.setValue(n, v); } catch {} }
+    const set = (n: string, v: number) => {
+      if (!em) return;
+      try { em.setValue(n, v); } catch {}
+      
+      // VRM 1.0 compatibility fallback mapping
+      const vrm1Map: Record<string, string> = {
+        'aa': 'a', 'ih': 'i', 'ou': 'u', 'ee': 'e', 'oh': 'o',
+        'happy': 'joy', 'sad': 'sorrow', 'relaxed': 'fun',
+        'blinkLeft': 'blink_l', 'blinkRight': 'blink_r'
+      };
+      if (vrm1Map[n]) {
+        try { em.setValue(vrm1Map[n], v); } catch {}
+      }
     };
 
     /* ── LIP-SYNC (audio-driven — always active when speaking) ─── */
@@ -240,8 +250,8 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
         // Real eye tracking: 1=open → blink = 1-open
         const blL = 1 - faceExpressions.eyeBlinkL;
         const blR = 1 - faceExpressions.eyeBlinkR;
-        if (has(VRMExpressionPresetName.BlinkLeft))  set(VRMExpressionPresetName.BlinkLeft,  blL);
-        if (has(VRMExpressionPresetName.BlinkRight)) set(VRMExpressionPresetName.BlinkRight, blR);
+        set(VRMExpressionPresetName.BlinkLeft,  blL);
+        set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
       } else {
         // Auto-blink
