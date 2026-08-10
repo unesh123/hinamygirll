@@ -13,6 +13,7 @@ import { SidebarProvider } from "./components/lightswind/Sidebar";
 import { synthesizeSpeech } from "./features/audio/api";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
 import { useLiveConversation } from "./features/audio/useLiveConversation";
+import { useVSeeFace } from "./features/audio/useVSeeFace";
 import { companionProfiles, type CompanionId, type CompanionState } from "./features/companion/types";
 import { useCompanionController } from "./features/companion/useCompanionController";
 import { useProviders } from "./features/providers/hooks/useProviders";
@@ -86,6 +87,10 @@ export default function App() {
   const [contextSources] = useState<any[]>([]);
   const [avatarMode, setAvatarMode] = useState<PresenceMode>("portrait");
   const [avatarModel, setAvatarModel] = useState("/models/model_5447.vrm");
+
+  // VSeeFace face tracking
+  const faceTrack = useVSeeFace();
+  const faceActive = faceTrack.status === "active";
 
   const prevMessageCount = useRef(0);
   const routing = useProviderRouting(settings.provider, providers);
@@ -207,17 +212,19 @@ export default function App() {
               <AvatarPresence
                 mode={avatarMode}
                 state={controller.state}
-                jawEnergy={playback.jawEnergy}
-                speakingRef={playback.playingRef}
+                jawEnergy={live.jawEnergy}
+                speakingRef={live.speakingRef}
                 modelUrl={avatarModel}
                 onModeChange={setAvatarMode}
+                faceExpressions={faceActive ? faceTrack.expressions : null}
+                faceTrackingActive={faceActive}
               />
-              {/* VRM Model Switcher — A, B, C */}
+              {/* VRM Model Switcher — A, B, C + Face Tracking */}
               <div className="vrm-switcher" role="group" aria-label="Switch 3D model">
                 {([
                   { url: "/models/model_5447.vrm", label: "Hinaa A" },
                   { url: "/models/AvatarSample_E.vrm", label: "Hinaa B" },
-                  { url: "/models/model_6164.vrm", label: "Hinaa C" },
+                  { url: "/models/hinaa.vrm", label: "Hinaa C" },
                 ] as { url: string; label: string }[]).map((m) => (
                   <button
                     key={m.url}
@@ -229,7 +236,28 @@ export default function App() {
                     {m.label}
                   </button>
                 ))}
+                {/* Face tracking button */}
+                <button
+                  type="button"
+                  className={`vrm-pill vrm-pill--face${faceActive ? " vrm-pill--face-active" : ""}`}
+                  onClick={() => faceActive ? faceTrack.disconnect() : faceTrack.connect()}
+                  title={
+                    faceTrack.status === "awaiting_auth" ? "Waiting for VSeeFace approval..." :
+                    faceTrack.status === "error" ? (faceTrack.error ?? "Error") :
+                    faceActive ? "Face tracking ON — click to stop" :
+                    "Connect VSeeFace face tracking"
+                  }
+                >
+                  {faceTrack.status === "connecting" || faceTrack.status === "awaiting_auth" || faceTrack.status === "authenticating" ? "⏳" :
+                   faceActive ? "🎭 Live" : "🎭 Face"}
+                </button>
               </div>
+              {/* Error hint */}
+              {faceTrack.error && (
+                <div style={{ fontSize:"0.6rem", color:"#ef4444", padding:"2px 10px 4px", textAlign:"center", lineHeight:1.3 }}>
+                  {faceTrack.error}
+                </div>
+              )}
             </div>
 
             {/* Right: Chat */}

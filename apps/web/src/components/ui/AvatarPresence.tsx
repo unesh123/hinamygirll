@@ -14,8 +14,9 @@ import { motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, Radio } from "lucide-react";
 import type { CompanionState } from "../../features/companion/types";
+import type { FaceExpressions } from "../../features/audio/useVSeeFace";
 
 export type PresenceMode = "portrait" | "closeup" | "full" | "hidden";
 
@@ -72,11 +73,12 @@ type PoseBoneName = keyof typeof POSE_Q;
 const POSE_BONES = Object.keys(POSE_Q) as PoseBoneName[];
 
 /* ─── Model component ──────────────────────────────────── */
-function Model({ state, jawEnergy, speakingRef, url }: {
+function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
   state: CompanionState;
   jawEnergy?: React.MutableRefObject<number>;
   speakingRef?: React.MutableRefObject<boolean>;
   url: string;
+  faceExpressions?: FaceExpressions | null;  // live face tracking data
 }) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
@@ -221,30 +223,57 @@ function Model({ state, jawEnergy, speakingRef, url }: {
         vowelTimer.current = 0;
       }
 
-      /* ── BLINK ─────────────────────────────────────── */
-      blink.current -= dt;
-      let bv = 0;
-      if (blink.current <= 0) {
-        if (blink.current < -0.13) {
-          if (doubleBlink.current) { doubleBlink.current = false; blink.current = 1.5 + Math.random() * 3.5; }
-          else if (Math.random() < 0.18) { doubleBlink.current = true; blink.current = -0.02; }
-          else blink.current = 2 + Math.random() * 4;
-        } else {
-          bv = Math.sin(Math.max(0, Math.min(1, (blink.current + 0.13) / 0.13)) * Math.PI);
+          /* ── FACE-TRACKED LIP-SYNC override ─────────────── */
+    // When face tracking active AND not speaking: use tracked mouth open
+    if (faceExpressions && !(speakingRef?.current)) {
+      set(VRMExpressionPresetName.Aa, faceExpressions.mouthOpen);
+    }
+
+    /* ── RELAXED POSE ─────────────────────────────────── */
+          /* ── BLINK ─────────────────────────────────────── */
+      // When face tracking active: use real eye-open values instead of auto-blink
+      if (faceExpressions) {
+        // eyeBlinkL/R: 1=open, 0=closed → blink = 1 - open
+        const blL = 1 - faceExpressions.eyeBlinkL;
+        const blR = 1 - faceExpressions.eyeBlinkR;
+        if (has(VRMExpressionPresetName.BlinkLeft))  set(VRMExpressionPresetName.BlinkLeft,  blL);
+        if (has(VRMExpressionPresetName.BlinkRight)) set(VRMExpressionPresetName.BlinkRight, blR);
+        // Fall back to combined Blink if no per-eye support
+        set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
+      } else {
+        blink.current -= dt;
+        let bv = 0;
+        if (blink.current <= 0) {
+          if (blink.current < -0.13) {
+            if (doubleBlink.current) { doubleBlink.current = false; blink.current = 1.5 + Math.random() * 3.5; }
+            else if (Math.random() < 0.18) { doubleBlink.current = true; blink.current = -0.02; }
+            else blink.current = 2 + Math.random() * 4;
+          } else {
+            bv = Math.sin(Math.max(0, Math.min(1, (blink.current + 0.13) / 0.13)) * Math.PI);
+          }
         }
+        set(VRMExpressionPresetName.Blink, bv);
       }
-      set(VRMExpressionPresetName.Blink, bv);
 
       /* ── EMOTION ───────────────────────────────────── */
-      const tEmo = emotionFor(state);
-      for (const key of [
-        VRMExpressionPresetName.Happy, VRMExpressionPresetName.Sad,
-        VRMExpressionPresetName.Relaxed, VRMExpressionPresetName.Surprised,
-        VRMExpressionPresetName.Angry,
-      ]) {
-        const tgt = (tEmo as any)[key] ?? 0;
-        emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * dt * 3;
-        set(key, emo.current[key]);
+      if (faceExpressions) {
+        // Map tracked face expressions directly to VRM blend shapes
+        set(VRMExpressionPresetName.Happy,     faceExpressions.mouthSmile);
+        set(VRMExpressionPresetName.Surprised, (faceExpressions.browUpL + faceExpressions.browUpR) / 2);
+        set(VRMExpressionPresetName.Angry,     (faceExpressions.browDownL + faceExpressions.browDownR) / 2);
+        set(VRMExpressionPresetName.Relaxed,   faceExpressions.cheekPuff);
+        // Don't apply Sad or emotion blends in face tracking mode
+      } else {
+        const tEmo = emotionFor(state);
+        for (const key of [
+          VRMExpressionPresetName.Happy, VRMExpressionPresetName.Sad,
+          VRMExpressionPresetName.Relaxed, VRMExpressionPresetName.Surprised,
+          VRMExpressionPresetName.Angry,
+        ]) {
+          const tgt = (tEmo as any)[key] ?? 0;
+          emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * dt * 3;
+          set(key, emo.current[key]);
+        }
       }
     }
 
@@ -313,9 +342,11 @@ interface Props {
   speakingRef?: React.MutableRefObject<boolean>;
   modelUrl?: string;
   onModeChange?: (m: PresenceMode) => void;
+  faceExpressions?: FaceExpressions | null;   // from useVSeeFace
+  faceTrackingActive?: boolean;               // show indicator
 }
 
-export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl = "/models/model_5447.vrm", onModeChange }: Props) {
+export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl = "/models/model_5447.vrm", onModeChange, faceExpressions, faceTrackingActive }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
 
   // Reset context-lost flag if user picks a new model
@@ -360,6 +391,7 @@ export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl =
               jawEnergy={jawEnergy}
               speakingRef={speakingRef}
               url={modelUrl}
+              faceExpressions={faceExpressions}
             />
 
             <ContactShadows
@@ -375,7 +407,14 @@ export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl =
       {webglFailed && <AvatarFallback state={state} />}
 
       {/* Camera cycle button */}
-      <div style={{ position:"absolute", bottom:8, right:8, zIndex:5 }}>
+      <div style={{ position:"absolute", bottom:8, right:8, zIndex:5, display:"flex", gap:4 }}>
+        {/* Face tracking indicator */}
+        {faceTrackingActive && (
+          <div style={{ display:"flex", alignItems:"center", gap:3, padding:"3px 7px", borderRadius:8, background:"rgba(34,197,94,.85)", backdropFilter:"blur(8px)", border:"1px solid rgba(255,255,255,.5)" }}>
+            <Radio size={9} color="#fff" />
+            <span style={{ fontSize:"0.6rem", color:"#fff", fontWeight:700, letterSpacing:"0.04em" }}>LIVE</span>
+          </div>
+        )}
         <motion.button
           type="button" onClick={cycle}
           whileHover={{ scale:1.1 }} whileTap={{ scale:0.9 }}
