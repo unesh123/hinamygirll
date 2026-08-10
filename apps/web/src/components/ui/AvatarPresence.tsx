@@ -20,13 +20,14 @@ import type { CompanionState } from "../../features/companion/types";
 export type PresenceMode = "portrait" | "closeup" | "full" | "hidden";
 
 /* ─── Camera presets ───────────────────────────────────────
- * "full" mode shows the entire body including hands.
- * Camera looks at mid-body so we can see face + hands.
+ * Portrait: framed on face — camera high, target at face level.
+ * Full: whole body head to toe.
+ * Closeup: tight face shot.
  */
 const CAMERAS: Record<PresenceMode, { pos: [number,number,number]; target: [number,number,number]; fov: number }> = {
-  closeup:  { pos: [0, 1.52, 0.65], target: [0, 1.48, 0], fov: 24 },   // face only
-  portrait: { pos: [0, 1.05, 1.55], target: [0, 1.0,  0], fov: 38 },   // half-body — shows hands
-  full:     { pos: [0, 0.85, 2.20], target: [0, 0.75, 0], fov: 44 },   // full body head-to-toe
+  closeup:  { pos: [0, 1.62, 0.60], target: [0, 1.60, 0], fov: 22 },   // tight face
+  portrait: { pos: [0, 1.58, 1.20], target: [0, 1.52, 0], fov: 28 },   // face + chest
+  full:     { pos: [0, 0.85, 2.20], target: [0, 0.75, 0], fov: 44 },   // head to toe
   hidden:   { pos: [0, 1.0,  3.0],  target: [0, 1.0,  0], fov: 35 },
 };
 
