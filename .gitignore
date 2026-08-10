@@ -69,3 +69,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Allow VRM models in public/models
+!apps/web/public/models/*.vrm
