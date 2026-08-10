@@ -110,8 +110,21 @@ export default function App() {
     void (async () => {
       const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
       const spoken = result?.plan?.spokenText ?? result?.plan?.displayText;
-      if (!spoken || (controller.routing.activeMode ?? "mock") === "mock") return;
-      try { const s = await synthesizeSpeech(spoken, controller.companionId, controller.routing.activeMode ?? "mock", new AbortController().signal); await playback.play(s.blob); } catch {}
+      if (!spoken) return;
+      // Always attempt TTS — use active provider mode, fall back to "real" (backend ElevenLabs)
+      const ttsMode = (controller.routing.activeMode && controller.routing.activeMode !== "mock")
+        ? controller.routing.activeMode
+        : "real";
+      try {
+        const s = await synthesizeSpeech(spoken, controller.companionId, ttsMode, new AbortController().signal);
+        await playback.play(s.blob);
+      } catch (err) {
+        // Retry once with "real" fallback if first attempt failed
+        try {
+          const s = await synthesizeSpeech(spoken, controller.companionId, "real", new AbortController().signal);
+          await playback.play(s.blob);
+        } catch {}
+      }
     })();
   }, [input, live.active, controller, playback, attachedImage]);
 
@@ -199,12 +212,12 @@ export default function App() {
                 modelUrl={avatarModel}
                 onModeChange={setAvatarMode}
               />
-              {/* VRM Model Switcher */}
+              {/* VRM Model Switcher — A, B, C */}
               <div className="vrm-switcher" role="group" aria-label="Switch 3D model">
                 {([
                   { url: "/models/model_5447.vrm", label: "Hinaa A" },
                   { url: "/models/AvatarSample_E.vrm", label: "Hinaa B" },
-                  { url: "/models/hinaa.vrm", label: "Hinaa C" },
+                  { url: "/models/model_6164.vrm", label: "Hinaa C" },
                 ] as { url: string; label: string }[]).map((m) => (
                   <button
                     key={m.url}
