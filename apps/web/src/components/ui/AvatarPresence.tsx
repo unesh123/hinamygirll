@@ -192,10 +192,10 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
       if (has(n)) { try { em!.setValue(n, v); } catch {} }
     };
 
-    /* ── LIP-SYNC ──────────────────────────────────────── */
+    /* ── LIP-SYNC (audio-driven — always active when speaking) ─── */
     if (em) {
       const speaking = speakingRef?.current ?? false;
-      let energy = speaking && jawEnergy ? Math.min(1, jawEnergy.current * 1.4) : 0;
+      const energy = speaking && jawEnergy ? Math.min(1, jawEnergy.current * 1.4) : 0;
 
       const keys    = ["aa","ih","ou","ee","oh"] as const;
       const presets = [
@@ -203,7 +203,9 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
         VRMExpressionPresetName.Ou, VRMExpressionPresetName.Ee,
         VRMExpressionPresetName.Oh,
       ];
+
       if (energy > 0.05) {
+        // ── Speaking: audio-driven vowel animation (face track has no effect on mouth) ──
         vowelTimer.current -= dt;
         if (vowelTimer.current <= 0) {
           vowelPick.current = Math.floor(Math.random() * 5);
@@ -214,7 +216,17 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
           vowels.current[keys[i]] += (tgt - vowels.current[keys[i]]) * dt * 22;
           set(presets[i], vowels.current[keys[i]]);
         }
+      } else if (faceExpressions && !speaking) {
+        // ── Idle + face tracking: mirror your real mouth open ──
+        // Fade out any residual vowels first
+        for (let i = 0; i < 5; i++) {
+          vowels.current[keys[i]] *= Math.max(0, 1 - dt * 28);
+          if (vowels.current[keys[i]] < 0.01) vowels.current[keys[i]] = 0;
+        }
+        vowelTimer.current = 0;
+        set(VRMExpressionPresetName.Aa, faceExpressions.mouthOpen);
       } else {
+        // ── Idle without face tracking: fade mouth closed ──
         for (let i = 0; i < 5; i++) {
           vowels.current[keys[i]] *= Math.max(0, 1 - dt * 28);
           if (vowels.current[keys[i]] < 0.01) vowels.current[keys[i]] = 0;
@@ -223,24 +235,16 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
         vowelTimer.current = 0;
       }
 
-          /* ── FACE-TRACKED LIP-SYNC override ─────────────── */
-    // When face tracking active AND not speaking: use tracked mouth open
-    if (faceExpressions && !(speakingRef?.current)) {
-      set(VRMExpressionPresetName.Aa, faceExpressions.mouthOpen);
-    }
-
-    /* ── RELAXED POSE ─────────────────────────────────── */
-          /* ── BLINK ─────────────────────────────────────── */
-      // When face tracking active: use real eye-open values instead of auto-blink
+      /* ── BLINK ─────────────────────────────────────────────── */
       if (faceExpressions) {
-        // eyeBlinkL/R: 1=open, 0=closed → blink = 1 - open
+        // Real eye tracking: 1=open → blink = 1-open
         const blL = 1 - faceExpressions.eyeBlinkL;
         const blR = 1 - faceExpressions.eyeBlinkR;
         if (has(VRMExpressionPresetName.BlinkLeft))  set(VRMExpressionPresetName.BlinkLeft,  blL);
         if (has(VRMExpressionPresetName.BlinkRight)) set(VRMExpressionPresetName.BlinkRight, blR);
-        // Fall back to combined Blink if no per-eye support
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
       } else {
+        // Auto-blink
         blink.current -= dt;
         let bv = 0;
         if (blink.current <= 0) {
@@ -255,15 +259,15 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
         set(VRMExpressionPresetName.Blink, bv);
       }
 
-      /* ── EMOTION ───────────────────────────────────── */
+      /* ── EMOTION ───────────────────────────────────────────── */
       if (faceExpressions) {
-        // Map tracked face expressions directly to VRM blend shapes
+        // Face tracking: mirror real expressions
         set(VRMExpressionPresetName.Happy,     faceExpressions.mouthSmile);
         set(VRMExpressionPresetName.Surprised, (faceExpressions.browUpL + faceExpressions.browUpR) / 2);
         set(VRMExpressionPresetName.Angry,     (faceExpressions.browDownL + faceExpressions.browDownR) / 2);
         set(VRMExpressionPresetName.Relaxed,   faceExpressions.cheekPuff);
-        // Don't apply Sad or emotion blends in face tracking mode
       } else {
+        // Auto-emotion based on companion state
         const tEmo = emotionFor(state);
         for (const key of [
           VRMExpressionPresetName.Happy, VRMExpressionPresetName.Sad,
