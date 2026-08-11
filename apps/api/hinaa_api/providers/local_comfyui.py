@@ -174,7 +174,6 @@ class LocalComfyUIProvider:
                     output_files = []
                     import os
                     import uuid
-                    import aiofiles
                     from pathlib import Path
                     
                     data_dir = Path("apps/api/data/images").absolute()
@@ -199,9 +198,7 @@ class LocalComfyUIProvider:
                                 local_filename = f"{uuid.uuid4().hex}{ext}"
                                 local_path = data_dir / local_filename
                                 
-                                async with aiofiles.open(local_path, "wb") as f:
-                                    await f.write(img_res.content)
-                                    
+                                local_path.write_bytes(img_res.content)
                                 output_files.append(str(local_path))
                     return ComfyUIGenerationResult(prompt_id=prompt_id, output_files=output_files)
 

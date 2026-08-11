@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -18,7 +18,8 @@ from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile
 from .persistence import MemoryService, init_db
 from .persistence.auth import AuthContext, auth_dependency_factory, resolve_auth
-from .persistence.db import reset_session_factory
+from .persistence.db import get_session_factory, reset_session_factory
+from .persistence.project_service import LocalProjectService
 from .prompts import PROMPT_VERSION
 from .realtime import RealtimeGateway
 from .services import ConversationService
@@ -38,6 +39,30 @@ class RememberBody(BaseModel):
 
 class MemoryToggleBody(BaseModel):
     enabled: bool
+
+
+class ProjectCreateBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=180)]
+    description: Annotated[str, Field(max_length=4000)] = ""
+
+
+class ProjectTaskBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=240)]
+    detail: Annotated[str, Field(max_length=8000)] = ""
+    parentTaskId: str | None = None
+    requiresApproval: bool = False
+
+
+class ProjectTaskStatusBody(BaseModel):
+    status: Annotated[str, Field(pattern="^(pending|active|success|error|cancelled|waiting_approval)$")]
+
+
+class ProjectArtifactBody(BaseModel):
+    kind: Annotated[str, Field(pattern="^(note|research|image|document|export|link)$")]
+    title: Annotated[str, Field(min_length=1, max_length=240)]
+    content: Annotated[str, Field(max_length=100_000)] = ""
+    sourceUrl: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def _correlation_id(value: str | None) -> str:
@@ -64,6 +89,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         MemoryService(init_db(active_settings)) if active_settings.persistence_enabled else None
     )
     service = ConversationService(active_settings, memory_service=memory_service)
+    workspace_service = LocalProjectService(
+        get_session_factory(active_settings), active_settings.local_workspace_dir
+    )
     realtime = RealtimeGateway(active_settings, service)
     require_auth = (
         auth_dependency_factory(active_settings, memory_service)
@@ -108,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service
+    app.state.workspace_service = workspace_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -583,6 +612,96 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 True,
                 False,
             ) from None
+
+    def _workspace_user_id(request: Request) -> str:
+        return _resolve_user_id(request) or active_settings.dev_auth_subject
+
+    @app.get("/v1/projects")
+    async def list_projects(request: Request) -> list[dict[str, Any]]:
+        return workspace_service.list_projects(_workspace_user_id(request))
+
+    @app.post("/v1/projects", status_code=201)
+    async def create_project(request: Request, body: ProjectCreateBody) -> dict[str, Any]:
+        return workspace_service.create_project(
+            _workspace_user_id(request), body.title, body.description
+        )
+
+    @app.get("/v1/projects/{project_id}")
+    async def get_project(request: Request, project_id: str) -> dict[str, Any]:
+        project = workspace_service.project_detail(_workspace_user_id(request), project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return project
+
+    @app.post("/v1/projects/{project_id}/tasks", status_code=201)
+    async def create_project_task(
+        request: Request, project_id: str, body: ProjectTaskBody
+    ) -> dict[str, Any]:
+        task = workspace_service.create_task(
+            _workspace_user_id(request),
+            project_id,
+            body.title,
+            body.detail,
+            body.parentTaskId,
+            body.requiresApproval,
+        )
+        if task is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return task
+
+    @app.patch("/v1/projects/tasks/{task_id}")
+    async def update_project_task(
+        request: Request, task_id: str, body: ProjectTaskStatusBody
+    ) -> dict[str, Any]:
+        task = workspace_service.update_task_status(
+            _workspace_user_id(request), task_id, body.status
+        )
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return task
+
+    @app.post("/v1/projects/{project_id}/artifacts", status_code=201)
+    async def create_project_artifact(
+        request: Request, project_id: str, body: ProjectArtifactBody
+    ) -> dict[str, Any]:
+        artifact = workspace_service.create_artifact(
+            _workspace_user_id(request),
+            project_id,
+            body.kind,
+            body.title,
+            body.content,
+            body.sourceUrl,
+            body.metadata,
+        )
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return artifact
+
+    @app.post("/v1/projects/{project_id}/files", status_code=201)
+    async def upload_project_file(
+        request: Request, project_id: str, file: UploadFile = File(...)
+    ) -> dict[str, Any]:
+        content = await file.read()
+        if len(content) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Files are limited to 25 MB")
+        record = workspace_service.save_file(
+            _workspace_user_id(request),
+            project_id,
+            file.filename or "upload",
+            content,
+            file.content_type or "application/octet-stream",
+        )
+        if record is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return record
+
+    @app.get("/v1/projects/files/{file_id}")
+    async def download_project_file(request: Request, file_id: str) -> FileResponse:
+        resolved = workspace_service.resolve_file(_workspace_user_id(request), file_id)
+        if resolved is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        path, media_type = resolved
+        return FileResponse(path, media_type=media_type, filename=path.name)
 
     @app.post("/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:

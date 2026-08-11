@@ -139,6 +139,9 @@ class Settings(BaseSettings):
     oidc_issuer: str | None = Field(None, alias="HINAA_OIDC_ISSUER")
     allow_oidc_scaffold_tokens: bool = Field(False, alias="HINAA_ALLOW_OIDC_SCAFFOLD_TOKENS")
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
+    local_workspace_dir: Path = Field(
+        Path.home() / ".hinaa" / "workspace", alias="HINAA_LOCAL_WORKSPACE_DIR"
+    )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

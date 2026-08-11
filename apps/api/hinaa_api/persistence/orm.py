@@ -158,3 +158,73 @@ class ImageJob(Base):
     generation_set: Mapped[GenerationSet] = relationship(
         "GenerationSet", back_populates="jobs"
     )
+
+
+class LocalProject(Base):
+    __tablename__ = "local_projects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), index=True, default="local-user")
+    title: Mapped[str] = mapped_column(String(180))
+    description: Mapped[str] = mapped_column(Text(), default="")
+    root_path: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(30), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LocalProjectFile(Base):
+    __tablename__ = "local_project_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("local_projects.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(255))
+    media_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
+    relative_path: Mapped[str] = mapped_column(String(600))
+    size_bytes: Mapped[int] = mapped_column(BigInteger(), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LocalProjectArtifact(Base):
+    __tablename__ = "local_project_artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("local_projects.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(50))  # note|research|image|document|export|link
+    title: Mapped[str] = mapped_column(String(240))
+    content: Mapped[str] = mapped_column(Text(), default="")
+    relative_path: Mapped[str | None] = mapped_column(String(600), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(1200), nullable=True)
+    metadata_json: Mapped[str] = mapped_column(Text(), default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LocalProjectTask(Base):
+    __tablename__ = "local_project_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("local_projects.id", ondelete="CASCADE"), index=True
+    )
+    parent_task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("local_project_tasks.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(240))
+    detail: Mapped[str] = mapped_column(Text(), default="")
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer(), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

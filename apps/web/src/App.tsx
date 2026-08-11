@@ -28,6 +28,8 @@ import { ActionChips, type ActionChip } from "./components/ui/ActionChips";
 import { ContextWorkspace, type ContextMode } from "./components/ui/ContextWorkspace";
 import { SidebarPanel } from "./components/ui/SidebarPanel";
 import { MemoryPanel } from "./components/ui/MemoryPanel";
+import { LocalProjectWorkspace } from "./components/ui/LocalProjectWorkspace";
+import { LocalImageStudio } from "./components/ui/LocalImageStudio";
 import type { PowerUp } from "./components/ui/PowerUpMentions";
 import useMemory from "./features/memory/useMemory";
 
@@ -148,13 +150,25 @@ export default function App() {
 
   const handleNav = useCallback((s: NavSection) => {
     if (s === "memory") { setMemoryOpen(v => !v); return; }
-    setNavSection(s); setSidebarExpanded(prev => prev === s ? null : s);
+    setNavSection(s);
+    if (s === "tasks" || s === "files") {
+      setSidebarExpanded(null);
+      return;
+    }
+    setSidebarExpanded(prev => prev === s ? null : s);
   }, []);
+
+  const openImageStudio = () => {
+    setDrawerMode("image");
+    setDrawerTitle("Hinaa Image Studio");
+    setDrawerContent(<LocalImageStudio onClose={() => setDrawerOpen(false)} />);
+    setDrawerOpen(true);
+  };
 
   const handleWelcome = (action: string) => {
     if (action === "voice") live.start();
     else if (action === "research") setInput("Search for: ");
-    else if (action === "create") setInput("Help me create: ");
+    else if (action === "create") openImageStudio();
     else if (action === "work") setInput("Help me plan my work: ");
   };
 
@@ -179,9 +193,15 @@ export default function App() {
     const msgs = controller.messages; if (msgs.length === 0) return;
     const last = msgs[msgs.length - 1]; if (last?.role !== "assistant") return;
     const txt = last.text.toLowerCase(); const chips: ActionChip[] = [];
-    if (/search|source|found/i.test(txt)) chips.push({ id: "src", label: "Sources", icon: "search" });
-    if (/image|photo/i.test(txt)) chips.push({ id: "img", label: "Images", icon: "image" });
-    if (/code|```/i.test(txt)) chips.push({ id: "code", label: "Explain", icon: "book" });
+    if (/search|source|found|research/i.test(txt)) {
+      chips.push({ id: "src", label: "Review sources", icon: "search" });
+      chips.push({ id: "deepen", label: "Go deeper", icon: "search" });
+    }
+    if (/image|photo|visual/i.test(txt)) {
+      chips.push({ id: "img", label: "Open image studio", icon: "image" });
+    }
+    if (/code|```/i.test(txt)) chips.push({ id: "code", label: "Explain simply", icon: "book" });
+    chips.push({ id: "plan", label: "Turn this into a plan", icon: "default" });
     chips.push({ id: "cont", label: "Continue", icon: "default" });
     setActionChips(chips.slice(0, 4));
   }, [controller.messages, controller.state]);
@@ -198,7 +218,11 @@ export default function App() {
         <div className="hinaa-layout">
           {/* Nav Rail */}
           <NavRail active={navSection} onNavigate={handleNav} onNewChat={controller.resetConversation} onSettings={() => setSettingsOpen(true)} />
-          <SidebarPanel section={sidebarExpanded} onClose={() => setSidebarExpanded(null)} />
+          {navSection === "tasks" || navSection === "files" ? (
+            <LocalProjectWorkspace active />
+          ) : (
+            <SidebarPanel section={sidebarExpanded} onClose={() => setSidebarExpanded(null)} />
+          )}
 
           {/* Center: Avatar LEFT, Chat RIGHT */}
           <div className="layout-body">
@@ -316,7 +340,11 @@ export default function App() {
 
                 {actionChips.length > 0 && controller.state === "idle" && (
                   <ActionChips chips={actionChips} onChip={c => {
-                    if (c.id === "src") setContextMode("research"); else if (c.id === "img") setContextMode("images"); else setInput((c.label || "") + ": ");
+                    if (c.id === "src") setContextMode("research");
+                    else if (c.id === "img") openImageStudio();
+                    else if (c.id === "deepen") setInput("Go deeper with a researched answer and clear sources: ");
+                    else if (c.id === "plan") setInput("Turn this into a clear task plan with milestones, dependencies, and approval steps: ");
+                    else setInput("Continue, and ask me the most useful next question: ");
                   }} />
                 )}
               </div>
