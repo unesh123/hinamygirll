@@ -46,6 +46,10 @@ class ProjectCreateBody(BaseModel):
     description: Annotated[str, Field(max_length=4000)] = ""
 
 
+class ProjectPlanBody(BaseModel):
+    goal: Annotated[str, Field(min_length=3, max_length=1000)]
+
+
 class ProjectTaskBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=240)]
     detail: Annotated[str, Field(max_length=8000)] = ""
@@ -161,6 +165,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health/live")
     async def liveness() -> dict[str, str]:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.get("/v1/local-services/comfyui")
+    async def comfyui_status() -> JSONResponse:
+        from hinaa_api.tools.image_generate import comfyui_provider
+
+        available = await comfyui_provider.health_check()
+        return JSONResponse(
+            status_code=200 if available else 503,
+            content={
+                "status": "ready" if available else "unavailable",
+                "service": "ComfyUI",
+                "localOnly": True,
+                "hint": "Start ComfyUI on http://127.0.0.1:8188, then refresh Hinaa Image Studio." if not available else "Local ComfyUI is ready.",
+            },
+        )
 
     @app.websocket("/ws/vmc")
     async def vmc_websocket(ws: WebSocket) -> None:
@@ -625,6 +644,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return workspace_service.create_project(
             _workspace_user_id(request), body.title, body.description
         )
+
+    @app.post("/v1/projects/{project_id}/plans", status_code=201)
+    async def create_project_plan(
+        request: Request, project_id: str, body: ProjectPlanBody
+    ) -> list[dict[str, Any]]:
+        plan = workspace_service.create_starter_plan(
+            _workspace_user_id(request), project_id, body.goal
+        )
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return plan
 
     @app.get("/v1/projects/{project_id}")
     async def get_project(request: Request, project_id: str) -> dict[str, Any]:

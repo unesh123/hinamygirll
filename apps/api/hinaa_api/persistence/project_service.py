@@ -239,3 +239,50 @@ class LocalProjectService:
             if not resolved.exists() or self._project_dir(project) not in resolved.parents:
                 return None
             return resolved, record.media_type
+
+
+    def create_starter_plan(
+        self, user_id: str, project_id: str, goal: str
+    ) -> list[dict[str, Any]] | None:
+        """Create an editable local plan scaffold with explicit approval gating.
+
+        This intentionally creates a transparent starter plan, not hidden agent
+        execution. Hinaa or the user can refine individual tasks afterward.
+        """
+        clean_goal = goal.strip()
+        if not clean_goal:
+            return None
+        with self._factory() as session:
+            project = session.get(LocalProject, project_id)
+            if project is None or project.user_id != user_id:
+                return None
+            root = LocalProjectTask(
+                project_id=project_id,
+                title=clean_goal,
+                detail="Primary local project goal. Review the plan before any consequential action.",
+                status="active",
+                position=session.query(LocalProjectTask).filter_by(project_id=project_id).count(),
+            )
+            session.add(root)
+            session.flush()
+            milestones = [
+                ("Clarify outcome and constraints", "Confirm scope, success criteria, privacy needs, and available local tools.", False),
+                ("Gather context and source material", "Read local files or user-approved links; save useful findings as artifacts.", False),
+                ("Create the working output", "Produce the requested draft, media, code, or structured result inside this project.", False),
+                ("Review and approve next actions", "Check quality, save artifacts, and request explicit approval before external or destructive actions.", True),
+            ]
+            tasks: list[LocalProjectTask] = [root]
+            for offset, (title, detail, approval) in enumerate(milestones, start=1):
+                task = LocalProjectTask(
+                    project_id=project_id,
+                    parent_task_id=root.id,
+                    title=title,
+                    detail=detail,
+                    status="waiting_approval" if approval else "pending",
+                    requires_approval=approval,
+                    position=root.position + offset,
+                )
+                session.add(task)
+                tasks.append(task)
+            session.commit()
+            return [self._task_public(task) for task in tasks]

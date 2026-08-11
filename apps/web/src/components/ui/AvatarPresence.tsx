@@ -67,16 +67,18 @@ function emotionFor(state: CompanionState): EmotionBlend {
   }
 }
 
-/* ─── Relaxed pose quaternions ──────────────────────────── */
+/* ─── Rig-safe neutral pose ─────────────────────────────── */
+// VRM exporters do not agree on the local axes for arm and wrist bones. The
+// only reliable neutral pose across models is the pose authored in the VRM
+// itself. These identity offsets deliberately preserve that authored pose.
+const identityPose = () => new THREE.Quaternion();
 const POSE_Q = {
-  // Keep hands close to the model’s authored rest pose. Large fixed rotations
-  // look unnatural across imported VRM rigs and caused the previous pose issue.
-  leftUpperArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.02, 0, -0.18)),
-  rightUpperArm: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.02, 0,  0.18)),
-  leftLowerArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0, -0.05)),
-  rightLowerArm: new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0,  0.05)),
-  leftHand:      new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.02, 0,  0)),
-  rightHand:     new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.02, 0,  0)),
+  leftUpperArm: identityPose(),
+  rightUpperArm: identityPose(),
+  leftLowerArm: identityPose(),
+  rightLowerArm: identityPose(),
+  leftHand: identityPose(),
+  rightHand: identityPose(),
 } as const;
 type PoseBoneName = keyof typeof POSE_Q;
 const POSE_BONES = Object.keys(POSE_Q) as PoseBoneName[];
@@ -386,25 +388,12 @@ function Model({
       const cur  = cq[boneName];
       if (!bone || !cur) continue;
       
-      // If face tracking is active and we have bone data for this bone from VSeeFace
-      if (faceTrackingActive && faceBones && faceBones[boneName]) {
-        const [qx, qy, qz, qw] = faceBones[boneName];
-        // Apply rotation directly from VSeeFace without slerping to POSE_Q
-        // VSeeFace VMC uses the same quaternion layout (x, y, z, w)
-        // Note: Models may have different facing defaults (e.g. VRM 1.0 vs 0.0), but
-        // since we already rotated the root scene for VRM 1.0, local bone rotations should match.
-        const vmcQ = new THREE.Quaternion(-qx, -qy, qz, qw); // VMC coordinates to Three.js coordinates
-        const targetQ = restQRef.current[boneName]!.clone().multiply(vmcQ);
-        cur.slerp(targetQ, alpha);
-      } else {
-        // Procedural rest pose plus a deliberately subtle speaking gesture.
-        const targetQ = restQRef.current[boneName]!.clone().multiply(POSE_Q[boneName]);
-        if (state === "speaking" && (boneName === "rightLowerArm" || boneName === "rightHand")) {
-          const beat = Math.sin(t.current * 3.2) * 0.045;
-          targetQ.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(beat, 0, beat * 0.55)));
-        }
-        cur.slerp(targetQ, alpha);
-      }
+      // Face tracking deliberately never drives limbs. Some VMC senders emit
+      // incomplete arm transforms that do not match this VRM's local axes and
+      // result in twisted wrists or raised hands. Limb gestures can be added
+      // later as per-model animation clips after visual calibration.
+      const targetQ = restQRef.current[boneName]!.clone().multiply(POSE_Q[boneName]);
+      cur.slerp(targetQ, alpha);
       
       bone.quaternion.copy(cur);
     }

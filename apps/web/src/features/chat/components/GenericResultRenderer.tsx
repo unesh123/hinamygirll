@@ -29,9 +29,8 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
         <div style={{ fontSize: '0.8rem', color: '#713f12', marginBottom: 12 }}>
           HINAA wants to perform a side-effect: <strong>{actionInfo}</strong>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button style={{ padding: '6px 12px', background: '#059669', color: 'white', border: 'none', borderRadius: 4, fontSize: '0.75rem', cursor: 'pointer' }}>Allow</button>
-          <button style={{ padding: '6px 12px', background: 'transparent', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: '0.75rem', cursor: 'pointer' }}>Deny</button>
+        <div style={{ fontSize: '0.75rem', color: '#a16207', lineHeight: 1.45 }}>
+          This action remains blocked until you explicitly confirm it through Hinaa’s approved action flow. Nothing has been sent or changed yet.
         </div>
       </div>
     );

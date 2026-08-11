@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Loader2, Sparkles, Wand2 } from "lucide-react";
 
 interface ImageResult {
@@ -16,11 +16,32 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
   const [state, setState] = useState<"idle" | "starting" | "processing" | "complete" | "failed">("idle");
   const [message, setMessage] = useState("Your images stay in your local Hinaa library.");
   const [images, setImages] = useState<Array<ImageResult | string>>([]);
+  const [comfyStatus, setComfyStatus] = useState<"checking" | "ready" | "unavailable">("checking");
   const abortRef = useRef(false);
+
+  const checkComfy = async () => {
+    setComfyStatus("checking");
+    try {
+      const response = await fetch("/api/v1/local-services/comfyui");
+      const data = await response.json();
+      setComfyStatus(response.ok ? "ready" : "unavailable");
+      if (!response.ok) setMessage(data?.hint || "ComfyUI is unavailable. Start it locally, then refresh.");
+    } catch {
+      setComfyStatus("unavailable");
+      setMessage("Could not reach Hinaa’s local API to check ComfyUI.");
+    }
+  };
+
+  useEffect(() => { void checkComfy(); }, []);
 
   const generate = async () => {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt || state === "starting" || state === "processing") return;
+    if (comfyStatus !== "ready") {
+      setState("failed");
+      setMessage("ComfyUI is not ready yet. Start it on http://127.0.0.1:8188 and click Check again.");
+      return;
+    }
     setState("starting");
     setMessage("Preparing the local image job…");
     setImages([]);
@@ -75,6 +96,11 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
           <p style={{ margin: 0, color: "#5eead4", fontSize: 11, fontWeight: 800, letterSpacing: "0.12em" }}>LOCAL CREATOR</p>
           <h2 style={{ margin: "5px 0", fontSize: 25 }}>Image studio</h2>
           <p style={{ margin: 0, color: "#94a3b8", lineHeight: 1.5 }}>Create locally through your configured ComfyUI workflow. Generate is an explicit action; Hinaa will not start image jobs on her own.</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: comfyStatus === "ready" ? "#6ee7b7" : comfyStatus === "unavailable" ? "#fda4af" : "#fde68a", fontSize: 12 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: "currentColor" }} />
+            {comfyStatus === "ready" ? "ComfyUI ready on this device" : comfyStatus === "checking" ? "Checking local ComfyUI…" : "ComfyUI unavailable — start it locally, then check again"}
+            <button type="button" onClick={() => void checkComfy()} style={{ ...secondaryButtonStyle, padding: "3px 7px", fontSize: 11 }}>Check again</button>
+          </div>
         </div>
         <button type="button" onClick={() => { abortRef.current = true; onClose(); }} style={secondaryButtonStyle}>Close</button>
       </header>
@@ -85,7 +111,7 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
           <textarea aria-label="Image prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the subject, scene, style, lighting, composition, and aspect ratio…" rows={7} style={{ ...inputStyle, width: "100%", resize: "vertical", lineHeight: 1.5 }} />
           <label style={{ ...labelStyle, marginTop: 14 }}>Avoid (optional)</label>
           <input aria-label="Negative image prompt" value={negativePrompt} onChange={(event) => setNegativePrompt(event.target.value)} placeholder="Blur, extra fingers, text artifacts…" style={{ ...inputStyle, width: "100%" }} />
-          <button type="button" onClick={() => void generate()} disabled={!prompt.trim() || state === "starting" || state === "processing"} style={{ ...generateButtonStyle, opacity: !prompt.trim() || state === "starting" || state === "processing" ? .55 : 1 }}>
+          <button type="button" onClick={() => void generate()} disabled={!prompt.trim() || comfyStatus !== "ready" || state === "starting" || state === "processing"} style={{ ...generateButtonStyle, opacity: !prompt.trim() || comfyStatus !== "ready" || state === "starting" || state === "processing" ? .55 : 1 }}>
             {state === "starting" || state === "processing" ? <Loader2 size={18} className="spin" /> : <Wand2 size={18} />}
             {state === "starting" || state === "processing" ? "Generating locally…" : "Generate images"}
           </button>
