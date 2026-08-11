@@ -174,16 +174,32 @@ export default function App() {
 
   /* ─── Agent steps ────────────────────────────────────── */
   useEffect(() => {
+    const latestUserText = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
+    const isResearch = /search|find|research|look up|source|citation/i.test(latestUserText);
+
     if (controller.state === "thinking") {
-      const lu = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
-      if (/search|find|research|look up/i.test(lu)) {
-        setContextMode("research"); setSearching(true);
-        setAgentSteps([{ id: "u", label: "Understanding", status: "done" }, { id: "s", label: "Searching", status: "active" }, { id: "a", label: "Preparing answer", status: "pending" }]);
-        setTimeout(() => setSearching(false), 3000);
-      } else setAgentSteps([{ id: "u", label: "Understanding", status: "done" }, { id: "p", label: "Processing", status: "active" }]);
-    } else if (controller.state === "speaking" || controller.state === "idle") {
-      setAgentSteps(prev => prev.map(s => ({ ...s, status: "done" as const })));
-      const t = setTimeout(() => setAgentSteps([]), 3000); return () => clearTimeout(t);
+      setSearching(isResearch);
+      if (isResearch) {
+        setContextMode("research");
+        setAgentSteps([
+          { id: "scope", label: "Understand the question", detail: "Checking scope and evidence needs", status: "done" },
+          { id: "strategy", label: "Plan source strategy", detail: "Selecting the best research path", status: "active" },
+          { id: "synthesis", label: "Prepare concise findings", detail: "Sources stay visible and attributable", status: "pending" },
+        ]);
+      } else {
+        setAgentSteps([
+          { id: "scope", label: "Understand the request", detail: "Identifying the useful outcome", status: "done" },
+          { id: "work", label: "Build the response", detail: "Working through the next best action", status: "active" },
+        ]);
+      }
+      return;
+    }
+
+    setSearching(false);
+    if (controller.state === "speaking" || controller.state === "idle") {
+      setAgentSteps((previous) => previous.map((step) => ({ ...step, status: "done" as const })));
+      const timer = window.setTimeout(() => setAgentSteps([]), 1800);
+      return () => window.clearTimeout(timer);
     }
   }, [controller.state, controller.messages]);
 
@@ -310,7 +326,7 @@ export default function App() {
 
               {/* Conversation */}
               <div className="chat-scroll">
-                {agentSteps.length > 0 && <ActivityPanel steps={agentSteps} title="Working on it" />}
+                {agentSteps.length > 0 && <ActivityPanel steps={agentSteps} title={contextMode === "research" ? "Research workflow" : "Execution workflow"} mode={contextMode === "research" ? "research" : "execution"} />}
 
                 {showWelcome ? (
                   <div className="welcome-center">

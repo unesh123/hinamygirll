@@ -67,6 +67,53 @@ def _fact_category(fact: str) -> str:
     return "other"
 
 
+def _comparison_key(text: str) -> str:
+    """Create a tolerant key for checking accidental response repetition."""
+    return re.sub(r"[^\w]+", "", text.casefold(), flags=re.UNICODE)
+
+
+def _remove_repeated_passages(text: str) -> str:
+    """Keep the first copy of an identical paragraph or sentence.
+
+    Provider output can occasionally repeat its answer during schema recovery or
+    streaming completion. This guard is intentionally conservative: it removes
+    only identical normalized passages and leaves differently worded details,
+    Markdown lists, and code intact.
+    """
+    chunks = re.split(r"(\n{2,}|(?<=[.!?])\s+)", text.strip())
+    seen: set[str] = set()
+    kept: list[str] = []
+    pending_separator = ""
+    for chunk in chunks:
+        if not chunk:
+            continue
+        if re.fullmatch(r"\n{2,}|\s+", chunk):
+            pending_separator = chunk
+            continue
+        key = _comparison_key(chunk)
+        if len(key) >= 20 and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        if kept and pending_separator:
+            kept.append(pending_separator)
+        kept.append(chunk)
+        pending_separator = ""
+    return "".join(kept).strip()
+
+
+def _apply_response_quality_guard(plan: AssistantTurnPlan) -> None:
+    """Normalize a completed plan without changing meaning or tool requests."""
+    plan.displayText = _remove_repeated_passages(plan.displayText)
+    plan.spokenText = _remove_repeated_passages(plan.spokenText)
+    # Voice should complement a long display answer, not replay it verbatim.
+    if (
+        len(plan.displayText) > 160
+        and _comparison_key(plan.displayText) == _comparison_key(plan.spokenText)
+    ):
+        plan.spokenText = "I’ve put the key details in chat, babe."
+
+
 # ── Casual-chat fast path ──────────────────────────────────────────────────
 # Reasoning brains (cx/gpt-5.6-sol, agent-router) spend hidden tokens before
 # the first visible token, which is why social small talk feels slow. Short,
@@ -749,6 +796,7 @@ class ConversationService:
                 result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
             else:
                 raise
+        _apply_response_quality_guard(result.value)
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
         self._persist_learned_memories(user_id, request.sessionId)
         
@@ -881,6 +929,7 @@ class ConversationService:
                 await emit_delta(plan.displayText)
                 result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
 
+        _apply_response_quality_guard(result.value)
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
         self._persist_learned_memories(user_id, request.sessionId)
         

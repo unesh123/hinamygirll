@@ -108,20 +108,9 @@ export const MessageBubble = memo(function MessageBubble({
       <div className={styles.stack}>
         {/* Thinking dots */}
         {isThinking ? (
-          <div className={styles.thinkingDots} aria-hidden="true">
-            {[0, 1, 2].map((i) => (
-              <motion.span
-                key={i}
-                className={styles.dot}
-                animate={{ y: [0, -6, 0] }}
-                transition={{
-                  duration: 0.8,
-                  repeat: Infinity,
-                  delay: i * 0.15,
-                  ease: "easeInOut",
-                }}
-              />
-            ))}
+          <div className={styles.thinkingDots} aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 24, color: "#64748b", fontSize: 12, fontWeight: 650 }}>
+            <motion.span animate={{ opacity: [0.45, 1, 0.45] }} transition={{ duration: 1.25, repeat: Infinity }} style={{ width: 7, height: 7, borderRadius: 99, background: "#38bdf8" }} />
+            Preparing a focused response
           </div>
         ) : (
           <div className={styles.content}>
