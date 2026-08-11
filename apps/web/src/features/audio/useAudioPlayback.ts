@@ -181,8 +181,12 @@ export function useAudioPlayback(): PlaybackController {
           let sum = 0;
           for (const value of samples) sum += ((value - 128) / 128) ** 2;
           const rms = Math.sqrt(sum / samples.length);
-          // Smooth jaw energy — used as amplitude scale for viseme weights
-          jawEnergy.current = jawEnergy.current * 0.60 + Math.min(1, rms * 5.5) * 0.40;
+          // Fast attack captures syllable openings; slower release keeps the
+          // mouth from snapping shut between quiet consonants or streamed audio
+          // packets. This path also drives live audio when no text timing exists.
+          const target = Math.min(1, rms * 7.5);
+          const attack = target > jawEnergy.current ? 0.66 : 0.16;
+          jawEnergy.current += (target - jawEnergy.current) * attack;
           frameRef.current = window.requestAnimationFrame(tick);
         };
         frameRef.current = window.requestAnimationFrame(tick);

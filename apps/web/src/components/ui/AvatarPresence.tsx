@@ -27,10 +27,17 @@ export type PresenceMode = "portrait" | "closeup" | "full" | "hidden";
 
 /* ─── Camera presets ─────────────────────────────────────── */
 const CAMERAS: Record<PresenceMode, { pos: [number,number,number]; target: [number,number,number]; fov: number }> = {
-  closeup:  { pos: [0, 1.42, 0.65], target: [0, 1.38, 0], fov: 24 },
-  portrait: { pos: [0, 1.42, 1.15], target: [0, 1.35, 0], fov: 30 },
-  full:     { pos: [0, 0.85, 2.20], target: [0, 0.75, 0], fov: 44 },
+  closeup:  { pos: [0, 1.34, 0.72], target: [0, 1.30, 0], fov: 26 },
+  portrait: { pos: [0, 1.30, 1.58], target: [0, 1.14, 0], fov: 38 },
+  full:     { pos: [0, 0.86, 2.45], target: [0, 0.72, 0], fov: 46 },
   hidden:   { pos: [0, 1.0,  3.0],  target: [0, 1.0,  0], fov: 35 },
+};
+
+// Per-model calibration is deliberately explicit. Different user-supplied VRMs
+// can use opposite forward axes and different authoring heights.
+const MODEL_CALIBRATIONS: Record<string, { rotationY: number; offsetY: number; scale: number }> = {
+  "/models/model_6164.vrm": { rotationY: Math.PI, offsetY: -0.24, scale: 0.90 },
+  "/models/model_5447.vrm": { rotationY: 0, offsetY: 0, scale: 1 },
 };
 
 /* ─── Mouth expression targets per viseme ───────────────── */
@@ -62,12 +69,14 @@ function emotionFor(state: CompanionState): EmotionBlend {
 
 /* ─── Relaxed pose quaternions ──────────────────────────── */
 const POSE_Q = {
-  leftUpperArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.06, 0, -1.05)),
-  rightUpperArm: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.06, 0,  1.05)),
-  leftLowerArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0, -0.15)),
-  rightLowerArm: new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0,  0.15)),
-  leftHand:      new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.04, 0,  0)),
-  rightHand:     new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.04, 0,  0)),
+  // Keep hands close to the model’s authored rest pose. Large fixed rotations
+  // look unnatural across imported VRM rigs and caused the previous pose issue.
+  leftUpperArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.02, 0, -0.18)),
+  rightUpperArm: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.02, 0,  0.18)),
+  leftLowerArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0, -0.05)),
+  rightLowerArm: new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0,  0.05)),
+  leftHand:      new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.02, 0,  0)),
+  rightHand:     new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.02, 0,  0)),
 } as const;
 type PoseBoneName = keyof typeof POSE_Q;
 const POSE_BONES = Object.keys(POSE_Q) as PoseBoneName[];
@@ -146,6 +155,11 @@ function Model({
       }
 
       if (v.lookAt) { try { (v.lookAt as any).enabled = false; } catch {} }
+
+      const calibration = MODEL_CALIBRATIONS[url] ?? { rotationY: 0, offsetY: 0, scale: 1 };
+      v.scene.rotation.y = calibration.rotationY;
+      v.scene.position.y = calibration.offsetY;
+      v.scene.scale.setScalar(calibration.scale);
 
       // Cache available expressions
       const em = v.expressionManager;
@@ -383,8 +397,12 @@ function Model({
         const targetQ = restQRef.current[boneName]!.clone().multiply(vmcQ);
         cur.slerp(targetQ, alpha);
       } else {
-        // Procedural relax pose derived from immutable rest quaternion
+        // Procedural rest pose plus a deliberately subtle speaking gesture.
         const targetQ = restQRef.current[boneName]!.clone().multiply(POSE_Q[boneName]);
+        if (state === "speaking" && (boneName === "rightLowerArm" || boneName === "rightHand")) {
+          const beat = Math.sin(t.current * 3.2) * 0.045;
+          targetQ.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(beat, 0, beat * 0.55)));
+        }
         cur.slerp(targetQ, alpha);
       }
       
