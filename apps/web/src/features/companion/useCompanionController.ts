@@ -9,6 +9,7 @@ import {
   type TranscriptMessage,
 } from "./types";
 import type { ProviderRuntimeSelection } from "../providers/utils/resolveProviderSelection";
+import { useToolRunner } from "../tools/useToolRunner";
 
 function createId(): string {
   return (
@@ -63,9 +64,17 @@ export interface CompanionControllerOptions {
 export function useCompanionController({ routing }: CompanionControllerOptions): CompanionController {
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
-  const [messages, setMessages] = useState<TranscriptMessage[]>([
-    createMessage("assistant", companionProfiles.hinaa.greeting),
-  ]);
+  const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
+    try {
+      const stored = localStorage.getItem(`hinaa-messages-hinaa`);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [createMessage("assistant", companionProfiles.hinaa.greeting)];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`hinaa-messages-${companionId}`, JSON.stringify(messages));
+  }, [messages, companionId]);
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();
@@ -91,7 +100,14 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
-      setMessages([createMessage("assistant", companionProfiles[id].greeting)]);
+      const initialMessages = (() => {
+        try {
+          const stored = localStorage.getItem(`hinaa-messages-${id}`);
+          if (stored) return JSON.parse(stored);
+        } catch {}
+        return [createMessage("assistant", companionProfiles[id].greeting)];
+      })();
+      setMessages(initialMessages);
       setState("idle");
     },
     [clearTimers, companionId],
@@ -180,6 +196,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
           ...current,
           createMessage("assistant", friendly),
         ]);
+        timers.current.push(window.setTimeout(() => setState("idle"), 2500));
         return undefined;
       } finally {
         if (currentAbort.current === abortController)
@@ -255,6 +272,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
     setPartialTranscript(message);
     setStreamingText("");
     setState("error");
+    timers.current.push(window.setTimeout(() => setState("idle"), 2500));
   }, []);
 
   useEffect(
@@ -265,90 +283,12 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
     [clearTimers],
   );
 
-  const processedToolMessageIds = useRef<Set<string>>(new Set());
+  const updateMessage = useCallback((id: string, updater: (msg: TranscriptMessage) => TranscriptMessage) => {
+    setMessages((current) => current.map((m) => (m.id === id ? updater(m) : m)));
+  }, []);
 
-  useEffect(() => {
-    const lastMessage = messages[messages.length - 1];
-    if (
-      !lastMessage ||
-      lastMessage.role !== "assistant" ||
-      !lastMessage.plan?.toolRequests ||
-      lastMessage.plan.toolRequests.length === 0
-    ) {
-      return;
-    }
+  useToolRunner(messages, updateMessage);
 
-    if (processedToolMessageIds.current.has(lastMessage.id)) {
-      return;
-    }
-
-    processedToolMessageIds.current.add(lastMessage.id);
-
-    const runTools = async () => {
-      // Mark as running
-      setMessages((current) =>
-        current.map((msg) =>
-          msg.id === lastMessage.id
-            ? {
-                ...msg,
-                toolActivity: lastMessage.plan!.toolRequests.map((req: any) => ({
-                  id: req.toolName,
-                  status: "running",
-                  label: `Running ${req.toolName}...`,
-                })),
-                toolResults: [],
-              }
-            : msg
-        )
-      );
-
-      for (const req of lastMessage.plan.toolRequests) {
-        try {
-          const res = await fetch("http://localhost:8000/v1/tools/execute", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(req),
-          });
-          const data = await res.json();
-
-          setMessages((current) =>
-            current.map((msg) => {
-              if (msg.id !== lastMessage.id) return msg;
-              const results = msg.toolResults || [];
-              const act = msg.toolActivity || [];
-              return {
-                ...msg,
-                toolResults: [...results, { toolName: (req as any).toolName, result: data.data }],
-                toolActivity: act.map((a) =>
-                  a.id === (req as any).toolName
-                    ? { ...a, status: "complete", label: `Completed ${(req as any).toolName}` }
-                    : a
-                ),
-              };
-            })
-          );
-        } catch (e) {
-          console.error("Tool execution failed", e);
-          setMessages((current) =>
-            current.map((msg) => {
-              if (msg.id !== lastMessage.id) return msg;
-              const act = msg.toolActivity || [];
-              return {
-                ...msg,
-                toolActivity: act.map((a) =>
-                  a.id === (req as any).toolName
-                    ? { ...a, status: "error", label: `Failed ${(req as any).toolName}` }
-                    : a
-                ),
-              };
-            })
-          );
-        }
-      }
-    };
-
-    void runTools();
-  }, [messages]);
 
   return {
     companionId,

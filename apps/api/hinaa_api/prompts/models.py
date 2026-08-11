@@ -61,6 +61,7 @@ class PromptInput(StrictModel):
     companion_id: CompanionId
     interaction_mode: InteractionMode
     user_text: Annotated[str, Field(min_length=1, max_length=8000)]
+    response_mode: str | None = None
     recent_turns: tuple[tuple[str, str], ...] = ()
     personality: PersonalitySettings = Field(default_factory=PersonalitySettings)
     mood: MoodSnapshot = Field(default_factory=MoodSnapshot)
@@ -86,11 +87,12 @@ class PromptInput(StrictModel):
     @field_validator("recent_turns")
     @classmethod
     def validate_roles(cls, value: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+        from ..models import safe_extract_display_text
         cleaned: list[tuple[str, str]] = []
         for role, content in value:
             if role not in {"user", "assistant"}:
                 continue
-            text = content.strip()
+            text = safe_extract_display_text(content).strip()
             if text:
                 cleaned.append((role, text[:2_000]))
         return tuple(cleaned)

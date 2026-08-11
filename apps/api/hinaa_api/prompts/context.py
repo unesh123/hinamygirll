@@ -17,8 +17,10 @@ def build_history_block(
     used = 0
     # Prefer newest: walk reverse, then restore order.
     kept: list[tuple[str, str]] = []
+    from hinaa_api.models import safe_extract_display_text
+    
     for role, content in reversed(selected):
-        piece = content.strip()
+        piece = safe_extract_display_text(content).strip()
         if not piece:
             continue
         # Reserve room for role prefix and newline.

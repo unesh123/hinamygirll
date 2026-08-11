@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING
 from .config import Settings
 from .errors import HinaaError
 from .memory import SessionMemory
-from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest
+from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest, ToolRequest
 
 if TYPE_CHECKING:  # pragma: no cover
     from .persistence.memory_service import MemoryService
 
 from .prompts import PROMPT_VERSION, neutral_fallback_plan
 from .prompts.turn_prompt import build_turn_prompt
-from .providers.agent_router import AgentRouterProvider
+from .providers.agent_router import AgentRouterOpenAIProvider, AgentRouterAnthropicProvider
 from .providers.azure_speech import AzureSpeechProvider
 from .providers.base import (
     LLMProvider,
@@ -33,6 +33,7 @@ from .providers.local import LocalLLMProvider, make_local_stt, make_local_tts
 from .providers.mock import MockLLMProvider, MockSTTProvider, MockTTSProvider
 from .providers.elevenlabs import ElevenLabsConfig, ElevenLabsHTTPStreamingProvider, ElevenLabsSTTProvider
 from .providers.openai_llm import OpenAILLMProvider
+from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
 from .voice_profiles import resolve_calibration, resolve_voice
 
 logger = logging.getLogger("hinaa.conversation")
@@ -271,6 +272,12 @@ class ProviderRouter:
             return self.mock_stt
         if mode == "local":
             return self.local_stt
+        if self.settings.deepgram_configured:
+            assert self.settings.deepgram_api_key
+            return DeepgramSTTProvider(
+                api_key=self.settings.deepgram_api_key.get_secret_value(),
+                base_url=self.settings.deepgram_base_url
+            )
         if self.settings.elevenlabs_configured:
             assert self.settings.elevenlabs_api_key
             config = ElevenLabsConfig(
@@ -355,9 +362,9 @@ class ProviderRouter:
                     retryable=False,
                     user_action_required=True,
                 ) from error
-            return AgentRouterProvider(
-                active_agent_router_key.get_secret_value(),
-                model,
+            return AgentRouterOpenAIProvider(
+                api_key=active_agent_router_key.get_secret_value(),
+                model=model,
                 base_url=active_agent_router_base_url,
             )
         if mode == "cx-gateway":
@@ -401,11 +408,17 @@ class ProviderRouter:
             ) from error
         return GeminiLLMProvider(self.settings.gemini_api_key.get_secret_value(), model)
 
-    def tts(self, mode: str) -> TTSProvider:
+    def tts(self, mode: str, companion_id: CompanionId | None = None) -> TTSProvider:
         if mode == "mock":
             return self.mock_tts
         if mode == "local":
             return self.local_tts
+        if companion_id == "hiro" and self.settings.deepgram_configured:
+            assert self.settings.deepgram_api_key
+            return DeepgramTTSProvider(
+                api_key=self.settings.deepgram_api_key.get_secret_value(),
+                base_url=self.settings.deepgram_base_url
+            )
         if self.settings.elevenlabs_configured:
             assert self.settings.elevenlabs_api_key
             config = ElevenLabsConfig(
@@ -593,6 +606,72 @@ class ConversationService:
                 "PROVIDER_TIMEOUT", "Speech transcription took too long.", 504, True
             ) from error
 
+    def _inject_deterministic_tool_intents(self, text: str, plan: AssistantTurnPlan) -> None:
+        """Deterministic local intent fallback for explicit tool commands."""
+        lower_text = text.lower()
+        
+        # Helper to avoid matching meta-discussion, negation, or explanations.
+        def is_meta_or_negated(t: str) -> bool:
+            return bool(re.search(r'\b(do not|don\'t|dont|never|not|might|example|phrase|explain|why did|how does|how to|can you|can hinaa)\b', t))
+            
+        unquoted = re.sub(r'["\'].*?["\']', '', lower_text)
+
+        # 1. Image generation intent
+        if not any(t.toolName == "image_generate" for t in plan.toolRequests):
+            if not is_meta_or_negated(lower_text):
+                imperative_patterns = [
+                    r'^\s*(generate|create|make|draw|paint|render)\b.*\b(image|images|picture|pictures|photo|photos|portrait|art|artwork|variations)\b',
+                    r'\b(image|images|picture|pictures|photo|photos).*(generate|create|make|bana|gara)\b',
+                    r'\b(generate|create|make)\s+(an?\s+)?(image|picture|photo|portrait)\b',
+                    r'^(a|an)?\s*(anime|moonlit|cyberpunk)?\s*(image|picture|photo|portrait)\s+(of|with)\b',
+                    r'^(generate|create)\b'
+                ]
+                if any(re.search(p, unquoted) for p in imperative_patterns):
+                    prompt_str = re.sub(r'(?i)^(generate|create|make)\s+(an?\s+)?(image|picture|photo|portrait)\s+(of\s+)?', '', text).strip()
+                    if not prompt_str or prompt_str.lower() == text.lower():
+                        prompt_str = text
+                    plan.toolRequests.append(ToolRequest(
+                        toolName="image_generate",
+                        parameters={
+                            "prompt": prompt_str,
+                            "count": 1,
+                            "mode": "fast",
+                            "strategy": "variations"
+                        }
+                    ))
+
+        # 2. Browser intent
+        if not any(t.toolName == "browser_execute_task" for t in plan.toolRequests):
+            if not is_meta_or_negated(lower_text):
+                browser_patterns = [
+                    r'^\s*(open|navigate to|go to|browse to|launch)\b',
+                    r'\b(open|browse|navigate|go to)\b.*\b(website|url|page|site|netflix|youtube|google)\b'
+                ]
+                if any(re.search(p, unquoted) for p in browser_patterns):
+                    prompt_str = re.sub(r'(?i)^(open|navigate to|go to|browse to|launch)\s+', '', text).strip()
+                    plan.toolRequests.append(ToolRequest(
+                        toolName="browser_execute_task",
+                        parameters={
+                            "task": prompt_str if prompt_str and prompt_str.lower() != text.lower() else text,
+                            "start_url": "about:blank"
+                        }
+                    ))
+
+        # 3. Research intent
+        if not any(t.toolName == "web_search" for t in plan.toolRequests):
+            research_intents = [
+                "search the web", "look up", "find information about", 
+                "research about", "google search"
+            ]
+            if any(intent in lower_text for intent in research_intents) or re.search(r'\b(search|research|look up)\b.*\b(web|internet|online|google)\b', lower_text):
+                prompt_str = re.sub(r'(?i)^(search the web for|look up|find information about|research about|google search for)\s+', '', text).strip()
+                plan.toolRequests.append(ToolRequest(
+                    toolName="web_search",
+                    parameters={
+                        "query": prompt_str if prompt_str and prompt_str.lower() != text.lower() else text
+                    }
+                ))
+
     async def create_plan(
         self, request: TurnRequest, *, user_id: str | None = None
     ) -> ProviderResult[AssistantTurnPlan]:
@@ -671,8 +750,11 @@ class ConversationService:
                 result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
             else:
                 raise
-        self.memory.append_turn(request.sessionId, request.text, result.value.displayText)
+        self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
         self._persist_learned_memories(user_id, request.sessionId)
+        
+        self._inject_deterministic_tool_intents(request.text, result.value)
+        
         return result
 
     async def create_live_plan(
@@ -711,7 +793,7 @@ class ConversationService:
                     provider = self.router.llm(
                         request.providerMode, request.brainModel
                     )
-                if isinstance(provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterProvider):
+                if isinstance(provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                     result = await provider.create_live_plan(
                         request.text,
                         request.companionId,
@@ -800,8 +882,11 @@ class ConversationService:
                 await emit_delta(plan.displayText)
                 result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
 
-        self.memory.append_turn(request.sessionId, request.text, result.value.displayText)
+        self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
         self._persist_learned_memories(user_id, request.sessionId)
+        
+        self._inject_deterministic_tool_intents(request.text, result.value)
+        
         return result
 
     async def stream_turn(
@@ -827,7 +912,9 @@ class ConversationService:
     async def synthesize(self, request: SpeechRequest) -> ProviderResult[bytes]:
         try:
             async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                provider = self.router.tts(request.providerMode)
+                provider = self.router.tts(request.providerMode, request.companionId)
+                if isinstance(provider, DeepgramTTSProvider):
+                    return await provider.synthesize(request.text, voice=self.settings.deepgram_tts_model_hiro)
                 if isinstance(provider, ElevenLabsHTTPStreamingProvider):
                     voice_id = (
                         self.settings.elevenlabs_hiro_voice_id
@@ -857,7 +944,27 @@ class ConversationService:
         volume: float | None = None,
         delivery_mode: str = "warm",
     ) -> ProviderResult[bytes]:
-        provider = self.router.tts(mode)
+        provider = self.router.tts(mode, companion_id)
+        if isinstance(provider, DeepgramTTSProvider):
+            try:
+                async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                    return await provider.synthesize(text, voice=self.settings.deepgram_tts_model_hiro)
+            except Exception as deepgram_err:
+                if self.settings.elevenlabs_configured:
+                    print(f"Deepgram failed for Hiro, falling back to ElevenLabs: {deepgram_err}")
+                    provider = self.router.tts("cloud", companion_id) # ElevenLabs will be picked up if configured
+                    if isinstance(provider, DeepgramTTSProvider): # If router still returned Deepgram, fallback manually
+                        config = ElevenLabsConfig(
+                            api_key=self.settings.elevenlabs_api_key.get_secret_value(),
+                            base_url=self.settings.elevenlabs_base_url,
+                            voice_id=self.settings.elevenlabs_hiro_voice_id,
+                            model_id=self.settings.elevenlabs_model_id,
+                            output_format=self.settings.elevenlabs_output_format,
+                        )
+                        provider = ElevenLabsHTTPStreamingProvider(config)
+                else:
+                    raise HinaaError("TTS_FAILED", f"Deepgram TTS failed and no fallback configured: {deepgram_err}", 503, True) from deepgram_err
+        
         if isinstance(provider, ElevenLabsHTTPStreamingProvider):
             # Select per-companion voice ID
             if companion_id == "hiro":

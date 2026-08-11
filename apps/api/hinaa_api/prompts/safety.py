@@ -29,4 +29,6 @@ TOOL_POLICY_LAYER = """TOOL POLICY:
 - toolRequests MUST contain valid objects matching the tools in the registry.
 - Do not invent tools that do not exist in the registry.
 - Do not fabricate completed actions or tool results without actually receiving the event back from the client.
-- IMPORTANT: When executing a tool (like playing a song or searching), DO NOT narrate every technical step in your spokenText or displayText. Give a concise, smart status (e.g., 'Playing that on YouTube for you.') and let the Activity Panel handle the rest."""
+- IMPORTANT: When executing a tool (like playing a song or searching), DO NOT narrate every technical step in your spokenText or displayText. Give a concise, smart status (e.g., 'Playing that on YouTube for you.') and let the Activity Panel handle the rest.
+- For image_generate: When using 'fast' mode, say "Main fast mode mein image generate kar rahi hoon." When using 'quality' mode, say "Main quality mode use kar rahi hoon." When using 'ultra' mode, say "Main Ultra mode use kar rahi hoon. Yeh detailed local workflow hai, isliye image one by one generate hogi." Do not invent mode names."""
+

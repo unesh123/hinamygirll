@@ -106,6 +106,23 @@ class OpenAILLMProvider:
                     language=language,
                     depth=prompt.response_depth,
                 )
+                try:
+                    import json
+                    from ..prompts.fallback import extract_json_object
+                    payload = json.loads(extract_json_object(raw))
+                    if isinstance(payload, dict):
+                        if "toolRequests" in payload and isinstance(payload["toolRequests"], list):
+                            from ..models import ToolRequest
+                            for tr in payload["toolRequests"]:
+                                if isinstance(tr, dict) and "toolName" in tr and "parameters" in tr:
+                                    plan.toolRequests.append(ToolRequest(**tr))
+                        if "memoryCandidates" in payload and isinstance(payload["memoryCandidates"], list):
+                            from ..models import MemoryCandidate
+                            for mc in payload["memoryCandidates"]:
+                                if isinstance(mc, dict) and "content" in mc:
+                                    plan.memoryCandidates.append(MemoryCandidate(**mc))
+                except Exception:
+                    pass
             if plan is None and self._provider_id in {"custom", "cx-gateway"}:
                 # Prose-recovery is the real path for gateway models; a schema
                 # repair round trip would send response_format these gateways

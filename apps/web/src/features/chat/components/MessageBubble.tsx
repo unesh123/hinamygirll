@@ -8,6 +8,7 @@ import { memo, useMemo } from "react";
 import { motion } from "framer-motion";
 import type { TranscriptMessage } from "../../companion/types";
 import styles from "./MessageBubble.module.css";
+import { GenericResultRenderer } from "./GenericResultRenderer";
 
 interface Props {
   message: TranscriptMessage;
@@ -30,7 +31,11 @@ function renderMarkdown(text: string): string {
     // Inline code
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    // @ Power-up keywords
+    .replace(/(^|\s)(@[a-zA-Z0-9_]+)/g, '$1<span style="color: #a855f7; font-weight: 700; text-shadow: 0 0 10px rgba(168,85,247,0.4); padding: 2px 8px; background: rgba(168,85,247,0.15); border-radius: 6px; margin: 0 2px; border: 1px solid rgba(168,85,247,0.3);">$2</span>')
+    // Hashtags
+    .replace(/(^|\s)(#[a-zA-Z0-9_]+)/g, '$1<span style="color: var(--hinaa-accent, #14b8a6); font-weight: 600; text-shadow: 0 0 8px rgba(20,184,166,0.3); padding: 2px 6px; background: rgba(20,184,166,0.1); border-radius: 4px; margin: 0 2px;">$2</span>');
   return html;
 }
 
@@ -132,6 +137,15 @@ export const MessageBubble = memo(function MessageBubble({
                 <span dangerouslySetInnerHTML={{ __html: renderedHTML }} />
               )}
             </div>
+          </div>
+        )}
+
+        {/* Render tool results */}
+        {message.toolResults && message.toolResults.length > 0 && (
+          <div className={styles.toolResultsContainer} style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {message.toolResults.map((tr, i) => (
+              <GenericResultRenderer key={`${tr.toolName}-${i}`} toolName={tr.toolName} result={tr.result} />
+            ))}
           </div>
         )}
 

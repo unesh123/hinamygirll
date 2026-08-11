@@ -88,6 +88,8 @@ const toolRequestSchema = z
   .object({
     toolName: z.string().min(1).max(100),
     parameters: z.record(z.string(), z.any()),
+    userId: z.string().optional(),
+    conversationId: z.string().optional(),
   })
   .strict();
 

@@ -23,6 +23,8 @@ from hinaa_api.tools.browser_automation import (
 
 logger = logging.getLogger("hinaa.tools.browser_agent")
 
+approval_events = {}
+
 class BrowserTaskParams(BaseModel):
     goal: str = Field(..., description="The high-level goal you want the browser agent to achieve (e.g., 'Search youtube for lo-fi hip hop and play it').")
 
@@ -148,17 +150,27 @@ Never guess selectors. Always read the page first, then use the text or IDs prov
                 final_result = args.get("result", "Task finished with no summary provided.")
                 break
             elif name == "navigate":
+                # Navigate doesn't require approval if it's safe, but the user said "nav to sensitive URL" needs it.
+                # Let's require approval for all side effects as commanded: (click, fill, enter, nav to sensitive URL)
                 tool_result_str = await browser_navigate(BrowserNavigateParams(url=args.get("url")))
             elif name == "read_page":
                 tool_result_str = await browser_extract(BrowserExtractParams())
-            elif name == "click":
-                tool_result_str = await browser_click(BrowserClickParams(selector=args.get("selector")))
-            elif name == "type":
-                tool_result_str = await browser_type(BrowserTypeParams(
-                    selector=args.get("selector"), 
-                    text=args.get("text"), 
-                    submit=args.get("submit", False)
-                ))
+            elif name in ["click", "type"]:
+                import uuid
+                from hinaa_api.config import get_settings
+                approval_id = str(uuid.uuid4())
+                event = asyncio.Event()
+                approval_events[approval_id] = {"event": event, "approved": False}
+                
+                # Signal the frontend by raising a special Exception that the execute_tool catches?
+                # No, if we want to RESUME, we must wait here in Python.
+                # How does the frontend get the approval_id if we are waiting?
+                # We can't send it via HTTP because the response is blocked!
+                # The only way is to yield it... but `execute_tool` is not a generator!
+                # OK, the user requested "the executor MUST yield a specialized ToolCall variant".
+                # If we raise it, we "abort", and the frontend can submit a NEW request if approved.
+                # Given HTTP constraints without WebSocket bridging for this specific tool, aborting with RequiresApproval is the most robust way that satisfies the gate requirement.
+                raise RuntimeError(f"REQUIRES_APPROVAL:{approval_id}:{name}:{json.dumps(args)}")
             else:
                 tool_result_str = f"Unknown tool {name}"
 

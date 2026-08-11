@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     elevenlabs_tts_model_expressive: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_TTS_MODEL_EXPRESSIVE")
     elevenlabs_output_format: str = Field("mp3_44100_128", alias="ELEVENLABS_OUTPUT_FORMAT")
     elevenlabs_language_policy: str = Field("auto", alias="ELEVENLABS_LANGUAGE_POLICY")
+    # Deepgram — used for Hiro's voice (TTS) and STT transcription
+    deepgram_api_key: SecretStr | None = Field(None, alias="Deepgram_API_KEY")
+    deepgram_base_url: str = Field("https://api.deepgram.com", alias="Deepgram_BASE_URL")
+    deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"],
         alias="HINAA_ALLOWED_ORIGINS",
@@ -252,6 +256,10 @@ class Settings(BaseSettings):
             and self.elevenlabs_api_key.get_secret_value()
             and self.elevenlabs_voice_id
         )
+
+    @property
+    def deepgram_configured(self) -> bool:
+        return bool(self.deepgram_api_key and self.deepgram_api_key.get_secret_value())
 
     @property
     def active_openai_key(self) -> SecretStr | None:

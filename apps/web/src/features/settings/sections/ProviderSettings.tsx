@@ -38,7 +38,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   real:   "Gemini",
   local:  "Local",
   mock:   "Demo",
-  "agent-router": "Agent Router",
+  "agent-router": "Agent Router (agentrouter.org)",
   "cx-gateway":   "CX Gateway (cx/gpt-5.6-sol)",
   "gemini-live":  "Gemini Live (Native Speech-to-Speech)",
 };
@@ -50,7 +50,7 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   real:   "Google Gemini models.",
   local:  "Zero-credit on-device model. Text only.",
   mock:   "Deterministic demo. No API calls.",
-  "agent-router": "Custom Agent Router gateway.",
+  "agent-router": "agentrouter.org — access Claude, GPT, DeepSeek and more with your $175 credits.",
   "cx-gateway":   "cx/gpt-5.6-sol — your premium Cloudflare gateway.",
   "gemini-live":  "Google Gemini Live Bidi S2S (<300ms native multimodal audio).",
 };

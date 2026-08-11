@@ -40,6 +40,7 @@ export type TrackingStatus =
 export interface VSeeFaceState {
   status:      TrackingStatus;
   expressions: FaceExpressions;
+  bones:       Record<string, [number, number, number, number]>;
   error:       string | null;
   connect:     () => void;
   disconnect:  () => void;
@@ -58,6 +59,7 @@ const DEFAULT_EXPRESSIONS: FaceExpressions = {
 export function useVSeeFace(): VSeeFaceState {
   const [status, setStatus]           = useState<TrackingStatus>("disconnected");
   const [expressions, setExpressions] = useState<FaceExpressions>(DEFAULT_EXPRESSIONS);
+  const [bones, setBones]             = useState<Record<string, [number, number, number, number]>>({});
   const [error, setError]             = useState<string | null>(null);
 
   const wsRef      = useRef<WebSocket | null>(null);
@@ -69,6 +71,7 @@ export function useVSeeFace(): VSeeFaceState {
     if (mountedRef.current) {
       setStatus("disconnected");
       setExpressions(DEFAULT_EXPRESSIONS);
+      setBones({});
       setError(null);
     }
   }, []);
@@ -92,8 +95,13 @@ export function useVSeeFace(): VSeeFaceState {
     ws.onmessage = (ev) => {
       if (!mountedRef.current) return;
       try {
-        const data = JSON.parse(ev.data as string) as Partial<FaceExpressions>;
-        setExpressions(prev => ({ ...prev, ...data }));
+        const data = JSON.parse(ev.data as string);
+        if (data.blendshapes) {
+          setExpressions(prev => ({ ...prev, ...data.blendshapes }));
+        }
+        if (data.bones) {
+          setBones(data.bones);
+        }
       } catch { /* ignore parse errors */ }
     };
 
@@ -128,5 +136,5 @@ export function useVSeeFace(): VSeeFaceState {
     };
   }, [disconnect]);
 
-  return { status, expressions, error, connect, disconnect };
+  return { status, expressions, bones, error, connect, disconnect };
 }

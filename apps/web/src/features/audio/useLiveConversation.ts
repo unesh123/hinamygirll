@@ -114,6 +114,7 @@ export function useLiveConversation({
   const turnTaking = useRef(new TurnTakingController());
   const phraseDetector = useRef(new PhraseDetector());
   const latency = useRef(new LatencyClock());
+  const lastSpokenTextRef = useRef("");  // accumulates streaming assistant text for lip-sync
   const callbacks = useRef({ controller, playback });
   callbacks.current = { controller, playback };
   playbackState.current = playback.playing;
@@ -177,6 +178,7 @@ export function useLiveConversation({
     speechStartedAt.current = performance.now();
     speechEndedAt.current = undefined;
     finalAt.current = undefined;
+    lastSpokenTextRef.current = "";  // reset for new turn's lip-sync
     partialGeneration.current = undefined;
     textGeneration.current = undefined;
     audibleGeneration.current = undefined;
@@ -309,6 +311,7 @@ export function useLiveConversation({
       const phrases = phraseDetector.current.push(event.delta);
       if (phrases.length) latency.current.mark("first_stable_phrase");
       current.controller.applyLiveDelta(event.delta);
+      lastSpokenTextRef.current += event.delta;  // accumulate for lip-sync
     } else if (event.type === "assistant.plan") {
       phraseDetector.current.flush();
       latency.current.mark("final_text");
@@ -331,7 +334,7 @@ export function useLiveConversation({
         if (eventGeneration !== generation.current) return;
         current.controller.setLiveState("speaking");
         turnTaking.current.setSessionState("speaking");
-        await current.playback.play(blob, () => {
+        await current.playback.play(blob, lastSpokenTextRef.current || undefined, () => {
           latency.current.mark("playback_started");
           if (
             audibleGeneration.current !== generation.current &&

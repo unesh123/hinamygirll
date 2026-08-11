@@ -142,6 +142,7 @@ class VMCBridge:
     def __init__(self) -> None:
         self._clients: set[WebSocket] = set()
         self._values: dict[str, float] = {k: 0.0 for k in _ALL_KEYS}
+        self._bones: dict[str, list[float]] = {}
         # Eye open = 1 by default (not closed)
         self._values["eyeBlinkL"] = 1.0
         self._values["eyeBlinkR"] = 1.0
@@ -163,14 +164,14 @@ class VMCBridge:
 
     async def _send_to(self, ws: WebSocket) -> None:
         try:
-            await ws.send_text(json.dumps(self._values))
+            await ws.send_text(json.dumps({"blendshapes": self._values, "bones": self._bones}))
         except Exception:
             pass
 
     async def _broadcast(self) -> None:
         if not self._clients:
             return
-        payload = json.dumps(self._values)
+        payload = json.dumps({"blendshapes": self._values, "bones": self._bones})
         dead = set()
         for ws in self._clients:
             try:
@@ -192,6 +193,11 @@ class VMCBridge:
                 if mapped:
                     self._values[mapped] = max(0.0, min(1.0, value))
                     updated = True
+            elif address == "/VMC/Ext/Bone/Pos" and len(args) >= 8:
+                # args: name, px, py, pz, qx, qy, qz, qw
+                name = str(args[0])
+                self._bones[name] = [float(args[4]), float(args[5]), float(args[6]), float(args[7])]
+                updated = True
 
         if updated and self._clients:
             # Schedule broadcast without awaiting (we're in sync context)

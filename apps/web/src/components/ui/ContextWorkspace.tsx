@@ -80,19 +80,11 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
               </div>
             )}
 
-            {mode === 'images' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                {[1,2,3,4].map(i => (
-                  <div key={i} style={{ aspectRatio: '1', borderRadius: 12, background: `linear-gradient(135deg, hsl(${i*60},60%,88%), hsl(${i*60+40},60%,90%))`, border: '1px solid rgba(255,255,255,0.8)' }} />
-                ))}
-              </div>
-            )}
-
             {/* Empty state */}
-            {!isSearching && sources.length === 0 && mode !== 'images' && (
+            {!isSearching && sources.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', fontSize: '0.82rem' }}>
                 {ModeIcon && <ModeIcon size={32} style={{ marginBottom: 12, opacity: 0.4 }} />}
-                <div>Results will appear here</div>
+                <div>Images appear inline in the chat</div>
               </div>
             )}
           </motion.div>

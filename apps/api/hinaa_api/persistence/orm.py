@@ -4,9 +4,11 @@ from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -59,6 +61,7 @@ class Message(Base):
         ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
     role: Mapped[str] = mapped_column(String(20))
+    # content stores the full Canonical Turn Record (AssistantTurnPlan JSON) for assistant, or text for user.
     content: Mapped[str] = mapped_column(Text())
     language: Mapped[str] = mapped_column(String(20), default="mixed")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -116,11 +119,42 @@ class MemoryConsent(Base):
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    action: Mapped[str] = mapped_column(String(80))
-    resource_type: Mapped[str] = mapped_column(String(40))
-    resource_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    result: Mapped[str] = mapped_column(String(40))
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    action: Mapped[str] = mapped_column(String(100))
+    resource_type: Mapped[str] = mapped_column(String(50))
+    resource_id: Mapped[str] = mapped_column(String(36))
+    result: Mapped[str] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GenerationSet(Base):
+    __tablename__ = "generation_sets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("conversations.id"), index=True, nullable=True)
+    prompt: Mapped[str] = mapped_column(Text())
+    workflow_mode: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    jobs: Mapped[list[ImageJob]] = relationship(
+        "ImageJob", back_populates="generation_set", cascade="all, delete-orphan"
+    )
+
+
+class ImageJob(Base):
+    __tablename__ = "image_jobs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    generation_set_id: Mapped[str] = mapped_column(String(36), ForeignKey("generation_sets.id"), index=True)
+    comfy_prompt_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    seed: Mapped[int] = mapped_column(BigInteger())
+    status: Mapped[str] = mapped_column(String(50), default="pending") # pending, processing, completed, failed, cancelled
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True) # local absolute path
+    width: Mapped[int] = mapped_column(Integer(), default=1024)
+    height: Mapped[int] = mapped_column(Integer(), default=1024)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    generation_set: Mapped[GenerationSet] = relationship(
+        "GenerationSet", back_populates="jobs"
+    )

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 
 Language = Literal["ne-NP", "en-US", "hi-IN", "mixed"]
 ProviderMode = Literal["mock", "local", "groq", "openai", "custom", "real", "agent-router", "cx-gateway", "gemini-live"]
 CompanionId = Literal["hinaa", "hiro"]
+ResponseMode = Literal["conversation", "professional", "technical", "research", "automation", "academic", "creative", "concise_voice"]
 
 
 class StrictModel(BaseModel):
@@ -91,8 +92,10 @@ class MemoryCandidate(StrictModel):
 
 
 class ToolRequest(StrictModel):
-    toolName: Annotated[str, Field(min_length=1, max_length=100)]
+    toolName: Annotated[str, Field(min_length=1, max_length=100, validation_alias=AliasChoices("toolName", "tool"))]
     parameters: dict[str, Any]
+    userId: str | None = None
+    conversationId: str | None = None
 
 class AssistantTurnPlan(StrictModel):
     spokenText: Annotated[str, Field(min_length=1, max_length=4000)]
@@ -104,6 +107,22 @@ class AssistantTurnPlan(StrictModel):
     memoryCandidates: Annotated[list[MemoryCandidate], Field(max_length=3)]
     toolRequests: Annotated[list[ToolRequest], Field(max_length=5)]
 
+
+def safe_extract_display_text(content: str) -> str:
+    """
+    Safely extract displayText from an AssistantTurnPlan JSON string.
+    If the content is legacy plain text or malformed JSON, return the content itself.
+    """
+    if not content:
+        return content
+    try:
+        import json
+        data = json.loads(content)
+        if isinstance(data, dict) and "displayText" in data:
+            return data["displayText"]
+        return content
+    except (json.JSONDecodeError, TypeError):
+        return content
 
 class PersonalityRequest(StrictModel):
     affection: Annotated[float, Field(ge=0, le=0.8)] | None = None
@@ -119,12 +138,15 @@ class TurnRequest(StrictModel):
     companionId: CompanionId = "hinaa"
     language: Language = "mixed"
     providerMode: ProviderMode = "mock"
+    responseMode: ResponseMode | None = None
     brainModel: Annotated[
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
     ] = None
     visibleActions: list[str] = Field(default_factory=list)
     personality: PersonalityRequest | None = None
+    userId: str | None = None
+    conversationId: str | None = None
 
 
 class SpeechRequest(StrictModel):

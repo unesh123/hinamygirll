@@ -1,10 +1,13 @@
 /**
  * AvatarPresence — HINAA 3D Avatar Director
- * ✅ VRM 0.x + 1.0 support with auto-detect
- * ✅ Relaxed arm pose via setNormalizedPose (three-vrm v3 correct API)
- * ✅ Full body framing — face + hands visible
- * ✅ Natural blink, lip-sync, emotion blend
- * ✅ Zero per-frame allocations
+ * 
+ * Architecture:
+ *   Layer 1: Viseme lip-sync → driven by AudioContext playback clock + text-to-viseme events
+ *   Layer 2: Jaw energy amplitude → scales viseme weight using audio RMS
+ *   Layer 3: Blink → natural randomized or VSeeFace tracked
+ *   Layer 4: Emotion blend → state-driven at low intensity (never overrides mouth)
+ *   Layer 5: Gaze → subtle eye movement
+ *   Layer 6: Pose → relaxed idle via normalized rig bones
  */
 
 import { Suspense, useState, useRef, useEffect } from "react";
@@ -17,86 +20,92 @@ import * as THREE from "three";
 import { Maximize2, Radio } from "lucide-react";
 import type { CompanionState } from "../../features/companion/types";
 import type { FaceExpressions } from "../../features/audio/useVSeeFace";
+import type { VisemeEvent } from "../../features/audio/textToViseme";
+import { getActiveViseme } from "../../features/audio/textToViseme";
 
 export type PresenceMode = "portrait" | "closeup" | "full" | "hidden";
 
-/* ─── Camera presets ─────────────────────────────────────
- * Universal settings that work across all 3 VRM models.
- * Y=1.38 is roughly mid-face for both short and tall models.
- */
+/* ─── Camera presets ─────────────────────────────────────── */
 const CAMERAS: Record<PresenceMode, { pos: [number,number,number]; target: [number,number,number]; fov: number }> = {
-  closeup:  { pos: [0, 1.42, 0.65], target: [0, 1.38, 0], fov: 24 },   // tight face
-  portrait: { pos: [0, 1.42, 1.15], target: [0, 1.35, 0], fov: 30 },   // face + upper body
-  full:     { pos: [0, 0.85, 2.20], target: [0, 0.75, 0], fov: 44 },   // head to toe
+  closeup:  { pos: [0, 1.42, 0.65], target: [0, 1.38, 0], fov: 24 },
+  portrait: { pos: [0, 1.42, 1.15], target: [0, 1.35, 0], fov: 30 },
+  full:     { pos: [0, 0.85, 2.20], target: [0, 0.75, 0], fov: 44 },
   hidden:   { pos: [0, 1.0,  3.0],  target: [0, 1.0,  0], fov: 35 },
 };
 
-/* ─── Emotion blends ───────────────────────────────────── */
+/* ─── Mouth expression targets per viseme ───────────────── */
+type MouthKey = "aa" | "ih" | "ou" | "ee" | "oh";
+const VISEME_TO_VRM: Record<string, MouthKey> = {
+  aa: "aa", ih: "ih", ou: "ou", ee: "ee", oh: "oh", closed: "aa",
+};
+const ALL_MOUTH_KEYS: MouthKey[] = ["aa", "ih", "ou", "ee", "oh"];
+const VRM_PRESET: Record<MouthKey, VRMExpressionPresetName> = {
+  aa: VRMExpressionPresetName.Aa,
+  ih: VRMExpressionPresetName.Ih,
+  ou: VRMExpressionPresetName.Ou,
+  ee: VRMExpressionPresetName.Ee,
+  oh: VRMExpressionPresetName.Oh,
+};
+
+/* ─── Emotion blends (always low intensity — never override mouth) */
 type EmotionBlend = Partial<Record<VRMExpressionPresetName, number>>;
 function emotionFor(state: CompanionState): EmotionBlend {
   switch (state) {
-    case "listening":   return { relaxed: 0.10, happy: 0.05 };
-    case "thinking":    return { relaxed: 0.16 };
-    case "speaking":    return { happy: 0.16, relaxed: 0.06 };
-    case "interrupted": return { relaxed: 0.18 };
-    case "error":       return { sad: 0.14 };
-    default:            return { happy: 0.06, relaxed: 0.04 };
+    case "listening":   return { [VRMExpressionPresetName.Relaxed]: 0.10 };
+    case "thinking":    return { [VRMExpressionPresetName.Relaxed]: 0.14 };
+    case "speaking":    return { [VRMExpressionPresetName.Happy]: 0.12, [VRMExpressionPresetName.Relaxed]: 0.06 };
+    case "interrupted": return { [VRMExpressionPresetName.Relaxed]: 0.16 };
+    case "error":       return { [VRMExpressionPresetName.Sad]: 0.12 };
+    default:            return { [VRMExpressionPresetName.Happy]: 0.06 };
   }
 }
 
-/* ─── Relaxed pose target Eulers (normalized-rig space) ────
- * In @pixiv/three-vrm v3 normalized rig (VRM 1.0):
- *   The upper arm rest pose is T-pose (arms horizontal).
- *   Z− rotation lowers both arms toward the body on this model.
- *   (Different VRM models may export arm bones with different local axes.)
- */
-const POSE_EULER = {
-  leftUpperArm:  new THREE.Euler( 0.06, 0, -1.05, "XYZ"),  // left arm down
-  rightUpperArm: new THREE.Euler(-0.06, 0,  1.05, "XYZ"),  // right arm down (mirrored)
-  leftLowerArm:  new THREE.Euler( 0,    0, -0.15, "XYZ"),  // slight elbow bend
-  rightLowerArm: new THREE.Euler( 0,    0,  0.15, "XYZ"),
-  leftHand:      new THREE.Euler(-0.04, 0,  0,    "XYZ"),  // neutral wrist
-  rightHand:     new THREE.Euler( 0.04, 0,  0,    "XYZ"),
-} as const;
-
-/* Pre-compute target quaternions once — zero per-frame alloc */
+/* ─── Relaxed pose quaternions ──────────────────────────── */
 const POSE_Q = {
-  leftUpperArm:  new THREE.Quaternion().setFromEuler(POSE_EULER.leftUpperArm),
-  rightUpperArm: new THREE.Quaternion().setFromEuler(POSE_EULER.rightUpperArm),
-  leftLowerArm:  new THREE.Quaternion().setFromEuler(POSE_EULER.leftLowerArm),
-  rightLowerArm: new THREE.Quaternion().setFromEuler(POSE_EULER.rightLowerArm),
-  leftHand:      new THREE.Quaternion().setFromEuler(POSE_EULER.leftHand),
-  rightHand:     new THREE.Quaternion().setFromEuler(POSE_EULER.rightHand),
+  leftUpperArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.06, 0, -1.05)),
+  rightUpperArm: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.06, 0,  1.05)),
+  leftLowerArm:  new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0, -0.15)),
+  rightLowerArm: new THREE.Quaternion().setFromEuler(new THREE.Euler( 0,    0,  0.15)),
+  leftHand:      new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.04, 0,  0)),
+  rightHand:     new THREE.Quaternion().setFromEuler(new THREE.Euler( 0.04, 0,  0)),
 } as const;
-
 type PoseBoneName = keyof typeof POSE_Q;
 const POSE_BONES = Object.keys(POSE_Q) as PoseBoneName[];
 
-/* ─── Model component ──────────────────────────────────── */
-function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
+/* ─── Model component ────────────────────────────────────── */
+interface ModelProps {
   state: CompanionState;
-  jawEnergy?: React.MutableRefObject<number>;
-  speakingRef?: React.MutableRefObject<boolean>;
+  jawEnergy: React.MutableRefObject<number>;
+  speakingRef: React.MutableRefObject<boolean>;
+  visemeEvents: React.MutableRefObject<VisemeEvent[]>;
+  audioStartTimeRef: React.MutableRefObject<number>;
   url: string;
-  faceExpressions?: FaceExpressions | null;  // live face tracking data
-}) {
+  faceExpressions?: FaceExpressions | null;
+  faceBones?: Record<string, [number, number, number, number]> | null;
+  faceTrackingActive?: boolean;
+}
+
+function Model({
+  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, faceExpressions, faceBones, faceTrackingActive,
+}: ModelProps) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  // Cached normalized bone nodes (per-model, set on load)
   const normBonesRef = useRef<Partial<Record<PoseBoneName, THREE.Object3D>>>({});
-  // Current quaternion per bone for slerp (initialized to identity on load)
-  const curQRef = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
+  const curQRef      = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
+  const restQRef     = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
 
+  // Per-frame refs — no allocations
   const t           = useRef(0);
-  const blink       = useRef(2 + Math.random() * 3);
+  const blinkTimer  = useRef(2 + Math.random() * 3);
   const doubleBlink = useRef(false);
-  const vowels      = useRef({ aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 });
-  const vowelPick   = useRef(0);
-  const vowelTimer  = useRef(0);
+  // Current mouth weights (smoothed)
+  const mouthW      = useRef<Record<MouthKey, number>>({ aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 });
   const emo         = useRef<Record<string, number>>({});
+  // AudioContext ref — populated lazily from global on first frame
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -104,8 +113,10 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
     setFailed(false);
     normBonesRef.current = {};
     curQRef.current = {};
+    restQRef.current = {};
     availRef.current = new Set();
     t.current = 0;
+    mouthW.current = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
 
     const ldr = new GLTFLoader();
     ldr.crossOrigin = "anonymous";
@@ -127,28 +138,28 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
         }
       });
 
-      // Orientation — VRM 0.x faces -Z, must rotate. VRM 1.0 already faces +Z.
+      // Orientation
       const specVer: string = (v as any).meta?.specVersion ?? (v as any).meta?.version ?? "1.0";
       const isVrm0 = specVer.startsWith("0");
       if (isVrm0) {
-        try { VRMUtils.rotateVRM0(v); } catch { v.scene.rotation.y = Math.PI; }
-      } else {
-        // Hinaa C (VRM 1.0) was exported backwards (-Z), so we rotate 180 degrees.
-        v.scene.rotation.y = url.includes("hinaa.vrm") ? Math.PI : 0;
+        try { VRMUtils.rotateVRM0(v); } catch {}
       }
 
-      // Disable auto look-at
       if (v.lookAt) { try { (v.lookAt as any).enabled = false; } catch {} }
 
       // Cache available expressions
       const em = v.expressionManager;
       if (em) {
-        for (const name of Object.values(VRMExpressionPresetName)) {
+        const allNames = [
+          ...Object.values(VRMExpressionPresetName),
+          "a", "i", "u", "e", "o", "blink_l", "blink_r", "joy", "sorrow", "fun",
+        ];
+        for (const name of allNames) {
           try { if (em.getExpression(name)) availRef.current.add(name); } catch {}
         }
       }
 
-      // Cache normalized bone nodes — these are the correct targets for pose in three-vrm v3
+      // Cache normalized bone nodes and their initial rest quaternions
       const hd = v.humanoid;
       if (hd) {
         for (const boneName of POSE_BONES) {
@@ -156,16 +167,17 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
             const node = hd.getNormalizedBoneNode(boneName as any);
             if (node) {
               normBonesRef.current[boneName] = node;
-              // Initialize current quaternion to identity (T-pose start)
-              curQRef.current[boneName] = new THREE.Quaternion();
+              restQRef.current[boneName] = node.quaternion.clone();
+              curQRef.current[boneName] = node.quaternion.clone();
             }
           } catch {}
         }
       }
 
       if (import.meta.env.DEV) {
-        const found = POSE_BONES.filter(b => !!normBonesRef.current[b]);
-        console.log(`🎭 VRM loaded: ${specVer}, orientation Y=${v.scene.rotation.y.toFixed(2)}, bones: ${found.join(", ")}`);
+        const bones = POSE_BONES.filter(b => !!normBonesRef.current[b]);
+        const exprs = [...availRef.current].slice(0, 12).join(", ");
+        console.log(`🎭 VRM ${specVer} | url=${url} | bones: ${bones.join(", ")} | expressions: ${exprs}`);
       }
 
       vrmRef.current = v;
@@ -174,6 +186,7 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
 
     return () => {
       mounted = false;
+      // Ensure mouth expressions are reset on unmount/unload
       if (vrmRef.current) {
         try { VRMUtils.deepDispose(vrmRef.current.scene); } catch {}
         vrmRef.current = null;
@@ -188,130 +201,188 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
     t.current += dt;
 
     const em  = vrm.expressionManager;
+    // Safe setter with VRM 1.0 alias fallback
     const set = (n: string, v: number) => {
       if (!em) return;
       try { em.setValue(n, v); } catch {}
-      
-      // VRM 1.0 compatibility fallback mapping
-      const vrm1Map: Record<string, string> = {
-        'aa': 'a', 'ih': 'i', 'ou': 'u', 'ee': 'e', 'oh': 'o',
-        'happy': 'joy', 'sad': 'sorrow', 'relaxed': 'fun',
-        'blinkLeft': 'blink_l', 'blinkRight': 'blink_r'
+      const alias: Record<string, string> = {
+        aa: "a", ih: "i", ou: "u", ee: "e", oh: "o",
+        happy: "joy", sad: "sorrow", relaxed: "fun",
+        blinkLeft: "blink_l", blinkRight: "blink_r",
       };
-      if (vrm1Map[n]) {
-        try { em.setValue(vrm1Map[n], v); } catch {}
-      }
+      if (alias[n]) { try { em.setValue(alias[n], v); } catch {} }
     };
 
-    /* ── LIP-SYNC (audio-driven — always active when speaking) ─── */
+    /* ── LAYER 1 + 2: LIP-SYNC ────────────────────────────────────────
+     * When speaking:
+     *   - Use viseme events timed against AudioContext clock
+     *   - Scale weight by jawEnergy (audio RMS amplitude)
+     *   - Fade mouth closed when not speaking
+     * When face tracking:
+     *   - Mirror VSeeFace mouth open value
+     */
     if (em) {
-      const speaking = speakingRef?.current ?? false;
-      const energy = speaking && jawEnergy ? Math.min(1, jawEnergy.current * 1.4) : 0;
+      const speaking = speakingRef.current;
+      const energy = Math.min(1, jawEnergy.current * 1.3);
 
-      const keys    = ["aa","ih","ou","ee","oh"] as const;
-      const presets = [
-        VRMExpressionPresetName.Aa, VRMExpressionPresetName.Ih,
-        VRMExpressionPresetName.Ou, VRMExpressionPresetName.Ee,
-        VRMExpressionPresetName.Oh,
-      ];
-
-      if (energy > 0.05) {
-        // ── Speaking: audio-driven vowel animation (face track has no effect on mouth) ──
-        vowelTimer.current -= dt;
-        if (vowelTimer.current <= 0) {
-          vowelPick.current = Math.floor(Math.random() * 5);
-          vowelTimer.current = 0.07 + Math.random() * 0.09;
+      if (speaking && energy > 0.02) {
+        // ── Speaking: viseme-based mouth animation ──
+        // Lazily populate audioCtxRef from global (avoids prop drilling through Canvas)
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = (window as any).__hinaaAudioCtx ?? null;
         }
-        for (let i = 0; i < 5; i++) {
-          const tgt = i === vowelPick.current ? energy : 0;
-          vowels.current[keys[i]] += (tgt - vowels.current[keys[i]]) * dt * 22;
-          set(presets[i], vowels.current[keys[i]]);
+        const events = visemeEvents.current;
+        let targetMouth: MouthKey | null = null;
+        let targetWeight = 0;
+
+        if (events.length > 0) {
+          // Use AudioContext time if available, else fallback to energy cycling
+          const ctx = audioCtxRef.current;
+          if (ctx) {
+            const playTimeMs = (ctx.currentTime - audioStartTimeRef.current) * 1000;
+            const active = getActiveViseme(Math.max(0, playTimeMs), events);
+            if (active && active.mouth !== "closed") {
+              targetMouth = VISEME_TO_VRM[active.mouth] as MouthKey ?? "aa";
+              targetWeight = active.weight * energy;
+            }
+          } else {
+            // Fallback: cycle based on energy timing
+            const idx = Math.floor(t.current * 7) % ALL_MOUTH_KEYS.length;
+            targetMouth = ALL_MOUTH_KEYS[idx];
+            targetWeight = energy;
+          }
+        } else {
+          // No viseme events — energy-based jaw-open fallback
+          targetMouth = "aa";
+          targetWeight = energy;
+        }
+
+        // Smooth all mouth shapes
+        for (const k of ALL_MOUTH_KEYS) {
+          const tgt = k === targetMouth ? targetWeight : 0;
+          mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 18);
+          set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
       } else if (faceExpressions && !speaking) {
-        // ── Idle + face tracking: mirror your real mouth open ──
-        // Fade out any residual vowels first
-        for (let i = 0; i < 5; i++) {
-          vowels.current[keys[i]] *= Math.max(0, 1 - dt * 28);
-          if (vowels.current[keys[i]] < 0.01) vowels.current[keys[i]] = 0;
+        // ── Face tracking: mirror VSeeFace mouth ──
+        for (const k of ALL_MOUTH_KEYS) {
+          mouthW.current[k] *= Math.max(0, 1 - dt * 25);
+          if (mouthW.current[k] < 0.005) mouthW.current[k] = 0;
+          set(VRM_PRESET[k], mouthW.current[k]);
         }
-        vowelTimer.current = 0;
         set(VRMExpressionPresetName.Aa, faceExpressions.mouthOpen);
       } else {
-        // ── Idle without face tracking: fade mouth closed ──
-        for (let i = 0; i < 5; i++) {
-          vowels.current[keys[i]] *= Math.max(0, 1 - dt * 28);
-          if (vowels.current[keys[i]] < 0.01) vowels.current[keys[i]] = 0;
-          set(presets[i], vowels.current[keys[i]]);
+        // ── Idle / silence: fade mouth closed ──
+        let allZero = true;
+        for (const k of ALL_MOUTH_KEYS) {
+          mouthW.current[k] *= Math.max(0, 1 - dt * 25);
+          if (mouthW.current[k] < 0.005) mouthW.current[k] = 0;
+          else allZero = false;
+          set(VRM_PRESET[k], mouthW.current[k]);
         }
-        vowelTimer.current = 0;
+        if (allZero) {
+          // Ensure all are exactly 0
+          for (const k of ALL_MOUTH_KEYS) set(VRM_PRESET[k], 0);
+        }
       }
 
-      /* ── BLINK ─────────────────────────────────────────────── */
+      /* ── LAYER 3: BLINK ─────────────────────────────────────────── */
       if (faceExpressions) {
-        // Real eye tracking: 1=open → blink = 1-open
-        const blL = 1 - faceExpressions.eyeBlinkL;
-        const blR = 1 - faceExpressions.eyeBlinkR;
+        const blL = Math.max(0, 1 - faceExpressions.eyeBlinkL);
+        const blR = Math.max(0, 1 - faceExpressions.eyeBlinkR);
         set(VRMExpressionPresetName.BlinkLeft,  blL);
         set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
       } else {
-        // Auto-blink
-        blink.current -= dt;
+        // Natural auto-blink
+        blinkTimer.current -= dt;
         let bv = 0;
-        if (blink.current <= 0) {
-          if (blink.current < -0.13) {
-            if (doubleBlink.current) { doubleBlink.current = false; blink.current = 1.5 + Math.random() * 3.5; }
-            else if (Math.random() < 0.18) { doubleBlink.current = true; blink.current = -0.02; }
-            else blink.current = 2 + Math.random() * 4;
+        if (blinkTimer.current <= 0) {
+          if (blinkTimer.current < -0.14) {
+            if (doubleBlink.current) {
+              doubleBlink.current = false;
+              blinkTimer.current = 1.5 + Math.random() * 3.5;
+            } else if (Math.random() < 0.18) {
+              doubleBlink.current = true;
+              blinkTimer.current = -0.02;
+            } else {
+              blinkTimer.current = 2 + Math.random() * 4;
+            }
           } else {
-            bv = Math.sin(Math.max(0, Math.min(1, (blink.current + 0.13) / 0.13)) * Math.PI);
+            const phase = (blinkTimer.current + 0.14) / 0.14;
+            bv = Math.sin(Math.max(0, Math.min(1, phase)) * Math.PI);
           }
         }
         set(VRMExpressionPresetName.Blink, bv);
+        set(VRMExpressionPresetName.BlinkLeft, 0);
+        set(VRMExpressionPresetName.BlinkRight, 0);
       }
 
-      /* ── EMOTION ───────────────────────────────────────────── */
+      /* ── LAYER 4: EMOTION (always low weight, never overrides mouth) */
       if (faceExpressions) {
-        // Face tracking: mirror real expressions
-        set(VRMExpressionPresetName.Happy,     faceExpressions.mouthSmile);
-        set(VRMExpressionPresetName.Surprised, (faceExpressions.browUpL + faceExpressions.browUpR) / 2);
-        set(VRMExpressionPresetName.Angry,     (faceExpressions.browDownL + faceExpressions.browDownR) / 2);
-        set(VRMExpressionPresetName.Relaxed,   faceExpressions.cheekPuff);
+        // Mirror VSeeFace expressions — cap at 0.5 so they don't go extreme
+        const capEmo = (v: number) => Math.min(0.5, v);
+        set(VRMExpressionPresetName.Happy,     capEmo(faceExpressions.mouthSmile));
+        set(VRMExpressionPresetName.Surprised, capEmo((faceExpressions.browUpL + faceExpressions.browUpR) / 2));
+        set(VRMExpressionPresetName.Angry,     capEmo((faceExpressions.browDownL + faceExpressions.browDownR) / 2));
+        set(VRMExpressionPresetName.Relaxed,   capEmo(faceExpressions.cheekPuff));
       } else {
-        // Auto-emotion based on companion state
         const tEmo = emotionFor(state);
-        for (const key of [
+        const emoKeys = [
           VRMExpressionPresetName.Happy, VRMExpressionPresetName.Sad,
-          VRMExpressionPresetName.Relaxed, VRMExpressionPresetName.Surprised,
-          VRMExpressionPresetName.Angry,
-        ]) {
+          VRMExpressionPresetName.Relaxed, VRMExpressionPresetName.Angry,
+        ] as const;
+        for (const key of emoKeys) {
           const tgt = (tEmo as any)[key] ?? 0;
-          emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * dt * 3;
+          emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * dt * 2.5;
           set(key, emo.current[key]);
         }
       }
+
+      /* ── LAYER 5: GAZE — subtle eye movement ─────────────────────── */
+      // Small sine-wave gaze that leads head movement slightly
+      const gazX = Math.sin(t.current * 0.22) * 0.06;
+      const gazY = Math.sin(t.current * 0.17 + 1.2) * 0.04;
+      if (vrm.lookAt) {
+        try {
+          (vrm.lookAt as any).target = undefined;
+          if ((vrm.lookAt as any).lookAt) {
+            (vrm.lookAt as any).lookAt(new THREE.Vector3(gazX, gazY, 1));
+          }
+        } catch {}
+      }
     }
 
-    /* ── RELAXED POSE (normalized rig → retargeted by vrm.update) ──────────
-     * In three-vrm v3, setting normalized bone node quaternions BEFORE
-     * vrm.update() is the correct way to drive arm pose.
-     * vrm.update() retargets normalized→raw and runs spring bones.
-     * We slerp from current toward target for smooth motion.
-     * On first frame (t < 0.1) we snap instantly (alpha=1) to avoid flicker.
-     */
+    /* ── RELAXED POSE / FACE TRACKING POSE ────────────────────────── */
     const alpha = t.current < 0.1 ? 1.0 : Math.min(1, dt * 9);
-    const nb    = normBonesRef.current;
-    const cq    = curQRef.current;
+    const nb = normBonesRef.current;
+    const cq = curQRef.current;
 
     for (const boneName of POSE_BONES) {
       const bone = nb[boneName];
       const cur  = cq[boneName];
       if (!bone || !cur) continue;
-      cur.slerp(POSE_Q[boneName], alpha);
+      
+      // If face tracking is active and we have bone data for this bone from VSeeFace
+      if (faceTrackingActive && faceBones && faceBones[boneName]) {
+        const [qx, qy, qz, qw] = faceBones[boneName];
+        // Apply rotation directly from VSeeFace without slerping to POSE_Q
+        // VSeeFace VMC uses the same quaternion layout (x, y, z, w)
+        // Note: Models may have different facing defaults (e.g. VRM 1.0 vs 0.0), but
+        // since we already rotated the root scene for VRM 1.0, local bone rotations should match.
+        const vmcQ = new THREE.Quaternion(-qx, -qy, qz, qw); // VMC coordinates to Three.js coordinates
+        const targetQ = restQRef.current[boneName]!.clone().multiply(vmcQ);
+        cur.slerp(targetQ, alpha);
+      } else {
+        // Procedural relax pose derived from immutable rest quaternion
+        const targetQ = restQRef.current[boneName]!.clone().multiply(POSE_Q[boneName]);
+        cur.slerp(targetQ, alpha);
+      }
+      
       bone.quaternion.copy(cur);
     }
 
-    /* ── VRM UPDATE (spring bones, expression update, retarget) ── */
+    /* ── VRM UPDATE ──────────────────────────────────────────────── */
     vrm.update(dt);
   });
 
@@ -319,7 +390,7 @@ function Model({ state, jawEnergy, speakingRef, url, faceExpressions }: {
   return <primitive object={vrmRef.current!.scene} />;
 }
 
-/* ─── Camera controller ────────────────────────────────── */
+/* ─── Camera controller ───────────────────────────────────── */
 function Cam({ mode }: { mode: PresenceMode }) {
   const cfg    = CAMERAS[mode] ?? CAMERAS.portrait;
   const camera = useThree(s => s.camera);
@@ -339,7 +410,7 @@ function Cam({ mode }: { mode: PresenceMode }) {
   return null;
 }
 
-/* ─── Fallback ─────────────────────────────────────────── */
+/* ─── Fallback ────────────────────────────────────────────── */
 function AvatarFallback({ state }: { state: CompanionState }) {
   return (
     <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:12, color:"#64748b" }}>
@@ -349,23 +420,38 @@ function AvatarFallback({ state }: { state: CompanionState }) {
   );
 }
 
-/* ─── AvatarPresence (main export) ────────────────────────── */
+/* ─── AvatarPresence (main export) ──────────────────────── */
 interface Props {
   mode: PresenceMode;
   state: CompanionState;
   jawEnergy?: React.MutableRefObject<number>;
   speakingRef?: React.MutableRefObject<boolean>;
+  visemeEvents?: React.MutableRefObject<VisemeEvent[]>;
+  audioStartTimeRef?: React.MutableRefObject<number>;
   modelUrl?: string;
   onModeChange?: (m: PresenceMode) => void;
-  faceExpressions?: FaceExpressions | null;   // from useVSeeFace
-  faceTrackingActive?: boolean;               // show indicator
+  faceExpressions?: FaceExpressions | null;
+  faceBones?: Record<string, [number, number, number, number]> | null;
+  faceTrackingActive?: boolean;
 }
 
-export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl = "/models/model_5447.vrm", onModeChange, faceExpressions, faceTrackingActive }: Props) {
+// Stable fallback refs so we never create new objects in render
+const _emptyVisemes: VisemeEvent[] = [];
+const _falseRef = { current: false };
+const _zeroRef  = { current: 0 };
+const _emptyRef = { current: _emptyVisemes };
+const _startRef = { current: 0 };
+
+export function AvatarPresence({
+  mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
+  modelUrl = "/models/model_5447.vrm", onModeChange, faceExpressions, faceBones, faceTrackingActive,
+}: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
 
-  // Reset context-lost flag if user picks a new model
+  // Reset on model change
   useEffect(() => { setWebglFailed(false); }, [modelUrl]);
+
+
 
   if (mode === "hidden") return null;
 
@@ -373,6 +459,11 @@ export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl =
     const modes: PresenceMode[] = ["portrait","closeup","full"];
     onModeChange?.(modes[(modes.indexOf(mode) + 1) % modes.length]);
   };
+
+  const jaw    = jawEnergy      ?? _zeroRef  as React.MutableRefObject<number>;
+  const spkRef = speakingRef    ?? _falseRef as React.MutableRefObject<boolean>;
+  const vEvts  = visemeEvents   ?? _emptyRef as React.MutableRefObject<VisemeEvent[]>;
+  const aStart = audioStartTimeRef ?? _startRef as React.MutableRefObject<number>;
 
   return (
     <div style={{ position:"relative", width:"100%", height:"100%", minHeight:200 }}>
@@ -394,20 +485,24 @@ export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl =
           <Suspense fallback={null}>
             <Cam mode={mode} />
 
-            {/* Lighting — cinematic soft wrap */}
+            {/* Cinematic lighting */}
             <ambientLight intensity={0.9}  color="#fffef8" />
             <directionalLight position={[1.5, 3, 2.5]} intensity={1.5} color="#fffcf0" castShadow={false} />
             <spotLight position={[-2.5, 2.5, 2]} intensity={1.3} color="#b7f5d8" angle={0.55} penumbra={0.7} />
             <spotLight position={[ 2.5, 2.0,-1]} intensity={1.0} color="#d4c0fd" angle={0.5}  penumbra={0.7} />
             <pointLight position={[0, 1.6, 2.2]} intensity={0.55} color="#fff5e8" />
 
-            <Model
-              state={state}
-              jawEnergy={jawEnergy}
-              speakingRef={speakingRef}
-              url={modelUrl}
-              faceExpressions={faceExpressions}
-            />
+              <Model
+                state={state}
+                jawEnergy={jaw}
+                speakingRef={spkRef}
+                visemeEvents={vEvts}
+                audioStartTimeRef={aStart}
+                url={modelUrl}
+                faceExpressions={faceExpressions}
+                faceBones={faceBones}
+                faceTrackingActive={faceTrackingActive}
+              />
 
             <ContactShadows
               resolution={256} scale={2.8} blur={2.5}
@@ -421,9 +516,8 @@ export function AvatarPresence({ mode, state, jawEnergy, speakingRef, modelUrl =
 
       {webglFailed && <AvatarFallback state={state} />}
 
-      {/* Camera cycle button */}
+      {/* Controls */}
       <div style={{ position:"absolute", bottom:8, right:8, zIndex:5, display:"flex", gap:4 }}>
-        {/* Face tracking indicator */}
         {faceTrackingActive && (
           <div style={{ display:"flex", alignItems:"center", gap:3, padding:"3px 7px", borderRadius:8, background:"rgba(34,197,94,.85)", backdropFilter:"blur(8px)", border:"1px solid rgba(255,255,255,.5)" }}>
             <Radio size={9} color="#fff" />

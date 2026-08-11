@@ -33,6 +33,7 @@ def build_turn_prompt(
         companion_id=request.companionId,
         interaction_mode=interaction_mode,
         user_text=request.text,
+        response_mode=request.responseMode,
         recent_turns=history,
         personality=personality_from_settings(settings, request),
         language=request.language,

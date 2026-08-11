@@ -10,6 +10,8 @@ from .context import (
 from .depth import depth_guidance, infer_response_depth
 from .language import LANGUAGE_LAYER, language_hint
 from .models import PromptInput, PromptLayer, PromptPackage
+from .professional_answer import professional_answer_layer
+from .response_modes import infer_response_mode, response_mode_layer
 from .performance import PERFORMANCE_SCHEMA_LAYER
 from .safety import PRODUCT_IDENTITY_LAYER, SAFETY_LAYER, TOOL_POLICY_LAYER
 from ..tools import registry
@@ -51,14 +53,14 @@ def _schema_layer(mode: str) -> str:
         "- Return ONLY a single JSON object matching AssistantTurnPlan.\n"
         "- Required keys: spokenText, displayText, language, emotion, performance, "
         "memoryCandidates, toolRequests.\n"
-        "- spokenText/displayText must be non-empty useful natural language for the user.\n"
-        "- Prefer spokenText suitable for TTS; displayText may match spokenText.\n"
+        "- spokenText and displayText must be strictly formatted according to the RESPONSE CHANNELS instructions.\n"
         f"- Schema contract version reference: {SCHEMA_CONTRACT_VERSION}.\n"
         + PERFORMANCE_SCHEMA_LAYER
     )
 
 
 def assemble_prompt(inp: PromptInput) -> PromptPackage:
+    actual_mode = inp.response_mode or infer_response_mode(inp.user_text)
     depth = infer_response_depth(inp.user_text, inp.interaction_mode)
     layers = [
         PromptLayer(name="safety", priority=1, trusted=True, text=SAFETY_LAYER),
@@ -83,33 +85,45 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             text=_personality_layer(inp),
         ),
         PromptLayer(
-            name="response_depth",
+            name="response_mode",
             priority=6,
+            trusted=True,
+            text=response_mode_layer(actual_mode),
+        ),
+        PromptLayer(
+            name="response_depth",
+            priority=7,
             trusted=True,
             text=depth_guidance(depth, inp.interaction_mode),
         ),
-        PromptLayer(name="tool_policy", priority=7, trusted=True, text=TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()),
+        PromptLayer(
+            name="professional_answer",
+            priority=8,
+            trusted=True,
+            text=professional_answer_layer(inp.interaction_mode),
+        ),
+        PromptLayer(name="tool_policy", priority=9, trusted=True, text=TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()),
         PromptLayer(
             name="schema_contract",
-            priority=8,
+            priority=10,
             trusted=True,
             text=_schema_layer(inp.interaction_mode),
         ),
         PromptLayer(
             name="approved_memory",
-            priority=9,
+            priority=11,
             trusted=True,
             text=build_memory_block(inp.approved_memory_blocks),
         ),
         PromptLayer(
             name="session_memory",
-            priority=10,
+            priority=12,
             trusted=True,
             text=build_session_memory_block(inp.session_memories),
         ),
         PromptLayer(
             name="conversation_history",
-            priority=11,
+            priority=13,
             trusted=False,
             text=build_history_block(
                 inp.recent_turns,

@@ -25,13 +25,13 @@ def neutral_fallback_plan(
 ) -> AssistantTurnPlan:
     if companion_id == "hinaa":
         spoken = (
-            "Ma yahi chu. Tyaha kehi technical glitch bhayo, tara tapaiko message safe cha. "
-            "Text bata feri try garna saknu huncha—kasari madat garau?"
+            "Yahan ek unexpected technical glitch hua hai. Main koi fake success report nahi dungi. "
+            "Error details diagnostics mein safely record ho gayi hain. Aap text se retry kar sakte ho."
         )
     else:
         spoken = (
-            "Thik cha—response plan clean bhaena, tara tapaiko message safe cha. "
-            "Text bata feri try gara; ma clear steps dinchu. Ke bata start garne?"
+            "Yahan ek unexpected technical glitch hua hai. Main koi fake success report nahi dungi. "
+            "Error details diagnostics mein safely record ho gayi hain."
         )
     if language == "en-US":
         spoken = (
@@ -74,5 +74,5 @@ def schema_repair_contents(invalid_raw: str) -> str:
 def validate_or_none(raw: str) -> AssistantTurnPlan | None:
     try:
         return parse_turn_plan(raw)
-    except json.JSONDecodeError, ValidationError, ValueError:
+    except (json.JSONDecodeError, ValidationError, ValueError):
         return None

@@ -122,12 +122,12 @@ export default function App() {
         : "real";
       try {
         const s = await synthesizeSpeech(spoken, controller.companionId, ttsMode, new AbortController().signal);
-        await playback.play(s.blob);
+        await playback.play(s.blob, spoken);
       } catch (err) {
         // Retry once with "real" fallback if first attempt failed
         try {
           const s = await synthesizeSpeech(spoken, controller.companionId, "real", new AbortController().signal);
-          await playback.play(s.blob);
+          await playback.play(s.blob, spoken);
         } catch {}
       }
     })();
@@ -214,9 +214,12 @@ export default function App() {
                 state={controller.state}
                 jawEnergy={playback.jawEnergy}
                 speakingRef={playback.playingRef}
+                visemeEvents={playback.visemeEvents}
+                audioStartTimeRef={playback.audioStartTimeRef}
                 modelUrl={avatarModel}
                 onModeChange={setAvatarMode}
                 faceExpressions={faceActive ? faceTrack.expressions : null}
+                faceBones={faceActive ? faceTrack.bones : null}
                 faceTrackingActive={faceActive}
               />
               {/* VRM Model Switcher — A, B, C + Face Tracking */}
@@ -236,26 +239,35 @@ export default function App() {
                     {m.label}
                   </button>
                 ))}
-                {/* Face tracking button */}
+                {/* VSeeFace face tracking button */}
                 <button
                   type="button"
                   className={`vrm-pill vrm-pill--face${faceActive ? " vrm-pill--face-active" : ""}`}
                   onClick={() => faceActive ? faceTrack.disconnect() : faceTrack.connect()}
                   title={
-                    faceTrack.status === "awaiting_auth" ? "Waiting for VSeeFace approval..." :
-                    faceTrack.status === "error" ? (faceTrack.error ?? "Error") :
-                    faceActive ? "Face tracking ON — click to stop" :
-                    "Connect VSeeFace face tracking"
+                    faceActive
+                      ? "🎭 VSeeFace tracking LIVE — click to stop"
+                      : "🎭 Start VSeeFace tracking\n\nSetup (one time):\n1. Open VSeeFace\n2. General Settings → ✅ VMC Protocol\n3. IP: 127.0.0.1  Port: 39539\n4. Click Save & start VSeeFace\n5. Then click this button"
                   }
                 >
-                  {faceTrack.status === "connecting" || faceTrack.status === "awaiting_auth" || faceTrack.status === "authenticating" ? "⏳" :
-                   faceActive ? "🎭 Live" : "🎭 Face"}
+                  {faceTrack.status === "connecting" ? "⏳ Connecting..." :
+                   faceActive ? "🎭 LIVE" : "🎭 VSeeFace"}
                 </button>
               </div>
-              {/* Error hint */}
-              {faceTrack.error && (
-                <div style={{ fontSize:"0.6rem", color:"#ef4444", padding:"2px 10px 4px", textAlign:"center", lineHeight:1.3 }}>
-                  {faceTrack.error}
+              {/* VSeeFace status strip */}
+              {faceTrack.status === "error" && faceTrack.error && (
+                <div style={{ fontSize:"0.62rem", color:"#dc2626", padding:"3px 12px 5px", textAlign:"center", lineHeight:1.4, background:"rgba(254,226,226,0.7)", borderTop:"1px solid rgba(252,165,165,0.4)" }}>
+                  ⚠️ {faceTrack.error.length > 90 ? faceTrack.error.slice(0, 90) + "…" : faceTrack.error}
+                </div>
+              )}
+              {!faceActive && faceTrack.status === "disconnected" && (
+                <div style={{ fontSize:"0.6rem", color:"#64748b", padding:"2px 12px 4px", textAlign:"center", lineHeight:1.4 }}>
+                  VSeeFace → VMC Protocol → 127.0.0.1:39539 → click 🎭 VSeeFace
+                </div>
+              )}
+              {faceActive && (
+                <div style={{ fontSize:"0.6rem", color:"#15803d", padding:"2px 12px 4px", textAlign:"center", lineHeight:1.4 }}>
+                  ✅ Face tracking active — expressions mirrored live
                 </div>
               )}
             </div>

@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -344,6 +344,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     else "Backend credentials are not configured."
                 ),
             ),
+            ProviderStatus(
+                id="deepgram",
+                capabilities=["tts", "stt", "aura-2-odysseus-en", "flux-general-en"],
+                state="healthy" if active_settings.deepgram_configured else "unavailable",
+                userMessage=(
+                    "Deepgram TTS and STT configured server-side for Hiro."
+                    if active_settings.deepgram_configured
+                    else "Deepgram_API_KEY is not configured in backend."
+                ),
+            ),
         ]
 
     @app.get("/v1/voice-profiles", response_model=list[VoiceProfile])
@@ -386,13 +396,113 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             latencyMs=result.latency_ms,
         )
 
+    @app.post("/v1/tools/approve")
+    async def approve_tool(request: Request) -> dict[str, Any]:
+        data = await request.json()
+        approval_id = data.get("approval_id")
+        approved = data.get("approved", False)
+        
+        from hinaa_api.tools.browser_agent import approval_events
+        if approval_id in approval_events:
+            approval_events[approval_id]["approved"] = approved
+            approval_events[approval_id]["event"].set()
+            return {"status": "success"}
+        return {"status": "error", "error": "Approval ID not found"}
+
+    @app.get("/v1/tools/poll")
+    async def poll_tool(job_id: str) -> dict[str, Any]:
+        from hinaa_api.persistence.db import get_session_factory
+        from hinaa_api.persistence.orm import GenerationSet, ImageJob
+        from hinaa_api.config import get_settings
+        settings = get_settings()
+        
+        session_factory = get_session_factory(settings)
+        with session_factory() as session:
+            gen_set = session.query(GenerationSet).filter_by(id=job_id).first()
+            if not gen_set:
+                raise HTTPException(status_code=404, detail="Job not found")
+                
+            jobs = session.query(ImageJob).filter_by(generation_set_id=job_id).all()
+            if not jobs:
+                return {"id": job_id, "status": "processing", "images": [], "total": 0}
+                
+            status = "success"
+            errors = []
+            images = []
+            for j in jobs:
+                if j.status in ["failed", "cancelled"]:
+                    errors.append(f"Image {j.id} failed")
+                    if status != "processing":
+                        status = "error"
+                elif j.status == "pending" or j.status == "processing":
+                    status = "processing"
+                
+                if j.status == "completed" and j.file_path:
+                    # Return the safe image URL endpoint
+                    images.append(f"http://127.0.0.1:8000/v1/generated-images/{j.id}")
+                    
+            if status == "error" and len(images) > 0:
+                # Partial success
+                status = "success"
+                
+            return {
+                "id": job_id,
+                "status": status,
+                "images": images,
+                "total": len(jobs),
+                "error": " | ".join(errors) if errors else None
+            }
+
+    @app.get("/v1/generated-images/{image_id}")
+    async def get_generated_image(image_id: str):
+        from hinaa_api.persistence.db import get_session_factory
+        from hinaa_api.persistence.orm import ImageJob
+        from hinaa_api.config import get_settings
+        settings = get_settings()
+        from fastapi.responses import FileResponse
+        import os
+        from pathlib import Path
+        
+        session_factory = get_session_factory(settings)
+        with session_factory() as session:
+            job = session.query(ImageJob).filter_by(id=image_id).first()
+            if not job or not job.file_path:
+                raise HTTPException(status_code=404, detail="Image not found")
+                
+            file_path = Path(job.file_path)
+            
+            # Security checks
+            allowed_root = Path("apps/api/data/images").resolve()
+            try:
+                resolved_path = file_path.resolve()
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid path")
+                
+            if not resolved_path.is_relative_to(allowed_root):
+                raise HTTPException(status_code=403, detail="Forbidden path traversal")
+                
+            if not resolved_path.exists() or not resolved_path.is_file():
+                raise HTTPException(status_code=404, detail="File missing on disk")
+                
+            ext = resolved_path.suffix.lower()
+            if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
+                raise HTTPException(status_code=415, detail="Unsupported media type")
+                
+            content_type = "image/png"
+            if ext in [".jpg", ".jpeg"]:
+                content_type = "image/jpeg"
+            elif ext == ".webp":
+                content_type = "image/webp"
+                
+            return FileResponse(resolved_path, media_type=content_type)
+
     @app.post("/v1/tools/execute")
-    async def execute_tool(request: ToolRequest) -> dict[str, Any]:
-        tool_def = registry.get_tool(request.toolName)
+    async def execute_tool(request: Request, body: ToolRequest) -> dict[str, Any]:
+        tool_def = registry.get_tool(body.toolName)
         if not tool_def:
             raise HTTPException(status_code=404, detail="Tool not found")
             
-        handler = registry._handlers.get(request.toolName)
+        handler = registry._handlers.get(body.toolName)
         if not handler:
             raise HTTPException(status_code=500, detail="Tool handler not registered")
             
@@ -401,18 +511,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             from pydantic import BaseModel
             
             sig = inspect.signature(handler)
-            parsed_params = request.parameters
+            parsed_params = body.parameters.copy()
             
+            user_id = body.userId or _resolve_user_id(request)
+            if user_id:
+                parsed_params.setdefault("userId", user_id)
+            if "conversationId" not in parsed_params:
+                conv_id = body.conversationId or request.headers.get("X-Conversation-ID")
+                if conv_id:
+                    parsed_params["conversationId"] = conv_id
+
+                    
             if sig.parameters:
                 first_param = list(sig.parameters.values())[0]
                 param_type = first_param.annotation
                 if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
-                    parsed_params = param_type(**request.parameters)
+                    parsed_params = param_type(**parsed_params)
                     
+            import time
+            import uuid
+            
+            started_at = int(time.time() * 1000)
             result = await handler(parsed_params)
-            return {"status": "success", "data": result}
+            completed_at = int(time.time() * 1000)
+            
+            # If the handler returned a REQUIRES_APPROVAL string
+            if isinstance(result, str) and result.startswith("REQUIRES_APPROVAL:"):
+                parts = result.split(":", 2)
+                if len(parts) == 3:
+                    action, args = parts[1], parts[2]
+                    return {
+                        "status": "RequiresApproval",
+                        "data": {
+                            "action": action,
+                            "args": args
+                        }
+                    }
+
+            # If the handler already returned a StandardToolResultEnvelope-like dict, use it directly
+            if isinstance(result, dict) and "status" in result and ("data" in result or "images" in result or "job_id" in result):
+                return result
+
+            envelope = {
+                "id": str(uuid.uuid4()),
+                "toolId": body.toolName,
+                "status": "success",
+                "startedAt": started_at,
+                "completedAt": completed_at,
+                "data": result,
+            }
+            return {"status": "success", "data": envelope}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            import traceback
+            error_details = traceback.format_exc()
+            return {
+                "status": "error",
+                "error": str(e),
+                "details": error_details
+            }
 
     @app.post("/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:

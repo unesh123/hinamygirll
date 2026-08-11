@@ -47,7 +47,6 @@ PERFORMANCE_SCHEMA_LAYER = f"""ASSISTANT TURN PLAN CONTRACT:
 - headMotion ∈ ["none","subtle","nod","shake"]
 - blinkRate between 0.1 and 1.0
 - memoryCandidates: empty unless the product later supplies explicit remember flow (currently prefer [])
-- toolRequests: always []
 - Never invent animation filenames, bone names, blendshapes, URLs, code, or tools.
 - Prefer restrained intensity. At most one major gesture cue per turn.
 - Serious, sensitive, uncertain, or error contexts: prefer neutral/thinking/concerned and avoid playful/celebrate.
