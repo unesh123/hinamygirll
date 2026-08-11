@@ -125,3 +125,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             
     async def _chat_json(self, prompt: PromptPackage) -> str:
         return await self._chat_text(prompt)
+
+# Backward-compatible public name for OpenAI-compatible Agent Router models.
+# New routing selects the Anthropic-specific implementation only when required.
+AgentRouterProvider = AgentRouterOpenAIProvider

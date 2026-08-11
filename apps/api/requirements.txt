@@ -8,3 +8,4 @@ google-genai==2.15.0
 httpx==0.28.1
 SQLAlchemy==2.0.43
 alembic==1.16.5
+anthropic==0.84.0

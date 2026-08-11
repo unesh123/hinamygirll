@@ -133,7 +133,7 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
         ),
         PromptLayer(
             name="user_message",
-            priority=11,
+            priority=14,
             trusted=False,
             text=build_user_block(inp.user_text),
         ),

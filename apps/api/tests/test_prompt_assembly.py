@@ -37,7 +37,9 @@ def test_layer_order_and_canaries_are_stable() -> None:
         "companion_identity",
         "language",
         "personality",
+        "response_mode",
         "response_depth",
+        "professional_answer",
         "tool_policy",
         "schema_contract",
         "approved_memory",
@@ -49,7 +51,7 @@ def test_layer_order_and_canaries_are_stable() -> None:
     assert package.safety_policy_version == SAFETY_POLICY_VERSION
     assert "explicitly artificial" in package.system_instruction.lower()
     assert "IMMUTABLE SAFETY" in package.system_instruction
-    assert "DEVANAGARI" in package.system_instruction
+    assert "NEPALI & HINDI SCRIPTING" in package.system_instruction
     assert (
         "AssistantTurnPlan" in package.system_instruction
         or "OUTPUT CONTRACT" in package.system_instruction

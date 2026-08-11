@@ -131,6 +131,7 @@ class MemoryService:
                 source_turn_ref=source_turn_ref,
             )
             session.add(memory)
+            session.flush()
             session.add(
                 MemoryConsent(
                     user_id=user.id,
@@ -143,7 +144,7 @@ class MemoryService:
                     user_id=user.id,
                     action="memory.remember",
                     resource_type="memory",
-                    resource_id=None,
+                    resource_id=memory.id,
                     result="ok",
                 )
             )
