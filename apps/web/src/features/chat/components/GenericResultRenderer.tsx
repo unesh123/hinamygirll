@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTriangle, Network, Globe } from 'lucide-react';
 import { ImageGeneration } from '@/components/ui/image-generation';
-import { WorkTree, WorkTreeNode } from './WorkTree';
+import { WorkTree } from './WorkTree';
+import type { WorkTreeNode } from './WorkTree';
 
 interface GenericResultRendererProps {
   toolName: string;
