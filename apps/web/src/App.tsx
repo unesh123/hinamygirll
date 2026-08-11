@@ -88,9 +88,9 @@ export default function App() {
   const [actionChips, setActionChips] = useState<ActionChip[]>([]);
   const [contextSources] = useState<any[]>([]);
   const [avatarMode, setAvatarMode] = useState<PresenceMode>("portrait");
-  // No bundled 3D model is treated as production-approved by default.
-  // The procedural presence remains the safe baseline until a licensed model is supplied.
-  const [avatarModel, setAvatarModel] = useState<string | undefined>(undefined);
+  // Use the owner-supplied local model as the preferred avatar. The procedural
+  // renderer remains the safe fallback if an asset cannot load.
+  const [avatarModel, setAvatarModel] = useState<string | undefined>("/models/model_6164.vrm");
 
   // VSeeFace face tracking
   const faceTrack = useVSeeFace();
@@ -241,12 +241,12 @@ export default function App() {
                 faceBones={faceActive ? faceTrack.bones : null}
                 faceTrackingActive={faceActive}
               />
-              {/* VRM Model Switcher — A, B, C + Face Tracking */}
-              <div className="vrm-switcher" role="group" aria-label="Switch 3D model">
+              {/* Owner-supplied VRM choices. The previous sample B/C models are
+                  intentionally excluded because they were not the preferred character. */}
+              <div className="vrm-switcher" role="group" aria-label="Switch Hinaa avatar">
                 {([
-                  { url: "/models/model_5447.vrm", label: "Hinaa A" },
-                  { url: "/models/AvatarSample_E.vrm", label: "Hinaa B" },
-                  { url: "/models/hinaa.vrm", label: "Hinaa C" },
+                  { url: "/models/model_6164.vrm", label: "Hinaa" },
+                  { url: "/models/model_5447.vrm", label: "Hinaa Classic" },
                 ] as { url: string; label: string }[]).map((m) => (
                   <button
                     key={m.url}

@@ -223,9 +223,13 @@ function Model({
      */
     if (em) {
       const speaking = speakingRef.current;
-      const energy = Math.min(1, jawEnergy.current * 1.3);
+      // RMS values vary greatly across local voice engines and browsers. Shape
+      // them for visible but natural articulation instead of treating quiet
+      // speech as silence.
+      const rawEnergy = Math.min(1, Math.max(0, jawEnergy.current * 3.2));
+      const energy = speaking ? Math.max(0.16, Math.sqrt(rawEnergy) * 0.82) : rawEnergy;
 
-      if (speaking && energy > 0.02) {
+      if (speaking) {
         // ── Speaking: viseme-based mouth animation ──
         // Lazily populate audioCtxRef from global (avoids prop drilling through Canvas)
         if (!audioCtxRef.current) {
@@ -243,7 +247,12 @@ function Model({
             const active = getActiveViseme(Math.max(0, playTimeMs), events);
             if (active && active.mouth !== "closed") {
               targetMouth = VISEME_TO_VRM[active.mouth] as MouthKey ?? "aa";
-              targetWeight = active.weight * energy;
+              targetWeight = Math.max(0.10, active.weight * energy);
+            } else {
+              // Preserve a soft open-mouth bridge between phoneme windows.
+              // This avoids a distracting open/close flicker on streamed TTS.
+              targetMouth = "aa";
+              targetWeight = energy * 0.36;
             }
           } else {
             // Fallback: cycle based on energy timing
@@ -260,7 +269,7 @@ function Model({
         // Smooth all mouth shapes
         for (const k of ALL_MOUTH_KEYS) {
           const tgt = k === targetMouth ? targetWeight : 0;
-          mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 18);
+          mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 14);
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
       } else if (faceExpressions && !speaking) {

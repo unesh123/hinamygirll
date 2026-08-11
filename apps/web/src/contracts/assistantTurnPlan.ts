@@ -88,8 +88,13 @@ const toolRequestSchema = z
   .object({
     toolName: z.string().min(1).max(100),
     parameters: z.record(z.string(), z.any()),
-    userId: z.string().optional(),
-    conversationId: z.string().optional(),
+    // Some compatible model gateways serialize absent optional values as null
+    // and may echo a proposed confirmation flag.  This plan remains only a
+    // proposal: server-side tool execution still independently requires
+    // explicit user confirmation for protected actions.
+    confirmed: z.boolean().optional(),
+    userId: z.string().nullable().optional(),
+    conversationId: z.string().nullable().optional(),
   })
   .strict();
 

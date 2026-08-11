@@ -22,6 +22,20 @@ describe("AssistantTurnPlan validation", () => {
     expect(parseAssistantTurnPlan(validPlan).emotion.primary).toBe("happy");
   });
 
+  it("accepts nullable tool metadata and a model-proposed confirmation flag", () => {
+    const plan = parseAssistantTurnPlan({
+      ...validPlan,
+      toolRequests: [{
+        toolName: "image_generate",
+        parameters: { prompt: "violet companion portrait" },
+        userId: null,
+        conversationId: null,
+        confirmed: true,
+      }],
+    });
+    expect(plan.toolRequests[0]?.toolName).toBe("image_generate");
+  });
+
   it("rejects animation filenames and unknown properties", () => {
     expect(() =>
       parseAssistantTurnPlan({ ...validPlan, animationFile: "wave.vrma" }),
