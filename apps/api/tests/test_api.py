@@ -169,7 +169,7 @@ def test_groq_stt_uses_local_gate_without_cloud_fallback(client: TestClient) -> 
     assert response.json()["code"] == "LOCAL_STT_UNAVAILABLE"
 
 
-def test_openai_voice_mode_missing_configuration_returns_typed_stream_error(
+def test_openai_text_mode_missing_configuration_returns_typed_stream_error(
     client: TestClient,
 ) -> None:
     response = client.post(
@@ -187,7 +187,7 @@ def test_openai_voice_mode_missing_configuration_returns_typed_stream_error(
     assert error["type"] == "error"
     assert error["code"] == "PROVIDER_CONFIGURATION_MISSING"
     assert "OPENAI_API_KEY" in error["message"]
-    assert "AZURE_SPEECH_KEY" in error["message"]
+    assert "AZURE_SPEECH_KEY" not in error["message"]
 
 
 def test_custom_provider_uses_codex_gateway_key_without_exposing_secret() -> None:

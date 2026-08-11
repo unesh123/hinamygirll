@@ -444,7 +444,7 @@ const _startRef = { current: 0 };
 
 export function AvatarPresence({
   mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
-  modelUrl = "/models/model_5447.vrm", onModeChange, faceExpressions, faceBones, faceTrackingActive,
+  modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive,
 }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
 
@@ -470,7 +470,7 @@ export function AvatarPresence({
       {/* Atmospheric glow */}
       <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse 70% 55% at 50% 35%, rgba(103,232,249,.06) 0%, transparent 70%)", pointerEvents:"none", zIndex:0 }} />
 
-      {!webglFailed && (
+      {modelUrl && !webglFailed && (
         <Canvas
           style={{ position:"absolute", inset:0, zIndex:1 }}
           dpr={[1, Math.min(window.devicePixelRatio, 2)]}
@@ -514,7 +514,7 @@ export function AvatarPresence({
         </Canvas>
       )}
 
-      {webglFailed && <AvatarFallback state={state} />}
+      {(!modelUrl || webglFailed) && <AvatarFallback state={state} />}
 
       {/* Controls */}
       <div style={{ position:"absolute", bottom:8, right:8, zIndex:5, display:"flex", gap:4 }}>

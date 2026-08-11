@@ -75,7 +75,7 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     avatarStyle: "auto",
   },
   provider: {
-    preferredMode: "cx-gateway",
+    preferredMode: "auto",
     preferredModelByProvider: {},
   },
 };

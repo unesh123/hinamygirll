@@ -86,13 +86,14 @@ export default function App() {
   const [actionChips, setActionChips] = useState<ActionChip[]>([]);
   const [contextSources] = useState<any[]>([]);
   const [avatarMode, setAvatarMode] = useState<PresenceMode>("portrait");
-  const [avatarModel, setAvatarModel] = useState("/models/model_5447.vrm");
+  // No bundled 3D model is treated as production-approved by default.
+  // The procedural presence remains the safe baseline until a licensed model is supplied.
+  const [avatarModel, setAvatarModel] = useState<string | undefined>(undefined);
 
   // VSeeFace face tracking
   const faceTrack = useVSeeFace();
   const faceActive = faceTrack.status === "active";
 
-  const prevMessageCount = useRef(0);
   const routing = useProviderRouting(settings.provider, providers);
   const controller = useCompanionController({ routing });
   useMemory();
@@ -116,19 +117,20 @@ export default function App() {
       const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
       const spoken = result?.plan?.spokenText ?? result?.plan?.displayText;
       if (!spoken) return;
-      // Always attempt TTS — use active provider mode, fall back to "real" (backend ElevenLabs)
-      const ttsMode = (controller.routing.activeMode && controller.routing.activeMode !== "mock")
-        ? controller.routing.activeMode
-        : "real";
+      // Mock conversations remain text-only. HINAA never silently switches to a
+      // paid voice provider when the user has not selected one.
+      const ttsMode = controller.routing.activeMode;
+      if (!ttsMode || ttsMode === "mock") return;
       try {
-        const s = await synthesizeSpeech(spoken, controller.companionId, ttsMode, new AbortController().signal);
+        const s = await synthesizeSpeech(
+          spoken,
+          controller.companionId,
+          ttsMode,
+          new AbortController().signal,
+        );
         await playback.play(s.blob, spoken);
-      } catch (err) {
-        // Retry once with "real" fallback if first attempt failed
-        try {
-          const s = await synthesizeSpeech(spoken, controller.companionId, "real", new AbortController().signal);
-          await playback.play(s.blob, spoken);
-        } catch {}
+      } catch {
+        // Keep the completed text response visible when voice is unavailable.
       }
     })();
   }, [input, live.active, controller, playback, attachedImage]);
@@ -138,7 +140,7 @@ export default function App() {
       "search-web": () => { setContextMode("research"); setSearching(true); },
       "image-search": () => setContextMode("images"),
       "browser-navigate": () => setContextMode("browser"),
-      "play-music": () => window.open("https://www.youtube.com/results?search_query=hindi+songs", "_blank"),
+      "play-music": () => window.open("https://www.youtube.com/results?search_query=hindi+songs", "_blank", "noopener,noreferrer"),
       "remember-this": () => setMemoryOpen(true),
     };
     map[p.action]?.();
@@ -153,15 +155,8 @@ export default function App() {
     if (action === "voice") live.start();
     else if (action === "research") setInput("Search for: ");
     else if (action === "create") setInput("Help me create: ");
+    else if (action === "work") setInput("Help me plan my work: ");
   };
-
-  /* ─── YouTube auto-open ──────────────────────────────── */
-  useEffect(() => {
-    const msgs = controller.messages; if (msgs.length <= prevMessageCount.current) return;
-    prevMessageCount.current = msgs.length;
-    const last = msgs[msgs.length - 1]; if (last?.role !== "assistant") return;
-    const yt = extractYouTubeIntent(last.text); if (yt) window.open(yt, "_blank", "noopener,noreferrer");
-  }, [controller.messages]);
 
   /* ─── Agent steps ────────────────────────────────────── */
   useEffect(() => {
@@ -202,7 +197,7 @@ export default function App() {
 
         <div className="hinaa-layout">
           {/* Nav Rail */}
-          <NavRail active={navSection} onNavigate={handleNav} onNewChat={() => window.location.reload()} onSettings={() => setSettingsOpen(true)} />
+          <NavRail active={navSection} onNavigate={handleNav} onNewChat={controller.resetConversation} onSettings={() => setSettingsOpen(true)} />
           <SidebarPanel section={sidebarExpanded} onClose={() => setSidebarExpanded(null)} />
 
           {/* Center: Avatar LEFT, Chat RIGHT */}
@@ -273,7 +268,7 @@ export default function App() {
             </div>
 
             {/* Right: Chat */}
-            <div className="chat-pane">
+            <main className="chat-pane">
               {/* Header */}
               <header className="app-header">
                 <div className="brand-group">
@@ -295,7 +290,7 @@ export default function App() {
 
                 {showWelcome ? (
                   <div className="welcome-center">
-                    <motion.h1 className="welcome-greeting" initial={{ opacity: 0, y: 16, filter: "blur(4px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0)" }} transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}>Hello, Unesh</motion.h1>
+                    <motion.h1 className="welcome-greeting" initial={{ opacity: 0, y: 16, filter: "blur(4px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0)" }} transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}>Hello</motion.h1>
                     <motion.p className="welcome-subtitle" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }}>Main tumhare liye ready hoon. What would you like to do?</motion.p>
                     <motion.div className="welcome-cards" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
                       {[
@@ -304,11 +299,11 @@ export default function App() {
                         { icon: "💼", title: "Continue work", desc: "Projects & tasks", action: "work" },
                         { icon: "🎤", title: "Talk to HINAA", desc: "Voice conversation", action: "voice" },
                       ].map((c, i) => (
-                        <motion.div key={c.action} className="welcome-card" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 + i * 0.08 }} onClick={() => handleWelcome(c.action)} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
-                          <div className="welcome-card-icon">{c.icon}</div>
-                          <div className="welcome-card-title">{c.title}</div>
-                          <div className="welcome-card-desc">{c.desc}</div>
-                        </motion.div>
+                        <motion.button type="button" key={c.action} className="welcome-card" aria-label={c.title} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 + i * 0.08 }} onClick={() => handleWelcome(c.action)} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
+                          <span className="welcome-card-icon" aria-hidden="true">{c.icon}</span>
+                          <span className="welcome-card-title">{c.title}</span>
+                          <span className="welcome-card-desc">{c.desc}</span>
+                        </motion.button>
                       ))}
                     </motion.div>
                   </div>
@@ -335,7 +330,7 @@ export default function App() {
                   isGenerating={controller.state === "thinking"} disabled={controller.state !== "idle" && controller.state !== "thinking"}
                   companionName={companionProfiles[controller.companionId].name} />
               </div>
-            </div>
+            </main>
           </div>
 
           {/* Context workspace */}

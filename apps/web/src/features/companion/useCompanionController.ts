@@ -9,7 +9,6 @@ import {
   type TranscriptMessage,
 } from "./types";
 import type { ProviderRuntimeSelection } from "../providers/utils/resolveProviderSelection";
-import { useToolRunner } from "../tools/useToolRunner";
 
 function createId(): string {
   return (
@@ -34,6 +33,7 @@ function createMessage(
 export interface CompanionController {
   companionId: CompanionId;
   switchCompanion: (id: CompanionId) => void;
+  resetConversation: () => void;
   state: CompanionState;
   messages: TranscriptMessage[];
   partialTranscript: string;
@@ -81,6 +81,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
   const provider = useRef(new MockConversationProvider());
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
+  const processedToolMessageIds = useRef<Set<string>>(new Set());
 
   const clearTimers = useCallback(() => {
     for (const timer of timers.current) window.clearTimeout(timer);
@@ -112,6 +113,17 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
     },
     [clearTimers, companionId],
   );
+
+  const resetConversation = useCallback(() => {
+    clearTimers();
+    currentAbort.current?.abort();
+    currentAbort.current = undefined;
+    setPartialTranscript("");
+    setStreamingText("");
+    setActivePlan(undefined);
+    setMessages([createMessage("assistant", companionProfiles[companionId].greeting)]);
+    setState("idle");
+  }, [clearTimers, companionId]);
 
   const stop = useCallback(() => {
     clearTimers();
@@ -283,16 +295,37 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
     [clearTimers],
   );
 
-  const updateMessage = useCallback((id: string, updater: (msg: TranscriptMessage) => TranscriptMessage) => {
-    setMessages((current) => current.map((m) => (m.id === id ? updater(m) : m)));
-  }, []);
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    const toolRequests =
+      lastMessage?.role === "assistant" ? lastMessage.plan?.toolRequests : undefined;
+    if (!lastMessage || !toolRequests?.length) return;
+    if (processedToolMessageIds.current.has(lastMessage.id)) return;
 
-  useToolRunner(messages, updateMessage);
-
+    processedToolMessageIds.current.add(lastMessage.id);
+    // A model proposal is not consent to browse, send, purchase, or call an
+    // external service. Keep it visible until a dedicated confirmation UI is
+    // implemented, then submit with `confirmed: true` only after approval.
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === lastMessage.id
+          ? {
+              ...message,
+              toolActivity: toolRequests.map((request) => ({
+                id: request.toolName,
+                status: "pending" as const,
+                label: `Proposed action: ${request.toolName}`,
+              })),
+            }
+          : message,
+      ),
+    );
+  }, [messages]);
 
   return {
     companionId,
     switchCompanion,
+    resetConversation,
     state,
     messages,
     partialTranscript,

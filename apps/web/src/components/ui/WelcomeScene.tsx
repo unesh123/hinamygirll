@@ -1,9 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Search, Sparkles, Briefcase, Mic } from 'lucide-react';
+import { Search, Sparkles, Briefcase, Mic, type LucideIcon } from 'lucide-react';
 
 interface WelcomeCard {
-  icon: React.ElementType;
+  icon: LucideIcon;
   title: string;
   desc: string;
   action: string;
@@ -23,14 +23,15 @@ interface WelcomeSceneProps {
   onAction?: (action: string) => void;
 }
 
-export function WelcomeScene({ userName = 'Unesh', onAction }: WelcomeSceneProps) {
-  const letters = `Hello, ${userName}`.split('');
+export function WelcomeScene({ userName, onAction }: WelcomeSceneProps) {
+  const greeting = userName ? `Hello, ${userName}` : "Hello";
+  const letters = greeting.split('');
 
   return (
     <div className="welcome-scene">
       {/* Animated greeting */}
       <div>
-        <h1 className="welcome-greeting" aria-label={`Hello, ${userName}`}>
+        <h1 className="welcome-greeting" aria-label={greeting}>
           {letters.map((char, i) => (
             <motion.span
               key={i}

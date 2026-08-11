@@ -70,21 +70,18 @@ export function TranscriptView({
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6 }}
       >
-        <WelcomeScene userName="Unesh" onAction={onWelcomeAction} />
+        <WelcomeScene onAction={onWelcomeAction} />
       </motion.div>
     );
   }
 
   /* ── Conversation view ────────────────────────────────────── */
-  const isPreviousUser = (i: number) =>
-    i > 0 && messages[i - 1]?.role === "user";
-
   return (
     <div className={styles.container} ref={scrollRef}>
       {messages.map((msg, i) => {
         const prev = messages[i - 1];
         const showDivider =
-          prev?.createdAt &&
+          Boolean(prev?.createdAt) &&
           gapSeconds(prev.createdAt, msg.createdAt) > TURN_GAP_SECONDS;
 
         const isGroupStart =
@@ -166,7 +163,7 @@ export function TranscriptView({
         {showJump && (
           <motion.button
             className={styles.jumpBtn}
-            onClick={scrollToBottom}
+            onClick={() => scrollToBottom()}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}

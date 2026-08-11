@@ -27,6 +27,9 @@ from .vmc_bridge import vmc_bridge
 from .voice_profiles import public_profiles
 
 
+logger = logging.getLogger(__name__)
+
+
 class RememberBody(BaseModel):
     content: Annotated[str, Field(min_length=1, max_length=500)]
     category: Annotated[str, Field(default="other", max_length=40)] = "other"
@@ -501,7 +504,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_def = registry.get_tool(body.toolName)
         if not tool_def:
             raise HTTPException(status_code=404, detail="Tool not found")
-            
+        if tool_def.requires_confirmation and not body.confirmed:
+            raise HinaaError(
+                "TOOL_CONFIRMATION_REQUIRED",
+                f"Confirm the {tool_def.display_name} action before HINAA runs it.",
+                409,
+                False,
+                True,
+            )
+
         handler = registry._handlers.get(body.toolName)
         if not handler:
             raise HTTPException(status_code=500, detail="Tool handler not registered")
@@ -561,14 +572,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "data": result,
             }
             return {"status": "success", "data": envelope}
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            return {
-                "status": "error",
-                "error": str(e),
-                "details": error_details
-            }
+        except HinaaError:
+            raise
+        except Exception:
+            logger.exception("Tool execution failed: %s", body.toolName)
+            raise HinaaError(
+                "TOOL_EXECUTION_FAILED",
+                "HINAA could not complete that action. Please try again.",
+                502,
+                True,
+                False,
+            ) from None
 
     @app.post("/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:

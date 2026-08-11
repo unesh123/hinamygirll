@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Search, Image, Code, BookOpen, RotateCcw } from 'lucide-react';
+import { ArrowRight, Search, Image, Code, BookOpen, RotateCcw, type LucideIcon } from 'lucide-react';
 
 export interface ActionChip {
   id: string;
@@ -15,7 +15,7 @@ interface ActionChipsProps {
   onChip: (chip: ActionChip) => void;
 }
 
-const ICON_MAP: Record<string, React.ElementType> = {
+const ICON_MAP: Record<string, LucideIcon> = {
   search: Search,
   image: Image,
   code: Code,

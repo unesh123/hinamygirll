@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  MessageSquare, Mic, CheckSquare, FolderOpen, Brain, Wrench, Settings, Plus, ChevronRight
+  MessageSquare, Mic, CheckSquare, FolderOpen, Brain, Wrench, Settings, Plus, ChevronRight, type LucideIcon
 } from 'lucide-react';
 
 export type NavSection = 'chat' | 'voice' | 'tasks' | 'files' | 'memory' | 'tools' | 'settings';
@@ -14,7 +14,7 @@ interface NavRailProps {
   expanded?: boolean;
 }
 
-const ITEMS: Array<{ id: NavSection; icon: React.ElementType; label: string; tooltip: string }> = [
+const ITEMS: Array<{ id: NavSection; icon: LucideIcon; label: string; tooltip: string }> = [
   { id: 'chat', icon: MessageSquare, label: 'Conversations', tooltip: 'Chat' },
   { id: 'voice', icon: Mic, label: 'Voice', tooltip: 'Voice' },
   { id: 'tasks', icon: CheckSquare, label: 'Tasks', tooltip: 'Tasks' },

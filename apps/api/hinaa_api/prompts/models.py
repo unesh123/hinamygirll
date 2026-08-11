@@ -46,7 +46,7 @@ class PersonalitySettings(StrictModel):
             value = raw.get(key, defaults[key])
             try:
                 number = float(value)  # type: ignore[arg-type]
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 number = defaults[key]
             normalized[key] = max(0.0, min(ceiling, number))
         return cls(**normalized)

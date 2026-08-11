@@ -94,6 +94,9 @@ class MemoryCandidate(StrictModel):
 class ToolRequest(StrictModel):
     toolName: Annotated[str, Field(min_length=1, max_length=100, validation_alias=AliasChoices("toolName", "tool"))]
     parameters: dict[str, Any]
+    # A model request is a proposal, not authorization. The client may set this
+    # only after the user has reviewed and confirmed the specific action.
+    confirmed: bool = False
     userId: str | None = None
     conversationId: str | None = None
 

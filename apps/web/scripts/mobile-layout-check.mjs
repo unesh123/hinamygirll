@@ -4,8 +4,8 @@
  * Runs headless Chromium against the dev server, forces the lightweight
  * procedural avatar + mock provider for a deterministic layout, then asserts:
  *   - no horizontal overflow
- *   - companion profile card present, inside the viewport, below the header
- *   - avatar presence + composer + status pill present
+ *   - assistant avatar pane and welcome actions remain inside the viewport
+ *   - composer and status pill remain visible
  *   - zero console errors
  *
  * Usage (from apps/web): node scripts/mobile-layout-check.mjs
@@ -100,26 +100,16 @@ for (const vp of VIEWPORTS) {
       };
     };
     const doc = document.documentElement;
-    const card = rect(".companion-profile-card");
-    const header = rect(".app-header");
-    const presence = rect(".stage-presence");
-    const composer = rect(".cinematic-composer");
+    const avatar = rect(".avatar-pane");
+    const composer = rect(".premium-composer-wrapper");
     return {
       viewport: { w: window.innerWidth, h: window.innerHeight },
       scrollWidth: doc.scrollWidth,
       overflowX: doc.scrollWidth > window.innerWidth + 1,
-      card,
-      cardText: card
-        ? (document.querySelector(".companion-profile-card")?.textContent ?? "")
-            .replace(/\s+/g, " ")
-            .trim()
-        : null,
-      headerBottom: header?.bottom ?? null,
-      avatarVisible:
-        !!document.querySelector(
-          ".procedural-stage, .vrm-stage, .vrm-canvas, .avatar-fallback",
-        ),
-      composerVisible: !!composer && composer.bottom <= window.innerHeight,
+      avatar,
+      avatarVisible: !!avatar && avatar.height > 0,
+      composerVisible: !!composer && composer.bottom <= window.innerHeight + 1,
+      welcomeActionVisible: !!document.querySelector('[aria-label="Research"]'),
       statusPill: !!document.querySelector(".header-status"),
     };
   });
@@ -127,18 +117,16 @@ for (const vp of VIEWPORTS) {
   // Invariants
   const checks = {
     noHorizontalOverflow: layout.overflowX === false,
-    profileCardPresent: !!layout.card,
-    profileCardInsideViewport: !!(
-      layout.card &&
-      layout.card.left >= 0 &&
-      layout.card.right <= layout.viewport.w
-    ),
-    profileCardBelowHeader: !!(
-      layout.card &&
-      layout.headerBottom !== null &&
-      layout.card.top >= layout.headerBottom - 4
+    avatarPanePresent: !!layout.avatar,
+    avatarPaneInsideViewport: !!(
+      layout.avatar &&
+      layout.avatar.left >= 0 &&
+      layout.avatar.right <= layout.viewport.w &&
+      layout.avatar.top >= 0 &&
+      layout.avatar.bottom <= layout.viewport.h
     ),
     avatarPresent: layout.avatarVisible,
+    welcomeActionPresent: layout.welcomeActionVisible,
     composerInsideViewport: layout.composerVisible,
     statusPillPresent: layout.statusPill,
     noConsoleErrors: consoleErrors.length === 0,
@@ -155,8 +143,7 @@ for (const vp of VIEWPORTS) {
     pass,
     consoleErrors,
     detail: {
-      cardText: layout.cardText,
-      card: layout.card,
+        avatar: layout.avatar,
       scrollWidth: layout.scrollWidth,
     },
   });

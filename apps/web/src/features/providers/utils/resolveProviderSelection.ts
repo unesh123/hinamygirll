@@ -42,8 +42,22 @@ export function resolveProviderSelection(
   // 1. Explicit selection
   if (preferredMode !== "auto") {
     const concrete = preferredMode as ConcreteProviderMode;
-    const explicitModel = models[concrete as keyof typeof models] || providers.getDefaultModel(concrete) || null;
-    
+    const health = providers.getHealth(concrete);
+    const explicitModel =
+      models[concrete as keyof typeof models] || providers.getDefaultModel(concrete) || null;
+
+    // Preferences are persisted locally. If a saved paid or custom provider is
+    // no longer configured on this deployment, recover to deterministic mock
+    // mode rather than surfacing a provider-configuration error in chat.
+    if (providers.loaded && (health === "unavailable" || health === "disabled")) {
+      return {
+        preferredMode,
+        activeMode: "mock",
+        activeModel: null,
+        reason: "recovery",
+      };
+    }
+
     return {
       preferredMode,
       activeMode: concrete,

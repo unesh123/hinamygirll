@@ -7,12 +7,12 @@ import { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Image, Globe, Code, Music, Mail, Calendar,
-  FileText, Brain, Sparkles, Lightbulb, Mic, Wrench,
+  FileText, Brain, Sparkles, Lightbulb, Mic, Wrench, type LucideIcon,
 } from "lucide-react";
 
 export interface Suggestion {
   id: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   description: string;
   color: string;

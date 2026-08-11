@@ -7,11 +7,11 @@ import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain, Search, Trash2, Edit3, Check, X, Tag,
-  Star, Bookmark, Clock, MessageSquare,
+  Star, Bookmark, Clock, MessageSquare, type LucideIcon,
 } from "lucide-react";
 import useMemory, { type MemoryEntry } from "../../features/memory/useMemory";
 
-const CATEGORY_CONFIG: Record<MemoryEntry["category"], { icon: React.ElementType; color: string; label: string }> = {
+const CATEGORY_CONFIG: Record<MemoryEntry["category"], { icon: LucideIcon; color: string; label: string }> = {
   fact: { icon: Star, color: "#f59e0b", label: "Facts" },
   preference: { icon: Bookmark, color: "#ec4899", label: "Preferences" },
   workflow: { icon: Tag, color: "#8b5cf6", label: "Workflows" },
