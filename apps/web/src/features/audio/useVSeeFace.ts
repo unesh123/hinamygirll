@@ -64,6 +64,8 @@ export interface VSeeFaceState {
   expressionsRef: React.MutableRefObject<FaceExpressions>;
   bonesRef: React.MutableRefObject<Record<string, [number, number, number, number]>>;
   diagnostics: VmcDiagnostics | null;
+  /** True only after the bridge has observed at least one supported expression channel. */
+  hasFacialSignal: boolean;
   calibration: TrackingCalibration | null;
   error: string | null;
   connectionId: string | null;
@@ -292,12 +294,15 @@ export function useVSeeFace(): VSeeFaceState {
     };
   }, [clearPolling]);
 
+  const hasFacialSignal = diagnostics?.detectedChannels.some((channel) => channel.startsWith("expression:")) ?? false;
+
   return {
     status,
     expressions: expressionsRef.current,
     expressionsRef,
     bonesRef,
     diagnostics,
+    hasFacialSignal,
     calibration,
     error,
     connectionId,

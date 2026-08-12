@@ -161,3 +161,27 @@ The user supplied a real Windows HINAA screenshot showing a green **LIVE** indic
 | Frontend type check | **PASS** — `tsc -b`. |
 
 The real Windows visual validation is still **PENDING_USER_RUNTIME**: apply this branch, restart the local API and frontend, hard-refresh once, reconnect VSeeFace, and then confirm the arms remain relaxed while eyes, brows, gaze/head, and non-speech mouth expressions respond. This repo change never alters the user’s original VRM binary, VSeeFace installation, or camera configuration.
+
+
+## Companion playground and smooth expression pass — 2026-08-13
+
+The user provided a new real Windows screenshot showing a valid live connection but requested a larger companion stage, more natural expression response, smoother VSeeFace behavior, and a stronger relaxed upper-body silhouette. The screenshot also motivated a new distinction between generic motion packets and detected supported facial blendshapes.
+
+| Area | Implemented change | Evidence |
+|---|---|---|
+| Shipped rig calibration | A read-only inspection of `model_6164.vrm` confirmed its authored shoulder and upper-arm hierarchy is horizontal. The relaxed profile now distributes mirrored rotations through shoulders, upper arms, and forearms rather than relying on an upper-arm-only guess. | Read-only inspector output; source target is calculated from cached normalized rest quaternions; no VRM asset was altered. |
+| Companion composition | The active single avatar pane is widened on desktop, retains upper-body mobile behavior, and has a refined pearlescent stage. The existing canvas can enter native browser full-screen via **Open Hinaa playground full screen**. | Type check and production build pass; no second canvas/application added. |
+| Smooth live face | VSeeFace samples are smoothed in the render layer using a bounded low-pass response, reducing packet/camera jitter while preserving mouth precedence for TTS speech. | Source implementation and frontend regression preservation. |
+| Speech-aware presence | HINAA’s own latest assistant reply selects a low-weight deterministic warm, curious, empathetic, celebratory, or concerned facial accent. It does not infer user emotion or camera state. | Three focused multilingual text-cue regressions passed. |
+| Facial signal contract | `VSeeFace Live` transport is now separated from **blendshapes detected**. Expression mirroring begins only after the bridge detects a supported `expression:*` channel; otherwise the UI says that it is waiting instead of claiming expression tracking. | New VMC panel regression covers fresh live packets with no blendshape channels. |
+
+### Companion-playground release gates
+
+| Gate | Result |
+|---|---|
+| Frontend regression suite | **PASS** — 28 files, 120 passing tests, 2 existing todos. |
+| Frontend type check | **PASS** — `tsc -b`. |
+| Production build | **PASS** — Vite/PWA build. The existing large-avatar bundle warning is non-blocking. |
+| Backend regression suite | **PASS** — full `pytest -q`. |
+
+The requested real-life quality still requires final **Windows runtime observation** after this branch is applied. A true proof must show the actual chosen model with shoulders relaxed, upper body in frame, a detected `expression:*` channel, visible eye/brow/non-speech-mouth change, bounded head motion after neutral calibration, and uninterrupted TTS lip sync. No source-only result is described as this final camera/model proof.

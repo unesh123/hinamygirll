@@ -332,3 +332,18 @@ This final source-level polish does not change the strict runtime boundaries: Co
 | Focused validation | **PASS** — bridge suite has 3 passing tests; frontend VMC/app suite has 27 files, 116 passing tests, and 2 existing todos; TypeScript passes. |
 
 The supplied screenshot identifies a real Windows visual defect and drove this repair. Final visual proof after applying this branch remains **PENDING_USER_RUNTIME**, not automatically passed: it requires restarting the local API/frontend, hard-refreshing, reconnecting VSeeFace, and observing the actual selected model under a real camera sender.
+
+
+## Phase 19 — Companion Playground and Smooth Expression Layer
+
+| Requirement | Result |
+|---|---|
+| Upper-body companion stage | **IMPLEMENTED** — desktop avatar pane is widened and styled as a richer companion stage; the same existing canvas can enter a native full-screen HINAA playground. |
+| Relaxed shoulders and arms | **IMPLEMENTED** — default HINAA profile now uses real rig-aware shoulder + upper-arm + forearm offsets calculated from cached rest transforms, producing a more natural distributed arm drop. |
+| VSeeFace expression smoothness | **IMPLEMENTED** — visual application of incoming VMC expressions uses render-rate smoothing, preventing harsh packet/camera jitter. |
+| Speech-aware emotion | **IMPLEMENTED** — subtle warm, curious, empathetic, celebratory, or concerned accents derive only from HINAA’s own response text, with multilingual regression coverage. |
+| Lip-sync ownership | **PRESERVED** — TTS mouth visemes take precedence while speaking; non-speech VMC vowels apply only when HINAA is not speaking. |
+| Facial readiness | **IMPLEMENTED** — live motion is no longer enough to assert expression mirroring. The UI requires observed `expression:*` blendshape channels and otherwise says it is waiting for blendshapes. |
+| Release gates | **PASS** — 28 frontend test files, 120 passing tests, 2 existing todos; TypeScript, Vite/PWA production build, and full backend regression passed. |
+
+Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch is applied, the user must verify the actual selected Windows model in the actual browser: relaxed shoulders, clear upper-body portrait/playground, detected expression channel, smooth face response, calibrated head movement, and uninterrupted voice lip sync.

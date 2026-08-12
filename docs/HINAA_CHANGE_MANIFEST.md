@@ -145,3 +145,18 @@ For every subsequent changed file, add a row before publishing the related phase
 | `apps/api/tests/test_vmc_and_avatar_assets.py` | Add regression for VMC open-eye defaults and close-weight preservation. | Backend regression | No real camera/model dependency. | 3 focused tests passed. | **PASS** |
 | `apps/web/src/components/ui/VmcControlPanel.tsx` | State clearly that live VMC controls face/calibrated head while body and arms remain protected. | User-visible tracking controls | Prevents misleading full-body-mirroring expectation. | VMC panel regression preserved. | **PASS** |
 | `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record user-screenshot defect, source cause, repair, and Windows visual-verification boundary. | Evidence ledger | Does not label a screenshot-derived repair as verified real camera motion. | Repository review. | **UPDATED** |
+
+
+## Companion Playground and Smooth Expression Pass — 2026-08-13
+
+| File | Change reason | System | Risk control | Verification | Result |
+|---|---|---|---|---|---|
+| `apps/web/src/components/ui/AvatarPresence.tsx` | Use shoulder-aware relaxed profiles calibrated from the shipped VRM hierarchy; widen companion framing; add the existing canvas’s native fullscreen playground control; smooth live face samples; blend restrained HINAA reply-text emotion cues. | Single avatar renderer | No additional canvas or binary edit; body VMC remains ignored; head stays calibration-bounded; TTS owns mouth while speaking. | Full frontend release gates. | **PASS** |
+| `apps/web/src/App.tsx` | Pass only HINAA’s latest assistant reply into the expression director and gate facial expression values on actual detected blendshape channels. | App shell | Never classifies user/camera emotion; fresh motion without expressions is visibly degraded rather than falsely mirrored. | Type check and app regressions. | **PASS** |
+| `apps/web/src/App.css` | Enlarge desktop companion stage and style the existing fullscreen playground accessibly and responsively. | UI polish | Retains one canvas and mobile layout; reduced-motion policy preserved. | Production build. | **PASS** |
+| `apps/web/src/features/avatar/companionExpression.ts` | Add deterministic multilingual reply-text expression intent selection. | Expression director | Fixed local pattern mapping only; no external model/camera analysis. | 3 unit tests. | **PASS** |
+| `apps/web/src/features/avatar/companionExpression.test.ts` | Cover celebratory English/Devanagari, empathy, concern, and neutral warm behavior. | Frontend regression | No media or provider dependency. | 3 tests passed. | **PASS** |
+| `apps/web/src/features/audio/useVSeeFace.ts` | Expose `hasFacialSignal` from observed bridge channels. | Tracking state | Transport state is distinct from expression readiness. | VMC control regressions. | **PASS** |
+| `apps/web/src/components/ui/VmcControlPanel.tsx` | Show face-signal readiness and truthful waiting guidance in the existing VMC panel. | User-visible diagnostics | Does not imply facial tracking without a detected channel. | 2 panel tests. | **PASS** |
+| `apps/web/src/components/ui/VmcControlPanel.test.tsx` | Cover live motion packets without blendshape readiness. | Frontend regression | Mocked diagnostics only. | **PASS** |
+| `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record source findings, implementation, release gates, and real-runtime boundary. | Evidence ledger | Source verification is separate from Windows visual proof. | Updated. | **UPDATED** |

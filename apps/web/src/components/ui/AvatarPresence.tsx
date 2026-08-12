@@ -17,10 +17,11 @@ import { motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
-import { Maximize2, Radio } from "lucide-react";
+import { Expand, Maximize2, Minimize2, Radio } from "lucide-react";
 import type { CompanionState } from "../../features/companion/types";
 import type { AvatarPresentation } from "../../features/avatar/avatarPresentation";
 import type { FaceExpressions } from "../../features/audio/useVSeeFace";
+import { expressionIntentFor, type CompanionExpressionIntent } from "../../features/avatar/companionExpression";
 import type { VisemeEvent } from "../../features/audio/textToViseme";
 import { getActiveViseme } from "../../features/audio/textToViseme";
 
@@ -117,6 +118,17 @@ const VRM_PRESET: Record<MouthKey, VRMExpressionPresetName> = {
 
 /* ─── Emotion blends (always low intensity — never override mouth) */
 type EmotionBlend = Partial<Record<VRMExpressionPresetName, number>>;
+function emotionForIntent(intent: CompanionExpressionIntent): EmotionBlend {
+  switch (intent) {
+    case "celebratory": return { [VRMExpressionPresetName.Happy]: 0.22, [VRMExpressionPresetName.Relaxed]: 0.08 };
+    case "empathetic": return { [VRMExpressionPresetName.Relaxed]: 0.18, [VRMExpressionPresetName.Sad]: 0.05 };
+    case "curious": return { [VRMExpressionPresetName.Surprised]: 0.10, [VRMExpressionPresetName.Relaxed]: 0.08 };
+    case "concerned": return { [VRMExpressionPresetName.Sad]: 0.10, [VRMExpressionPresetName.Relaxed]: 0.12 };
+    case "warm": return { [VRMExpressionPresetName.Happy]: 0.08, [VRMExpressionPresetName.Relaxed]: 0.12 };
+    default: return {};
+  }
+}
+
 function emotionFor(state: CompanionState): EmotionBlend {
   switch (state) {
     case "listening":   return { [VRMExpressionPresetName.Relaxed]: 0.10 };
@@ -131,8 +143,8 @@ function emotionFor(state: CompanionState): EmotionBlend {
 /* ─── Conversational neutral pose ───────────────────────── */
 // Offsets are always multiplied once against cached immutable normalized-bone
 // rest quaternions. No raw J_Bip nodes and no cumulative Euler edits are used.
-type PoseBoneName = "leftUpperArm" | "rightUpperArm" | "leftLowerArm" | "rightLowerArm" | "leftHand" | "rightHand";
-const POSE_BONES: PoseBoneName[] = ["leftUpperArm", "rightUpperArm", "leftLowerArm", "rightLowerArm", "leftHand", "rightHand"];
+type PoseBoneName = "leftShoulder" | "rightShoulder" | "leftUpperArm" | "rightUpperArm" | "leftLowerArm" | "rightLowerArm" | "leftHand" | "rightHand";
+const POSE_BONES: PoseBoneName[] = ["leftShoulder", "rightShoulder", "leftUpperArm", "rightUpperArm", "leftLowerArm", "rightLowerArm", "leftHand", "rightHand"];
 const restOffset = () => new THREE.Quaternion();
 const q = (x = 0, y = 0, z = 0) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
 
@@ -142,24 +154,30 @@ const q = (x = 0, y = 0, z = 0) => new THREE.Quaternion().setFromEuler(new THREE
 // until their Avatar Lab calibration produces a reviewed profile.
 const MODEL_POSE_OFFSETS: Record<string, Record<PoseBoneName, THREE.Quaternion>> = {
   "/models/model_6164.vrm": {
-    leftUpperArm: q(0, 0, 1.10), rightUpperArm: q(0, 0, -1.10),
-    leftLowerArm: q(0, 0, 0.20), rightLowerArm: q(0, 0, -0.20),
+    // Measured against the shipped VRM's actual horizontal upper-arm hierarchy.
+    // Sharing rotation through shoulder → upper arm → forearm avoids a stiff
+    // single-joint fold and reliably moves the visible sleeve line downward.
+    leftShoulder: q(0, 0, 1.06), rightShoulder: q(0, 0, -1.06),
+    leftUpperArm: q(0, 0, 0.34), rightUpperArm: q(0, 0, -0.34),
+    leftLowerArm: q(0, 0, 0.24), rightLowerArm: q(0, 0, -0.24),
     leftHand: restOffset(), rightHand: restOffset(),
   },
   "/models/model_5447.vrm": {
-    leftUpperArm: q(0, 0, 0.86), rightUpperArm: q(0, 0, -0.86),
-    leftLowerArm: q(0, 0, 0.14), rightLowerArm: q(0, 0, -0.14),
+    leftShoulder: q(0, 0, 0.72), rightShoulder: q(0, 0, -0.72),
+    leftUpperArm: q(0, 0, 0.24), rightUpperArm: q(0, 0, -0.24),
+    leftLowerArm: q(0, 0, 0.16), rightLowerArm: q(0, 0, -0.16),
     leftHand: restOffset(), rightHand: restOffset(),
   },
 };
 const DEFAULT_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
-  leftUpperArm: restOffset(), rightUpperArm: restOffset(), leftLowerArm: restOffset(),
-  rightLowerArm: restOffset(), leftHand: restOffset(), rightHand: restOffset(),
+  leftShoulder: restOffset(), rightShoulder: restOffset(), leftUpperArm: restOffset(), rightUpperArm: restOffset(),
+  leftLowerArm: restOffset(), rightLowerArm: restOffset(), leftHand: restOffset(), rightHand: restOffset(),
 };
 // Generic imported VRMs begin in a conservative relaxed pose. Users can use
 // the simple “Original pose” action if a non-standard rig needs its author pose.
 const GENERIC_RELAXED_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
-  leftUpperArm: q(0, 0, 0.62), rightUpperArm: q(0, 0, -0.62),
+  leftShoulder: q(0, 0, 0.46), rightShoulder: q(0, 0, -0.46),
+  leftUpperArm: q(0, 0, 0.22), rightUpperArm: q(0, 0, -0.22),
   leftLowerArm: q(0, 0, 0.10), rightLowerArm: q(0, 0, -0.10),
   leftHand: restOffset(), rightHand: restOffset(),
 };
@@ -177,11 +195,12 @@ interface ModelProps {
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
   trackingCalibration?: { headBaseline?: [number, number, number, number] } | null;
+  expressionText?: string;
   onAnatomyFrame?: (frame: AnatomyFrame) => void;
 }
 
 function Model({
-  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, presentation, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, onAnatomyFrame,
+  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, presentation, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, expressionText, onAnatomyFrame,
 }: ModelProps) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
@@ -203,6 +222,10 @@ function Model({
   // Current mouth weights (smoothed)
   const mouthW      = useRef<Record<MouthKey, number>>({ aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 });
   const emo         = useRef<Record<string, number>>({});
+  // Live samples are mutable refs delivered at VMC packet rate. Smooth their
+  // visual application at render rate to remove camera/packet jitter while
+  // retaining immediate conversational expression changes.
+  const smoothFace  = useRef<FaceExpressions>({ mouthOpen: 0, mouthA: 0, mouthI: 0, mouthU: 0, mouthE: 0, mouthO: 0, mouthSmile: 0, eyeBlinkL: 0, eyeBlinkR: 0, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0, cheekPuff: 0, angry: 0, sad: 0, relaxed: 0 });
   // AudioContext ref — populated lazily from global on first frame
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -220,6 +243,7 @@ function Model({
     availRef.current = new Set();
     t.current = 0;
     mouthW.current = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+    smoothFace.current = { mouthOpen: 0, mouthA: 0, mouthI: 0, mouthU: 0, mouthE: 0, mouthO: 0, mouthSmile: 0, eyeBlinkL: 0, eyeBlinkR: 0, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0, cheekPuff: 0, angry: 0, sad: 0, relaxed: 0 };
 
     const ldr = new GLTFLoader();
     ldr.crossOrigin = "anonymous";
@@ -350,6 +374,15 @@ function Model({
     t.current += dt;
 
     const em  = vrm.expressionManager;
+    const face = faceExpressions ? smoothFace.current : null;
+    if (face && faceExpressions) {
+      const trackingAlpha = 1 - Math.exp(-dt * 12);
+      for (const key of Object.keys(face) as Array<keyof FaceExpressions>) {
+        face[key] += (faceExpressions[key] - face[key]) * trackingAlpha;
+      }
+    }
+    const expressionIntent = expressionIntentFor(expressionText, state);
+    const directedEmotion = emotionForIntent(expressionIntent);
     // Safe setter with VRM 1.0 alias fallback
     const set = (n: string, v: number) => {
       if (!em) return;
@@ -421,13 +454,13 @@ function Model({
           mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 14);
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
-      } else if (faceExpressions) {
+      } else if (face) {
         // ── Fresh external VMC, while not speaking: use observed vowel data
         // when available, otherwise the sender's conservative mouth-open cue.
         const tracked: Record<MouthKey, number> = {
-          aa: Math.max(faceExpressions.mouthA, faceExpressions.mouthOpen),
-          ih: faceExpressions.mouthI, ou: faceExpressions.mouthU,
-          ee: faceExpressions.mouthE, oh: faceExpressions.mouthO,
+          aa: Math.max(face.mouthA, face.mouthOpen),
+          ih: face.mouthI, ou: face.mouthU,
+          ee: face.mouthE, oh: face.mouthO,
         };
         for (const k of ALL_MOUTH_KEYS) {
           mouthW.current[k] += (tracked[k] - mouthW.current[k]) * Math.min(1, dt * 12);
@@ -449,13 +482,13 @@ function Model({
       }
 
       /* ── LAYER 3: BLINK ─────────────────────────────────────────── */
-      if (faceExpressions) {
+      if (face) {
         // VMC `Fcl_EYE_Close_*` is a closure weight: 0 means open and 1
         // means closed. Do not invert it here; inversion made live VSeeFace
         // input hold HINAA's eyes shut. Keep a small eyelid opening visible
         // under noisy tracking rather than rendering a permanently blank face.
-        const blL = Math.min(0.88, Math.max(0, faceExpressions.eyeBlinkL));
-        const blR = Math.min(0.88, Math.max(0, faceExpressions.eyeBlinkR));
+        const blL = Math.min(0.88, Math.max(0, face.eyeBlinkL));
+        const blR = Math.min(0.88, Math.max(0, face.eyeBlinkR));
         set(VRMExpressionPresetName.BlinkLeft,  blL);
         set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
@@ -485,14 +518,16 @@ function Model({
       }
 
       /* ── LAYER 4: EMOTION (always low weight, never overrides mouth) */
-      if (faceExpressions) {
-        // Mirror VSeeFace expressions — cap at 0.5 so they don't go extreme
-        const capEmo = (v: number) => Math.min(0.5, v);
-        set(VRMExpressionPresetName.Happy,     capEmo(faceExpressions.mouthSmile));
-        set(VRMExpressionPresetName.Surprised, capEmo((faceExpressions.browUpL + faceExpressions.browUpR) / 2));
-        set(VRMExpressionPresetName.Angry,     capEmo(Math.max(faceExpressions.angry, (faceExpressions.browDownL + faceExpressions.browDownR) / 2)));
-        set(VRMExpressionPresetName.Sad,       capEmo(faceExpressions.sad));
-        set(VRMExpressionPresetName.Relaxed,   capEmo(Math.max(faceExpressions.relaxed, faceExpressions.cheekPuff)));
+      if (face) {
+        // Merge smooth live VSeeFace cues with a restrained response-text cue.
+        // The director never reads camera data and never exceeds natural weights.
+        const capEmo = (v: number) => Math.min(0.52, Math.max(0, v));
+        const directed = (preset: VRMExpressionPresetName) => directedEmotion[preset] ?? 0;
+        set(VRMExpressionPresetName.Happy,     capEmo(Math.max(face.mouthSmile, directed(VRMExpressionPresetName.Happy))));
+        set(VRMExpressionPresetName.Surprised, capEmo(Math.max((face.browUpL + face.browUpR) / 2, directed(VRMExpressionPresetName.Surprised))));
+        set(VRMExpressionPresetName.Angry,     capEmo(Math.max(face.angry, (face.browDownL + face.browDownR) / 2, directed(VRMExpressionPresetName.Angry))));
+        set(VRMExpressionPresetName.Sad,       capEmo(Math.max(face.sad, directed(VRMExpressionPresetName.Sad))));
+        set(VRMExpressionPresetName.Relaxed,   capEmo(Math.max(face.relaxed, face.cheekPuff, directed(VRMExpressionPresetName.Relaxed))));
       } else {
         const tEmo = emotionFor(state);
         const emoKeys = [
@@ -627,6 +662,7 @@ interface Props {
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
   trackingCalibration?: { headBaseline?: [number, number, number, number] } | null;
+  expressionText?: string;
   presentation?: AvatarPresentation;
 }
 
@@ -639,11 +675,25 @@ const _startRef = { current: 0 };
 
 export function AvatarPresence({
   mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
-  modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, presentation,
+  modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, expressionText, presentation,
 }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
   const [anatomy, setAnatomy] = useState<AnatomyFrame | undefined>();
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const playgroundRef = useRef<HTMLDivElement>(null);
   const applyAnatomy = useCallback((frame: AnatomyFrame) => setAnatomy(frame), []);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === playgroundRef.current);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!playgroundRef.current) return;
+    if (document.fullscreenElement === playgroundRef.current) void document.exitFullscreen();
+    else void playgroundRef.current.requestFullscreen?.();
+  };
 
   // Reset on model change
   useEffect(() => { setWebglFailed(false); setAnatomy(undefined); }, [modelUrl]);
@@ -663,7 +713,7 @@ export function AvatarPresence({
   const aStart = audioStartTimeRef ?? _startRef as React.MutableRefObject<number>;
 
   return (
-    <div style={{ position:"relative", width:"100%", height:"100%", minHeight:200 }}>
+    <div ref={playgroundRef} className={`avatar-playground${isFullscreen ? " avatar-playground--fullscreen" : ""}`} style={{ position:"relative", width:"100%", height:"100%", minHeight:200 }}>
       {/* Atmospheric glow */}
       <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse 70% 55% at 50% 35%, rgba(103,232,249,.06) 0%, transparent 70%)", pointerEvents:"none", zIndex:0 }} />
 
@@ -705,6 +755,7 @@ export function AvatarPresence({
                 faceBones={faceBones}
                 faceTrackingActive={faceTrackingActive}
                 trackingCalibration={trackingCalibration}
+                expressionText={expressionText}
                 onAnatomyFrame={applyAnatomy}
               />
 
@@ -721,13 +772,22 @@ export function AvatarPresence({
       {(!modelUrl || webglFailed) && <AvatarFallback state={state} />}
 
       {/* Controls */}
-      <div style={{ position:"absolute", bottom:8, right:8, zIndex:5, display:"flex", gap:4 }}>
+      <div className="avatar-playground__controls" style={{ position:"absolute", bottom:10, right:10, zIndex:5, display:"flex", gap:5 }}>
         {faceTrackingActive && (
           <div style={{ display:"flex", alignItems:"center", gap:3, padding:"3px 7px", borderRadius:8, background:"rgba(34,197,94,.85)", backdropFilter:"blur(8px)", border:"1px solid rgba(255,255,255,.5)" }}>
             <Radio size={9} color="#fff" />
             <span style={{ fontSize:"0.6rem", color:"#fff", fontWeight:700, letterSpacing:"0.04em" }}>LIVE</span>
           </div>
         )}
+        <motion.button
+          type="button" onClick={toggleFullscreen}
+          whileHover={{ scale:1.08 }} whileTap={{ scale:0.92 }}
+          style={{ width:30, height:30, borderRadius:9, border:"1px solid rgba(255,255,255,.72)", background:"rgba(255,255,255,.64)", backdropFilter:"blur(10px)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#356961" }}
+          title={isFullscreen ? "Exit Hinaa playground" : "Open Hinaa playground full screen"}
+          aria-label={isFullscreen ? "Exit Hinaa playground full screen" : "Open Hinaa playground full screen"}
+        >
+          {isFullscreen ? <Minimize2 size={13} aria-hidden="true" /> : <Expand size={13} aria-hidden="true" />}
+        </motion.button>
         <motion.button
           type="button" onClick={cycle}
           whileHover={{ scale:1.1 }} whileTap={{ scale:0.9 }}

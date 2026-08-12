@@ -112,11 +112,12 @@ body {
   width: 100%;
 }
 
-/* Avatar pane — left side, fixed width */
+/* Avatar pane — a generous companion stage beside chat. The same canvas can
+   enter the full-screen playground; no second avatar surface is mounted. */
 .avatar-pane {
-  width: 38%;
-  min-width: 280px;
-  max-width: 420px;
+  width: 42%;
+  min-width: 330px;
+  max-width: 560px;
   flex-shrink: 0;
   height: 100%;
   position: relative;
@@ -128,8 +129,9 @@ body {
   contain: layout paint;
   border-right: 1px solid rgba(255,255,255,0.5);
   background:
-    radial-gradient(ellipse 70% 48% at 50% 34%, rgba(94,234,212,0.13), transparent 72%),
-    linear-gradient(180deg, rgba(167,243,208,0.05) 0%, rgba(103,232,249,0.04) 50%, rgba(196,181,253,0.03) 100%);
+    radial-gradient(ellipse 82% 62% at 50% 30%, rgba(94,234,212,0.18), transparent 70%),
+    radial-gradient(ellipse 65% 44% at 52% 85%, rgba(196,181,253,0.10), transparent 74%),
+    linear-gradient(180deg, rgba(244,255,252,0.86) 0%, rgba(232,249,250,0.54) 52%, rgba(242,240,255,0.34) 100%);
 }
 
 .avatar-pane > div:first-child {
@@ -1587,7 +1589,7 @@ body {
 
 /* ── 26. RESPONSIVE ─────────────────────────────────── */
 @media (max-width: 1024px) {
-  .avatar-pane { width: 34%; min-width: 240px; }
+  .avatar-pane { width: 39%; min-width: 270px; max-width: 470px; }
 }
 
 @media (max-width: 768px) {
@@ -2023,3 +2025,11 @@ body {
 .hinaa-shortcuts-panel__note { display:flex; align-items:flex-start; gap:7px; margin-top:18px; padding:10px; border-radius:10px; color:#52746d; background:rgba(222,249,242,.62); font-size:.68rem; line-height:1.45; }
 .hinaa-shortcuts-panel__note svg { flex:0 0 auto; margin-top:1px; color:#0a987f; }
 @media (max-width: 720px) { .hinaa-shortcuts-panel { left:52px; width:min(330px, calc(100vw - 52px)); } }
+
+/* ─── Single-canvas companion playground ─────────────────────────────── */
+.avatar-playground { overflow:hidden; background:radial-gradient(ellipse 78% 66% at 50% 28%, rgba(255,255,255,.38), transparent 68%); }
+.avatar-playground::after { position:absolute; inset:0; z-index:2; pointer-events:none; content:""; border:1px solid rgba(255,255,255,.42); box-shadow:inset 0 -56px 70px rgba(52,154,145,.055); }
+.avatar-playground--fullscreen { background:radial-gradient(ellipse 74% 70% at 50% 30%, rgba(230,255,249,.92), rgba(225,244,250,.78) 52%, rgba(239,233,255,.76)); }
+.avatar-playground--fullscreen::after { box-shadow:inset 0 0 110px rgba(37,153,137,.12); }
+.avatar-playground__controls button:focus-visible { outline:3px solid rgba(15,180,149,.46); outline-offset:3px; }
+@media (max-width: 768px) { .avatar-playground__controls { bottom:8px !important; right:8px !important; } }

@@ -30,7 +30,11 @@ export function VmcControlPanel({ tracker, selectedModelLabel, selectedModelMode
   const copy = STATE_COPY[tracker.status];
   const diagnostics = tracker.diagnostics;
   const live = tracker.status === "live";
+  const facialReady = live && tracker.hasFacialSignal;
   const connected = tracker.status !== "disconnected" && tracker.status !== "error";
+  const stateDetail = live && !facialReady
+    ? "Fresh motion packets are arriving, but no supported VSeeFace blendshape channel has been detected yet. HINAA keeps the safe autonomous expression layer until one arrives."
+    : (tracker.error || copy.detail);
 
   return (
     <section role="dialog" aria-modal="false" aria-label="VSeeFace and VMC connection panel" style={styles.panel}>
@@ -46,13 +50,14 @@ export function VmcControlPanel({ tracker, selectedModelLabel, selectedModelMode
         <span style={{ ...styles.dot, background: copy.color }} />
         <strong>{copy.label}</strong>
       </div>
-      <p style={styles.detail}>{tracker.error || copy.detail}</p>
+      <p style={styles.detail}>{stateDetail}</p>
 
       <div style={styles.grid}>
         <Metric label="Receiver" value={diagnostics?.listening ? "Listening" : "Not bound"} />
         <Metric label="Host / port" value={`${diagnostics?.host ?? "127.0.0.1"}:${diagnostics?.port ?? 39539}`} />
         <Metric label="Last packet" value={timeSince(diagnostics?.lastPacketTimestamp ?? null)} />
         <Metric label="Packet rate" value={`${diagnostics?.packetRate ?? 0} packets/s`} />
+        <Metric label="Face signal" value={facialReady ? "Blendshapes detected" : live ? "Waiting for blendshapes" : "Not active"} />
         <Metric label="Model mode" value={selectedModelMode.replaceAll("-", " ")} />
         <Metric label="Calibration" value={tracker.calibration ? "Neutral captured" : "Not calibrated"} />
       </div>

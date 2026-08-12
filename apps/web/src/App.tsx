@@ -224,17 +224,20 @@ export default function App() {
     }
   };
 
-  // VSeeFace face tracking
+  // A WebSocket is transport only. Head data needs fresh external VMC while
+  // facial animation additionally needs at least one supported blendshape.
   const faceTrack = useVSeeFace();
-  // A WebSocket is transport only. AvatarPresence receives VMC samples only
-  // while the bridge reports fresh external packets as `live`.
   const faceActive = faceTrack.status === "live";
+  const facialSignalActive = faceActive && faceTrack.hasFacialSignal;
 
   const routing = useProviderRouting(settings.provider, providers);
   const controller = useCompanionController({
     routing,
     languagePolicy: settings.language.activePolicy,
   });
+  // This is HINAA's own text only. The avatar director uses it for a subtle
+  // deterministic expression accent; it never classifies webcam/user emotion.
+  const latestAssistantExpressionText = [...controller.messages].reverse().find((message) => message.role === "assistant")?.text;
   useMemory();
 
   // Keep the first interactive paint light, then warm the local-only panels in
@@ -530,10 +533,11 @@ export default function App() {
                 audioStartTimeRef={playback.audioStartTimeRef}
                 modelUrl={avatarModel}
                 onModeChange={changeAvatarMode}
-                faceExpressions={faceActive ? faceTrack.expressionsRef.current : null}
+                faceExpressions={facialSignalActive ? faceTrack.expressionsRef.current : null}
                 faceBones={faceActive ? faceTrack.bonesRef.current : null}
                 faceTrackingActive={faceActive}
                 trackingCalibration={faceTrack.calibration}
+                expressionText={latestAssistantExpressionText}
                 presentation={avatarPresentation}
               /></Suspense>
               {/* A small, direct selector: choose Hinaa, choose Classic, or add a local VRM.
@@ -597,7 +601,8 @@ export default function App() {
               </div>
               {avatarUploadMessage && <div className="vrm-upload-status" role="status">{avatarUploadMessage}</div>}
               <div style={{ fontSize:"0.62rem", color: faceActive ? "#15803d" : faceTrack.status === "stale" ? "#b45309" : faceTrack.status === "test" ? "#6d28d9" : faceTrack.status === "error" ? "#dc2626" : "#64748b", padding:"3px 12px 5px", textAlign:"center", lineHeight:1.4 }} aria-live="polite">
-                {faceActive ? "VSeeFace Live — fresh external VMC packets are driving enabled facial channels."
+                {facialSignalActive ? "VSeeFace Live — fresh external facial channels are driving HINAA's expression layer."
+                  : faceActive ? "VSeeFace Live — motion packets are fresh; waiting for supported blendshape channels before mirroring expressions."
                   : faceTrack.status === "listening" ? "VMC Listening — waiting for VSeeFace packets."
                   : faceTrack.status === "stale" ? "Tracking Stale — the avatar is returning safely to autonomous presence."
                   : faceTrack.status === "test" ? "Test Signal — diagnostic fixture only, not live camera tracking."
