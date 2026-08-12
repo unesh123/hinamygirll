@@ -274,3 +274,19 @@ This pass repaired the active HINAA avatar/VMC path in the isolated branch `work
 | Exact VSeeFace compatibility | **BLOCKED_IN_SANDBOX** | Parser status is candidate-only; real VSeeFace load must be observed. |
 
 The only local runtime fixture used in this pass was explicitly marked `synthetic` and appeared as **Test Signal**, never **VSeeFace Live**.
+
+
+## Phase 15 — VSeeFace Control Panel Visibility Hotfix
+
+A user-side report established that the visible VSeeFace pill did not open its panel after a local branch merge. The active source did retain the button callback, local VMC proxy configuration, and `createPortal(document.body)` host. The missing behavior was presentation: no `.hina-drawer-*` CSS existed in the active app stylesheet, so portal content was unstyled ordinary document flow beneath/below the fixed HINAA shell.
+
+| Check | Result |
+|---|---|
+| Root cause | **CONFIRMED** — absent portal drawer overlay/panel styles, not a false “tracking is active” claim and not a second VMC transport issue. |
+| Repair | **IMPLEMENTED** — fixed high-layer portal overlay, backdrop, responsive panel geometry, header/close control, pointer events, and scroll body in `App.css`. |
+| Direct UI regression | **PASS** — an `App.test.tsx` test clicks the actual `Open VSeeFace and VMC connection controls` button and asserts the `VSeeFace and VMC connection panel` dialog and disconnected guidance appear. |
+| Full frontend suite | **PASS** — 24 files, 108 passing tests, 2 existing todos. |
+| Type check / production build | **PASS** — `tsc -b` and Vite/PWA production build. |
+| Real Windows browser automation | **DEGRADED** — the connected My Browser loaded local HINAA and exposed the correct button, but subsequent click/view automation returned extension HTTP 504. This automation transport failure is not represented as tracking or app-panel evidence. |
+
+The actual Windows VSeeFace sender/model/camera verification remains separate and pending. The repair ensures that the connection panel is no longer visually hidden once the hotfix is present in the running frontend.

@@ -91,3 +91,28 @@ The current Manus environment has no connected Windows desktop configuration. Wi
 | Final visual portrait/relaxed-hand screenshot of the requested user model | **BLOCKED_IN_SANDBOX** | Requires the actual selected Windows model loaded in that browser/runtime. |
 
 No VRM binary, ComfyUI model/workflow, secret, database, generated media, browser profile, or user-selected original avatar was modified by this pass.
+
+
+## VSeeFace control-panel hotfix — 2026-08-13
+
+The user reported that clicking the visible **VSeeFace** pill did not open the expected panel. The supplied Antigravity conversation confirmed that the earlier branch had been merged into the local Windows workspace and the page contained the current button/status copy; a hard refresh alone therefore could not be accepted as a repair.
+
+| Trace point | Finding | Result |
+|---|---|---|
+| Avatar pill handler | The button still calls the current drawer-state path and creates `VmcControlPanel`; the app-level regression reaches the portal dialog. | **PASS** |
+| VMC API route | `/api/v1/vmc/status` is correctly proxy-rewritten to the local backend; WebSocket remains the existing direct local endpoint. | **PASS** |
+| Portal host | `HinaDrawer` uses `createPortal(document.body)`, but the active `App.css` contained no `.hina-drawer-*` layout/stacking rules. The portal therefore rendered as ordinary unstyled document flow behind/below the fixed shell, which appears as a no-op. | **ROOT CAUSE CONFIRMED** |
+| Repair | Added fixed portal overlay/backdrop, a high isolated stacking context, interactive panel, responsive bottom/side geometry, header, close button, and scroll body styles. | **IMPLEMENTED** |
+| Regression | Added an app-level click test that presses the real VSeeFace control and asserts the visible `VSeeFace and VMC connection panel` dialog plus its disconnected guidance. | **PASS** |
+| Browser automation | After connecting My Browser, the local Windows HINAA UI was visible and exposed the correct VSeeFace button. Browser extension click/view commands returned HTTP 504 before app state could be inspected. | **DEGRADED — browser automation transport**; not treated as an app-panel failure or tracking evidence. |
+
+### Hotfix release gates
+
+| Gate | Result |
+|---|---|
+| App-level VSeeFace panel regression | **PASS** — real pill click opens the VMC dialog. |
+| Full frontend suite | **PASS** — 24 files, 108 passing tests, 2 existing todos. |
+| TypeScript | **PASS** — `tsc -b`. |
+| Production build | **PASS** — Vite/PWA production build. |
+
+This hotfix changes only the missing portal presentation and the regression proof. It does not alter the one-bridge VMC protocol, live-state threshold, user model binaries, VSeeFace installation, ComfyUI installation, credentials, or `main`.

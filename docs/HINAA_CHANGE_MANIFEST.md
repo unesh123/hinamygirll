@@ -94,3 +94,14 @@ For every subsequent changed file, add a row before publishing the related phase
 | `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record baseline, audit, implementation evidence, and Windows-runtime blockers. | Evidence ledger | Distinguishes implementation from real Windows verification. | Repository review. | **PASS** |
 | `docs/HINAA_WINDOWS_VRM_ASSET_INVENTORY.md` | Record approved root policy and parse-derived asset findings. | Asset evidence | Never treats sandbox asset result as user Windows filesystem result. | Runtime inventory response. | **PASS** |
 | `docs/HINAA_SIDEBAR_CAPABILITY_MATRIX.md` | Document active/degraded/blocked sidebar behavior and accessibility changes. | UX evidence | No capability inferred from icon appearance. | Source audit. | **PASS** |
+
+
+## VSeeFace Control Panel Visibility Hotfix — 2026-08-13
+
+| File | Change reason | System | Risk control | Verification | Result |
+|---|---|---|---|---|---|
+| `apps/web/src/App.css` | Add missing fixed portal overlay, stacking, panel, pointer-event, responsive, header, close, and scroll rules for `HinaDrawer`. | VSeeFace / Avatar Lab panel presentation | Reuses the existing portal/drawer and does not alter VMC data, model binaries, or credentials. | App-level VSeeFace dialog regression; production build. | **PASS** |
+| `apps/web/src/App.test.tsx` | Assert the actual avatar VSeeFace pill opens the portal-mounted VMC control panel and shows its initial disconnected guidance. | App-shell regression | Prevents an icon-only/no-visible-panel regression. | Full frontend suite: 24 files, 108 tests passing, 2 existing todos. | **PASS** |
+| `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record no-op root cause, repair, test evidence, and My Browser automation limitation. | Evidence ledger | Separates UI repair evidence from external tracking evidence. | Repository review. | **UPDATED** |
+| `docs/HINAA_CURRENT_STATUS.md` | Record the hotfix release gates and exact unresolved Windows sender/model boundary. | Runtime status ledger | Does not claim a browser-extension timeout proves or disproves app tracking. | Repository review. | **UPDATED** |
+| `docs/HINAA_CHANGE_MANIFEST.md` | Append the hotfix review trail. | Repository governance | No protected asset or secret is included. | Diff review before checkpoint. | **UPDATED** |

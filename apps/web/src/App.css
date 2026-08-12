@@ -1822,3 +1822,114 @@ body {
   0%, 18% { background-position: 100% 0; }
   82%, 100% { background-position: 0% 0; }
 }
+
+/* ─── HINAA portal drawer ────────────────────────────────────────────────
+   HinaDrawer renders through document.body. Without explicit portal styling,
+   its VSeeFace panel is ordinary page flow and can appear to do nothing below
+   the fixed HINAA shell. Keep the overlay above the canvas and chat UI. */
+.hina-drawer-overlay-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: none;
+  isolation: isolate;
+}
+.hina-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background: rgba(15, 23, 42, 0.44);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.hina-drawer-panel {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  color: #e2e8f0;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.30);
+  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.38);
+}
+.hina-drawer-bottom .hina-drawer-panel {
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  max-width: 1040px;
+  max-height: min(82vh, 820px);
+  margin: 0 auto;
+  border-radius: 18px;
+}
+.hina-drawer-top .hina-drawer-panel {
+  top: 16px;
+  right: 16px;
+  left: 16px;
+  max-width: 1040px;
+  max-height: min(82vh, 820px);
+  margin: 0 auto;
+  border-radius: 18px;
+}
+.hina-drawer-left .hina-drawer-panel,
+.hina-drawer-right .hina-drawer-panel {
+  top: 0;
+  bottom: 0;
+  width: min(460px, calc(100vw - 24px));
+}
+.hina-drawer-left .hina-drawer-panel { left: 0; border-radius: 0 18px 18px 0; }
+.hina-drawer-right .hina-drawer-panel { right: 0; border-radius: 18px 0 0 18px; }
+.hina-drawer-handle {
+  width: 44px;
+  height: 4px;
+  flex: 0 0 auto;
+  margin: 10px auto 0;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.35);
+}
+.hina-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 0 13px;
+  color: #f8fafc;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.20);
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.92));
+}
+.hina-drawer-mode-icon { display: inline-grid; place-items: center; }
+.hina-drawer-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.88rem;
+  font-weight: 760;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hina-drawer-close {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  place-items: center;
+  color: #e2e8f0;
+  cursor: pointer;
+  border: 1px solid rgba(226, 232, 240, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.48);
+}
+.hina-drawer-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 640px) {
+  .hina-drawer-bottom .hina-drawer-panel {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    max-height: 88vh;
+    border-radius: 14px;
+  }
+}

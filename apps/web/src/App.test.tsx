@@ -52,6 +52,14 @@ describe("HINAA assistant workspace", () => {
     expect(screen.getByRole("button", { name: "Mute Hinaa voice" })).toBeInTheDocument();
   });
 
+  it("opens the visible VSeeFace and VMC control panel from the avatar pill", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Open VSeeFace and VMC connection controls" }));
+    expect(await screen.findByRole("dialog", { name: "VSeeFace and VMC connection panel" })).toBeInTheDocument();
+    expect(screen.getByText("Disconnected")).toBeInTheDocument();
+    expect(screen.getByText(/Connect HINAA to its local VMC bridge/i)).toBeInTheDocument();
+  });
+
   it("persists the selected approved avatar model across a remount", () => {
     const firstMount = render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Hinaa Classic" }));
