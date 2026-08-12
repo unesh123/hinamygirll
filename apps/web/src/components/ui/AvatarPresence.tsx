@@ -19,6 +19,7 @@ import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/
 import * as THREE from "three";
 import { Maximize2, Radio } from "lucide-react";
 import type { CompanionState } from "../../features/companion/types";
+import type { AvatarPresentation } from "../../features/avatar/avatarPresentation";
 import type { FaceExpressions } from "../../features/audio/useVSeeFace";
 import type { VisemeEvent } from "../../features/audio/textToViseme";
 import { getActiveViseme } from "../../features/audio/textToViseme";
@@ -32,13 +33,6 @@ const CAMERAS: Record<PresenceMode, { pos: [number,number,number]; target: [numb
   upperbody:{ pos: [0, 1.10, 1.88], target: [0, 1.02, 0], fov: 40 },
   full:     { pos: [0, 0.86, 2.45], target: [0, 0.72, 0], fov: 46 },
   hidden:   { pos: [0, 1.0,  3.0],  target: [0, 1.0,  0], fov: 35 },
-};
-
-// Per-model calibration is deliberately explicit. Different user-supplied VRMs
-// can use opposite forward axes and different authoring heights.
-const MODEL_CALIBRATIONS: Record<string, { rotationY: number; offsetY: number; scale: number }> = {
-  "/models/model_6164.vrm": { rotationY: Math.PI, offsetY: -0.24, scale: 0.90 },
-  "/models/model_5447.vrm": { rotationY: 0, offsetY: 0, scale: 1 },
 };
 
 type CameraPreset = { pos: [number, number, number]; target: [number, number, number]; fov: number };
@@ -162,6 +156,13 @@ const DEFAULT_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
   leftUpperArm: restOffset(), rightUpperArm: restOffset(), leftLowerArm: restOffset(),
   rightLowerArm: restOffset(), leftHand: restOffset(), rightHand: restOffset(),
 };
+// Generic imported VRMs begin in a conservative relaxed pose. Users can use
+// the simple “Original pose” action if a non-standard rig needs its author pose.
+const GENERIC_RELAXED_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
+  leftUpperArm: q(0, 0, 0.62), rightUpperArm: q(0, 0, -0.62),
+  leftLowerArm: q(0, 0, 0.10), rightLowerArm: q(0, 0, -0.10),
+  leftHand: restOffset(), rightHand: restOffset(),
+};
 
 /* ─── Model component ────────────────────────────────────── */
 interface ModelProps {
@@ -171,6 +172,7 @@ interface ModelProps {
   visemeEvents: React.MutableRefObject<VisemeEvent[]>;
   audioStartTimeRef: React.MutableRefObject<number>;
   url: string;
+  presentation: AvatarPresentation;
   faceExpressions?: FaceExpressions | null;
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
@@ -179,7 +181,7 @@ interface ModelProps {
 }
 
 function Model({
-  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, onAnatomyFrame,
+  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, presentation, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, onAnatomyFrame,
 }: ModelProps) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
@@ -248,10 +250,9 @@ function Model({
 
       if (v.lookAt) { try { (v.lookAt as any).enabled = false; } catch {} }
 
-      const calibration = MODEL_CALIBRATIONS[url] ?? { rotationY: 0, offsetY: 0, scale: 1 };
-      v.scene.rotation.y = calibration.rotationY;
-      v.scene.position.y = calibration.offsetY;
-      v.scene.scale.setScalar(calibration.scale);
+      v.scene.rotation.y = presentation.rotationY;
+      v.scene.position.y = presentation.offsetY;
+      v.scene.scale.setScalar(presentation.scale);
 
       // Derive a stable frame only after the calibrated transform is applied.
       // This runs on model load, never in the render loop, so it cannot drift.
@@ -297,7 +298,9 @@ function Model({
       // per-frame loop only slerps to the precomputed calibrated targets.
       const hd = v.humanoid;
       if (hd) {
-        const offsets = MODEL_POSE_OFFSETS[url] ?? DEFAULT_POSE_OFFSETS;
+        const offsets = presentation.poseMode === "original"
+          ? DEFAULT_POSE_OFFSETS
+          : MODEL_POSE_OFFSETS[url] ?? GENERIC_RELAXED_POSE_OFFSETS;
         for (const boneName of POSE_BONES) {
           try {
             const node = hd.getNormalizedBoneNode(boneName as any);
@@ -338,7 +341,7 @@ function Model({
         vrmRef.current = null;
       }
     };
-  }, [url]);
+  }, [url, presentation.rotationY, presentation.offsetY, presentation.scale, presentation.poseMode]);
 
   useFrame((_, dtRaw) => {
     const vrm = vrmRef.current;
@@ -614,6 +617,7 @@ interface Props {
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
   trackingCalibration?: { headBaseline?: [number, number, number, number] } | null;
+  presentation?: AvatarPresentation;
 }
 
 // Stable fallback refs so we never create new objects in render
@@ -625,7 +629,7 @@ const _startRef = { current: 0 };
 
 export function AvatarPresence({
   mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
-  modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive, trackingCalibration,
+  modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, presentation,
 }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
   const [anatomy, setAnatomy] = useState<AnatomyFrame | undefined>();
@@ -686,6 +690,7 @@ export function AvatarPresence({
                 visemeEvents={vEvts}
                 audioStartTimeRef={aStart}
                 url={modelUrl}
+                presentation={presentation ?? { rotationY: 0, offsetY: 0, scale: 1, poseMode: "relaxed" }}
                 faceExpressions={faceExpressions}
                 faceBones={faceBones}
                 faceTrackingActive={faceTrackingActive}

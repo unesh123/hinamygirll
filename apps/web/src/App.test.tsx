@@ -60,15 +60,31 @@ describe("HINAA assistant workspace", () => {
     expect(screen.getByText(/Connect HINAA to its local VMC bridge/i)).toBeInTheDocument();
   });
 
+  it("imports and selects a local avatar in one flow", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ asset: { displayName: "Unesh Hinaa.vrm", browserUrl: "/api/v1/avatar-assets/avatar-00000000-0000-0000-0000-000000000001/file" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    const model = new File(["vrm"], "Unesh Hinaa.vrm", { type: "model/vrm" });
+    fireEvent.change(screen.getByLabelText("Upload a local avatar model"), { target: { files: [model] } });
+
+    await waitFor(() => expect(localStorage.getItem("hinaa.avatar-model")).toBe("/api/v1/avatar-assets/avatar-00000000-0000-0000-0000-000000000001/file"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/avatar-assets/import", expect.objectContaining({ method: "POST" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Unesh Hinaa.vrm is selected");
+  });
+
   it("persists the selected approved avatar model across a remount", () => {
     const firstMount = render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Hinaa Classic" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use Hinaa Classic" }));
     expect(localStorage.getItem("hinaa.avatar-model")).toBe("/models/model_5447.vrm");
     firstMount.unmount();
 
     render(<App />);
-    expect(screen.getByRole("button", { name: "Hinaa Classic" })).toHaveClass("vrm-pill--active");
-    expect(screen.getByRole("button", { name: "Hinaa" })).not.toHaveClass("vrm-pill--active");
+    expect(screen.getByRole("button", { name: "Use Hinaa Classic" })).toHaveClass("vrm-pill--active");
+    expect(screen.getByRole("button", { name: "Use Hinaa" })).not.toHaveClass("vrm-pill--active");
   });
 
   it("system errors do not appear in the conversation", () => {

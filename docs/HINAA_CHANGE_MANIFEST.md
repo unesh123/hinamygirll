@@ -105,3 +105,17 @@ For every subsequent changed file, add a row before publishing the related phase
 | `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record no-op root cause, repair, test evidence, and My Browser automation limitation. | Evidence ledger | Separates UI repair evidence from external tracking evidence. | Repository review. | **UPDATED** |
 | `docs/HINAA_CURRENT_STATUS.md` | Record the hotfix release gates and exact unresolved Windows sender/model boundary. | Runtime status ledger | Does not claim a browser-extension timeout proves or disproves app tracking. | Repository review. | **UPDATED** |
 | `docs/HINAA_CHANGE_MANIFEST.md` | Append the hotfix review trail. | Repository governance | No protected asset or secret is included. | Diff review before checkpoint. | **UPDATED** |
+
+
+## Simple Avatar Workflow and Per-Model Presentation — 2026-08-13
+
+| File | Change reason | System | Risk control | Verification | Result |
+|---|---|---|---|---|---|
+| `apps/web/src/features/avatar/avatarPresentation.ts` | Persist per-model browser-only facing, position, scale, and relaxed/original pose state. | Avatar presentation | Bounded values; no binary mutation; stored by model URL. | Focused persistence/bounds/facing test. | **PASS** |
+| `apps/web/src/features/avatar/avatarPresentation.test.ts` | Prevent regressions in imported-model default facing, relaxed pose, correction, bounds, and persistence. | Frontend regression | No model file required. | 4 tests passed. | **PASS** |
+| `apps/web/src/components/ui/AvatarPresence.tsx` | Apply the selected model’s persisted browser presentation and conservative normalized-bone relaxed profile; allow author-pose recovery. | Active single renderer | One renderer only; no raw nodes/cumulative transforms/binary writes. | Type check and full frontend suite. | **PASS** |
+| `apps/web/src/App.tsx` | Add direct upload-and-select avatar action and wire per-model presentation state into the existing Avatar Lab and renderer. | App shell | Reuses managed local import API and opaque asset URL; rejected B/C choices stay absent. | App upload/select regression. | **PASS** |
+| `apps/web/src/App.test.tsx` | Cover direct local file import → managed URL selection and clear status feedback; retain selector persistence proof. | App regression | Mocked API response only, no user file is read in tests. | Full frontend suite. | **PASS** |
+| `apps/web/src/components/ui/AvatarLab.tsx` | Replace dense technical model workflow with HINAA-themed upload/select, facing/arm/reset, camera, and safe tracking choices. | Avatar Lab UI | Exact VSeeFace remains version-gated; tracking proxy remains labelled. | Type check and production build. | **PASS** |
+| `apps/web/src/App.css` | Add HINAA mint/pearl responsive Avatar Lab and direct-upload selector styling. | UI polish | Does not alter global VMC protocol or original assets. | Production build. | **PASS** |
+| `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record behavior, evidence, and browser-extension limitation. | Evidence ledger | Keeps model-specific visual verification separate from source verification. | Repository review. | **UPDATED** |

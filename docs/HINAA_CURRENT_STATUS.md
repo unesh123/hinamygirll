@@ -290,3 +290,17 @@ A user-side report established that the visible VSeeFace pill did not open its p
 | Real Windows browser automation | **DEGRADED** — the connected My Browser loaded local HINAA and exposed the correct button, but subsequent click/view automation returned extension HTTP 504. This automation transport failure is not represented as tracking or app-panel evidence. |
 
 The actual Windows VSeeFace sender/model/camera verification remains separate and pending. The repair ensures that the connection panel is no longer visually hidden once the hotfix is present in the running frontend.
+
+
+## Phase 16 — Simple Avatar Switching and Presentation Controls
+
+| Requirement | Result |
+|---|---|
+| Simple model switching | **IMPLEMENTED** — the visible selector offers Hinaa, Hinaa Classic, and `+ Add avatar`; the direct local file selection path imports privately and immediately selects the managed model. |
+| Backward-facing imported model | **IMPLEMENTED** — imported model presentation starts with HINAA’s front-facing browser-scene preset and offers one-click Flip facing, persisted per model. |
+| Raised arms on imported model | **IMPLEMENTED** — imported normalized humanoid models receive conservative rest-relative relaxed offsets; Original pose restores author rest if needed. |
+| Per-model persistence | **PASS** — facing, bounded scale/offset, relaxed/original pose, and camera view persist by model URL without modifying the asset binary. |
+| HINAA-themed Avatar Lab | **IMPLEMENTED** — mint/pearl current-model card, add/select action, simple correction controls, camera controls, collapsed diagnostics, and honest VSeeFace modes. |
+| Frontend release gates | **PASS** — 25 test files, 113 passing tests, 2 existing todos; `tsc -b` and Vite/PWA production build passed. |
+
+Real visual acceptance for the user’s specific Windows VRM still needs the actual running frontend after this branch is applied. My Browser can navigate to the local HINAA page but its interaction extension returned HTTP 504 on click/view commands; that is recorded as an automation limitation rather than a pose or tracking claim.

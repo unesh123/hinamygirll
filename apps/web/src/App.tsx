@@ -3,6 +3,11 @@ import "./App.css";
 import { motion } from "framer-motion";
 import { TranscriptView } from "./features/chat/components/TranscriptView";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
+import {
+  type AvatarPresentation,
+  getPersistedAvatarPresentation,
+  persistAvatarPresentation,
+} from "./features/avatar/avatarPresentation";
 import { FullScreenAura } from "./components/ui/FullScreenAura";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
 import { PremiumComposer } from "./components/ui/PremiumComposer";
@@ -180,20 +185,42 @@ export default function App() {
   // renderer remains the safe fallback if an asset cannot load.
   const [avatarModel, setAvatarModel] = useState<string>(getPersistedAvatarModel);
   const [avatarMode, setAvatarMode] = useState<PresenceMode>(() => getPersistedAvatarCamera(getPersistedAvatarModel()));
+  const [avatarPresentation, setAvatarPresentation] = useState<AvatarPresentation>(() => getPersistedAvatarPresentation(getPersistedAvatarModel()));
+  const [avatarUploadMessage, setAvatarUploadMessage] = useState<string | null>(null);
+  const avatarUploadRef = useRef<HTMLInputElement>(null);
   const [avatarTrackingMode, setAvatarTrackingMode] = useState<AvatarTrackingMode>("autonomous");
   const changeAvatarMode = (mode: PresenceMode) => {
     if (mode === "hidden") return;
     setAvatarMode(mode);
     persistAvatarCamera(avatarModel, mode);
   };
+  const updateAvatarPresentation = (next: AvatarPresentation) => {
+    setAvatarPresentation(next);
+    persistAvatarPresentation(avatarModel, next);
+  };
   const selectAvatarModel = (modelUrl: string) => {
     if (!isSelectableAvatarUrl(modelUrl)) return;
     setAvatarModel(modelUrl);
     setAvatarMode(getPersistedAvatarCamera(modelUrl));
+    setAvatarPresentation(getPersistedAvatarPresentation(modelUrl));
     try {
       window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
     } catch {
       // The renderer still works when browser storage is unavailable.
+    }
+  };
+  const importAndSelectAvatar = async (file: File) => {
+    setAvatarUploadMessage(`Preparing ${file.name} locally…`);
+    const form = new FormData();
+    form.append("file", file, file.name);
+    try {
+      const response = await fetch("/api/v1/avatar-assets/import", { method: "POST", body: form });
+      const body = await response.json();
+      if (!response.ok || !body?.asset?.browserUrl) throw new Error(body?.detail || "HINAA could not import that VRM.");
+      selectAvatarModel(body.asset.browserUrl);
+      setAvatarUploadMessage(`${body.asset.displayName} is selected. HINAA applied the safe relaxed pose and facing preset; use Avatar Lab only if this model needs a one-click correction.`);
+    } catch (error) {
+      setAvatarUploadMessage(error instanceof Error ? error.message : "HINAA could not import that VRM.");
     }
   };
 
@@ -389,6 +416,8 @@ export default function App() {
       mode={avatarMode}
       onModeChange={changeAvatarMode}
       onSelectModel={selectAvatarModel}
+      presentation={avatarPresentation}
+      onPresentationChange={updateAvatarPresentation}
       trackingMode={avatarTrackingMode}
       onTrackingModeChange={setAvatarTrackingMode}
       onClose={() => setDrawerOpen(false)}
@@ -495,10 +524,23 @@ export default function App() {
                 faceBones={faceActive ? faceTrack.bonesRef.current : null}
                 faceTrackingActive={faceActive}
                 trackingCalibration={faceTrack.calibration}
+                presentation={avatarPresentation}
               /></Suspense>
-              {/* Owner-supplied VRM choices. The previous sample B/C models are
-                  intentionally excluded because they were not the preferred character. */}
-              <div className="vrm-switcher" role="group" aria-label="Switch Hinaa avatar">
+              {/* A small, direct selector: choose Hinaa, choose Classic, or add a local VRM.
+                  Rejected legacy B/C assets remain absent. */}
+              <div className="vrm-switcher" role="group" aria-label="Choose Hinaa avatar">
+                <input
+                  ref={avatarUploadRef}
+                  type="file"
+                  accept=".vrm,.glb,.gltf"
+                  aria-label="Upload a local avatar model"
+                  className="vrm-file-input"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void importAndSelectAvatar(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
                 {HINAA_AVATAR_MODELS.map((m) => (
                   <button
                     key={m.url}
@@ -506,10 +548,20 @@ export default function App() {
                     className={`vrm-pill${avatarModel === m.url ? " vrm-pill--active" : ""}`}
                     onClick={() => selectAvatarModel(m.url)}
                     title={m.label}
+                    aria-label={`Use ${m.label}`}
                   >
                     {m.label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="vrm-pill vrm-pill--add"
+                  onClick={() => avatarUploadRef.current?.click()}
+                  title="Choose a local VRM file and use it in HINAA"
+                  aria-label="Add a local avatar model"
+                >
+                  + Add avatar
+                </button>
                 <button
                   type="button"
                   className={`vrm-pill vrm-pill--face${faceActive ? " vrm-pill--face-active" : ""}`}
@@ -533,6 +585,7 @@ export default function App() {
                    faceTrack.status === "test" ? "🎭 TEST" : "🎭 VSeeFace"}
                 </button>
               </div>
+              {avatarUploadMessage && <div className="vrm-upload-status" role="status">{avatarUploadMessage}</div>}
               <div style={{ fontSize:"0.62rem", color: faceActive ? "#15803d" : faceTrack.status === "stale" ? "#b45309" : faceTrack.status === "test" ? "#6d28d9" : faceTrack.status === "error" ? "#dc2626" : "#64748b", padding:"3px 12px 5px", textAlign:"center", lineHeight:1.4 }} aria-live="polite">
                 {faceActive ? "VSeeFace Live — fresh external VMC packets are driving enabled facial channels."
                   : faceTrack.status === "listening" ? "VMC Listening — waiting for VSeeFace packets."

@@ -116,3 +116,27 @@ The user reported that clicking the visible **VSeeFace** pill did not open the e
 | Production build | **PASS** — Vite/PWA production build. |
 
 This hotfix changes only the missing portal presentation and the regression proof. It does not alter the one-bridge VMC protocol, live-state threshold, user model binaries, VSeeFace installation, ComfyUI installation, credentials, or `main`.
+
+
+## Simple Avatar Workflow and Per-Model Presentation — 2026-08-13
+
+This refinement addresses the reported difficult model switching, backward-facing imported avatars, raised-arm imported poses, and Avatar Lab visual mismatch. It retains the single HINAA renderer, private local import route, original VRM files, and truthful VSeeFace state model.
+
+| Area | Implemented behavior | Evidence |
+|---|---|---|
+| Direct selection | The persistent selector now exposes only **Hinaa**, **Hinaa Classic**, and **+ Add avatar**. Selecting a local file imports it through the existing private API and immediately selects the returned managed model URL; no second manual selection is required. | App upload/select regression passed. |
+| Per-model presentation | `avatarPresentation.ts` persists only browser-scene rotation, ground offset, bounded scale, and `relaxed`/`original` pose mode by model URL. It never writes to a VRM binary. | Four focused persistence/bounds/facing regressions passed. |
+| Facing correction | Imported models start in the safe HINAA front-facing preset. The Avatar Lab supplies a one-click **Flip facing** repair and remembers it per model, rather than claiming an unseen authoring axis can be inferred perfectly. | Focused regression passed; real model visual evidence remains runtime-bound. |
+| Arm correction | Imported humanoid rigs use conservative rest-relative normalized-bone offsets for a relaxed arm profile. **Original pose** restores the author rest pose if a non-standard rig looks better that way. | Type check and full frontend suite passed. |
+| Simpler Avatar Lab | The drawer now uses the mint/pearl HINAA visual system, a current-avatar card, direct local upload, drop-down/chip selection, simple facing/arms/reset controls, camera buttons, and collapsed advanced diagnostics. | Production build passed. |
+| VSeeFace limits | Exact VSeeFace remains enabled only for a parsed VRM 0.x compatibility candidate. Tracking Proxy remains visibly proxy-labelled and never drives uncalibrated limbs. | Existing bridge and VMC regressions remain intact. |
+
+### Release gates
+
+| Gate | Result |
+|---|---|
+| Frontend regression suite | **PASS** — 25 files, 113 passing tests, 2 existing todos. |
+| Type check | **PASS** — `tsc -b`. |
+| Production build | **PASS** — Vite/PWA build. |
+
+A direct My Browser inspection could load the user’s local HINAA page and display the selector, but browser action commands again failed with extension HTTP 504. That is recorded as browser-automation degradation only; it is not evidence about the user’s model pose, VSeeFace sender, or live tracking.
