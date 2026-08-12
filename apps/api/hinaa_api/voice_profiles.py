@@ -29,7 +29,7 @@ def resolve_calibration(value: str) -> VoiceTuning:
 
 def public_profiles(female: str, male: str) -> list[VoiceProfile]:
     disclosure = (
-        "A standard Azure Nepali neural voice, not a custom anime or cloned identity. "
+        "A standard Azure Hindi neural voice, not a custom anime or cloned identity. "
         "A unique character voice requires a licensed, consenting voice actor or approved dataset."
     )
     calibrations = [
@@ -47,7 +47,7 @@ def public_profiles(female: str, male: str) -> list[VoiceProfile]:
             companionId="hinaa",
             provider="azure-speech",
             requestedVoice=female,
-            locale="ne-NP",
+            locale="hi-IN",
             identityDisclosure=disclosure,
             calibrations=calibrations,
         ),
@@ -55,7 +55,7 @@ def public_profiles(female: str, male: str) -> list[VoiceProfile]:
             companionId="hiro",
             provider="azure-speech",
             requestedVoice=male,
-            locale="ne-NP",
+            locale="hi-IN",
             identityDisclosure=disclosure,
             calibrations=calibrations,
         ),

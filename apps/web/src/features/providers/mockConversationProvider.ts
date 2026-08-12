@@ -15,19 +15,19 @@ export interface MockProviderOptions {
 const responses = [
   {
     match: /assignment|समझाओ|explain|बुझ/i,
-    text: "Main abhi mock mode mein hoon, isliye main assignment ko genuinely explain nahi kar sakti. Real response ke liye aap real provider mode enable kar sakte ho — jaise Gemini ya OpenAI brain. Settings mein jaake provider select karo.",
+    text: "मैं अभी Demo mode में हूँ, इसलिए assignment को genuinely explain नहीं कर सकती। Real response के लिए Settings में configured AI provider चुनें।",
     emotion: "thinking",
     gesture: "explain",
   },
   {
     match: /mood|off|sad|दुख|upset|tired|थक/i,
-    text: "Main samajh sakti hoon ki aap kaisa feel kar rahe ho. Main yahaan hoon aapke liye — chahe baat karni ho, music sun na ho, ya kuch search karna ho. Just tell me what you need.",
+    text: "मैं समझ सकती हूँ कि आप कैसा महसूस कर रहे हैं। मैं यहाँ हूँ, चाहे बात करनी हो, music सुनना हो, या कुछ search करना हो। बताइए, आपको अभी क्या चाहिए?",
     emotion: "concerned",
     gesture: "reassure",
   },
   {
     match: /hello|hi|namaste|नमस्ते|hey/i,
-    text: "Namaste! Main HINAA hoon — aapki AI assistant. Main abhi mock mode mein hoon. Real conversations ke liye aap Settings mein jaake Gemini ya OpenAI brain select kar sakte ho. Tab main real-time web search, image generation, aur bahut kuch kar paungi.",
+    text: "नमस्ते। मैं HINAA हूँ, आपकी AI assistant। मैं अभी Demo mode में हूँ। Real conversations के लिए Settings में configured provider चुनें; तब chat, research और image generation उपलब्ध होंगे।",
     emotion: "happy",
     gesture: "wave",
   },
@@ -66,7 +66,7 @@ export function buildMockPlan(
   companionId: ConversationRequest["companionId"],
   language: ConversationRequest["language"] = "en-US",
 ): AssistantTurnPlan {
-  const nepaliInput = /मलाई|बुझाऊ|कसरी/.test(text);
+  const devanagariInput = /[\u0900-\u097F]/.test(text);
   const professional = language === "en-US" && /react\s+server\s+components?/i.test(text)
     ? {
         language: "en-US" as const,
@@ -108,21 +108,13 @@ export function buildMockPlan(
         spokenText: "React Server Components keep data work on the server and hydrate only interactive client boundaries. Test the boundary rules and production streaming before deployment.",
       }
     : undefined;
-  const localized = language === "ne-NP" && nepaliInput
+  const localized = language === "hi-IN" && (/मुझे|समझाओ|कैसे/.test(text) || devanagariInput)
     ? {
-        language: "ne-NP" as const,
-        displayText: "ComfyUI को setup गर्न पहिले Python environment, compatible NVIDIA driver र CUDA जाँच्नुहोस्। त्यसपछि ComfyUI install गरेर Stable Diffusion checkpoint लाई `models/checkpoints` मा राख्नुहोस्। Browser मा `http://127.0.0.1:8188` खोल्नुहोस् र workflow queue गर्नुहोस्। Note: HINAA मा real generation local ComfyUI service चलिरहेको बेला मात्र हुन्छ।",
-        spokenText: "Python, NVIDIA driver र CUDA तयार भएपछि checkpoint राखेर 8188 मा ComfyUI चलाउनुहोस्।",
+        language: "hi-IN" as const,
+        displayText: "ComfyUI सेटअप के लिए पहले Python environment, compatible NVIDIA driver और CUDA जाँचें। फिर ComfyUI install करके Stable Diffusion checkpoint को `models/checkpoints` में रखें। Browser में `http://127.0.0.1:8188` खोलें और workflow queue करें। Note: HINAA में real generation तभी चलेगी जब local ComfyUI service चल रही हो।",
+        spokenText: "Python, NVIDIA driver और CUDA तैयार करें; checkpoint रखकर 8188 पर ComfyUI service शुरू करें।",
       }
-    : language === "hi-IN" && (/मुझे|समझाओ|कैसे/.test(text) || nepaliInput)
-      ? {
-          language: "hi-IN" as const,
-          displayText: nepaliInput
-            ? "अभी HINAA की सामान्य conversation language Hindi और English है। Nepali experimental mode में उपलब्ध है, लेकिन default रूप से disabled है। ComfyUI सेटअप के लिए Python environment, compatible NVIDIA driver और CUDA जाँचें; फिर checkpoint को `models/checkpoints` में रखकर `http://127.0.0.1:8188` पर service शुरू करें।"
-            : "ComfyUI सेटअप के लिए पहले Python environment, compatible NVIDIA driver और CUDA जाँचें। फिर ComfyUI install करके Stable Diffusion checkpoint को `models/checkpoints` में रखें। Browser में `http://127.0.0.1:8188` खोलें और workflow queue करें। Note: HINAA में real generation तभी चलेगी जब local ComfyUI service चल रही हो।",
-          spokenText: "Python, NVIDIA driver और CUDA तैयार करें; checkpoint रखकर 8188 पर ComfyUI service शुरू करें।",
-        }
-      : undefined;
+    : undefined;
   const selected = responses.find((response) => response.match.test(text));
   const hindiFallback = [
     "मैं अभी Demo mode में हूँ, इसलिए real AI answer नहीं दे सकती। Real brain के लिए Settings में OpenAI, Gemini, CX Gateway या कोई configured provider चुनें।",

@@ -31,7 +31,7 @@ class ClientHello(StrictModel):
     providerMode: ProviderMode = "mock"
     generation: Annotated[int, Field(ge=0, le=1_000_000)] = 0
     language: Language = "mixed"
-    languageMode: Literal["fixed-ne-NP", "auto"] = "fixed-ne-NP"
+    languageMode: Literal["fixed-hi-IN", "auto"] = "auto"
     calibration: Literal["natural", "soft", "lively"] = "natural"
     brainModel: Annotated[
         str | None,
@@ -346,6 +346,14 @@ class RealtimeGateway:
             first_delta_ms: int | None = None
             sentence_tasks: list[tuple[str, asyncio.Task]] = []
             sentence_buffer = ""
+            tts_latency_ms: list[int] = []
+            # Browser fallback speech needs the final complete spoken text. Real
+            # configured voice output can safely begin on a stable clause while
+            # later text continues to stream, as long as delivery remains ordered.
+            stream_real_audio = session.hello.providerMode in {
+                "real", "openai", "custom", "cx-gateway", "agent-router"
+            } or (session.hello.providerMode == "groq" and self.settings.azure_configured)
+            streamed_delivery_tail: asyncio.Task[None] | None = None
 
             voice = resolve_voice(
                 session.hello.companionId,
@@ -367,6 +375,70 @@ class RealtimeGateway:
                 depth="conversational",
             )
 
+            async def emit_speech(
+                phrase: str,
+                task: asyncio.Task,
+                *,
+                segment: int,
+                segments: int,
+                streaming: bool,
+            ) -> None:
+                tts_started = perf_counter()
+                try:
+                    speech = await task
+                except Exception as err:
+                    logger.error("TTS synthesis failed for segment %d: %s", segment, err)
+                    return
+                tts_ms = int((perf_counter() - tts_started) * 1000)
+                tts_latency_ms.append(tts_ms)
+                await self._send_current(
+                    websocket,
+                    session,
+                    generation,
+                    "tts.audio",
+                    {
+                        "segment": segment,
+                        "segments": segments,
+                        "streaming": streaming,
+                        "text": phrase,
+                        "audioBase64": base64.b64encode(speech.value).decode("ascii"),
+                        "mediaType": _tts_media_type(
+                            speech.provider, self.settings.elevenlabs_output_format
+                        ),
+                        "provider": speech.provider,
+                        "requestedVoice": voice,
+                        "actualVoice": voice
+                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router"}
+                        or (session.hello.providerMode == "groq" and self.settings.azure_configured)
+                        else f"{session.hello.providerMode}-tone",
+                        "calibration": session.hello.calibration,
+                        "voiceMode": voice_plan.mode,
+                        "rate": effective_rate,
+                        "pitchSemitones": effective_pitch,
+                        "volume": effective_volume,
+                        "latencyMs": tts_ms,
+                    },
+                )
+
+            def queue_streamed_speech(phrase: str, task: asyncio.Task) -> None:
+                nonlocal streamed_delivery_tail
+                previous = streamed_delivery_tail
+                segment = len(sentence_tasks) - 1
+
+                async def deliver_after_previous() -> None:
+                    if previous is not None:
+                        with suppress(Exception):
+                            await previous
+                    await emit_speech(
+                        phrase,
+                        task,
+                        segment=segment,
+                        segments=0,
+                        streaming=True,
+                    )
+
+                streamed_delivery_tail = asyncio.create_task(deliver_after_previous())
+
             async def emit_delta(delta: str) -> None:
                 nonlocal first_delta_ms, sentence_buffer
                 if first_delta_ms is None:
@@ -379,11 +451,13 @@ class RealtimeGateway:
                     {"delta": delta},
                 )
                 sentence_buffer += delta
-                # Only split on natural clause punctuation or complete word boundaries (space after 80+ chars)
+                # Split only on natural clause punctuation or a complete word
+                # boundary after enough text to sound natural. This prevents both
+                # choppy one-token TTS and a full-answer speech delay.
                 has_punct = any(p in delta for p in [".", "!", "?", "।", "\n", ",", ";"])
                 has_word_break = " " in delta and len(sentence_buffer) >= 80
                 if has_punct or has_word_break:
-                    phrase_text = sentence_buffer.strip()
+                    phrase_text = speech_text_for_tts(sentence_buffer.strip())
                     sentence_buffer = ""
                     if phrase_text and len(phrase_text) >= 2:
                         task = asyncio.create_task(
@@ -399,6 +473,8 @@ class RealtimeGateway:
                             )
                         )
                         sentence_tasks.append((phrase_text, task))
+                        if stream_real_audio:
+                            queue_streamed_speech(phrase_text, task)
 
             plan_result = await self.service.create_live_plan(
                 TurnRequest(
@@ -424,7 +500,7 @@ class RealtimeGateway:
 
             # Pick up any trailing text buffer
             if sentence_buffer.strip():
-                phrase_text = sentence_buffer.strip()
+                phrase_text = speech_text_for_tts(sentence_buffer.strip())
                 sentence_buffer = ""
                 task = asyncio.create_task(
                     self.service.synthesize_text(
@@ -439,6 +515,8 @@ class RealtimeGateway:
                     )
                 )
                 sentence_tasks.append((phrase_text, task))
+                if stream_real_audio:
+                    queue_streamed_speech(phrase_text, task)
 
             # Fallback if sentence_tasks is empty (e.g. non-streaming provider)
             if not sentence_tasks:
@@ -459,46 +537,20 @@ class RealtimeGateway:
                     )
                     sentence_tasks.append((phrase, task))
 
-            tts_total = 0
-            total_segments = len(sentence_tasks)
-            for index, (phrase, task) in enumerate(sentence_tasks):
-                tts_started = perf_counter()
-                try:
-                    speech = await task
-                except Exception as err:
-                    logger.error("TTS pre-synthesis failed for segment %d: %s", index, err)
-                    continue
-                tts_ms = int((perf_counter() - tts_started) * 1000)
-                tts_total += tts_ms
-                await self._send_current(
-                    websocket,
-                    session,
-                    generation,
-                    "tts.audio",
-                    {
-                        "segment": index,
-                        "segments": total_segments,
-                        "audioBase64": base64.b64encode(speech.value).decode("ascii"),
-                        "mediaType": _tts_media_type(
-                            speech.provider, self.settings.elevenlabs_output_format
-                        ),
-                        "provider": speech.provider,
-                        "requestedVoice": voice,
-                        "actualVoice": voice
-                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router"}
-                        or (
-                            session.hello.providerMode == "groq"
-                            and self.settings.azure_configured
-                        )
-                        else f"{session.hello.providerMode}-tone",
-                        "calibration": session.hello.calibration,
-                        "voiceMode": voice_plan.mode,
-                        "rate": effective_rate,
-                        "pitchSemitones": effective_pitch,
-                        "volume": effective_volume,
-                        "latencyMs": tts_ms,
-                    },
-                )
+            if streamed_delivery_tail is not None:
+                # Wait only for the ordered delivery tail. Each real-audio clause
+                # has already been synthesized concurrently with the model stream.
+                await streamed_delivery_tail
+            else:
+                total_segments = len(sentence_tasks)
+                for index, (phrase, task) in enumerate(sentence_tasks):
+                    await emit_speech(
+                        phrase,
+                        task,
+                        segment=index,
+                        segments=total_segments,
+                        streaming=False,
+                    )
             await self._send_current(
                 websocket,
                 session,
@@ -508,7 +560,7 @@ class RealtimeGateway:
                     "sttMs": stt_ms,
                     "llmMs": llm_ms,
                     "llmFirstDeltaMs": first_delta_ms,
-                    "ttsMs": tts_total,
+                    "ttsMs": sum(tts_latency_ms),
                     "totalMs": int((perf_counter() - turn_started) * 1000),
                     "targetsAreGoals": True,
                 },

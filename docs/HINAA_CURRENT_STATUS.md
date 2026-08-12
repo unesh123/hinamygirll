@@ -347,3 +347,26 @@ The supplied screenshot identifies a real Windows visual defect and drove this r
 | Release gates | **PASS** — 28 frontend test files, 120 passing tests, 2 existing todos; TypeScript, Vite/PWA production build, and full backend regression passed. |
 
 Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch is applied, the user must verify the actual selected Windows model in the actual browser: relaxed shoulders, clear upper-body portrait/playground, detected expression channel, smooth face response, calibrated head movement, and uninterrupted voice lip sync.
+
+## Phase 20 — High-Presence Companion Runtime Status — 2026-08-13
+
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Ink Rose companion UI | **IMPLEMENTED** | Unified dark plum/rose design tokens, new typography, motion-safe interactions, and re-themed image studio; frontend tests, type check, and build passed. |
+| Guided VSeeFace link | **IMPLEMENTED** | One-primary-action panel leads through local receiver, observed sender, and neutral capture. It does not call a bound socket or synthetic signal live camera tracking. |
+| Calibrated VSeeFace mouth | **IMPLEMENTED / WINDOWS PROOF PENDING** | Complete neutral face baseline prevents sender resting mouth/vowel offsets from opening HINAA’s mouth. Real VSeeFace camera observation is not available in this sandbox. |
+| Phrase-streaming real voice | **IMPLEMENTED / CREDENTIAL-DEPENDENT** | Configured real providers can emit ordered sanitized phrase audio while later text streams. Browser playback uses exact segment text for lip-sync. Real ElevenLabs/Azure/CX throughput requires valid local credentials and provider availability. |
+| Noise-aware turn taking | **IMPLEMENTED** | Existing adaptive noise floor and stricter playback barge-in threshold remain regression-covered. Browser capture cannot identify or authenticate a specific human speaker; it reduces noise/bleed triggers rather than making an unsupported identity claim. |
+| Hindi × English only | **IMPLEMENTED** | Active settings, browser speech locale, mock provider, realtime protocol, prompt instructions, voice metadata, and offline corpus now use Devanagari Hindi and English. Existing v3 settings migrate to auto Hindi-English. |
+| Local ComfyUI multi-image UX | **IMPLEMENTED / SERVICE BLOCKED IN SANDBOX** | Explicit local readiness check, 1/2/4 image selection, sequential result slots, persistent source links, and truthful unavailable state are preserved. A real image still requires ComfyUI running locally at `127.0.0.1:8188`. |
+
+### Phase 20 release gates
+
+| Gate | Result |
+|---|---|
+| Frontend Vitest | **PASS** — 28 files, 120 passing tests, 2 existing todos. |
+| Frontend type check | **PASS** — `tsc -b`. |
+| Production build | **PASS** — Vite/PWA build. Non-blocking large Three/VRM bundle warning remains. |
+| Backend suite | **PASS** — complete `pytest -q` suite. |
+
+> The previous Nepali-only experimental evidence is superseded for active HINAA behavior. HINAA now responds through Hindi (Devanagari) and English only. Historical ledger entries are retained as repository history, not as current capability claims.

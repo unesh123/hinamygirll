@@ -185,3 +185,17 @@ The user provided a new real Windows screenshot showing a valid live connection 
 | Backend regression suite | **PASS** — full `pytest -q`. |
 
 The requested real-life quality still requires final **Windows runtime observation** after this branch is applied. A true proof must show the actual chosen model with shoulders relaxed, upper body in frame, a detected `expression:*` channel, visible eye/brow/non-speech-mouth change, bounded head motion after neutral calibration, and uninterrupted TTS lip sync. No source-only result is described as this final camera/model proof.
+
+
+## Ink Rose presence and calibrated streaming voice — 2026-08-13
+
+| Area | Implemented result | Evidence |
+|---|---|---|
+| Guided connection flow | The dense navy/teal metrics wall is replaced by a progressive **HINAA Motion Link**: connect HINAA, observe VSeeFace sending, and capture neutral. Reconnect, test signal, raw transport detail, and Avatar Lab remain available behind a disclosure surface. | VMC and app-level panel regressions pass. |
+| Resting open-mouth repair | Neutral capture now stores the complete facial expression sample. When HINAA is not speaking, incoming `mouthOpen` and vowel weights are normalized against that user-captured baseline; before calibration, external mouth data is not applied. | Source-level owner/precedence audit and typed frontend build. |
+| Speech mouth ownership | While audio is playing, timed visemes and audio energy remain the sole mouth owner. Real-time audio events carry their exact sanitized phrase so playback and lip-sync use the same segment. | Realtime regression validates non-empty `tts.audio.text`; voice/realtime suites pass. |
+| Protected body pose | Fresh VMC continues to influence only face plus bounded calibrated head movement. Shoulders, arms, hands, and body remain in the existing relaxed companion pose. | Existing shoulder-aware pose and VMC regressions remain green. |
+
+The current release gate passed: **28 frontend test files / 120 passing tests / 2 existing todos**, TypeScript, Vite/PWA production build, and the complete backend pytest suite. The production build still reports a non-blocking large Three/VRM avatar bundle warning.
+
+> **Windows proof is still required.** This sandbox cannot observe the user’s camera or VSeeFace renderer. After applying the branch on Windows, send VMC to `127.0.0.1:39539`, wait for fresh external packets and supported `expression:*` channels, click **Calibrate neutral** while the face is relaxed, then verify a closed resting mouth, intentional facial motion after calibration, TTS-only mouth movement while speaking, and a clean mouth reset after speech.

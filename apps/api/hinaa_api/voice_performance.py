@@ -130,7 +130,7 @@ def build_bounded_ssml(text: str, plan: VoicePerformancePlan) -> str:
     pitch = f"{plan.pitch_semitones:+.1f}st"
     volume = f"{plan.volume * 100:.0f}%"
     return (
-        f'<speak version="1.0" xml:lang="ne-NP">'
+        f'<speak version="1.0" xml:lang="hi-IN">'
         f'<prosody rate="{rate}" pitch="{pitch}" volume="{volume}">{safe}</prosody>'
         f"</speak>"
     )

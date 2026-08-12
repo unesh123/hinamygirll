@@ -102,7 +102,7 @@ export const assistantTurnPlanSchema = z
   .object({
     spokenText: z.string().min(1).max(4000),
     displayText: z.string().min(1).max(8000),
-    language: z.enum(["ne-NP", "en-US", "hi-IN", "mixed"]),
+    language: z.enum(["en-US", "hi-IN", "mixed"]),
     emotion: emotionSchema,
     performance: performanceSchema,
     beats: z.array(beatSchema).max(12).optional(),

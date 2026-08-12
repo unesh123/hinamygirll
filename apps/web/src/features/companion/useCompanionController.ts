@@ -85,10 +85,9 @@ export interface CompanionControllerOptions {
   languagePolicy: ActiveLanguagePolicy;
 }
 
-function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US" | "hi-IN" | "ne-NP" {
+function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US" | "hi-IN" {
   if (policy === "hi-IN") return "hi-IN";
   if (policy === "en-US") return "en-US";
-  if (policy === "ne-NP-experimental") return "ne-NP";
   return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
 }
 

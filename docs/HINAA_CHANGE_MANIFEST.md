@@ -160,3 +160,18 @@ For every subsequent changed file, add a row before publishing the related phase
 | `apps/web/src/components/ui/VmcControlPanel.tsx` | Show face-signal readiness and truthful waiting guidance in the existing VMC panel. | User-visible diagnostics | Does not imply facial tracking without a detected channel. | 2 panel tests. | **PASS** |
 | `apps/web/src/components/ui/VmcControlPanel.test.tsx` | Cover live motion packets without blendshape readiness. | Frontend regression | Mocked diagnostics only. | **PASS** |
 | `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record source findings, implementation, release gates, and real-runtime boundary. | Evidence ledger | Source verification is separate from Windows visual proof. | Updated. | **UPDATED** |
+
+## Phase 20 — High-Presence Jarvis UI, Streaming Voice, and Hindi-English Contract — 2026-08-13
+
+| File or area | Change | Acceptance evidence |
+|---|---|---|
+| `docs/HINAA_PRODUCT_DESIGN.md` | Added the project-scoped Ink Rose companion design system informed by the requested Taste, Impeccable, and 21st.dev interaction guidance. | Design brief includes source references. |
+| `apps/web/index.html`, `apps/web/src/App.css` | Replaced the conflicting bright mint/cyan/lavender shell with the Ink Rose palette, Outfit/JetBrains Mono hierarchy, accessible surface contrast, responsive motion, and reduced-motion behavior. | Frontend suite, type check, and Vite/PWA build pass. |
+| `apps/web/src/components/ui/VmcControlPanel.tsx` | Replaced dense raw diagnostics with guided local receiver, sender-observed, and neutral-capture stages; advanced details remain progressive. | VMC and app drawer regressions pass. |
+| `apps/api/hinaa_api/realtime.py`, `apps/web/src/features/audio/useLiveConversation.ts` | Real configured providers deliver ordered stable phrase audio during text streaming, including sanitized segment text for exact playback and lip-sync. | Realtime, voice, frontend audio, and full release suites pass. |
+| `apps/web/src/components/ui/AvatarPresence.tsx`, `apps/web/src/features/audio/useVSeeFace.ts` | Full neutral facial baseline capture prevents a sender’s resting mouth/vowel offsets from opening HINAA’s mouth. TTS retains mouth ownership while speaking. | Avatar/VMC/audio regressions and typed build pass; real Windows proof remains required. |
+| `apps/web/src/components/ui/LocalImageStudio.tsx` | Re-themed the existing explicit ComfyUI check, local status, sequential slots, and multi-output controls without fabricating a running service. | Sequential-slot regression passes. |
+| `apps/web/src/features/settings/**`, `apps/web/src/features/companion/useCompanionController.ts`, `apps/web/src/features/providers/mockConversationProvider.ts` | Retired normal Nepali routing; persisted settings migrate to automatic Hindi-English and active UI, voice, and Demo behavior use Devanagari Hindi and English only. | Settings, Demo, live audio, and type regressions pass. |
+| `apps/api/hinaa_api/{config,models,prompts,voice_performance,voice_profiles}.py`, realtime schema and corpus | Replaced retired Nepali defaults, prompt instructions, locales, voice metadata, schema values, and offline fixtures with Hindi-English equivalents. Default Azure metadata is `hi-IN-SwaraNeural` / `hi-IN-MadhurNeural`; actual cloud audio remains credential-dependent. | Complete backend pytest suite passes. |
+
+No original VRM binary, ComfyUI model/workflow, secret, SQLite database, generated media, or Windows-local user file is included. `main` remains untouched.

@@ -45,7 +45,7 @@ class AzureContinuousRecognizer:
     def __init__(self, key: str, region: str, language: str, language_mode: str) -> None:
         self._key = key
         self._region = region
-        self._language = language if language != "mixed" else "ne-NP"
+        self._language = language if language != "mixed" else "hi-IN"
         self._language_mode = language_mode
         self._events: asyncio.Queue[RecognitionEvent] = asyncio.Queue()
         self._final_texts: list[str] = []
@@ -62,7 +62,7 @@ class AzureContinuousRecognizer:
             auto_language = None
             if self._language_mode == "auto":
                 auto_language = sdk.languageconfig.AutoDetectSourceLanguageConfig(
-                    languages=["ne-NP", "en-US", "hi-IN"]
+                    languages=["en-US", "hi-IN"]
                 )
             else:
                 config.speech_recognition_language = self._language
@@ -194,7 +194,7 @@ class AzureSpeechProvider:
 
         def recognize() -> str:
             config = self._speech_config()
-            config.speech_recognition_language = language if language != "mixed" else "ne-NP"
+            config.speech_recognition_language = language if language != "mixed" else "hi-IN"
             stream_format = sdk.audio.AudioStreamFormat(
                 samples_per_second=16_000, bits_per_sample=16, channels=1
             )
@@ -235,7 +235,7 @@ class AzureSpeechProvider:
         rate_percent = round((rate - 1) * 100)
         volume_percent = round(volume * 100)
         ssml = (
-            "<speak version='1.0' xml:lang='ne-NP' "
+            "<speak version='1.0' xml:lang='hi-IN' "
             "xmlns='http://www.w3.org/2001/10/synthesis'>"
             f"<voice name='{escape(voice)}'><prosody rate='{rate_percent:+d}%' "
             f"pitch='{pitch_semitones:+.1f}st' volume='{volume_percent}%'>"

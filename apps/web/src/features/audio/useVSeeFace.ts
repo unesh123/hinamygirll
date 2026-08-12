@@ -54,7 +54,8 @@ export type TrackingCalibration = {
   capturedAt: string;
   /** Captured only while fresh external packets are live; never a webcam frame. */
   headBaseline?: [number, number, number, number];
-  expressionBaseline: Pick<FaceExpressions, "mouthOpen" | "eyeBlinkL" | "eyeBlinkR" | "browUpL" | "browUpR" | "browDownL" | "browDownR">;
+  /** Complete neutral facial baseline so sender-specific resting offsets do not become an expression. */
+  expressionBaseline: FaceExpressions;
 };
 
 export interface VSeeFaceState {
@@ -274,10 +275,7 @@ export function useVSeeFace(): VSeeFaceState {
     setCalibration({
       capturedAt: new Date().toISOString(),
       headBaseline,
-      expressionBaseline: {
-        mouthOpen: source.mouthOpen, eyeBlinkL: source.eyeBlinkL, eyeBlinkR: source.eyeBlinkR,
-        browUpL: source.browUpL, browUpR: source.browUpR, browDownL: source.browDownL, browDownR: source.browDownR,
-      },
+      expressionBaseline: { ...source },
     });
     return true;
   }, [status]);

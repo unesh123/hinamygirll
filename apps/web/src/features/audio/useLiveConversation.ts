@@ -65,16 +65,13 @@ function websocketUrl(): string {
   return `${protocol}//${window.location.host}/api/v1/realtime`;
 }
 
-function liveLocaleForPolicy(policy: ActiveLanguagePolicy): "en-US" | "hi-IN" | "ne-NP" | "mixed" {
+function liveLocaleForPolicy(policy: ActiveLanguagePolicy): "en-US" | "hi-IN" | "mixed" {
   if (policy === "en-US" || policy === "hi-IN") return policy;
-  if (policy === "ne-NP-experimental") return "ne-NP";
   return "mixed";
 }
 
 function browserLanguageForText(text: string): string {
-  if (!/[\u0900-\u097F]/.test(text)) return "en-US";
-  if (/(?:मलाई|तपाईं|हुनुहोस्|गर्नुहोस्|छु|छौ)/.test(text)) return "ne-NP";
-  return "hi-IN";
+  return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
 }
 
 function decodeAudio(value: string, mediaType = "audio/wav"): Blob {
@@ -352,7 +349,11 @@ export function useLiveConversation({
         if (eventGeneration !== generation.current) return;
         current.controller.setLiveState("speaking");
         turnTaking.current.setSessionState("speaking");
-        const spokenText = lastSpokenTextRef.current.trim();
+        const spokenText = isPlaceholder
+          ? lastSpokenTextRef.current.trim()
+          : typeof event.text === "string" && event.text.trim()
+            ? event.text.trim()
+            : lastSpokenTextRef.current.trim();
 
         if (isPlaceholder && spokenText) {
           setVoiceMetadata("Device browser voice fallback · local speech output");

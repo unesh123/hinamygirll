@@ -8,7 +8,7 @@
   "properties": {
     "spokenText": {"type": "string", "minLength": 1, "maxLength": 4000},
     "displayText": {"type": "string", "minLength": 1, "maxLength": 8000},
-    "language": {"enum": ["ne-NP", "en-US", "hi-IN", "mixed"]},
+    "language": {"enum": ["en-US", "hi-IN", "mixed"]},
     "emotion": {"$ref": "#/$defs/emotion"},
     "performance": {"$ref": "#/$defs/performance"},
     "beats": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/beat"}},

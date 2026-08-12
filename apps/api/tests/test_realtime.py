@@ -20,7 +20,7 @@ def hello(generation: int = 1) -> dict[str, object]:
         "providerMode": "mock",
         "generation": generation,
         "language": "mixed",
-        "languageMode": "fixed-ne-NP",
+        "languageMode": "fixed-hi-IN",
         "calibration": "soft",
     }
 
@@ -57,7 +57,7 @@ def test_mock_live_turn_is_versioned_validated_and_voice_explicit(client: TestCl
                 "type": "audio.commit",
                 "generation": 1,
                 "endedAtMs": 800.0,
-                "mockTranscript": "आज मलाई assignment बुझाइदेऊ।",
+                "mockTranscript": "आज मुझे assignment समझा दो।",
             }
         )
 
@@ -70,8 +70,10 @@ def test_mock_live_turn_is_versioned_validated_and_voice_explicit(client: TestCl
     assert "assistant.text.delta" in types
     assert "assistant.plan" in types
     audio = next(event for event in events if event["type"] == "tts.audio")
-    assert audio["requestedVoice"] == "ne-NP-HemkalaNeural"
+    assert audio["requestedVoice"] == "hi-IN-SwaraNeural"
     assert audio["actualVoice"] == "mock-tone"
+    assert isinstance(audio["text"], str)
+    assert audio["text"]
     assert audio["calibration"] == "soft"
     assert all(event["generation"] == 1 for event in events)
 

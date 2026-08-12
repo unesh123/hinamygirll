@@ -57,7 +57,7 @@ describe("HINAA assistant workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open VSeeFace and VMC connection controls" }));
     expect(await screen.findByRole("dialog", { name: "VSeeFace and VMC connection panel" })).toBeInTheDocument();
     expect(screen.getByText("Disconnected")).toBeInTheDocument();
-    expect(screen.getByText(/Connect HINAA to its local VMC bridge/i)).toBeInTheDocument();
+    expect(screen.getByText(/Start HINAA’s local receiver/i)).toBeInTheDocument();
   });
 
   it("imports and selects a local avatar in one flow", async () => {

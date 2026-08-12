@@ -9,11 +9,11 @@
  * - Never store credentials
  * - Only add settings for behaviour that genuinely exists today
  *
- * Version 3 — Hindi/English auto is the active Hinaa language policy; Nepali
- * remains available only as an explicit experimental future option.
+ * Version 4 — fluent Hindi (Devanagari) and English are the only active HINAA
+ * language routes. Older experimental Nepali selections migrate to auto Hindi/English.
  */
 
-export const SETTINGS_VERSION = 3 as const;
+export const SETTINGS_VERSION = 4 as const;
 export const SETTINGS_KEY = "hinaa_settings_v1" as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -59,10 +59,10 @@ export interface ProviderPreferences {
   preferredModelByProvider: ModelByProvider;
 }
 
-export type ActiveLanguagePolicy = "auto-hi-en" | "hi-IN" | "en-US" | "ne-NP-experimental";
+export type ActiveLanguagePolicy = "auto-hi-en" | "hi-IN" | "en-US";
 
 export interface LanguageSettings {
-  /** Nepali infrastructure is retained but excluded from normal Hinaa auto routing. */
+  /** HINAA responds in automatic Hindi-English, fixed Devanagari Hindi, or fixed English. */
   activePolicy: ActiveLanguagePolicy;
 }
 

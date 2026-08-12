@@ -42,7 +42,7 @@ GEMINI_CAPABILITIES = ProviderCapabilities(
     structured_output=True,
     cancellation=True,
     usage_reporting=False,
-    supported_locales=["en", "ne", "hi", "mixed"],
+    supported_locales=["en", "hi", "mixed"],
     stable_or_preview="preview",
     maximum_configured_output=512,
     reasoning_controls=False,
@@ -55,7 +55,7 @@ AZURE_SPEECH_CAPABILITIES = ProviderCapabilities(
     continuous_stt=True,
     cancellation=True,
     usage_reporting=False,
-    supported_locales=["ne-NP", "hi-IN", "en-US"],
+    supported_locales=["hi-IN", "en-US"],
     stable_or_preview="stable",
 )
 
@@ -67,7 +67,7 @@ MOCK_CAPABILITIES = ProviderCapabilities(
     continuous_stt=False,
     structured_output=True,
     cancellation=True,
-    supported_locales=["en", "ne", "hi", "mixed"],
+    supported_locales=["en", "hi", "mixed"],
     stable_or_preview="mock",
 )
 

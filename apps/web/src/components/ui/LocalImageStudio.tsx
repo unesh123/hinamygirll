@@ -115,13 +115,13 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <section style={{ padding: 20, color: "#e2e8f0", maxWidth: 940, margin: "0 auto" }}>
+    <section style={{ padding: 20, color: "var(--text-primary)", maxWidth: 940, margin: "0 auto" }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
         <div>
-          <p style={{ margin: 0, color: "#5eead4", fontSize: 11, fontWeight: 800, letterSpacing: "0.12em" }}>LOCAL CREATOR</p>
+          <p style={{ margin: 0, color: "#f5a7bb", fontSize: 11, fontWeight: 800, letterSpacing: "0.12em" }}>LOCAL CREATOR</p>
           <h2 style={{ margin: "5px 0", fontSize: 25 }}>Image studio</h2>
-          <p style={{ margin: 0, color: "#94a3b8", lineHeight: 1.5 }}>Create locally through your configured ComfyUI workflow. Generate is an explicit action; Hinaa will not start image jobs on her own.</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: comfyStatus === "ready" ? "#6ee7b7" : comfyStatus === "unavailable" ? "#fda4af" : "#fde68a", fontSize: 12 }}>
+          <p style={{ margin: 0, color: "var(--text-secondary)", lineHeight: 1.5 }}>Create locally through your configured ComfyUI workflow. Generate is an explicit action; Hinaa will not start image jobs on her own.</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: comfyStatus === "ready" ? "#86efac" : comfyStatus === "unavailable" ? "#f49aad" : "#f2bf7a", fontSize: 12 }}>
             <span style={{ width: 7, height: 7, borderRadius: 99, background: "currentColor" }} />
             {comfyStatus === "ready" ? "ComfyUI ready on this device" : comfyStatus === "checking" ? "Checking local ComfyUI…" : "ComfyUI unavailable — start it locally, then check again"}
             <button type="button" onClick={() => void checkComfy()} style={{ ...secondaryButtonStyle, padding: "3px 7px", fontSize: 11 }}>Check again</button>
@@ -140,13 +140,13 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
             {state === "starting" || state === "processing" ? <Loader2 size={18} className="spin" /> : <Wand2 size={18} />}
             {state === "starting" || state === "processing" ? "Generating locally…" : "Generate images"}
           </button>
-          <p role="status" style={{ margin: "12px 0 0", color: state === "failed" ? "#fda4af" : "#cbd5e1", fontSize: 13 }}>{message}</p>
+          <p role="status" style={{ margin: "12px 0 0", color: state === "failed" ? "#f49aad" : "var(--text-secondary)", fontSize: 13 }}>{message}</p>
         </div>
 
         <aside style={panelStyle}>
           <label style={labelStyle}>Quality</label>
           <div style={{ display: "grid", gap: 7 }}>
-            {(["fast", "quality", "ultra"] as const).map((item) => <button key={item} type="button" onClick={() => setMode(item)} style={{ ...modeButtonStyle, borderColor: mode === item ? "#2dd4bf" : "rgba(148,163,184,.28)", background: mode === item ? "rgba(20,184,166,.14)" : "rgba(15,23,42,.5)" }}><strong>{item === "fast" ? "Fast" : item === "quality" ? "Quality" : "Ultra"}</strong><span>{item === "fast" ? "768 × 768" : item === "quality" ? "1024 × 1024" : "1024 × 1536"}</span></button>)}
+            {(["fast", "quality", "ultra"] as const).map((item) => <button key={item} type="button" onClick={() => setMode(item)} style={{ ...modeButtonStyle, borderColor: mode === item ? "#ee91ad" : "rgba(255,219,231,.16)", background: mode === item ? "rgba(238,145,173,.14)" : "rgba(255,255,255,.025)" }}><strong>{item === "fast" ? "Fast" : item === "quality" ? "Quality" : "Ultra"}</strong><span>{item === "fast" ? "768 × 768" : item === "quality" ? "1024 × 1024" : "1024 × 1536"}</span></button>)}
           </div>
           <label style={{ ...labelStyle, marginTop: 16 }}>Outputs</label>
           <select aria-label="Image count" value={count} onChange={(event) => setCount(Number(event.target.value))} style={{ ...inputStyle, width: "100%" }}>{[1, 2, 4].map((value) => <option key={value} value={value}>{value} image{value > 1 ? "s" : ""}</option>)}</select>
@@ -159,18 +159,18 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
       {slots.length > 0 && <div aria-label="Local image generation slots" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))", gap: 12, marginTop: 20 }}>{slots.map((slot) => {
         const source = slot.url?.replace("http://127.0.0.1:8000", "/api");
         if (source) {
-          return <a key={slot.id} href={source} target="_blank" rel="noreferrer" style={{ ...panelStyle, padding: 7, textDecoration: "none" }}><img src={source} alt={`Generated image ${slot.index}`} style={{ width: "100%", display: "block", borderRadius: 9, aspectRatio: "1 / 1", objectFit: "cover" }} /><small style={{ display: "block", color: "#99f6e4", margin: "8px 4px 2px" }}>Image {slot.index} · seed {slot.seed ?? "—"}</small></a>;
+          return <a key={slot.id} href={source} target="_blank" rel="noreferrer" style={{ ...panelStyle, padding: 7, textDecoration: "none" }}><img src={source} alt={`Generated image ${slot.index}`} style={{ width: "100%", display: "block", borderRadius: 9, aspectRatio: "1 / 1", objectFit: "cover" }} /><small style={{ display: "block", color: "#ffd6e1", margin: "8px 4px 2px" }}>Image {slot.index} · seed {slot.seed ?? "—"}</small></a>;
         }
-        const color = slot.status === "failed" || slot.status === "cancelled" ? "#fda4af" : slot.status === "processing" ? "#fde68a" : "#94a3b8";
+        const color = slot.status === "failed" || slot.status === "cancelled" ? "#f49aad" : slot.status === "processing" ? "#f2bf7a" : "var(--text-muted)";
         return <div key={slot.id} style={{ ...panelStyle, minHeight: 170, display: "grid", placeItems: "center", textAlign: "center", color }}><ImagePlus size={24} /><strong>Image {slot.index}</strong><small>{slot.status === "processing" ? "Generating locally…" : slot.status === "pending" ? "Waiting for its sequential turn" : slot.status}</small></div>;
       })}</div>}
     </section>
   );
 }
 
-const panelStyle = { border: "1px solid rgba(148,163,184,.22)", background: "rgba(15,23,42,.65)", borderRadius: 14, padding: 15 } as const;
-const inputStyle = { border: "1px solid rgba(148,163,184,.28)", background: "rgba(2,6,23,.62)", borderRadius: 9, color: "#f8fafc", padding: "10px 11px", fontSize: 13, boxSizing: "border-box" } as const;
-const labelStyle = { display: "block", color: "#99f6e4", fontSize: 11, fontWeight: 800, letterSpacing: ".08em", marginBottom: 7 } as const;
-const generateButtonStyle = { width: "100%", marginTop: 16, display: "flex", gap: 9, justifyContent: "center", alignItems: "center", border: 0, borderRadius: 10, padding: "11px 14px", cursor: "pointer", color: "#042f2e", fontWeight: 800, background: "linear-gradient(135deg,#5eead4,#7dd3fc)" } as const;
-const secondaryButtonStyle = { border: "1px solid rgba(148,163,184,.3)", borderRadius: 8, background: "transparent", color: "#cbd5e1", padding: "7px 10px", cursor: "pointer" } as const;
-const modeButtonStyle = { display: "grid", textAlign: "left", gap: 2, border: "1px solid", borderRadius: 9, color: "#e2e8f0", padding: "9px 10px", cursor: "pointer" } as const;
+const panelStyle = { border: "1px solid var(--glass-border)", background: "rgba(255,255,255,.035)", borderRadius: 14, padding: 15, boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)" } as const;
+const inputStyle = { border: "1px solid rgba(255,219,231,.16)", background: "rgba(18,12,21,.68)", borderRadius: 9, color: "var(--text-primary)", padding: "10px 11px", fontSize: 13, boxSizing: "border-box" } as const;
+const labelStyle = { display: "block", color: "#f5a7bb", fontSize: 11, fontWeight: 800, letterSpacing: ".08em", marginBottom: 7 } as const;
+const generateButtonStyle = { width: "100%", marginTop: 16, display: "flex", gap: 9, justifyContent: "center", alignItems: "center", border: "1px solid #ffc3d3", borderRadius: 10, padding: "11px 14px", cursor: "pointer", color: "#28131d", fontWeight: 800, background: "linear-gradient(135deg,#ffd4df,#ee91ad)" } as const;
+const secondaryButtonStyle = { border: "1px solid rgba(255,219,231,.18)", borderRadius: 8, background: "rgba(255,255,255,.035)", color: "var(--text-secondary)", padding: "7px 10px", cursor: "pointer" } as const;
+const modeButtonStyle = { display: "grid", textAlign: "left", gap: 2, border: "1px solid", borderRadius: 9, color: "var(--text-primary)", padding: "9px 10px", cursor: "pointer" } as const;

@@ -4,7 +4,7 @@ from typing import Annotated, Literal, Any
 
 from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 
-Language = Literal["ne-NP", "en-US", "hi-IN", "mixed"]
+Language = Literal["en-US", "hi-IN", "mixed"]
 ProviderMode = Literal["mock", "local", "groq", "openai", "custom", "real", "agent-router", "cx-gateway", "gemini-live"]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal["conversation", "professional", "technical", "research", "automation", "academic", "creative", "concise_voice"]
@@ -184,6 +184,6 @@ class VoiceProfile(StrictModel):
     companionId: CompanionId
     provider: Literal["azure-speech"]
     requestedVoice: str
-    locale: Literal["ne-NP"]
+    locale: Literal["hi-IN"]
     identityDisclosure: str
     calibrations: list[VoiceCalibration]

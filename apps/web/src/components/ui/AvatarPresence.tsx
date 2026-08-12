@@ -194,7 +194,10 @@ interface ModelProps {
   faceExpressions?: FaceExpressions | null;
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
-  trackingCalibration?: { headBaseline?: [number, number, number, number] } | null;
+  trackingCalibration?: {
+    headBaseline?: [number, number, number, number];
+    expressionBaseline?: Partial<FaceExpressions>;
+  } | null;
   expressionText?: string;
   onAnatomyFrame?: (frame: AnatomyFrame) => void;
 }
@@ -454,13 +457,24 @@ function Model({
           mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 14);
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
-      } else if (face) {
-        // ── Fresh external VMC, while not speaking: use observed vowel data
-        // when available, otherwise the sender's conservative mouth-open cue.
+      } else if (face && trackingCalibration?.expressionBaseline) {
+        // ── Calibrated external VMC, while not speaking ──
+        // Some VSeeFace senders keep a small mouth-open value at rest. Do not
+        // interpret that neutral baseline as an open mouth: facial mouth motion
+        // becomes active only after a user-captured neutral baseline and uses a
+        // bounded positive delta. HINAA's TTS remains the sole mouth owner while
+        // she speaks above.
+        const baseline = trackingCalibration.expressionBaseline;
+        const neutralMouth = baseline.mouthOpen ?? 0;
         const tracked: Record<MouthKey, number> = {
-          aa: Math.max(face.mouthA, face.mouthOpen),
-          ih: face.mouthI, ou: face.mouthU,
-          ee: face.mouthE, oh: face.mouthO,
+          aa: Math.max(
+            Math.max(0, face.mouthA - (baseline.mouthA ?? 0)),
+            Math.max(0, face.mouthOpen - neutralMouth),
+          ),
+          ih: Math.max(0, face.mouthI - (baseline.mouthI ?? 0)),
+          ou: Math.max(0, face.mouthU - (baseline.mouthU ?? 0)),
+          ee: Math.max(0, face.mouthE - (baseline.mouthE ?? 0)),
+          oh: Math.max(0, face.mouthO - (baseline.mouthO ?? 0)),
         };
         for (const k of ALL_MOUTH_KEYS) {
           mouthW.current[k] += (tracked[k] - mouthW.current[k]) * Math.min(1, dt * 12);
@@ -661,7 +675,10 @@ interface Props {
   faceExpressions?: FaceExpressions | null;
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
-  trackingCalibration?: { headBaseline?: [number, number, number, number] } | null;
+  trackingCalibration?: {
+    headBaseline?: [number, number, number, number];
+    expressionBaseline?: Partial<FaceExpressions>;
+  } | null;
   expressionText?: string;
   presentation?: AvatarPresentation;
 }

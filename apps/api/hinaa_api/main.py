@@ -329,7 +329,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return [
             ProviderStatus(
                 id="mock",
-                capabilities=["stt", "llm", "tts", "ne-NP", "offline"],
+                capabilities=["stt", "llm", "tts", "hi-IN", "offline"],
                 state="healthy",
                 userMessage="Deterministic local mock is ready.",
             ),
@@ -467,7 +467,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             ProviderStatus(
                 id="azure-speech",
-                capabilities=["stt", "tts", "ne-NP", "pcm-wav"],
+                capabilities=["stt", "tts", "hi-IN", "pcm-wav"],
                 state="disabled",
                 userMessage="Azure subscription is disabled. ElevenLabs and local providers are used.",
             ),
@@ -523,7 +523,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/v1/speech/transcriptions", response_model=TranscriptResponse)
     async def transcribe(
         audio: UploadFile = File(...),
-        language: str = Form("ne-NP"),
+        language: str = Form("hi-IN"),
         provider_mode: str = Form("mock"),
     ) -> TranscriptResponse:
         if provider_mode not in {"mock", "local", "groq", "openai", "custom", "real"}:

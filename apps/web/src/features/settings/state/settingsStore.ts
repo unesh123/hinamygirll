@@ -89,6 +89,9 @@ function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> 
   if (version < 3) {
     migrated.language = { activePolicy: "auto-hi-en" };
   }
+  if (version < 4) {
+    migrated.language = { activePolicy: "auto-hi-en" };
+  }
   migrated._version = SETTINGS_VERSION;
   return migrated;
 }
@@ -148,7 +151,7 @@ function validateLanguage(raw: unknown): HinaaSettings["language"] {
   return {
     activePolicy: safeString<ActiveLanguagePolicy>(
       obj.activePolicy,
-      ["auto-hi-en", "hi-IN", "en-US", "ne-NP-experimental"],
+      ["auto-hi-en", "hi-IN", "en-US"],
       DEFAULT_SETTINGS.language.activePolicy,
     ),
   };

@@ -39,7 +39,7 @@ export async function transcribeAudio(
 ): Promise<TranscriptResult> {
   const form = new FormData();
   form.append("audio", blob, "microphone-turn.wav");
-  form.append("language", "ne-NP");
+  form.append("language", "hi-IN");
   form.append("provider_mode", mode);
   const response = await fetch("/api/v1/speech/transcriptions", {
     method: "POST",

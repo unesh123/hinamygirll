@@ -45,10 +45,11 @@ def test_health_and_provider_readiness_are_safe(client: TestClient) -> None:
     assert "api_key" not in diagnostics
 
 
-def test_voice_profiles_disclose_standard_nepali_voices(client: TestClient) -> None:
+def test_voice_profiles_disclose_standard_hindi_voices(client: TestClient) -> None:
     profiles = client.get("/v1/voice-profiles").json()
-    assert profiles[0]["requestedVoice"] == "ne-NP-HemkalaNeural"
-    assert profiles[1]["requestedVoice"] == "ne-NP-SagarNeural"
+    assert profiles[0]["requestedVoice"] == "hi-IN-SwaraNeural"
+    assert profiles[1]["requestedVoice"] == "hi-IN-MadhurNeural"
+    assert all(profile["locale"] == "hi-IN" for profile in profiles)
     assert "not a custom anime" in profiles[0]["identityDisclosure"]
     assert [item["id"] for item in profiles[0]["calibrations"]] == [
         "natural",
@@ -61,7 +62,7 @@ def test_mock_transcription_accepts_valid_bounded_pcm_wav(client: TestClient) ->
     response = client.post(
         "/v1/speech/transcriptions",
         files={"audio": ("turn.wav", pcm_wav(), "audio/wav")},
-        data={"language": "ne-NP", "provider_mode": "mock"},
+        data={"language": "hi-IN", "provider_mode": "mock"},
     )
     assert response.status_code == 200
     assert response.json()["provider"] == "mock-stt-v1"
@@ -144,7 +145,7 @@ def test_local_stt_fails_truthfully_without_cloud_or_silent_mock(client: TestCli
     response = client.post(
         "/v1/speech/transcriptions",
         files={"audio": ("turn.wav", pcm_wav(), "audio/wav")},
-        data={"language": "ne-NP", "provider_mode": "local"},
+        data={"language": "hi-IN", "provider_mode": "local"},
     )
     assert response.status_code == 503
     assert response.json()["code"] == "LOCAL_STT_UNAVAILABLE"
@@ -172,7 +173,7 @@ def test_groq_stt_uses_local_gate_without_cloud_fallback(client: TestClient) -> 
     response = client.post(
         "/v1/speech/transcriptions",
         files={"audio": ("turn.wav", pcm_wav(), "audio/wav")},
-        data={"language": "ne-NP", "provider_mode": "groq"},
+        data={"language": "hi-IN", "provider_mode": "groq"},
     )
     assert response.status_code == 503
     assert response.json()["code"] == "LOCAL_STT_UNAVAILABLE"

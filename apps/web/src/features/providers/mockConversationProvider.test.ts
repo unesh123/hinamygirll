@@ -68,22 +68,17 @@ describe("professional Demo guidance", () => {
 
 
 describe("localized Demo guidance", () => {
-  it("returns native-script Hindi and Nepali guidance with concise spoken summaries", () => {
+  it("returns native-script Hindi guidance with a concise spoken summary", () => {
     const hindi = buildMockPlan("हिना, मुझे ComfyUI setup समझाओ।", "hinaa", "hi-IN");
     expect(hindi.language).toBe("hi-IN");
     expect(hindi.displayText).toContain("ComfyUI सेटअप के लिए");
     expect(hindi.displayText).toContain("NVIDIA driver");
     expect(hindi.spokenText.length).toBeLessThan(hindi.displayText.length);
 
-    const nepaliDisabled = buildMockPlan("हिना, मलाई ComfyUI को setup विस्तारमा बुझाऊ।", "hinaa", "hi-IN");
-    expect(nepaliDisabled.language).toBe("hi-IN");
-    expect(nepaliDisabled.displayText).toContain("Hindi और English");
-
-    const nepali = buildMockPlan("हिना, मलाई ComfyUI को setup विस्तारमा बुझाऊ।", "hinaa", "ne-NP");
-    expect(nepali.language).toBe("ne-NP");
-    expect(nepali.displayText).toContain("ComfyUI को setup गर्न");
-    expect(nepali.displayText).toContain("workflow queue गर्नुहोस्");
-    expect(nepali.spokenText.length).toBeLessThan(nepali.displayText.length);
+    const devanagariFallback = buildMockPlan("हिना, ComfyUI setup विस्तार से समझाओ।", "hinaa", "hi-IN");
+    expect(devanagariFallback.language).toBe("hi-IN");
+    expect(devanagariFallback.displayText).toContain("ComfyUI सेटअप के लिए");
+    expect(devanagariFallback.spokenText.length).toBeLessThan(devanagariFallback.displayText.length);
   });
 });
 

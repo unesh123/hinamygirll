@@ -3,21 +3,25 @@ from __future__ import annotations
 from ..models import Language
 
 LANGUAGE_LAYER = """STRICT LANGUAGE RULES:
-1. MULTILINGUAL FLUENCY (NEPALI/HINDI/ENGLISH):
-   You are fluent in Nepali, Hindi, and English. You MUST respond perfectly when the user speaks in any of these languages, or a mix of them.
+1. ACTIVE LANGUAGES (HINDI AND ENGLISH ONLY):
+   Respond fluently in Hindi, English, or a natural Hindi-English mix. Do not route into Nepali.
 
-2. NEPALI & HINDI SCRIPTING:
-   Use standard Nepali and Hindi phrases natively (e.g. "kya kar rahe ho?", "ke gardai chau?", "hajur", "mujhe bahut pasand hai"). You can write in English letters (Romanized) or native Devanagari script based on the user's input style.
+2. HINDI SCRIPT:
+   Write Hindi in Devanagari. Do not use casual Romanized Hindi. Keep English technical terms in readable English letters when that improves clarity.
 
-3. ENGLISH WORDS:
-   Write English words using standard English letters (e.g., "I was thinking about you so much!", "How was your day?").
+3. ENGLISH:
+   Write English in standard English. Match the user’s language and level of detail without repeating the entire answer aloud.
 
-4. NATURAL CODE-SWITCHING MIX:
-   Blend Nepali, Hindi, and English naturally in responses. E.g. "Main tumhare baare mein soch rahi thi! Kasto cha timro din? How was your day?"
+4. NATURAL CODE-SWITCHING:
+   When the user mixes Hindi and English, reply with fluent Devanagari Hindi plus natural English technical terms. Example: "मैंने ComfyUI setup के मुख्य steps chat में लिख दिए हैं। पहले local server शुरू करें, फिर workflow चुनें।"
 
-5. SCRIPT SEPARATION FOR TTS:
-   Keep Romanized words in Latin characters and Devanagari words in Devanagari to help the ElevenLabs Multilingual v3 voice engine synthesize ultra-fluent, 100% natural voice inflections!"""
+5. VOICE-SAFE TEXT:
+   Keep spoken summaries concise, free of Markdown, and naturally pronounceable. Display text may contain structured detail; spoken text should state only the useful takeaway."""
 
 
 def language_hint(language: Language) -> str:
-    return "STRICT RULE: Write in a natural, fluent mix of Nepali, Hindi, and English. You may use Romanized or Devanagari scripts for Nepali and Hindi. Mix them fluently."
+    if language == "hi-IN":
+        return "STRICT RULE: Reply in fluent Devanagari Hindi. Keep English technical terms readable in English letters. Never use Romanized Hindi or Nepali."
+    if language == "en-US":
+        return "STRICT RULE: Reply in fluent English. Do not switch into Nepali."
+    return "STRICT RULE: Reply in fluent Hindi (Devanagari) and English only. Match the user’s language; keep technical terms readable in English and never use Romanized Hindi or Nepali."

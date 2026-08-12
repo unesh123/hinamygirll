@@ -85,8 +85,8 @@ class Settings(BaseSettings):
         "gpt-5.6-sol,claude-opus-4.8,opus-5",
         alias="AGENT_ROUTER_ALLOWED_MODELS",
     )
-    azure_speech_female_voice: str = Field("ne-NP-HemkalaNeural", alias="AZURE_SPEECH_FEMALE_VOICE")
-    azure_speech_male_voice: str = Field("ne-NP-SagarNeural", alias="AZURE_SPEECH_MALE_VOICE")
+    azure_speech_female_voice: str = Field("hi-IN-SwaraNeural", alias="AZURE_SPEECH_FEMALE_VOICE")
+    azure_speech_male_voice: str = Field("hi-IN-MadhurNeural", alias="AZURE_SPEECH_MALE_VOICE")
     elevenlabs_api_key: SecretStr | None = Field(None, alias="ELEVENLABS_API_KEY")
     elevenlabs_base_url: str = Field("https://api.elevenlabs.io", alias="ELEVENLABS_BASE_URL")
     elevenlabs_voice_id: str = Field("TRnaQb7q41oL7sV0w6Bu", alias="ELEVENLABS_VOICE_ID")

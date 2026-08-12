@@ -24,8 +24,8 @@
         "companionId": {"enum": ["hinaa", "hiro"]},
         "providerMode": {"enum": ["mock", "real"]},
         "generation": {"type": "integer", "minimum": 0, "maximum": 1000000},
-        "language": {"enum": ["ne-NP", "en-US", "hi-IN", "mixed"]},
-        "languageMode": {"enum": ["fixed-ne-NP", "auto"]},
+        "language": {"enum": ["en-US", "hi-IN", "mixed"]},
+        "languageMode": {"enum": ["fixed-hi-IN", "auto"]},
         "calibration": {"enum": ["natural", "soft", "lively"]}
       }
     },

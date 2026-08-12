@@ -33,9 +33,9 @@ describe("VmcControlPanel", () => {
     const state = tracker("listening");
     render(<VmcControlPanel tracker={state} selectedModelLabel="Hinaa" selectedModelMode="autonomous" onClose={vi.fn()} onOpenAvatarLab={vi.fn()} />);
 
-    expect(screen.getByText("VMC Listening")).toBeInTheDocument();
+    expect(screen.getAllByText("Waiting for VSeeFace").length).toBeGreaterThan(0);
     expect(screen.queryByText("VSeeFace Live")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Calibrate neutral" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Calibrate neutral" })).not.toBeInTheDocument();
     expect(screen.getByText(/no recent VSeeFace tracking packet/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));

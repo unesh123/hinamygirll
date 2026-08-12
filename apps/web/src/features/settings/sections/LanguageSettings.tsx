@@ -11,7 +11,7 @@ export function LanguageSettings({ language, onChange }: Props) {
     <SettingsSection label="HINAA language" divider>
       <SettingsRow
         label="Conversation language"
-        description="Hindi uses Devanagari with readable English technical terms. Nepali remains experimental and is disabled from normal auto routing."
+        description="Hindi uses Devanagari with readable English technical terms. HINAA automatically follows Hindi or English without routing into Nepali."
         htmlFor="settings-language-policy"
       >
         <SettingsSelect
@@ -21,7 +21,6 @@ export function LanguageSettings({ language, onChange }: Props) {
             { value: "auto-hi-en", label: "Auto Hindi / English" },
             { value: "hi-IN", label: "Hindi (Devanagari)" },
             { value: "en-US", label: "English" },
-            { value: "ne-NP-experimental", label: "Nepali — experimental" },
           ]}
           onChange={(activePolicy) => onChange({ activePolicy: activePolicy as LanguagePreferences["activePolicy"] })}
           aria-label="HINAA conversation language"
