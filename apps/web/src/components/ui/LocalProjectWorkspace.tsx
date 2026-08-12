@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FolderPlus, FileText, ListTodo, Loader2, Plus, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { CheckCircle2, Download, FolderPlus, FileText, ListTodo, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 
 type TaskStatus = "pending" | "active" | "success" | "error" | "cancelled" | "waiting_approval";
 
@@ -25,6 +25,23 @@ interface ProjectArtifact {
   sourceUrl?: string | null;
 }
 
+type RunStatus = "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+
+interface AgentRunEvent {
+  id: string;
+  label: string;
+  detail: string;
+  status: RunStatus;
+}
+
+interface AgentRun {
+  id: string;
+  goal: string;
+  status: RunStatus;
+  summary: string;
+  events: AgentRunEvent[];
+}
+
 interface ProjectSummary {
   id: string;
   title: string;
@@ -35,6 +52,7 @@ interface ProjectDetail extends ProjectSummary {
   tasks: ProjectTask[];
   files: ProjectFile[];
   artifacts: ProjectArtifact[];
+  runs: AgentRun[];
 }
 
 const API = "/api/v1";
@@ -68,6 +86,8 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
   const [planGoal, setPlanGoal] = useState("");
   const [sourceTitle, setSourceTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [runGoal, setRunGoal] = useState("");
+  const [runBusy, setRunBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -78,8 +98,14 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
       const items = await request<ProjectSummary[]>("/projects");
       setProjects(items);
       const id = selectId || selected?.id || items[0]?.id;
-      if (id) setSelected(await request<ProjectDetail>(`/projects/${id}`));
-      else setSelected(null);
+      if (id) {
+        const detail = await request<ProjectDetail>(`/projects/${id}`);
+        setSelected(detail);
+        localStorage.setItem("hinaa-active-project-id", detail.id);
+      } else {
+        setSelected(null);
+        localStorage.removeItem("hinaa-active-project-id");
+      }
     } catch {
       setError("Local workspace is unavailable. Start Hinaa’s API to access projects.");
     } finally {
@@ -156,6 +182,40 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
       await loadProjects(selected.id);
     } catch {
       setError("Could not save that local research source.");
+    }
+  };
+
+  const startRun = async () => {
+    const goal = runGoal.trim();
+    if (!selected || !goal) return;
+    setRunBusy(true);
+    try {
+      await request(`/projects/${selected.id}/runs`, {
+        method: "POST",
+        body: JSON.stringify({ goal }),
+      });
+      setRunGoal("");
+      await loadProjects(selected.id);
+    } catch {
+      setError("Could not start the local agent run.");
+    } finally {
+      setRunBusy(false);
+    }
+  };
+
+  const updateRun = async (run: AgentRun, status: RunStatus) => {
+    if (!selected || run.status === status) return;
+    setRunBusy(true);
+    try {
+      await request(`/projects/runs/${run.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      await loadProjects(selected.id);
+    } catch {
+      setError("Could not update the local agent run.");
+    } finally {
+      setRunBusy(false);
     }
   };
 
@@ -245,9 +305,32 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
           </section>
 
           <section>
+            <label style={sectionLabelStyle}><Sparkles size={14} /> AGENT RUNS</label>
+            <p style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.45, margin: "7px 0" }}>Persistent local run context. Hinaa records each state, but still waits for your approval before consequential actions.</p>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input value={runGoal} onChange={(event) => setRunGoal(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void startRun()} placeholder="Start a focused agent run" aria-label="Agent run goal" style={inputStyle} />
+              <button type="button" disabled={runBusy} onClick={() => void startRun()} style={primaryButtonStyle} title="Start local agent run"><Play size={15} /></button>
+            </div>
+            <div style={{ display: "grid", gap: 7, marginTop: 9 }}>
+              {selected.runs.slice(0, 4).map((run) => {
+                const latest = run.events[run.events.length - 1];
+                const color = run.status === "completed" ? "#34d399" : run.status === "waiting_approval" ? "#fbbf24" : run.status === "failed" ? "#fb7185" : run.status === "running" ? "#38bdf8" : "#94a3b8";
+                return <div key={run.id} style={{ ...rowStyle, display: "grid", gap: 6, borderLeft: `2px solid ${color}` }}>
+                  <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}><span style={{ width: 8, height: 8, marginTop: 4, borderRadius: 99, background: color }} /><div style={{ minWidth: 0, flex: 1 }}><strong>{run.goal}</strong><small>{latest?.label || "Run created"}{latest?.detail ? ` · ${latest.detail}` : ""}</small></div></div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, paddingLeft: 15 }}><span style={{ color, fontSize: 10, fontWeight: 800, letterSpacing: ".05em" }}>{run.status.replace("_", " ").toUpperCase()}</span><span style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>{run.status === "waiting_approval" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><Play size={11} /> Resume</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{run.status === "running" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "waiting_approval")} style={miniButtonStyle}><Pause size={11} /> Pause</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "completed")} style={miniButtonStyle}><CheckCircle2 size={11} /> Finish</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{(run.status === "failed" || run.status === "cancelled" || run.status === "completed") && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><RotateCcw size={11} /> Resume context</button>}</span></div>
+                </div>;
+              })}
+              {selected.runs.length === 0 && <small style={{ color: "#94a3b8" }}>Start a run to preserve a focused execution context and inspect its event history later.</small>}
+            </div>
+          </section>
+
+          <section>
             <label style={sectionLabelStyle}><FileText size={14} /> LOCAL CONTENT</label>
             <p style={{ color: "#cbd5e1", fontSize: 12, margin: "8px 0" }}>{selected.files.length} file{selected.files.length === 1 ? "" : "s"} · {selected.artifacts.length} saved artifact{selected.artifacts.length === 1 ? "" : "s"}</p>
-            {[...selected.artifacts.slice(0, 3).map((item) => `${item.kind}: ${item.title}`), ...selected.files.slice(0, 3).map((item) => `file: ${item.name}`)].map((label) => <div key={label} style={{ color: "#94a3b8", fontSize: 12, padding: "4px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>)}
+            <div style={{ display: "grid", gap: 5 }}>
+              {selected.artifacts.slice(0, 4).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12 }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.kind}: {item.title}</span><a href={`${API}/projects/artifacts/${item.id}/export`} title={`Export ${item.title} as Markdown`} aria-label={`Export ${item.title} as Markdown`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a></div>)}
+              {selected.files.slice(0, 3).map((item) => <div key={item.id} style={{ color: "#94a3b8", fontSize: 12, padding: "2px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>file: {item.name}</div>)}
+            </div>
           </section>
 
           <section>
@@ -274,3 +357,4 @@ const projectButtonStyle = { textAlign: "left", display: "grid", gap: 3, padding
 const sectionLabelStyle = { display: "flex", alignItems: "center", gap: 6, color: "#5eead4", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em" } as const;
 const rowStyle = { display: "flex", alignItems: "flex-start", gap: 8, padding: 8, background: "rgba(15,23,42,0.42)", borderRadius: 8, fontSize: 12 } as const;
 const statusSelectStyle = { width: 76, border: "1px solid rgba(148,163,184,.28)", background: "rgba(2,6,23,.7)", borderRadius: 6, color: "#cbd5e1", fontSize: 10, padding: "4px" } as const;
+const miniButtonStyle = { display: "inline-flex", alignItems: "center", gap: 3, border: "1px solid rgba(148,163,184,.30)", borderRadius: 6, background: "rgba(15,23,42,.66)", color: "#cbd5e1", padding: "4px 6px", cursor: "pointer", fontSize: 10, fontWeight: 700 } as const;

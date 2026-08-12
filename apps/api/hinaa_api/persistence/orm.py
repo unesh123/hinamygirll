@@ -228,3 +228,43 @@ class LocalProjectTask(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class LocalAgentRun(Base):
+    """A transparent local execution record for a project-scoped Hinaa run."""
+
+    __tablename__ = "local_agent_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("local_projects.id", ondelete="CASCADE"), index=True
+    )
+    root_task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("local_project_tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    goal: Mapped[str] = mapped_column(Text())
+    status: Mapped[str] = mapped_column(String(30), default="queued")
+    summary: Mapped[str] = mapped_column(Text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LocalAgentRunEvent(Base):
+    """Append-only history that makes local agent behavior inspectable and resumable."""
+
+    __tablename__ = "local_agent_run_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("local_agent_runs.id", ondelete="CASCADE"), index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer(), default=0)
+    kind: Mapped[str] = mapped_column(String(40), default="status")
+    status: Mapped[str] = mapped_column(String(30), default="queued")
+    label: Mapped[str] = mapped_column(String(240))
+    detail: Mapped[str] = mapped_column(Text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

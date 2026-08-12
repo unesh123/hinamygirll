@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from .orm import LocalProject, LocalProjectArtifact, LocalProjectFile, LocalProjectTask
+from .orm import (
+    LocalAgentRun,
+    LocalAgentRunEvent,
+    LocalProject,
+    LocalProjectArtifact,
+    LocalProjectFile,
+    LocalProjectTask,
+)
 
 
 class LocalProjectService:
@@ -79,6 +87,47 @@ class LocalProjectService:
             "createdAt": file.created_at.isoformat() if file.created_at else None,
         }
 
+    @staticmethod
+    def _run_event_public(event: LocalAgentRunEvent) -> dict[str, Any]:
+        return {
+            "id": event.id,
+            "sequence": event.sequence,
+            "kind": event.kind,
+            "status": event.status,
+            "label": event.label,
+            "detail": event.detail,
+            "createdAt": event.created_at.isoformat() if event.created_at else None,
+        }
+
+    @classmethod
+    def _run_public(cls, run: LocalAgentRun, events: list[LocalAgentRunEvent] | None = None) -> dict[str, Any]:
+        return {
+            "id": run.id,
+            "projectId": run.project_id,
+            "rootTaskId": run.root_task_id,
+            "goal": run.goal,
+            "status": run.status,
+            "summary": run.summary,
+            "createdAt": run.created_at.isoformat() if run.created_at else None,
+            "startedAt": run.started_at.isoformat() if run.started_at else None,
+            "completedAt": run.completed_at.isoformat() if run.completed_at else None,
+            "updatedAt": run.updated_at.isoformat() if run.updated_at else None,
+            "events": [cls._run_event_public(event) for event in events or []],
+        }
+
+    @staticmethod
+    def _append_run_event(session: Session, run: LocalAgentRun, *, kind: str, status: str, label: str, detail: str = "") -> LocalAgentRunEvent:
+        event = LocalAgentRunEvent(
+            run_id=run.id,
+            sequence=session.query(LocalAgentRunEvent).filter_by(run_id=run.id).count() + 1,
+            kind=kind,
+            status=status,
+            label=label[:240],
+            detail=detail,
+        )
+        session.add(event)
+        return event
+
     def create_project(self, user_id: str, title: str, description: str = "") -> dict[str, Any]:
         with self._factory() as session:
             seed = self._slug(title)
@@ -137,6 +186,7 @@ class LocalProjectService:
                 "tasks": [self._task_public(task) for task in tasks],
                 "artifacts": [self._artifact_public(artifact) for artifact in artifacts],
                 "files": [self._file_public(file) for file in files],
+                "runs": self.list_agent_runs(user_id, project.id, limit=20),
             }
 
     def create_task(
@@ -241,6 +291,20 @@ class LocalProjectService:
             return resolved, record.media_type
 
 
+    def export_artifact_markdown(self, user_id: str, artifact_id: str) -> tuple[str, bytes] | None:
+        """Return a portable local Markdown representation of a saved artifact."""
+        with self._factory() as session:
+            artifact = session.get(LocalProjectArtifact, artifact_id)
+            project = session.get(LocalProject, artifact.project_id) if artifact else None
+            if artifact is None or project is None or project.user_id != user_id:
+                return None
+            title = artifact.title.strip() or "Hinaa artifact"
+            source = f"\n\nSource: {artifact.source_url}" if artifact.source_url else ""
+            body = artifact.content.strip() or "No additional content was saved."
+            markdown = f"# {title}\n\nKind: {artifact.kind}\n{body}{source}\n"
+            filename = f"{self._slug(title)}.md"
+            return filename, markdown.encode("utf-8")
+
     def create_starter_plan(
         self, user_id: str, project_id: str, goal: str
     ) -> list[dict[str, Any]] | None:
@@ -286,3 +350,119 @@ class LocalProjectService:
                 tasks.append(task)
             session.commit()
             return [self._task_public(task) for task in tasks]
+
+    def create_agent_run(
+        self,
+        user_id: str,
+        project_id: str,
+        goal: str,
+        root_task_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Create a durable, transparent local agent run without hidden execution."""
+        clean_goal = goal.strip()
+        if not clean_goal:
+            return None
+        with self._factory() as session:
+            project = session.get(LocalProject, project_id)
+            if project is None or project.user_id != user_id:
+                return None
+            task = session.get(LocalProjectTask, root_task_id) if root_task_id else None
+            if task is not None and task.project_id != project.id:
+                return None
+            status = "waiting_approval" if task and task.requires_approval else "running"
+            run = LocalAgentRun(
+                project_id=project.id,
+                root_task_id=task.id if task else None,
+                goal=clean_goal,
+                status=status,
+                started_at=datetime.now(timezone.utc),
+            )
+            session.add(run)
+            session.flush()
+            self._append_run_event(
+                session,
+                run,
+                kind="run",
+                status="running",
+                label="Local agent run created",
+                detail="Hinaa will only execute approved actions and will preserve all outcomes in this project.",
+            )
+            if status == "waiting_approval":
+                self._append_run_event(
+                    session,
+                    run,
+                    kind="approval",
+                    status=status,
+                    label="Approval gate reached",
+                    detail="The selected task requires your approval before any consequential action.",
+                )
+            else:
+                self._append_run_event(
+                    session,
+                    run,
+                    kind="status",
+                    status=status,
+                    label="Ready for controlled execution",
+                    detail="Use Hinaa’s approved action cards or update the project task as work progresses.",
+                )
+            session.commit()
+            events = session.query(LocalAgentRunEvent).filter_by(run_id=run.id).order_by(LocalAgentRunEvent.sequence.asc()).all()
+            return self._run_public(run, events)
+
+    def list_agent_runs(self, user_id: str, project_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        with self._factory() as session:
+            project = session.get(LocalProject, project_id)
+            if project is None or project.user_id != user_id:
+                return []
+            runs = (
+                session.query(LocalAgentRun)
+                .filter_by(project_id=project.id)
+                .order_by(LocalAgentRun.updated_at.desc(), LocalAgentRun.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            output: list[dict[str, Any]] = []
+            for run in runs:
+                events = (
+                    session.query(LocalAgentRunEvent)
+                    .filter_by(run_id=run.id)
+                    .order_by(LocalAgentRunEvent.sequence.asc())
+                    .all()
+                )
+                output.append(self._run_public(run, events))
+            return output
+
+    def update_agent_run(
+        self,
+        user_id: str,
+        run_id: str,
+        status: str,
+        summary: str | None = None,
+    ) -> dict[str, Any] | None:
+        allowed = {"queued", "running", "waiting_approval", "completed", "failed", "cancelled"}
+        if status not in allowed:
+            return None
+        with self._factory() as session:
+            run = session.get(LocalAgentRun, run_id)
+            project = session.get(LocalProject, run.project_id) if run else None
+            if run is None or project is None or project.user_id != user_id:
+                return None
+            run.status = status
+            if summary is not None:
+                run.summary = summary.strip()
+            if status == "running" and run.started_at is None:
+                run.started_at = datetime.now(timezone.utc)
+            if status in {"completed", "failed", "cancelled"}:
+                run.completed_at = datetime.now(timezone.utc)
+            label = {
+                "queued": "Run queued",
+                "running": "Run resumed",
+                "waiting_approval": "Run paused for approval",
+                "completed": "Run completed",
+                "failed": "Run needs attention",
+                "cancelled": "Run cancelled",
+            }[status]
+            self._append_run_event(session, run, kind="status", status=status, label=label, detail=run.summary)
+            session.commit()
+            events = session.query(LocalAgentRunEvent).filter_by(run_id=run.id).order_by(LocalAgentRunEvent.sequence.asc()).all()
+            return self._run_public(run, events)

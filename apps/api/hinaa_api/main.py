@@ -61,6 +61,16 @@ class ProjectTaskStatusBody(BaseModel):
     status: Annotated[str, Field(pattern="^(pending|active|success|error|cancelled|waiting_approval)$")]
 
 
+class ProjectAgentRunBody(BaseModel):
+    goal: Annotated[str, Field(min_length=3, max_length=4000)]
+    rootTaskId: str | None = None
+
+
+class ProjectAgentRunStatusBody(BaseModel):
+    status: Annotated[str, Field(pattern="^(queued|running|waiting_approval|completed|failed|cancelled)$")]
+    summary: Annotated[str, Field(max_length=20_000)] | None = None
+
+
 class ProjectArtifactBody(BaseModel):
     kind: Annotated[str, Field(pattern="^(note|research|image|document|export|link)$")]
     title: Annotated[str, Field(min_length=1, max_length=240)]
@@ -690,6 +700,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Task not found")
         return task
 
+    @app.get("/v1/projects/{project_id}/runs")
+    async def list_project_runs(request: Request, project_id: str) -> list[dict[str, Any]]:
+        project = workspace_service.project_detail(_workspace_user_id(request), project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return project.get("runs", [])
+
+    @app.post("/v1/projects/{project_id}/runs", status_code=201)
+    async def create_project_run(
+        request: Request, project_id: str, body: ProjectAgentRunBody
+    ) -> dict[str, Any]:
+        run = workspace_service.create_agent_run(
+            _workspace_user_id(request), project_id, body.goal, body.rootTaskId
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail="Project or selected task not found")
+        return run
+
+    @app.patch("/v1/projects/runs/{run_id}")
+    async def update_project_run(
+        request: Request, run_id: str, body: ProjectAgentRunStatusBody
+    ) -> dict[str, Any]:
+        run = workspace_service.update_agent_run(
+            _workspace_user_id(request), run_id, body.status, body.summary
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail="Agent run not found")
+        return run
+
     @app.post("/v1/projects/{project_id}/artifacts", status_code=201)
     async def create_project_artifact(
         request: Request, project_id: str, body: ProjectArtifactBody
@@ -706,6 +745,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if artifact is None:
             raise HTTPException(status_code=404, detail="Project not found")
         return artifact
+
+    @app.get("/v1/projects/artifacts/{artifact_id}/export")
+    async def export_project_artifact(request: Request, artifact_id: str) -> Response:
+        exported = workspace_service.export_artifact_markdown(
+            _workspace_user_id(request), artifact_id
+        )
+        if exported is None:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        filename, content = exported
+        return Response(
+            content=content,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.post("/v1/projects/{project_id}/files", status_code=201)
     async def upload_project_file(

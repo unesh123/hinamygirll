@@ -87,3 +87,74 @@ def test_local_project_workspace_round_trip(tmp_path) -> None:
         downloaded = client.get(f"/v1/projects/files/{file_record['id']}")
         assert downloaded.status_code == 200
         assert downloaded.content == b"Hinaa local workspace"
+
+
+def test_local_agent_run_lifecycle_is_durable_and_explicit(tmp_path) -> None:
+    settings = Settings(
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_PERSISTENCE_ENABLED=False,
+        HINAA_LOCAL_WORKSPACE_DIR=tmp_path,
+        _env_file=None,
+    )
+    with TestClient(create_app(settings)) as client:
+        project = client.post("/v1/projects", json={"title": "Agent run project"}).json()
+        task = client.post(
+            f"/v1/projects/{project['id']}/tasks",
+            json={"title": "Publish results", "requiresApproval": True},
+        ).json()
+        created = client.post(
+            f"/v1/projects/{project['id']}/runs",
+            json={"goal": "Prepare a safe release", "rootTaskId": task["id"]},
+        )
+        assert created.status_code == 201
+        run = created.json()
+        assert run["status"] == "waiting_approval"
+        assert [event["kind"] for event in run["events"]] == ["run", "approval"]
+
+        resumed = client.patch(
+            f"/v1/projects/runs/{run['id']}",
+            json={"status": "running", "summary": "User approved the release review."},
+        )
+        assert resumed.status_code == 200
+        assert resumed.json()["status"] == "running"
+        assert resumed.json()["events"][-1]["label"] == "Run resumed"
+
+        completed = client.patch(
+            f"/v1/projects/runs/{run['id']}",
+            json={"status": "completed", "summary": "Release review completed locally."},
+        )
+        assert completed.status_code == 200
+        assert completed.json()["completedAt"] is not None
+
+        detail = client.get(f"/v1/projects/{project['id']}")
+        assert detail.status_code == 200
+        assert detail.json()["runs"][0]["status"] == "completed"
+        assert len(detail.json()["runs"][0]["events"]) == 4
+
+
+def test_local_project_artifact_exports_as_markdown(tmp_path) -> None:
+    settings = Settings(
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_PERSISTENCE_ENABLED=False,
+        HINAA_LOCAL_WORKSPACE_DIR=tmp_path,
+        _env_file=None,
+    )
+    with TestClient(create_app(settings)) as client:
+        project = client.post("/v1/projects", json={"title": "Export project"}).json()
+        artifact = client.post(
+            f"/v1/projects/{project['id']}/artifacts",
+            json={
+                "kind": "research",
+                "title": "Local research brief",
+                "content": "A private, portable research note.",
+                "sourceUrl": "https://example.com/source",
+            },
+        ).json()
+        exported = client.get(f"/v1/projects/artifacts/{artifact['id']}/export")
+
+    assert exported.status_code == 200
+    assert exported.headers["content-type"].startswith("text/markdown")
+    assert "# Local research brief" in exported.text
+    assert "https://example.com/source" in exported.text

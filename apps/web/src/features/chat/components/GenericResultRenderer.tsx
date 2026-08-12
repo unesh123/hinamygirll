@@ -13,6 +13,33 @@ interface GenericResultRendererProps {
 
 export function GenericResultRenderer({ toolName, result }: GenericResultRendererProps) {
   const [expanded, setExpanded] = useState(false);
+  const [sourceSaveState, setSourceSaveState] = useState<Record<string, string>>({});
+
+  const saveSourceToProject = async (source: SourceItem) => {
+    const projectId = localStorage.getItem("hinaa-active-project-id");
+    if (!projectId) {
+      setSourceSaveState((current) => ({ ...current, [source.id]: "Select a local project first to save this source." }));
+      return;
+    }
+    setSourceSaveState((current) => ({ ...current, [source.id]: "Saving locally…" }));
+    try {
+      const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/artifacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "research",
+          title: source.title,
+          content: source.snippet,
+          sourceUrl: source.url,
+          metadata: { sourceId: source.id, domain: source.domain },
+        }),
+      });
+      if (!response.ok) throw new Error("save failed");
+      setSourceSaveState((current) => ({ ...current, [source.id]: "Saved to the active local project." }));
+    } catch {
+      setSourceSaveState((current) => ({ ...current, [source.id]: "Could not save this source locally." }));
+    }
+  };
   
   if (!result) return null;
 
@@ -57,7 +84,7 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#475569', fontSize: 12, fontWeight: 750 }}>
           <span>Research sources</span><span>{sources.length} attributed result{sources.length === 1 ? '' : 's'}</span>
         </div>
-        {sources.length ? sources.map((source, index) => <SourceCard key={source.id} source={source} index={index} />) : <div style={{ color: '#64748b', fontSize: 12 }}>No attributable sources were returned for this query.</div>}
+        {sources.length ? sources.map((source, index) => <div key={source.id} style={{ display: 'grid', gap: 4 }}><SourceCard source={source} index={index} onSave={saveSourceToProject} />{sourceSaveState[source.id] && <small style={{ color: sourceSaveState[source.id].startsWith('Saved') ? '#059669' : '#64748b', fontSize: 11 }}>{sourceSaveState[source.id]}</small>}</div>) : <div style={{ color: '#64748b', fontSize: 12 }}>No attributable sources were returned for this query.</div>}
       </section>
     );
   }
