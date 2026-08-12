@@ -40,6 +40,23 @@ const MODEL_CALIBRATIONS: Record<string, { rotationY: number; offsetY: number; s
   "/models/model_5447.vrm": { rotationY: 0, offsetY: 0, scale: 1 },
 };
 
+type CameraPreset = { pos: [number, number, number]; target: [number, number, number]; fov: number };
+
+// The models have materially different authored proportions. These editorial
+// portrait presets keep the focus on face, shoulders, and upper torso while
+// preserving the VRM's authored neutral arm pose instead of forcing unsafe
+// per-bone rotations just to hide a T-pose-like silhouette.
+const MODEL_CAMERA_PRESETS: Record<string, Partial<Record<PresenceMode, CameraPreset>>> = {
+  "/models/model_6164.vrm": {
+    portrait: { pos: [0, 1.43, 1.28], target: [0, 1.31, 0], fov: 34 },
+    closeup: { pos: [0, 1.47, 0.77], target: [0, 1.39, 0], fov: 25 },
+  },
+  "/models/model_5447.vrm": {
+    portrait: { pos: [0, 1.54, 1.20], target: [0, 1.41, 0], fov: 31 },
+    closeup: { pos: [0, 1.58, 0.78], target: [0, 1.49, 0], fov: 25 },
+  },
+};
+
 /* ─── Mouth expression targets per viseme ───────────────── */
 type MouthKey = "aa" | "ih" | "ou" | "ee" | "oh";
 const VISEME_TO_VRM: Record<string, MouthKey> = {
@@ -407,12 +424,12 @@ function Model({
 }
 
 /* ─── Camera controller ───────────────────────────────────── */
-function Cam({ mode }: { mode: PresenceMode }) {
-  const cfg    = CAMERAS[mode] ?? CAMERAS.portrait;
+function Cam({ mode, modelUrl }: { mode: PresenceMode; modelUrl: string }) {
+  const cfg = MODEL_CAMERA_PRESETS[modelUrl]?.[mode] ?? CAMERAS[mode] ?? CAMERAS.portrait;
   const camera = useThree(s => s.camera);
   const dirty  = useRef(true);
 
-  useEffect(() => { dirty.current = true; }, [mode]);
+  useEffect(() => { dirty.current = true; }, [mode, modelUrl]);
 
   useFrame(() => {
     if (dirty.current) {
@@ -503,7 +520,7 @@ export function AvatarPresence({
           }}
         >
           <Suspense fallback={null}>
-            <Cam mode={mode} />
+            <Cam mode={mode} modelUrl={modelUrl} />
 
             {/* Cinematic lighting */}
             <ambientLight intensity={0.9}  color="#fffef8" />

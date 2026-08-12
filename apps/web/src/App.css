@@ -123,8 +123,13 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  overflow: hidden;
+  isolation: isolate;
+  contain: layout paint;
   border-right: 1px solid rgba(255,255,255,0.5);
-  background: linear-gradient(180deg, rgba(167,243,208,0.05) 0%, rgba(103,232,249,0.04) 50%, rgba(196,181,253,0.03) 100%);
+  background:
+    radial-gradient(ellipse 70% 48% at 50% 34%, rgba(94,234,212,0.13), transparent 72%),
+    linear-gradient(180deg, rgba(167,243,208,0.05) 0%, rgba(103,232,249,0.04) 50%, rgba(196,181,253,0.03) 100%);
 }
 
 .avatar-pane > div:first-child {
@@ -1510,7 +1515,7 @@ body {
     width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
-    height: 45vh;
+    height: clamp(260px, 38vh, 350px);
     border-right: none;
     border-bottom: 1px solid rgba(255,255,255,0.5);
     flex-shrink: 0;
@@ -1543,7 +1548,7 @@ body {
 }
 
 @media (max-width: 480px) {
-  .avatar-pane { height: 40vh; }
+  .avatar-pane { height: clamp(235px, 36vh, 300px); }
   .chat-scroll { padding: 10px 12px; }
   .premium-composer-wrapper { padding: 6px 12px 12px; }
   .welcome-center .welcome-greeting { font-size: 1.6rem; }
