@@ -7,6 +7,17 @@ interface ImageResult {
   image_url?: string;
 }
 
+interface ImageSlot {
+  id: string;
+  index: number;
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled";
+  seed?: number;
+  width?: number;
+  height?: number;
+  promptId?: string | null;
+  url?: string | null;
+}
+
 export function LocalImageStudio({ onClose }: { onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -16,6 +27,7 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
   const [state, setState] = useState<"idle" | "starting" | "processing" | "complete" | "failed">("idle");
   const [message, setMessage] = useState("Your images stay in your local Hinaa library.");
   const [images, setImages] = useState<Array<ImageResult | string>>([]);
+  const [slots, setSlots] = useState<ImageSlot[]>([]);
   const [comfyStatus, setComfyStatus] = useState<"checking" | "ready" | "unavailable">("checking");
   const abortRef = useRef(false);
 
@@ -45,6 +57,11 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
     setState("starting");
     setMessage("Preparing the local image job…");
     setImages([]);
+    setSlots(Array.from({ length: count }, (_, index) => ({
+      id: `preparing-${index + 1}`,
+      index: index + 1,
+      status: "pending" as const,
+    })));
     abortRef.current = false;
     try {
       const start = await fetch("/api/v1/tools/execute", {
@@ -73,14 +90,22 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
         const poll = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(jobId)}`);
         const result = await poll.json();
         if (!poll.ok) throw new Error(result?.message || "Could not read image progress.");
-        if (result.status === "success") {
-          setImages(result.images || []);
+        setImages(result.images || []);
+        if (Array.isArray(result.slots)) setSlots(result.slots);
+        if (result.status === "success" || result.status === "partial") {
           setState("complete");
-          setMessage(`${(result.images || []).length} local image${(result.images || []).length === 1 ? "" : "s"} ready.`);
+          const completed = Number(result.completed ?? result.images?.length ?? 0);
+          const total = Number(result.total ?? completed);
+          setMessage(result.status === "partial"
+            ? `${completed} of ${total} local images are ready. ${result.error || "Some outputs did not finish."}`
+            : `${completed} local image${completed === 1 ? "" : "s"} ready.`);
           return;
         }
         if (result.status === "error" || result.status === "failed") throw new Error(result.error || "The local image workflow failed.");
-        setMessage(result.total ? `Generating ${result.images?.length || 0} of ${result.total} image outputs…` : "Generating locally…");
+        const activeSlot = Array.isArray(result.slots) ? result.slots.find((slot: ImageSlot) => slot.status === "processing") : undefined;
+        setMessage(result.total
+          ? `Generating ${Number(result.completed ?? result.images?.length ?? 0)} of ${result.total} image outputs${activeSlot ? ` — image ${activeSlot.index} is running` : ""}…`
+          : "Generating locally…");
       }
       if (!abortRef.current) throw new Error("The image job took too long. Check that ComfyUI is running locally.");
     } catch (error) {
@@ -131,9 +156,13 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
         </aside>
       </div>
 
-      {images.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))", gap: 12, marginTop: 20 }}>{images.map((image, index) => {
-        const source = typeof image === "string" ? image.replace("http://127.0.0.1:8000", "/api") : image.url || image.image_url || (image.id ? `/api/v1/generated-images/${image.id}` : "");
-        return source ? <a key={source} href={source} target="_blank" rel="noreferrer" style={{ ...panelStyle, padding: 7, textDecoration: "none" }}><img src={source} alt={`Generated image ${index + 1}`} style={{ width: "100%", display: "block", borderRadius: 9, aspectRatio: "1 / 1", objectFit: "cover" }} /></a> : <div key={index} style={panelStyle}><ImagePlus /> Image result ready</div>;
+      {slots.length > 0 && <div aria-label="Local image generation slots" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))", gap: 12, marginTop: 20 }}>{slots.map((slot) => {
+        const source = slot.url?.replace("http://127.0.0.1:8000", "/api");
+        if (source) {
+          return <a key={slot.id} href={source} target="_blank" rel="noreferrer" style={{ ...panelStyle, padding: 7, textDecoration: "none" }}><img src={source} alt={`Generated image ${slot.index}`} style={{ width: "100%", display: "block", borderRadius: 9, aspectRatio: "1 / 1", objectFit: "cover" }} /><small style={{ display: "block", color: "#99f6e4", margin: "8px 4px 2px" }}>Image {slot.index} · seed {slot.seed ?? "—"}</small></a>;
+        }
+        const color = slot.status === "failed" || slot.status === "cancelled" ? "#fda4af" : slot.status === "processing" ? "#fde68a" : "#94a3b8";
+        return <div key={slot.id} style={{ ...panelStyle, minHeight: 170, display: "grid", placeItems: "center", textAlign: "center", color }}><ImagePlus size={24} /><strong>Image {slot.index}</strong><small>{slot.status === "processing" ? "Generating locally…" : slot.status === "pending" ? "Waiting for its sequential turn" : slot.status}</small></div>;
       })}</div>}
     </section>
   );

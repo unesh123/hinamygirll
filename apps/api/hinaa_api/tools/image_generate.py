@@ -2,7 +2,7 @@ import asyncio
 import time
 import uuid
 import random
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -20,9 +20,11 @@ class ImageGenerateParams(BaseModel):
     negative_prompt: str = ""
     seed: Optional[int] = None
     count: int = 1
-    mode: str = "fast" # "fast" (768x768), "quality" (1024x1024), "ultra" (1024x1536)
+    mode: Literal["fast", "quality", "ultra"] = "fast"
     strategy: str = "VARIATIONS"
-    userId: Optional[str] = None
+    # Filled by the authenticated tool dispatcher. Making it required prevents
+    # a durable image record from ever silently falling back to a placeholder owner.
+    userId: str
     conversationId: Optional[str] = None
 
 image_generate_def = ToolDefinition(
@@ -57,7 +59,9 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
         
     session_factory = get_session_factory(settings)
     with session_factory() as session:
-        base_seed = random.randint(1, 1000000)
+        # A supplied seed is the reproducible first variation; every
+        # additional image receives a deterministic adjacent seed.
+        base_seed = params.seed if params.seed is not None else random.randint(1, 1_000_000)
         for i in range(count):
             seed = base_seed + i
             job = ImageJob(
@@ -103,8 +107,9 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                     )
                     
                     job.comfy_prompt_id = res.prompt_id
-                    if res.output_files:
-                        job.file_path = res.output_files[0]
+                    if not res.output_files:
+                        raise ValueError("ComfyUI completed without a downloadable image output.")
+                    job.file_path = res.output_files[0]
                     job.status = "completed"
                     job.completed_at = datetime.now(timezone.utc)
                     session.commit()
@@ -115,8 +120,16 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                     if "CUDA out of memory" in str(e) or "Memory" in str(e):
                         break
         
-    except Exception as e:
-        pass
+    except Exception:
+        # Never leave a durable slot in an untruthful in-progress state after
+        # the worker itself fails. The poll route can then surface a clear
+        # failure or partial-success result while keeping completed outputs.
+        session_factory = get_session_factory(settings)
+        with session_factory() as session:
+            for job in session.query(ImageJob).filter_by(generation_set_id=generation_set_id).all():
+                if job.status in {"pending", "processing"}:
+                    job.status = "failed"
+            session.commit()
 
 async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
     generation_set_id = str(uuid.uuid4())
@@ -134,7 +147,7 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
 
         gen_set = GenerationSet(
             id=generation_set_id,
-            user_id=params.userId or "anonymous",
+            user_id=params.userId,
             conversation_id=validated_conv_id,
             prompt=params.prompt,
             workflow_mode=params.mode

@@ -509,35 +509,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not gen_set:
                 raise HTTPException(status_code=404, detail="Job not found")
                 
-            jobs = session.query(ImageJob).filter_by(generation_set_id=job_id).all()
+            jobs = session.query(ImageJob).filter_by(generation_set_id=job_id).order_by(ImageJob.created_at.asc()).all()
             if not jobs:
                 return {"id": job_id, "status": "processing", "images": [], "total": 0}
                 
-            status = "success"
-            errors = []
-            images = []
-            for j in jobs:
-                if j.status in ["failed", "cancelled"]:
-                    errors.append(f"Image {j.id} failed")
-                    if status != "processing":
-                        status = "error"
-                elif j.status == "pending" or j.status == "processing":
-                    status = "processing"
-                
-                if j.status == "completed" and j.file_path:
-                    # Return the safe image URL endpoint
-                    images.append(f"http://127.0.0.1:8000/v1/generated-images/{j.id}")
-                    
-            if status == "error" and len(images) > 0:
-                # Partial success
+            images: list[str] = []
+            slots: list[dict[str, Any]] = []
+            failures: list[str] = []
+            active = False
+            for index, job in enumerate(jobs, start=1):
+                source = f"http://127.0.0.1:8000/v1/generated-images/{job.id}" if job.status == "completed" and job.file_path else None
+                if source:
+                    images.append(source)
+                if job.status in {"pending", "processing"}:
+                    active = True
+                if job.status in {"failed", "cancelled"}:
+                    failures.append(f"Image {index} {job.status}")
+                slots.append({
+                    "id": job.id,
+                    "index": index,
+                    "status": job.status,
+                    "seed": job.seed,
+                    "width": job.width,
+                    "height": job.height,
+                    "promptId": job.comfy_prompt_id,
+                    "url": source,
+                })
+
+            if active:
+                status = "processing"
+            elif failures and images:
+                status = "partial"
+            elif failures:
+                status = "error"
+            else:
                 status = "success"
-                
+
             return {
                 "id": job_id,
                 "status": status,
                 "images": images,
+                "slots": slots,
+                "completed": len(images),
                 "total": len(jobs),
-                "error": " | ".join(errors) if errors else None
+                "error": " | ".join(failures) if failures else None,
             }
 
     @app.get("/v1/generated-images/{image_id}")

@@ -10,7 +10,7 @@
  *   Layer 6: Pose → relaxed idle via normalized rig bones
  */
 
-import { Suspense, useState, useRef, useEffect } from "react";
+import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, Environment } from "@react-three/drei";
 import { motion } from "framer-motion";
@@ -41,6 +41,34 @@ const MODEL_CALIBRATIONS: Record<string, { rotationY: number; offsetY: number; s
 };
 
 type CameraPreset = { pos: [number, number, number]; target: [number, number, number]; fov: number };
+
+type AnatomyFrame = {
+  centerX: number;
+  headY: number;
+  chestY: number;
+  minY: number;
+  maxY: number;
+  revision: string;
+};
+
+function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: AnatomyFrame): CameraPreset {
+  if (!frame || mode === "hidden") return fallback;
+  const torso = Math.max(0.28, frame.headY - frame.chestY);
+  const bodyHeight = Math.max(1.1, frame.maxY - frame.minY);
+  const x = frame.centerX;
+  if (mode === "closeup") {
+    const targetY = frame.headY - torso * 0.22;
+    return { pos: [x, targetY + torso * 0.04, Math.max(0.62, torso * 2.0)], target: [x, targetY, 0], fov: 25 };
+  }
+  if (mode === "full") {
+    const targetY = (frame.minY + frame.maxY) / 2;
+    const fov = 43;
+    const distance = Math.max(2.15, (bodyHeight / 2) / Math.tan(THREE.MathUtils.degToRad(fov / 2)) * 1.12);
+    return { pos: [x, targetY, distance], target: [x, targetY, 0], fov };
+  }
+  const targetY = frame.chestY + torso * 0.38;
+  return { pos: [x, targetY + torso * 0.08, Math.max(1.05, torso * 3.15)], target: [x, targetY, 0], fov: 33 };
+}
 
 // The models have materially different authored proportions. These editorial
 // portrait presets keep the focus on face, shoulders, and upper torso while
@@ -111,10 +139,11 @@ interface ModelProps {
   faceExpressions?: FaceExpressions | null;
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
+  onAnatomyFrame?: (frame: AnatomyFrame) => void;
 }
 
 function Model({
-  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, faceExpressions, faceBones, faceTrackingActive,
+  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, faceExpressions, faceBones, faceTrackingActive, onAnatomyFrame,
 }: ModelProps) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
@@ -179,6 +208,27 @@ function Model({
       v.scene.rotation.y = calibration.rotationY;
       v.scene.position.y = calibration.offsetY;
       v.scene.scale.setScalar(calibration.scale);
+
+      // Derive a stable frame only after the calibrated transform is applied.
+      // This runs on model load, never in the render loop, so it cannot drift.
+      v.scene.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(v.scene);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
+      const head = v.humanoid?.getNormalizedBoneNode("head" as any);
+      const chest = v.humanoid?.getNormalizedBoneNode("chest" as any)
+        ?? v.humanoid?.getNormalizedBoneNode("upperChest" as any)
+        ?? v.humanoid?.getNormalizedBoneNode("spine" as any);
+      const headY = head?.getWorldPosition(new THREE.Vector3()).y ?? bounds.max.y - Math.max(0.14, size.y * 0.08);
+      const chestY = chest?.getWorldPosition(new THREE.Vector3()).y ?? bounds.min.y + size.y * 0.58;
+      onAnatomyFrame?.({
+        centerX: center.x,
+        headY: Math.max(chestY + 0.2, headY),
+        chestY,
+        minY: bounds.min.y,
+        maxY: bounds.max.y,
+        revision: `${url}:${bounds.min.y.toFixed(3)}:${bounds.max.y.toFixed(3)}`,
+      });
 
       // Cache available expressions
       const em = v.expressionManager;
@@ -424,12 +474,13 @@ function Model({
 }
 
 /* ─── Camera controller ───────────────────────────────────── */
-function Cam({ mode, modelUrl }: { mode: PresenceMode; modelUrl: string }) {
-  const cfg = MODEL_CAMERA_PRESETS[modelUrl]?.[mode] ?? CAMERAS[mode] ?? CAMERAS.portrait;
+function Cam({ mode, modelUrl, anatomy }: { mode: PresenceMode; modelUrl: string; anatomy?: AnatomyFrame }) {
+  const fallback = MODEL_CAMERA_PRESETS[modelUrl]?.[mode] ?? CAMERAS[mode] ?? CAMERAS.portrait;
+  const cfg = cameraFromAnatomy(mode, fallback, anatomy);
   const camera = useThree(s => s.camera);
   const dirty  = useRef(true);
 
-  useEffect(() => { dirty.current = true; }, [mode, modelUrl]);
+  useEffect(() => { dirty.current = true; }, [mode, modelUrl, anatomy?.revision]);
 
   useFrame(() => {
     if (dirty.current) {
@@ -480,9 +531,11 @@ export function AvatarPresence({
   modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive,
 }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
+  const [anatomy, setAnatomy] = useState<AnatomyFrame | undefined>();
+  const applyAnatomy = useCallback((frame: AnatomyFrame) => setAnatomy(frame), []);
 
   // Reset on model change
-  useEffect(() => { setWebglFailed(false); }, [modelUrl]);
+  useEffect(() => { setWebglFailed(false); setAnatomy(undefined); }, [modelUrl]);
 
 
 
@@ -520,7 +573,7 @@ export function AvatarPresence({
           }}
         >
           <Suspense fallback={null}>
-            <Cam mode={mode} modelUrl={modelUrl} />
+            <Cam mode={mode} modelUrl={modelUrl} anatomy={anatomy} />
 
             {/* Cinematic lighting */}
             <ambientLight intensity={0.9}  color="#fffef8" />
@@ -539,6 +592,7 @@ export function AvatarPresence({
                 faceExpressions={faceExpressions}
                 faceBones={faceBones}
                 faceTrackingActive={faceTrackingActive}
+                onAnatomyFrame={applyAnatomy}
               />
 
             <ContactShadows

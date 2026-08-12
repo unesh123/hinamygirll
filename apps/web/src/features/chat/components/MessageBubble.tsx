@@ -137,9 +137,9 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        {message.role === "assistant" && message.plan?.toolRequests?.length && onResolveTool && (
+        {message.role === "assistant" && message.plan && message.plan.toolRequests.length > 0 && onResolveTool ? (
           <ToolApprovalPanel messageId={message.id} requests={message.plan.toolRequests} activity={message.toolActivity} onResolve={onResolveTool} />
-        )}
+        ) : null}
 
         {/* Render tool results */}
         {message.toolResults && message.toolResults.length > 0 && (

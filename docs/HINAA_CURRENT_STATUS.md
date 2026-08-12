@@ -206,3 +206,32 @@ The repository-resolvable voice defect is fixed. The remaining path to a **real 
 | API runtime | **INTEGRATION_TESTED** — restarted at `127.0.0.1:8000`; safe voice diagnostics and provider states queried successfully. |
 
 A real ElevenLabs typed-chat acceptance run, a real Hinaa cloud voice playback, and a real HINAA-generated ComfyUI image remain unavailable because their required external/local dependencies are absent from this runtime. Those capabilities are deliberately not represented as passed.
+
+
+## Phase 13 — Image Studio, VMC, Ownership, and Completion Checkpoint
+
+This isolated completion pass preserved the approved local-first scope. It repaired the visible empty-tool-list `0`, changed avatar camera framing to use loaded-model anatomy, hardened the existing sequential ComfyUI pipeline, and added evidence for the existing local VMC transport. No VRM binary, ComfyUI model/workflow, secret, generated image, or private SQLite database was added to the repository.
+
+| Completion requirement | Evidence | Result |
+|---|---|---|
+| Portrait avatar framing | `AvatarPresence` derives portrait target/position from loaded VRM head, chest, and bounds, with a safe preset fallback. | **IMPLEMENTED / REGRESSION-BUILT** |
+| No stray chat `0` | `MessageBubble.test.tsx` renders an empty tool-request list and asserts that exact `0` is absent. | **PASS** |
+| Sequential local-image experience | The Image Studio allocates all requested slots immediately, updates durable server slots on every poll, shows image 1 while later images are pending, labels finished image seeds, and retains partial success. | **PASS BY COMPONENT REGRESSION** |
+| Durable image ownership | Image generation now requires dispatcher-resolved `userId`; the handler no longer has an `anonymous` fallback. A read-only database audit found zero anonymous, placeholder, or dummy owners in `generation_sets`, `local_projects`, or `conversations`. | **PASS** |
+| Real ComfyUI output | Final HINAA runtime probe returned HTTP 503 from `/v1/local-services/comfyui`: `Start ComfyUI on http://127.0.0.1:8188, then refresh Hinaa Image Studio.` | **BLOCKED — no local service** |
+| VSeeFace-compatible local blendshapes | On the final restarted API, a live OSC packet `/VMC/Ext/Blendshape/Val`, `Fcl_MTH_Open`, `0.62` reached `/ws/vmc` as `mouthOpen=0.62`. | **PASS** |
+| Specific user VSeeFace model | `5798998195377315936 (1).vrm` remains absent and no VSeeFace desktop process/camera sender is available. | **BLOCKED — asset and sender unavailable** |
+
+### Final validation — 2026-08-12
+
+| Gate | Result |
+|---|---|
+| Frontend type check | **PASS** — `pnpm typecheck`. |
+| Frontend tests | **PASS** — 23 files, 106 passing tests, 2 existing todos. |
+| Production web build | **PASS** — Vite/PWA build completed. The pre-existing large-avatar bundle warning is non-blocking. |
+| Backend tests | **PASS** — complete `pytest -q` suite. |
+| Final API liveness | **PASS** — `GET /health/live` returned HTTP 200 after restart at `127.0.0.1:8000`. |
+| Final VMC probe | **PASS** — final API held UDP `127.0.0.1:39539` and forwarded the synthetic blendshape over WebSocket. |
+| Final ownership audit | **PASS** — no placeholder records across audited durable owner tables. |
+
+The remaining acceptance evidence that cannot be generated in this repository is explicitly limited to the unavailable local/external dependencies: real ComfyUI rendering and refresh persistence, the user-named VSeeFace model’s visual calibration, configured CX/AgentRouter completion, and real cloud ElevenLabs/Azure synthesis. None has been replaced by a mock result or called complete.
