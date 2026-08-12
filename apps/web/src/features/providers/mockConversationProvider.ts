@@ -64,8 +64,10 @@ function stableIndex(text: string): number {
 export function buildMockPlan(
   text: string,
   companionId: ConversationRequest["companionId"],
+  language: ConversationRequest["language"] = "en-US",
 ): AssistantTurnPlan {
-  const professional = /react\s+server\s+components?/i.test(text)
+  const nepaliInput = /मलाई|बुझाऊ|कसरी/.test(text);
+  const professional = language === "en-US" && /react\s+server\s+components?/i.test(text)
     ? {
         language: "en-US" as const,
         displayText: [
@@ -106,26 +108,33 @@ export function buildMockPlan(
         spokenText: "React Server Components keep data work on the server and hydrate only interactive client boundaries. Test the boundary rules and production streaming before deployment.",
       }
     : undefined;
-  const localized = /मलाई|बुझाऊ|कसरी/.test(text)
+  const localized = language === "ne-NP" && nepaliInput
     ? {
         language: "ne-NP" as const,
         displayText: "ComfyUI को setup गर्न पहिले Python environment, compatible NVIDIA driver र CUDA जाँच्नुहोस्। त्यसपछि ComfyUI install गरेर Stable Diffusion checkpoint लाई `models/checkpoints` मा राख्नुहोस्। Browser मा `http://127.0.0.1:8188` खोल्नुहोस् र workflow queue गर्नुहोस्। Note: HINAA मा real generation local ComfyUI service चलिरहेको बेला मात्र हुन्छ।",
         spokenText: "Python, NVIDIA driver र CUDA तयार भएपछि checkpoint राखेर 8188 मा ComfyUI चलाउनुहोस्।",
       }
-    : /मुझे|समझाओ|कैसे/.test(text)
+    : language === "hi-IN" && (/मुझे|समझाओ|कैसे/.test(text) || nepaliInput)
       ? {
           language: "hi-IN" as const,
-          displayText: "ComfyUI सेटअप के लिए पहले Python environment, compatible NVIDIA driver और CUDA जाँचें। फिर ComfyUI install करके Stable Diffusion checkpoint को `models/checkpoints` में रखें। Browser में `http://127.0.0.1:8188` खोलें और workflow queue करें। Note: HINAA में real generation तभी चलेगी जब local ComfyUI service चल रही हो।",
+          displayText: nepaliInput
+            ? "अभी HINAA की सामान्य conversation language Hindi और English है। Nepali experimental mode में उपलब्ध है, लेकिन default रूप से disabled है। ComfyUI सेटअप के लिए Python environment, compatible NVIDIA driver और CUDA जाँचें; फिर checkpoint को `models/checkpoints` में रखकर `http://127.0.0.1:8188` पर service शुरू करें।"
+            : "ComfyUI सेटअप के लिए पहले Python environment, compatible NVIDIA driver और CUDA जाँचें। फिर ComfyUI install करके Stable Diffusion checkpoint को `models/checkpoints` में रखें। Browser में `http://127.0.0.1:8188` खोलें और workflow queue करें। Note: HINAA में real generation तभी चलेगी जब local ComfyUI service चल रही हो।",
           spokenText: "Python, NVIDIA driver और CUDA तैयार करें; checkpoint रखकर 8188 पर ComfyUI service शुरू करें।",
         }
       : undefined;
   const selected = responses.find((response) => response.match.test(text));
-  const fallback = [
-    "Main abhi mock mode mein hoon. Yeh ek demo response hai — real AI response nahi hai. Real brain ke liye Settings mein jaake Gemini ya OpenAI select karo.",
-    "HINAA mock mode: Main aapke sawaal ko samajh rahi hoon, lekin real answer dene ke liye mujhe ek real AI brain ki zaroorat hai. Settings > Provider mein jaake select karo.",
-    "Demo mode active hai. Real conversations, web search, image generation aur tools use karne ke liye kripya real provider mode enable karein.",
+  const hindiFallback = [
+    "मैं अभी Demo mode में हूँ, इसलिए real AI answer नहीं दे सकती। Real brain के लिए Settings में OpenAI, Gemini, CX Gateway या कोई configured provider चुनें।",
+    "मैंने आपका सवाल समझ लिया है। Detailed real answer के लिए Settings में configured AI provider चुनें; chat और voice फिर उसी provider से चलेंगे।",
+    "Demo mode सक्रिय है। Real conversations, web research, image generation और tools के लिए configured provider enable करें।",
   ][stableIndex(text) % 3];
-  const displayText = professional?.displayText ?? localized?.displayText ?? selected?.text ?? fallback;
+  const englishFallback = [
+    "I am in Demo mode, so I cannot provide a real AI answer yet. Choose a configured provider in Settings to continue.",
+    "I understand the request. Select a configured AI provider in Settings for a detailed real answer and provider-backed voice.",
+    "Demo mode is active. Enable a configured provider for real conversations, web research, image generation, and tools.",
+  ][stableIndex(text) % 3];
+  const displayText = professional?.displayText ?? localized?.displayText ?? (language === "hi-IN" ? hindiFallback : englishFallback);
   const spokenText = professional?.spokenText ?? localized?.spokenText ?? displayText;
   const primary =
     selected?.emotion ?? (companionId === "hinaa" ? "playful" : "happy");
@@ -136,7 +145,7 @@ export function buildMockPlan(
   return parseAssistantTurnPlan({
     spokenText,
     displayText,
-    language: professional?.language ?? localized?.language ?? "mixed",
+    language: professional?.language ?? localized?.language ?? language,
     emotion: {
       primary,
       intensity: primary === "concerned" ? 0.48 : 0.62,
@@ -179,7 +188,7 @@ export class MockConversationProvider implements ConversationProvider {
 
     yield { type: "thinking" };
     await abortableDelay(this.delayMs, request.signal);
-    const plan = buildMockPlan(request.text, request.companionId);
+    const plan = buildMockPlan(request.text, request.companionId, request.language);
     const chunks = plan.displayText.split(/(?<=\s)/);
     for (const delta of chunks) {
       await abortableDelay(Math.max(12, this.delayMs / 12), request.signal);

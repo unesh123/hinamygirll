@@ -32,7 +32,7 @@ export class BackendConversationProvider implements ConversationProvider {
       sessionId: "browser-session",
       text: request.text,
       companionId: request.companionId,
-      language: "mixed",
+      language: request.language,
       providerMode: this.mode,
     };
     if (

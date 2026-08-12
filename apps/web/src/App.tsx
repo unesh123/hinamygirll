@@ -20,6 +20,7 @@ import { useProviders } from "./features/providers/hooks/useProviders";
 import { useProviderRouting } from "./features/providers/hooks/useProviderRouting";
 import { SettingsDialog, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
 import { AppearanceSettings } from "./features/settings/sections/AppearanceSettings";
+import { LanguageSettings } from "./features/settings/sections/LanguageSettings";
 import { ProviderSettings } from "./features/settings/sections/ProviderSettings";
 import { DiagnosticsSettings } from "./features/settings/sections/DiagnosticsSettings";
 import { NavRail, type NavSection } from "./components/ui/NavRail";
@@ -82,6 +83,28 @@ type VoiceReplyState = {
   detail?: string;
 };
 
+type PlaybackSessionStatus =
+  | "preparing"
+  | "buffering"
+  | "playing"
+  | "completed"
+  | "interrupted"
+  | "failed";
+
+type PlaybackSession = {
+  playbackId: string;
+  turnId: string;
+  conversationId: string;
+  companionId: CompanionId;
+  provider: string;
+  spokenText: string;
+  locale: string;
+  status: PlaybackSessionStatus;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+};
+
 function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (id: CompanionId) => void }) {
   return (
     <div className="companion-switch" role="group" aria-label="Choose companion">
@@ -99,7 +122,7 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
 export default function App() {
   const playback = useAudioPlayback();
   const providers = useProviders();
-  const { settings, setAppearance, setProvider } = useSettings();
+  const { settings, setAppearance, setLanguage, setProvider } = useSettings();
   useSettingsPersistence(settings);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -114,6 +137,8 @@ export default function App() {
     kind: "idle",
     label: "Voice ready",
   });
+  const [playbackSession, setPlaybackSession] = useState<PlaybackSession | null>(null);
+  const activePlaybackId = useRef<string | null>(null);
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [sidebarExpanded, setSidebarExpanded] = useState<NavSection | null>(null);
@@ -141,7 +166,10 @@ export default function App() {
   const faceActive = faceTrack.status === "active";
 
   const routing = useProviderRouting(settings.provider, providers);
-  const controller = useCompanionController({ routing });
+  const controller = useCompanionController({
+    routing,
+    languagePolicy: settings.language.activePolicy,
+  });
   useMemory();
 
   // Keep the first interactive paint light, then warm the local-only panels in
@@ -165,7 +193,39 @@ export default function App() {
     };
   }, []);
 
-  const live = useLiveConversation({ controller, playback, calibration: "natural", outputMode: "headphones", languageMode: "auto" });
+  const live = useLiveConversation({
+    controller,
+    playback,
+    calibration: "natural",
+    outputMode: "headphones",
+    activeLanguagePolicy: settings.language.activePolicy,
+  });
+
+  const interruptPlayback = useCallback((status: "interrupted" | "failed" = "interrupted", error?: string) => {
+    const playbackId = activePlaybackId.current;
+    if (!playbackId) return;
+    activePlaybackId.current = null;
+    playback.stop();
+    setPlaybackSession((current) => current?.playbackId === playbackId
+      ? { ...current, status, completedAt: new Date().toISOString(), error }
+      : current);
+  }, [playback]);
+
+  // A started playback owns its own terminal transition. The hook changes
+  // `playing` when decoded audio or browser speech ends; no render effect can
+  // initiate another playback, so refresh/rerender cannot replay a turn.
+  useEffect(() => {
+    if (!playbackSession || playbackSession.status !== "playing" || playback.playing) return;
+    const playbackId = playbackSession.playbackId;
+    const timer = window.setTimeout(() => {
+      if (activePlaybackId.current !== playbackId) return;
+      activePlaybackId.current = null;
+      setPlaybackSession((current) => current?.playbackId === playbackId
+        ? { ...current, status: "completed", completedAt: new Date().toISOString() }
+        : current);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [playback.playing, playbackSession]);
 
   /* ─── Avatar mode — stays stable, no zoom changes ────── */
   useEffect(() => {
@@ -176,6 +236,7 @@ export default function App() {
   const submit = useCallback((event?: any) => {
     if (event && "preventDefault" in event) event.preventDefault();
     if ((!input.trim() && !attachedImage) || live.active) return;
+    interruptPlayback();
     const text = input || (attachedImage ? "Look at this image" : "");
     const imageData = attachedImage;
     setInput("");
@@ -183,58 +244,87 @@ export default function App() {
     void (async () => {
       const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
       const plan = result?.plan;
-      const spoken = plan?.spokenText ?? plan?.displayText;
-      if (!spoken) return;
+      const spoken = plan?.spokenText?.trim();
+      if (!result || !plan || !spoken) return;
 
-      const speakWithBrowserFallback = async (detail: string) => {
-        const started = await playback.speakBrowser(spoken, plan?.language);
-        setVoiceReply(
-          started
-            ? { kind: "browser", label: "Speaking with local browser voice", detail }
-            : {
-                kind: "unavailable",
-                label: "Voice could not start",
-                detail: "Enable a browser voice or configure ElevenLabs in Settings.",
-              },
-        );
+      const playbackId = `playback-${result.turnId}-${Date.now()}`;
+      activePlaybackId.current = playbackId;
+      const createSession = (provider: string, status: PlaybackSessionStatus): PlaybackSession => ({
+        playbackId,
+        turnId: result.turnId,
+        conversationId: "browser-session",
+        companionId: controller.companionId,
+        provider,
+        spokenText: spoken,
+        locale: plan.language,
+        status,
+      });
+      const updateSession = (status: PlaybackSessionStatus, patch: Partial<PlaybackSession> = {}) => {
+        if (activePlaybackId.current !== playbackId) return false;
+        setPlaybackSession((current) => current?.playbackId === playbackId
+          ? { ...current, status, ...patch }
+          : { ...createSession(patch.provider ?? "browser", status), ...patch });
+        return true;
+      };
+      const startBrowserFallback = async (detail: string) => {
+        updateSession("preparing", { provider: "browser-speech" });
+        const started = await playback.speakBrowser(spoken, plan.language);
+        if (!started || activePlaybackId.current !== playbackId) {
+          updateSession("failed", { error: "Browser speech could not start." });
+          setVoiceReply({
+            kind: "unavailable",
+            label: "Voice could not start",
+            detail: "Enable a browser voice or configure ElevenLabs in Settings.",
+          });
+          return;
+        }
+        updateSession("playing", { provider: "browser-speech", startedAt: new Date().toISOString() });
+        setVoiceReply({ kind: "browser", label: "Speaking with local browser voice", detail });
       };
 
       const ttsMode = controller.routing.activeMode;
       if (!ttsMode || ttsMode === "mock") {
-        await speakWithBrowserFallback(
+        await startBrowserFallback(
           "Demo mode uses your device voice until a cloud or local TTS engine is configured.",
         );
         return;
       }
 
       try {
+        updateSession("buffering", { provider: ttsMode });
         const speech = await synthesizeSpeech(
           spoken,
           controller.companionId,
           ttsMode,
           new AbortController().signal,
         );
+        if (activePlaybackId.current !== playbackId) return;
         if (/placeholder|mock/i.test(speech.provider)) {
-          await speakWithBrowserFallback(
+          await startBrowserFallback(
             "The selected mode has no intelligible server voice yet, so Hinaa is using your device voice.",
           );
           return;
         }
         await playback.play(speech.blob, spoken);
+        if (!updateSession("playing", {
+          provider: speech.provider,
+          startedAt: new Date().toISOString(),
+        })) return;
         setVoiceReply({
           kind: "cloud",
           label: `Speaking with ${speech.provider}`,
           detail: speech.latencyMs > 0 ? `${speech.latencyMs} ms synthesis` : undefined,
         });
       } catch (error) {
-        await speakWithBrowserFallback(
+        if (activePlaybackId.current !== playbackId) return;
+        await startBrowserFallback(
           error instanceof Error
             ? `${error.message} Using the device voice instead.`
             : "Cloud voice is unavailable, so Hinaa is using the device voice instead.",
         );
       }
     })();
-  }, [input, live.active, controller, playback, attachedImage]);
+  }, [input, live.active, controller, playback, attachedImage, interruptPlayback]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
     const map: Record<string, () => void> = {
@@ -466,7 +556,7 @@ export default function App() {
 
               {/* Composer */}
               <div className="premium-composer-wrapper">
-                <PremiumComposer value={input} onChange={setInput} onSend={() => submit()} onVoiceStart={() => live.start()}
+                <PremiumComposer value={input} onChange={setInput} onSend={() => submit()} onVoiceStart={() => { interruptPlayback(); live.start(); }}
                   onVoiceStop={() => live.stop()} onPowerUp={handlePowerUp} onImageAttach={setAttachedImage}
                   imagePreview={attachedImage}
                   isVoiceActive={live.active}
@@ -490,6 +580,7 @@ export default function App() {
         <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}>
           <CompanionSwitch value={controller.companionId} onChange={id => { if (id === controller.companionId) return; if (live.active) live.stop(); controller.switchCompanion(id); }} />
           <AppearanceSettings appearance={settings.appearance} onChange={setAppearance} />
+          <LanguageSettings language={settings.language} onChange={setLanguage} />
           <ProviderSettings provider={settings.provider} providers={providers} onChange={setProvider} activeMode={routing.activeMode as any} />
           <DiagnosticsSettings providers={providers} />
         </SettingsDialog>

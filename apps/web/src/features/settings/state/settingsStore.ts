@@ -17,6 +17,7 @@ import {
   DEFAULT_SETTINGS,
   SETTINGS_KEY,
   SETTINGS_VERSION,
+  type ActiveLanguagePolicy,
   type AppearanceSettings,
   type AvatarStylePreference,
   type HinaaSettings,
@@ -84,8 +85,11 @@ function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> 
       provider.preferredMode = "cx-gateway";
     }
     migrated.provider = provider;
-    migrated._version = 2;
   }
+  if (version < 3) {
+    migrated.language = { activePolicy: "auto-hi-en" };
+  }
+  migrated._version = SETTINGS_VERSION;
   return migrated;
 }
 
@@ -139,11 +143,23 @@ function validateProvider(raw: unknown): ProviderPreferences {
   };
 }
 
+function validateLanguage(raw: unknown): HinaaSettings["language"] {
+  const obj = isObject(raw) ? raw : {};
+  return {
+    activePolicy: safeString<ActiveLanguagePolicy>(
+      obj.activePolicy,
+      ["auto-hi-en", "hi-IN", "en-US", "ne-NP-experimental"],
+      DEFAULT_SETTINGS.language.activePolicy,
+    ),
+  };
+}
+
 function validateSettings(raw: Record<string, unknown>): HinaaSettings {
   return {
     _version: SETTINGS_VERSION,
     appearance: validateAppearance(raw.appearance),
     provider: validateProvider(raw.provider),
+    language: validateLanguage(raw.language),
   };
 }
 
@@ -157,6 +173,7 @@ function mergeWithDefaults(validated: HinaaSettings): HinaaSettings {
     ...validated,
     appearance: { ...DEFAULT_SETTINGS.appearance, ...validated.appearance },
     provider: { ...DEFAULT_SETTINGS.provider, ...validated.provider },
+    language: { ...DEFAULT_SETTINGS.language, ...validated.language },
   };
 }
 

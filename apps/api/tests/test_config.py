@@ -66,3 +66,21 @@ def test_real_mode_passes_when_elevenlabs_configured() -> None:
     assert settings.elevenlabs_configured is True
     assert settings.missing_real_configuration() == []
 
+
+
+def test_agent_router_requires_key_and_base_url() -> None:
+    key_only = Settings(
+        _env_file=None,
+        HINAA_PROVIDER_MODE="mock",
+        AGENT_ROUTER_API_KEY="test-agent-key",
+    )
+    assert key_only.agent_router_configured is False
+
+    configured = Settings(
+        _env_file=None,
+        HINAA_PROVIDER_MODE="mock",
+        AGENT_ROUTER_API_KEY="test-agent-key",
+        AGENT_ROUTER_BASE_URL="https://router.example.test",
+    )
+    assert configured.agent_router_configured is True
+    assert configured.active_agent_router_base_url == "https://router.example.test/v1"

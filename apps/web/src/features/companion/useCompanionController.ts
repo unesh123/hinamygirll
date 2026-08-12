@@ -9,6 +9,7 @@ import {
   type TranscriptMessage,
 } from "./types";
 import type { ProviderRuntimeSelection } from "../providers/utils/resolveProviderSelection";
+import type { ActiveLanguagePolicy } from "../settings/types/settings";
 import {
   deserializeAssistantTurn,
   getAssistantDisplayText,
@@ -61,7 +62,7 @@ export interface CompanionController {
     text: string,
     options?: { forceBackend?: boolean },
   ) => Promise<
-    { plan: AssistantTurnPlan; providerLatencyMs?: number } | undefined
+    { turnId: string; plan: AssistantTurnPlan; providerLatencyMs?: number } | undefined
   >;
   startMockListening: () => void;
   beginListening: () => void;
@@ -81,9 +82,17 @@ export interface CompanionController {
 
 export interface CompanionControllerOptions {
   routing: ProviderRuntimeSelection;
+  languagePolicy: ActiveLanguagePolicy;
 }
 
-export function useCompanionController({ routing }: CompanionControllerOptions): CompanionController {
+function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US" | "hi-IN" | "ne-NP" {
+  if (policy === "hi-IN") return "hi-IN";
+  if (policy === "en-US") return "en-US";
+  if (policy === "ne-NP-experimental") return "ne-NP";
+  return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
+}
+
+export function useCompanionController({ routing, languagePolicy }: CompanionControllerOptions): CompanionController {
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
   const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
@@ -221,6 +230,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
         let streamed = "";
         let completedPlan: AssistantTurnPlan | undefined;
         let providerLatencyMs: number | undefined;
+        const language = resolveTurnLanguage(text, languagePolicy);
         // Snapshot routing for this turn so it can't change mid-stream
         const turnMode = routing.activeMode ?? "mock";
         const turnModel = routing.activeModel ?? "";
@@ -234,6 +244,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
           text,
           companionId,
           signal: abortController.signal,
+          language,
           brainModel: turnModel,
         })) {
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
@@ -253,7 +264,10 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
               plan: event.plan,
             }),
             ]);
-            finalizeTurn(turnId, { preservePartial: true });
+            // Do not finalize here. Providers can legitimately emit trailing
+            // usage metadata after the plan; finalizing early makes the next
+            // stream event look stale and drops the completed turn before typed
+            // chat can hand its spokenText to the playback owner.
           } else {
             providerLatencyMs = event.latencyMs;
           }
@@ -262,7 +276,11 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
           finalizeTurn(turnId, { errorText: "Hinaa did not receive a complete response. Please try again." });
           return undefined;
         }
-        return { plan: completedPlan, providerLatencyMs };
+        if (!finalizeTurn(turnId, { preservePartial: true })) return undefined;
+        // The controller is now unlocked, while the immutable turnId remains
+        // available to the playback owner. This makes typed-chat TTS traceable
+        // without allowing stale stream callbacks to mutate a later turn.
+        return { turnId, plan: completedPlan, providerLatencyMs };
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           finalizeTurn(turnId);
@@ -278,7 +296,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
         if (currentAbort.current === abortController) currentAbort.current = undefined;
       }
     },
-    [clearTimers, companionId, finalizeTurn, routing],
+    [clearTimers, companionId, finalizeTurn, languagePolicy, routing],
   );
 
   const resolveToolRequest = useCallback(

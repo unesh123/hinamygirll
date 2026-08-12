@@ -174,3 +174,35 @@ The composer now has an accessible mute/unmute control, a replay control after a
 The repository-resolvable voice defect is fixed. The remaining path to a **real ElevenLabs Hinaa voice** is strictly configuration-dependent: put a valid key and a voice ID that the account can use into the **local backend environment**, restart the API, and select a non-Demo brain/provider. No credential or voice identity was invented, exposed, or simulated.
 
 [1]: https://elevenlabs.io/docs/api-reference/text-to-speech/convert "ElevenLabs Create Speech API reference"
+
+
+## Phase 12 — Typed Voice Lifecycle, Active Language Policy, and Local Service Reconciliation
+
+> **Stable recovery baseline:** commit `6645bcb` remains reachable and is an ancestor of `origin/main`. This completion pass was isolated on `work/hinaa-runtime-completion-20260812`; no baseline reset, VRM binary change, secret commit, or ComfyUI reinstall was performed.
+
+| Capability | State | Evidence and exact boundary |
+|---|---|---|
+| Typed completed-turn handoff to voice | **INTEGRATION_TESTED** | The controller previously finalized a turn on the `plan` event. A trailing `usage` event then looked stale and returned `undefined`, dropping the plan before typed-chat TTS. Finalization now occurs after the stream ends; the immutable `turnId` is returned to the playback owner. |
+| Typed voice playback ownership | **UNIT_TESTED** | A `PlaybackSession` retains `playbackId`, `turnId`, conversation, companion, provider, concise `spokenText`, locale, timestamps, terminal state, and error. One active session is interrupted by a new typed turn or live-mic start; rerenders and refreshes do not initiate playback. |
+| Required typed chain | **INTEGRATION_TESTED** | The app regression submits a typed Demo message, receives a validated plan, uses non-Markdown `spokenText`, and asserts exactly one browser speech utterance plus visible voice-route feedback. It passed in the final suite. |
+| Avatar mouth reset | **UNIT_TESTED** | The browser speech playback regression asserts generated viseme events, active playback/speaking state, and clean `onend` transition. `useAudioPlayback` clears mouth-driving playback state when speech ends. |
+| Browser typed-turn check | **DEGRADED** | Browser automation’s text-input action timed out and then returned an empty page context. This is recorded as inconclusive, not a pass. The deterministic typed app regression is the current integration evidence. |
+| Active HINAA language policy | **IMPLEMENTED** | New persisted setting defaults to **Auto Hindi / English**. Typed turns resolve to `hi-IN` for Devanagari input and `en-US` otherwise; backend requests receive that explicit locale. Normal Hindi Demo copy is Devanagari with readable English technical terms. |
+| Nepali product status | **DISABLED** | Nepali infrastructure and test coverage remain intact, but normal HINAA routing answers Nepali input in Hindi with an explicit experimental-policy notice. Nepali operates only when `Nepali — experimental` is explicitly selected. |
+| Live voice locale policy | **IMPLEMENTED** | The fixed `ne-NP` live-session bias was removed. Realtime hello now derives `en-US`, `hi-IN`, `mixed`, or explicit experimental `ne-NP` from the persisted policy; its language mode is `auto`. |
+| ElevenLabs environment loading | **BLOCKED** | Safe inventory found no `apps/api/.env.local` or other live local environment file in this runtime, and no relevant variables in the API process environment. `/v1/diagnostics/voice` reports `credentialPresent: false`, `configured: false`, and `lastErrorCode: CREDENTIAL_MISSING`. No real request was attempted without a credential. |
+| ElevenLabs direct synthesis | **BLOCKED** | A real minimal synthesis is an explicit external/provider request and cannot be run until a valid local credential is present. The diagnostics endpoint does not expose keys or perform an implicit billed request. |
+| AgentRouter configuration | **BLOCKED** | Runtime status now correctly requires **both** `AGENT_ROUTER_API_KEY` and `AGENT_ROUTER_BASE_URL`; neither is present in this runtime. CX Gateway likewise lacks both required variables. |
+| Existing ComfyUI runtime | **BLOCKED** | No listener on `127.0.0.1:8188`, no running ComfyUI process, and no candidate installation directory under `/home/ubuntu` were found. HINAA’s own `/v1/local-services/comfyui` returned HTTP 503. No download, reinstall, or duplicate model work was performed. |
+
+### Final validation for this pass
+
+| Check | Result |
+|---|---|
+| Frontend tests | **PASS** — 21 files, 104 passing tests, 2 existing todos. |
+| Typed Demo voice acceptance | **PASS** — completed plan → concise spoken text → exactly one browser utterance → visible local voice feedback. |
+| TypeScript and production frontend build | **PASS** — `tsc -b` and Vite/PWA build completed. The existing large-avatar chunk warning remains non-blocking. |
+| Backend tests | **PASS** — complete `pytest -q` suite passed, including safe diagnostics and AgentRouter configuration coverage. |
+| API runtime | **INTEGRATION_TESTED** — restarted at `127.0.0.1:8000`; safe voice diagnostics and provider states queried successfully. |
+
+A real ElevenLabs typed-chat acceptance run, a real Hinaa cloud voice playback, and a real HINAA-generated ComfyUI image remain unavailable because their required external/local dependencies are absent from this runtime. Those capabilities are deliberately not represented as passed.

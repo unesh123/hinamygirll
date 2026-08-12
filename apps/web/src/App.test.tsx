@@ -1,11 +1,24 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+
+class FakeUtterance {
+  lang = "";
+  rate = 1;
+  pitch = 1;
+  volume = 1;
+  voice: SpeechSynthesisVoice | null = null;
+  onend: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+
+  constructor(readonly text: string) {}
+}
 
 describe("HINAA assistant workspace", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.removeItem("hinaa.avatar-model");
+    localStorage.removeItem("hinaa_settings_v1");
   });
 
   it("renders the main stage with brand and status", () => {
@@ -54,6 +67,30 @@ describe("HINAA assistant workspace", () => {
     render(<App />);
     expect(screen.queryByText(/safety limit/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/microphone frame was lost/i)).not.toBeInTheDocument();
+  });
+
+  it("speaks one concise spokenText utterance for a completed typed Demo turn", async () => {
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel: vi.fn() });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+    localStorage.setItem("hinaa_settings_v1", JSON.stringify({
+      _version: 2,
+      appearance: { theme: "system", motion: "system", avatarVisible: true, avatarStyle: "procedural" },
+      provider: { preferredMode: "mock", preferredModelByProvider: {} },
+    }));
+    render(<App />);
+
+    const composer = screen.getByLabelText("Message HINAA");
+    fireEvent.change(composer, { target: { value: "Give me a quick status update." } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(speak).toHaveBeenCalledTimes(1), { timeout: 6_000 });
+    const utterance = speak.mock.calls[0][0] as FakeUtterance;
+    expect(utterance.text).toBeTruthy();
+    expect(utterance.text).not.toContain("```");
+    expect(screen.getByText("Speaking with local browser voice")).toBeInTheDocument();
+    utterance.onend?.();
   });
 
   it.todo("starts live voice only after the user grants microphone permission");

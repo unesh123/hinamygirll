@@ -14,12 +14,14 @@ import { DEFAULT_SETTINGS } from "../types/settings";
 import type {
   AppearanceSettings,
   HinaaSettings,
+  LanguageSettings,
   ProviderPreferences,
 } from "../types/settings";
 
 export interface UseSettingsReturn {
   settings: HinaaSettings;
   setAppearance: (patch: Partial<AppearanceSettings>) => void;
+  setLanguage: (patch: Partial<LanguageSettings>) => void;
   setProvider: (patch: Partial<ProviderPreferences>) => void;
   resetToDefaults: () => void;
 }
@@ -54,6 +56,17 @@ export function useSettings(): UseSettingsReturn {
     });
   }, []);
 
+  const setLanguage = useCallback((patch: Partial<LanguageSettings>) => {
+    setSettings((current) => {
+      const next: HinaaSettings = {
+        ...current,
+        language: { ...current.language, ...patch },
+      };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
   const setProvider = useCallback((patch: Partial<ProviderPreferences>) => {
     setSettings((current) => {
       const next: HinaaSettings = {
@@ -71,5 +84,5 @@ export function useSettings(): UseSettingsReturn {
     setSettings(next);
   }, []);
 
-  return { settings, setAppearance, setProvider, resetToDefaults };
+  return { settings, setAppearance, setLanguage, setProvider, resetToDefaults };
 }

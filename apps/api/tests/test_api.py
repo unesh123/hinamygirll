@@ -35,6 +35,15 @@ def test_health_and_provider_readiness_are_safe(client: TestClient) -> None:
     assert "elevenlabs" in by_id
     assert by_id["gemini"]["state"] == "unavailable"
 
+    diagnostics = client.get("/v1/diagnostics/voice").json()
+    assert diagnostics["provider"] == "elevenlabs"
+    assert diagnostics["credentialPresent"] is False
+    assert diagnostics["configured"] is False
+    assert diagnostics["authenticationValid"] is None
+    assert diagnostics["synthesisValid"] is None
+    assert diagnostics["lastErrorCode"] == "CREDENTIAL_MISSING"
+    assert "api_key" not in diagnostics
+
 
 def test_voice_profiles_disclose_standard_nepali_voices(client: TestClient) -> None:
     profiles = client.get("/v1/voice-profiles").json()

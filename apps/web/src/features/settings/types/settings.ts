@@ -9,10 +9,11 @@
  * - Never store credentials
  * - Only add settings for behaviour that genuinely exists today
  *
- * Version 2 — CX Gateway is the preferred high-agency brain.
+ * Version 3 — Hindi/English auto is the active Hinaa language policy; Nepali
+ * remains available only as an explicit experimental future option.
  */
 
-export const SETTINGS_VERSION = 2 as const;
+export const SETTINGS_VERSION = 3 as const;
 export const SETTINGS_KEY = "hinaa_settings_v1" as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -58,10 +59,18 @@ export interface ProviderPreferences {
   preferredModelByProvider: ModelByProvider;
 }
 
+export type ActiveLanguagePolicy = "auto-hi-en" | "hi-IN" | "en-US" | "ne-NP-experimental";
+
+export interface LanguageSettings {
+  /** Nepali infrastructure is retained but excluded from normal Hinaa auto routing. */
+  activePolicy: ActiveLanguagePolicy;
+}
+
 export interface HinaaSettings {
   _version: typeof SETTINGS_VERSION;
   appearance: AppearanceSettings;
   provider: ProviderPreferences;
+  language: LanguageSettings;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -77,5 +86,8 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
   provider: {
     preferredMode: "cx-gateway",
     preferredModelByProvider: {},
+  },
+  language: {
+    activePolicy: "auto-hi-en",
   },
 };

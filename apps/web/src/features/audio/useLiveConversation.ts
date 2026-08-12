@@ -5,6 +5,7 @@ import type { PlaybackController } from "./useAudioPlayback";
 import { LatencyClock } from "./latencyClock";
 import { PhraseDetector } from "./phraseDetector";
 import { TurnTakingController } from "./turnTakingController";
+import type { ActiveLanguagePolicy } from "../settings/types/settings";
 
 type LiveStatus =
   "idle" | "connecting" | "listening" | "paused" | "reconnecting" | "error";
@@ -52,7 +53,7 @@ interface LiveOptions {
   playback: PlaybackController;
   calibration: "natural" | "soft" | "lively";
   outputMode: "headphones" | "speaker";
-  languageMode: "fixed-ne-NP" | "auto";
+  activeLanguagePolicy: ActiveLanguagePolicy;
 }
 
 function websocketUrl(): string {
@@ -62,6 +63,12 @@ function websocketUrl(): string {
   // listens on 127.0.0.1) and HTTPS dev (wss:// to a plain-HTTP backend).
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/api/v1/realtime`;
+}
+
+function liveLocaleForPolicy(policy: ActiveLanguagePolicy): "en-US" | "hi-IN" | "ne-NP" | "mixed" {
+  if (policy === "en-US" || policy === "hi-IN") return policy;
+  if (policy === "ne-NP-experimental") return "ne-NP";
+  return "mixed";
 }
 
 function browserLanguageForText(text: string): string {
@@ -83,7 +90,7 @@ export function useLiveConversation({
   playback,
   calibration,
   outputMode,
-  languageMode,
+  activeLanguagePolicy,
 }: LiveOptions) {
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
@@ -467,8 +474,8 @@ export function useLiveConversation({
             ? callbacks.current.controller.routing.activeModel ?? undefined
             : undefined,
         generation: generation.current,
-        language: "mixed",
-        languageMode,
+        language: liveLocaleForPolicy(activeLanguagePolicy),
+        languageMode: "auto",
         calibration,
       });
       heartbeat.current = window.setInterval(
@@ -503,7 +510,7 @@ export function useLiveConversation({
       reconnectAttempt.current += 1;
       reconnectTimer.current = window.setTimeout(connect, delay);
     };
-  }, [calibration, handleServerEvent, languageMode, sendJson]);
+  }, [activeLanguagePolicy, calibration, handleServerEvent, sendJson]);
 
   const start = useCallback(async () => {
     if (active.current) return;

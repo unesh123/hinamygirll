@@ -217,6 +217,7 @@ class Settings(BaseSettings):
         return bool(
             self.agent_router_api_key
             and self.agent_router_api_key.get_secret_value()
+            and self.active_agent_router_base_url
         )
 
     @property

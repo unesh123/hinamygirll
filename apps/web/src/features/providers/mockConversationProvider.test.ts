@@ -25,6 +25,7 @@ describe("MockConversationProvider", () => {
       text: "Namaste",
       companionId: "hiro",
       signal: new AbortController().signal,
+      language: "en-US",
     })) {
       events.push(event);
     }
@@ -40,6 +41,7 @@ describe("MockConversationProvider", () => {
       text: "hello",
       companionId: "hinaa",
       signal: controller.signal,
+      language: "en-US",
     });
     await iterator.next();
     controller.abort();
@@ -67,16 +69,30 @@ describe("professional Demo guidance", () => {
 
 describe("localized Demo guidance", () => {
   it("returns native-script Hindi and Nepali guidance with concise spoken summaries", () => {
-    const hindi = buildMockPlan("हिना, मुझे ComfyUI setup समझाओ।", "hinaa");
+    const hindi = buildMockPlan("हिना, मुझे ComfyUI setup समझाओ।", "hinaa", "hi-IN");
     expect(hindi.language).toBe("hi-IN");
     expect(hindi.displayText).toContain("ComfyUI सेटअप के लिए");
     expect(hindi.displayText).toContain("NVIDIA driver");
     expect(hindi.spokenText.length).toBeLessThan(hindi.displayText.length);
 
-    const nepali = buildMockPlan("हिना, मलाई ComfyUI को setup विस्तारमा बुझाऊ।", "hinaa");
+    const nepaliDisabled = buildMockPlan("हिना, मलाई ComfyUI को setup विस्तारमा बुझाऊ।", "hinaa", "hi-IN");
+    expect(nepaliDisabled.language).toBe("hi-IN");
+    expect(nepaliDisabled.displayText).toContain("Hindi और English");
+
+    const nepali = buildMockPlan("हिना, मलाई ComfyUI को setup विस्तारमा बुझाऊ।", "hinaa", "ne-NP");
     expect(nepali.language).toBe("ne-NP");
     expect(nepali.displayText).toContain("ComfyUI को setup गर्न");
     expect(nepali.displayText).toContain("workflow queue गर्नुहोस्");
     expect(nepali.spokenText.length).toBeLessThan(nepali.displayText.length);
+  });
+});
+
+
+describe("active Hindi language policy", () => {
+  it("keeps normal Hindi Demo copy in Devanagari instead of Roman Hindi", () => {
+    const plan = buildMockPlan("हिना, मेरी मदद करो।", "hinaa", "hi-IN");
+    expect(plan.language).toBe("hi-IN");
+    expect(plan.displayText).toMatch(/[\u0900-\u097F]/);
+    expect(plan.displayText).not.toMatch(/Main abhi mock mode/i);
   });
 });

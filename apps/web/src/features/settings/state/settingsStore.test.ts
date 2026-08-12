@@ -27,3 +27,19 @@ describe("CX provider default", () => {
     expect(loadSettings().provider.preferredMode).toBe("local");
   });
 });
+
+
+describe("active language policy", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("defaults existing version-two settings to Hindi and English auto mode", () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      _version: 2,
+      appearance: {},
+      provider: { preferredMode: "mock", preferredModelByProvider: {} },
+    }));
+    const settings = loadSettings();
+    expect(settings.provider.preferredMode).toBe("mock");
+    expect(settings.language.activePolicy).toBe("auto-hi-en");
+  });
+});

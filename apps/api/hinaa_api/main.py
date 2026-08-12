@@ -232,6 +232,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/v1/diagnostics/voice")
+    async def voice_diagnostics() -> dict[str, object]:
+        """Return configuration readiness only; never expose or probe a secret implicitly.
+
+        A minimal real synthesis remains an explicit verification action because
+        it consumes a third-party provider request. Until that action runs, the
+        authentication and synthesis fields remain unknown rather than guessed.
+        """
+        credential_present = bool(
+            active_settings.elevenlabs_api_key
+            and active_settings.elevenlabs_api_key.get_secret_value()
+        )
+        return {
+            "provider": "elevenlabs",
+            "configured": active_settings.elevenlabs_configured,
+            "credentialPresent": credential_present,
+            "hinaaVoicePresent": bool(active_settings.elevenlabs_hinaa_voice_id.strip()),
+            "hiroVoicePresent": bool(active_settings.elevenlabs_hiro_voice_id.strip()),
+            "modelConfigured": bool(active_settings.elevenlabs_model_id.strip()),
+            "endpointReachable": None,
+            "authenticationValid": None,
+            "synthesisValid": None,
+            "lastSuccessAt": None,
+            "lastErrorCode": None if credential_present else "CREDENTIAL_MISSING",
+        }
+
     @app.get("/v1/providers", response_model=list[ProviderStatus])
     async def provider_status() -> list[ProviderStatus]:
         return [
@@ -334,7 +360,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "Agent router configuration is present; no live call has been made."
                     if active_settings.agent_router_configured
                     else (
-                        "Agent router needs AGENT_ROUTER_API_KEY."
+                        "Agent router needs AGENT_ROUTER_API_KEY and AGENT_ROUTER_BASE_URL."
                     )
                 ),
             ),

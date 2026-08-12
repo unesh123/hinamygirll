@@ -13,6 +13,8 @@ export interface ConversationRequest {
   text: string;
   companionId: CompanionId;
   signal: AbortSignal;
+  /** Active product locale resolved before provider routing. */
+  language: "en-US" | "hi-IN" | "ne-NP";
   brainModel?: string;
 }
 
