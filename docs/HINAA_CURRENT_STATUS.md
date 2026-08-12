@@ -235,3 +235,42 @@ This isolated completion pass preserved the approved local-first scope. It repai
 | Final ownership audit | **PASS** — no placeholder records across audited durable owner tables. |
 
 The remaining acceptance evidence that cannot be generated in this repository is explicitly limited to the unavailable local/external dependencies: real ComfyUI rendering and refresh persistence, the user-named VSeeFace model’s visual calibration, configured CX/AgentRouter completion, and real cloud ElevenLabs/Azure synthesis. None has been replaced by a mock result or called complete.
+
+
+## Phase 14 — Windows Avatar, VSeeFace, VMC, and Live-Presence Completion
+
+This pass repaired the active HINAA avatar/VMC path in the isolated branch `work/hinaa-avatar-vmc-windows-completion`. It did not replace the app, add a second canvas, create another VMC bridge, modify original VRM binaries, install VSeeFace/ComfyUI, or merge into `main`.
+
+| Requirement | Current result | Evidence status |
+|---|---|---|
+| Full-body T-pose and horizontal arms | The active `AvatarPresence` now uses centralized model-specific offsets multiplied once against immutable normalized humanoid rest quaternions. `model_6164` and `model_5447` lower shoulders through mirrored upper/lower-arm targets; imported unknown rigs retain authored rest until reviewed calibration. | **IMPLEMENTED / BUILD_TESTED**; real Windows visual screenshot remains **BLOCKED_IN_SANDBOX**. |
+| Conversational framing | Portrait is persistent per selected model and uses head/neck/chest/hips anatomy; Close-up, Upper body, and Full body are explicit controls. Chat/live state no longer resets the camera. | **IMPLEMENTED / BUILD_TESTED**; real Windows visual screenshot remains **BLOCKED_IN_SANDBOX**. |
+| LIVE truthfulness | WebSocket open or UDP bind is no longer “live.” Bridge state now requires fresh non-synthetic packets and a continuous rate of at least 3 packets/s before `live`; Listening, Test Signal, Stale, Disconnected, and Error remain distinct. | **INTEGRATION_TESTED** — local probe returned `listening` → explicit `test` → `stale`; focused test covers continuous external stream → `live`. |
+| LIVE control feedback | The VSeeFace pill opens a visible keyboard-accessible diagnostics panel with connect/listen, disconnect, reconnect, test, calibration, packet/rate/channel display, selected model/mode, and Windows setup instructions. | **UNIT_TESTED** — listener UI never displays `VSeeFace Live`; calibration disabled until fresh external state. |
+| Face/head response | TTS has exclusive mouth ownership while speaking. Fresh live VMC can drive non-speech vowel/blink/emotion values; head motion requires live neutral calibration, uses a relative bounded 22° delta, and uncalibrated body/limb streams are ignored. | **IMPLEMENTED / BUILD_TESTED**; real VSeeFace sender response **BLOCKED_IN_SANDBOX**. |
+| Avatar Lab / safe asset management | Existing drawer hosts Avatar Lab with approved-root inventory, parse-based VRM metadata, opaque managed import, browser-safe file URL, managed-copy delete confirmation, camera, and explicit autonomous/exact/proxy strategy modes. | **INTEGRATION_TESTED** for API parser/inventory; real Windows import **BLOCKED_IN_SANDBOX**. |
+| VRM version and selector policy | Local API parsed bundled `model_6164` and `hinaa` as VRM 0.x candidates; `model_5447` and `AvatarSample_E` are VRM 1.0/incompatible for VSeeFace. B/C remain excluded from the current HINAA selector. | **INTEGRATION_TESTED** metadata only; no real VSeeFace load claim. |
+| Sidebar capability clarity | Navigation actions now have accessible labels/title tooltips; documented capability/error matrix distinguishes available, degraded, and blocked surfaces. | **IMPLEMENTED / REGRESSION_TESTED**. |
+
+### Phase 14 release gates
+
+| Gate | Result |
+|---|---|
+| Focused VMC and parser tests | **PASS** — 2 tests. |
+| Full backend tests | **PASS** — 171 tests. |
+| Full frontend tests | **PASS** — 24 files, 107 passing tests, 2 existing todos. |
+| Frontend type check | **PASS** — `tsc -b`. |
+| Production frontend build | **PASS** — Vite/PWA build. The existing large avatar chunk warning remains non-blocking. |
+| Local API VMC probe | **PASS** — final API listener on `127.0.0.1:39539`; state contract confirmed without an external-camera claim. |
+| Local API avatar inventory | **PASS** — approved-root parse inventory returned safe opaque records and VRM version metadata. |
+
+### Remaining runtime-bound evidence
+
+| Evidence required | Status | Exact boundary |
+|---|---|---|
+| User Windows model `5798998195377315936 (1).vrm` loaded/inspected | **BLOCKED_IN_SANDBOX** | The Windows desktop/filesystem is not connected to this session. |
+| VSeeFace process, camera input, sustained real sender, and real VMC stream | **BLOCKED_IN_SANDBOX** | No Windows desktop/process/camera is accessible. |
+| Portrait screenshot/video of the requested Windows model with relaxed hands and live blink/mouth/gaze/head | **BLOCKED_IN_SANDBOX** | Requires real Windows asset + VSeeFace sender + rendered Windows browser. |
+| Exact VSeeFace compatibility | **BLOCKED_IN_SANDBOX** | Parser status is candidate-only; real VSeeFace load must be observed. |
+
+The only local runtime fixture used in this pass was explicitly marked `synthetic` and appeared as **Test Signal**, never **VSeeFace Live**.

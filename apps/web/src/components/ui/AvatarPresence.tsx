@@ -23,12 +23,13 @@ import type { FaceExpressions } from "../../features/audio/useVSeeFace";
 import type { VisemeEvent } from "../../features/audio/textToViseme";
 import { getActiveViseme } from "../../features/audio/textToViseme";
 
-export type PresenceMode = "portrait" | "closeup" | "full" | "hidden";
+export type PresenceMode = "portrait" | "closeup" | "upperbody" | "full" | "hidden";
 
 /* ─── Camera presets ─────────────────────────────────────── */
 const CAMERAS: Record<PresenceMode, { pos: [number,number,number]; target: [number,number,number]; fov: number }> = {
   closeup:  { pos: [0, 1.34, 0.72], target: [0, 1.30, 0], fov: 26 },
   portrait: { pos: [0, 1.30, 1.58], target: [0, 1.14, 0], fov: 38 },
+  upperbody:{ pos: [0, 1.10, 1.88], target: [0, 1.02, 0], fov: 40 },
   full:     { pos: [0, 0.86, 2.45], target: [0, 0.72, 0], fov: 46 },
   hidden:   { pos: [0, 1.0,  3.0],  target: [0, 1.0,  0], fov: 35 },
 };
@@ -45,7 +46,9 @@ type CameraPreset = { pos: [number, number, number]; target: [number, number, nu
 type AnatomyFrame = {
   centerX: number;
   headY: number;
+  neckY: number;
   chestY: number;
+  hipsY: number;
   minY: number;
   maxY: number;
   revision: string;
@@ -56,9 +59,20 @@ function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: A
   const torso = Math.max(0.28, frame.headY - frame.chestY);
   const bodyHeight = Math.max(1.1, frame.maxY - frame.minY);
   const x = frame.centerX;
+  const portraitFov = 31;
+  // Head/chest control composition. Bounds are used only to avoid clipping hair
+  // and accessories, never to pull the portrait target down toward a long skirt.
+  const portraitTop = Math.max(frame.maxY, frame.headY + torso * 0.44);
+  const portraitBottom = frame.chestY - torso * 0.38;
+  const distanceFor = (top: number, bottom: number, fov: number) => {
+    const half = Math.max(0.22, (top - bottom) / 2) * 1.12;
+    return Math.max(0.58, half / Math.tan(THREE.MathUtils.degToRad(fov / 2)));
+  };
   if (mode === "closeup") {
-    const targetY = frame.headY - torso * 0.22;
-    return { pos: [x, targetY + torso * 0.04, Math.max(0.62, torso * 2.0)], target: [x, targetY, 0], fov: 25 };
+    const top = Math.max(frame.maxY, frame.headY + torso * 0.36);
+    const bottom = frame.neckY - torso * 0.20;
+    const targetY = (top + bottom) / 2;
+    return { pos: [x, targetY, distanceFor(top, bottom, 24)], target: [x, targetY, 0], fov: 24 };
   }
   if (mode === "full") {
     const targetY = (frame.minY + frame.maxY) / 2;
@@ -66,8 +80,14 @@ function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: A
     const distance = Math.max(2.15, (bodyHeight / 2) / Math.tan(THREE.MathUtils.degToRad(fov / 2)) * 1.12);
     return { pos: [x, targetY, distance], target: [x, targetY, 0], fov };
   }
-  const targetY = frame.chestY + torso * 0.38;
-  return { pos: [x, targetY + torso * 0.08, Math.max(1.05, torso * 3.15)], target: [x, targetY, 0], fov: 33 };
+  if (mode === "upperbody") {
+    const top = portraitTop;
+    const bottom = Math.min(frame.chestY - torso * 1.05, frame.hipsY + torso * 0.28);
+    const targetY = (top + bottom) / 2;
+    return { pos: [x, targetY, distanceFor(top, bottom, 38)], target: [x, targetY, 0], fov: 38 };
+  }
+  const targetY = (portraitTop + portraitBottom) / 2;
+  return { pos: [x, targetY, distanceFor(portraitTop, portraitBottom, portraitFov)], target: [x, targetY, 0], fov: portraitFov };
 }
 
 // The models have materially different authored proportions. These editorial
@@ -77,10 +97,12 @@ function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: A
 const MODEL_CAMERA_PRESETS: Record<string, Partial<Record<PresenceMode, CameraPreset>>> = {
   "/models/model_6164.vrm": {
     portrait: { pos: [0, 1.43, 1.28], target: [0, 1.31, 0], fov: 34 },
+    upperbody: { pos: [0, 1.20, 1.78], target: [0, 1.10, 0], fov: 39 },
     closeup: { pos: [0, 1.47, 0.77], target: [0, 1.39, 0], fov: 25 },
   },
   "/models/model_5447.vrm": {
     portrait: { pos: [0, 1.54, 1.20], target: [0, 1.41, 0], fov: 31 },
+    upperbody: { pos: [0, 1.28, 1.74], target: [0, 1.18, 0], fov: 38 },
     closeup: { pos: [0, 1.58, 0.78], target: [0, 1.49, 0], fov: 25 },
   },
 };
@@ -112,21 +134,34 @@ function emotionFor(state: CompanionState): EmotionBlend {
   }
 }
 
-/* ─── Rig-safe neutral pose ─────────────────────────────── */
-// VRM exporters do not agree on the local axes for arm and wrist bones. The
-// only reliable neutral pose across models is the pose authored in the VRM
-// itself. These identity offsets deliberately preserve that authored pose.
-const identityPose = () => new THREE.Quaternion();
-const POSE_Q = {
-  leftUpperArm: identityPose(),
-  rightUpperArm: identityPose(),
-  leftLowerArm: identityPose(),
-  rightLowerArm: identityPose(),
-  leftHand: identityPose(),
-  rightHand: identityPose(),
-} as const;
-type PoseBoneName = keyof typeof POSE_Q;
-const POSE_BONES = Object.keys(POSE_Q) as PoseBoneName[];
+/* ─── Conversational neutral pose ───────────────────────── */
+// Offsets are always multiplied once against cached immutable normalized-bone
+// rest quaternions. No raw J_Bip nodes and no cumulative Euler edits are used.
+type PoseBoneName = "leftUpperArm" | "rightUpperArm" | "leftLowerArm" | "rightLowerArm" | "leftHand" | "rightHand";
+const POSE_BONES: PoseBoneName[] = ["leftUpperArm", "rightUpperArm", "leftLowerArm", "rightLowerArm", "leftHand", "rightHand"];
+const restOffset = () => new THREE.Quaternion();
+const q = (x = 0, y = 0, z = 0) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
+
+// `model_6164` is the screenshot baseline. Its authored normalized rest has
+// horizontal upper arms; mirrored Z offsets lower shoulders without touching
+// root scale/position or hands. Other known/managed rigs keep authored rest
+// until their Avatar Lab calibration produces a reviewed profile.
+const MODEL_POSE_OFFSETS: Record<string, Record<PoseBoneName, THREE.Quaternion>> = {
+  "/models/model_6164.vrm": {
+    leftUpperArm: q(0, 0, 1.10), rightUpperArm: q(0, 0, -1.10),
+    leftLowerArm: q(0, 0, 0.20), rightLowerArm: q(0, 0, -0.20),
+    leftHand: restOffset(), rightHand: restOffset(),
+  },
+  "/models/model_5447.vrm": {
+    leftUpperArm: q(0, 0, 0.86), rightUpperArm: q(0, 0, -0.86),
+    leftLowerArm: q(0, 0, 0.14), rightLowerArm: q(0, 0, -0.14),
+    leftHand: restOffset(), rightHand: restOffset(),
+  },
+};
+const DEFAULT_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
+  leftUpperArm: restOffset(), rightUpperArm: restOffset(), leftLowerArm: restOffset(),
+  rightLowerArm: restOffset(), leftHand: restOffset(), rightHand: restOffset(),
+};
 
 /* ─── Model component ────────────────────────────────────── */
 interface ModelProps {
@@ -139,11 +174,12 @@ interface ModelProps {
   faceExpressions?: FaceExpressions | null;
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
+  trackingCalibration?: { headBaseline?: [number, number, number, number] } | null;
   onAnatomyFrame?: (frame: AnatomyFrame) => void;
 }
 
 function Model({
-  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, faceExpressions, faceBones, faceTrackingActive, onAnatomyFrame,
+  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, onAnatomyFrame,
 }: ModelProps) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
@@ -153,6 +189,10 @@ function Model({
   const normBonesRef = useRef<Partial<Record<PoseBoneName, THREE.Object3D>>>({});
   const curQRef      = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const restQRef     = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
+  const poseTargetRef = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
+  const headBoneRef = useRef<THREE.Object3D | null>(null);
+  const headRestQRef = useRef<THREE.Quaternion | null>(null);
+  const headCurQRef = useRef<THREE.Quaternion | null>(null);
 
   // Per-frame refs — no allocations
   const t           = useRef(0);
@@ -171,6 +211,10 @@ function Model({
     normBonesRef.current = {};
     curQRef.current = {};
     restQRef.current = {};
+    poseTargetRef.current = {};
+    headBoneRef.current = null;
+    headRestQRef.current = null;
+    headCurQRef.current = null;
     availRef.current = new Set();
     t.current = 0;
     mouthW.current = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
@@ -216,18 +260,25 @@ function Model({
       const center = bounds.getCenter(new THREE.Vector3());
       const size = bounds.getSize(new THREE.Vector3());
       const head = v.humanoid?.getNormalizedBoneNode("head" as any);
-      const chest = v.humanoid?.getNormalizedBoneNode("chest" as any)
-        ?? v.humanoid?.getNormalizedBoneNode("upperChest" as any)
+      const neck = v.humanoid?.getNormalizedBoneNode("neck" as any);
+      const chest = v.humanoid?.getNormalizedBoneNode("upperChest" as any)
+        ?? v.humanoid?.getNormalizedBoneNode("chest" as any)
         ?? v.humanoid?.getNormalizedBoneNode("spine" as any);
+      const hips = v.humanoid?.getNormalizedBoneNode("hips" as any);
       const headY = head?.getWorldPosition(new THREE.Vector3()).y ?? bounds.max.y - Math.max(0.14, size.y * 0.08);
       const chestY = chest?.getWorldPosition(new THREE.Vector3()).y ?? bounds.min.y + size.y * 0.58;
+      const safeHeadY = Math.max(chestY + 0.2, headY);
+      const neckY = neck?.getWorldPosition(new THREE.Vector3()).y ?? safeHeadY - Math.max(0.10, (safeHeadY - chestY) * 0.28);
+      const hipsY = hips?.getWorldPosition(new THREE.Vector3()).y ?? bounds.min.y + size.y * 0.38;
       onAnatomyFrame?.({
         centerX: center.x,
-        headY: Math.max(chestY + 0.2, headY),
+        headY: safeHeadY,
+        neckY: Math.max(chestY + 0.08, neckY),
         chestY,
+        hipsY: Math.min(chestY - 0.08, hipsY),
         minY: bounds.min.y,
         maxY: bounds.max.y,
-        revision: `${url}:${bounds.min.y.toFixed(3)}:${bounds.max.y.toFixed(3)}`,
+        revision: `${url}:${bounds.min.y.toFixed(3)}:${bounds.max.y.toFixed(3)}:${safeHeadY.toFixed(3)}`,
       });
 
       // Cache available expressions
@@ -242,19 +293,31 @@ function Model({
         }
       }
 
-      // Cache normalized bone nodes and their initial rest quaternions
+      // Cache normalized bone nodes and immutable rest quaternions once. The
+      // per-frame loop only slerps to the precomputed calibrated targets.
       const hd = v.humanoid;
       if (hd) {
+        const offsets = MODEL_POSE_OFFSETS[url] ?? DEFAULT_POSE_OFFSETS;
         for (const boneName of POSE_BONES) {
           try {
             const node = hd.getNormalizedBoneNode(boneName as any);
             if (node) {
+              const rest = node.quaternion.clone();
               normBonesRef.current[boneName] = node;
-              restQRef.current[boneName] = node.quaternion.clone();
-              curQRef.current[boneName] = node.quaternion.clone();
+              restQRef.current[boneName] = rest;
+              curQRef.current[boneName] = rest.clone();
+              poseTargetRef.current[boneName] = rest.clone().multiply(offsets[boneName]);
             }
           } catch {}
         }
+        try {
+          const headNode = hd.getNormalizedBoneNode("head" as any);
+          if (headNode) {
+            headBoneRef.current = headNode;
+            headRestQRef.current = headNode.quaternion.clone();
+            headCurQRef.current = headNode.quaternion.clone();
+          }
+        } catch {}
       }
 
       if (import.meta.env.DEV) {
@@ -355,14 +418,18 @@ function Model({
           mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 14);
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
-      } else if (faceExpressions && !speaking) {
-        // ── Face tracking: mirror VSeeFace mouth ──
+      } else if (faceExpressions) {
+        // ── Fresh external VMC, while not speaking: use observed vowel data
+        // when available, otherwise the sender's conservative mouth-open cue.
+        const tracked: Record<MouthKey, number> = {
+          aa: Math.max(faceExpressions.mouthA, faceExpressions.mouthOpen),
+          ih: faceExpressions.mouthI, ou: faceExpressions.mouthU,
+          ee: faceExpressions.mouthE, oh: faceExpressions.mouthO,
+        };
         for (const k of ALL_MOUTH_KEYS) {
-          mouthW.current[k] *= Math.max(0, 1 - dt * 25);
-          if (mouthW.current[k] < 0.005) mouthW.current[k] = 0;
-          set(VRM_PRESET[k], mouthW.current[k]);
+          mouthW.current[k] += (tracked[k] - mouthW.current[k]) * Math.min(1, dt * 12);
+          set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
-        set(VRMExpressionPresetName.Aa, faceExpressions.mouthOpen);
       } else {
         // ── Idle / silence: fade mouth closed ──
         let allZero = true;
@@ -416,8 +483,9 @@ function Model({
         const capEmo = (v: number) => Math.min(0.5, v);
         set(VRMExpressionPresetName.Happy,     capEmo(faceExpressions.mouthSmile));
         set(VRMExpressionPresetName.Surprised, capEmo((faceExpressions.browUpL + faceExpressions.browUpR) / 2));
-        set(VRMExpressionPresetName.Angry,     capEmo((faceExpressions.browDownL + faceExpressions.browDownR) / 2));
-        set(VRMExpressionPresetName.Relaxed,   capEmo(faceExpressions.cheekPuff));
+        set(VRMExpressionPresetName.Angry,     capEmo(Math.max(faceExpressions.angry, (faceExpressions.browDownL + faceExpressions.browDownR) / 2)));
+        set(VRMExpressionPresetName.Sad,       capEmo(faceExpressions.sad));
+        set(VRMExpressionPresetName.Relaxed,   capEmo(Math.max(faceExpressions.relaxed, faceExpressions.cheekPuff)));
       } else {
         const tEmo = emotionFor(state);
         const emoKeys = [
@@ -445,6 +513,33 @@ function Model({
       }
     }
 
+    /* ── CALIBRATED HEAD-ONLY VMC ─────────────────────────────────── */
+    // VMC body/limb packets are deliberately ignored. Head motion is applied
+    // only after a live external neutral calibration, using a bounded delta
+    // relative to the captured tracker baseline and the VRM's rest quaternion.
+    const head = headBoneRef.current;
+    const headRest = headRestQRef.current;
+    const headCurrent = headCurQRef.current;
+    const rawHead = faceTrackingActive ? faceBones?.Head : undefined;
+    const baseline = trackingCalibration?.headBaseline;
+    if (head && headRest && headCurrent && rawHead && baseline) {
+      const raw = new THREE.Quaternion(rawHead[0], rawHead[1], rawHead[2], rawHead[3]).normalize();
+      const neutral = new THREE.Quaternion(baseline[0], baseline[1], baseline[2], baseline[3]).normalize();
+      const delta = neutral.invert().multiply(raw);
+      // A safety clamp prevents a malformed sender/axis mismatch from rotating
+      // the companion out of frame. Further axis calibration belongs in Avatar Lab.
+      const maxAngle = THREE.MathUtils.degToRad(22);
+      if (2 * Math.acos(THREE.MathUtils.clamp(delta.w, -1, 1)) > maxAngle) {
+        delta.slerp(new THREE.Quaternion(), 1 - maxAngle / (2 * Math.acos(THREE.MathUtils.clamp(delta.w, -1, 1))));
+      }
+      const targetHead = headRest.clone().multiply(delta);
+      headCurrent.slerp(targetHead, Math.min(1, dt * 7));
+      head.quaternion.copy(headCurrent);
+    } else if (head && headRest && headCurrent) {
+      headCurrent.slerp(headRest, Math.min(1, dt * 5));
+      head.quaternion.copy(headCurrent);
+    }
+
     /* ── RELAXED POSE / FACE TRACKING POSE ────────────────────────── */
     const alpha = t.current < 0.1 ? 1.0 : Math.min(1, dt * 9);
     const nb = normBonesRef.current;
@@ -459,7 +554,8 @@ function Model({
       // incomplete arm transforms that do not match this VRM's local axes and
       // result in twisted wrists or raised hands. Limb gestures can be added
       // later as per-model animation clips after visual calibration.
-      const targetQ = restQRef.current[boneName]!.clone().multiply(POSE_Q[boneName]);
+      const targetQ = poseTargetRef.current[boneName];
+      if (!targetQ) continue;
       cur.slerp(targetQ, alpha);
       
       bone.quaternion.copy(cur);
@@ -517,6 +613,7 @@ interface Props {
   faceExpressions?: FaceExpressions | null;
   faceBones?: Record<string, [number, number, number, number]> | null;
   faceTrackingActive?: boolean;
+  trackingCalibration?: { headBaseline?: [number, number, number, number] } | null;
 }
 
 // Stable fallback refs so we never create new objects in render
@@ -528,7 +625,7 @@ const _startRef = { current: 0 };
 
 export function AvatarPresence({
   mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
-  modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive,
+  modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive, trackingCalibration,
 }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
   const [anatomy, setAnatomy] = useState<AnatomyFrame | undefined>();
@@ -542,7 +639,7 @@ export function AvatarPresence({
   if (mode === "hidden") return null;
 
   const cycle = () => {
-    const modes: PresenceMode[] = ["portrait","closeup","full"];
+    const modes: PresenceMode[] = ["portrait", "closeup", "upperbody", "full"];
     onModeChange?.(modes[(modes.indexOf(mode) + 1) % modes.length]);
   };
 
@@ -592,6 +689,7 @@ export function AvatarPresence({
                 faceExpressions={faceExpressions}
                 faceBones={faceBones}
                 faceTrackingActive={faceTrackingActive}
+                trackingCalibration={trackingCalibration}
                 onAnatomyFrame={applyAnatomy}
               />
 
@@ -619,9 +717,10 @@ export function AvatarPresence({
           type="button" onClick={cycle}
           whileHover={{ scale:1.1 }} whileTap={{ scale:0.9 }}
           style={{ width:28, height:28, borderRadius:8, border:"1px solid rgba(255,255,255,.65)", background:"rgba(255,255,255,.55)", backdropFilter:"blur(8px)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#64748b" }}
-          title={`Camera: ${mode}`}
+          title={`Camera: ${mode === "upperbody" ? "upper body" : mode}`}
+          aria-label={`Change avatar camera from ${mode === "upperbody" ? "upper body" : mode}`}
         >
-          <Maximize2 size={12} />
+          <Maximize2 size={12} aria-hidden="true" />
         </motion.button>
       </div>
     </div>

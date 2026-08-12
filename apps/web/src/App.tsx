@@ -28,6 +28,7 @@ import { ActivityPanel, type AgentStep } from "./components/ui/ActivityPanel";
 import { ActionChips, type ActionChip } from "./components/ui/ActionChips";
 import type { ContextMode } from "./components/ui/ContextWorkspace";
 import { SidebarPanel } from "./components/ui/SidebarPanel";
+import { VmcControlPanel } from "./components/ui/VmcControlPanel";
 
 import type { PowerUp } from "./components/ui/PowerUpMentions";
 import useMemory from "./features/memory/useMemory";
@@ -37,25 +38,51 @@ const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").t
 const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((module) => ({ default: module.MemoryPanel })));
 const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
 const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").then((module) => ({ default: module.LocalImageStudio })));
+const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
 
 const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize: 12 }}>Loading local workspace…</div>;
 
 const AVATAR_MODEL_STORAGE_KEY = "hinaa.avatar-model";
+const AVATAR_CAMERA_STORAGE_KEY = "hinaa.avatar-camera.v1";
 const HINAA_AVATAR_MODELS = [
   { url: "/models/model_6164.vrm", label: "Hinaa" },
   { url: "/models/model_5447.vrm", label: "Hinaa Classic" },
 ] as const;
 const DEFAULT_AVATAR_MODEL = HINAA_AVATAR_MODELS[0].url;
+const MANAGED_AVATAR_URL = /^\/api\/v1\/avatar-assets\/avatar-[0-9a-f-]+\/file$/i;
+
+function isSelectableAvatarUrl(value: string | null): value is string {
+  return Boolean(value && (HINAA_AVATAR_MODELS.some((model) => model.url === value) || MANAGED_AVATAR_URL.test(value)));
+}
 
 function getPersistedAvatarModel(): string {
   if (typeof window === "undefined") return DEFAULT_AVATAR_MODEL;
   try {
     const stored = window.localStorage.getItem(AVATAR_MODEL_STORAGE_KEY);
-    return stored && HINAA_AVATAR_MODELS.some((model) => model.url === stored)
-      ? stored
-      : DEFAULT_AVATAR_MODEL;
+    return isSelectableAvatarUrl(stored) ? stored : DEFAULT_AVATAR_MODEL;
   } catch {
     return DEFAULT_AVATAR_MODEL;
+  }
+}
+
+function getPersistedAvatarCamera(modelUrl: string): PresenceMode {
+  if (typeof window === "undefined") return "portrait";
+  try {
+    const values = JSON.parse(window.localStorage.getItem(AVATAR_CAMERA_STORAGE_KEY) ?? "{}") as Record<string, PresenceMode>;
+    const selected = values[modelUrl];
+    return selected === "closeup" || selected === "portrait" || selected === "upperbody" || selected === "full" ? selected : "portrait";
+  } catch {
+    return "portrait";
+  }
+}
+
+function persistAvatarCamera(modelUrl: string, mode: PresenceMode): void {
+  try {
+    const values = JSON.parse(window.localStorage.getItem(AVATAR_CAMERA_STORAGE_KEY) ?? "{}") as Record<string, PresenceMode>;
+    values[modelUrl] = mode;
+    window.localStorage.setItem(AVATAR_CAMERA_STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    // Camera remains usable when local browser storage is unavailable.
   }
 }
 
@@ -76,6 +103,8 @@ const stateLabels: Record<CompanionState, string> = {
   idle: "Ready", listening: "Listening", thinking: "Understanding",
   speaking: "Speaking", interrupted: "Interrupted", error: "Connection Issue",
 };
+
+type AvatarTrackingMode = "autonomous" | "exact-vseeface" | "tracking-proxy";
 
 type VoiceReplyState = {
   kind: "idle" | "cloud" | "browser" | "unavailable";
@@ -147,13 +176,20 @@ export default function App() {
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [actionChips, setActionChips] = useState<ActionChip[]>([]);
   const [contextSources] = useState<any[]>([]);
-  const [avatarMode, setAvatarMode] = useState<PresenceMode>("portrait");
   // Use the owner-supplied local model as the preferred avatar. The procedural
   // renderer remains the safe fallback if an asset cannot load.
   const [avatarModel, setAvatarModel] = useState<string>(getPersistedAvatarModel);
+  const [avatarMode, setAvatarMode] = useState<PresenceMode>(() => getPersistedAvatarCamera(getPersistedAvatarModel()));
+  const [avatarTrackingMode, setAvatarTrackingMode] = useState<AvatarTrackingMode>("autonomous");
+  const changeAvatarMode = (mode: PresenceMode) => {
+    if (mode === "hidden") return;
+    setAvatarMode(mode);
+    persistAvatarCamera(avatarModel, mode);
+  };
   const selectAvatarModel = (modelUrl: string) => {
-    if (!HINAA_AVATAR_MODELS.some((model) => model.url === modelUrl)) return;
+    if (!isSelectableAvatarUrl(modelUrl)) return;
     setAvatarModel(modelUrl);
+    setAvatarMode(getPersistedAvatarCamera(modelUrl));
     try {
       window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
     } catch {
@@ -163,7 +199,9 @@ export default function App() {
 
   // VSeeFace face tracking
   const faceTrack = useVSeeFace();
-  const faceActive = faceTrack.status === "active";
+  // A WebSocket is transport only. AvatarPresence receives VMC samples only
+  // while the bridge reports fresh external packets as `live`.
+  const faceActive = faceTrack.status === "live";
 
   const routing = useProviderRouting(settings.provider, providers);
   const controller = useCompanionController({
@@ -226,11 +264,6 @@ export default function App() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [playback.playing, playbackSession]);
-
-  /* ─── Avatar mode — stays stable, no zoom changes ────── */
-  useEffect(() => {
-    setAvatarMode("portrait");
-  }, [live.active, controller.state]);
 
   /* ─── Submit ─────────────────────────────────────────── */
   const submit = useCallback((event?: any) => {
@@ -347,6 +380,22 @@ export default function App() {
     setSidebarExpanded(prev => prev === s ? null : s);
   }, []);
 
+  const openAvatarLab = () => {
+    setDrawerMode("info");
+    setDrawerTitle("Avatar Lab");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><AvatarLab
+      tracker={faceTrack}
+      selectedModelUrl={avatarModel}
+      mode={avatarMode}
+      onModeChange={changeAvatarMode}
+      onSelectModel={selectAvatarModel}
+      trackingMode={avatarTrackingMode}
+      onTrackingModeChange={setAvatarTrackingMode}
+      onClose={() => setDrawerOpen(false)}
+    /></Suspense>);
+    setDrawerOpen(true);
+  };
+
   const openImageStudio = () => {
     setDrawerMode("image");
     setDrawerTitle("Hinaa Image Studio");
@@ -441,10 +490,11 @@ export default function App() {
                 visemeEvents={playback.visemeEvents}
                 audioStartTimeRef={playback.audioStartTimeRef}
                 modelUrl={avatarModel}
-                onModeChange={setAvatarMode}
-                faceExpressions={faceActive ? faceTrack.expressions : null}
-                faceBones={faceActive ? faceTrack.bones : null}
+                onModeChange={changeAvatarMode}
+                faceExpressions={faceActive ? faceTrack.expressionsRef.current : null}
+                faceBones={faceActive ? faceTrack.bonesRef.current : null}
                 faceTrackingActive={faceActive}
+                trackingCalibration={faceTrack.calibration}
               /></Suspense>
               {/* Owner-supplied VRM choices. The previous sample B/C models are
                   intentionally excluded because they were not the preferred character. */}
@@ -460,37 +510,38 @@ export default function App() {
                     {m.label}
                   </button>
                 ))}
-                {/* VSeeFace face tracking button */}
                 <button
                   type="button"
                   className={`vrm-pill vrm-pill--face${faceActive ? " vrm-pill--face-active" : ""}`}
-                  onClick={() => faceActive ? faceTrack.disconnect() : faceTrack.connect()}
-                  title={
-                    faceActive
-                      ? "🎭 VSeeFace tracking LIVE — click to stop"
-                      : "🎭 Start VSeeFace tracking\n\nSetup (one time):\n1. Open VSeeFace\n2. General Settings → ✅ VMC Protocol\n3. IP: 127.0.0.1  Port: 39539\n4. Click Save & start VSeeFace\n5. Then click this button"
-                  }
+                  onClick={() => {
+                    setDrawerMode("info");
+                    setDrawerTitle("VSeeFace and VMC");
+                    setDrawerContent(<VmcControlPanel
+                      tracker={faceTrack}
+                      selectedModelLabel={HINAA_AVATAR_MODELS.find((model) => model.url === avatarModel)?.label ?? "Imported HINAA avatar"}
+                      selectedModelMode={avatarTrackingMode}
+                      onClose={() => setDrawerOpen(false)}
+                      onOpenAvatarLab={openAvatarLab}
+                    />);
+                    setDrawerOpen(true);
+                  }}
+                  title="Open VSeeFace and VMC connection controls"
+                  aria-label="Open VSeeFace and VMC connection controls"
                 >
-                  {faceTrack.status === "connecting" ? "⏳ Connecting..." :
-                   faceActive ? "🎭 LIVE" : "🎭 VSeeFace"}
+                  {faceTrack.status === "connecting" ? "⏳ Connecting" :
+                   faceTrack.status === "live" ? "🎭 LIVE" :
+                   faceTrack.status === "test" ? "🎭 TEST" : "🎭 VSeeFace"}
                 </button>
               </div>
-              {/* VSeeFace status strip */}
-              {faceTrack.status === "error" && faceTrack.error && (
-                <div style={{ fontSize:"0.62rem", color:"#dc2626", padding:"3px 12px 5px", textAlign:"center", lineHeight:1.4, background:"rgba(254,226,226,0.7)", borderTop:"1px solid rgba(252,165,165,0.4)" }}>
-                  ⚠️ {faceTrack.error.length > 90 ? faceTrack.error.slice(0, 90) + "…" : faceTrack.error}
-                </div>
-              )}
-              {!faceActive && faceTrack.status === "disconnected" && (
-                <div style={{ fontSize:"0.6rem", color:"#64748b", padding:"2px 12px 4px", textAlign:"center", lineHeight:1.4 }}>
-                  VSeeFace → VMC Protocol → 127.0.0.1:39539 → click 🎭 VSeeFace
-                </div>
-              )}
-              {faceActive && (
-                <div style={{ fontSize:"0.6rem", color:"#15803d", padding:"2px 12px 4px", textAlign:"center", lineHeight:1.4 }}>
-                  ✅ Face tracking active — expressions mirrored live
-                </div>
-              )}
+              <div style={{ fontSize:"0.62rem", color: faceActive ? "#15803d" : faceTrack.status === "stale" ? "#b45309" : faceTrack.status === "test" ? "#6d28d9" : faceTrack.status === "error" ? "#dc2626" : "#64748b", padding:"3px 12px 5px", textAlign:"center", lineHeight:1.4 }} aria-live="polite">
+                {faceActive ? "VSeeFace Live — fresh external VMC packets are driving enabled facial channels."
+                  : faceTrack.status === "listening" ? "VMC Listening — waiting for VSeeFace packets."
+                  : faceTrack.status === "stale" ? "Tracking Stale — the avatar is returning safely to autonomous presence."
+                  : faceTrack.status === "test" ? "Test Signal — diagnostic fixture only, not live camera tracking."
+                  : faceTrack.status === "connecting" ? "Starting local VMC connection…"
+                  : faceTrack.status === "error" ? `VMC error — ${faceTrack.error ?? "open the control panel to retry."}`
+                  : "VSeeFace is disconnected — open the control panel to connect/listen."}
+              </div>
             </div>
 
             {/* Right: Chat */}

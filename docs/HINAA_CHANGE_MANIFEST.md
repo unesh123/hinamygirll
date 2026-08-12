@@ -74,3 +74,23 @@ For every subsequent changed file, add a row before publishing the related phase
 | `docs/HINAA_COMPLETION_CHANGELOG.md` | Record final completion changes, runtime evidence, and unresolved dependencies. | Completion ledger | None | Final validation review. | UPDATED. |
 | `docs/HINAA_CURRENT_STATUS.md` | Record final image, VMC, ownership, and release evidence. | Runtime evidence ledger | None | Final validation review. | UPDATED. |
 | `docs/HINAA_CHANGE_MANIFEST.md` | Append this completion-pass review trail. | Repository governance | None | Git diff review before isolated checkpoint. | UPDATED. |
+
+
+## Windows Avatar, VSeeFace, VMC, and Live-Presence Completion — 2026-08-13
+
+| File | Change reason | System | Risk control | Verification | Result |
+|---|---|---|---|---|---|
+| `apps/api/hinaa_api/vmc_bridge.py` | Extend the existing single VMC bridge with source/timestamp/rate/channel diagnostics and a clearly labelled test injection. | Local VMC transport | No second UDP bridge; synthetic source cannot become `live`; continuous external stream threshold required. | Focused bridge tests; runtime listening/test/stale probe. | **PASS** |
+| `apps/api/hinaa_api/main.py` | Expose local VMC diagnostics/test action and private managed avatar inventory/import/file/delete routes. | Local API | Approved roots only, opaque IDs, path-safe delivery, parse validation, explicit delete confirmation. | Full API regression; runtime endpoint checks. | **PASS** |
+| `apps/api/hinaa_api/avatar_assets.py` | Provide parse-based VRM/glTF inventory and managed import/delete service. | Local avatar asset management | Never rewrites original file; detects VRM extension version rather than filename; no arbitrary filesystem API. | Avatar parser regression. | **PASS** |
+| `apps/api/tests/test_vmc_and_avatar_assets.py` | Cover VMC listening/test/live/stale distinctions and VRM 0.x/1.0 compatibility boundary. | API regression | Unit fixture only; no real-camera claim. | Focused `pytest`. | **PASS** |
+| `apps/web/src/features/audio/useVSeeFace.ts` | Replace WebSocket-open-as-live behavior with diagnostics-driven idempotent client and live-only calibration. | Browser VMC consumer | Transport connection is never live evidence; packet refs limit render pressure. | Type check; full frontend tests. | **PASS** |
+| `apps/web/src/components/ui/VmcControlPanel.tsx` | Make LIVE control actionable with diagnostics, state feedback, safe retry/test/calibration actions. | Avatar UI | Test fixture is visibly labelled; neutral calibration requires live external state. | Component regression. | **PASS** |
+| `apps/web/src/components/ui/VmcControlPanel.test.tsx` | Prevent listener state from regressing to a false LIVE claim. | Frontend regression | Asserts listener copy and disabled calibration. | Vitest. | **PASS** |
+| `apps/web/src/components/ui/AvatarLab.tsx` | Add in-app Avatar Lab drawer with safe inventory/import/delete/model/camera/strategy controls. | Avatar UI | No second canvas; no unverified model status claim; confirmation before managed-copy deletion. | Type check and production build. | **PASS** |
+| `apps/web/src/components/ui/AvatarPresence.tsx` | Repair anatomy-aware portrait framing, explicit camera set, central rest-relative pose profile, and calibrated head-only VMC response. | Active single avatar renderer | Unknown assets retain rest pose; TTS owns mouth during speech; no limb driving; 22° head bound. | Type check and production build. | **PASS** |
+| `apps/web/src/App.tsx` | Wire truthful status, Avatar Lab, explicit strategy mode, managed selection, and per-model camera persistence. | Application shell | Existing one avatar renderer retained; only fresh external state reaches face driver. | Type check; frontend regression. | **PASS** |
+| `apps/web/src/components/ui/NavRail.tsx` | Add explicit accessible labels/titles to all rail buttons. | Navigation accessibility | Existing navigation callbacks preserved. | Full frontend regression. | **PASS** |
+| `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record baseline, audit, implementation evidence, and Windows-runtime blockers. | Evidence ledger | Distinguishes implementation from real Windows verification. | Repository review. | **PASS** |
+| `docs/HINAA_WINDOWS_VRM_ASSET_INVENTORY.md` | Record approved root policy and parse-derived asset findings. | Asset evidence | Never treats sandbox asset result as user Windows filesystem result. | Runtime inventory response. | **PASS** |
+| `docs/HINAA_SIDEBAR_CAPABILITY_MATRIX.md` | Document active/degraded/blocked sidebar behavior and accessibility changes. | UX evidence | No capability inferred from icon appearance. | Source audit. | **PASS** |

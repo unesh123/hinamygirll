@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any
 from uuid import UUID, uuid4
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .audio import validate_wav
+from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile
@@ -106,6 +108,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     workspace_service = LocalProjectService(
         get_session_factory(active_settings), active_settings.local_workspace_dir
     )
+    avatar_assets = AvatarAssetService(
+        active_settings.local_workspace_dir,
+        Path(__file__).resolve().parents[3],
+    )
     realtime = RealtimeGateway(active_settings, service)
     require_auth = (
         auth_dependency_factory(active_settings, memory_service)
@@ -151,6 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.service = service
     app.state.memory_service = memory_service
     app.state.workspace_service = workspace_service
+    app.state.avatar_assets = avatar_assets
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -190,6 +197,65 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "hint": "Start ComfyUI on http://127.0.0.1:8188, then refresh Hinaa Image Studio." if not available else "Local ComfyUI is ready.",
             },
         )
+
+    @app.get("/v1/avatar-assets")
+    async def avatar_asset_inventory() -> dict[str, Any]:
+        """List only approved application roots and HINAA-managed avatar assets.
+
+        The response intentionally omits the real filesystem path.
+        """
+        return {"assets": avatar_assets.inventory()}
+
+    @app.post("/v1/avatar-assets/import", status_code=201)
+    async def import_avatar_asset(file: UploadFile = File(...)) -> dict[str, Any]:
+        """Import a user-selected avatar after binary/VRM metadata validation."""
+        safe_name = Path(file.filename or "avatar.vrm").name
+        incoming = avatar_assets.managed_root / ".incoming"
+        incoming.mkdir(parents=True, exist_ok=True)
+        temporary = incoming / f"{uuid4()}-{safe_name}"
+        total = 0
+        try:
+            with temporary.open("wb") as destination:
+                while chunk := await file.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > 512 * 1024 * 1024:
+                        raise AvatarAssetError("Avatar files above 512 MB are not accepted by the local importer.")
+                    destination.write(chunk)
+            return {"asset": avatar_assets.import_asset(safe_name, temporary)}
+        except AvatarAssetError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            await file.close()
+            temporary.unlink(missing_ok=True)
+
+    @app.get("/v1/avatar-assets/{asset_id}/file")
+    async def get_managed_avatar_asset(asset_id: str) -> FileResponse:
+        asset = avatar_assets.resolve_managed(asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Managed avatar asset not found")
+        return FileResponse(asset, media_type="model/gltf-binary", filename=asset.name)
+
+    @app.delete("/v1/avatar-assets/{asset_id}")
+    async def delete_managed_avatar_asset(asset_id: str, confirm: bool = False) -> dict[str, bool]:
+        if not confirm:
+            raise HTTPException(status_code=400, detail="Deletion requires explicit confirm=true")
+        if not avatar_assets.delete_managed(asset_id):
+            raise HTTPException(status_code=404, detail="Managed avatar asset not found")
+        return {"deleted": True}
+
+    @app.get("/v1/vmc/status")
+    async def vmc_status() -> dict[str, Any]:
+        """Return local VMC receiver health without claiming a bound socket is live tracking."""
+        return vmc_bridge.diagnostics()
+
+    @app.post("/v1/vmc/test-signal")
+    async def vmc_test_signal() -> dict[str, Any]:
+        """Explicitly inject one labelled synthetic VMC diagnostic signal.
+
+        This exists for local parser/UI diagnostics only. The bridge marks the
+        source as synthetic, so clients render Test Signal rather than LIVE.
+        """
+        return vmc_bridge.inject_test_signal()
 
     @app.websocket("/ws/vmc")
     async def vmc_websocket(ws: WebSocket) -> None:

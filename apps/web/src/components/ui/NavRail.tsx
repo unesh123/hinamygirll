@@ -46,6 +46,7 @@ export function NavRail({ active, onNavigate, onNewChat, onSettings, expanded = 
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.96 }}
         title="New conversation"
+        aria-label="New conversation"
       >
         <Plus size={16} />
         {expanded && <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>New chat</span>}
@@ -61,6 +62,8 @@ export function NavRail({ active, onNavigate, onNewChat, onSettings, expanded = 
               className={`nav-rail-item${isActive ? ' active' : ''}`}
               style={{ width: expanded ? '100%' : 44, justifyContent: expanded ? 'flex-start' : 'center', gap: 8, paddingLeft: expanded ? 12 : undefined }}
               onClick={() => onNavigate(item.id)}
+              aria-label={item.label}
+              title={item.tooltip}
               onMouseEnter={() => setHovered(item.id)}
               onMouseLeave={() => setHovered(null)}
               whileHover={{ scale: 1.02 }}
@@ -104,6 +107,7 @@ export function NavRail({ active, onNavigate, onNewChat, onSettings, expanded = 
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.96 }}
         title="Settings"
+        aria-label="Settings"
       >
         <Settings size={17} />
         {expanded && <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Settings</span>}
