@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,6 +15,9 @@ from .orm import Base
 
 def make_engine(database_url: str) -> Engine:
     if database_url.startswith("sqlite"):
+        database_path = make_url(database_url).database
+        if database_path and database_path != ":memory:":
+            Path(database_path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         # StaticPool keeps a shared in-memory database across connections/tests.
         engine = create_engine(
             database_url,

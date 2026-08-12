@@ -39,6 +39,25 @@ const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").t
 
 const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize: 12 }}>Loading local workspace…</div>;
 
+const AVATAR_MODEL_STORAGE_KEY = "hinaa.avatar-model";
+const HINAA_AVATAR_MODELS = [
+  { url: "/models/model_6164.vrm", label: "Hinaa" },
+  { url: "/models/model_5447.vrm", label: "Hinaa Classic" },
+] as const;
+const DEFAULT_AVATAR_MODEL = HINAA_AVATAR_MODELS[0].url;
+
+function getPersistedAvatarModel(): string {
+  if (typeof window === "undefined") return DEFAULT_AVATAR_MODEL;
+  try {
+    const stored = window.localStorage.getItem(AVATAR_MODEL_STORAGE_KEY);
+    return stored && HINAA_AVATAR_MODELS.some((model) => model.url === stored)
+      ? stored
+      : DEFAULT_AVATAR_MODEL;
+  } catch {
+    return DEFAULT_AVATAR_MODEL;
+  }
+}
+
 /* NOTE: HinaaCommandCenter removed — it broke the UI on click.
    Use ⌘K in-app menu: HINAA → in-page quick action menu instead. */
 
@@ -96,7 +115,16 @@ export default function App() {
   const [avatarMode, setAvatarMode] = useState<PresenceMode>("portrait");
   // Use the owner-supplied local model as the preferred avatar. The procedural
   // renderer remains the safe fallback if an asset cannot load.
-  const [avatarModel, setAvatarModel] = useState<string | undefined>("/models/model_6164.vrm");
+  const [avatarModel, setAvatarModel] = useState<string>(getPersistedAvatarModel);
+  const selectAvatarModel = (modelUrl: string) => {
+    if (!HINAA_AVATAR_MODELS.some((model) => model.url === modelUrl)) return;
+    setAvatarModel(modelUrl);
+    try {
+      window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
+    } catch {
+      // The renderer still works when browser storage is unavailable.
+    }
+  };
 
   // VSeeFace face tracking
   const faceTrack = useVSeeFace();
@@ -287,15 +315,12 @@ export default function App() {
               {/* Owner-supplied VRM choices. The previous sample B/C models are
                   intentionally excluded because they were not the preferred character. */}
               <div className="vrm-switcher" role="group" aria-label="Switch Hinaa avatar">
-                {([
-                  { url: "/models/model_6164.vrm", label: "Hinaa" },
-                  { url: "/models/model_5447.vrm", label: "Hinaa Classic" },
-                ] as { url: string; label: string }[]).map((m) => (
+                {HINAA_AVATAR_MODELS.map((m) => (
                   <button
                     key={m.url}
                     type="button"
                     className={`vrm-pill${avatarModel === m.url ? " vrm-pill--active" : ""}`}
-                    onClick={() => setAvatarModel(m.url)}
+                    onClick={() => selectAvatarModel(m.url)}
                     title={m.label}
                   >
                     {m.label}

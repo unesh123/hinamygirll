@@ -48,6 +48,23 @@ describe("MockConversationProvider", () => {
 });
 
 
+describe("professional Demo guidance", () => {
+  it("separates a detailed structured RSC explanation from concise plain speech", () => {
+    const plan = buildMockPlan(
+      "Explain React Server Components in detail with architecture, code, limitations, tests, and deployment.",
+      "hinaa",
+    );
+    expect(plan.language).toBe("en-US");
+    expect(plan.displayText).toContain("### Architecture");
+    expect(plan.displayText).toContain("### Limitations and rules");
+    expect(plan.displayText).toContain("```tsx");
+    expect(plan.displayText).toContain("### Deployment");
+    expect(plan.spokenText).not.toContain("#");
+    expect(plan.spokenText.length).toBeLessThan(plan.displayText.length);
+  });
+});
+
+
 describe("localized Demo guidance", () => {
   it("returns native-script Hindi and Nepali guidance with concise spoken summaries", () => {
     const hindi = buildMockPlan("हिना, मुझे ComfyUI setup समझाओ।", "hinaa");

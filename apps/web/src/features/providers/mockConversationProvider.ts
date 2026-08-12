@@ -65,6 +65,47 @@ export function buildMockPlan(
   text: string,
   companionId: ConversationRequest["companionId"],
 ): AssistantTurnPlan {
+  const professional = /react\s+server\s+components?/i.test(text)
+    ? {
+        language: "en-US" as const,
+        displayText: [
+          "## React Server Components (RSC)",
+          "",
+          "React Server Components render on the server and send a compact component payload to the client. They are not a replacement for Client Components: a route is intentionally composed from server-owned data/UI and interactive client boundaries.",
+          "",
+          "### Architecture",
+          "- **Server Components:** fetch server-side data, access private environment values, and stay out of the browser JavaScript bundle.",
+          "- **Client Components:** add interactivity with state, effects, event handlers, and browser APIs; declare the boundary with `use client`.",
+          "- **Transport:** the server streams an RSC payload; the client reconciles it with the route shell and hydrates only Client Components.",
+          "",
+          "### Minimal pattern",
+          "```tsx",
+          "// app/products/page.tsx — Server Component by default",
+          "import AddToCart from './AddToCart';",
+          "export default async function ProductsPage() {",
+          "  const products = await db.product.findMany();",
+          "  return products.map((product) => <AddToCart key={product.id} product={product} />);",
+          "}",
+          "",
+          "// app/products/AddToCart.tsx",
+          "'use client';",
+          "export default function AddToCart({ product }: { product: { id: string } }) {",
+          "  return <button onClick={() => addToCart(product.id)}>Add to cart</button>;",
+          "}",
+          "```",
+          "",
+          "### Limitations and rules",
+          "Server Components cannot use browser APIs, state/effect hooks, or event handlers. Props crossing into a Client Component must be serializable, and server/client imports must respect the boundary. Do not pass secrets or database clients to Client Components.",
+          "",
+          "### Tests",
+          "Unit-test server-side data and rendering with mocked services, test Client Components in a DOM environment, and add an integration test for loading, error, and streamed route states. Verify the production bundle to ensure server-only modules are excluded from client chunks.",
+          "",
+          "### Deployment",
+          "Deploy to a framework/runtime that supports the React Server Components protocol, keep server secrets in the deployment environment, configure caching deliberately, and verify streaming behavior behind the actual CDN or proxy. In a Next.js application, use the App Router and run a production build before release.",
+        ].join("\n"),
+        spokenText: "React Server Components keep data work on the server and hydrate only interactive client boundaries. Test the boundary rules and production streaming before deployment.",
+      }
+    : undefined;
   const localized = /मलाई|बुझाऊ|कसरी/.test(text)
     ? {
         language: "ne-NP" as const,
@@ -84,8 +125,8 @@ export function buildMockPlan(
     "HINAA mock mode: Main aapke sawaal ko samajh rahi hoon, lekin real answer dene ke liye mujhe ek real AI brain ki zaroorat hai. Settings > Provider mein jaake select karo.",
     "Demo mode active hai. Real conversations, web search, image generation aur tools use karne ke liye kripya real provider mode enable karein.",
   ][stableIndex(text) % 3];
-  const displayText = localized?.displayText ?? selected?.text ?? fallback;
-  const spokenText = localized?.spokenText ?? displayText;
+  const displayText = professional?.displayText ?? localized?.displayText ?? selected?.text ?? fallback;
+  const spokenText = professional?.spokenText ?? localized?.spokenText ?? displayText;
   const primary =
     selected?.emotion ?? (companionId === "hinaa" ? "playful" : "happy");
   const gesture =
@@ -95,7 +136,7 @@ export function buildMockPlan(
   return parseAssistantTurnPlan({
     spokenText,
     displayText,
-    language: localized?.language ?? "mixed",
+    language: professional?.language ?? localized?.language ?? "mixed",
     emotion: {
       primary,
       intensity: primary === "concerned" ? 0.48 : 0.62,

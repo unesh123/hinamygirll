@@ -1,9 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
 describe("HINAA assistant workspace", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.removeItem("hinaa.avatar-model");
+  });
 
   it("renders the main stage with brand and status", () => {
     render(<App />);
@@ -29,6 +32,17 @@ describe("HINAA assistant workspace", () => {
   it("has settings trigger accessible", () => {
     render(<App />);
     expect(screen.getByRole("banner")).toBeInTheDocument();
+  });
+
+  it("persists the selected approved avatar model across a remount", () => {
+    const firstMount = render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Hinaa Classic" }));
+    expect(localStorage.getItem("hinaa.avatar-model")).toBe("/models/model_5447.vrm");
+    firstMount.unmount();
+
+    render(<App />);
+    expect(screen.getByRole("button", { name: "Hinaa Classic" })).toHaveClass("vrm-pill--active");
+    expect(screen.getByRole("button", { name: "Hinaa" })).not.toHaveClass("vrm-pill--active");
   });
 
   it("system errors do not appear in the conversation", () => {

@@ -164,7 +164,7 @@ class LocalProject(Base):
     __tablename__ = "local_projects"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), index=True, default="local-user")
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     title: Mapped[str] = mapped_column(String(180))
     description: Mapped[str] = mapped_column(Text(), default="")
     root_path: Mapped[str] = mapped_column(String(500))

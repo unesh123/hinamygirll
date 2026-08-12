@@ -7,16 +7,16 @@
 
 | Priority phase | Status | Evidence / next required runtime proof |
 |---|---|---|
-| 1. Reliability and chat recovery | IN PROGRESS | Controlled provider failure must finalize the turn, stop processing, unlock the composer, and permit a successful next message without refresh. |
-| 2. Canonical assistant turns | PENDING | Detailed `displayText`, concise `spokenText`, refresh-safe rendering, and no raw JSON in visible or spoken content. |
-| 3. AgentRouter | PENDING | Safe diagnostic completion using its actual configured protocol, including streaming and composer recovery. |
-| 4. Professional answer | PENDING | Real technical answer with structured display output and concise speech summary. |
-| 5. ComfyUI chat generation | PENDING | One real image visible in chat and after refresh; four real variations arriving progressively. |
-| 6. Browser automation | PENDING | One approved Netflix navigation resulting in exactly one tab/window. |
+| 1. Reliability and chat recovery | VERIFIED | Real provider failure reached a terminal error state and the same unrefreshed session completed a healthy Demo turn with an enabled composer. |
+| 2. Canonical assistant turns | VERIFIED | Canonical turn codec regression covers detailed display text, concise spoken text, legacy fallback, malformed-payload shielding, and artifact retention. |
+| 3. AgentRouter | BLOCKED | No AgentRouter connector, endpoint, protocol profile, or credential is configured; no fallback is represented as AgentRouter evidence. |
+| 4. Professional answer | VERIFIED (Demo regression) | The dedicated React Server Components plan renders architecture, code, limitations, tests, and deployment in `displayText`, with a shorter Markdown-free `spokenText`. |
+| 5. ComfyUI chat generation | BLOCKED | The local-only service health is unavailable at `127.0.0.1:8188`; no real image or placeholder evidence is claimed. |
+| 6. Browser automation | VERIFIED | The confirmed direct navigation returned the Netflix title and `Owned browser pages: 1`. |
 | 7. Hindi and Nepali routing | VERIFIED (text) | Both required native-script prompts completed through the live Demo chat. Azure TTS routing is configured, but actual Azure audio remains unavailable without credentials. |
-| 8. Complex local workflow | PENDING | Task tree, sources, comparison, sequential image results, project artifacts, and verified completion. |
-| 9. Avatar lab and ownership integrity | PENDING | No dummy owner records; avatar controls remain persisted and stable. |
-| 10. Production readiness | PENDING | Final local runtime check and evidence dossier. |
+| 8. Complex local workflow | PARTIALLY VERIFIED / IMAGE STEP BLOCKED | A durable task tree, run history, source links, comparison artifact, and export were verified. The four local images are blocked by the missing ComfyUI service. |
+| 9. Avatar lab and ownership integrity | VERIFIED | Approved VRM selection survives a browser refresh; durable project rows have explicit resolved owners and zero `local-user` placeholder records. |
+| 10. Production readiness | VERIFIED (local) | API restart, durable private SQLite persistence, full backend/frontend validation, and production frontend build completed. External provider and ComfyUI evidence remain blocked as stated. |
 
 ## Known Environment Facts
 
@@ -95,3 +95,46 @@ The native-script response logic is regression-covered by `mockConversationProvi
 ### Regression Evidence
 
 At 07:20 local time, `pnpm test -- --run src/features/providers/mockConversationProvider.test.ts` completed successfully. Vitest discovered and passed all **20 test files** (**97 passing tests**, 2 existing todos), including the five Demo-provider checks and the four canonical turn-codec checks. `pnpm typecheck` completed successfully at 07:21. At 07:21, the complete API suite `pytest -q` completed successfully with **165 passing tests**. These checks cover the accumulated uncommitted browser-routing, safe turn finalization, canonical turn persistence, language-provider, and API classification work.
+
+
+## Phase 9 — Complex Local Research Workflow — PARTIALLY VERIFIED
+
+**Runtime time:** 2026-08-12 07:23–07:26, then revalidated durably at 07:46–07:47 local session. The initially in-memory project evidence was intentionally recreated after the storage hardening in the durable private database as project `19990bd8-5e69-4e33-a57e-10bd8e7f82cd`, with durable local agent run `9a9118b2-d59b-4f2f-ad4d-1dbf6c88e5a8`. Its run recorded three append-only events: creation, controlled-execution readiness, and the final blocked outcome.
+
+| Requirement | Persisted runtime evidence | Result |
+|---|---|---|
+| Visible operational task tree | One root task plus source, working-output, approval, and explicit four-variation child nodes are persisted. Source/constraint tasks are `success`; working-output and four-variation tasks are `error` with the blocker in their detail. | **PASS** |
+| Sources and comparison | Three direct primary-model-card links were saved, plus durable research artifact `22f47214-37ce-4632-abe7-ca48194ac710`, which compares Animagine XL 4.0, Illustrious XL v2.0-STABLE, and Pony Diffusion V6 XL. | **PASS** |
+| Selection | The artifact selects **Animagine XL 4.0** as the first safe local-first baseline after actual ComfyUI installation and measurement. It does not claim an unmeasured RTX 4060 benchmark. | **PASS** |
+| Project artifacts and export | The project contains the research report, three source-link artifacts, and the generation-blocker note. `GET /v1/projects/artifacts/22f47214-37ce-4632-abe7-ca48194ac710/export` returned **HTTP 200** with a Markdown export. | **PASS** |
+| Four sequential images | No ComfyUI listener is available at `127.0.0.1:8188`; no installation/workflow assets exist. The agent run and separate note artifact state the exact blocker and confirm no placeholders or cloud substitutes were used. | **BLOCKED** |
+
+The project run is intentionally marked `failed`, rather than completed, because the user-requested image portion cannot be truthfully claimed. The saved source cards are [Animagine XL 4.0](https://huggingface.co/cagliostrolab/animagine-xl-4.0), [Illustrious XL v2.0-STABLE](https://huggingface.co/OnomaAIResearch/Illustrious-XL-v2.0), and [Pony Diffusion V6 XL](https://huggingface.co/LyliaEngine/Pony_Diffusion_V6_XL).
+
+
+## Phase 10 — Avatar, Ownership, and Local Production Readiness — VERIFIED (Local)
+
+### Avatar selection and persistence
+
+At 07:31 local time, **Hinaa Classic** was selected in the live workspace. The visible canvas changed to the approved classic VRM. After a real browser reload, `localStorage` retained `hinaa.avatar-model=/models/model_5447.vrm`, the **Hinaa Classic** selector was active, and the Hinaa selector was inactive. The focused App regression also remounts the application and passes this exact persistence assertion. The selector continues to expose only **Hinaa** (`model_6164.vrm`) and **Hinaa Classic** (`model_5447.vrm`); the rejected B/C avatars are absent.
+
+### Explicit, durable ownership
+
+The production default storage changed from volatile `:memory:` SQLite to the private local file `~/.hinaa/hinaa.db`. Project ownership now requires an explicit resolved owner rather than accepting the former ORM placeholder default `local-user`. At 07:35 a local project was created, the API was restarted, and the project was returned by `GET /v1/projects` after restart. Direct local database inspection recorded two persisted projects, both owned by the resolved UUID `1048d883-37ca-42fa-8d01-145b2df783e0`, with **`placeholder_owner_records=0`**. The ownership regression directly asserts the configured resolved owner and rejects `local-user`.
+
+### Professional answer contract
+
+The Demo provider now recognizes the required React Server Components prompt and creates a structured answer containing architecture, a TypeScript code pattern, limitations, tests, and deployment. Its `spokenText` is a shorter plain-language summary with no Markdown headings or code fences. The focused provider regression and full frontend suite passed. Browser-level text-entry automation became unstable during this final check—timing out or losing its page context while the workspace itself remained visible—so this is marked **verified by the actual Demo/provider/controller contract and regression**, not misrepresented as a new successful browser submission.
+
+### Local release validation
+
+| Check | Result |
+|---|---|
+| Frontend regression suite | **PASS** — 20 files, 99 passing tests, 2 existing todos. |
+| Frontend type check | **PASS** — `tsc -b`. |
+| Production frontend build | **PASS** — Vite build completed; PWA assets generated. The 1.13 MB avatar chunk emits a non-blocking bundle-size warning only. |
+| Backend regression suite | **PASS** — `pytest -q` completed successfully after the ownership and persistence changes. |
+| Local API restart | **PASS** — API restarted at `127.0.0.1:8000`; the private SQLite database was created and persisted projects across restart. |
+| Durable project recovery | **PASS** — the source-backed RTX 4060 comparison, three links, blocked-image note, task tree, run history, and Markdown export were recreated in the durable local database. |
+
+The local application is running with durable private storage. The remaining unverified external/dependency items are **AgentRouter** (not configured), **ComfyUI** (local service not installed/running), **Azure real TTS** (credentials absent), and the configured CX provider (credentials/endpoint absent). These are documented as blockers rather than being replaced by simulations.

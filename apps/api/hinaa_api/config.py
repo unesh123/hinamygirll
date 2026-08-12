@@ -8,6 +8,7 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env.local"
+DEFAULT_LOCAL_DATABASE_URL = f"sqlite+pysqlite:///{Path.home() / '.hinaa' / 'hinaa.db'}"
 
 
 class Settings(BaseSettings):
@@ -133,7 +134,7 @@ class Settings(BaseSettings):
     realtime_max_buffer_bytes: int = 320_000
     realtime_idle_timeout_seconds: float = 35.0
     realtime_commit_timeout_seconds: float = 8.0
-    database_url: str = Field("sqlite+pysqlite:///:memory:", alias="HINAA_DATABASE_URL")
+    database_url: str = Field(DEFAULT_LOCAL_DATABASE_URL, alias="HINAA_DATABASE_URL")
     auth_mode: Literal["dev", "oidc"] = Field("dev", alias="HINAA_AUTH_MODE")
     dev_auth_subject: str = Field("local-dev-user", alias="HINAA_DEV_AUTH_SUBJECT")
     oidc_issuer: str | None = Field(None, alias="HINAA_OIDC_ISSUER")

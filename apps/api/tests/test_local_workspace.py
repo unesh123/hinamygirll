@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
+from hinaa_api.persistence.db import get_session_factory
+from hinaa_api.persistence.orm import LocalProject
 
 
 def test_local_comfyui_status_is_actionable(tmp_path) -> None:
@@ -87,6 +89,27 @@ def test_local_project_workspace_round_trip(tmp_path) -> None:
         downloaded = client.get(f"/v1/projects/files/{file_record['id']}")
         assert downloaded.status_code == 200
         assert downloaded.content == b"Hinaa local workspace"
+
+
+def test_local_project_uses_resolved_owner_not_schema_placeholder(tmp_path) -> None:
+    settings = Settings(
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_PERSISTENCE_ENABLED=False,
+        HINAA_DEV_AUTH_SUBJECT="unesh-local",
+        HINAA_LOCAL_WORKSPACE_DIR=tmp_path,
+        _env_file=None,
+    )
+    with TestClient(create_app(settings)) as client:
+        created = client.post("/v1/projects", json={"title": "Owned local workspace"})
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        with get_session_factory(settings)() as session:
+            record = session.get(LocalProject, project_id)
+            assert record is not None
+            assert record.user_id == "unesh-local"
+            assert record.user_id != "local-user"
 
 
 def test_local_agent_run_lifecycle_is_durable_and_explicit(tmp_path) -> None:
