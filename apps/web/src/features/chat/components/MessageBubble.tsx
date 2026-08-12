@@ -9,6 +9,8 @@ import { motion } from "framer-motion";
 import type { TranscriptMessage } from "../../companion/types";
 import styles from "./MessageBubble.module.css";
 import { GenericResultRenderer } from "./GenericResultRenderer";
+import { ToolApprovalPanel } from "./ToolApprovalPanel";
+import type { AssistantTurnPlan } from "../../../contracts/assistantTurnPlan";
 
 interface Props {
   message: TranscriptMessage;
@@ -19,6 +21,11 @@ interface Props {
   isGroupStart?: boolean;
   "aria-label"?: string;
   "data-testid"?: string;
+  onResolveTool?: (
+    messageId: string,
+    request: AssistantTurnPlan["toolRequests"][number],
+    approved: boolean,
+  ) => void | Promise<void>;
 }
 
 /** Simple markdown-to-HTML for inline formatting */
@@ -48,6 +55,7 @@ export const MessageBubble = memo(function MessageBubble({
   isGroupStart = true,
   "aria-label": ariaLabel,
   "data-testid": testId,
+  onResolveTool,
 }: Props) {
   const isUser = message.role === "user";
   const isError =
@@ -127,6 +135,10 @@ export const MessageBubble = memo(function MessageBubble({
               )}
             </div>
           </div>
+        )}
+
+        {message.role === "assistant" && message.plan?.toolRequests?.length && onResolveTool && (
+          <ToolApprovalPanel messageId={message.id} requests={message.plan.toolRequests} activity={message.toolActivity} onResolve={onResolveTool} />
         )}
 
         {/* Render tool results */}

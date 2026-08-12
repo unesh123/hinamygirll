@@ -10,6 +10,7 @@ import { useAutoScroll } from "../hooks/useAutoScroll";
 import type { TranscriptMessage } from "../../companion/types";
 import { MessageBubble } from "./MessageBubble";
 import { WelcomeScene } from "../../../components/ui/WelcomeScene";
+import type { AssistantTurnPlan } from "../../../contracts/assistantTurnPlan";
 
 import styles from "./TranscriptView.module.css";
 
@@ -37,6 +38,11 @@ interface Props {
   companionName: string;
   isThinking: boolean;
   onWelcomeAction?: (action: string) => void;
+  onResolveTool?: (
+    messageId: string,
+    request: AssistantTurnPlan["toolRequests"][number],
+    approved: boolean,
+  ) => void | Promise<void>;
 }
 
 export function TranscriptView({
@@ -46,6 +52,7 @@ export function TranscriptView({
   companionName,
   isThinking,
   onWelcomeAction,
+  onResolveTool,
 }: Props) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([
     messages.length,
@@ -105,6 +112,7 @@ export function TranscriptView({
               isThinking={false}
               aria-label={`${msg.role === "user" ? "You" : companionName}: ${msg.text.slice(0, 60)}`}
               data-testid={`msg-${i}`}
+              onResolveTool={onResolveTool}
             />
           </Fragment>
         );

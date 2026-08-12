@@ -15,9 +15,10 @@ export interface SourceItem {
 interface SourceCardProps {
   source: SourceItem;
   index?: number;
+  onSave?: (source: SourceItem) => void;
 }
 
-export function SourceCard({ source, index = 0 }: SourceCardProps) {
+export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
   return (
     <motion.div
       className="source-card"
@@ -44,12 +45,16 @@ export function SourceCard({ source, index = 0 }: SourceCardProps) {
           <ExternalLink size={11} />
           Open
         </button>
-        <button
-          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.73rem', fontWeight: 600, color: '#94a3b8', background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer' }}
-        >
-          <BookmarkPlus size={11} />
-          Save
-        </button>
+        {onSave && (
+          <button
+            type="button"
+            onClick={() => onSave(source)}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.73rem', fontWeight: 600, color: '#94a3b8', background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer' }}
+          >
+            <BookmarkPlus size={11} />
+            Save
+          </button>
+        )}
       </div>
     </motion.div>
   );

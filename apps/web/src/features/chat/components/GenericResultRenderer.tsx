@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTriangle, Network, Globe } from 'lucide-react';
 import { ImageGeneration } from '@/components/ui/image-generation';
+import { SourceCard, type SourceItem } from '@/components/ui/SourceCard';
 import { WorkTree } from './WorkTree';
 import type { WorkTreeNode } from './WorkTree';
 
@@ -33,6 +34,31 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
           This action remains blocked until you explicitly confirm it through Hinaa’s approved action flow. Nothing has been sent or changed yet.
         </div>
       </div>
+    );
+  }
+
+  if (toolName === 'web_search' && Array.isArray(data.sources)) {
+    const sources: SourceItem[] = data.sources
+      .filter((source: any) => source && typeof source.url === 'string')
+      .map((source: any, index: number) => {
+        let domain = 'Source';
+        try { domain = new URL(source.url).hostname.replace(/^www\./, ''); } catch {}
+        return {
+          id: source.id || `S${index + 1}`,
+          title: source.title || 'Untitled source',
+          url: source.url,
+          snippet: source.snippet || 'No preview was provided.',
+          domain,
+          index,
+        };
+      });
+    return (
+      <section style={{ marginTop: 10, display: 'grid', gap: 8 }} aria-label="Research sources">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#475569', fontSize: 12, fontWeight: 750 }}>
+          <span>Research sources</span><span>{sources.length} attributed result{sources.length === 1 ? '' : 's'}</span>
+        </div>
+        {sources.length ? sources.map((source, index) => <SourceCard key={source.id} source={source} index={index} />) : <div style={{ color: '#64748b', fontSize: 12 }}>No attributable sources were returned for this query.</div>}
+      </section>
     );
   }
 

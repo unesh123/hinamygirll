@@ -54,6 +54,11 @@ export interface CompanionController {
   applyLiveDelta: (delta: string) => void;
   applyLivePlan: (plan: AssistantTurnPlan) => void;
   applyLiveError: (message: string) => void;
+  resolveToolRequest: (
+    messageId: string,
+    request: AssistantTurnPlan["toolRequests"][number],
+    approved: boolean,
+  ) => Promise<void>;
   setLiveState: (state: CompanionState) => void;
 }
 
@@ -218,6 +223,92 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
     [clearTimers, companionId, routing],
   );
 
+  const resolveToolRequest = useCallback(
+    async (
+      messageId: string,
+      request: AssistantTurnPlan["toolRequests"][number],
+      approved: boolean,
+    ) => {
+      const actionId = request.toolName;
+      if (!approved) {
+        setMessages((current) => current.map((message) => message.id === messageId ? {
+          ...message,
+          toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+            ...activity, status: "cancelled", label: `Declined: ${request.toolName}`,
+          } : activity),
+        } : message));
+        return;
+      }
+
+      setMessages((current) => current.map((message) => message.id === messageId ? {
+        ...message,
+        toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+          ...activity, status: "running", label: `Running approved action: ${request.toolName}`,
+        } : activity),
+      } : message));
+
+      try {
+        const response = await fetch("/api/v1/tools/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...request, confirmed: true }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status === "error") {
+          throw new Error(payload.detail || payload.error || `Action failed (${response.status})`);
+        }
+        if (payload.status === "processing" && payload.job_id) {
+          setMessages((current) => current.map((message) => message.id === messageId ? {
+            ...message,
+            toolResults: [...(message.toolResults || []), { toolName: request.toolName, result: payload }],
+            toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+              ...activity, status: "running", label: `Working locally: ${request.toolName}`,
+            } : activity),
+          } : message));
+          void (async () => {
+            for (let attempt = 0; attempt < 180; attempt += 1) {
+              await new Promise((resolve) => window.setTimeout(resolve, 1500));
+              try {
+                const pollResponse = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(payload.job_id)}`);
+                const progress = await pollResponse.json();
+                if (!pollResponse.ok) continue;
+                setMessages((current) => current.map((message) => message.id === messageId ? {
+                  ...message,
+                  toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: progress }],
+                  toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+                    ...activity,
+                    status: progress.status === "success" ? "complete" : progress.status === "error" ? "error" : "running",
+                    label: progress.status === "success" ? `Completed: ${request.toolName}` : progress.status === "error" ? `Failed: ${request.toolName}` : `Working locally: ${request.toolName}`,
+                  } : activity),
+                } : message));
+                if (progress.status === "success" || progress.status === "error") return;
+              } catch {
+                // Keep the last known progress visible; the next poll may recover.
+              }
+            }
+          })();
+          return;
+        }
+        setMessages((current) => current.map((message) => message.id === messageId ? {
+          ...message,
+          toolResults: [...(message.toolResults || []), { toolName: request.toolName, result: payload.data ?? payload }],
+          toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+            ...activity, status: "complete", label: `Completed: ${request.toolName}`,
+          } : activity),
+        } : message));
+      } catch (error) {
+        const label = error instanceof Error ? error.message : "Approved action failed";
+        setMessages((current) => current.map((message) => message.id === messageId ? {
+          ...message,
+          toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+            ...activity, status: "error", label: `Failed: ${label}`,
+          } : activity),
+        } : message));
+      }
+    },
+    [],
+  );
+
   const startMockListening = useCallback(() => {
     clearTimers();
     currentAbort.current?.abort();
@@ -341,6 +432,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
     applyLiveDelta,
     applyLivePlan,
     applyLiveError,
+    resolveToolRequest,
     setLiveState: setState,
   };
 }
