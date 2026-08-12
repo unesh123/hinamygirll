@@ -138,3 +138,39 @@ The Demo provider now recognizes the required React Server Components prompt and
 | Durable project recovery | **PASS** — the source-backed RTX 4060 comparison, three links, blocked-image note, task tree, run history, and Markdown export were recreated in the durable local database. |
 
 The local application is running with durable private storage. The remaining unverified external/dependency items are **AgentRouter** (not configured), **ComfyUI** (local service not installed/running), **Azure real TTS** (credentials absent), and the configured CX provider (credentials/endpoint absent). These are documented as blockers rather than being replaced by simulations.
+
+
+## Phase 11 — Voice Reply Reliability and Provider UX — VERIFIED (Local Fallback)
+
+### Root cause and repair
+
+The missing spoken reply was reproducible in the configured **Demo/Mock** path: `App.tsx` intentionally returned before requesting any speech whenever the active mode was `mock`. The backend mock endpoint could emit a WAV test cue, but that cue is deliberately **not intelligible speech**. A second quality defect forced `language_code: "hi"` into every ElevenLabs request, which harms English and Nepali turns and is unsupported by the configured `eleven_multilingual_v2` model family. The local runtime also reported ElevenLabs as unavailable because `ELEVENLABS_API_KEY` is not configured.
+
+The repair replaces the silent Mock-mode exit with the browser’s local speech engine, derives viseme timing from the concise `spokenText`, preserves replay/mute behavior, and falls back automatically whenever a server returns a mock/placeholder audio provider or a cloud voice request fails. The same intelligible fallback now protects the realtime microphone conversation path; it waits for the final placeholder segment and speaks the complete response once rather than playing tone-like audio cues phrase by phrase. ElevenLabs multilingual v2 requests now omit the unsupported language constraint; non-v2 models receive only a text-aware `en`, `hi`, or `ne` hint. ElevenLabs documents that `language_code` is not supported by multilingual v2 and that language selection should match the voice/model capability.[1]
+
+| Runtime requirement | Evidence | Result |
+|---|---|---|
+| Completed Demo turn produces speech | At 08:45 local time, the live workspace accepted “Can you reply by voice now?”, completed the Demo response, transitioned the header to **Speaking**, and displayed **Speaking with local browser voice**. | **PASS** |
+| Voice route is visible | The composer reported that Demo mode uses the device voice until cloud or local TTS is configured; mute was visible and the next completed reply exposes replay. | **PASS** |
+| Settings explain cloud-voice state safely | At 08:48, Settings showed **Device voice fallback** and named only the required backend variable names (`ELEVENLABS_API_KEY`, `ELEVENLABS_HINAA_VOICE_ID`), without displaying any secret. Diagnostics simultaneously listed ElevenLabs as unavailable. | **PASS** |
+| Mock synthesis contract | `POST /v1/speech/synthesis` with `providerMode: mock` returned HTTP 200, `X-HINAA-Provider: mock-tts-v1`, and a valid PCM WAV. The client correctly bypasses this non-intelligible cue in favor of the browser’s actual speech engine. | **PASS** |
+| ElevenLabs cloud quality | The current local provider health reports `ELEVENLABS_API_KEY is not configured in backend`; a real ElevenLabs synthesis cannot be honestly executed or heard in this environment. | **BLOCKED — credential required** |
+| Azure Hindi/Nepali cloud voice | Azure remains disabled because no Azure subscription credentials are configured. | **BLOCKED — credential required** |
+
+### Voice UI completion
+
+The composer now has an accessible mute/unmute control, a replay control after a spoken reply, and a concise colored route indicator for cloud, browser fallback, or unavailable speech. Provider Settings additionally make the device-voice fallback explicit and provide secure setup guidance. The browser reply path remains user-gesture initiated, which allows the browser audio context and system speech engine to start without an autoplay prompt.
+
+### Final validation for this checkpoint
+
+| Check | Result |
+|---|---|
+| Frontend regression suite | **PASS** — 21 files, 101 passing tests, 2 existing todos. |
+| Browser speech fallback regression | **PASS** — verifies a device utterance starts, marks playback/speaking state, generates viseme events, and ends cleanly. |
+| Frontend type check and production build | **PASS** — `tsc -b` and Vite/PWA build completed. The existing large-avatar chunk warning remains non-blocking. |
+| Backend regression suite | **PASS** — `pytest -q` completed successfully, including ElevenLabs request-language coverage. |
+| API runtime | **PASS** — API restarted locally on `127.0.0.1:8000`; Mock synthesis endpoint and provider health verified. |
+
+The repository-resolvable voice defect is fixed. The remaining path to a **real ElevenLabs Hinaa voice** is strictly configuration-dependent: put a valid key and a voice ID that the account can use into the **local backend environment**, restart the API, and select a non-Demo brain/provider. No credential or voice identity was invented, exposed, or simulated.
+
+[1]: https://elevenlabs.io/docs/api-reference/text-to-speech/convert "ElevenLabs Create Speech API reference"

@@ -14,6 +14,8 @@ export interface PlaybackController {
   /** AudioContext time when current audio started (for playback clock sync) */
   audioStartTimeRef: React.MutableRefObject<number>;
   play: (blob: Blob, spokenText?: string, onStarted?: () => void) => Promise<void>;
+  /** Speak through the browser's local speech engine when no intelligible TTS provider is available. */
+  speakBrowser: (spokenText: string, language?: string) => Promise<boolean>;
   replay: () => Promise<void>;
   stop: () => void;
   toggleMute: () => void;
@@ -43,6 +45,8 @@ export function useAudioPlayback(): PlaybackController {
   const frameRef = useRef<number | undefined>(undefined);
   const mutedRef = useRef(false);
   const playingRef = useRef(false);
+  const browserSpeechActiveRef = useRef(false);
+  const lastBrowserSpeechRef = useRef<{ text: string; language: string } | null>(null);
 
   const ensureGraph = useCallback(() => {
     if (contextRef.current) return contextRef.current;
@@ -64,7 +68,7 @@ export function useAudioPlayback(): PlaybackController {
   }, []);
 
   const syncPlaying = useCallback(() => {
-    const next = sourcesRef.current.size > 0;
+    const next = sourcesRef.current.size > 0 || browserSpeechActiveRef.current;
     if (next === playingRef.current) return;
     playingRef.current = next;
     if (!next) {
@@ -81,6 +85,14 @@ export function useAudioPlayback(): PlaybackController {
 
   const stop = useCallback(() => {
     sessionRef.current += 1;
+    browserSpeechActiveRef.current = false;
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Browser speech is optional; stopping decoded audio must still work.
+      }
+    }
     for (const source of sourcesRef.current) {
       try {
         source.onended = null;
@@ -197,9 +209,84 @@ export function useAudioPlayback(): PlaybackController {
     [ensureGraph, syncPlaying],
   );
 
+  const speakBrowser = useCallback(
+    async (spokenText: string, language = "en-US"): Promise<boolean> => {
+      const text = spokenText.trim();
+      if (
+        !text ||
+        mutedRef.current ||
+        typeof window === "undefined" ||
+        !("speechSynthesis" in window) ||
+        typeof SpeechSynthesisUtterance === "undefined"
+      ) {
+        return false;
+      }
+
+      const engine = window.speechSynthesis;
+      if (!engine) return false;
+      stop();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      const normalizedLanguage = language === "mixed" ? "hi-IN" : language;
+      utterance.lang = normalizedLanguage;
+      utterance.rate = 0.93;
+      utterance.pitch = 1.04;
+      utterance.volume = 1;
+
+      const matchingVoice = engine
+        .getVoices()
+        .find((voice) => voice.lang.toLowerCase().startsWith(normalizedLanguage.slice(0, 2).toLowerCase()));
+      if (matchingVoice) utterance.voice = matchingVoice;
+
+      let context: AudioContext | null = null;
+      try {
+        context = ensureGraph();
+        if (context.state === "suspended") await context.resume();
+      } catch {
+        // Browser speech remains usable without an AudioContext; the avatar uses
+        // the text-derived viseme timeline below.
+      }
+
+      const estimatedDurationMs = Math.min(
+        22_000,
+        Math.max(700, text.trim().split(/\s+/).length * 310),
+      );
+      lastBrowserSpeechRef.current = { text, language: normalizedLanguage };
+      browserSpeechActiveRef.current = true;
+      visemeEvents.current = textToVisemeEvents(text, estimatedDurationMs);
+      audioStartTimeRef.current = context?.currentTime ?? 0;
+      syncPlaying();
+
+      const finish = () => {
+        browserSpeechActiveRef.current = false;
+        syncPlaying();
+      };
+      utterance.onend = finish;
+      utterance.onerror = finish;
+
+      try {
+        engine.speak(utterance);
+        return true;
+      } catch {
+        finish();
+        return false;
+      }
+    },
+    [ensureGraph, stop, syncPlaying],
+  );
+
   const replay = useCallback(async () => {
-    if (lastBlobRef.current) await play(lastBlobRef.current, lastTextRef.current);
-  }, [play]);
+    if (lastBlobRef.current) {
+      await play(lastBlobRef.current, lastTextRef.current);
+      return;
+    }
+    if (lastBrowserSpeechRef.current) {
+      await speakBrowser(
+        lastBrowserSpeechRef.current.text,
+        lastBrowserSpeechRef.current.language,
+      );
+    }
+  }, [play, speakBrowser]);
 
   const toggleMute = useCallback(() => {
     mutedRef.current = !mutedRef.current;
@@ -222,6 +309,14 @@ export function useAudioPlayback(): PlaybackController {
         window.cancelAnimationFrame(frameRef.current);
       if (contextRef.current?.state !== "closed")
         void contextRef.current?.close();
+      browserSpeechActiveRef.current = false;
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          // Browser speech is optional during teardown.
+        }
+      }
       contextRef.current = null;
       masterRef.current = null;
       analyserRef.current = null;
@@ -238,6 +333,7 @@ export function useAudioPlayback(): PlaybackController {
     visemeEvents,
     audioStartTimeRef,
     play,
+    speakBrowser,
     replay,
     stop,
     toggleMute,

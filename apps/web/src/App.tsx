@@ -76,6 +76,12 @@ const stateLabels: Record<CompanionState, string> = {
   speaking: "Speaking", interrupted: "Interrupted", error: "Connection Issue",
 };
 
+type VoiceReplyState = {
+  kind: "idle" | "cloud" | "browser" | "unavailable";
+  label: string;
+  detail?: string;
+};
+
 function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (id: CompanionId) => void }) {
   return (
     <div className="companion-switch" role="group" aria-label="Choose companion">
@@ -104,6 +110,10 @@ export default function App() {
   const [input, setInput] = useState("");
   const [searching, setSearching] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [voiceReply, setVoiceReply] = useState<VoiceReplyState>({
+    kind: "idle",
+    label: "Voice ready",
+  });
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [sidebarExpanded, setSidebarExpanded] = useState<NavSection | null>(null);
@@ -172,22 +182,56 @@ export default function App() {
     setAttachedImage(null);
     void (async () => {
       const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
-      const spoken = result?.plan?.spokenText ?? result?.plan?.displayText;
+      const plan = result?.plan;
+      const spoken = plan?.spokenText ?? plan?.displayText;
       if (!spoken) return;
-      // Mock conversations remain text-only. HINAA never silently switches to a
-      // paid voice provider when the user has not selected one.
+
+      const speakWithBrowserFallback = async (detail: string) => {
+        const started = await playback.speakBrowser(spoken, plan?.language);
+        setVoiceReply(
+          started
+            ? { kind: "browser", label: "Speaking with local browser voice", detail }
+            : {
+                kind: "unavailable",
+                label: "Voice could not start",
+                detail: "Enable a browser voice or configure ElevenLabs in Settings.",
+              },
+        );
+      };
+
       const ttsMode = controller.routing.activeMode;
-      if (!ttsMode || ttsMode === "mock") return;
+      if (!ttsMode || ttsMode === "mock") {
+        await speakWithBrowserFallback(
+          "Demo mode uses your device voice until a cloud or local TTS engine is configured.",
+        );
+        return;
+      }
+
       try {
-        const s = await synthesizeSpeech(
+        const speech = await synthesizeSpeech(
           spoken,
           controller.companionId,
           ttsMode,
           new AbortController().signal,
         );
-        await playback.play(s.blob, spoken);
-      } catch {
-        // Keep the completed text response visible when voice is unavailable.
+        if (/placeholder|mock/i.test(speech.provider)) {
+          await speakWithBrowserFallback(
+            "The selected mode has no intelligible server voice yet, so Hinaa is using your device voice.",
+          );
+          return;
+        }
+        await playback.play(speech.blob, spoken);
+        setVoiceReply({
+          kind: "cloud",
+          label: `Speaking with ${speech.provider}`,
+          detail: speech.latencyMs > 0 ? `${speech.latencyMs} ms synthesis` : undefined,
+        });
+      } catch (error) {
+        await speakWithBrowserFallback(
+          error instanceof Error
+            ? `${error.message} Using the device voice instead.`
+            : "Cloud voice is unavailable, so Hinaa is using the device voice instead.",
+        );
       }
     })();
   }, [input, live.active, controller, playback, attachedImage]);
@@ -427,7 +471,12 @@ export default function App() {
                   imagePreview={attachedImage}
                   isVoiceActive={live.active}
                   isGenerating={controller.state === "thinking"} disabled={controller.state !== "idle" && controller.state !== "thinking"}
-                  companionName={companionProfiles[controller.companionId].name} />
+                  companionName={companionProfiles[controller.companionId].name}
+                  voiceFeedback={voiceReply}
+                  hasReplay={playback.hasReplay}
+                  muted={playback.muted}
+                  onReplay={() => void playback.replay()}
+                  onToggleMute={playback.toggleMute} />
               </div>
             </main>
           </div>

@@ -10,7 +10,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Send, Mic, MicOff, X } from "lucide-react";
+import { Plus, Send, Mic, MicOff, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
 import { SmartSuggestions, type Suggestion } from "./SmartSuggestions";
 import { PowerUpMentions, type PowerUp } from "./PowerUpMentions";
 
@@ -28,6 +28,15 @@ interface PremiumComposerProps {
   disabled?: boolean;
   companionName?: string;
   placeholder?: string;
+  voiceFeedback?: {
+    kind: "idle" | "cloud" | "browser" | "unavailable";
+    label: string;
+    detail?: string;
+  };
+  hasReplay?: boolean;
+  muted?: boolean;
+  onReplay?: () => void;
+  onToggleMute?: () => void;
 }
 
 export function PremiumComposer({
@@ -44,6 +53,11 @@ export function PremiumComposer({
   disabled = false,
   companionName = "HINAA",
   placeholder,
+  voiceFeedback,
+  hasReplay = false,
+  muted = false,
+  onReplay,
+  onToggleMute,
 }: PremiumComposerProps) {
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -186,6 +200,20 @@ export function PremiumComposer({
           aria-label={`Message ${companionName}`}
         />
 
+        {voiceFeedback && voiceFeedback.kind !== "idle" && (
+          <div
+            className={`composer-voice-feedback composer-voice-feedback--${voiceFeedback.kind}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="composer-voice-feedback-dot" aria-hidden="true" />
+            <span>
+              <strong>{voiceFeedback.label}</strong>
+              {voiceFeedback.detail ? <small>{voiceFeedback.detail}</small> : null}
+            </span>
+          </div>
+        )}
+
         {/* Toolbar */}
         <div className="composer-toolbar">
           <div className="composer-tools-left">
@@ -211,6 +239,33 @@ export function PremiumComposer({
           </div>
 
           <div className="composer-tools-right">
+            {hasReplay && onReplay ? (
+              <motion.button
+                type="button"
+                className="composer-voice-btn"
+                onClick={onReplay}
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.94 }}
+                title="Replay Hinaa's last spoken reply"
+                aria-label="Replay Hinaa voice reply"
+              >
+                <RotateCcw size={15} />
+              </motion.button>
+            ) : null}
+            {onToggleMute ? (
+              <motion.button
+                type="button"
+                className={`composer-voice-btn ${muted ? "muted" : ""}`}
+                onClick={onToggleMute}
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.94 }}
+                title={muted ? "Unmute Hinaa voice" : "Mute Hinaa voice"}
+                aria-label={muted ? "Unmute Hinaa voice" : "Mute Hinaa voice"}
+                aria-pressed={muted}
+              >
+                {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              </motion.button>
+            ) : null}
             {/* Voice mic */}
             <motion.button
               type="button"

@@ -32,6 +32,7 @@ interface LiveEvent {
   plan?: unknown;
   audioBase64?: string;
   mediaType?: string;
+  provider?: string;
   code?: string;
   message?: string;
   requestedVoice?: string;
@@ -61,6 +62,12 @@ function websocketUrl(): string {
   // listens on 127.0.0.1) and HTTPS dev (wss:// to a plain-HTTP backend).
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/api/v1/realtime`;
+}
+
+function browserLanguageForText(text: string): string {
+  if (!/[\u0900-\u097F]/.test(text)) return "en-US";
+  if (/(?:मलाई|तपाईं|हुनुहोस्|गर्नुहोस्|छु|छौ)/.test(text)) return "ne-NP";
+  return "hi-IN";
 }
 
 function decodeAudio(value: string, mediaType = "audio/wav"): Blob {
@@ -323,18 +330,52 @@ export function useLiveConversation({
         );
       }
     } else if (event.type === "tts.audio" && event.audioBase64) {
+      const encodedAudio = event.audioBase64;
       const eventGeneration = event.generation;
       latency.current.mark("tts_request_started");
       latency.current.mark("first_audio_chunk");
-      setVoiceMetadata(
-        `${event.requestedVoice ?? "voice unknown"} → ${event.actualVoice ?? "not confirmed"} · ${event.calibration ?? "natural"}`,
+      const isPlaceholder = /(?:placeholder|mock)/i.test(
+        `${event.provider ?? ""} ${event.actualVoice ?? ""}`,
       );
-      const blob = decodeAudio(event.audioBase64, event.mediaType);
+      const isLastPlaceholderSegment =
+        !isPlaceholder || (event.segment ?? 0) === Math.max(0, (event.segments ?? 1) - 1);
+      if (isPlaceholder && !isLastPlaceholderSegment) return;
+
       playbackQueue.current = playbackQueue.current.then(async () => {
         if (eventGeneration !== generation.current) return;
         current.controller.setLiveState("speaking");
         turnTaking.current.setSessionState("speaking");
-        await current.playback.play(blob, lastSpokenTextRef.current || undefined, () => {
+        const spokenText = lastSpokenTextRef.current.trim();
+
+        if (isPlaceholder && spokenText) {
+          setVoiceMetadata("Device browser voice fallback · local speech output");
+          const started = await current.playback.speakBrowser(
+            spokenText,
+            browserLanguageForText(spokenText),
+          );
+          if (started) {
+            latency.current.mark("playback_started");
+            if (
+              audibleGeneration.current !== generation.current &&
+              speechEndedAt.current !== undefined
+            ) {
+              audibleGeneration.current = generation.current;
+              setMetrics((value) => ({
+                ...value,
+                firstAudibleAfterSpeechMs: Math.round(
+                  performance.now() - speechEndedAt.current!,
+                ),
+              }));
+            }
+          }
+          return;
+        }
+
+        setVoiceMetadata(
+          `${event.requestedVoice ?? "voice unknown"} → ${event.actualVoice ?? "not confirmed"} · ${event.calibration ?? "natural"}`,
+        );
+        const blob = decodeAudio(encodedAudio, event.mediaType);
+        await current.playback.play(blob, spokenText || undefined, () => {
           latency.current.mark("playback_started");
           if (
             audibleGeneration.current !== generation.current &&

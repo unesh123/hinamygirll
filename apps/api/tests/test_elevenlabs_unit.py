@@ -16,7 +16,14 @@ from hinaa_api.providers.elevenlabs import (
     ElevenLabsAlignmentSource,
     VisemeApproximationAdapter,
     ALLOWED_SEMANTIC_MODES,
+    language_code_for_text,
 )
+
+def test_language_hint_is_text_aware_without_forcing_hindi() -> None:
+    assert language_code_for_text("Explain the deployment plan clearly.") == "en"
+    assert language_code_for_text("हिना, मुझे setup समझाओ।") == "hi"
+    assert language_code_for_text("हिना, मलाई ComfyUI को setup बुझाऊ।") == "ne"
+
 
 def test_stt_transcript_filtering():
     stt = ElevenLabsSTTProvider(ElevenLabsConfig())

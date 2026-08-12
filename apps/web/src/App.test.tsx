@@ -34,6 +34,11 @@ describe("HINAA assistant workspace", () => {
     expect(screen.getByRole("banner")).toBeInTheDocument();
   });
 
+  it("keeps the local voice control accessible in the composer", () => {
+    render(<App />);
+    expect(screen.getByRole("button", { name: "Mute Hinaa voice" })).toBeInTheDocument();
+  });
+
   it("persists the selected approved avatar model across a remount", () => {
     const firstMount = render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Hinaa Classic" }));

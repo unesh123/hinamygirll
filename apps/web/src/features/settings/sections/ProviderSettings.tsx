@@ -57,6 +57,8 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
 
 export function ProviderSettings({ provider, providers, onChange, activeMode }: Props) {
   const { providerOptions, getModelOptions, loaded } = providers;
+  const elevenLabs = providers.statuses.find((status) => status.id === "elevenlabs");
+  const cloudVoiceReady = elevenLabs?.state === "healthy" || elevenLabs?.state === "degraded";
 
   // Build mode select options
   const modeOptions = [
@@ -126,6 +128,19 @@ export function ProviderSettings({ provider, providers, onChange, activeMode }: 
           disabled={!loaded}
           aria-label="AI provider"
         />
+      </SettingsRow>
+
+      <SettingsRow
+        label="Voice replies"
+        description={
+          cloudVoiceReady
+            ? "ElevenLabs is available for Hinaa’s cloud voice."
+            : "Hinaa speaks through your device voice when cloud voice is unavailable. Add ELEVENLABS_API_KEY and ELEVENLABS_HINAA_VOICE_ID only in the local backend environment to enable the cloud voice."
+        }
+      >
+        <span className={styles.activeLabel} aria-live="polite">
+          {cloudVoiceReady ? "ElevenLabs voice ready" : "Device voice fallback"}
+        </span>
       </SettingsRow>
 
       {/* Health status row */}

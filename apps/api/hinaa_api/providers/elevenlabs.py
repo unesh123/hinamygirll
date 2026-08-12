@@ -19,6 +19,7 @@ Status NOT marked available merely because key is present.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import AsyncIterator
@@ -28,6 +29,21 @@ import httpx
 from .base import ProviderResult, TTSProvider
 
 logger = logging.getLogger("hinaa.elevenlabs")
+
+
+def language_code_for_text(text: str) -> str:
+    """Best-effort ISO 639-1 hint for models that accept language enforcement.
+
+    Multilingual v2 performs its own language handling and rejects this field,
+    so the hint is intentionally omitted for that model family below. Nepali
+    and Hindi share Devanagari; common Nepali grammar markers keep the optional
+    hint from incorrectly forcing Hindi on a clearly Nepali turn.
+    """
+    if not re.search(r"[\u0900-\u097F]", text):
+        return "en"
+    if re.search(r"(?:मलाई|तपाईं|हुनुहोस्|गर्नुहोस्|छु|छौ|को\s+setup)", text):
+        return "ne"
+    return "hi"
 
 
 class ElevenLabsStatus(str, Enum):
@@ -217,7 +233,6 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
             "text": text,
             "model_id": self._config.model_id,
             "output_format": self._config.output_format,
-            "language_code": "hi",
             "voice_settings": {
                 "stability": delivery["stability"],
                 "similarity_boost": delivery["similarity"],
@@ -226,6 +241,12 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
                 "speed": 0.9,
             },
         }
+        # ElevenLabs documents language_code as unsupported for multilingual v2.
+        # Do not force all Hinaa turns into Hindi: it harms English/Nepali turns
+        # and can cause the field to be ignored. Other models receive a bounded
+        # language hint derived from the actual spoken text.
+        if "multilingual_v2" not in self._config.model_id:
+            payload["language_code"] = language_code_for_text(text)
         try:
             async with httpx.AsyncClient(timeout=self._config.request_timeout_s) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
