@@ -45,3 +45,27 @@ No private environment file, provider key, generated image, SQLite runtime datab
 | Cloud ElevenLabs/CX/AgentRouter paths | **BLOCKED** — no valid local credentials/configuration were supplied; browser speech fallback remains the active verified local route. |
 
 > The completion checkpoint improves behavior that is fully resolvable inside the repository and preserves strict evidence boundaries for dependencies that are unavailable in the current local environment.
+
+
+## Final Local-Agent Product Polish — 2026-08-13
+
+This isolated pass improves the shipped local-first experience without replacing HINAA’s existing architecture or claiming unavailable services are ready.
+
+| Area | Improvement | Result |
+|---|---|---|
+| Sidebar integrity | Replaced fabricated chat histories, fake task/file rows, and guessed connected-tool labels with short truthful local-action panels. Every displayed shortcut opens an existing HINAA capability or prepares a concrete prompt. | **IMPLEMENTED / REGRESSION_TESTED** |
+| High-agency workflow | Chat, Voice, Memory, Projects, Tools, and Settings panels now expose direct, explained actions rather than static decoration. External/browser/email behavior remains explicitly consent-gated. | **IMPLEMENTED** |
+| Context clarity | Research, image, music, email, and browser workspaces now provide mode-specific empty/degraded copy; the generic image placeholder no longer appears in unrelated states. | **IMPLEMENTED / REGRESSION_TESTED** |
+| Accessibility and polish | Shortcut controls have semantic headings, labelled close controls, keyboard focus styling, responsive panel sizing, and respect the existing motion-reduction system. | **IMPLEMENTED** |
+| Existing avatar/voice contract | The active single-canvas avatar, browser voice fallback, per-model presentation, VMC truthfulness, and local asset policy remain unchanged and regression-preserved. | **PRESERVED** |
+
+### Final release gates
+
+| Gate | Result |
+|---|---|
+| Frontend regression suite | **PASS** — 27 test files, 116 passing tests, 2 existing todos. |
+| Frontend type check | **PASS** — `tsc -b`. |
+| Production build | **PASS** — Vite/PWA build. The pre-existing large-avatar bundle warning remains non-blocking. |
+| Backend regression suite | **PASS** — `pytest -q`. |
+
+No VRM binary, ComfyUI model/workflow, secret, browser profile, private database, generated media, or `main` branch was modified. Real local ComfyUI output, configured cloud/provider services, and a real Windows VSeeFace camera stream remain separate runtime dependencies and are not represented as passed.

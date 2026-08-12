@@ -504,7 +504,17 @@ export default function App() {
           {navSection === "tasks" || navSection === "files" ? (
             <Suspense fallback={lazyPanelFallback}><LocalProjectWorkspace active /></Suspense>
           ) : (
-            <SidebarPanel section={sidebarExpanded} onClose={() => setSidebarExpanded(null)} />
+            <SidebarPanel
+              section={sidebarExpanded}
+              onClose={() => setSidebarExpanded(null)}
+              onNewChat={() => { controller.resetConversation(); setSidebarExpanded(null); }}
+              onStartVoice={() => { setSidebarExpanded(null); interruptPlayback(); live.start(); }}
+              onOpenMemory={() => { setSidebarExpanded(null); setMemoryOpen(true); }}
+              onOpenImageStudio={() => { setSidebarExpanded(null); openImageStudio(); }}
+              onOpenProjects={() => { setSidebarExpanded(null); setNavSection("tasks"); }}
+              onOpenSettings={() => { setSidebarExpanded(null); setSettingsOpen(true); }}
+              onQuickPrompt={(prompt) => { setSidebarExpanded(null); setInput(prompt); }}
+            />
           )}
 
           {/* Center: Avatar LEFT, Chat RIGHT */}

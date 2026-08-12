@@ -304,3 +304,17 @@ The actual Windows VSeeFace sender/model/camera verification remains separate an
 | Frontend release gates | **PASS** — 25 test files, 113 passing tests, 2 existing todos; `tsc -b` and Vite/PWA production build passed. |
 
 Real visual acceptance for the user’s specific Windows VRM still needs the actual running frontend after this branch is applied. My Browser can navigate to the local HINAA page but its interaction extension returned HTTP 504 on click/view commands; that is recorded as an automation limitation rather than a pose or tracking claim.
+
+
+## Phase 17 — Final Local-Agent Product Polish
+
+| Area | Result |
+|---|---|
+| Sidebar experience | **PASS** — fabricated conversation/task/file rows and guessed tool readiness were removed. The panel now presents concise real actions for conversation, voice, memory, local projects, research, image creation, diagnostics, and settings. |
+| Agent control clarity | **PASS** — shortcuts either open the existing local feature or prepare a concrete prompt; browser/email/music external actions are described as explicit/approval-dependent rather than implied as active. |
+| Context workspace | **PASS** — research, images, music, email, and browser now display mode-specific empty/degraded guidance. Generic “Images appear inline” copy is no longer reused across unrelated contexts. |
+| Accessibility/responsiveness | **PASS** — shortcut surfaces include semantic headings, labels, keyboard focus visibility, responsive sizing, and retain the existing global reduced-motion policy. |
+| Frontend release gates | **PASS** — 27 test files, 116 passing tests, 2 existing todos; TypeScript and Vite/PWA production build passed. |
+| Backend regression | **PASS** — complete `pytest -q` suite passed. |
+
+This final source-level polish does not change the strict runtime boundaries: ComfyUI needs its real local listener, cloud/provider capabilities need their valid configured credentials, and user-model/VSeeFace camera behavior needs the real Windows runtime and sender. No unavailable capability has been simulated or marked verified.

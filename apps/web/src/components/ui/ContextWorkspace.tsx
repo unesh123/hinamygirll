@@ -32,6 +32,14 @@ const MODE_ICONS: Record<ContextMode, LucideIcon | null> = {
   browser: Globe,
 };
 
+const MODE_EMPTY_STATES: Record<Exclude<ContextMode, 'hidden'>, string> = {
+  research: 'Ask HINAA to research a question. Attributed sources will appear here while the local workflow is active.',
+  images: 'Open Image Studio to create locally. Finished images remain in the conversation and local generation history.',
+  music: 'Music needs an explicit external request. HINAA will ask before opening or controlling a music service.',
+  email: 'Email stays inactive until you configure a provider and explicitly approve an external action.',
+  browser: 'Ask HINAA to open or research a link. Browser actions are proposed clearly before they run.',
+};
+
 export function ContextWorkspace({ mode, onClose, sources = [], isSearching = false, title }: ContextWorkspaceProps) {
   const isOpen = mode !== 'hidden';
   const ModeIcon = mode !== 'hidden' ? MODE_ICONS[mode] : null;
@@ -57,6 +65,8 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
                 <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1a1f2e' }}>{title ?? MODE_LABELS[mode]}</span>
               </div>
               <button
+                type="button"
+                aria-label={`Close ${MODE_LABELS[mode]} workspace`}
                 onClick={onClose}
                 style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}
               >
@@ -84,7 +94,7 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
             {!isSearching && sources.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', fontSize: '0.82rem' }}>
                 {ModeIcon && <ModeIcon size={32} style={{ marginBottom: 12, opacity: 0.4 }} />}
-                <div>Images appear inline in the chat</div>
+                <div>{MODE_EMPTY_STATES[mode as Exclude<ContextMode, 'hidden'>]}</div>
               </div>
             )}
           </motion.div>

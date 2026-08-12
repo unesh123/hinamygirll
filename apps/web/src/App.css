@@ -1987,3 +1987,39 @@ body {
   .avatar-lab__range-label { grid-template-columns:1fr auto; }
   .avatar-lab__range-label input { grid-column:1 / -1; grid-row:2; }
 }
+
+/* ─── Truthful local shortcut panel ───────────────────────────────────── */
+.hinaa-shortcuts-panel {
+  position:absolute;
+  top:0;
+  bottom:0;
+  left:60px;
+  z-index:30;
+  display:flex;
+  width:min(320px, calc(100vw - 60px));
+  flex-direction:column;
+  overflow:hidden;
+  border-right:1px solid rgba(255,255,255,.88);
+  background:linear-gradient(160deg, rgba(251,255,254,.96), rgba(240,250,249,.94));
+  box-shadow:8px 0 34px rgba(27, 102, 91, .12);
+  backdrop-filter:blur(26px);
+  -webkit-backdrop-filter:blur(26px);
+}
+.hinaa-shortcuts-panel__header { display:flex; align-items:center; justify-content:space-between; min-height:54px; padding:0 15px 0 18px; border-bottom:1px solid rgba(40,116,101,.10); color:#214b43; font-family:var(--font-display); font-size:.9rem; font-weight:800; }
+.hinaa-shortcuts-panel__header button { display:grid; width:30px; height:30px; place-items:center; cursor:pointer; border:1px solid rgba(40,116,101,.14); border-radius:8px; color:#3a6a60; background:rgba(255,255,255,.68); }
+.hinaa-shortcuts-panel__body { padding:20px 16px; overflow:auto; }
+.hinaa-shortcuts-panel__eyebrow { margin:0 0 6px; color:#0c947d; font-size:.62rem; font-weight:800; letter-spacing:.12em; }
+.hinaa-shortcuts-panel__body h2 { margin:0; color:#17423b; font-family:var(--font-display); font-size:1.12rem; letter-spacing:-.025em; }
+.hinaa-shortcuts-panel__copy { margin:8px 0 16px; color:#5d7973; font-size:.76rem; line-height:1.55; }
+.hinaa-shortcuts-panel__list { display:grid; gap:8px; }
+.hinaa-shortcut { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:9px; width:100%; padding:11px; cursor:pointer; border:1px solid rgba(72,126,115,.16); border-radius:12px; color:#2a5b51; background:rgba(255,255,255,.64); text-align:left; transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.hinaa-shortcut:hover:not(:disabled) { transform:translateY(-1px); border-color:rgba(14,170,141,.48); box-shadow:0 7px 16px rgba(20,111,96,.10); }
+.hinaa-shortcut:focus-visible, .hinaa-shortcuts-panel__header button:focus-visible { outline:3px solid rgba(14,170,141,.36); outline-offset:2px; }
+.hinaa-shortcut:disabled { cursor:not-allowed; opacity:.55; }
+.hinaa-shortcut__icon { display:grid; width:30px; height:30px; place-items:center; border-radius:9px; color:#078d77; background:rgba(190,247,232,.56); }
+.hinaa-shortcut__text { display:grid; min-width:0; gap:2px; }
+.hinaa-shortcut__text strong { color:#245148; font-size:.76rem; }
+.hinaa-shortcut__text small { overflow:hidden; color:#708b85; font-size:.66rem; text-overflow:ellipsis; white-space:nowrap; }
+.hinaa-shortcuts-panel__note { display:flex; align-items:flex-start; gap:7px; margin-top:18px; padding:10px; border-radius:10px; color:#52746d; background:rgba(222,249,242,.62); font-size:.68rem; line-height:1.45; }
+.hinaa-shortcuts-panel__note svg { flex:0 0 auto; margin-top:1px; color:#0a987f; }
+@media (max-width: 720px) { .hinaa-shortcuts-panel { left:52px; width:min(330px, calc(100vw - 52px)); } }

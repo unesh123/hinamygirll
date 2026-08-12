@@ -119,3 +119,17 @@ For every subsequent changed file, add a row before publishing the related phase
 | `apps/web/src/components/ui/AvatarLab.tsx` | Replace dense technical model workflow with HINAA-themed upload/select, facing/arm/reset, camera, and safe tracking choices. | Avatar Lab UI | Exact VSeeFace remains version-gated; tracking proxy remains labelled. | Type check and production build. | **PASS** |
 | `apps/web/src/App.css` | Add HINAA mint/pearl responsive Avatar Lab and direct-upload selector styling. | UI polish | Does not alter global VMC protocol or original assets. | Production build. | **PASS** |
 | `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record behavior, evidence, and browser-extension limitation. | Evidence ledger | Keeps model-specific visual verification separate from source verification. | Repository review. | **UPDATED** |
+
+
+## Final Local-Agent Product Polish — 2026-08-13
+
+| File | Change reason | System | Risk control | Verification | Result |
+|---|---|---|---|---|---|
+| `apps/web/src/components/ui/SidebarPanel.tsx` | Replace fabricated histories, fake tasks/files, and guessed tool readiness with direct local HINAA actions and truthful guidance. | Sidebar / agent UX | Every visible action maps to an existing callback; no provider or tool is labelled ready without runtime evidence. | Focused sidebar regression. | **PASS** |
+| `apps/web/src/App.tsx` | Wire sidebar actions to real new-chat, voice, memory, image, projects, settings, and prompt-preparation paths. | Application shell | Existing confirmations and provider routing remain owned by current components. | Type check and full suite. | **PASS** |
+| `apps/web/src/App.css` | Add responsive, keyboard-focused, HINAA-themed shortcut panel styling. | Accessibility / responsive UI | Reuses existing design tokens and reduced-motion behavior. | Production build. | **PASS** |
+| `apps/web/src/components/ui/SidebarPanel.test.tsx` | Prove tools and chat panels offer real callbacks and no longer show fabricated readiness/history. | Frontend regression | Mock callbacks only; no external action. | 2 tests passed. | **PASS** |
+| `apps/web/src/components/ui/ContextWorkspace.tsx` | Replace generic image empty state with truthful mode-specific research, image, music, email, and browser guidance. | State clarity | External actions remain explicitly described as approval/configuration-dependent. | Focused context regression. | **PASS** |
+| `apps/web/src/components/ui/ContextWorkspace.test.tsx` | Prevent a return to generic or misleading workspace empty states. | Frontend regression | No provider/browser dependency. | 1 test passed. | **PASS** |
+| `docs/HINAA_COMPLETION_CHANGELOG.md` | Record final local-agent polish and release evidence. | Completion ledger | Distinguishes code verification from unavailable runtime integrations. | Repository review. | **UPDATED** |
+| `docs/HINAA_CHANGE_MANIFEST.md` | Append this reviewable final-polish trail. | Repository governance | No protected asset or secret included. | Diff review before checkpoint. | **UPDATED** |
