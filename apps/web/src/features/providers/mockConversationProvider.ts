@@ -65,13 +65,27 @@ export function buildMockPlan(
   text: string,
   companionId: ConversationRequest["companionId"],
 ): AssistantTurnPlan {
+  const localized = /मलाई|बुझाऊ|कसरी/.test(text)
+    ? {
+        language: "ne-NP" as const,
+        displayText: "ComfyUI को setup गर्न पहिले Python environment, compatible NVIDIA driver र CUDA जाँच्नुहोस्। त्यसपछि ComfyUI install गरेर Stable Diffusion checkpoint लाई `models/checkpoints` मा राख्नुहोस्। Browser मा `http://127.0.0.1:8188` खोल्नुहोस् र workflow queue गर्नुहोस्। Note: HINAA मा real generation local ComfyUI service चलिरहेको बेला मात्र हुन्छ।",
+        spokenText: "Python, NVIDIA driver र CUDA तयार भएपछि checkpoint राखेर 8188 मा ComfyUI चलाउनुहोस्।",
+      }
+    : /मुझे|समझाओ|कैसे/.test(text)
+      ? {
+          language: "hi-IN" as const,
+          displayText: "ComfyUI सेटअप के लिए पहले Python environment, compatible NVIDIA driver और CUDA जाँचें। फिर ComfyUI install करके Stable Diffusion checkpoint को `models/checkpoints` में रखें। Browser में `http://127.0.0.1:8188` खोलें और workflow queue करें। Note: HINAA में real generation तभी चलेगी जब local ComfyUI service चल रही हो।",
+          spokenText: "Python, NVIDIA driver और CUDA तैयार करें; checkpoint रखकर 8188 पर ComfyUI service शुरू करें।",
+        }
+      : undefined;
   const selected = responses.find((response) => response.match.test(text));
   const fallback = [
     "Main abhi mock mode mein hoon. Yeh ek demo response hai — real AI response nahi hai. Real brain ke liye Settings mein jaake Gemini ya OpenAI select karo.",
     "HINAA mock mode: Main aapke sawaal ko samajh rahi hoon, lekin real answer dene ke liye mujhe ek real AI brain ki zaroorat hai. Settings > Provider mein jaake select karo.",
     "Demo mode active hai. Real conversations, web search, image generation aur tools use karne ke liye kripya real provider mode enable karein.",
   ][stableIndex(text) % 3];
-  const displayText = selected?.text ?? fallback;
+  const displayText = localized?.displayText ?? selected?.text ?? fallback;
+  const spokenText = localized?.spokenText ?? displayText;
   const primary =
     selected?.emotion ?? (companionId === "hinaa" ? "playful" : "happy");
   const gesture =
@@ -79,9 +93,9 @@ export function buildMockPlan(
     (companionId === "hinaa" ? "gentle_head_tilt" : "small_nod");
 
   return parseAssistantTurnPlan({
-    spokenText: displayText,
+    spokenText,
     displayText,
-    language: "mixed",
+    language: localized?.language ?? "mixed",
     emotion: {
       primary,
       intensity: primary === "concerned" ? 0.48 : 0.62,

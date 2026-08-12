@@ -1,4 +1,6 @@
 import asyncio
+import os
+import shutil
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from playwright.async_api import async_playwright, Browser, Page
@@ -16,7 +18,11 @@ async def _get_page() -> Page:
         if _playwright is None:
             _playwright = await async_playwright().start()
         if _browser is None or not _browser.is_connected():
-            _browser = await _playwright.chromium.launch(headless=False)
+            executable = os.environ.get("HINAA_BROWSER_EXECUTABLE") or shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+            launch_options: dict[str, Any] = {"headless": False}
+            if executable:
+                launch_options["executable_path"] = executable
+            _browser = await _playwright.chromium.launch(**launch_options)
         context = await _browser.new_context(
             viewport={'width': 1280, 'height': 800},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -38,7 +44,8 @@ async def browser_navigate(params: BrowserNavigateParams) -> str:
         page = await _get_page()
         await page.goto(url, wait_until="networkidle")
         title = await page.title()
-        return f"Successfully navigated to {url}. Page title: '{title}'"
+        owned_page_count = len(page.context.pages)
+        return f"Successfully navigated to {url}. Page title: '{title}'. Owned browser pages: {owned_page_count}."
     except Exception as e:
         return f"Failed to navigate: {str(e)}"
 

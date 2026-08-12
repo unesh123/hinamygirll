@@ -9,11 +9,28 @@ import {
   type TranscriptMessage,
 } from "./types";
 import type { ProviderRuntimeSelection } from "../providers/utils/resolveProviderSelection";
+import {
+  deserializeAssistantTurn,
+  getAssistantDisplayText,
+  serializeAssistantTurn,
+} from "./assistantTurnCodec";
 
 function createId(): string {
   return (
     globalThis.crypto?.randomUUID?.() ?? `mock-${Date.now()}-${Math.random()}`
   );
+}
+
+function restoreMessages(raw: unknown): TranscriptMessage[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.filter((item): item is TranscriptMessage => !!item && typeof item === "object")
+    .map((message) => {
+      if (message.role !== "assistant" || !message.content) return message;
+      const plan = deserializeAssistantTurn(message.content);
+      return plan
+        ? { ...message, text: getAssistantDisplayText(message.content), plan }
+        : message;
+    });
 }
 
 function createMessage(
@@ -72,7 +89,10 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
   const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
     try {
       const stored = localStorage.getItem(`hinaa-messages-hinaa`);
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const restored = restoreMessages(JSON.parse(stored));
+        if (restored) return restored;
+      }
     } catch {}
     return [createMessage("assistant", companionProfiles.hinaa.greeting)];
   });
@@ -87,11 +107,38 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
   const processedToolMessageIds = useRef<Set<string>>(new Set());
+  const turnSequence = useRef(0);
+  const activeTurnId = useRef<string | null>(null);
+  const finalizedTurnIds = useRef<Set<string>>(new Set());
 
   const clearTimers = useCallback(() => {
     for (const timer of timers.current) window.clearTimeout(timer);
     timers.current = [];
   }, []);
+
+  type TurnFinalization = { errorText?: string; preservePartial?: boolean };
+
+  // This is the sole terminal path for browser-chat turns. It is intentionally
+  // idempotent and sequence-aware: a stale response cannot unlock, overwrite,
+  // or append an error to a newer turn, while every active failure clears all
+  // composer-blocking state immediately.
+  const finalizeTurn = useCallback((turnId: string, result: TurnFinalization = {}) => {
+    if (finalizedTurnIds.current.has(turnId) || activeTurnId.current !== turnId) return false;
+    finalizedTurnIds.current.add(turnId);
+    if (finalizedTurnIds.current.size > 96) finalizedTurnIds.current.clear();
+    activeTurnId.current = null;
+    currentAbort.current = undefined;
+    clearTimers();
+    if (!result.preservePartial) setPartialTranscript("");
+    setStreamingText("");
+    setActivePlan(undefined);
+    const errorText = result.errorText;
+    if (errorText) {
+      setMessages((current) => [...current, createMessage("assistant", errorText)]);
+    }
+    setState("idle");
+    return true;
+  }, [clearTimers]);
 
   // Switching companion starts a fresh log with their own greeting, clears
   // any in-flight turn, and returns the stage to idle. Re-selecting the
@@ -99,9 +146,10 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
   const switchCompanion = useCallback(
     (id: CompanionId) => {
       if (id === companionId) return;
-      clearTimers();
+      const previousTurn = activeTurnId.current;
       currentAbort.current?.abort();
-      currentAbort.current = undefined;
+      if (previousTurn) finalizeTurn(previousTurn);
+      else clearTimers();
       setCompanionId(id);
       setPartialTranscript("");
       setStreamingText("");
@@ -109,44 +157,55 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
       const initialMessages = (() => {
         try {
           const stored = localStorage.getItem(`hinaa-messages-${id}`);
-          if (stored) return JSON.parse(stored);
+          if (stored) {
+            const restored = restoreMessages(JSON.parse(stored));
+            if (restored) return restored;
+          }
         } catch {}
         return [createMessage("assistant", companionProfiles[id].greeting)];
       })();
       setMessages(initialMessages);
       setState("idle");
     },
-    [clearTimers, companionId],
+    [clearTimers, companionId, finalizeTurn],
   );
 
   const resetConversation = useCallback(() => {
-    clearTimers();
+    const previousTurn = activeTurnId.current;
     currentAbort.current?.abort();
-    currentAbort.current = undefined;
+    if (previousTurn) finalizeTurn(previousTurn);
+    else clearTimers();
     setPartialTranscript("");
     setStreamingText("");
     setActivePlan(undefined);
     setMessages([createMessage("assistant", companionProfiles[companionId].greeting)]);
     setState("idle");
-  }, [clearTimers, companionId]);
+  }, [clearTimers, companionId, finalizeTurn]);
 
   const stop = useCallback(() => {
-    clearTimers();
+    const previousTurn = activeTurnId.current;
     currentAbort.current?.abort();
-    currentAbort.current = undefined;
+    if (previousTurn) {
+      finalizeTurn(previousTurn);
+      return;
+    }
+    clearTimers();
     setPartialTranscript("");
     setStreamingText("");
-    setState("interrupted");
-    timers.current.push(window.setTimeout(() => setState("idle"), 650));
-  }, [clearTimers]);
+    setState("idle");
+  }, [clearTimers, finalizeTurn]);
 
   const sendText = useCallback(
     async (rawText: string, options?: { forceBackend?: boolean }) => {
       const text = rawText.trim();
       if (!text) return;
 
-      clearTimers();
+      const previousTurn = activeTurnId.current;
       currentAbort.current?.abort();
+      if (previousTurn) finalizeTurn(previousTurn);
+      else clearTimers();
+      const turnId = `turn-${++turnSequence.current}`;
+      activeTurnId.current = turnId;
       const abortController = new AbortController();
       currentAbort.current = abortController;
       setMessages((current) => [
@@ -177,6 +236,7 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
           signal: abortController.signal,
           brainModel: turnModel,
         })) {
+          if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {
             setState("thinking");
           } else if (event.type === "text.delta") {
@@ -188,39 +248,37 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
             setActivePlan(event.plan);
             setMessages((current) => [
               ...current,
-              createMessage("assistant", event.plan.displayText, { plan: event.plan }),
+              createMessage("assistant", getAssistantDisplayText(serializeAssistantTurn(event.plan)), {
+              content: serializeAssistantTurn(event.plan),
+              plan: event.plan,
+            }),
             ]);
-            setStreamingText("");
-            setState("speaking");
-            timers.current.push(window.setTimeout(() => setState("idle"), 950));
+            finalizeTurn(turnId, { preservePartial: true });
           } else {
             providerLatencyMs = event.latencyMs;
           }
         }
-        return completedPlan
-          ? { plan: completedPlan, providerLatencyMs }
-          : undefined;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError")
+        if (!completedPlan) {
+          finalizeTurn(turnId, { errorText: "Hinaa did not receive a complete response. Please try again." });
           return undefined;
+        }
+        return { plan: completedPlan, providerLatencyMs };
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          finalizeTurn(turnId);
+          return undefined;
+        }
         const message = error instanceof Error ? error.message : "";
         const friendly = message.includes("PROVIDER_RATE_LIMIT")
           ? "The selected brain key/model is rate limited. Switch the Brain model, wait a moment, or use the Codex key source."
           : `Response failed safely. ${message} Try another brain model or text mode.`;
-        setStreamingText("");
-        setState("error");
-        setMessages((current) => [
-          ...current,
-          createMessage("assistant", friendly),
-        ]);
-        timers.current.push(window.setTimeout(() => setState("idle"), 2500));
+        finalizeTurn(turnId, { errorText: friendly });
         return undefined;
       } finally {
-        if (currentAbort.current === abortController)
-          currentAbort.current = undefined;
+        if (currentAbort.current === abortController) currentAbort.current = undefined;
       }
     },
-    [clearTimers, companionId, routing],
+    [clearTimers, companionId, finalizeTurn, routing],
   );
 
   const resolveToolRequest = useCallback(
@@ -366,17 +424,26 @@ export function useCompanionController({ routing }: CompanionControllerOptions):
     setStreamingText("");
     setMessages((current) => [
       ...current,
-      createMessage("assistant", plan.displayText, { plan }),
+      createMessage("assistant", getAssistantDisplayText(serializeAssistantTurn(plan)), {
+        content: serializeAssistantTurn(plan),
+        plan,
+      }),
     ]);
-    setState("speaking");
+    // Live audio may continue independently, but the text composer must never
+    // remain blocked after the final plan is available.
+    setState("idle");
   }, []);
 
   const applyLiveError = useCallback((message: string) => {
-    setPartialTranscript(message);
+    clearTimers();
+    setPartialTranscript("");
     setStreamingText("");
-    setState("error");
-    timers.current.push(window.setTimeout(() => setState("idle"), 2500));
-  }, []);
+    setMessages((current) => [
+      ...current,
+      createMessage("assistant", `Live session ended safely. ${message}`),
+    ]);
+    setState("idle");
+  }, [clearTimers]);
 
   useEffect(
     () => () => {

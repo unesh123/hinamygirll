@@ -32,6 +32,8 @@ export interface TranscriptMessage {
   text: string;
   /** ISO-8601 string set when the message is created. Never at render time. */
   createdAt: string;
+  /** Canonical serialized assistant turn; legacy messages retain plain text. */
+  content?: string;
   plan?: AssistantTurnPlan;
   toolActivity?: Array<{ status: string; label: string; id: string }>;
   toolResults?: Array<{ toolName: string; result: any }>;

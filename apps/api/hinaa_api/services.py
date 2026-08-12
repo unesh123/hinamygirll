@@ -653,70 +653,89 @@ class ConversationService:
             ) from error
 
     def _inject_deterministic_tool_intents(self, text: str, plan: AssistantTurnPlan) -> None:
-        """Deterministic local intent fallback for explicit tool commands."""
-        lower_text = text.lower()
-        
-        # Helper to avoid matching meta-discussion, negation, or explanations.
-        def is_meta_or_negated(t: str) -> bool:
-            return bool(re.search(r'\b(do not|don\'t|dont|never|not|might|example|phrase|explain|why did|how does|how to|can you|can hinaa)\b', t))
-            
-        unquoted = re.sub(r'["\'].*?["\']', '', lower_text)
+        """Add only unambiguous, imperative local tool requests.
 
-        # 1. Image generation intent
-        if not any(t.toolName == "image_generate" for t in plan.toolRequests):
-            if not is_meta_or_negated(lower_text):
-                imperative_patterns = [
-                    r'^\s*(generate|create|make|draw|paint|render)\b.*\b(image|images|picture|pictures|photo|photos|portrait|art|artwork|variations)\b',
-                    r'\b(image|images|picture|pictures|photo|photos).*(generate|create|make|bana|gara)\b',
-                    r'\b(generate|create|make)\s+(an?\s+)?(image|picture|photo|portrait)\b',
-                    r'^(a|an)?\s*(anime|moonlit|cyberpunk)?\s*(image|picture|photo|portrait)\s+(of|with)\b',
-                    r'^(generate|create)\b'
-                ]
-                if any(re.search(p, unquoted) for p in imperative_patterns):
-                    prompt_str = re.sub(r'(?i)^(generate|create|make)\s+(an?\s+)?(image|picture|photo|portrait)\s+(of\s+)?', '', text).strip()
-                    if not prompt_str or prompt_str.lower() == text.lower():
-                        prompt_str = text
-                    plan.toolRequests.append(ToolRequest(
-                        toolName="image_generate",
-                        parameters={
-                            "prompt": prompt_str,
-                            "count": 1,
-                            "mode": "fast",
-                            "strategy": "variations"
-                        }
-                    ))
+        This deliberately does not behave like a keyword detector.  Explanations,
+        negations, quoted examples, capability questions, and historical wording
+        remain conversational text.  Ambiguous requests are left to the selected
+        model rather than causing an unexpected side effect.
+        """
+        lower_text = text.casefold().strip()
+        unquoted = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", lower_text).strip()
+        blocked_framing = (
+            r"\b(do not|don't|dont|never|not|may|might|later|example|phrase|"
+            r"explain|why did|how does|how to|can you|can hinaa|is it possible)\b"
+        )
+        if re.search(blocked_framing, lower_text):
+            return
 
-        # 2. Browser intent
-        if not any(t.toolName == "browser_execute_task" for t in plan.toolRequests):
-            if not is_meta_or_negated(lower_text):
-                browser_patterns = [
-                    r'^\s*(open|navigate to|go to|browse to|launch)\b',
-                    r'\b(open|browse|navigate|go to)\b.*\b(website|url|page|site|netflix|youtube|google)\b'
-                ]
-                if any(re.search(p, unquoted) for p in browser_patterns):
-                    prompt_str = re.sub(r'(?i)^(open|navigate to|go to|browse to|launch)\s+', '', text).strip()
-                    plan.toolRequests.append(ToolRequest(
-                        toolName="browser_execute_task",
-                        parameters={
-                            "task": prompt_str if prompt_str and prompt_str.lower() != text.lower() else text,
-                            "start_url": "about:blank"
-                        }
-                    ))
+        def is_command(patterns: list[str], *, target: str) -> bool:
+            if not re.search(target, unquoted, re.IGNORECASE):
+                return False
+            return any(re.search(pattern, unquoted, re.IGNORECASE) for pattern in patterns)
 
-        # 3. Research intent
-        if not any(t.toolName == "web_search" for t in plan.toolRequests):
-            research_intents = [
-                "search the web", "look up", "find information about", 
-                "research about", "google search"
-            ]
-            if any(intent in lower_text for intent in research_intents) or re.search(r'\b(search|research|look up)\b.*\b(web|internet|online|google)\b', lower_text):
-                prompt_str = re.sub(r'(?i)^(search the web for|look up|find information about|research about|google search for)\s+', '', text).strip()
+        image_command = is_command(
+            [
+                r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
+                r"^\s*(?:\d+|one|two|three|four|चार|एक|दुई|एउटा)?\s*(?:fast\s+|quality\s+)?(?:images?|pictures?|photos?|चित्र|तस्वीर)\s+(?:generate|create|make|करो|गर)\b",
+                r"^\s*(?:generate|create|make|बनाओ|बनाऊ|बनाइदेऊ)\b.*(?:image|picture|photo|चित्र|तस्वीर)",
+            ],
+            target=r"\b(image|images|picture|pictures|photo|photos|portrait|artwork|variation|variations)\b|चित्र|तस्वीर",
+        )
+        if image_command and not any(t.toolName == "image_generate" for t in plan.toolRequests):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:generate|create|make|draw|paint|render)\s+(?:an?\s+)?(?:image|picture|photo|portrait)\s+(?:of\s+)?",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="image_generate",
+                parameters={
+                    "prompt": prompt_str if prompt_str else text,
+                    "count": 1,
+                    "mode": "fast",
+                    "strategy": "variations",
+                },
+            ))
+
+        browser_command = is_command(
+            [r"^\s*(please\s+)?(open|navigate to|go to|browse to|launch|खोलो|खोल्नुहोस्)\b"],
+            target=r"\b(https?://\S+|website|url|page|site|netflix|youtube|google)\b",
+        )
+        if browser_command and not any(t.toolName in {"browser_navigate", "browser_execute_task"} for t in plan.toolRequests):
+            prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:open|navigate to|go to|browse to|launch)\s+", "", text).strip()
+            target = prompt_str or text
+            known_destinations = {
+                "netflix": "https://www.netflix.com",
+                "youtube": "https://www.youtube.com",
+                "google": "https://www.google.com",
+            }
+            destination = next((url for name, url in known_destinations.items() if re.search(rf"\b{name}\b", target, re.IGNORECASE)), None)
+            explicit_url = re.search(r"https?://[^\s]+", target)
+            if explicit_url:
+                destination = explicit_url.group(0)
+            if destination:
+                # A direct destination is a single owned navigation, not an
+                # autonomous browser sub-agent task.  It creates one page only.
                 plan.toolRequests.append(ToolRequest(
-                    toolName="web_search",
-                    parameters={
-                        "query": prompt_str if prompt_str and prompt_str.lower() != text.lower() else text
-                    }
+                    toolName="browser_navigate",
+                    parameters={"url": destination},
                 ))
+
+        research_command = is_command(
+            [r"^\s*(please\s+)?(search the web for|look up|find information about|research|google search for|खोज|खोज्नुहोस्)\b"],
+            target=r"\b(web|internet|online|google|documentation|sources?)\b|वेब|इन्टरनेट",
+        )
+        if research_command and not any(t.toolName == "web_search" for t in plan.toolRequests):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:search the web for|look up|find information about|research|google search for)\s+",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_search",
+                parameters={"query": prompt_str or text},
+            ))
 
     async def create_plan(
         self, request: TurnRequest, *, user_id: str | None = None

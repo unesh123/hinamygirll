@@ -178,3 +178,48 @@ def test_build_turn_prompt_includes_history_delimiters(settings: Settings) -> No
     assert prompt.interaction_mode == "realtime"
     assert "<conversation_history" in prompt.user_contents
     assert 'trusted="false"' in prompt.user_contents
+
+
+def _routing_plan() -> AssistantTurnPlan:
+    return AssistantTurnPlan(
+        spokenText="Short safe summary.",
+        displayText="Detailed safe response.",
+        language="en-US",
+        emotion={"primary": "neutral", "intensity": 0.1, "valence": 0.0, "arousal": 0.0},
+        performance={"facePreset": "neutral", "gesture": "none", "gazeTarget": "camera", "headMotion": "none", "blinkRate": 0.4},
+        memoryCandidates=[],
+        toolRequests=[],
+    )
+
+
+def test_explicit_tool_commands_require_command_mood_and_target(settings: Settings) -> None:
+    service = ConversationService(settings)
+    expected = {
+        "Generate an image of a moonlit city.": "image_generate",
+        "चार images generate करो.": "image_generate",
+        "एउटा image generate गर।": "image_generate",
+        "Open Netflix.": "browser_navigate",
+        "Search the web for current ComfyUI documentation.": "web_search",
+    }
+    for text, tool_name in expected.items():
+        plan = _routing_plan()
+        service._inject_deterministic_tool_intents(text, plan)
+        assert [request.toolName for request in plan.toolRequests] == [tool_name]
+        if tool_name == "browser_navigate":
+            assert plan.toolRequests[0].parameters == {"url": "https://www.netflix.com"}
+
+
+def test_explanations_negations_quotes_and_capability_questions_do_not_execute_tools(settings: Settings) -> None:
+    service = ConversationService(settings)
+    no_execution = [
+        "How does image generation work?",
+        "Do not generate an image.",
+        "Why did HINAA open Netflix?",
+        "Can HINAA generate images?",
+        "The phrase 'open Netflix' is an example.",
+        "I may search the web later.",
+    ]
+    for text in no_execution:
+        plan = _routing_plan()
+        service._inject_deterministic_tool_intents(text, plan)
+        assert plan.toolRequests == []

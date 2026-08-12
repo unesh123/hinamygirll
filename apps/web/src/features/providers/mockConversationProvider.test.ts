@@ -46,3 +46,20 @@ describe("MockConversationProvider", () => {
     await expect(iterator.next()).rejects.toMatchObject({ name: "AbortError" });
   });
 });
+
+
+describe("localized Demo guidance", () => {
+  it("returns native-script Hindi and Nepali guidance with concise spoken summaries", () => {
+    const hindi = buildMockPlan("हिना, मुझे ComfyUI setup समझाओ।", "hinaa");
+    expect(hindi.language).toBe("hi-IN");
+    expect(hindi.displayText).toContain("ComfyUI सेटअप के लिए");
+    expect(hindi.displayText).toContain("NVIDIA driver");
+    expect(hindi.spokenText.length).toBeLessThan(hindi.displayText.length);
+
+    const nepali = buildMockPlan("हिना, मलाई ComfyUI को setup विस्तारमा बुझाऊ।", "hinaa");
+    expect(nepali.language).toBe("ne-NP");
+    expect(nepali.displayText).toContain("ComfyUI को setup गर्न");
+    expect(nepali.displayText).toContain("workflow queue गर्नुहोस्");
+    expect(nepali.spokenText.length).toBeLessThan(nepali.displayText.length);
+  });
+});
