@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "agent-router", "cx-gateway", "gemini-live"] = Field(
-        "mock", alias="HINAA_PROVIDER_MODE"
+        "cx-gateway", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
     azure_speech_region: str | None = Field(None, alias="AZURE_SPEECH_REGION")

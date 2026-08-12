@@ -9,10 +9,10 @@
  * - Never store credentials
  * - Only add settings for behaviour that genuinely exists today
  *
- * Version 1 — initial release.
+ * Version 2 — CX Gateway is the preferred high-agency brain.
  */
 
-export const SETTINGS_VERSION = 1 as const;
+export const SETTINGS_VERSION = 2 as const;
 export const SETTINGS_KEY = "hinaa_settings_v1" as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -75,7 +75,7 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     avatarStyle: "auto",
   },
   provider: {
-    preferredMode: "auto",
+    preferredMode: "cx-gateway",
     preferredModelByProvider: {},
   },
 };

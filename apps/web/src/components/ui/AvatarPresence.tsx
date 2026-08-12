@@ -489,7 +489,11 @@ export function AvatarPresence({
       {modelUrl && !webglFailed && (
         <Canvas
           style={{ position:"absolute", inset:0, zIndex:1 }}
-          dpr={[1, Math.min(window.devicePixelRatio, 2)]}
+          // Above 1.5× device pixel ratio, the VRM’s animated face and lip-sync
+          // cost rises sharply with little visible benefit at this panel size.
+          // Let R3F temporarily reduce quality under load instead of stuttering.
+          dpr={[1, Math.min(window.devicePixelRatio, 1.5)]}
+          performance={{ min: 0.62, debounce: 220 }}
           gl={{ antialias:true, alpha:true, powerPreference:"high-performance" }}
           onCreated={({ gl }) => {
             gl.domElement.addEventListener("webglcontextlost", e => {

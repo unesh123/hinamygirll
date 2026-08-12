@@ -74,9 +74,19 @@ function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> 
     return raw;
   }
 
-  // v0 → v1: there was no v0, so this is a no-op placeholder
-  // Future: if (version < 2) { ...transform to v2... }
-  return raw;
+  const migrated = { ...raw };
+  if (version < 2) {
+    const provider = isObject(raw.provider) ? { ...raw.provider } : {};
+    // CX becomes the default for fresh and previously automatic installs. An
+    // explicit provider choice remains untouched, and runtime routing still
+    // falls back safely when CX is not configured on this local machine.
+    if (provider.preferredMode === undefined || provider.preferredMode === "auto") {
+      provider.preferredMode = "cx-gateway";
+    }
+    migrated.provider = provider;
+    migrated._version = 2;
+  }
+  return migrated;
 }
 
 // ── Step 3: validateSettings ──────────────────────────────────────────────────
@@ -122,7 +132,7 @@ function validateProvider(raw: unknown): ProviderPreferences {
   return {
     preferredMode: safeString<ProviderPreferenceMode>(
       obj.preferredMode,
-      ["auto", "custom", "openai", "real", "local", "mock", "agent-router"],
+      ["auto", "custom", "openai", "real", "local", "mock", "agent-router", "cx-gateway", "gemini-live"],
       d.preferredMode,
     ),
     preferredModelByProvider: validateModelByProvider(obj.preferredModelByProvider),

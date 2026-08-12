@@ -21,6 +21,7 @@ export interface ProviderRuntimeSelection {
 }
 
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
+  "cx-gateway",
   "real",
   "openai",
   "custom",

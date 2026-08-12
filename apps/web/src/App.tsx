@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { motion } from "framer-motion";
 import { TranscriptView } from "./features/chat/components/TranscriptView";
@@ -7,7 +7,7 @@ import { FullScreenAura } from "./components/ui/FullScreenAura";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
 import { PremiumComposer } from "./components/ui/PremiumComposer";
 import ParticleOrbitEffect from "./components/lightswind/ParticleOrbitEffect";
-import { AvatarPresence, type PresenceMode } from "./components/ui/AvatarPresence";
+import type { PresenceMode } from "./components/ui/AvatarPresence";
 import { HinaDrawer } from "./components/lightswind/Drawer";
 import { SidebarProvider } from "./components/lightswind/Sidebar";
 import { synthesizeSpeech } from "./features/audio/api";
@@ -25,13 +25,19 @@ import { DiagnosticsSettings } from "./features/settings/sections/DiagnosticsSet
 import { NavRail, type NavSection } from "./components/ui/NavRail";
 import { ActivityPanel, type AgentStep } from "./components/ui/ActivityPanel";
 import { ActionChips, type ActionChip } from "./components/ui/ActionChips";
-import { ContextWorkspace, type ContextMode } from "./components/ui/ContextWorkspace";
+import type { ContextMode } from "./components/ui/ContextWorkspace";
 import { SidebarPanel } from "./components/ui/SidebarPanel";
-import { MemoryPanel } from "./components/ui/MemoryPanel";
-import { LocalProjectWorkspace } from "./components/ui/LocalProjectWorkspace";
-import { LocalImageStudio } from "./components/ui/LocalImageStudio";
+
 import type { PowerUp } from "./components/ui/PowerUpMentions";
 import useMemory from "./features/memory/useMemory";
+
+const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
+const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
+const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((module) => ({ default: module.MemoryPanel })));
+const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
+const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").then((module) => ({ default: module.LocalImageStudio })));
+
+const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize: 12 }}>Loading local workspace…</div>;
 
 /* NOTE: HinaaCommandCenter removed — it broke the UI on click.
    Use ⌘K in-app menu: HINAA → in-page quick action menu instead. */
@@ -100,6 +106,27 @@ export default function App() {
   const controller = useCompanionController({ routing });
   useMemory();
 
+  // Keep the first interactive paint light, then warm the local-only panels in
+  // the background so opening Projects or Image Studio feels immediate.
+  useEffect(() => {
+    const preload = () => {
+      void import("./components/ui/LocalProjectWorkspace");
+      void import("./components/ui/LocalImageStudio");
+    };
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const usedIdleCallback = typeof idleWindow.requestIdleCallback === "function";
+    const handle = usedIdleCallback
+      ? idleWindow.requestIdleCallback!(preload, { timeout: 1800 })
+      : window.setTimeout(preload, 1200);
+    return () => {
+      if (usedIdleCallback) idleWindow.cancelIdleCallback?.(handle);
+      else window.clearTimeout(handle);
+    };
+  }, []);
+
   const live = useLiveConversation({ controller, playback, calibration: "natural", outputMode: "headphones", languageMode: "auto" });
 
   /* ─── Avatar mode — stays stable, no zoom changes ────── */
@@ -161,7 +188,7 @@ export default function App() {
   const openImageStudio = () => {
     setDrawerMode("image");
     setDrawerTitle("Hinaa Image Studio");
-    setDrawerContent(<LocalImageStudio onClose={() => setDrawerOpen(false)} />);
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><LocalImageStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
     setDrawerOpen(true);
   };
 
@@ -235,7 +262,7 @@ export default function App() {
           {/* Nav Rail */}
           <NavRail active={navSection} onNavigate={handleNav} onNewChat={controller.resetConversation} onSettings={() => setSettingsOpen(true)} />
           {navSection === "tasks" || navSection === "files" ? (
-            <LocalProjectWorkspace active />
+            <Suspense fallback={lazyPanelFallback}><LocalProjectWorkspace active /></Suspense>
           ) : (
             <SidebarPanel section={sidebarExpanded} onClose={() => setSidebarExpanded(null)} />
           )}
@@ -244,7 +271,7 @@ export default function App() {
           <div className="layout-body">
             {/* Left: Avatar + Model Switcher */}
             <div className="avatar-pane">
-              <AvatarPresence
+              <Suspense fallback={<div style={{ display: "grid", placeItems: "center", height: "100%", color: "#94a3b8", fontSize: 12 }}>Preparing Hinaa…</div>}><AvatarPresence
                 mode={avatarMode}
                 state={controller.state}
                 jawEnergy={playback.jawEnergy}
@@ -256,7 +283,7 @@ export default function App() {
                 faceExpressions={faceActive ? faceTrack.expressions : null}
                 faceBones={faceActive ? faceTrack.bones : null}
                 faceTrackingActive={faceActive}
-              />
+              /></Suspense>
               {/* Owner-supplied VRM choices. The previous sample B/C models are
                   intentionally excluded because they were not the preferred character. */}
               <div className="vrm-switcher" role="group" aria-label="Switch Hinaa avatar">
@@ -319,6 +346,8 @@ export default function App() {
                 </div>
                 <div className="header-right">
                   <span className="header-status"><span className="header-status-dot" />{stateLabels[controller.state]}</span>
+                  {routing.activeMode === "cx-gateway" && <span title="CX Gateway is the active Hinaa brain" style={{ color: "#0f766e", fontSize: 11, fontWeight: 750 }}>CX Brain</span>}
+                  {routing.reason === "recovery" && <button type="button" onClick={() => setSettingsOpen(true)} title="CX is not available locally; open settings to configure it" style={{ border: "1px solid rgba(245,158,11,.30)", borderRadius: 999, color: "#92400e", background: "rgba(254,243,199,.70)", padding: "4px 7px", cursor: "pointer", fontSize: 10, fontWeight: 750 }}>CX offline · safe mode</button>}
                   <SearchingLoader visible={searching} />
                   <SettingsTrigger onClick={() => setSettingsOpen(true)} isOpen={settingsOpen} />
                 </div>
@@ -379,11 +408,11 @@ export default function App() {
           </div>
 
           {/* Context workspace */}
-          <ContextWorkspace mode={contextMode} onClose={() => setContextMode("hidden")} sources={contextSources} isSearching={searching} />
+          <Suspense fallback={lazyPanelFallback}><ContextWorkspace mode={contextMode} onClose={() => setContextMode("hidden")} sources={contextSources} isSearching={searching} /></Suspense>
         </div>
 
         {/* Overlays */}
-        <MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} />
+        <Suspense fallback={null}><MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} /></Suspense>
         <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}>
           <CompanionSwitch value={controller.companionId} onChange={id => { if (id === controller.companionId) return; if (live.active) live.stop(); controller.switchCompanion(id); }} />
           <AppearanceSettings appearance={settings.appearance} onChange={setAppearance} />

@@ -788,6 +788,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:
+        # The web client normally sends its resolved provider explicitly. For
+        # direct local API callers, inherit the CX-first server preference only
+        # when providerMode was omitted; a machine without CX configuration
+        # still receives the deterministic local mock fallback instead of an
+        # opaque configuration failure.
+        if "providerMode" not in body.model_fields_set:
+            default_mode = active_settings.provider_mode
+            if default_mode == "cx-gateway" and not active_settings.cx_gateway_configured:
+                default_mode = "mock"
+            body = body.model_copy(update={"providerMode": default_mode})
         user_id = _resolve_user_id(request)
 
         async def guarded_stream():  # type: ignore[no-untyped-def]
