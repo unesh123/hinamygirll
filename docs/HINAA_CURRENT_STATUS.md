@@ -318,3 +318,17 @@ Real visual acceptance for the user’s specific Windows VRM still needs the act
 | Backend regression | **PASS** — complete `pytest -q` suite passed. |
 
 This final source-level polish does not change the strict runtime boundaries: ComfyUI needs its real local listener, cloud/provider capabilities need their valid configured credentials, and user-model/VSeeFace camera behavior needs the real Windows runtime and sender. No unavailable capability has been simulated or marked verified.
+
+
+## Phase 18 — Safe Live VSeeFace Facial/Head Tracking Repair
+
+| Requirement | Result |
+|---|---|
+| Live eyes | **IMPLEMENTED** — `Fcl_EYE_Close_L/R` is now treated as a closure weight (0 open, 1 closed) end-to-end. The previous browser inversion that could render open eyes as fully shut is removed. |
+| Live pose protection | **IMPLEMENTED** — `vrm.update(dt)` now completes before final calibrated head and relaxed normalized-limb writes, so no downstream VRM update can restore a T-pose after the safety layer. |
+| Motion scope | **IMPLEMENTED** — fresh VMC controls expression and bounded calibrated Head motion only. Spine, hips, shoulders, arms, hands, and root remain excluded from VMC mirroring and finish in the companion’s relaxed pose. |
+| Voice lip sync | **PRESERVED** — TTS visemes retain mouth ownership during speech; external vowel/mouth data applies only when HINAA is not speaking. |
+| User-visible transparency | **IMPLEMENTED** — the live control panel says exactly which motion is mirrored and that the body/arms remain protected. |
+| Focused validation | **PASS** — bridge suite has 3 passing tests; frontend VMC/app suite has 27 files, 116 passing tests, and 2 existing todos; TypeScript passes. |
+
+The supplied screenshot identifies a real Windows visual defect and drove this repair. Final visual proof after applying this branch remains **PENDING_USER_RUNTIME**, not automatically passed: it requires restarting the local API/frontend, hard-refreshing, reconnecting VSeeFace, and observing the actual selected model under a real camera sender.

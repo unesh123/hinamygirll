@@ -83,7 +83,8 @@ const POLL_MS = 500;
 
 const DEFAULT_EXPRESSIONS: FaceExpressions = {
   mouthOpen: 0, mouthA: 0, mouthI: 0, mouthU: 0, mouthE: 0, mouthO: 0, mouthSmile: 0,
-  eyeBlinkL: 1, eyeBlinkR: 1, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0,
+  // VMC publishes `Fcl_EYE_Close_*` closure weights: zero is an open eye.
+  eyeBlinkL: 0, eyeBlinkR: 0, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0,
   cheekPuff: 0, angry: 0, sad: 0, relaxed: 0,
 };
 

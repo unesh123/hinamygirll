@@ -42,6 +42,25 @@ def test_vmc_diagnostics_distinguish_listening_test_live_and_stale() -> None:
     assert bridge.diagnostics()["state"] == "stale"
 
 
+def test_vmc_eye_close_values_remain_closure_weights() -> None:
+    bridge = VMCBridge()
+    bridge._udp_transport = object()  # type: ignore[assignment]
+    assert bridge._values["eyeBlinkL"] == 0.0
+    assert bridge._values["eyeBlinkR"] == 0.0
+
+    bridge._apply_messages(
+        [
+            ("/VMC/Ext/Blendshape/Val", ["Fcl_EYE_Close_L", 0.25]),
+            ("/VMC/Ext/Blendshape/Val", ["Fcl_EYE_Close_R", 0.70]),
+        ],
+        source="external",
+        sender="127.0.0.1",
+    )
+    payload = json.loads(bridge._payload())
+    assert payload["blendshapes"]["eyeBlinkL"] == 0.25
+    assert payload["blendshapes"]["eyeBlinkR"] == 0.70
+
+
 def test_vrm0_is_candidate_and_vrm1_is_not_vseeface_compatible(tmp_path: Path) -> None:
     service = AvatarAssetService(tmp_path / "workspace", tmp_path / "project")
     vrm0 = tmp_path / "candidate.vrm"

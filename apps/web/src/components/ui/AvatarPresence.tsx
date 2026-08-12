@@ -450,8 +450,12 @@ function Model({
 
       /* ── LAYER 3: BLINK ─────────────────────────────────────────── */
       if (faceExpressions) {
-        const blL = Math.max(0, 1 - faceExpressions.eyeBlinkL);
-        const blR = Math.max(0, 1 - faceExpressions.eyeBlinkR);
+        // VMC `Fcl_EYE_Close_*` is a closure weight: 0 means open and 1
+        // means closed. Do not invert it here; inversion made live VSeeFace
+        // input hold HINAA's eyes shut. Keep a small eyelid opening visible
+        // under noisy tracking rather than rendering a permanently blank face.
+        const blL = Math.min(0.88, Math.max(0, faceExpressions.eyeBlinkL));
+        const blR = Math.min(0.88, Math.max(0, faceExpressions.eyeBlinkR));
         set(VRMExpressionPresetName.BlinkLeft,  blL);
         set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
@@ -516,6 +520,11 @@ function Model({
       }
     }
 
+    // Let VRM expression/spring-bone systems update first. The safe head and
+    // relaxed limb layer below is deliberately the final pose write each frame,
+    // so a live sender or VRM update cannot restore an authored T-pose.
+    vrm.update(dt);
+
     /* ── CALIBRATED HEAD-ONLY VMC ─────────────────────────────────── */
     // VMC body/limb packets are deliberately ignored. Head motion is applied
     // only after a live external neutral calibration, using a bounded delta
@@ -564,8 +573,9 @@ function Model({
       bone.quaternion.copy(cur);
     }
 
-    /* ── VRM UPDATE ──────────────────────────────────────────────── */
-    vrm.update(dt);
+    // The body lock intentionally runs after `vrm.update` above. VMC packets
+    // never write shoulders, arms, hands, spine, hips, or root transforms.
+    // Only the calibrated Head bone can receive a bounded live delta.
   });
 
   if (failed || !loaded) return null;

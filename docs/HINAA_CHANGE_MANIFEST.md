@@ -133,3 +133,15 @@ For every subsequent changed file, add a row before publishing the related phase
 | `apps/web/src/components/ui/ContextWorkspace.test.tsx` | Prevent a return to generic or misleading workspace empty states. | Frontend regression | No provider/browser dependency. | 1 test passed. | **PASS** |
 | `docs/HINAA_COMPLETION_CHANGELOG.md` | Record final local-agent polish and release evidence. | Completion ledger | Distinguishes code verification from unavailable runtime integrations. | Repository review. | **UPDATED** |
 | `docs/HINAA_CHANGE_MANIFEST.md` | Append this reviewable final-polish trail. | Repository governance | No protected asset or secret included. | Diff review before checkpoint. | **UPDATED** |
+
+
+## Screenshot-Driven Safe VSeeFace Tracking Repair — 2026-08-13
+
+| File | Change reason | System | Risk control | Verification | Result |
+|---|---|---|---|---|---|
+| `apps/web/src/components/ui/AvatarPresence.tsx` | Correct VMC eye closure consumption and execute VRM update before the final safe head/relaxed-arm pose layer. | Active single VRM renderer | VMC body transforms remain ignored; head needs neutral calibration; TTS keeps mouth ownership when speaking; no model binary changes. | Type check and VMC/app regression suite. | **PASS** |
+| `apps/web/src/features/audio/useVSeeFace.ts` | Initialize VMC eye closure samples as open (`0`) to match `Fcl_EYE_Close` semantics. | Browser tracking client | Per-packet values remain clamped and refs avoid React render-rate motion updates. | Type check. | **PASS** |
+| `apps/api/hinaa_api/vmc_bridge.py` | Initialize bridge eye closure values as open (`0`) with explicit semantic documentation. | Singleton VMC bridge | No protocol/new receiver changes; existing source/rate/live safeguards retained. | Focused bridge suite. | **PASS** |
+| `apps/api/tests/test_vmc_and_avatar_assets.py` | Add regression for VMC open-eye defaults and close-weight preservation. | Backend regression | No real camera/model dependency. | 3 focused tests passed. | **PASS** |
+| `apps/web/src/components/ui/VmcControlPanel.tsx` | State clearly that live VMC controls face/calibrated head while body and arms remain protected. | User-visible tracking controls | Prevents misleading full-body-mirroring expectation. | VMC panel regression preserved. | **PASS** |
+| `docs/HINAA_AVATAR_VMC_WINDOWS_CHANGELOG.md` | Record user-screenshot defect, source cause, repair, and Windows visual-verification boundary. | Evidence ledger | Does not label a screenshot-derived repair as verified real camera motion. | Repository review. | **UPDATED** |

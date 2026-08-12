@@ -140,3 +140,24 @@ This refinement addresses the reported difficult model switching, backward-facin
 | Production build | **PASS** — Vite/PWA build. |
 
 A direct My Browser inspection could load the user’s local HINAA page and display the selector, but browser action commands again failed with extension HTTP 504. That is recorded as browser-automation degradation only; it is not evidence about the user’s model pose, VSeeFace sender, or live tracking.
+
+
+## Screenshot-driven live tracking safety repair — 2026-08-13
+
+The user supplied a real Windows HINAA screenshot showing a green **LIVE** indicator alongside a visibly broken companion presentation: eyelids appeared fully closed/blank and the arms remained in an extended T-like pose. This report is treated as a visual failure signal; it is not replaced with a synthetic claim.
+
+| Finding | Repair | Evidence |
+|---|---|---|
+| VMC eye polarity | The bridge correctly maps `Fcl_EYE_Close_L/R`, but the browser avatar inverted those closure values (`1 - value`). A normal open-eye VMC sample of `0` was therefore rendered as a full blink. | The avatar now consumes closure directly, caps it below full closure to tolerate noisy tracking, and both backend/client defaults begin at `0` (open). | New bridge regression proves default open values and preserves `0.25`/`0.70` close weights. |
+| Extended-arm live pose | The final relaxed-arm normalized-bone pose write previously ran before `vrm.update(dt)`, allowing downstream VRM systems to restore an authored T-pose after the safety layer. | `vrm.update(dt)` now occurs before the calibrated head and protected relaxed-limb writes. Body/shoulder/arm/hand transforms remain ignored from VMC and the relaxed profile is the final frame pose. | Source-level final-writer audit; frontend type check passed. |
+| Tracking scope | The screenshot demonstrated why unbounded full-body mirroring is unsuitable for a companion avatar without model-specific calibration. | Fresh VMC now drives facial expression and bounded calibrated Head motion only. TTS remains sole mouth owner during speech. The UI states explicitly that shoulders, arms, hands, and body are locked to the relaxed companion pose. | Existing VMC control regression plus updated safety copy. |
+
+### Safety-repair release checks
+
+| Gate | Result |
+|---|---|
+| Focused VMC bridge suite | **PASS** — 3 tests, including eye closure semantics. |
+| Focused frontend VMC/app suite | **PASS** — 27 test files, 116 passing tests, 2 existing todos. |
+| Frontend type check | **PASS** — `tsc -b`. |
+
+The real Windows visual validation is still **PENDING_USER_RUNTIME**: apply this branch, restart the local API and frontend, hard-refresh once, reconnect VSeeFace, and then confirm the arms remain relaxed while eyes, brows, gaze/head, and non-speech mouth expressions respond. This repo change never alters the user’s original VRM binary, VSeeFace installation, or camera configuration.

@@ -112,7 +112,8 @@ _BLEND_MAP: dict[str, str] = {
 _INITIAL_VALUES = {
     "mouthOpen": 0.0, "mouthA": 0.0, "mouthI": 0.0, "mouthU": 0.0,
     "mouthE": 0.0, "mouthO": 0.0, "mouthSmile": 0.0,
-    "eyeBlinkL": 1.0, "eyeBlinkR": 1.0,
+    # VMC `Fcl_EYE_Close_*` values are closure weights: 0 is open.
+    "eyeBlinkL": 0.0, "eyeBlinkR": 0.0,
     "browUpL": 0.0, "browUpR": 0.0, "browDownL": 0.0, "browDownR": 0.0,
     "cheekPuff": 0.0, "angry": 0.0, "sad": 0.0, "relaxed": 0.0,
 }

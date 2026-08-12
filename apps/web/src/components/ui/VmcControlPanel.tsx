@@ -13,7 +13,7 @@ const STATE_COPY = {
   disconnected: { label: "Disconnected", color: "#94a3b8", detail: "Connect HINAA to its local VMC bridge, then start VSeeFace sending." },
   connecting: { label: "Starting receiver", color: "#fde68a", detail: "Opening one browser connection to HINAA’s local VMC bridge." },
   listening: { label: "VMC Listening", color: "#93c5fd", detail: "The receiver is bound, but no recent VSeeFace tracking packet has arrived." },
-  live: { label: "VSeeFace Live", color: "#86efac", detail: "Fresh external VMC packets are arriving. Only enabled facial channels are mirrored." },
+  live: { label: "VSeeFace Live", color: "#86efac", detail: "Fresh external packets are driving facial expression and calibrated head motion. HINAA keeps her shoulders, arms, hands, and body in a protected relaxed pose." },
   stale: { label: "Tracking Stale", color: "#fdba74", detail: "Packets arrived previously but are no longer fresh. HINAA is fading to a neutral autonomous presence." },
   test: { label: "Test Signal", color: "#c4b5fd", detail: "A HINAA diagnostic fixture is active. This is not camera tracking and never appears as LIVE." },
   error: { label: "Error", color: "#fda4af", detail: "The local VMC bridge is unavailable. Chat and voice remain usable." },
@@ -63,7 +63,7 @@ export function VmcControlPanel({ tracker, selectedModelLabel, selectedModelMode
       </div>
       <div style={styles.box}>
         <strong style={styles.boxTitle}>Selected browser model</strong>
-        <p style={styles.channels}>{selectedModelLabel}. HINAA owns speech mouth movement; live VMC face channels are accepted only while packets are fresh. Limbs are not mirrored until a calibrated model pair exists.</p>
+        <p style={styles.channels}>{selectedModelLabel}. HINAA owns speech mouth movement while she talks. Fresh VMC controls facial expression and a bounded calibrated head response; her body, shoulders, arms, and hands stay locked to the relaxed companion pose so a sender cannot force a T-pose.</p>
       </div>
 
       <div style={styles.actions}>
