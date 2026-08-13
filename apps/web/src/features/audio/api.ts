@@ -5,6 +5,7 @@ export type ProviderMode =
   | "openai"
   | "custom"
   | "real"
+  | "claude"
   | "agent-router"
   | "cx-gateway"
   | "gemini-live";

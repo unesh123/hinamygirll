@@ -19,7 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 from .prompts import PROMPT_VERSION, neutral_fallback_plan
 from .prompts.turn_prompt import build_turn_prompt
-from .providers.agent_router import AgentRouterOpenAIProvider, AgentRouterAnthropicProvider
+from .providers.agent_router import AgentRouterOpenAIProvider, AgentRouterAnthropicProvider, ClaudeLLMProvider
 from .providers.azure_speech import AzureSpeechProvider
 from .providers.base import (
     LLMProvider,
@@ -303,6 +303,16 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_claude_brain(self) -> None:
+        if self.settings.active_claude_key is None or self.settings.active_claude_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Claude is not configured. Add HINAA_CLAUDE_API_KEY (or ANTHROPIC_API_KEY) to apps/api/.env.local. "
+                "Configure HINAA_CLAUDE_BASE_URL only when you intentionally use a compatible gateway.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_agent_router_brain(self) -> None:
         if self.settings.active_agent_router_key is None or self.settings.active_agent_router_base_url is None:
             raise HinaaError(
@@ -392,6 +402,26 @@ class ProviderRouter:
                 model,
                 base_url=active_custom_base_url,
                 provider_id="custom",
+            )
+        if mode == "claude":
+            self._require_claude_brain()
+            active_claude_key = self.settings.active_claude_key
+            active_claude_base_url = self.settings.active_claude_base_url
+            assert active_claude_key and active_claude_base_url
+            try:
+                model = self.settings.resolve_claude_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "CLAUDE_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    retryable=False,
+                    user_action_required=True,
+                ) from error
+            return ClaudeLLMProvider(
+                api_key=active_claude_key.get_secret_value(),
+                model=model,
+                base_url=active_claude_base_url,
             )
         if mode == "agent-router":
             self._require_agent_router_brain()

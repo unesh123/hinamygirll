@@ -58,3 +58,23 @@ describe("resolveProviderSelection", () => {
     expect(selection.reason).toBe("explicit-user-choice");
   });
 });
+
+
+  it("uses configured Claude as the automatic fallback after CX Gateway", () => {
+    const preferences: ProviderPreferences = {
+      preferredMode: "auto",
+      preferredModelByProvider: { claude: "claude-sonnet-4-20250514" },
+    };
+
+    const selection = resolveProviderSelection(
+      preferences,
+      providersWith({ "cx-gateway": "unavailable", claude: "healthy", openai: "healthy", mock: "healthy" }),
+    );
+
+    expect(selection).toEqual({
+      preferredMode: "auto",
+      activeMode: "claude",
+      activeModel: "claude-sonnet-4-20250514",
+      reason: "automatic-fallback",
+    });
+  });

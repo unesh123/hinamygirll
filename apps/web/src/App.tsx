@@ -640,6 +640,7 @@ export default function App() {
                 <div className="header-right">
                   <span className="header-status"><span className="header-status-dot" />{stateLabels[controller.state]}</span>
                   {routing.activeMode === "cx-gateway" && <span title="CX Gateway is the active Hinaa brain" style={{ color: "#0f766e", fontSize: 11, fontWeight: 750 }}>CX Brain</span>}
+                  {routing.activeMode === "claude" && <span title="Claude is the active Hinaa brain" style={{ color: "#d97706", fontSize: 11, fontWeight: 750 }}>Claude</span>}
                   {routing.reason === "recovery" && <button type="button" onClick={() => setSettingsOpen(true)} title="CX is not available locally; open settings to configure it" style={{ border: "1px solid rgba(245,158,11,.30)", borderRadius: 999, color: "#92400e", background: "rgba(254,243,199,.70)", padding: "4px 7px", cursor: "pointer", fontSize: 10, fontWeight: 750 }}>CX offline · safe mode</button>}
                   <SearchingLoader visible={searching} />
                   <SettingsTrigger onClick={() => setSettingsOpen(true)} isOpen={settingsOpen} />

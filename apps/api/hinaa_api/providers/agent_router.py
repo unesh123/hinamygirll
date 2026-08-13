@@ -67,8 +67,10 @@ class AgentRouterOpenAIProvider(OpenAILLMProvider):
 
 class AgentRouterAnthropicProvider(OpenAILLMProvider):
     id = "agent-router-anthropic"
-    def __init__(self, api_key: str, model: str, base_url: str):
-        super().__init__(key=api_key, model=model, base_url=base_url, provider_id="agent-router-anthropic")
+
+    def __init__(self, api_key: str, model: str, base_url: str, *, provider_id: str = "agent-router-anthropic"):
+        self.id = provider_id
+        super().__init__(key=api_key, model=model, base_url=base_url, provider_id=provider_id)
         self.anthropic_client = AsyncAnthropic(
             api_key=api_key,
             base_url=base_url.rstrip("/"),
@@ -125,6 +127,15 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             
     async def _chat_json(self, prompt: PromptPackage) -> str:
         return await self._chat_text(prompt)
+
+class ClaudeLLMProvider(AgentRouterAnthropicProvider):
+    """Anthropic Messages API adapter for HINAA's explicit Claude mode."""
+
+    id = "claude"
+
+    def __init__(self, api_key: str, model: str, base_url: str) -> None:
+        super().__init__(api_key, model, base_url, provider_id=self.id)
+
 
 # Backward-compatible public name for OpenAI-compatible Agent Router models.
 # New routing selects the Anthropic-specific implementation only when required.

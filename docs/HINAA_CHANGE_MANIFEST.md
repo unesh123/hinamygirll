@@ -263,3 +263,11 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Legacy-envelope correctness | `resolveToolOutcome` now unwraps direct and staged `success/data/data` responses. A nested error cannot be labelled `Completed: image_search`. | New nested-image-search error regression passes. |
 | Failure UX | Image-search 502 failure cards now state that no images were returned and describe bounded recovery options. | Focused frontend tests pass. |
 | Detailed research | Added source-backed result rendering for cited answers, deep research, task status, selected-page extraction, and finance research. Content is excerpted initially, expandable, and paired with attributed source cards. | Detailed research renderer regression passes. |
+
+## Phase 29 — Secret-safe provider readiness and explicit Claude integration
+| Surface | Change | Verification |
+|---|---|---|
+| Claude brain | Added an explicit `claude` provider mode using HINAA's Anthropic Messages adapter, typed request selection, safe model allow-list, CX-first automatic fallback, settings selector, header indicator, and provider status entry. | Dedicated backend and frontend tests pass without a live provider call. |
+| Secret handling | Claude accepts `HINAA_CLAUDE_API_KEY` or standard `ANTHROPIC_API_KEY`. It does not consume `ANTHROPIC_AUTH_TOKEN`, which may be a separate Claude Code gateway credential. | Environment-template documentation and secret-safe status regression added. |
+| Diagnostics | Expanded provider diagnostics to show safe readiness messages and capability labels. It never renders credential values. | Provider status API regression confirms the test key is absent from output. |
+| Provider verification | Full release gate completes with no external provider invocation; configuration presence is not represented as authentication or synthesis proof. | API tests, frontend tests, mobile checks, TypeScript, build, and lint pass. |

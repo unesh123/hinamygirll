@@ -5,7 +5,7 @@ import type {
   ConversationRequest,
 } from "./conversationProvider";
 
-type ProviderMode = "mock" | "local" | "groq" | "openai" | "custom" | "real" | "agent-router" | "cx-gateway" | "gemini-live";
+type ProviderMode = "mock" | "local" | "groq" | "openai" | "custom" | "real" | "claude" | "agent-router" | "cx-gateway" | "gemini-live";
 
 interface StreamEvent {
   type: "thinking" | "text.delta" | "plan" | "usage" | "error";
@@ -38,6 +38,7 @@ export class BackendConversationProvider implements ConversationProvider {
     if (
       (this.mode === "openai" ||
         this.mode === "custom" ||
+        this.mode === "claude" ||
         this.mode === "agent-router" ||
         this.mode === "real") &&
       request.brainModel

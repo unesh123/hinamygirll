@@ -119,7 +119,7 @@ function validateAppearance(raw: unknown): AppearanceSettings {
 function validateModelByProvider(raw: unknown): ModelByProvider {
   if (!isObject(raw)) return {};
   const allowed: Array<Exclude<ProviderPreferenceMode, "auto">> = [
-    "custom", "openai", "real", "local", "mock", "agent-router", "cx-gateway", "gemini-live",
+    "custom", "openai", "real", "local", "mock", "claude", "agent-router", "cx-gateway", "gemini-live",
   ];
   const result: ModelByProvider = {};
   for (const key of allowed) {
@@ -139,7 +139,7 @@ function validateProvider(raw: unknown): ProviderPreferences {
   return {
     preferredMode: safeString<ProviderPreferenceMode>(
       obj.preferredMode,
-      ["auto", "custom", "openai", "real", "local", "mock", "agent-router", "cx-gateway", "gemini-live"],
+      ["auto", "custom", "openai", "real", "local", "mock", "claude", "agent-router", "cx-gateway", "gemini-live"],
       d.preferredMode,
     ),
     preferredModelByProvider: validateModelByProvider(obj.preferredModelByProvider),

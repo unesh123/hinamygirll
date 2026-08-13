@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env.local"
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "agent-router", "cx-gateway", "gemini-live"] = Field(
+    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "agent-router", "cx-gateway", "gemini-live"] = Field(
         "cx-gateway", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -35,6 +35,19 @@ class Settings(BaseSettings):
             "gemini-flash-lite-latest,gemini-pro-latest"
         ),
         alias="GEMINI_ALLOWED_MODELS",
+    )
+    # Claude is an explicit HINAA provider. It accepts a standard Anthropic key
+    # via ANTHROPIC_API_KEY for convenience, but never reuses ANTHROPIC_AUTH_TOKEN
+    # because that token may belong to a separate Claude Code gateway/account.
+    claude_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("HINAA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY"),
+    )
+    claude_base_url: str = Field("https://api.anthropic.com", alias="HINAA_CLAUDE_BASE_URL")
+    claude_model: str = Field("claude-sonnet-4-20250514", alias="HINAA_CLAUDE_MODEL")
+    claude_allowed_models_raw: str = Field(
+        "claude-sonnet-4-20250514,claude-opus-4-20250514,claude-3-5-haiku-20241022",
+        alias="HINAA_CLAUDE_ALLOWED_MODELS",
     )
     groq_api_key: SecretStr | None = Field(None, alias="GROQ_API_KEY")
     groq_model: str = Field("llama-3.1-8b-instant", alias="GROQ_MODEL")
@@ -200,6 +213,36 @@ class Settings(BaseSettings):
         if model not in self.gemini_allowed_models:
             allowed = ", ".join(self.gemini_allowed_models)
             raise ValueError(f"Gemini model is not in GEMINI_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def claude_configured(self) -> bool:
+        return bool(self.claude_api_key and self.claude_api_key.get_secret_value() and self.active_claude_base_url)
+
+    @property
+    def active_claude_key(self) -> SecretStr | None:
+        if self.claude_api_key and self.claude_api_key.get_secret_value():
+            return self.claude_api_key
+        return None
+
+    @property
+    def active_claude_base_url(self) -> str | None:
+        value = self.claude_base_url.strip().rstrip("/")
+        return value or None
+
+    @property
+    def claude_allowed_models(self) -> list[str]:
+        configured = [model.strip() for model in self.claude_allowed_models_raw.split(",") if model.strip()]
+        models = configured or [self.claude_model]
+        if self.claude_model and self.claude_model not in models:
+            models.insert(0, self.claude_model)
+        return models
+
+    def resolve_claude_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.claude_model
+        if model not in self.claude_allowed_models:
+            allowed = ", ".join(self.claude_allowed_models)
+            raise ValueError(f"Claude model is not in HINAA_CLAUDE_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

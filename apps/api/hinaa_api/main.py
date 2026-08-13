@@ -392,6 +392,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ),
             ProviderStatus(
+                id="claude",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "anthropic-messages",
+                    f"default-model:{active_settings.claude_model}",
+                    *[f"model:{model}" for model in active_settings.claude_allowed_models],
+                ],
+                state="healthy" if active_settings.claude_configured else "unavailable",
+                userMessage=(
+                    "Claude configuration is present; no live call has been made."
+                    if active_settings.claude_configured
+                    else "Claude needs HINAA_CLAUDE_API_KEY (or ANTHROPIC_API_KEY)."
+                ),
+            ),
+            ProviderStatus(
                 id="custom",
                 capabilities=[
                     "llm",
