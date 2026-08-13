@@ -421,3 +421,14 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 
 
 | Pre-approval action language | **IMPLEMENTED** | The tool policy now requires future-facing wording before approval/verified results. HINAA may say she will open a song after approval, but may say it is playing only after verified player evidence returns. This corrects the premature chat claim visible in the supplied screenshot. |
+
+## Phase 25 — Fullscreen Live Companion Polish — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Fullscreen character conversation | **IMPLEMENTED / LOCAL VISUAL RECHECK REQUIRED** | The one existing `AvatarPresence` canvas now has an Ink Rose fullscreen overlay with up to three recent turns, partial user speech, streamed assistant reply text, state chips, and a responsive layout. No second avatar canvas or duplicate voice state was introduced. |
+| Fullscreen microphone controls | **IMPLEMENTED / PHYSICAL MICROPHONE PROOF PENDING** | The fullscreen dock uses the existing `useLiveConversation` lifecycle: explicit Start, Stop, Pause, and Resume controls surface the live hook’s real `detail`, `paused`, and `microphoneLevel` state. Tests verify start/stop, pause/resume, partial/streaming messages, and the actionable microphone-denied state. |
+| Fullscreen entry reliability | **IMPLEMENTED / BROWSER RECHECK REQUIRED** | Native browser fullscreen is attempted first, while an in-page theater fallback keeps the exact same stage usable if native fullscreen is rejected. The initial browser click did not show native fullscreen; after the fallback repair, the user-connected browser extension timed out twice on refresh, so that final visual check is honestly pending. |
+| Voice, avatar, and tracking | **CODE PATH AVAILABLE / WINDOWS HARDWARE EVIDENCE PENDING** | Browser/device voice and the local microphone lifecycle remain available under their existing truthful recovery states. ElevenLabs requires valid local credentials; VSeeFace claims remain contingent on fresh Windows VMC packets and supported blendshape signals; real lipsync/motion cannot be claimed from this sandbox. |
+| Release gate | **PASS** | Frontend Vitest: 30 files, 127 passing tests, 2 existing todos; TypeScript typecheck passes; Vite/PWA production build passes. |
+
+> To complete the local acceptance check, hard-refresh HINAA, choose the expand icon on the avatar stage, then use the large microphone button in the fullscreen dock. Approve the browser microphone permission if prompted. Confirm that the status changes only after permission/session readiness, that partial speech and streamed text appear in the stage, and that Stop returns the dock to the ready state. VSeeFace must be verified separately with real fresh packets on Windows.

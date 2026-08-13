@@ -231,3 +231,10 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 
 
 | Tool-language truthfulness | Updated the immutable tool policy after the supplied screenshot showed HINAA saying a song was playing before its approved action returned. Planned actions now use future-facing language; completed language is reserved for verified returned tool events. Image status examples now use Devanagari Hindi plus English technical terms. | Prompt-assembly and conversation-brain regressions pass. |
+
+## Phase 25 — Fullscreen live companion polish
+| Surface | Change | Verification |
+|---|---|---|
+| Existing single avatar stage | Extended `AvatarPresence` rather than adding a second canvas. The stage now renders a professional fullscreen overlay with recent turns, live partial transcription, streamed assistant text, truthful status chips, input meter, and explicit start/stop/pause/resume controls. | `FullscreenCompanionOverlay` UI regressions cover microphone controls, transcript states, and unavailable-device recovery. |
+| Fullscreen entry | Native browser fullscreen remains preferred. An immediate in-page theater fallback now expands the same stage to the viewport if browser policy or an embedded context rejects the Fullscreen API. | TypeScript and production build pass. Initial active-browser inspection showed the previous fullscreen control did not visibly enter native fullscreen; post-repair user-browser refresh was blocked by a temporary browser-extension timeout, so final visual evidence must be repeated locally. |
+| Visual system | Added responsive Ink Rose stage chrome, high-contrast transcript cards, voice dock, active microphone meter, keyboard-visible control focus, and reduced-motion fallbacks. | Complete frontend suite passes: 30 files, 127 passing tests, 2 existing todos; TypeScript and Vite/PWA build pass. |

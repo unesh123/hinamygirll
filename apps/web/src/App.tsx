@@ -539,6 +539,20 @@ export default function App() {
                 trackingCalibration={faceTrack.calibration}
                 expressionText={latestAssistantExpressionText}
                 presentation={avatarPresentation}
+                companionName={companionProfiles[controller.companionId].name}
+                liveStatus={{
+                  active: live.active,
+                  paused: live.paused,
+                  detail: live.detail,
+                  microphoneLevel: live.microphoneLevel,
+                }}
+                messages={controller.messages}
+                partialTranscript={controller.partialTranscript}
+                streamingText={controller.streamingText}
+                onStartLive={() => { interruptPlayback(); live.start(); }}
+                onStopLive={() => live.stop()}
+                onPauseLive={() => live.pause()}
+                onResumeLive={() => live.resume()}
               /></Suspense>
               {/* A small, direct selector: choose Hinaa, choose Classic, or add a local VRM.
                   Rejected legacy B/C assets remain absent. */}

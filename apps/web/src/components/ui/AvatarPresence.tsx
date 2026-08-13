@@ -18,7 +18,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 import { Expand, Maximize2, Minimize2, Radio } from "lucide-react";
-import type { CompanionState } from "../../features/companion/types";
+import { FullscreenCompanionOverlay, type FullscreenLiveStatus } from "./FullscreenCompanionOverlay";
+import type { CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { AvatarPresentation } from "../../features/avatar/avatarPresentation";
 import type { FaceExpressions } from "../../features/audio/useVSeeFace";
 import { expressionIntentFor, type CompanionExpressionIntent } from "../../features/avatar/companionExpression";
@@ -681,6 +682,15 @@ interface Props {
   } | null;
   expressionText?: string;
   presentation?: AvatarPresentation;
+  companionName?: string;
+  liveStatus?: FullscreenLiveStatus;
+  messages?: TranscriptMessage[];
+  partialTranscript?: string;
+  streamingText?: string;
+  onStartLive?: () => void;
+  onStopLive?: () => void;
+  onPauseLive?: () => void;
+  onResumeLive?: () => void;
 }
 
 // Stable fallback refs so we never create new objects in render
@@ -693,23 +703,50 @@ const _startRef = { current: 0 };
 export function AvatarPresence({
   mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
   modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, expressionText, presentation,
+  companionName = "HINAA", liveStatus, messages = [], partialTranscript, streamingText,
+  onStartLive, onStopLive, onPauseLive, onResumeLive,
 }: Props) {
   const [webglFailed, setWebglFailed] = useState(false);
   const [anatomy, setAnatomy] = useState<AnatomyFrame | undefined>();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const nativeFullscreenRef = useRef(false);
   const playgroundRef = useRef<HTMLDivElement>(null);
   const applyAnatomy = useCallback((frame: AnatomyFrame) => setAnatomy(frame), []);
 
   useEffect(() => {
-    const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === playgroundRef.current);
+    const onFullscreenChange = () => {
+      const nativeActive = document.fullscreenElement === playgroundRef.current;
+      // Escape exits native fullscreen but must not dismiss the deliberate
+      // in-page theater fallback unless that native request was actually active.
+      if (nativeFullscreenRef.current && !nativeActive) setIsFullscreen(false);
+      nativeFullscreenRef.current = nativeActive;
+      if (nativeActive) setIsFullscreen(true);
+    };
     document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
 
   const toggleFullscreen = () => {
     if (!playgroundRef.current) return;
-    if (document.fullscreenElement === playgroundRef.current) void document.exitFullscreen();
-    else void playgroundRef.current.requestFullscreen?.();
+    if (isFullscreen) {
+      if (nativeFullscreenRef.current && document.fullscreenElement === playgroundRef.current) {
+        void document.exitFullscreen();
+      } else {
+        setIsFullscreen(false);
+      }
+      return;
+    }
+
+    // Theater mode is immediate and fully usable even if a browser policy,
+    // embedding context, or automated shell rejects the native API.
+    setIsFullscreen(true);
+    const request = playgroundRef.current.requestFullscreen?.();
+    if (request) {
+      void request.then(
+        () => { nativeFullscreenRef.current = document.fullscreenElement === playgroundRef.current; },
+        () => { nativeFullscreenRef.current = false; },
+      );
+    }
   };
 
   // Reset on model change
@@ -788,6 +825,21 @@ export function AvatarPresence({
 
       {(!modelUrl || webglFailed) && <AvatarFallback state={state} />}
 
+      <FullscreenCompanionOverlay
+        open={isFullscreen}
+        companionName={companionName}
+        companionState={state}
+        live={liveStatus ?? { active: false, paused: false, detail: "", microphoneLevel: 0 }}
+        messages={messages}
+        partialTranscript={partialTranscript}
+        streamingText={streamingText}
+        trackingActive={Boolean(faceTrackingActive)}
+        onStartLive={onStartLive ?? (() => undefined)}
+        onStopLive={onStopLive ?? (() => undefined)}
+        onPauseLive={onPauseLive ?? (() => undefined)}
+        onResumeLive={onResumeLive ?? (() => undefined)}
+      />
+
       {/* Controls */}
       <div className="avatar-playground__controls">
         {faceTrackingActive && (
@@ -802,6 +854,7 @@ export function AvatarPresence({
           className="avatar-playground__control avatar-playground__fullscreen"
           title={isFullscreen ? "Exit Hinaa playground" : "Open Hinaa playground full screen"}
           aria-label={isFullscreen ? "Exit Hinaa playground full screen" : "Open Hinaa playground full screen"}
+          aria-pressed={isFullscreen}
         >
           {isFullscreen ? <Minimize2 size={13} aria-hidden="true" /> : <Expand size={13} aria-hidden="true" />}
         </motion.button>
