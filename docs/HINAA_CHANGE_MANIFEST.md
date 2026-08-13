@@ -293,3 +293,11 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Gateway 503 classifier | Added `PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE` for the exact 503 response body that reports no available upstream accounts. | No-network regression uses the observed payload and verifies retryable/actionable typed output with secret redaction. |
 | Chat recovery | HINAA now explains that the gateway received the request but has no upstream account capacity, and directs users to account/balance status, retry later, or another healthy brain. | Frontend type check and full release gate pass. |
 | Fault attribution | This condition is no longer represented as a local Claude model-selection or authentication failure. | The screenshot payload is explicitly handled before generic provider-unavailable mapping. |
+
+## Phase 33 — mwapi Claude-compatible Bearer alignment
+| Surface | Change | Verification |
+|---|---|---|
+| Automatic mwapi transport | HINAA now recognizes `api.mwapi.dev` as a dedicated gateway and defaults its Claude mode to Anthropic Messages with the gateway’s required Bearer header. OpenAI-compatible transport remains explicit opt-in. | No-network provider-routing, model-resolution, diagnostics, and header-contract regressions pass. |
+| Authentication headers | The Anthropic adapter retains the SDK’s official request contract and adds `Authorization: Bearer` only for the mwapi host. | Regression verifies the exact Bearer header is configured without transmitting a real key. |
+| Gateway model catalog | mwapi host detection, rather than transport selection alone, controls the model alias/catalog recovery. This preserves `claude-sonnet-4-6` across the successful Claude-compatible path. | API status and stale-model regressions pass. |
+| Diagnostics | Claude diagnostics identify `anthropic-messages`, `bearer-auth`, and the selected protocol without exposing credentials. | Full release gate passes. |

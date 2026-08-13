@@ -1,5 +1,6 @@
 import httpx
 from typing import AsyncIterator
+from urllib.parse import urlparse
 from anthropic import AsyncAnthropic, APIError, APIConnectionError, APITimeoutError, RateLimitError, AuthenticationError
 from hinaa_api.providers.openai_llm import OpenAILLMProvider
 from hinaa_api.errors import HinaaError
@@ -70,11 +71,16 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
 
     def __init__(self, api_key: str, model: str, base_url: str, *, provider_id: str = "agent-router-anthropic"):
         self.id = provider_id
+        self.uses_bearer_auth = urlparse(base_url).hostname == "api.mwapi.dev"
         super().__init__(key=api_key, model=model, base_url=base_url, provider_id=provider_id)
+        # AsyncAnthropic supplies x-api-key for official Anthropic. The mwapi
+        # Claude-compatible route additionally requires standard Bearer auth;
+        # retaining the SDK header preserves the Messages request contract.
+        self.gateway_auth_headers = {"Authorization": f"Bearer {api_key}"} if self.uses_bearer_auth else {}
         self.anthropic_client = AsyncAnthropic(
             api_key=api_key,
             base_url=base_url.rstrip("/"),
-            default_headers={"x-api-key": api_key}
+            default_headers=self.gateway_auth_headers or None,
         )
 
     def _map_anthropic_error(self, e: Exception) -> HinaaError:

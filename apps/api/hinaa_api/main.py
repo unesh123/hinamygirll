@@ -398,13 +398,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "structured-turn-plan",
                     "text-stream",
                     "openai-compatible" if active_settings.active_claude_protocol == "openai-compatible" else "anthropic-messages",
+                    "bearer-auth" if active_settings.is_mwapi_claude_gateway else "sdk-auth",
                     f"protocol:{active_settings.active_claude_protocol}",
                     f"default-model:{active_settings.active_claude_model}",
                     *[f"model:{model}" for model in active_settings.claude_allowed_models],
                 ],
                 state="healthy" if active_settings.claude_configured else "unavailable",
                 userMessage=(
-                    f"Claude configuration is present using {active_settings.active_claude_protocol}; no live call has been made."
+                    f"Claude configuration is present using {active_settings.active_claude_protocol}{' with Bearer authentication' if active_settings.is_mwapi_claude_gateway else ''}; no live call has been made."
                     if active_settings.claude_configured
                     else "Claude needs HINAA_CLAUDE_API_KEY (or ANTHROPIC_API_KEY)."
                 ),

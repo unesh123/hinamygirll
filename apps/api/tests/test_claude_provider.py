@@ -64,7 +64,7 @@ def test_standard_anthropic_environment_alias_is_accepted() -> None:
     assert settings.active_claude_key.get_secret_value() == "standard-test-key"
 
 
-def test_claude_v1_gateway_uses_openai_compatible_transport_without_live_call() -> None:
+def test_mwapi_gateway_uses_anthropic_bearer_transport_without_live_call() -> None:
     settings = _settings(
         HINAA_CLAUDE_BASE_URL="https://api.mwapi.dev/v1",
         HINAA_CLAUDE_MODEL="claude-sonnet-4-6",
@@ -73,14 +73,14 @@ def test_claude_v1_gateway_uses_openai_compatible_transport_without_live_call() 
 
     provider = ProviderRouter(settings).llm("claude")
 
-    assert settings.active_claude_protocol == "openai-compatible"
-    assert provider.id == "openai"
-    assert provider._provider_id == "claude"  # type: ignore[attr-defined]
-    assert provider._chat_url() == "https://api.mwapi.dev/v1/chat/completions"  # type: ignore[attr-defined]
-    assert provider._headers()["Authorization"] == "Bearer test-claude-key"  # type: ignore[attr-defined]
+    assert settings.active_claude_protocol == "anthropic"
+    assert provider.id == "claude"
+    assert provider.uses_bearer_auth is True  # type: ignore[attr-defined]
+    assert provider.gateway_auth_headers == {"Authorization": "Bearer test-claude-key"}  # type: ignore[attr-defined]
+    assert provider._model == "claude-sonnet-4-6"  # type: ignore[attr-defined]
 
 
-def test_claude_status_discloses_gateway_protocol_without_secret() -> None:
+def test_claude_status_discloses_mwapi_bearer_protocol_without_secret() -> None:
     settings = _settings(
         HINAA_CLAUDE_BASE_URL="https://api.mwapi.dev/v1",
         HINAA_CLAUDE_MODEL="claude-sonnet-4-6",
@@ -90,8 +90,9 @@ def test_claude_status_discloses_gateway_protocol_without_secret() -> None:
         response = client.get("/v1/providers")
 
     claude = next(item for item in response.json() if item["id"] == "claude")
-    assert "openai-compatible" in claude["capabilities"]
-    assert "protocol:openai-compatible" in claude["capabilities"]
+    assert "anthropic-messages" in claude["capabilities"]
+    assert "bearer-auth" in claude["capabilities"]
+    assert "protocol:anthropic" in claude["capabilities"]
     assert "test-claude-key" not in str(claude)
 
 
@@ -112,7 +113,7 @@ def test_claude_code_auth_token_alone_does_not_configure_hinaa() -> None:
 def test_gateway_normalizes_stale_official_model_preference() -> None:
     settings = _settings(HINAA_CLAUDE_BASE_URL="https://api.mwapi.dev/v1")
 
-    assert settings.active_claude_protocol == "openai-compatible"
+    assert settings.active_claude_protocol == "anthropic"
     assert settings.active_claude_model == "claude-sonnet-4-6"
     assert settings.resolve_claude_model("claude-sonnet-4-20250514") == "claude-sonnet-4-6"
     assert settings.claude_allowed_models == [

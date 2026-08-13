@@ -493,3 +493,11 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | HINAA handling | **IMPLEMENTED AND TESTED** | The matching 503 now returns `PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE` with a concise action path and no raw upstream JSON or secret content in the chat card. |
 | Live provider success | **NOT PROVEN / BLOCKED BY UPSTREAM** | No local source change can make a provider account available when the gateway reports none. A successful real Claude turn requires the gateway account/balance/capacity condition to clear. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 33 — mwapi Claude-compatible Bearer Alignment — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Provider evidence reconciliation | **IMPLEMENTED AND TESTED WITHOUT LIVE BILLING** | The user-supplied provider dashboard shows quota and successful `claude-sonnet-4-6` requests. HINAA therefore now defaults the mwapi host to the Claude-compatible Anthropic Messages path with Bearer authentication, aligning with that evidence rather than the prior automatic OpenAI chat-completions route. |
+| Request contract | **VERIFIED IN NO-NETWORK TESTS** | HINAA detects `api.mwapi.dev`, selects Claude’s Anthropic adapter, adds the Bearer header, keeps the gateway model catalog, and publishes safe diagnostics. |
+| Real Windows acceptance | **REQUIRES RESTART AND ONE TYPED TURN** | The user’s local backend must load this newest code and restart before testing. No live paid request was sent from the sandbox. The gateway’s prior transient account-capacity error must be rechecked only after the updated transport is active. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |

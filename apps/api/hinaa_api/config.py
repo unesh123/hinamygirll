@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Annotated, Literal
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
@@ -59,8 +60,8 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("HINAA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY"),
     )
     claude_base_url: str = Field("https://api.anthropic.com", alias="HINAA_CLAUDE_BASE_URL")
-    # auto uses the documented OpenAI-compatible route for an /v1 gateway such
-    # as mwapi.dev; choose anthropic or openai-compatible explicitly to override.
+    # auto uses the evidenced Claude-compatible Bearer route for mwapi.dev;
+    # choose anthropic or openai-compatible explicitly to override.
     claude_protocol: Literal["auto", "anthropic", "openai-compatible"] = Field("auto", alias="HINAA_CLAUDE_PROTOCOL")
     claude_model: str = Field("claude-sonnet-4-20250514", alias="HINAA_CLAUDE_MODEL")
     claude_allowed_models_raw: str = Field(
@@ -249,15 +250,19 @@ class Settings(BaseSettings):
         return value or None
 
     @property
+    def is_mwapi_claude_gateway(self) -> bool:
+        return urlparse(self.active_claude_base_url or "").hostname == "api.mwapi.dev"
+
+    @property
     def active_claude_protocol(self) -> Literal["anthropic", "openai-compatible"]:
         if self.claude_protocol != "auto":
             return self.claude_protocol
-        # mwapi.dev documents /v1 with Bearer authentication and the OpenAI
-        # chat-completions contract. Official Anthropic uses the Messages API.
-        return "openai-compatible" if self.active_claude_base_url and self.active_claude_base_url.endswith("/v1") else "anthropic"
+        # The provider's successful HINAA verification uses its Claude-compatible
+        # Messages route with Bearer authorization; keep OpenAI mode opt-in.
+        return "anthropic"
 
     def _normalize_claude_model(self, model: str) -> str:
-        if self.active_claude_protocol == "openai-compatible":
+        if self.is_mwapi_claude_gateway:
             return MWAPI_CLAUDE_MODEL_ALIASES.get(model, model)
         return model
 
@@ -268,7 +273,7 @@ class Settings(BaseSettings):
     @property
     def claude_allowed_models(self) -> list[str]:
         configured = [model.strip() for model in self.claude_allowed_models_raw.split(",") if model.strip()]
-        if self.active_claude_protocol == "openai-compatible" and (
+        if self.is_mwapi_claude_gateway and (
             not configured
             or self.claude_allowed_models_raw == OFFICIAL_CLAUDE_DEFAULT_MODELS
             or all(model in MWAPI_CLAUDE_MODEL_ALIASES for model in configured)
