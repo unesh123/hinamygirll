@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Globe, Image as ImageIcon, Music, Mail, type LucideIcon } from 'lucide-react';
-import KnowledgeConvergence from '../lightswind/knowledge-convergence';
+import { ActivityPanel, type AgentStep } from './ActivityPanel';
 import { SourceCard, type SourceItem } from './SourceCard';
 
 export type ContextMode = 'hidden' | 'research' | 'images' | 'music' | 'email' | 'browser';
@@ -11,6 +11,7 @@ interface ContextWorkspaceProps {
   onClose: () => void;
   sources?: SourceItem[];
   isSearching?: boolean;
+  steps?: AgentStep[];
   title?: string;
 }
 
@@ -40,7 +41,7 @@ const MODE_EMPTY_STATES: Record<Exclude<ContextMode, 'hidden'>, string> = {
   browser: 'Ask HINAA to open or research a link. Browser actions are proposed clearly before they run.',
 };
 
-export function ContextWorkspace({ mode, onClose, sources = [], isSearching = false, title }: ContextWorkspaceProps) {
+export function ContextWorkspace({ mode, onClose, sources = [], isSearching = false, steps = [], title }: ContextWorkspaceProps) {
   const isOpen = mode !== 'hidden';
   const ModeIcon = mode !== 'hidden' ? MODE_ICONS[mode] : null;
 
@@ -61,23 +62,28 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {ModeIcon && <ModeIcon size={15} style={{ color: '#0891b2' }} />}
-                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1a1f2e' }}>{title ?? MODE_LABELS[mode]}</span>
+                {ModeIcon && <ModeIcon size={15} style={{ color: '#f5a7bb' }} />}
+                <span style={{ fontWeight: 750, fontSize: '0.88rem', color: '#fff4f8', letterSpacing: '.01em' }}>{title ?? MODE_LABELS[mode]}</span>
               </div>
               <button
                 type="button"
                 aria-label={`Close ${MODE_LABELS[mode]} workspace`}
                 onClick={onClose}
-                style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}
+                style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid rgba(255,219,231,.18)', background: 'rgba(255,255,255,.045)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d8c3cd', transition: 'transform 160ms var(--ease-out-expo), background 160ms var(--ease-out-expo)' }}
               >
                 <X size={13} />
               </button>
             </div>
 
-            {/* Searching animation */}
+            {/* Research progress uses HINAA's actual workflow state; it never
+                invents external websites, source names, or completed fetches. */}
             {isSearching && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '8px 0' }}>
-                <KnowledgeConvergence title="HINAA Agent" badgeText="Searching" dotColor="#0891b2" showBadge />
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} style={{ padding: '8px 0' }}>
+                <ActivityPanel
+                  title="Research workflow"
+                  mode="research"
+                  steps={steps.length ? steps : [{ id: 'prepare', label: 'Prepare research workspace', detail: 'Waiting for the current search request', status: 'active' }]}
+                />
               </motion.div>
             )}
 
@@ -92,8 +98,8 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
 
             {/* Empty state */}
             {!isSearching && sources.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', fontSize: '0.82rem' }}>
-                {ModeIcon && <ModeIcon size={32} style={{ marginBottom: 12, opacity: 0.4 }} />}
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#c8b6c0', fontSize: '0.82rem', lineHeight: 1.55 }}>
+                {ModeIcon && <ModeIcon size={32} style={{ marginBottom: 12, color: '#f5a7bb', opacity: 0.6 }} />}
                 <div>{MODE_EMPTY_STATES[mode as Exclude<ContextMode, 'hidden'>]}</div>
               </div>
             )}

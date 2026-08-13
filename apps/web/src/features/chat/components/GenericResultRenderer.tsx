@@ -65,6 +65,21 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
   }
 
   if (toolName === 'web_search' && Array.isArray(data.sources)) {
+    if (data.error || result.status === 'error' || data.status === 'error') {
+      const code = typeof data.code === 'string' ? data.code : 'RESEARCH_UNAVAILABLE';
+      const recovery = code === 'YOUCOM_TIMEOUT'
+        ? 'The configured research service exceeded its local response budget. Try a narrower query or retry shortly.'
+        : code === 'YOUCOM_REQUEST_FAILED'
+          ? 'Check the configured provider key and its account permissions, then retry the approved search.'
+          : 'HINAA did not receive attributable results. Check the local provider status or try again later.';
+      return (
+        <section style={{ marginTop: 10, display: 'grid', gap: 8, padding: 12, border: '1px solid rgba(245,158,11,.30)', borderRadius: 14, background: 'rgba(245,158,11,.07)' }} aria-label="Research service recovery">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#fde68a', fontSize: 12, fontWeight: 800 }}><AlertTriangle size={14} /> Research service needs attention</div>
+          <p style={{ margin: 0, color: '#f1dfc7', fontSize: 12, lineHeight: 1.5 }}>{data.error}</p>
+          <small style={{ color: '#cfb99d', fontSize: 11, lineHeight: 1.45 }}>{recovery} <code style={{ color: '#f2bf7a' }}>{code}</code></small>
+        </section>
+      );
+    }
     const sources: SourceItem[] = data.sources
       .filter((source: any) => source && typeof source.url === 'string')
       .map((source: any, index: number) => {

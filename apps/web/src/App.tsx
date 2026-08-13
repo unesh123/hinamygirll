@@ -453,8 +453,9 @@ export default function App() {
         setContextMode("research");
         setAgentSteps([
           { id: "scope", label: "Understand the question", detail: "Checking scope and evidence needs", status: "done" },
-          { id: "strategy", label: "Plan source strategy", detail: "Selecting the best research path", status: "active" },
-          { id: "synthesis", label: "Prepare concise findings", detail: "Sources stay visible and attributable", status: "pending" },
+          { id: "strategy", label: "Prepare source strategy", detail: "Selecting a focused research route — no web pages fetched yet", status: "active" },
+          { id: "approval", label: "Wait for your approval", detail: "Live research begins only after you confirm the proposed action", status: "pending" },
+          { id: "synthesis", label: "Prepare concise findings", detail: "Returned sources stay visible and attributable", status: "pending" },
         ]);
       } else {
         setAgentSteps([
@@ -705,7 +706,7 @@ export default function App() {
           </div>
 
           {/* Context workspace */}
-          <Suspense fallback={lazyPanelFallback}><ContextWorkspace mode={contextMode} onClose={() => setContextMode("hidden")} sources={contextSources} isSearching={searching} /></Suspense>
+          <Suspense fallback={lazyPanelFallback}><ContextWorkspace mode={contextMode} onClose={() => setContextMode("hidden")} sources={contextSources} isSearching={searching} steps={agentSteps} /></Suspense>
         </div>
 
         {/* Overlays */}

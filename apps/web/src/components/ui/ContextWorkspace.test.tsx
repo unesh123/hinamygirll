@@ -13,3 +13,27 @@ describe("ContextWorkspace", () => {
     expect(screen.getByText(/Browser actions are proposed clearly before they run/i)).toBeInTheDocument();
   });
 });
+
+
+describe("ContextWorkspace research progress", () => {
+  it("shows actual research workflow stages instead of decorative third-party source graphics", () => {
+    render(
+      <ContextWorkspace
+        mode="research"
+        isSearching
+        onClose={vi.fn()}
+        steps={[
+          { id: "scope", label: "Understand the question", detail: "Checking scope and evidence needs", status: "done" },
+          { id: "sources", label: "Collect attributable sources", detail: "Using the configured research route", status: "active" },
+          { id: "synthesis", label: "Prepare concise findings", detail: "Sources remain visible in chat", status: "pending" },
+        ]}
+      />,
+    );
+
+    expect(screen.getByLabelText("Research workflow")).toBeInTheDocument();
+    expect(screen.getByText("Collect attributable sources")).toBeInTheDocument();
+    expect(screen.getByText("Using the configured research route")).toBeInTheDocument();
+    expect(screen.queryByText("Lightswind UI")).not.toBeInTheDocument();
+    expect(screen.queryByText("YouTube")).not.toBeInTheDocument();
+  });
+});

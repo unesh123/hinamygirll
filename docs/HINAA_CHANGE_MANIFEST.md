@@ -246,3 +246,11 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Repeatable mobile gate | Repaired `check:mobile` to use the installed Chromium executable rather than requiring a separately downloaded Playwright browser. The check now verifies Research, Create, Continue work, and Talk to HINAA individually. | `pnpm check:mobile` passes on both supported phone viewports. |
 | Local ComfyUI recovery | Preserved terminal `COMFYUI_UNAVAILABLE` results at the shared tool dispatcher and taught Image Studio to read direct or legacy nested results. No image poll begins if the local renderer cannot create a job. | API dispatcher/image tests and Image Studio regressions pass. |
 | Web-search transparency | The chat source panel now presents the backend’s provider-route notice, so a public fallback is not visually confused with a configured private You.com search. | Focused renderer regression passes. |
+
+## Phase 27 — Truthful research workflow and mobile context workspace
+| Surface | Change | Verification |
+|---|---|---|
+| Research progress | Removed the unrelated Lightswind source-convergence animation from HINAA’s context workspace. Reused the existing `ActivityPanel` and the established agent-step state instead, so progress names actual planning, approval, and synthesis stages. | Context workspace regression verifies real stages render and Lightswind/YouTube graphics do not. |
+| Trustworthy workflow copy | Planning now explicitly says no pages have been fetched and that live research starts only after the user approves the proposed external action. | Type checking and focused workspace tests pass. |
+| Mobile workspace | Corrected the context drawer’s fixed-width inner shell so it cannot overflow a narrow fullscreen mobile drawer; aligned workspace contrast and controls to Ink Rose. | Phone layout checks pass at 393×851 and 320×568. |
+| Provider recovery | Web-search provider errors with an empty source list now render a named research-service recovery panel, including the normalized code and a bounded next step. | Focused chat renderer regression passes. |
