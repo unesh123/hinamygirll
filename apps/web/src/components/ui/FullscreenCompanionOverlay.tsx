@@ -83,7 +83,7 @@ export function FullscreenCompanionOverlay({
             {live.active && !live.paused ? "LIVE" : live.paused ? "PAUSED" : "VOICE READY"}
           </span>
           <span className={`fullscreen-companion-overlay__signal${trackingActive ? " is-tracking" : ""}`}>
-            {trackingActive ? "VMC TRACKING" : "AUTONOMOUS PRESENCE"}
+            {trackingActive ? "VMC PACKETS LIVE" : "LOCAL AVATAR MOTION"}
           </span>
         </div>
       </header>
@@ -156,7 +156,9 @@ export function FullscreenCompanionOverlay({
             type="button"
             className={`fullscreen-companion-overlay__mic${live.active ? " is-active" : ""}${live.paused ? " is-paused" : ""}`}
             onClick={live.active ? onStopLive : onStartLive}
-            aria-label={live.active ? "Stop live conversation" : "Start live conversation"}
+                          aria-label={live.active ? "Stop live conversation" : "Start live conversation"}
+              aria-pressed={live.active}
+
             title={live.active ? "Stop live conversation" : "Start live conversation"}
             whileTap={{ scale: 0.96 }}
           >

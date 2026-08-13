@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Download, FolderPlus, FileText, ListTodo, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, Download, FileSearch, FolderPlus, FileText, ListTodo, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck, Sparkles, Upload, XCircle } from "lucide-react";
 
 type TaskStatus = "pending" | "active" | "success" | "error" | "cancelled" | "waiting_approval";
 
@@ -15,6 +15,7 @@ interface ProjectTask {
 interface ProjectFile {
   id: string;
   name: string;
+  mediaType?: string;
   sizeBytes: number;
 }
 
@@ -90,6 +91,7 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
   const [runBusy, setRunBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fileBusy, setFileBusy] = useState(false);
 
   const loadProjects = async (selectId?: string) => {
     setLoading(true);
@@ -219,6 +221,41 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
     }
   };
 
+  const uploadFile = async (file: File | undefined) => {
+    if (!selected || !file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      setError("Files are limited to 25 MB.");
+      return;
+    }
+    setFileBusy(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(`${API}/projects/${selected.id}/files`, { method: "POST", body: form });
+      if (!response.ok) throw new Error(`Upload failed (${response.status})`);
+      await loadProjects(selected.id);
+    } catch {
+      setError("Could not save that file to the local project.");
+    } finally {
+      setFileBusy(false);
+    }
+  };
+
+  const analyzeFile = async (file: ProjectFile) => {
+    if (!selected) return;
+    setFileBusy(true);
+    setError("");
+    try {
+      await request(`/projects/files/${file.id}/analyze`, { method: "POST" });
+      await loadProjects(selected.id);
+    } catch {
+      setError("HINAA could not read that file locally. Supported formats: TXT, Markdown, CSV, JSON, PDF, DOCX, and PPTX.");
+    } finally {
+      setFileBusy(false);
+    }
+  };
+
   const addTask = async () => {
     const clean = taskTitle.trim();
     if (!selected || !clean) return;
@@ -327,9 +364,14 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
           <section>
             <label style={sectionLabelStyle}><FileText size={14} /> LOCAL CONTENT</label>
             <p style={{ color: "#cbd5e1", fontSize: 12, margin: "8px 0" }}>{selected.files.length} file{selected.files.length === 1 ? "" : "s"} · {selected.artifacts.length} saved artifact{selected.artifacts.length === 1 ? "" : "s"}</p>
+            <label style={{ ...miniButtonStyle, width: "fit-content", opacity: fileBusy ? .6 : 1 }} title="Upload a local document">
+              {fileBusy ? <Loader2 size={11} className="spin" /> : <Upload size={11} />} Upload file
+              <input aria-label="Upload local project file" type="file" hidden disabled={fileBusy} accept=".txt,.md,.markdown,.csv,.json,.pdf,.docx,.pptx" onChange={(event) => { void uploadFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+            </label>
+            <p style={{ color: "#94a3b8", fontSize: 11, lineHeight: 1.4, margin: "7px 0" }}>Files remain local. Analyze supported files to create a private text artifact HINAA can reference and export.</p>
             <div style={{ display: "grid", gap: 5 }}>
               {selected.artifacts.slice(0, 4).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12 }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.kind}: {item.title}</span><a href={`${API}/projects/artifacts/${item.id}/export`} title={`Export ${item.title} as Markdown`} aria-label={`Export ${item.title} as Markdown`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a></div>)}
-              {selected.files.slice(0, 3).map((item) => <div key={item.id} style={{ color: "#94a3b8", fontSize: 12, padding: "2px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>file: {item.name}</div>)}
+              {selected.files.slice(0, 6).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12, padding: "2px 0" }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>file: {item.name}</span><a href={`${API}/projects/files/${item.id}`} title={`Download ${item.name}`} aria-label={`Download ${item.name}`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a><button type="button" disabled={fileBusy} onClick={() => void analyzeFile(item)} title={`Analyze ${item.name} locally`} style={miniButtonStyle}><FileSearch size={11} /> Analyze</button></div>)}
             </div>
           </section>
 

@@ -641,7 +641,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 source = f"http://127.0.0.1:8000/v1/generated-images/{job.id}" if job.status == "completed" and job.file_path else None
                 if source:
                     images.append(source)
-                if job.status in {"pending", "processing"}:
+                if job.status in {"pending", "queued", "processing"}:
                     active = True
                 if job.status in {"failed", "cancelled"}:
                     failures.append(f"Image {index} {job.status}")
@@ -952,6 +952,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if record is None:
             raise HTTPException(status_code=404, detail="Project not found")
         return record
+
+    @app.post("/v1/projects/files/{file_id}/analyze", status_code=201)
+    async def analyze_project_file(request: Request, file_id: str) -> dict[str, Any]:
+        try:
+            artifact = workspace_service.analyze_file(_workspace_user_id(request), file_id)
+        except (ValueError, RuntimeError, TimeoutError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        return artifact
 
     @app.get("/v1/projects/files/{file_id}")
     async def download_project_file(request: Request, file_id: str) -> FileResponse:

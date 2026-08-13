@@ -527,3 +527,16 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Claude/CX/Qwen live model routing | **REPAIRED AND TESTED AT TYPE/PROTOCOL LEVEL** | Selected model values now reach websocket `session.hello` as well as typed chat. |
 | ElevenLabs live path | **REPAIRED IN CODE; WINDOWS AUDIO PROOF PENDING** | Synthesized `tts.audio` continues through the existing ordered playback queue and avatar audio/viseme lifecycle. A selected brain failure now produces an explicit live error rather than a generic spoken fallback. Final microphone → STT → brain → audible browser playback → mouth-reset proof still requires the user’s Windows local runtime. |
 | Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | API suite, frontend Vitest, responsive/mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 35 warnings and 0 errors. |
+
+## Phase 37 — Local Capability and Presence Hardening — 2026-08-13
+
+| Acceptance area | Evidence | Status |
+|---|---|---|
+| Qwen provider unavailable | `diagnose-qwen.bat` now detects the local backend environment file and reads only safe provider-status state. The sandbox has no user Qwen key, so it cannot verify the user’s Qwen account. | **WINDOWS CHECK REQUIRED** |
+| Four fast local variations | Focused image tests verify independent ComfyUI prompt workflow, single-latent GPU-safe execution, and explicit independent queue strategy. Local ComfyUI is not installed in the sandbox. | **CODE VERIFIED; WINDOWS COMFYUI REQUIRED** |
+| Document upload and artifact | API regression uploads Markdown, analyzes it locally, persists a user-owned document artifact, and exports it as Markdown. | **VERIFIED** |
+| Concise HINAA response behavior | Prompt and response-quality tests passed; persona now disallows habitual follow-up questions and supports safe local initiative with explicit approval for consequential actions. | **VERIFIED** |
+| Hindi-English route | Prompt regression verifies Hindi procedural detection and excludes residual Nepali classifier aliases. | **VERIFIED** |
+| Fullscreen responsive companion | Existing frontend interaction suite, mobile checks, type check, production build, and CSS verification passed. | **IMPLEMENTATION VERIFIED** |
+| VSeeFace packet truth | VMC bridge tests verify `listening`, synthetic `test`, external `live`, and `stale` transitions. The browser now applies face/head samples only for fresh external `live` diagnostics. No VSeeFace process or camera exists in the sandbox. | **CODE VERIFIED; WINDOWS HARDWARE EVIDENCE REQUIRED** |
+| Release gate | Full API suite, full frontend Vitest suite, responsive/mobile check, type check, production build, lint, and diff check completed. Lint: 35 warnings, 0 errors. | **PASSED** |

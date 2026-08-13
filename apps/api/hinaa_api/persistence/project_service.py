@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from ..document_ingestion import extract_local_document
 from .orm import (
     LocalAgentRun,
     LocalAgentRunEvent,
@@ -277,6 +278,47 @@ class LocalProjectService:
             session.add(record)
             session.commit()
             return self._file_public(record)
+
+    def analyze_file(self, user_id: str, file_id: str) -> dict[str, Any] | None:
+        """Read a supported uploaded document locally and save a bounded artifact.
+
+        The file is parsed only as untrusted data. HINAA never executes document
+        macros/scripts, follows instructions contained inside the file, or uploads
+        its contents to a provider during this operation.
+        """
+        with self._factory() as session:
+            record = session.get(LocalProjectFile, file_id)
+            project = session.get(LocalProject, record.project_id) if record else None
+            if record is None or project is None or project.user_id != user_id:
+                return None
+            project_dir = self._project_dir(project)
+            path = (project_dir / record.relative_path).resolve()
+            if not path.exists() or project_dir not in path.parents:
+                return None
+            extraction = extract_local_document(path, record.name)
+            artifact = LocalProjectArtifact(
+                project_id=project.id,
+                kind="document",
+                title=f"Extracted: {record.name}",
+                content=extraction.text,
+                relative_path=record.relative_path,
+                metadata_json=json.dumps(
+                    {
+                        "sourceFileId": record.id,
+                        "sourceFileName": record.name,
+                        "mediaType": record.media_type,
+                        "parser": extraction.parser,
+                        "documentKind": extraction.kind,
+                        "charCount": extraction.char_count,
+                        "truncated": extraction.truncated,
+                        "localOnly": True,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            session.add(artifact)
+            session.commit()
+            return self._artifact_public(artifact)
 
     def resolve_file(self, user_id: str, file_id: str) -> tuple[Path, str] | None:
         with self._factory() as session:

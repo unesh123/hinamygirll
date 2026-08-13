@@ -438,3 +438,20 @@ def test_build_plan_from_text_validates() -> None:
         depth="conversational",
     )
     assert plan.performance.gesture == "wave" or plan.performance.gesture == "small_nod"
+
+
+def test_hinaa_humanization_avoids_habitual_followups_and_keeps_safe_local_agency() -> None:
+    assert "never add a routine question after a complete answer" in HINAA_IDENTITY
+    assert "take the next useful step yourself" in HINAA_IDENTITY
+    assert "wait for explicit approval" in HINAA_IDENTITY
+
+
+def test_depth_classifier_uses_hindi_english_route_without_nepali_aliases() -> None:
+    from hinaa_api.prompts.depth import _CLARIFY, _EXPLAIN, _PROCEDURAL, _SUPPORTIVE, depth_guidance
+
+    guidance = depth_guidance("conversational", "realtime")
+    patterns = " ".join((str(_PROCEDURAL.pattern), str(_SUPPORTIVE.pattern), str(_EXPLAIN.pattern), str(_CLARIFY.pattern)))
+    assert "habitual follow-up question" in guidance
+    assert "कसरी" not in patterns
+    assert "हैन" not in patterns
+    assert infer_response_depth("हिना, मुझे ComfyUI setup समझाओ", "rest") == "procedural"

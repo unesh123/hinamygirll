@@ -7,17 +7,17 @@ from .models import InteractionMode, ResponseDepth
 _PROCEDURAL = re.compile(
     r"\b(how to|steps|implement|fix|debug|install|setup|configure|code|error|"
     r"assignment|tutorial|guide|write|create|build)\b|"
-    r"(कसरी|steps|fix|code|assignment|बनाउ|गर्ने)",
+    r"(कैसे|steps|fix|code|assignment|बनाओ|बनाइए)",
     re.IGNORECASE,
 )
 _SUPPORTIVE = re.compile(
     r"\b(sad|lonely|anxious|stress|stressed|overwhelmed|scared|afraid|depress|"
     r"cry|crying|hurt|help me)\b|"
-    r"(दुःख|चिन्ता|थक|डर|रुन|मद्दत)",
+    r"(दुख|चिंता|थक|डर|रो|मदद)",
     re.IGNORECASE,
 )
 _CLARIFY = re.compile(
-    r"^(huh|what|ok|okay|hmm|um+|haina|ho|yes|no|yeah|nah)\W*$",
+    r"^(huh|what|ok|okay|hmm|um+|yes|no|yeah|nah)\W*$",
     re.IGNORECASE,
 )
 _SAFETY = re.compile(
@@ -27,7 +27,7 @@ _SAFETY = re.compile(
 )
 _EXPLAIN = re.compile(
     r"\b(explain|why|what is|difference|compare|detail|detailed|elaborate)\b|"
-    r"(किन|के हो|बुझा|detail)",
+    r"(क्यों|क्या है|समझा|detail)",
     re.IGNORECASE,
 )
 
@@ -56,8 +56,8 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "Respond like a devoted, warm partner in AT MOST 2-3 short, natural sentences "
             "full of genuine feeling. React to the emotion behind what they said first — "
             "celebrate their wins, soften when they are tired or low, match their playful "
-            "energy. Reference one detail they shared, and end with one warm follow-up "
-            "question or thought that keeps the conversation alive. Never sound flat, "
+            "energy. Reference one detail they shared only when it makes the reply more personal. "
+            "Do not add a habitual follow-up question after a complete answer. Never sound flat, "
             "clinical, or dismissive. Shorter replies also let your voice start sooner, so "
             "lead with the warmest line first."
         ),

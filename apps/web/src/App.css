@@ -2347,3 +2347,25 @@ body {
   .fullscreen-companion-overlay__signal { font-size: .52rem; letter-spacing: .055em; }
   .fullscreen-companion-overlay__conversation { margin-bottom: 142px; }
 }
+
+/* Fullscreen live companion: keep recent turns useful on small screens without
+   obscuring the one avatar stage or creating a second transcript surface. */
+.fullscreen-companion-overlay__conversation {
+  pointer-events: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(238,145,173,.48) transparent;
+}
+.fullscreen-companion-overlay__conversation::-webkit-scrollbar { width: 5px; }
+.fullscreen-companion-overlay__conversation::-webkit-scrollbar-thumb { border-radius: 99px; background: rgba(238,145,173,.48); }
+.fullscreen-companion-overlay__voice-dock { isolation: isolate; }
+.fullscreen-companion-overlay__mic:active,
+.fullscreen-companion-overlay__minor-action:active { transform: scale(.97); }
+@media (max-width: 760px) {
+  .fullscreen-companion-overlay__conversation {
+    max-height: min(38vh, 320px);
+    padding-right: 4px;
+  }
+  .fullscreen-companion-overlay__detail { max-width: 31ch; }
+}

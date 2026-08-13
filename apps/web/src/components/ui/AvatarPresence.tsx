@@ -381,7 +381,10 @@ function Model({
     t.current += dt;
 
     const em  = vrm.expressionManager;
-    const face = faceExpressions ? smoothFace.current : null;
+    // Never let a stale/synthetic transport sample suppress HINAA's own blink,
+    // emotion, or relaxed-pose system. Face input becomes visual authority only
+    // after the parent has verified fresh external tracking.
+    const face = faceTrackingActive && faceExpressions ? smoothFace.current : null;
     if (face && faceExpressions) {
       const trackingAlpha = 1 - Math.exp(-dt * 12);
       for (const key of Object.keys(face) as Array<keyof FaceExpressions>) {
