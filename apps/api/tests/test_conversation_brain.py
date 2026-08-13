@@ -230,3 +230,18 @@ def test_explanations_negations_quotes_and_capability_questions_do_not_execute_t
         plan = _routing_plan()
         service._inject_deterministic_tool_intents(text, plan)
         assert plan.toolRequests == []
+
+
+def test_research_effort_matches_explicit_request_depth(settings: Settings) -> None:
+    service = ConversationService(settings)
+    expectations = {
+        "Research the web with sources about current ComfyUI documentation.": "standard",
+        "Deep research the web with sources and compare current ComfyUI models.": "deep",
+        "Research the web with sources for an exhaustive comprehensive comparison of local image models.": "exhaustive",
+    }
+    for text, effort in expectations.items():
+        plan = _routing_plan()
+        service._inject_deterministic_tool_intents(text, plan)
+        assert len(plan.toolRequests) == 1
+        assert plan.toolRequests[0].toolName == "web_research"
+        assert plan.toolRequests[0].parameters["effort"] == effort

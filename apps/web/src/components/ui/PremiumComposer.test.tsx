@@ -35,3 +35,17 @@ describe("PremiumComposer command surface", () => {
     expect(onPowerUp).toHaveBeenCalledWith(expect.objectContaining({ action: "search-web" }));
   });
 });
+
+
+describe("PremiumComposer context-aware suggestions", () => {
+  it("keeps the current topic when applying a deep cited-research suggestion", () => {
+    const onPowerUp = vi.fn();
+    render(<ComposerHarness onPowerUp={onPowerUp} />);
+
+    const composer = screen.getByLabelText("Message HINAA");
+    fireEvent.change(composer, { target: { value: "compare local image models with sources" } });
+    fireEvent.click(screen.getByRole("option", { name: /Research this deeply with sources/i }));
+
+    expect(composer).toHaveValue("Deep research the web with sources: compare local image models with sources");
+  });
+});

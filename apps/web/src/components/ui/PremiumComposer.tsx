@@ -150,12 +150,21 @@ export function PremiumComposer({
 
   const handleSuggestionSelect = useCallback(
     (suggestion: Suggestion) => {
-      onChange(suggestion.prefix || suggestion.label + ": ");
+      if (suggestion.id === "voice-chat") {
+        onVoiceStart?.();
+      } else {
+        const next = suggestion.transform
+          ? suggestion.transform(value)
+          : suggestion.prefix
+            ? `${suggestion.prefix}${value.trim()}`
+            : `${suggestion.label}: ${value.trim()}`;
+        onChange(next);
+      }
       setShowMentions(false);
       setShowCommands(false);
-      textRef.current?.focus();
+      requestAnimationFrame(() => textRef.current?.focus());
     },
-    [onChange],
+    [onChange, onVoiceStart, value],
   );
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {

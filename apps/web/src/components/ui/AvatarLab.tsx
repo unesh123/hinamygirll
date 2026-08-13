@@ -30,7 +30,7 @@ type Props = {
   selectedModelUrl: string;
   mode: PresenceMode;
   onModeChange: (mode: PresenceMode) => void;
-  onSelectModel: (url: string) => void;
+  onSelectModel: (url: string, resetCompanionView?: boolean) => void;
   presentation: AvatarPresentation;
   onPresentationChange: (presentation: AvatarPresentation) => void;
   trackingMode: "autonomous" | "exact-vseeface" | "tracking-proxy";
@@ -82,8 +82,8 @@ export function AvatarLab({
       const response = await fetch("/api/v1/avatar-assets/import", { method: "POST", body: form });
       const body = await response.json();
       if (!response.ok || !body?.asset?.browserUrl) throw new Error(body?.detail || "HINAA could not import that model.");
-      onSelectModel(body.asset.browserUrl);
-      setMessage(`${body.asset.displayName} is now selected with HINAA’s safe facing and relaxed-pose preset.`);
+      onSelectModel(body.asset.browserUrl, true);
+      setMessage(`${body.asset.displayName} is now centered in portrait view with HINAA’s strong relaxed-arm preset.`);
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "HINAA could not import that model.");

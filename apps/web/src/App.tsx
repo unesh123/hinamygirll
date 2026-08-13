@@ -5,6 +5,7 @@ import { TranscriptView } from "./features/chat/components/TranscriptView";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
 import {
   type AvatarPresentation,
+  defaultAvatarPresentation,
   getPersistedAvatarPresentation,
   persistAvatarPresentation,
 } from "./features/avatar/avatarPresentation";
@@ -198,11 +199,19 @@ export default function App() {
     setAvatarPresentation(next);
     persistAvatarPresentation(avatarModel, next);
   };
-  const selectAvatarModel = (modelUrl: string) => {
+  const selectAvatarModel = (modelUrl: string, resetCompanionView = false) => {
     if (!isSelectableAvatarUrl(modelUrl)) return;
+    const nextMode = resetCompanionView ? "portrait" : getPersistedAvatarCamera(modelUrl);
+    const nextPresentation = resetCompanionView
+      ? defaultAvatarPresentation(modelUrl)
+      : getPersistedAvatarPresentation(modelUrl);
     setAvatarModel(modelUrl);
-    setAvatarMode(getPersistedAvatarCamera(modelUrl));
-    setAvatarPresentation(getPersistedAvatarPresentation(modelUrl));
+    setAvatarMode(nextMode);
+    setAvatarPresentation(nextPresentation);
+    if (resetCompanionView) {
+      persistAvatarCamera(modelUrl, nextMode);
+      persistAvatarPresentation(modelUrl, nextPresentation);
+    }
     try {
       window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
     } catch {
@@ -217,8 +226,8 @@ export default function App() {
       const response = await fetch("/api/v1/avatar-assets/import", { method: "POST", body: form });
       const body = await response.json();
       if (!response.ok || !body?.asset?.browserUrl) throw new Error(body?.detail || "HINAA could not import that VRM.");
-      selectAvatarModel(body.asset.browserUrl);
-      setAvatarUploadMessage(`${body.asset.displayName} is selected. HINAA applied the safe relaxed pose and facing preset; use Avatar Lab only if this model needs a one-click correction.`);
+      selectAvatarModel(body.asset.browserUrl, true);
+      setAvatarUploadMessage(`${body.asset.displayName} is selected in HINAA’s centered portrait companion view with the strong relaxed-arm preset. Your original VRM was not changed.`);
     } catch (error) {
       setAvatarUploadMessage(error instanceof Error ? error.message : "HINAA could not import that VRM.");
     }

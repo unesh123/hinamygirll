@@ -540,3 +540,14 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Fullscreen responsive companion | Existing frontend interaction suite, mobile checks, type check, production build, and CSS verification passed. | **IMPLEMENTATION VERIFIED** |
 | VSeeFace packet truth | VMC bridge tests verify `listening`, synthetic `test`, external `live`, and `stale` transitions. The browser now applies face/head samples only for fresh external `live` diagnostics. No VSeeFace process or camera exists in the sandbox. | **CODE VERIFIED; WINDOWS HARDWARE EVIDENCE REQUIRED** |
 | Release gate | Full API suite, full frontend Vitest suite, responsive/mobile check, type check, production build, lint, and diff check completed. Lint: 35 warnings, 0 errors. | **PASSED** |
+
+## Phase 38 — Imported Avatar, Deep Research, and Contextual Composer — 2026-08-13
+
+| Acceptance area | Evidence | Status |
+|---|---|---|
+| Imported fullscreen VRM posture | Stronger generic normalized relax offsets and reset-on-import portrait presentation compiled; focused Avatar/App tests and type checking passed. | **CODE VERIFIED; WINDOWS VISUAL CHECK REQUIRED** |
+| VMC packet truth | User screenshot shows `VMC PACKETS LIVE`; HINAA still restricts external data to face/head and preserves relaxed limbs. Actual model-specific blink, mouth, and head calibration need a real Windows runtime check. | **PARTIAL WINDOWS EVIDENCE** |
+| Research quality | Official You.com documentation reviewed; code selects standard/deep/exhaustive effort visibly and the detailed result renderer displays effort/source/task state. | **CODE VERIFIED** |
+| Typing suggestions | Composer regression verifies the deep-research suggestion preserves typed topic and produces the real deterministic research wording. | **VERIFIED** |
+| Capability map | Local-first staged capability map saved with sources and explicit dependency boundaries. | **VERIFIED DOCUMENTATION** |
+| Release gate | API suite, frontend suite, mobile checks, type check, production build, lint, and diff check completed. Lint: 36 warnings, 0 errors. | **PASSED** |

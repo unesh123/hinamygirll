@@ -2369,3 +2369,57 @@ body {
   }
   .fullscreen-companion-overlay__detail { max-width: 31ch; }
 }
+
+/* Context-aware typing suggestions: one compact extension of the existing composer. */
+.smart-suggestions {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 9px);
+  left: 0;
+  z-index: 200;
+  display: grid;
+  gap: 3px;
+  max-height: min(330px, 42vh);
+  overflow-y: auto;
+  padding: 7px;
+  border: 1px solid rgba(255, 214, 228, .19);
+  border-radius: 17px;
+  background: linear-gradient(145deg, rgba(48, 29, 49, .96), rgba(24, 15, 29, .96));
+  box-shadow: 0 20px 58px rgba(4, 2, 6, .46), inset 0 1px rgba(255, 255, 255, .08);
+  backdrop-filter: blur(22px);
+}
+.smart-suggestions__heading {
+  padding: 5px 8px 4px;
+  color: #cdb7c2;
+  font: 750 .58rem/1 var(--font-mono);
+  letter-spacing: .10em;
+  text-transform: uppercase;
+}
+.smart-suggestions__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #fff4f8;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms var(--ease-out-expo), background 140ms var(--ease-out-expo), border-color 140ms var(--ease-out-expo);
+}
+.smart-suggestions__option:hover,
+.smart-suggestions__option:focus-visible { border-color: rgba(255, 210, 227, .20); background: rgba(255, 230, 240, .075); outline: none; }
+.smart-suggestions__option:active { transform: scale(.985); }
+.smart-suggestions__icon { display: grid; flex: 0 0 auto; width: 31px; height: 31px; place-items: center; border-radius: 10px; }
+.smart-suggestions__copy { display: grid; min-width: 0; gap: 2px; }
+.smart-suggestions__copy strong { overflow: hidden; color: #fff5f8; font: 720 .76rem/1.2 var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.smart-suggestions__copy small { overflow: hidden; color: #c3aeb8; font: 500 .65rem/1.3 var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.smart-suggestions__apply { margin-left: auto; color: #f6b5ca; font: 750 .58rem/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
+@media (max-width: 620px) {
+  .smart-suggestions { max-height: min(38vh, 290px); border-radius: 15px; }
+  .smart-suggestions__option { padding: 9px; }
+  .smart-suggestions__apply { display: none; }
+}

@@ -873,14 +873,23 @@ class ConversationService:
                 "",
                 text,
             ).strip()
+            research_text = (prompt_str or text).lower()
+            # The selected level is shown in HINAA's approval card. Never silently
+            # escalate to frontier: it needs a background task and may be costly.
+            if any(term in research_text for term in ("exhaustive", "comprehensive", "maximum depth")):
+                effort = "exhaustive"
+            elif any(term in research_text for term in ("deep", "thorough", "detailed", "compare", "cross-reference")):
+                effort = "deep"
+            else:
+                effort = "standard"
             plan.toolRequests.append(ToolRequest(
                 toolName="web_research",
-                parameters={"query": prompt_str or text, "effort": "lite"},
+                parameters={"query": prompt_str or text, "effort": effort},
             ))
 
         search_command = is_command(
-            [r"^\s*(please\s+)?(search the web for|look up|find information about|google search for|खोज|खोज्नुहोस्)\b"],
-            target=r"\b(web|internet|online|google|documentation|sources?)\b|वेब|इन्टरनेट",
+            [r"^\s*(please\s+)?(search the web for|look up|find information about|google search for|खोज)\b"],
+            target=r"\b(web|internet|online|google|documentation|sources?)\b|वेब",
         )
         if search_command and not any(t.toolName == "web_search" for t in plan.toolRequests):
             prompt_str = re.sub(

@@ -180,10 +180,15 @@ const DEFAULT_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
 // Generic imported VRMs begin in a conservative relaxed pose. Users can use
 // the simple “Original pose” action if a non-standard rig needs its author pose.
 const GENERIC_RELAXED_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
-  leftShoulder: q(0, 0, 0.46), rightShoulder: q(0, 0, -0.46),
-  leftUpperArm: q(0, 0, 0.22), rightUpperArm: q(0, 0, -0.22),
-  leftLowerArm: q(0, 0, 0.10), rightLowerArm: q(0, 0, -0.10),
-  leftHand: restOffset(), rightHand: restOffset(),
+  // Imported VRM 0.x models often retain a strict T-pose as their authored
+  // rest transform. Use the normalized humanoid axis rather than raw model
+  // nodes, with a deliberately stronger three-joint arc that reads as relaxed
+  // arms at the side in a companion portrait. “Original pose” remains a
+  // per-model one-click escape hatch for exceptional rigs.
+  leftShoulder: q(0, 0, 0.92), rightShoulder: q(0, 0, -0.92),
+  leftUpperArm: q(0, 0, 0.34), rightUpperArm: q(0, 0, -0.34),
+  leftLowerArm: q(0, 0, 0.16), rightLowerArm: q(0, 0, -0.16),
+  leftHand: q(0, 0, 0.05), rightHand: q(0, 0, -0.05),
 };
 
 /* ─── Model component ────────────────────────────────────── */

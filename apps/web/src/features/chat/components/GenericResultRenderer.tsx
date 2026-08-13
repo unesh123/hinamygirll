@@ -174,14 +174,21 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
       ? `${content.slice(0, excerptLimit).trimEnd()}…`
       : content;
     const modeLabel = data.mode === 'contents' ? 'Selected page notes' : data.mode === 'answer' ? 'Cited answer' : 'Detailed research';
-    if (content || detailSources.length) {
+    const effortLabel = typeof data.effort === 'string' ? `${data.effort[0].toUpperCase()}${data.effort.slice(1)} research` : null;
+    const isBackgroundTask = data.mode === 'research-task' && typeof data.status === 'string' && data.status !== 'completed';
+    if (content || detailSources.length || isBackgroundTask) {
       return (
         <section style={{ marginTop: 10, display: 'grid', gap: 10, padding: 13, border: '1px solid rgba(255,219,231,.16)', borderRadius: 15, background: 'linear-gradient(145deg,rgba(46,29,44,.82),rgba(26,17,31,.84))' }} aria-label="Detailed research result">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, color: '#fff2f6' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 800 }}><Globe size={14} color="#f5a7bb" />{modeLabel}</span>
             <span style={{ color: '#cbbca8', fontSize: 11, fontWeight: 650 }}>{detailSources.length} attributed source{detailSources.length === 1 ? '' : 's'}</span>
           </div>
+          {(effortLabel || isBackgroundTask) ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {effortLabel ? <span style={{ border: '1px solid rgba(238,145,173,.28)', borderRadius: 999, padding: '4px 7px', background: 'rgba(238,145,173,.08)', color: '#ffd4e1', fontSize: 10, fontWeight: 750 }}>{effortLabel}</span> : null}
+            {isBackgroundTask ? <span style={{ border: '1px solid rgba(207,184,214,.28)', borderRadius: 999, padding: '4px 7px', background: 'rgba(207,184,214,.08)', color: '#e5d8ff', fontSize: 10, fontWeight: 750 }}>Research task {data.status}</span> : null}
+          </div> : null}
           {typeof data.notice === 'string' && data.notice ? <small style={{ color: '#dcc7b2', lineHeight: 1.45 }}>{data.notice}</small> : null}
+          {isBackgroundTask && !content ? <p style={{ margin: 0, color: '#e5d7df', fontSize: 12, lineHeight: 1.5 }}>HINAA has a research task in progress. Check its progress after approval to retrieve the cited result.</p> : null}
           {content ? <div style={{ color: '#eee1e7', fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{compactContent}</div> : null}
           {content.length > excerptLimit ? <button type="button" onClick={() => setExpanded((value) => !value)} style={{ justifySelf: 'start', border: '1px solid rgba(255,219,231,.18)', borderRadius: 999, background: 'rgba(255,255,255,.045)', color: '#ffd2df', padding: '6px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{expanded ? 'Show concise view' : 'Read full research'}</button> : null}
           {Array.isArray(data.warnings) && data.warnings.length ? <div style={{ display: 'grid', gap: 4, padding: '8px 10px', borderLeft: '2px solid #f2bf7a', background: 'rgba(242,191,122,.06)', color: '#ead5b9', fontSize: 11, lineHeight: 1.45 }}>{data.warnings.slice(0, 3).map((warning: unknown, index: number) => <span key={index}>{String(warning)}</span>)}</div> : null}
