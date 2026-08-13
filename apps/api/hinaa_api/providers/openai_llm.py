@@ -37,8 +37,10 @@ def _messages(prompt: PromptPackage) -> list[dict[str, str]]:
 def _custom_text_from_raw(raw: str) -> str:
     cleaned = raw.strip()
     try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError:
+        from ..prompts.fallback import extract_json_object
+
+        payload = json.loads(extract_json_object(cleaned))
+    except (json.JSONDecodeError, ValueError):
         return cleaned
     if isinstance(payload, dict):
         for key in ("displayText", "spokenText", "text", "message", "content"):

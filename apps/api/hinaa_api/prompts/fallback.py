@@ -56,8 +56,55 @@ def extract_json_object(raw: str) -> str:
     return match.group(0)
 
 
+_LANGUAGE_ALIASES = {
+    "hindi-english": "mixed",
+    "hinglish": "mixed",
+    "english-hindi": "mixed",
+    "hindi": "hi-IN",
+    "english": "en-US",
+}
+
+_EMOTION_DEFAULTS: dict[str, tuple[float, float]] = {
+    "happy": (0.72, 0.46),
+    "excited": (0.84, 0.76),
+    "playful": (0.58, 0.54),
+    "shy": (0.24, 0.14),
+    "concerned": (-0.38, 0.26),
+    "sad": (-0.66, -0.18),
+    "surprised": (0.18, 0.72),
+    "thinking": (0.04, 0.12),
+    "neutral": (0.0, 0.0),
+}
+
+
+def normalize_gateway_turn_payload(payload: object) -> object:
+    """Normalize harmless Claude-gateway aliases before strict plan validation.
+
+    Gateways sometimes return the requested HINAA shape but abbreviate optional
+    affect metadata (for example `hindi-english` and an emotion without
+    valence/arousal). These presentation-only defaults preserve the model's
+    actual display/spoken text while keeping the turn safe and schema-valid.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    normalized = dict(payload)
+    language = normalized.get("language")
+    if isinstance(language, str):
+        normalized["language"] = _LANGUAGE_ALIASES.get(language.strip().lower(), language)
+    emotion = normalized.get("emotion")
+    if isinstance(emotion, dict):
+        normalized_emotion = dict(emotion)
+        primary = normalized_emotion.get("primary")
+        defaults = _EMOTION_DEFAULTS.get(primary) if isinstance(primary, str) else None
+        if defaults:
+            normalized_emotion.setdefault("valence", defaults[0])
+            normalized_emotion.setdefault("arousal", defaults[1])
+        normalized["emotion"] = normalized_emotion
+    return normalized
+
+
 def parse_turn_plan(raw: str) -> AssistantTurnPlan:
-    payload = json.loads(extract_json_object(raw))
+    payload = normalize_gateway_turn_payload(json.loads(extract_json_object(raw)))
     return AssistantTurnPlan.model_validate(payload)
 
 

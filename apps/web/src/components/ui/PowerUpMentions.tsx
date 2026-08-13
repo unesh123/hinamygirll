@@ -46,9 +46,10 @@ interface PowerUpMentionsProps {
   filter: string;
   onSelect: (powerUp: PowerUp) => void;
   onClose: () => void;
+  trigger?: "@" | "/";
 }
 
-export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpMentionsProps) {
+export function PowerUpMentions({ visible, filter, onSelect, onClose, trigger = "@" }: PowerUpMentionsProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -117,8 +118,12 @@ export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpM
   return (
     <AnimatePresence>
       {visible && (
-        <motion.div
-          initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  <motion.div
+            className="hinaa-command-popover"
+            role="dialog"
+            aria-label={trigger === "/" ? "HINAA slash commands" : "HINAA power-ups"}
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 8, scale: 0.96 }}
           transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}
@@ -126,15 +131,15 @@ export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpM
             position: "absolute",
             bottom: "calc(100% + 8px)",
             left: 0,
-            background: "rgba(255,255,255,0.92)",
+            background: "linear-gradient(145deg, rgba(55,38,54,.98), rgba(28,18,33,.99))",
             backdropFilter: "blur(28px)",
             WebkitBackdropFilter: "blur(28px)",
             borderRadius: 18,
-            border: "1px solid rgba(255,255,255,0.85)",
-            boxShadow: "0 12px 60px rgba(0,0,0,0.1), 0 2px 12px rgba(0,0,0,0.04)",
+            border: "1px solid rgba(255,202,218,.22)",
+            boxShadow: "0 18px 60px rgba(4,2,5,.42), inset 0 1px rgba(255,255,255,.06)",
             padding: "10px 8px",
             zIndex: 200,
-            width: 360,
+            width: "min(360px, calc(100vw - 24px))",
             maxHeight: 420,
             overflow: "hidden",
           }}
@@ -155,7 +160,7 @@ export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpM
                   style={{
                     fontSize: "0.65rem",
                     fontWeight: 700,
-                    color: "#94a3b8",
+                    color: "#c9aeba",
                     textTransform: "uppercase",
                     letterSpacing: "0.06em",
                     padding: "4px 8px",
@@ -183,7 +188,7 @@ export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpM
                         padding: "8px 10px",
                         border: "none",
                         borderRadius: 10,
-                        background: isSelected ? "rgba(167,243,208,0.25)" : "transparent",
+                        background: isSelected ? "rgba(238,145,173,.16)" : "transparent",
                         cursor: "pointer",
                         width: "100%",
                         textAlign: "left",
@@ -207,10 +212,10 @@ export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpM
                         <Icon size={15} color={powerUp.color} />
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#1a1f2e" }}>
+                        <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "#fff4f8" }}>
                           {powerUp.label}
                         </div>
-                        <div style={{ fontSize: "0.67rem", color: "#94a3b8", marginTop: 1 }}>
+                        <div style={{ fontSize: "0.67rem", color: "#c9aeba", marginTop: 1 }}>
                           {powerUp.description}
                         </div>
                       </div>
@@ -218,14 +223,14 @@ export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpM
                         style={{
                           fontSize: "0.6rem",
                           fontWeight: 700,
-                          color: isSelected ? powerUp.color : "#cbd5e1",
-                          background: isSelected ? `${powerUp.color}12` : "rgba(0,0,0,0.04)",
+                          color: isSelected ? "#ffd4e0" : "#c9aeba",
+                          background: isSelected ? `${powerUp.color}22` : "rgba(255,255,255,.055)",
                           padding: "2px 8px",
                           borderRadius: 6,
                           fontFamily: "monospace",
                         }}
                       >
-                        {powerUp.shortcut}
+                        {powerUp.shortcut.replace(/^@/, trigger)}
                       </span>
                     </motion.button>
                   );
@@ -240,13 +245,13 @@ export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpM
               justifyContent: "center",
               gap: 16,
               padding: "6px 0 2px",
-              borderTop: "1px solid rgba(0,0,0,0.05)",
+              borderTop: "1px solid rgba(255,218,231,.12)",
               marginTop: 4,
             }}
           >
-            <span style={{ fontSize: "0.62rem", color: "#cbd5e1" }}>↑↓ navigate</span>
-            <span style={{ fontSize: "0.62rem", color: "#cbd5e1" }}>↵ select</span>
-            <span style={{ fontSize: "0.62rem", color: "#cbd5e1" }}>esc close</span>
+            <span style={{ fontSize: "0.62rem", color: "#c9aeba" }}>↑↓ navigate</span>
+            <span style={{ fontSize: "0.62rem", color: "#c9aeba" }}>↵ select</span>
+            <span style={{ fontSize: "0.62rem", color: "#c9aeba" }}>esc close</span>
           </div>
         </motion.div>
       )}

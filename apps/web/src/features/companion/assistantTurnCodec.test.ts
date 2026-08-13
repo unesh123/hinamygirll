@@ -5,6 +5,7 @@ import {
   getAssistantArtifacts,
   getAssistantDisplayText,
   getAssistantSpokenText,
+  getSafeAssistantStreamingText,
   serializeAssistantTurn,
 } from "./assistantTurnCodec";
 
@@ -42,6 +43,13 @@ describe("assistant turn codec", () => {
     const broken = "hinaa.assistant-turn/v1:{not valid json";
     expect(deserializeAssistantTurn(broken)).toBeUndefined();
     expect(getAssistantDisplayText(broken)).toBe("A saved response could not be restored safely.");
+  });
+
+  it("holds a partial fenced HINAA plan until it can render display text", () => {
+    const partial = "```json\n{\n  \"spokenText\": \"Hey babe!\",";
+    const fenced = `\`\`\`json\n${JSON.stringify(turn)}\n\`\`\``;
+    expect(getSafeAssistantStreamingText(partial)).toBe("");
+    expect(getSafeAssistantStreamingText(fenced)).toBe(turn.displayText);
   });
 });
 

@@ -66,18 +66,30 @@ export function PremiumComposer({
   const setImagePreview = onImageAttach || setLocalPreview;
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
+  const [showCommands, setShowCommands] = useState(false);
+  const [commandFilter, setCommandFilter] = useState("");
 
-  /* ─── Detect @ for power-ups ────────────────────────── */
-  const detectMention = useCallback((text: string) => {
+  /* ─── Detect @ power-ups and / commands at the cursor ─── */
+  const detectComposerTrigger = useCallback((text: string) => {
     const cursorPos = textRef.current?.selectionStart ?? text.length;
     const beforeCursor = text.slice(0, cursorPos);
-    const match = beforeCursor.match(/@(\S*)$/);
-    if (match) {
+    const mention = beforeCursor.match(/@(\S*)$/);
+    const command = beforeCursor.match(/\/(\S*)$/);
+    if (mention) {
       setShowMentions(true);
-      setMentionFilter(match[1]);
+      setMentionFilter(mention[1]);
+      setShowCommands(false);
+      setCommandFilter("");
+    } else if (command && (beforeCursor.length === command[0].length || /\s\/(\S*)$/.test(beforeCursor))) {
+      setShowCommands(true);
+      setCommandFilter(command[1]);
+      setShowMentions(false);
+      setMentionFilter("");
     } else {
       setShowMentions(false);
       setMentionFilter("");
+      setShowCommands(false);
+      setCommandFilter("");
     }
   }, []);
 
@@ -93,39 +105,43 @@ export function PremiumComposer({
 
   const handleKey = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (showMentions && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape")) {
-        return; // Let PowerUpMentions handle it
+      if ((showMentions || showCommands) && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape")) {
+        return; // Let the active command menu handle it
       }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         if (canSend) onSend();
       }
     },
-    [canSend, onSend, showMentions],
+    [canSend, onSend, showMentions, showCommands],
   );
 
   const handleChange = useCallback(
     (text: string) => {
       onChange(text);
-      detectMention(text);
+      detectComposerTrigger(text);
     },
-    [onChange, detectMention],
+    [onChange, detectComposerTrigger],
   );
 
-  const handleMentionSelect = useCallback(
-    (powerUp: PowerUp) => {
+  const handlePowerUpSelect = useCallback(
+    (powerUp: PowerUp, trigger: "@" | "/") => {
       const cursorPos = textRef.current?.selectionStart ?? value.length;
-      const beforeAt = value.slice(0, cursorPos).replace(/@\S*$/, "");
+      const triggerPattern = trigger === "@" ? /@\S*$/ : /\/\S*$/;
+      const beforeTrigger = value.slice(0, cursorPos).replace(triggerPattern, "");
       const afterCursor = value.slice(cursorPos);
-      const newValue = `${beforeAt}${powerUp.shortcut} ${afterCursor}`;
+      // @ tags are HINAA's durable intent syntax. Slash commands are a faster
+      // entry path but resolve to the same safe, visible operation tag.
+      const newValue = `${beforeTrigger}${powerUp.shortcut} ${afterCursor}`;
       onChange(newValue);
       setShowMentions(false);
       setMentionFilter("");
+      setShowCommands(false);
+      setCommandFilter("");
       onPowerUp?.(powerUp);
-      // Focus back
       requestAnimationFrame(() => {
         textRef.current?.focus();
-        const newPos = beforeAt.length + powerUp.shortcut.length + 1;
+        const newPos = beforeTrigger.length + powerUp.shortcut.length + 1;
         textRef.current?.setSelectionRange(newPos, newPos);
       });
     },
@@ -136,6 +152,7 @@ export function PremiumComposer({
     (suggestion: Suggestion) => {
       onChange(suggestion.prefix || suggestion.label + ": ");
       setShowMentions(false);
+      setShowCommands(false);
       textRef.current?.focus();
     },
     [onChange],
@@ -156,14 +173,22 @@ export function PremiumComposer({
       <PowerUpMentions
         visible={showMentions}
         filter={mentionFilter}
-        onSelect={handleMentionSelect}
+        onSelect={(powerUp) => handlePowerUpSelect(powerUp, "@")}
         onClose={() => setShowMentions(false)}
+        trigger="@"
+      />
+      <PowerUpMentions
+        visible={showCommands}
+        filter={commandFilter}
+        onSelect={(powerUp) => handlePowerUpSelect(powerUp, "/")}
+        onClose={() => setShowCommands(false)}
+        trigger="/"
       />
 
       {/* Smart suggestions */}
       <SmartSuggestions
         input={value}
-        visible={!showMentions && value.trim().length > 1}
+        visible={!showMentions && !showCommands && value.trim().length > 1}
         onSelect={handleSuggestionSelect}
       />
 
@@ -192,7 +217,7 @@ export function PremiumComposer({
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKey}
-          placeholder={placeholder ?? `Message ${companionName}… (type @ for power-ups)`}
+          placeholder={placeholder ?? `Message ${companionName}… (type @ or / for tools)`}
           disabled={disabled || isVoiceActive}
           rows={1}
           spellCheck

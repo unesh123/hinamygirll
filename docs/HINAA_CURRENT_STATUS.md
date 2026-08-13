@@ -509,3 +509,12 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Spoken reply selection | **REPAIRED AND TESTED** | TTS receives validated `spokenText`, never raw contract JSON. When a long display response and spoken text are identical, a natural short summary replaces the former canned phrase. |
 | Real ElevenLabs playback | **PARTIAL RUNTIME EVIDENCE** | The screenshot shows ElevenLabs synthesis starting. Final browser playback and avatar mouth-reset evidence still require the user’s local audio/browser runtime check. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 35 warnings and 0 errors. |
+
+## Phase 35 — Claude Normalization and Command Surface — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Screenshot raw JSON root cause | **REPAIRED AND TESTED** | The exact captured plan used `language: "hindi-english"` and omitted strict emotion `valence`/`arousal`. That made the typed Claude plan fail schema validation and fall back to rendering the raw contract. The backend now normalizes those safe gateway variations before validation. |
+| Typed chat natural reply | **REPAIRED AND TESTED** | Regular `/turns:stream` now receives validated `displayText`; raw partial reserved plans are withheld defensively in the client. |
+| Fullscreen/live voice safety | **REPAIRED IN CODE AND TESTED AT TYPE LEVEL** | Visible live deltas are guarded, and the validated plan’s `spokenText` owns TTS fallback. Final microphone-to-audio runtime proof still requires the user’s Windows browser/audio session. |
+| @ and / command palette | **IMPLEMENTED AND TESTED** | Both triggers open the matching Ink Rose palette, insert the durable intent tag, and route to a real existing HINAA workspace without triggering sensitive external automation. |
+| Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | API tests, frontend Vitest, mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 35 warnings and 0 errors. |

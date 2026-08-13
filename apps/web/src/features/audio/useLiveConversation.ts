@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseAssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+import { getSafeAssistantStreamingText } from "../companion/assistantTurnCodec";
 import type { CompanionController } from "../companion/useCompanionController";
 import type { PlaybackController } from "./useAudioPlayback";
 import { LatencyClock } from "./latencyClock";
@@ -125,7 +126,9 @@ export function useLiveConversation({
   const turnTaking = useRef(new TurnTakingController());
   const phraseDetector = useRef(new PhraseDetector());
   const latency = useRef(new LatencyClock());
-  const lastSpokenTextRef = useRef("");  // accumulates streaming assistant text for lip-sync
+  const rawAssistantTextRef = useRef("");
+  const visibleAssistantTextRef = useRef("");
+  const lastSpokenTextRef = useRef("");
   const callbacks = useRef({ controller, playback });
   callbacks.current = { controller, playback };
   playbackState.current = playback.playing;
@@ -189,7 +192,9 @@ export function useLiveConversation({
     speechStartedAt.current = performance.now();
     speechEndedAt.current = undefined;
     finalAt.current = undefined;
-    lastSpokenTextRef.current = "";  // reset for new turn's lip-sync
+    rawAssistantTextRef.current = "";
+    visibleAssistantTextRef.current = "";
+    lastSpokenTextRef.current = "";
     partialGeneration.current = undefined;
     textGeneration.current = undefined;
     audibleGeneration.current = undefined;
@@ -319,15 +324,26 @@ export function useLiveConversation({
           ),
         }));
       }
-      const phrases = phraseDetector.current.push(event.delta);
-      if (phrases.length) latency.current.mark("first_stable_phrase");
-      current.controller.applyLiveDelta(event.delta);
-      lastSpokenTextRef.current += event.delta;  // accumulate for lip-sync
+      rawAssistantTextRef.current += event.delta;
+      const safeText = getSafeAssistantStreamingText(rawAssistantTextRef.current);
+      const previousVisible = visibleAssistantTextRef.current;
+      const visibleDelta = safeText.startsWith(previousVisible)
+        ? safeText.slice(previousVisible.length)
+        : safeText;
+      visibleAssistantTextRef.current = safeText;
+      if (visibleDelta) {
+        const phrases = phraseDetector.current.push(visibleDelta);
+        if (phrases.length) latency.current.mark("first_stable_phrase");
+        current.controller.applyLiveDelta(visibleDelta);
+        lastSpokenTextRef.current = safeText;
+      }
     } else if (event.type === "assistant.plan") {
       phraseDetector.current.flush();
       latency.current.mark("final_text");
       try {
-        current.controller.applyLivePlan(parseAssistantTurnPlan(event.plan));
+        const plan = parseAssistantTurnPlan(event.plan);
+        lastSpokenTextRef.current = plan.spokenText;
+        current.controller.applyLivePlan(plan);
       } catch {
         current.controller.applyLiveError(
           "The live response plan was invalid and was not animated.",

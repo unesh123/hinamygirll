@@ -43,6 +43,25 @@ export function deserializeAssistantTurn(content: unknown): AssistantTurnPlan | 
   return parseStructuredJsonText(encoded);
 }
 
+export function getSafeAssistantStreamingText(content: string): string {
+  const turn = parseStructuredJsonText(content);
+  if (turn) return turn.displayText;
+
+  const trimmed = content.trimStart();
+  // While a provider is still emitting a fenced HINAA plan, do not flash its
+  // internal contract into the transcript. The final validated `plan` event
+  // will replace this with displayText. Ordinary Markdown/code answers remain
+  // unaffected unless they begin with the reserved HINAA response shape.
+  if (
+    /^```(?:json)?\s*(?:\{|$)/i.test(trimmed) ||
+    /^json\s*\{/i.test(trimmed) ||
+    /^\{\s*(?:"(?:spokenText|displayText|language|emotion|performance|memoryCandidates|toolRequests)"|$)/.test(trimmed)
+  ) {
+    return "";
+  }
+  return content;
+}
+
 export function getAssistantDisplayText(content: unknown): string {
   const turn = deserializeAssistantTurn(content);
   if (turn) return turn.displayText;

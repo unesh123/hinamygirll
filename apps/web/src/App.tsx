@@ -390,12 +390,24 @@ export default function App() {
   }, [input, live.active, controller, playback, attachedImage, interruptPlayback]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
+    // A command changes HINAA's working surface and leaves an explicit intent
+    // tag in the composer. It never performs an external action by itself.
     const map: Record<string, () => void> = {
       "search-web": () => { setContextMode("research"); setSearching(true); },
       "image-search": () => setContextMode("images"),
+      "generate-image": () => setContextMode("images"),
       "browser-navigate": () => setContextMode("browser"),
-      "play-music": () => window.open("https://www.youtube.com/results?search_query=hindi+songs", "_blank", "noopener,noreferrer"),
+      "browser-read": () => setContextMode("browser"),
+      "write-code": () => { setNavSection("tools"); setSidebarExpanded(null); },
+      "play-music": () => setContextMode("music"),
+      "check-email": () => setContextMode("email"),
+      "show-calendar": () => { setNavSection("tools"); setSidebarExpanded(null); },
+      "search-files": () => { setNavSection("files"); setSidebarExpanded(null); },
       "remember-this": () => setMemoryOpen(true),
+      "agent-mode": () => { setNavSection("tasks"); setSidebarExpanded(null); },
+      "automation": () => { setNavSection("tasks"); setSidebarExpanded(null); },
+      "system-open": () => { setNavSection("tools"); setSidebarExpanded(null); },
+      "export": () => { setNavSection("files"); setSidebarExpanded(null); },
     };
     map[p.action]?.();
   }, []);

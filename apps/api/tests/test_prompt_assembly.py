@@ -400,6 +400,36 @@ def test_fallback_and_invalid_plan_parsing() -> None:
     assert plan.spokenText
 
 
+def test_fenced_claude_gateway_plan_with_compact_emotion_metadata_is_normalized() -> None:
+    raw = '''```json
+{
+  "spokenText": "Hey babe! 😊 मैं यहाँ हूँ — how's your day going?",
+  "displayText": "Hey babe! 😊 मैं यहाँ हूँ — how's your day going?",
+  "language": "hindi-english",
+  "emotion": {"primary": "happy", "intensity": 0.7},
+  "performance": {
+    "facePreset": "soft_smile",
+    "gesture": "wave",
+    "gazeTarget": "camera",
+    "headMotion": "subtle",
+    "blinkRate": 0.6
+  },
+  "memoryCandidates": [],
+  "toolRequests": []
+}
+```'''
+
+    plan = validate_or_none(raw)
+
+    assert plan is not None
+    assert plan.displayText == "Hey babe! 😊 मैं यहाँ हूँ — how's your day going?"
+    assert plan.spokenText == plan.displayText
+    assert plan.language == "mixed"
+    assert plan.emotion.primary == "happy"
+    assert plan.emotion.valence > 0
+    assert plan.performance.facePreset == "soft_smile"
+
+
 def test_build_plan_from_text_validates() -> None:
     plan = build_plan_from_text(
         text="Namaste!",

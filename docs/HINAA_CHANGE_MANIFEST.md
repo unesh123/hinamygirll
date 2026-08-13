@@ -309,3 +309,13 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Historical/UI defense | The assistant-turn codec now decodes a valid Markdown-fenced plan as well as the persisted HINAA turn format. | Frontend regression confirms chat uses `displayText` and speech uses `spokenText`, with no JSON fence displayed. |
 | Voice quality guard | Long answers that otherwise repeat word-for-word now use a short natural display-derived spoken summary rather than the canned “key details” phrase. | Response-quality regression passes. |
 | Voice boundary | Full-plan validation deliberately precedes Claude live delta emission to protect chat/TTS from internal JSON. | This trades unsafe first-token streaming for correct natural speech and a valid emotion/performance plan. |
+
+## Phase 35 — Claude plan normalization and command-surface polish
+| Surface | Change | Verification |
+|---|---|---|
+| Typed Claude turns | Safe gateway normalization accepts compatible `hindi-english` locale aliases and missing presentation-only emotion valence/arousal values before strict validation. | Regression reproduces the exact fenced payload seen in the Windows screenshot and yields natural display/spoken text plus a valid performance plan. |
+| Raw-plan containment | Typed chat and fullscreen live voice withhold a partial reserved HINAA plan until it can be decoded; typed chat streams only the validated plan `displayText`. | Backend and frontend regressions pass. |
+| Gateway fallback | Legacy/invalid fenced plan recovery extracts `displayText` rather than treating the whole JSON contract as prose. | Parser suite passes. |
+| Composer | Existing Ink Rose composer now provides both `@` power-ups and `/` commands with filtering, click/keyboard selection, Escape dismissal, and safe intent-tag insertion. | Two component interaction regressions pass. |
+| Action routing | Commands move into existing research, images, browser, music, email, tasks, files, memory, and tools surfaces. No command auto-executes an external browser, music, or email action. | Typecheck and full frontend suite pass. |
+| Fullscreen/mobile voice | Existing fullscreen overlay received mobile-safe spacing, larger touch controls, focus rings, bounded transcript area, and command menu sizing. | Mobile check and production build pass. |

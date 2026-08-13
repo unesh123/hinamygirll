@@ -14,6 +14,7 @@ import { resolveToolOutcome } from "../tools/toolOutcome";
 import {
   deserializeAssistantTurn,
   getAssistantDisplayText,
+  getSafeAssistantStreamingText,
   serializeAssistantTurn,
 } from "./assistantTurnCodec";
 
@@ -231,6 +232,7 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
       setState("thinking");
 
       try {
+        let rawStreamed = "";
         let streamed = "";
         let completedPlan: AssistantTurnPlan | undefined;
         let providerLatencyMs: number | undefined;
@@ -255,9 +257,10 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
           if (event.type === "thinking") {
             setState("thinking");
           } else if (event.type === "text.delta") {
-            streamed += event.delta;
+            rawStreamed += event.delta;
+            streamed = getSafeAssistantStreamingText(rawStreamed);
             setStreamingText(streamed);
-            setState("speaking");
+            setState(streamed ? "speaking" : "thinking");
           } else if (event.type === "plan") {
             completedPlan = event.plan;
             setActivePlan(event.plan);
