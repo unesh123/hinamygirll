@@ -10,6 +10,21 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env.local"
 DEFAULT_LOCAL_DATABASE_URL = f"sqlite+pysqlite:///{Path.home() / '.hinaa' / 'hinaa.db'}"
 
+# Official Anthropic defaults remain the safe default. The documented mwapi
+# gateway publishes a different catalog; aliases preserve stale local browser
+# preferences during the transition instead of sending unsupported model IDs.
+OFFICIAL_CLAUDE_DEFAULT_MODELS = (
+    "claude-sonnet-4-20250514,claude-opus-4-20250514,claude-3-5-haiku-20241022"
+)
+MWAPI_CLAUDE_DEFAULT_MODELS = (
+    "claude-sonnet-4-6,claude-opus-4-6,claude-haiku-4-5-20251001"
+)
+MWAPI_CLAUDE_MODEL_ALIASES = {
+    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+    "claude-opus-4-20250514": "claude-opus-4-6",
+    "claude-3-5-haiku-20241022": "claude-haiku-4-5-20251001",
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -49,7 +64,7 @@ class Settings(BaseSettings):
     claude_protocol: Literal["auto", "anthropic", "openai-compatible"] = Field("auto", alias="HINAA_CLAUDE_PROTOCOL")
     claude_model: str = Field("claude-sonnet-4-20250514", alias="HINAA_CLAUDE_MODEL")
     claude_allowed_models_raw: str = Field(
-        "claude-sonnet-4-20250514,claude-opus-4-20250514,claude-3-5-haiku-20241022",
+        OFFICIAL_CLAUDE_DEFAULT_MODELS,
         alias="HINAA_CLAUDE_ALLOWED_MODELS",
     )
     groq_api_key: SecretStr | None = Field(None, alias="GROQ_API_KEY")
@@ -241,16 +256,35 @@ class Settings(BaseSettings):
         # chat-completions contract. Official Anthropic uses the Messages API.
         return "openai-compatible" if self.active_claude_base_url and self.active_claude_base_url.endswith("/v1") else "anthropic"
 
+    def _normalize_claude_model(self, model: str) -> str:
+        if self.active_claude_protocol == "openai-compatible":
+            return MWAPI_CLAUDE_MODEL_ALIASES.get(model, model)
+        return model
+
+    @property
+    def active_claude_model(self) -> str:
+        return self._normalize_claude_model(self.claude_model)
+
     @property
     def claude_allowed_models(self) -> list[str]:
         configured = [model.strip() for model in self.claude_allowed_models_raw.split(",") if model.strip()]
-        models = configured or [self.claude_model]
-        if self.claude_model and self.claude_model not in models:
-            models.insert(0, self.claude_model)
-        return models
+        if self.active_claude_protocol == "openai-compatible" and (
+            not configured
+            or self.claude_allowed_models_raw == OFFICIAL_CLAUDE_DEFAULT_MODELS
+            or all(model in MWAPI_CLAUDE_MODEL_ALIASES for model in configured)
+        ):
+            # A legacy browser/backend list containing only official IDs is not
+            # an intentional gateway restriction; replace it with the documented
+            # gateway catalog so the model selector immediately recovers.
+            configured = MWAPI_CLAUDE_DEFAULT_MODELS.split(",")
+        models = [self._normalize_claude_model(model) for model in configured]
+        active_model = self.active_claude_model
+        if active_model and active_model not in models:
+            models.insert(0, active_model)
+        return list(dict.fromkeys(models))
 
     def resolve_claude_model(self, requested: str | None = None) -> str:
-        model = (requested or "").strip() or self.claude_model
+        model = self._normalize_claude_model((requested or "").strip() or self.active_claude_model)
         if model not in self.claude_allowed_models:
             allowed = ", ".join(self.claude_allowed_models)
             raise ValueError(f"Claude model is not in HINAA_CLAUDE_ALLOWED_MODELS: {allowed}")

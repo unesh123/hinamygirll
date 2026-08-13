@@ -477,3 +477,11 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Authentication result | **CREDENTIAL-SIDE VERIFICATION REQUIRED** | A real provider authentication test was intentionally not sent because the attachment contained an exposed credential and the real Windows `.env.local` is unavailable in this sandbox. After credential rotation and a backend restart, one short typed test is required to prove the provider account accepts the replacement key. |
 | Safe token boundary | **VERIFIED** | `ANTHROPIC_AUTH_TOKEN` alone cannot configure HINAA. HINAA requires `HINAA_CLAUDE_API_KEY` or `ANTHROPIC_API_KEY`; it never prints either value. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 31 — Claude Model Catalog Recovery — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Model-not-found repair | **IMPLEMENTED AND TESTED WITHOUT LIVE BILLING** | The observed `claude-sonnet-4-20250514` stale selection is normalized to `claude-sonnet-4-6` when the configured Claude gateway uses the documented `/v1` OpenAI-compatible route. The returned provider catalog excludes that old unsupported ID. |
+| Persisted browser setting recovery | **VERIFIED** | Once fresh provider metadata arrives, HINAA replaces any saved Claude model that is absent from the catalog with the provider default. This protects existing browser localStorage selections after an upgrade. |
+| Real gateway acceptance | **REQUIRES ONE POST-RESTART WINDOWS TEST** | The sandbox has no access to the user’s real credential and did not send a paid provider request. A local typed turn after installing the updated branch, restarting the backend, and hard-refreshing the frontend is required for final account-side authentication evidence. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |

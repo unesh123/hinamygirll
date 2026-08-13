@@ -399,7 +399,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "text-stream",
                     "openai-compatible" if active_settings.active_claude_protocol == "openai-compatible" else "anthropic-messages",
                     f"protocol:{active_settings.active_claude_protocol}",
-                    f"default-model:{active_settings.claude_model}",
+                    f"default-model:{active_settings.active_claude_model}",
                     *[f"model:{model}" for model in active_settings.claude_allowed_models],
                 ],
                 state="healthy" if active_settings.claude_configured else "unavailable",

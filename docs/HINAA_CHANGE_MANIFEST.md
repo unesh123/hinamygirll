@@ -279,3 +279,10 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Claude adapter selection | The provider router now selects HINAA's OpenAI-compatible adapter for the documented gateway mode and retains Anthropic Messages for the official/default Anthropic route. | Provider-router, API status, and security regression suites pass. |
 | Structured answers | The OpenAI-compatible Claude route uses HINAA's existing gateway prose-to-plan recovery and streaming path, avoiding unsupported JSON response-format retries. | Type and regression checks pass. |
 | Authentication UX | Claude authentication errors now give a clear local recovery instruction with the documented base URL/protocol format and backend restart requirement. | Frontend TypeScript and full test/build gates pass. |
+
+## Phase 31 — Claude gateway model catalog recovery
+| Surface | Change | Verification |
+|---|---|---|
+| Gateway model catalog | For the documented OpenAI-compatible `/v1` Claude gateway route, HINAA now reports the gateway catalog (`claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001`) instead of the official Anthropic default IDs. | Provider-status regression confirms the old model is absent and the gateway default is present. |
+| Stale model recovery | Legacy persisted official Claude model IDs are mapped to their documented gateway equivalents at backend resolution, and the frontend discards a saved model absent from a refreshed provider catalog. | Backend model-normalization and frontend selection regressions pass. |
+| User recovery | After an API restart and hard refresh, settings will present the gateway-supported model list and a stale old selection resolves to the current gateway default rather than generating `PROVIDER_MODEL_NOT_FOUND`. | Full API, frontend, mobile, type, build, and lint gates pass. |

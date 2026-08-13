@@ -31,6 +31,20 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "mock",
 ];
 
+function resolveCurrentModel(
+  mode: ConcreteProviderMode,
+  savedModel: string | null | undefined,
+  providers: ProvidersState,
+): string | null {
+  const options = providers.getModelOptions(mode);
+  // An empty catalog means the status fetch has not supplied model metadata;
+  // preserve an explicit choice until a real catalog is available.
+  if (savedModel && (!providers.loaded || options.length === 0 || options.some((option) => option.id === savedModel))) {
+    return savedModel;
+  }
+  return providers.getDefaultModel(mode) || null;
+}
+
 /**
  * Resolves the currently selected provider/model preferences into a concrete
  * provider choice for the next chat request.
@@ -45,8 +59,11 @@ export function resolveProviderSelection(
   if (preferredMode !== "auto") {
     const concrete = preferredMode as ConcreteProviderMode;
     const health = providers.getHealth(concrete);
-    const explicitModel =
-      models[concrete as keyof typeof models] || providers.getDefaultModel(concrete) || null;
+    const explicitModel = resolveCurrentModel(
+      concrete,
+      models[concrete as keyof typeof models],
+      providers,
+    );
 
     // Preferences are persisted locally. If a saved paid or custom provider is
     // no longer configured on this deployment, recover to deterministic mock
@@ -71,7 +88,11 @@ export function resolveProviderSelection(
   // 2. Automatic selection
   for (const mode of AUTO_PRIORITY) {
     if (providers.getHealth(mode) === "healthy") {
-      const model = models[mode as keyof typeof models] || providers.getDefaultModel(mode) || null;
+      const model = resolveCurrentModel(
+        mode,
+        models[mode as keyof typeof models],
+        providers,
+      );
       return {
         preferredMode: "auto",
         activeMode: mode,

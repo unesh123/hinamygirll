@@ -107,3 +107,26 @@ def test_claude_code_auth_token_alone_does_not_configure_hinaa() -> None:
     )
 
     assert settings.claude_configured is False
+
+
+def test_gateway_normalizes_stale_official_model_preference() -> None:
+    settings = _settings(HINAA_CLAUDE_BASE_URL="https://api.mwapi.dev/v1")
+
+    assert settings.active_claude_protocol == "openai-compatible"
+    assert settings.active_claude_model == "claude-sonnet-4-6"
+    assert settings.resolve_claude_model("claude-sonnet-4-20250514") == "claude-sonnet-4-6"
+    assert settings.claude_allowed_models == [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-haiku-4-5-20251001",
+    ]
+
+
+def test_gateway_status_reports_normalized_model_catalog() -> None:
+    settings = _settings(HINAA_CLAUDE_BASE_URL="https://api.mwapi.dev/v1")
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/v1/providers")
+
+    claude = next(item for item in response.json() if item["id"] == "claude")
+    assert "default-model:claude-sonnet-4-6" in claude["capabilities"]
+    assert "model:claude-sonnet-4-20250514" not in claude["capabilities"]
