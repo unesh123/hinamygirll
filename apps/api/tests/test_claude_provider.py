@@ -157,3 +157,45 @@ def test_gateway_no_available_accounts_is_classified_as_upstream_capacity() -> N
     assert captured.value.retryable is True
     assert captured.value.user_action_required is True
     assert "test-claude-key" not in captured.value.message
+
+
+def test_claude_live_plan_emits_display_text_not_structured_json() -> None:
+    import asyncio
+    from hinaa_api.prompts import build_plan_from_text
+    from hinaa_api.providers.base import ProviderResult
+
+    provider = ProviderRouter(
+        _settings(HINAA_CLAUDE_BASE_URL="https://api.mwapi.dev/v1")
+    ).llm("claude")
+    plan = build_plan_from_text(
+        text="Hey babe! I am happy to see you. What would you like to do?",
+        companion_id="hinaa",
+        language="mixed",
+        depth="conversational",
+    )
+    structured_contract = "```json\n" + plan.model_dump_json() + "\n```"
+
+    async def fake_create_plan(*_args, **_kwargs):
+        return ProviderResult(plan, "claude:claude-sonnet-4-6", 1)
+
+    emitted: list[str] = []
+
+    async def emit_delta(value: str) -> None:
+        emitted.append(value)
+
+    provider.create_plan = fake_create_plan  # type: ignore[method-assign]
+    result = asyncio.run(
+        provider.create_live_plan(
+            "hey HINAA",
+            "hinaa",
+            "mixed",
+            (),
+            emit_delta,
+            None,
+        )
+    )
+
+    assert result.value.displayText == plan.displayText
+    assert "".join(emitted) == plan.displayText
+    assert structured_contract not in "".join(emitted)
+    assert "```json" not in "".join(emitted)

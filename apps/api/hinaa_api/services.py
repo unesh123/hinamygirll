@@ -102,6 +102,24 @@ def _remove_repeated_passages(text: str) -> str:
     return "".join(kept).strip()
 
 
+def _spoken_summary_from_display(text: str, *, limit: int = 420) -> str:
+    """Create a short natural voice route without reading Markdown syntax aloud."""
+    plain = re.sub(r"^\s{0,3}#{1,6}\s*", "", text.strip(), flags=re.MULTILINE)
+    plain = re.sub(r"^\s*[-*+]\s+", "", plain, flags=re.MULTILINE)
+    plain = plain.replace("`", "").replace("**", "").replace("__", "")
+    sentences = [piece.strip() for piece in re.split(r"(?<=[.!?])\s+", plain) if piece.strip()]
+    summary: list[str] = []
+    current_length = 0
+    for sentence in sentences:
+        if summary and current_length + len(sentence) + 1 > limit:
+            break
+        summary.append(sentence)
+        current_length += len(sentence) + 1
+        if len(summary) >= 3:
+            break
+    return " ".join(summary).strip() or plain[:limit].strip()
+
+
 def _apply_response_quality_guard(plan: AssistantTurnPlan) -> None:
     """Normalize a completed plan without changing meaning or tool requests."""
     plan.displayText = _remove_repeated_passages(plan.displayText)
@@ -111,7 +129,7 @@ def _apply_response_quality_guard(plan: AssistantTurnPlan) -> None:
         len(plan.displayText) > 160
         and _comparison_key(plan.displayText) == _comparison_key(plan.spokenText)
     ):
-        plan.spokenText = "I’ve put the key details in chat, babe."
+        plan.spokenText = _spoken_summary_from_display(plan.displayText)
 
 
 # ── Casual-chat fast path ──────────────────────────────────────────────────

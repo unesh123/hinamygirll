@@ -44,3 +44,12 @@ describe("assistant turn codec", () => {
     expect(getAssistantDisplayText(broken)).toBe("A saved response could not be restored safely.");
   });
 });
+
+
+  it("decodes a Markdown-fenced Claude plan without exposing JSON to chat or speech", () => {
+    const fenced = `\`\`\`json\n${JSON.stringify(turn)}\n\`\`\``;
+    expect(deserializeAssistantTurn(fenced)).toEqual(turn);
+    expect(getAssistantDisplayText(fenced)).toBe(turn.displayText);
+    expect(getAssistantSpokenText(fenced)).toBe(turn.spokenText);
+    expect(getAssistantDisplayText(fenced)).not.toContain("\`\`\`json");
+  });

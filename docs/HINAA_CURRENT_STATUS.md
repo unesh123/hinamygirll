@@ -501,3 +501,11 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Request contract | **VERIFIED IN NO-NETWORK TESTS** | HINAA detects `api.mwapi.dev`, selects Claude’s Anthropic adapter, adds the Bearer header, keeps the gateway model catalog, and publishes safe diagnostics. |
 | Real Windows acceptance | **REQUIRES RESTART AND ONE TYPED TURN** | The user’s local backend must load this newest code and restart before testing. No live paid request was sent from the sandbox. The gateway’s prior transient account-capacity error must be rechecked only after the updated transport is active. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 34 — Claude Structured Turn and Live Voice — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Raw JSON transcript defect | **REPAIRED AND TESTED** | The user screenshot shows Claude successfully returned a fenced AssistantTurnPlan. HINAA now validates that contract before emitting only human-readable `displayText`; the frontend also repairs an already-persisted fenced plan on render. |
+| Spoken reply selection | **REPAIRED AND TESTED** | TTS receives validated `spokenText`, never raw contract JSON. When a long display response and spoken text are identical, a natural short summary replaces the former canned phrase. |
+| Real ElevenLabs playback | **PARTIAL RUNTIME EVIDENCE** | The screenshot shows ElevenLabs synthesis starting. Final browser playback and avatar mouth-reset evidence still require the user’s local audio/browser runtime check. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 35 warnings and 0 errors. |

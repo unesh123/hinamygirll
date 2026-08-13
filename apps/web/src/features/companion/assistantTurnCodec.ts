@@ -17,6 +17,17 @@ function decodeStructuredPayload(value: unknown): AssistantTurnPlan | undefined 
   return parsed.success ? parsed.data : undefined;
 }
 
+function parseStructuredJsonText(value: string): AssistantTurnPlan | undefined {
+  const trimmed = value.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]?.trim() ?? trimmed;
+  if (!fenced.startsWith("{")) return undefined;
+  try {
+    return decodeStructuredPayload(JSON.parse(fenced));
+  } catch {
+    return undefined;
+  }
+}
+
 /** Persist a structured assistant response without exposing raw payloads to UI/TTS. */
 export function serializeAssistantTurn(turn: AssistantTurnPlan): string {
   return `${TURN_PREFIX}${JSON.stringify({ version: 1, turn } satisfies SerializedAssistantTurn)}`;
@@ -29,12 +40,7 @@ export function serializeAssistantTurn(turn: AssistantTurnPlan): string {
 export function deserializeAssistantTurn(content: unknown): AssistantTurnPlan | undefined {
   if (typeof content !== "string") return decodeStructuredPayload(content);
   const encoded = content.startsWith(TURN_PREFIX) ? content.slice(TURN_PREFIX.length) : content;
-  if (!encoded.trim().startsWith("{")) return undefined;
-  try {
-    return decodeStructuredPayload(JSON.parse(encoded));
-  } catch {
-    return undefined;
-  }
+  return parseStructuredJsonText(encoded);
 }
 
 export function getAssistantDisplayText(content: unknown): string {

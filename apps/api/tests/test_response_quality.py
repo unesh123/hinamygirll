@@ -35,4 +35,6 @@ def test_response_quality_guard_replaces_long_verbatim_voice_echo() -> None:
 
     _apply_response_quality_guard(plan)
 
-    assert plan.spokenText == "I’ve put the key details in chat, babe."
+    assert plan.spokenText == long_answer
+    assert "key details" not in plan.spokenText.lower()
+    assert "```" not in plan.spokenText

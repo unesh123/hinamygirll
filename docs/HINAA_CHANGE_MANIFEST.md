@@ -301,3 +301,11 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Authentication headers | The Anthropic adapter retains the SDK’s official request contract and adds `Authorization: Bearer` only for the mwapi host. | Regression verifies the exact Bearer header is configured without transmitting a real key. |
 | Gateway model catalog | mwapi host detection, rather than transport selection alone, controls the model alias/catalog recovery. This preserves `claude-sonnet-4-6` across the successful Claude-compatible path. | API status and stale-model regressions pass. |
 | Diagnostics | Claude diagnostics identify `anthropic-messages`, `bearer-auth`, and the selected protocol without exposing credentials. | Full release gate passes. |
+
+## Phase 34 — Claude structured-turn presentation and voice repair
+| Surface | Change | Verification |
+|---|---|---|
+| Claude live response | Claude-compatible live planning now buffers the internal AssistantTurnPlan until strict validation, then emits only `displayText` as chat deltas. | Regression proves a fenced JSON contract cannot appear in emitted live text. |
+| Historical/UI defense | The assistant-turn codec now decodes a valid Markdown-fenced plan as well as the persisted HINAA turn format. | Frontend regression confirms chat uses `displayText` and speech uses `spokenText`, with no JSON fence displayed. |
+| Voice quality guard | Long answers that otherwise repeat word-for-word now use a short natural display-derived spoken summary rather than the canned “key details” phrase. | Response-quality regression passes. |
+| Voice boundary | Full-plan validation deliberately precedes Claude live delta emission to protect chat/TTS from internal JSON. | This trades unsafe first-token streaming for correct natural speech and a valid emotion/performance plan. |

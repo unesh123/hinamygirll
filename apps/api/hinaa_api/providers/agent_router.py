@@ -1,4 +1,5 @@
 import httpx
+from collections.abc import Awaitable, Callable
 from typing import AsyncIterator
 from urllib.parse import urlparse
 from anthropic import AsyncAnthropic, APIError, APIConnectionError, APITimeoutError, RateLimitError, AuthenticationError
@@ -133,6 +134,24 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             
     async def _chat_json(self, prompt: PromptPackage) -> str:
         return await self._chat_text(prompt)
+
+    async def create_live_plan(
+        self,
+        text: str,
+        companion_id,
+        language,
+        history,
+        emit_delta: Callable[[str], Awaitable[None]],
+        prompt: PromptPackage | None = None,
+    ):
+        # Claude-compatible gateways return HINAA's structured response contract.
+        # Buffer it until strict validation completes, then stream only displayText.
+        # This prevents internal JSON from appearing in chat or being sent to TTS.
+        result = await self.create_plan(text, companion_id, language, history, prompt)
+        display = result.value.displayText
+        for start in range(0, len(display), 96):
+            await emit_delta(display[start : start + 96])
+        return result
 
 class ClaudeLLMProvider(AgentRouterAnthropicProvider):
     """Anthropic Messages API adapter for HINAA's explicit Claude mode."""
