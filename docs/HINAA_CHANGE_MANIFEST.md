@@ -351,3 +351,12 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Type-ahead assistance | **IMPLEMENTED AND TESTED** | The existing composer now offers context-aware Ink Rose suggestions that preserve the typed topic and produce real HINAA command wording for cited research, local image variations, document artifacts, task planning, and technical explanations. |
 | Capability planning | **DOCUMENTED** | Added `docs/HINAA_VERIFIED_CAPABILITY_MAP.md`, a staged 100+ capability catalog with present foundations, local runtime requirements, and safety boundaries. It is a roadmap, not an unverified feature claim. |
 | Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | Complete API suite, complete frontend Vitest suite, mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 36 warnings and 0 errors. |
+
+## Phase 39 — Private Humanizer and Evidence-Based Acceptance — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Local text humanizer | **IMPLEMENTED AND TESTED** | Added `POST /v1/text/humanize` and the `@humanize` drawer. The deterministic private route protects code blocks, inline code, URLs, Markdown links, facts/numbers, and Hindi × English text from rewrite rules; response explicitly reports `externalTextTransfer: false`. It does not claim detector evasion or author impersonation. |
+| Humanizer UI | **IMPLEMENTED AND TESTED** | Natural, Warm, Professional, and Concise styles; copy and editable-result controls; clear local-only indicator; no provider key or cloud route is needed. |
+| Humanizer API options | **RESEARCHED AND DOCUMENTED** | `docs/HINAA_HUMANIZER_OPTIONS.md` compares local deterministic polish, existing HINAA brain, local Ollama, and LanguageTool. The default remains local-only; any future cloud route must disclose text transfer and require explicit selection. |
+| Acceptance evidence | **DOCUMENTED** | Added `docs/HINAA_ACCEPTANCE_MATRIX.md`, distinguishing code-verified features from tests needing the user’s Windows hardware, private keys, VSeeFace, microphone/speakers, or local ComfyUI process. |
+| Full release gate | **PASSED** | Complete API suite, full frontend suite, mobile checks, type checking, production build, lint, and whitespace validation passed. Lint reports 36 warnings and 0 errors. |

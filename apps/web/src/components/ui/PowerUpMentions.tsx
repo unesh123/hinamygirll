@@ -35,6 +35,7 @@ export const POWER_UPS: PowerUp[] = [
   { id: "@calendar", icon: Calendar, label: "Calendar", shortcut: "@calendar", description: "View your schedule", color: "#8b5cf6", group: "Connect", action: "show-calendar" },
   { id: "@files", icon: FileText, label: "Files", shortcut: "@files", description: "Search and manage files", color: "#64748b", group: "Tools", action: "search-files" },
   { id: "@memory", icon: Brain, label: "Memory", shortcut: "@memory", description: "Save or recall memories", color: "#ec4899", group: "Tools", action: "remember-this" },
+  { id: "@humanize", icon: MessageSquare, label: "Humanize Text", shortcut: "@humanize", description: "Polish a draft privately on this device", color: "#f5a7bb", group: "Create", action: "humanize-text" },
   { id: "@agent", icon: Bot, label: "Agent Mode", shortcut: "@agent", description: "Autonomous multi-step task", color: "#f97316", group: "Automate", action: "agent-mode" },
   { id: "@automate", icon: Wrench, label: "Automation", shortcut: "@automate", description: "Chain tool pipelines", color: "#f59e0b", group: "Automate", action: "automation" },
   { id: "@system", icon: Cpu, label: "System Tools", shortcut: "@system", description: "Open apps and system actions", color: "#6366f1", group: "Tools", action: "system-open" },

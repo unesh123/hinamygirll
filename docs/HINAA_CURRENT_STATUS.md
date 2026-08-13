@@ -551,3 +551,13 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Typing suggestions | Composer regression verifies the deep-research suggestion preserves typed topic and produces the real deterministic research wording. | **VERIFIED** |
 | Capability map | Local-first staged capability map saved with sources and explicit dependency boundaries. | **VERIFIED DOCUMENTATION** |
 | Release gate | API suite, frontend suite, mobile checks, type check, production build, lint, and diff check completed. Lint: 36 warnings, 0 errors. | **PASSED** |
+
+## Phase 39 — Private Humanizer and Evidence-Based Acceptance — 2026-08-13
+
+| Acceptance area | Evidence | Status |
+|---|---|---|
+| Local humanizer endpoint | Focused API test confirms code/URL preservation, local route metadata, Hindi text preservation, and invalid-style rejection. | **VERIFIED** |
+| Humanizer drawer | Frontend test confirms private response rendering, local status text, and actual endpoint call. | **VERIFIED** |
+| Humanizer cloud quality route | Options documented only. No text is sent to a cloud humanizer API by this release. | **NOT ENABLED BY DESIGN** |
+| Whole-app release | API/front-end/mobile/build/lint/diff gate passed. | **VERIFIED CODE** |
+| Windows VSeeFace, voice, Qwen, You.com, ComfyUI | Sandbox has no user keys, Windows VSeeFace/camera/microphone/speaker, or ComfyUI process. | **WINDOWS EVIDENCE REQUIRED** |

@@ -44,6 +44,7 @@ const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").t
 const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((module) => ({ default: module.MemoryPanel })));
 const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
 const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").then((module) => ({ default: module.LocalImageStudio })));
+const LocalHumanizerStudio = lazy(() => import("./components/ui/LocalHumanizerStudio").then((module) => ({ default: module.LocalHumanizerStudio })));
 const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
 
 const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize: 12 }}>Loading local workspace…</div>;
@@ -255,6 +256,7 @@ export default function App() {
     const preload = () => {
       void import("./components/ui/LocalProjectWorkspace");
       void import("./components/ui/LocalImageStudio");
+      void import("./components/ui/LocalHumanizerStudio");
     };
     const idleWindow = window as Window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -398,6 +400,13 @@ export default function App() {
     })();
   }, [input, live.active, controller, playback, attachedImage, interruptPlayback]);
 
+  const openHumanizer = () => {
+    setDrawerMode("info");
+    setDrawerTitle("HINAA Text Humanizer");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><LocalHumanizerStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
+    setDrawerOpen(true);
+  };
+
   const handlePowerUp = useCallback((p: PowerUp) => {
     // A command changes HINAA's working surface and leaves an explicit intent
     // tag in the composer. It never performs an external action by itself.
@@ -417,9 +426,10 @@ export default function App() {
       "automation": () => { setNavSection("tasks"); setSidebarExpanded(null); },
       "system-open": () => { setNavSection("tools"); setSidebarExpanded(null); },
       "export": () => { setNavSection("files"); setSidebarExpanded(null); },
+      "humanize-text": openHumanizer,
     };
     map[p.action]?.();
-  }, []);
+  }, [openHumanizer]);
 
   const handleNav = useCallback((s: NavSection) => {
     if (s === "memory") { setMemoryOpen(v => !v); return; }

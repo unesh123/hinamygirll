@@ -1,0 +1,120 @@
+import { useMemo, useState } from "react";
+import { Check, Clipboard, FileText, Loader2, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
+
+type HumanizerStyle = "natural" | "warm" | "professional" | "concise";
+
+type HumanizerResponse = {
+  text: string;
+  style: HumanizerStyle;
+  route: string;
+  externalTextTransfer: boolean;
+  changes: string[];
+  originalCharacterCount: number;
+  outputCharacterCount: number;
+};
+
+const styles: Array<{ id: HumanizerStyle; label: string; detail: string }> = [
+  { id: "natural", label: "Natural", detail: "Clear, relaxed, and human" },
+  { id: "warm", label: "Warm", detail: "Gentle and encouraging" },
+  { id: "professional", label: "Professional", detail: "Clean, direct, and polished" },
+  { id: "concise", label: "Concise", detail: "Remove safe filler and tighten flow" },
+];
+
+export function LocalHumanizerStudio({ onClose }: { onClose: () => void }) {
+  const [source, setSource] = useState("");
+  const [style, setStyle] = useState<HumanizerStyle>("natural");
+  const [result, setResult] = useState<HumanizerResponse | null>(null);
+  const [state, setState] = useState<"idle" | "working" | "complete" | "failed">("idle");
+  const [message, setMessage] = useState("Paste a draft to polish it privately on this device.");
+  const [copied, setCopied] = useState(false);
+
+  const count = useMemo(() => source.length.toLocaleString(), [source]);
+  const humanize = async () => {
+    if (!source.trim() || state === "working") return;
+    setState("working");
+    setCopied(false);
+    setMessage("HINAA is polishing your text locally…");
+    try {
+      const response = await fetch("/api/v1/text/humanize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: source, style }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.text) throw new Error(data?.detail || "HINAA could not polish this text.");
+      setResult(data as HumanizerResponse);
+      setState("complete");
+      setMessage(data.externalTextTransfer
+        ? "This result used the selected external route."
+        : "Finished locally — this draft was not sent to an external model or API.");
+    } catch (error) {
+      setState("failed");
+      setMessage(error instanceof Error ? error.message : "HINAA could not polish this text.");
+    }
+  };
+
+  const copyResult = async () => {
+    if (!result?.text) return;
+    try {
+      await navigator.clipboard.writeText(result.text);
+      setCopied(true);
+    } catch {
+      setMessage("Copy was blocked by the browser. Select the result and copy it manually.");
+    }
+  };
+
+  const useResult = () => {
+    if (!result?.text) return;
+    setSource(result.text);
+    setMessage("The polished draft is now your editable source text.");
+  };
+
+  return (
+    <section style={{ padding: 20, color: "var(--text-primary)", maxWidth: 960, margin: "0 auto" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
+        <div>
+          <p style={{ margin: 0, color: "#f5a7bb", fontSize: 11, fontWeight: 800, letterSpacing: ".12em" }}>PRIVATE WRITING TOOL</p>
+          <h2 style={{ margin: "5px 0", fontSize: 25 }}>Text humanizer</h2>
+          <p style={{ margin: 0, maxWidth: 690, color: "var(--text-secondary)", lineHeight: 1.5 }}>Improve clarity and flow while protecting Markdown code, links, headings, lists, facts, numbers, and Hindi × English text. This local route does not claim to evade detectors or imitate a real person.</p>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginTop: 11, border: "1px solid rgba(134,239,172,.24)", borderRadius: 999, padding: "5px 9px", background: "rgba(134,239,172,.07)", color: "#b8f7c9", fontSize: 11, fontWeight: 750 }}><ShieldCheck size={14} /> Local-only route · no provider key required</div>
+        </div>
+        <button type="button" onClick={onClose} style={secondaryButtonStyle}>Close</button>
+      </header>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(300px,.9fr)", gap: 18, marginTop: 22 }}>
+        <div style={panelStyle}>
+          <label style={labelStyle}>Your draft</label>
+          <textarea aria-label="Text to humanize" value={source} onChange={(event) => { setSource(event.target.value); setCopied(false); }} maxLength={60000} placeholder="Paste any draft, note, explanation, or response you want HINAA to make clearer and more natural…" rows={16} style={{ ...inputStyle, width: "100%", resize: "vertical", lineHeight: 1.55, minHeight: 250 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 7, color: "var(--text-muted)", fontSize: 11 }}><span>Markdown, code blocks, links, lists, and quotations stay protected.</span><span>{count} / 60,000</span></div>
+          <button type="button" onClick={() => void humanize()} disabled={!source.trim() || state === "working"} style={{ ...primaryButtonStyle, opacity: !source.trim() || state === "working" ? .55 : 1 }}>
+            {state === "working" ? <Loader2 size={17} className="spin" /> : <Wand2 size={17} />}
+            {state === "working" ? "Polishing locally…" : "Humanize text"}
+          </button>
+          <p role="status" style={{ margin: "12px 0 0", color: state === "failed" ? "#f49aad" : "var(--text-secondary)", fontSize: 12, lineHeight: 1.45 }}>{message}</p>
+        </div>
+
+        <aside style={panelStyle}>
+          <label style={labelStyle}>Writing style</label>
+          <div style={{ display: "grid", gap: 7 }}>{styles.map((item) => <button key={item.id} type="button" onClick={() => setStyle(item.id)} style={{ ...styleButtonStyle, borderColor: style === item.id ? "#ee91ad" : "rgba(255,219,231,.16)", background: style === item.id ? "rgba(238,145,173,.14)" : "rgba(255,255,255,.025)" }}><strong>{item.label}</strong><span>{item.detail}</span></button>)}</div>
+          <div style={{ marginTop: 18, borderTop: "1px solid rgba(255,219,231,.12)", paddingTop: 15 }}>
+            <p style={{ margin: 0, color: "#ffd4df", fontWeight: 760, fontSize: 12 }}><Sparkles size={13} style={{ verticalAlign: "-2px" }} /> What this local pass changes</p>
+            <p style={{ margin: "7px 0 0", color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.55 }}>It removes safe filler, simplifies overly formal English phrases, smooths transitions, and cleans spacing. For a model-written rewrite, select a configured HINAA brain in chat and explicitly ask her to preserve facts and citations.</p>
+          </div>
+        </aside>
+      </div>
+
+      {result ? <section aria-label="Humanized text result" style={{ ...panelStyle, marginTop: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><div><p style={{ margin: 0, color: "#f5a7bb", fontSize: 11, fontWeight: 800, letterSpacing: ".08em" }}>LOCAL RESULT</p><h3 style={{ margin: "4px 0 0", fontSize: 17 }}>Polished {result.style} draft</h3></div><div style={{ display: "flex", gap: 8 }}><button type="button" onClick={() => void copyResult()} style={secondaryButtonStyle}>{copied ? <Check size={14} /> : <Clipboard size={14} />}{copied ? "Copied" : "Copy"}</button><button type="button" onClick={useResult} style={secondaryButtonStyle}><FileText size={14} />Use as draft</button></div></div>
+        <textarea aria-label="Humanized result" readOnly value={result.text} rows={12} style={{ ...inputStyle, width: "100%", marginTop: 14, resize: "vertical", lineHeight: 1.55 }} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{result.changes.map((change) => <span key={change} style={{ border: "1px solid rgba(255,219,231,.16)", borderRadius: 999, padding: "4px 7px", color: "#e7ccd6", background: "rgba(255,255,255,.03)", fontSize: 10 }}>{change}</span>)}</div>
+      </section> : null}
+    </section>
+  );
+}
+
+const panelStyle = { border: "1px solid var(--glass-border)", background: "rgba(255,255,255,.035)", borderRadius: 14, padding: 15, boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)" } as const;
+const inputStyle = { border: "1px solid rgba(255,219,231,.16)", background: "rgba(18,12,21,.68)", borderRadius: 9, color: "var(--text-primary)", padding: "10px 11px", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" } as const;
+const labelStyle = { display: "block", color: "#f5a7bb", fontSize: 11, fontWeight: 800, letterSpacing: ".08em", marginBottom: 7 } as const;
+const primaryButtonStyle = { width: "100%", marginTop: 16, display: "flex", gap: 9, justifyContent: "center", alignItems: "center", border: "1px solid #ffc3d3", borderRadius: 10, padding: "11px 14px", cursor: "pointer", color: "#28131d", fontWeight: 800, background: "linear-gradient(135deg,#ffd4df,#ee91ad)" } as const;
+const secondaryButtonStyle = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid rgba(255,219,231,.18)", borderRadius: 8, background: "rgba(255,255,255,.035)", color: "var(--text-secondary)", padding: "7px 10px", cursor: "pointer" } as const;
+const styleButtonStyle = { display: "grid", textAlign: "left", gap: 2, border: "1px solid", borderRadius: 9, color: "var(--text-primary)", padding: "9px 10px", cursor: "pointer" } as const;

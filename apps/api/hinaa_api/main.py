@@ -17,6 +17,7 @@ from .audio import validate_wav
 from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
+from .humanizer import humanize_text
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile
 from .persistence import MemoryService, init_db
 from .persistence.auth import AuthContext, auth_dependency_factory, resolve_auth
@@ -79,6 +80,11 @@ class ProjectArtifactBody(BaseModel):
     content: Annotated[str, Field(max_length=100_000)] = ""
     sourceUrl: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class HumanizeTextBody(BaseModel):
+    text: Annotated[str, Field(min_length=1, max_length=60_000)]
+    style: Annotated[str, Field(pattern="^(natural|warm|professional|concise)$")] = "natural"
 
 
 def _correlation_id(value: str | None) -> str:
@@ -182,6 +188,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health/live")
     async def liveness() -> dict[str, str]:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.post("/v1/text/humanize")
+    async def humanize_local_text(body: HumanizeTextBody) -> dict[str, object]:
+        """Polish text locally without sending it to a model or third-party API."""
+        try:
+            result = humanize_text(body.text, body.style)  # type: ignore[arg-type]
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return result.as_dict()
 
     @app.get("/v1/local-services/comfyui")
     async def comfyui_status() -> JSONResponse:
