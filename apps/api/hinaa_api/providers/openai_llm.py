@@ -359,6 +359,18 @@ class OpenAILLMProvider:
                 429,
                 True,
             )
+        provider_text = safe_error_text(response.text, [self._key]).lower()
+        if response.status_code == 503 and any(
+            marker in provider_text
+            for marker in ("no available accounts", "no available account", "upstream account unavailable")
+        ):
+            raise HinaaError(
+                "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
+                f"{self._provider_label()} accepted the request, but its upstream service has no available accounts right now. Check the gateway balance/account status or retry later.",
+                503,
+                True,
+                True,
+            )
         raise HinaaError(
             "PROVIDER_UNAVAILABLE",
             f"{self._provider_label()} is unavailable safely.",
@@ -387,6 +399,14 @@ class OpenAILLMProvider:
                 "PROVIDER_RATE_LIMIT",
                 f"{self._provider_label()} is rate limited right now.",
                 429,
+                True,
+            )
+        if "no available accounts" in redacted or "no available account" in redacted:
+            return HinaaError(
+                "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
+                f"{self._provider_label()} accepted the request, but its upstream service has no available accounts right now. Check the gateway balance/account status or retry later.",
+                503,
+                True,
                 True,
             )
         return HinaaError(

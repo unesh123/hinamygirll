@@ -293,7 +293,9 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
         const message = error instanceof Error ? error.message : "";
         const friendly = message.includes("PROVIDER_RATE_LIMIT")
           ? "The selected brain key/model is rate limited. Switch the Brain model, wait a moment, or use the Codex key source."
-          : message.includes("PROVIDER_KEY_INVALID") || message.includes("PROVIDER_AUTH_FAILED")
+          : message.includes("PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE")
+            ? "Claude gateway received your request, but its upstream service has no available accounts right now. This is not a HINAA model setting problem. Check the gateway balance/account status, wait for capacity, or use another healthy brain."
+            : message.includes("PROVIDER_KEY_INVALID") || message.includes("PROVIDER_AUTH_FAILED")
             ? routing.activeMode === "claude"
               ? "Claude could not authenticate. For an OpenAI-compatible Claude gateway, set HINAA_CLAUDE_BASE_URL to its documented /v1 URL, set HINAA_CLAUDE_PROTOCOL=openai-compatible, use a newly rotated HINAA_CLAUDE_API_KEY, then restart the backend."
               : "The selected brain could not authenticate. Check its local backend key and endpoint, restart HINAA, then retry."

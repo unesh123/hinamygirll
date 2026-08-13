@@ -130,3 +130,29 @@ def test_gateway_status_reports_normalized_model_catalog() -> None:
     claude = next(item for item in response.json() if item["id"] == "claude")
     assert "default-model:claude-sonnet-4-6" in claude["capabilities"]
     assert "model:claude-sonnet-4-20250514" not in claude["capabilities"]
+
+
+def test_gateway_no_available_accounts_is_classified_as_upstream_capacity() -> None:
+    import httpx
+    from hinaa_api.errors import HinaaError
+    from hinaa_api.providers.openai_llm import OpenAILLMProvider
+
+    provider = OpenAILLMProvider(
+        "test-claude-key",
+        "claude-sonnet-4-6",
+        base_url="https://api.mwapi.dev/v1",
+        provider_id="claude",
+    )
+    response = httpx.Response(
+        503,
+        json={"error": {"message": "No available accounts", "type": "api_error"}},
+        request=httpx.Request("POST", "https://api.mwapi.dev/v1/chat/completions"),
+    )
+
+    with pytest.raises(HinaaError) as captured:
+        provider._raise_for_status(response)
+
+    assert captured.value.code == "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE"
+    assert captured.value.retryable is True
+    assert captured.value.user_action_required is True
+    assert "test-claude-key" not in captured.value.message

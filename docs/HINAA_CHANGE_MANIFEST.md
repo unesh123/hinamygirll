@@ -286,3 +286,10 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Gateway model catalog | For the documented OpenAI-compatible `/v1` Claude gateway route, HINAA now reports the gateway catalog (`claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001`) instead of the official Anthropic default IDs. | Provider-status regression confirms the old model is absent and the gateway default is present. |
 | Stale model recovery | Legacy persisted official Claude model IDs are mapped to their documented gateway equivalents at backend resolution, and the frontend discards a saved model absent from a refreshed provider catalog. | Backend model-normalization and frontend selection regressions pass. |
 | User recovery | After an API restart and hard refresh, settings will present the gateway-supported model list and a stale old selection resolves to the current gateway default rather than generating `PROVIDER_MODEL_NOT_FOUND`. | Full API, frontend, mobile, type, build, and lint gates pass. |
+
+## Phase 32 — Claude gateway upstream-capacity classification
+| Surface | Change | Verification |
+|---|---|---|
+| Gateway 503 classifier | Added `PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE` for the exact 503 response body that reports no available upstream accounts. | No-network regression uses the observed payload and verifies retryable/actionable typed output with secret redaction. |
+| Chat recovery | HINAA now explains that the gateway received the request but has no upstream account capacity, and directs users to account/balance status, retry later, or another healthy brain. | Frontend type check and full release gate pass. |
+| Fault attribution | This condition is no longer represented as a local Claude model-selection or authentication failure. | The screenshot payload is explicitly handled before generic provider-unavailable mapping. |

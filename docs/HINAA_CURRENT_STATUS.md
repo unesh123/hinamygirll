@@ -485,3 +485,11 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Persisted browser setting recovery | **VERIFIED** | Once fresh provider metadata arrives, HINAA replaces any saved Claude model that is absent from the catalog with the provider default. This protects existing browser localStorage selections after an upgrade. |
 | Real gateway acceptance | **REQUIRES ONE POST-RESTART WINDOWS TEST** | The sandbox has no access to the user’s real credential and did not send a paid provider request. A local typed turn after installing the updated branch, restarting the backend, and hard-refreshing the frontend is required for final account-side authentication evidence. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 32 — Claude Gateway Account Capacity — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Screenshot 503 diagnosis | **CONFIRMED UPSTREAM CAPACITY BLOCKER** | The returned gateway text explicitly states `No available accounts`. HINAA’s request reached the provider, which rules out the old local model-selection error for this new turn. The provider must provision an account/capacity or the user must select another funded/healthy brain. |
+| HINAA handling | **IMPLEMENTED AND TESTED** | The matching 503 now returns `PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE` with a concise action path and no raw upstream JSON or secret content in the chat card. |
+| Live provider success | **NOT PROVEN / BLOCKED BY UPSTREAM** | No local source change can make a provider account available when the gateway reports none. A successful real Claude turn requires the gateway account/balance/capacity condition to clear. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
