@@ -117,7 +117,13 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
         <section style={{ marginTop: 10, border: '1px solid rgba(251,191,36,.32)', borderRadius: 14, background: 'rgba(251,191,36,.07)', padding: 12 }} aria-label="Image search availability">
           <strong style={{ color: '#fde68a', fontSize: 12 }}>Image search needs attention</strong>
           <p style={{ color: '#e5d8c5', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>{data.error}</p>
-          {data.code === 'YOUCOM_IMAGE_ACCESS_REQUIRED' ? <small style={{ display: 'block', marginTop: 6, color: '#cbbca8' }}>This You.com image endpoint is beta and requires early-access permission for the configured key. Local ComfyUI remains HINAA’s private image-generation route.</small> : null}
+          <small style={{ display: 'block', marginTop: 6, color: '#cbbca8', lineHeight: 1.45 }}>
+            {data.code === 'YOUCOM_IMAGE_ACCESS_REQUIRED'
+              ? 'This You.com endpoint is beta and requires early-access permission for the configured key. Local ComfyUI remains HINAA’s private image-generation route.'
+              : data.code === 'YOUCOM_UPSTREAM_UNAVAILABLE' || data.code === 'YOUCOM_REQUEST_FAILED' || /HTTP\s*502/i.test(String(data.error || ''))
+                ? 'No public images were returned. The upstream beta image service is temporarily unavailable; retry later, use local ComfyUI generation, or run a normal web search for source pages.'
+                : 'No public images were returned. Check provider availability, then retry the explicitly approved search.'}
+          </small>
         </section>
       );
     }
@@ -137,6 +143,52 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
         <small style={{ color: '#a99a8b', fontSize: 11, lineHeight: 1.45 }}>Public web image links may have licensing restrictions. Open the source page before saving or reusing an image.</small>
       </section>
     );
+  }
+
+  const detailedResearchTools = new Set(['web_answer', 'web_research', 'web_research_status', 'web_extract', 'finance_research']);
+  if (detailedResearchTools.has(toolName) && !data.error && result.status !== 'error') {
+    const pages = Array.isArray(data.pages) ? data.pages : [];
+    const content = typeof data.content === 'string'
+      ? data.content.trim()
+      : pages.map((page: any) => {
+          const title = typeof page?.title === 'string' ? page.title : 'Selected page';
+          const markdown = typeof page?.markdown === 'string' ? page.markdown : '';
+          return markdown ? `## ${title}\n\n${markdown}` : '';
+        }).filter(Boolean).join('\n\n');
+    const detailSources: SourceItem[] = Array.isArray(data.sources)
+      ? data.sources.filter((source: any) => source && typeof source.url === 'string').map((source: any, index: number) => {
+          let domain = 'Source';
+          try { domain = new URL(source.url).hostname.replace(/^www\./, ''); } catch {}
+          return {
+            id: source.id || `S${index + 1}`,
+            title: source.title || 'Untitled source',
+            url: source.url,
+            snippet: source.snippet || 'No preview was provided.',
+            domain,
+            index,
+          };
+        })
+      : [];
+    const excerptLimit = 2_400;
+    const compactContent = content.length > excerptLimit && !expanded
+      ? `${content.slice(0, excerptLimit).trimEnd()}…`
+      : content;
+    const modeLabel = data.mode === 'contents' ? 'Selected page notes' : data.mode === 'answer' ? 'Cited answer' : 'Detailed research';
+    if (content || detailSources.length) {
+      return (
+        <section style={{ marginTop: 10, display: 'grid', gap: 10, padding: 13, border: '1px solid rgba(255,219,231,.16)', borderRadius: 15, background: 'linear-gradient(145deg,rgba(46,29,44,.82),rgba(26,17,31,.84))' }} aria-label="Detailed research result">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, color: '#fff2f6' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 800 }}><Globe size={14} color="#f5a7bb" />{modeLabel}</span>
+            <span style={{ color: '#cbbca8', fontSize: 11, fontWeight: 650 }}>{detailSources.length} attributed source{detailSources.length === 1 ? '' : 's'}</span>
+          </div>
+          {typeof data.notice === 'string' && data.notice ? <small style={{ color: '#dcc7b2', lineHeight: 1.45 }}>{data.notice}</small> : null}
+          {content ? <div style={{ color: '#eee1e7', fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{compactContent}</div> : null}
+          {content.length > excerptLimit ? <button type="button" onClick={() => setExpanded((value) => !value)} style={{ justifySelf: 'start', border: '1px solid rgba(255,219,231,.18)', borderRadius: 999, background: 'rgba(255,255,255,.045)', color: '#ffd2df', padding: '6px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{expanded ? 'Show concise view' : 'Read full research'}</button> : null}
+          {Array.isArray(data.warnings) && data.warnings.length ? <div style={{ display: 'grid', gap: 4, padding: '8px 10px', borderLeft: '2px solid #f2bf7a', background: 'rgba(242,191,122,.06)', color: '#ead5b9', fontSize: 11, lineHeight: 1.45 }}>{data.warnings.slice(0, 3).map((warning: unknown, index: number) => <span key={index}>{String(warning)}</span>)}</div> : null}
+          {detailSources.length ? <div style={{ display: 'grid', gap: 7, paddingTop: 2 }}>{detailSources.map((source, index) => <div key={source.id} style={{ display: 'grid', gap: 4 }}><SourceCard source={source} index={index} onSave={saveSourceToProject} />{sourceSaveState[source.id] && <small style={{ color: sourceSaveState[source.id].startsWith('Saved') ? '#86efac' : '#cbbca8', fontSize: 11 }}>{sourceSaveState[source.id]}</small>}</div>)}</div> : null}
+        </section>
+      );
+    }
   }
 
   // Render browser_execute_task as WorkTree

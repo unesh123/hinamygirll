@@ -45,3 +45,32 @@ describe("GenericResultRenderer", () => {
     expect(screen.queryByText("No attributable sources were returned for this query.")).not.toBeInTheDocument();
   });
 });
+
+
+describe("detailed research presentation", () => {
+  it("renders a cited answer with readable findings and attributed source cards", () => {
+    render(
+      <GenericResultRenderer
+        toolName="web_answer"
+        result={{
+          provider: "you.com",
+          mode: "answer",
+          content: "Gojo Satoru is a fictional character. [[1]]",
+          sources: [
+            {
+              id: "Y1",
+              title: "Character reference",
+              url: "https://example.com/gojo",
+              snippet: "A source-backed excerpt.",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Detailed research result")).toHaveTextContent("Cited answer");
+    expect(screen.getByText("Gojo Satoru is a fictional character. [[1]]")).toBeInTheDocument();
+    expect(screen.getByText("Character reference")).toBeInTheDocument();
+    expect(screen.queryByText("web_answer result")).not.toBeInTheDocument();
+  });
+});

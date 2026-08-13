@@ -451,3 +451,11 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Live search/extraction | **IMPLEMENTED / PROVIDER-LIMITED** | HINAA uses bounded, confirmation-gated tools: search returns a maximum provider-controlled result set; page extraction accepts up to five public URLs; public image search remains You.com early-access beta. HINAA cannot guarantee all websites, paywalled/private content, robots-restricted data, or external provider latency. |
 | Search failures | **VERIFIED IN UI TESTS** | Empty results caused by a provider error now present a recovery panel rather than looking like a completed search with no sources. Actual You.com calls still require the user’s local key and network/provider availability. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Complete API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint all ran successfully. Lint has 32 warnings and 0 errors. |
+
+## Phase 28 — Image Search and Detailed Research Recovery — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Approved public image search | **RECOVERY VERIFIED / UPSTREAM AVAILABILITY NOT GUARANTEED** | An approved image-search request now remains single-owner and renders one terminal card. HTTP 502 is reported as `YOUCOM_UPSTREAM_UNAVAILABLE`; HINAA says no images were returned instead of falsely marking the action complete. The upstream beta endpoint must be healthy and the configured key must have early access for real results. |
+| Duplicate failure cards | **VERIFIED IN FRONTEND TESTS** | Controller execution is guarded by request key; message rendering also displays only the latest result per tool name, including persisted legacy conversation data. |
+| Detailed web information | **VERIFIED IN FRONTEND TESTS / PROVIDER RUNTIME DEPENDENT** | Cited answers, deep research, extraction, and finance research now render readable bounded content, warnings, source totals, expandable full text, and attributed source cards. Actual detail still depends on returned public source content, access rules, provider availability, and explicit confirmation. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, full frontend tests, responsive phone checks, TypeScript, production build, and lint pass. Lint reports 32 warnings and 0 errors. |

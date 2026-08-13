@@ -26,3 +26,20 @@ describe("MessageBubble", () => {
     expect(screen.queryByText("0", { exact: true })).not.toBeInTheDocument();
   });
 });
+
+
+  it("renders only the latest result when a persisted tool result is duplicated", () => {
+    const duplicateResultMessage: TranscriptMessage = {
+      ...message,
+      id: "assistant-duplicate-tool-result",
+      toolResults: [
+        { toolName: "image_search", result: { status: "error", error: "Old image provider error" } },
+        { toolName: "image_search", result: { status: "error", error: "Latest image provider error" } },
+      ],
+    };
+
+    render(<MessageBubble message={duplicateResultMessage} onResolveTool={() => undefined} />);
+    expect(screen.getByText("Latest image provider error")).toBeInTheDocument();
+    expect(screen.queryByText("Old image provider error")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Image search availability")).toHaveLength(1);
+  });

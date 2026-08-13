@@ -280,6 +280,9 @@ class YouComClient:
                 message = "You.com rate-limited this request. Please wait briefly and try again."
             elif response.status_code == 422:
                 message = detail or "You.com rejected the requested search or research parameters."
+            elif response.status_code >= 500:
+                message = detail or f"You.com is temporarily unavailable (HTTP {response.status_code})."
+                raise YouComError("YOUCOM_UPSTREAM_UNAVAILABLE", message, status_code=response.status_code)
             else:
                 message = detail or f"You.com returned HTTP {response.status_code}."
             raise YouComError("YOUCOM_REQUEST_FAILED", message, status_code=response.status_code)

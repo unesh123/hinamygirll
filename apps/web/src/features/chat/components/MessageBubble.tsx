@@ -75,6 +75,11 @@ export const MessageBubble = memo(function MessageBubble({
 
   const isLong = message.text.length > 120;
   const renderedHTML = useMemo(() => renderMarkdown(message.text), [message.text]);
+  // One tool request owns one current result. Keep the latest record when an
+  // older persisted session or an earlier UI race contains duplicates.
+  const visibleToolResults = (message.toolResults || []).filter(
+    (entry, index, all) => all.findLastIndex((candidate) => candidate.toolName === entry.toolName) === index,
+  );
 
   return (
     <motion.article
@@ -142,9 +147,9 @@ export const MessageBubble = memo(function MessageBubble({
         ) : null}
 
         {/* Render tool results */}
-        {message.toolResults && message.toolResults.length > 0 && (
+        {visibleToolResults.length > 0 && (
           <div className={styles.toolResultsContainer} style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {message.toolResults.map((tr, i) => (
+            {visibleToolResults.map((tr, i) => (
               <GenericResultRenderer key={`${tr.toolName}-${i}`} toolName={tr.toolName} result={tr.result} />
             ))}
           </div>

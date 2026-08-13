@@ -254,3 +254,12 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Trustworthy workflow copy | Planning now explicitly says no pages have been fetched and that live research starts only after the user approves the proposed external action. | Type checking and focused workspace tests pass. |
 | Mobile workspace | Corrected the context drawer’s fixed-width inner shell so it cannot overflow a narrow fullscreen mobile drawer; aligned workspace contrast and controls to Ink Rose. | Phone layout checks pass at 393×851 and 320×568. |
 | Provider recovery | Web-search provider errors with an empty source list now render a named research-service recovery panel, including the normalized code and a bounded next step. | Focused chat renderer regression passes. |
+
+## Phase 28 — Image-search recovery and detailed research presentation
+| Surface | Change | Verification |
+|---|---|---|
+| You.com 5xx normalization | Mapped provider HTTP 5xx responses to `YOUCOM_UPSTREAM_UNAVAILABLE`, distinguishing a temporary upstream outage from configuration, validation, or early-access failure. | Added a mocked HTTP 502 image-search regression. |
+| Approved-action ownership | Added a request-level in-flight guard to the companion controller and replace-by-tool-name result updates. A double click, touch replay, or rerender cannot submit the same approval twice. | Tool outcome and transcript regressions cover nested failures and duplicate result visibility. |
+| Legacy-envelope correctness | `resolveToolOutcome` now unwraps direct and staged `success/data/data` responses. A nested error cannot be labelled `Completed: image_search`. | New nested-image-search error regression passes. |
+| Failure UX | Image-search 502 failure cards now state that no images were returned and describe bounded recovery options. | Focused frontend tests pass. |
+| Detailed research | Added source-backed result rendering for cited answers, deep research, task status, selected-page extraction, and finance research. Content is excerpted initially, expandable, and paired with attributed source cards. | Detailed research renderer regression passes. |

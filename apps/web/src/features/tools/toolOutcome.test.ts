@@ -34,3 +34,21 @@ describe("resolveToolOutcome", () => {
     expect(outcome.label).toContain("not verified");
   });
 });
+
+
+describe("nested provider failures", () => {
+  it("keeps a legacy nested image-search error visibly failed", () => {
+    const outcome = resolveToolOutcome("image_search", {
+      status: "success",
+      data: {
+        status: "error",
+        code: "YOUCOM_REQUEST_FAILED",
+        error: "You.com returned HTTP 502.",
+      },
+    });
+
+    expect(outcome.status).toBe("error");
+    expect(outcome.label).toContain("Failed: You.com returned HTTP 502.");
+    expect(outcome.result).toMatchObject({ status: "error", code: "YOUCOM_REQUEST_FAILED" });
+  });
+});

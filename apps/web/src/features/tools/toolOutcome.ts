@@ -27,17 +27,29 @@ function safeText(value: unknown, fallback: string): string {
   return cleaned ? cleaned.slice(0, 220) : fallback;
 }
 
+/** Unwrap both direct results and the previous success/data/data shape during
+ * a staged local API restart. A nested terminal failure is still a failure. */
+function unwrapResult(payload: unknown): unknown {
+  let current = payload;
+  for (let depth = 0; depth < 3 && isRecord(current) && "data" in current; depth += 1) {
+    const next = current.data;
+    if (next === undefined || next === current) break;
+    current = next;
+  }
+  return current;
+}
+
 /**
  * A remote tool can finish its HTTP call without completing the user’s goal.
  * Keep that distinction visible, especially for browser media playback.
  */
 export function resolveToolOutcome(toolName: string, payload: unknown): ToolActivityOutcome {
   const envelope: ToolEnvelope = isRecord(payload) ? payload : {};
-  const result = envelope.data ?? payload;
-  const evidence: PlaybackEvidence = isRecord(result) ? result : {};
-  const message = safeText(evidence.message ?? envelope.detail ?? envelope.error, "The action needs your attention.");
+  const result = unwrapResult(payload);
+  const evidence: PlaybackEvidence & ToolEnvelope = isRecord(result) ? result : {};
+  const message = safeText(evidence.message ?? evidence.detail ?? evidence.error ?? envelope.detail ?? envelope.error, "The action needs your attention.");
 
-  if (envelope.status === "error") {
+  if (envelope.status === "error" || evidence.status === "error") {
     return { status: "error", label: `Failed: ${message}`, result };
   }
 

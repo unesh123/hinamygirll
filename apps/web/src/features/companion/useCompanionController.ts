@@ -116,6 +116,10 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
   const processedToolMessageIds = useRef<Set<string>>(new Set());
+  // Confirmation-gated actions must be idempotent at the interaction layer.
+  // A double click, touch event replay, or a transient rerender may not submit
+  // the same external request twice or append duplicate terminal result cards.
+  const resolvingToolRequestIds = useRef<Set<string>>(new Set());
   const turnSequence = useRef(0);
   const activeTurnId = useRef<string | null>(null);
   const finalizedTurnIds = useRef<Set<string>>(new Set());
@@ -306,6 +310,7 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
       approved: boolean,
     ) => {
       const actionId = request.toolName;
+      const requestKey = `${messageId}:${actionId}:${JSON.stringify(request.parameters)}`;
       if (!approved) {
         setMessages((current) => current.map((message) => message.id === messageId ? {
           ...message,
@@ -316,6 +321,8 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
         return;
       }
 
+      if (resolvingToolRequestIds.current.has(requestKey)) return;
+      resolvingToolRequestIds.current.add(requestKey);
       setMessages((current) => current.map((message) => message.id === messageId ? {
         ...message,
         toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
@@ -336,7 +343,7 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
         if (payload.status === "processing" && payload.job_id) {
           setMessages((current) => current.map((message) => message.id === messageId ? {
             ...message,
-            toolResults: [...(message.toolResults || []), { toolName: request.toolName, result: payload }],
+            toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: payload }],
             toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
               ...activity, status: "running", label: `Working locally: ${request.toolName}`,
             } : activity),
@@ -368,7 +375,7 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
         const outcome = resolveToolOutcome(request.toolName, payload);
         setMessages((current) => current.map((message) => message.id === messageId ? {
           ...message,
-          toolResults: [...(message.toolResults || []), { toolName: request.toolName, result: outcome.result }],
+          toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: outcome.result }],
           toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
             ...activity, status: outcome.status, label: outcome.label,
           } : activity),
@@ -381,6 +388,8 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
             ...activity, status: "error", label: `Failed: ${label}`,
           } : activity),
         } : message));
+      } finally {
+        resolvingToolRequestIds.current.delete(requestKey);
       }
     },
     [],

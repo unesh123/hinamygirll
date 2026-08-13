@@ -154,3 +154,17 @@ def test_youcom_tools_remain_confirmation_gated() -> None:
     for tool in [web_search_def, image_search_def, web_answer_def, web_research_def, web_research_status_def, web_extract_def, finance_research_def]:
         assert tool.requires_confirmation is True
     assert finance_research_def.permission_level == "high"
+
+
+def test_youcom_image_search_marks_http_502_as_transient_upstream_unavailable() -> None:
+    client = YouComClient(
+        _youcom_settings(),
+        transport=httpx.MockTransport(lambda _: httpx.Response(502, json={"message": "Bad Gateway"})),
+    )
+
+    with pytest.raises(YouComError) as error:
+        asyncio.run(client.image_search("Gojo Satoru"))
+
+    assert error.value.code == "YOUCOM_UPSTREAM_UNAVAILABLE"
+    assert error.value.status_code == 502
+    assert "Bad Gateway" in str(error.value)
