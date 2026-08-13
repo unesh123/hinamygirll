@@ -749,8 +749,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         }
                     }
 
-            # If the handler already returned a StandardToolResultEnvelope-like dict, use it directly
-            if isinstance(result, dict) and "status" in result and ("data" in result or "images" in result or "job_id" in result):
+            # If the handler already returned a StandardToolResultEnvelope-like dict, use it directly.
+            # Error payloads are also terminal tool results: wrapping them in a
+            # generic success envelope hid actionable codes such as
+            # COMFYUI_UNAVAILABLE from the local Image Studio.
+            if isinstance(result, dict) and "status" in result and (
+                "data" in result or "images" in result or "job_id" in result
+                or "error" in result or "code" in result
+            ):
                 return result
 
             envelope = {

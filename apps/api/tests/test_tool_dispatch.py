@@ -15,6 +15,15 @@ async def _future_annotated_handler(params: _FutureAnnotatedParams) -> dict[str,
     return {"status": "success", "data": {"received": params.query}}
 
 
+async def _terminal_error_handler(params: _FutureAnnotatedParams) -> dict[str, object]:
+    return {
+        "status": "error",
+        "code": "COMFYUI_UNAVAILABLE",
+        "error": f"Local renderer unavailable for {params.query}",
+        "localOnly": True,
+    }
+
+
 def test_execute_tool_resolves_postponed_pydantic_annotation(client, monkeypatch) -> None:
     monkeypatch.setitem(registry._handlers, "youtube_playback_request", _future_annotated_handler)
 
@@ -29,3 +38,24 @@ def test_execute_tool_resolves_postponed_pydantic_annotation(client, monkeypatch
 
     assert response.status_code == 200
     assert response.json() == {"status": "success", "data": {"received": "Heavenly Phonk"}}
+
+
+def test_execute_tool_preserves_terminal_provider_error(client, monkeypatch) -> None:
+    monkeypatch.setitem(registry._handlers, "image_generate", _terminal_error_handler)
+
+    response = client.post(
+        "/v1/tools/execute",
+        json={
+            "toolName": "image_generate",
+            "parameters": {"query": "a local portrait"},
+            "confirmed": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "error",
+        "code": "COMFYUI_UNAVAILABLE",
+        "error": "Local renderer unavailable for a local portrait",
+        "localOnly": True,
+    }

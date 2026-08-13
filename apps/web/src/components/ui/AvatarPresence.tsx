@@ -50,16 +50,19 @@ type AnatomyFrame = {
   revision: string;
 };
 
-function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: AnatomyFrame): CameraPreset {
+function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: AnatomyFrame, compactViewport = false): CameraPreset {
   if (!frame || mode === "hidden") return fallback;
   const torso = Math.max(0.28, frame.headY - frame.chestY);
   const bodyHeight = Math.max(1.1, frame.maxY - frame.minY);
   const x = frame.centerX;
-  const portraitFov = 31;
+  // On a compact portrait screen the companion view intentionally frames the
+  // face and shoulders more closely. Desktop retains the wider conversational
+  // composition, while explicit close-up/full camera choices remain untouched.
+  const portraitFov = compactViewport ? 25 : 31;
   // Head/chest control composition. Bounds are used only to avoid clipping hair
   // and accessories, never to pull the portrait target down toward a long skirt.
-  const portraitTop = Math.max(frame.maxY, frame.headY + torso * 0.44);
-  const portraitBottom = frame.chestY - torso * 0.38;
+  const portraitTop = Math.max(frame.maxY, frame.headY + torso * (compactViewport ? 0.34 : 0.44));
+  const portraitBottom = frame.chestY - torso * (compactViewport ? 0.16 : 0.38);
   const distanceFor = (top: number, bottom: number, fov: number) => {
     const half = Math.max(0.22, (top - bottom) / 2) * 1.12;
     return Math.max(0.58, half / Math.tan(THREE.MathUtils.degToRad(fov / 2)));
@@ -635,11 +638,13 @@ function Model({
 /* ─── Camera controller ───────────────────────────────────── */
 function Cam({ mode, modelUrl, anatomy }: { mode: PresenceMode; modelUrl: string; anatomy?: AnatomyFrame }) {
   const fallback = MODEL_CAMERA_PRESETS[modelUrl]?.[mode] ?? CAMERAS[mode] ?? CAMERAS.portrait;
-  const cfg = cameraFromAnatomy(mode, fallback, anatomy);
   const camera = useThree(s => s.camera);
+  const viewportWidth = useThree(s => s.size.width);
+  const compactViewport = viewportWidth <= 768;
+  const cfg = cameraFromAnatomy(mode, fallback, anatomy, compactViewport);
   const dirty  = useRef(true);
 
-  useEffect(() => { dirty.current = true; }, [mode, modelUrl, anatomy?.revision]);
+  useEffect(() => { dirty.current = true; }, [mode, modelUrl, anatomy?.revision, compactViewport]);
 
   useFrame(() => {
     if (dirty.current) {

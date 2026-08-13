@@ -12,6 +12,30 @@ describe("LocalImageStudio", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows the exact ComfyUI recovery message without polling when job start fails immediately", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/v1/local-services/comfyui") return jsonResponse({ status: "ready" });
+      if (url === "/api/v1/tools/execute") {
+        return jsonResponse({
+          status: "error",
+          code: "COMFYUI_UNAVAILABLE",
+          error: "Local ComfyUI is unavailable. Start ComfyUI on http://127.0.0.1:8188, then try the image request again.",
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<LocalImageStudio onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByText("ComfyUI ready on this device")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Image prompt"), { target: { value: "Hinaa in a local studio" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate images" }));
+
+    await waitFor(() => expect(screen.getByText(/Local ComfyUI is unavailable/)).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/v1/tools/poll"))).toBe(false);
+  });
+
   it("reveals the first completed local image while later sequential slots remain pending", async () => {
     let pollCount = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

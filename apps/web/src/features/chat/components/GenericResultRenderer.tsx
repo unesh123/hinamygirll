@@ -81,10 +81,16 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
       });
     return (
       <section style={{ marginTop: 10, display: 'grid', gap: 8 }} aria-label="Research sources">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#475569', fontSize: 12, fontWeight: 750 }}>
-          <span>Research sources</span><span>{sources.length} attributed result{sources.length === 1 ? '' : 's'}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#f3e8dd', fontSize: 12, fontWeight: 750 }}>
+          <span>Research sources</span><span style={{ color: '#cbbca8', fontWeight: 600 }}>{sources.length} attributed result{sources.length === 1 ? '' : 's'}</span>
         </div>
-        {sources.length ? sources.map((source, index) => <div key={source.id} style={{ display: 'grid', gap: 4 }}><SourceCard source={source} index={index} onSave={saveSourceToProject} />{sourceSaveState[source.id] && <small style={{ color: sourceSaveState[source.id].startsWith('Saved') ? '#059669' : '#64748b', fontSize: 11 }}>{sourceSaveState[source.id]}</small>}</div>) : <div style={{ color: '#64748b', fontSize: 12 }}>No attributable sources were returned for this query.</div>}
+        {typeof data.notice === 'string' && data.notice ? (
+          <div role="status" style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '9px 10px', border: '1px solid rgba(251,191,36,.24)', borderRadius: 11, background: 'rgba(251,191,36,.06)', color: '#e5d8c5', fontSize: 11, lineHeight: 1.45 }}>
+            <Network size={14} style={{ flex: '0 0 auto', marginTop: 1, color: '#f2bf7a' }} />
+            <span>{data.notice}</span>
+          </div>
+        ) : null}
+        {sources.length ? sources.map((source, index) => <div key={source.id} style={{ display: 'grid', gap: 4 }}><SourceCard source={source} index={index} onSave={saveSourceToProject} />{sourceSaveState[source.id] && <small style={{ color: sourceSaveState[source.id].startsWith('Saved') ? '#86efac' : '#cbbca8', fontSize: 11 }}>{sourceSaveState[source.id]}</small>}</div>) : <div style={{ color: '#cbbca8', fontSize: 12 }}>No attributable sources were returned for this query.</div>}
       </section>
     );
   }

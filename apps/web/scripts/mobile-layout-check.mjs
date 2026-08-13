@@ -48,7 +48,10 @@ try {
   process.exit(2);
 }
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({
+  executablePath: process.env.HINAA_CHROMIUM_PATH || "/usr/bin/chromium",
+  args: ["--no-sandbox", "--disable-dev-shm-usage", "--ignore-gpu-blocklist", "--enable-webgl", "--enable-unsafe-swiftshader"],
+});
 const results = [];
 
 for (const vp of VIEWPORTS) {
@@ -110,6 +113,12 @@ for (const vp of VIEWPORTS) {
       avatarVisible: !!avatar && avatar.height > 0,
       composerVisible: !!composer && composer.bottom <= window.innerHeight + 1,
       welcomeActionVisible: !!document.querySelector('[aria-label="Research"]'),
+      welcomeActions: ["Research", "Create", "Continue work", "Talk to HINAA"].map((label) => {
+        const button = document.querySelector(`[aria-label="${label}"]`);
+        if (!button) return false;
+        const rect = button.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= window.innerHeight + 1 && rect.left >= 0 && rect.right <= window.innerWidth + 1;
+      }),
       statusPill: !!document.querySelector(".header-status"),
     };
   });
@@ -127,6 +136,7 @@ for (const vp of VIEWPORTS) {
     ),
     avatarPresent: layout.avatarVisible,
     welcomeActionPresent: layout.welcomeActionVisible,
+    allWelcomeActionsInsideViewport: layout.welcomeActions.every(Boolean),
     composerInsideViewport: layout.composerVisible,
     statusPillPresent: layout.statusPill,
     noConsoleErrors: consoleErrors.length === 0,

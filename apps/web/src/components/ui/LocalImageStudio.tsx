@@ -80,8 +80,19 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
         }),
       });
       const startData = await start.json();
-      const jobId = startData.job_id ?? startData.data?.job_id;
-      if (!start.ok || !jobId) throw new Error(startData?.message || "The local image job could not start.");
+      // Direct terminal tool results are preferred. Accept the prior nested
+      // envelope too so an upgraded UI can still recover gracefully against a
+      // running older local API during a staged desktop restart.
+      const toolResult = startData?.data?.data ?? startData?.data ?? startData;
+      const jobId = toolResult?.job_id ?? startData?.job_id;
+      if (!start.ok || toolResult?.status === "error" || !jobId) {
+        throw new Error(
+          toolResult?.error
+          || startData?.error
+          || startData?.message
+          || "The local image job could not start.",
+        );
+      }
 
       setState("processing");
       setMessage("Hinaa is generating locally. You can keep chatting while this finishes.");

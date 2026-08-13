@@ -2261,3 +2261,23 @@ body {
 
 /* Native fullscreen is preferred; this theater fallback keeps the same single stage usable when the browser declines the API. */
 .avatar-playground--fullscreen { position:fixed !important; inset:0 !important; width:100vw !important; height:100dvh !important; min-height:100dvh !important; z-index:1000 !important; }
+
+
+/* ─── Mobile companion refinement: prioritize live conversation and complete actions ─── */
+@media (max-width: 768px) {
+  .welcome-center { width:100%; justify-content:flex-start; gap:12px; padding:16px 0 10px; }
+  .welcome-center .welcome-cards { grid-template-columns:repeat(2, minmax(0, 1fr)); width:100%; max-width:none; gap:8px; margin-top:2px; }
+  .welcome-center .welcome-card { min-height:70px; padding:11px 10px; border-radius:14px; }
+  .welcome-center .welcome-card-icon { font-size:1.08rem; }
+  .welcome-center .welcome-card-title { font-size:.72rem; }
+  .welcome-center .welcome-card-desc { font-size:.62rem; line-height:1.25; }
+  .avatar-playground__controls { right:10px; bottom:10px; gap:8px; }
+  .avatar-playground__control { width:40px; height:40px; border-radius:13px; }
+  .avatar-playground__control svg { width:16px; height:16px; }
+  .avatar-playground--fullscreen .avatar-playground__controls { top:62px; right:16px; }
+}
+@media (max-width: 360px) {
+  .welcome-center .welcome-card { grid-template-columns:22px minmax(0, 1fr); column-gap:7px; min-height:66px; padding:9px; }
+  .welcome-center .welcome-card-icon { font-size:.98rem; }
+  .welcome-center .welcome-card-desc { font-size:.58rem; }
+}
