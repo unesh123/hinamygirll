@@ -393,6 +393,77 @@ class LocalProjectService:
             session.commit()
             return [self._task_public(task) for task in tasks]
 
+    def create_website_blueprint(
+        self,
+        user_id: str,
+        project_id: str,
+        brief: str,
+        stack: str = "React + TypeScript",
+    ) -> dict[str, Any] | None:
+        """Create a transparent local website plan; no files are generated or published.
+
+        The blueprint gives an agent and the user a durable project scaffold. Any
+        later code write, command, hosting, authentication, or deployment remains
+        an explicit approved action.
+        """
+        clean_brief = brief.strip()
+        clean_stack = stack.strip() or "React + TypeScript"
+        if not clean_brief:
+            return None
+        with self._factory() as session:
+            project = session.get(LocalProject, project_id)
+            if project is None or project.user_id != user_id:
+                return None
+            base_position = session.query(LocalProjectTask).filter_by(project_id=project.id).count()
+            root = LocalProjectTask(
+                project_id=project.id,
+                title="Website build blueprint",
+                detail=f"Brief: {clean_brief[:800]}",
+                status="active",
+                position=base_position,
+            )
+            session.add(root)
+            session.flush()
+            steps = [
+                ("Clarify audience and success criteria", "Confirm users, pages, content, accessibility, privacy, and success metrics.", False),
+                ("Research approved references", "Collect user-approved inspiration, brand assets, and source material as local project artifacts.", False),
+                ("Create sitemap and interface plan", "Define page hierarchy, responsive layout, content states, and component boundaries before writing code.", False),
+                ("Build inside the local workspace", f"Implement the approved {clean_stack} site in a project-scoped folder with reusable components and tests.", True),
+                ("Validate and review", "Run local checks, inspect mobile behavior, and save a preview/report artifact.", False),
+                ("Approve deployment or external publication", "Review the final preview, target, authentication, and publication scope before any external action.", True),
+            ]
+            tasks = [root]
+            for offset, (title, detail, approval) in enumerate(steps, start=1):
+                task = LocalProjectTask(
+                    project_id=project.id,
+                    parent_task_id=root.id,
+                    title=title,
+                    detail=detail,
+                    status="waiting_approval" if approval else "pending",
+                    requires_approval=approval,
+                    position=base_position + offset,
+                )
+                session.add(task)
+                tasks.append(task)
+            artifact = LocalProjectArtifact(
+                project_id=project.id,
+                kind="document",
+                title="Website build brief",
+                content=(
+                    f"# Website build brief\n\n## Requested outcome\n{clean_brief}\n\n"
+                    f"## Proposed stack\n{clean_stack}\n\n"
+                    "## Delivery contract\nCreate an accessible responsive local preview, retain source files in the project, run validation, and request approval before external deployment.\n"
+                ),
+                metadata_json=json.dumps({"kind": "website-blueprint", "stack": clean_stack}, ensure_ascii=False),
+            )
+            session.add(artifact)
+            session.commit()
+            return {
+                "tasks": [self._task_public(task) for task in tasks],
+                "artifact": self._artifact_public(artifact),
+                "externalActionStarted": False,
+            }
+
     def create_agent_run(
         self,
         user_id: str,

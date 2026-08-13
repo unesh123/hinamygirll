@@ -561,3 +561,27 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Humanizer cloud quality route | Options documented only. No text is sent to a cloud humanizer API by this release. | **NOT ENABLED BY DESIGN** |
 | Whole-app release | API/front-end/mobile/build/lint/diff gate passed. | **VERIFIED CODE** |
 | Windows VSeeFace, voice, Qwen, You.com, ComfyUI | Sandbox has no user keys, Windows VSeeFace/camera/microphone/speaker, or ComfyUI process. | **WINDOWS EVIDENCE REQUIRED** |
+
+
+## Safe Agent Foundation and Windows Companion Boundary — 2026-08-14
+
+This follow-on pass preserves the local-first HINAA architecture. It neither installs a Windows companion nor claims access to the user’s Windows desktop, camera, VSeeFace process, browser profiles, WhatsApp, Spotify, VS Code, microphone, or system settings. It makes the requested high-agency direction more usable through durable, reviewable local planning while defining the exact conditions required before those protected integrations can become real.
+
+| Capability | Current state | Evidence / boundary |
+|---|---|---|
+| Browser-agent approval interruption | **VERIFIED BY REGRESSION** | Consequential browser plans now return a structured, non-resumable approval response rather than crashing. A fresh approved request is still required before execution; no hidden continuation exists. |
+| Feature/service catalogue | **DOCUMENTED** | `HINAA_FEATURE_SERVICE_MATRIX.md` classifies the requested Jarvis-style features by existing state, required service, consent, and Windows dependency. It is not a runtime availability claim. |
+| Website-building workflow | **VERIFIED BY REGRESSION** | A selected local project can now create a durable private website-build brief and visible task hierarchy for requirements, research, sitemap/design, local build, validation, and deployment review. The build and publish stages are explicitly approval-gated; the endpoint reports `externalActionStarted: false`. |
+| Website source writing / command execution / publication | **NOT IMPLEMENTED AS AUTONOMOUS ACTION** | No endpoint writes a site, runs a terminal command, creates a cloud project, deploys a site, or publishes content as a consequence of the new blueprint. Those actions require a future scoped local implementation plus distinct approval evidence. |
+| Screen, camera, VSeeFace, messaging, media, VS Code, system controls | **BLOCKED — trusted Windows companion absent** | The full least-privilege contract, pairing, preview, receipt, revocation, stale-VMC, and Windows acceptance requirements are documented in `HINAA_WINDOWS_COMPANION_BOUNDARY.md`. |
+| Avatar/VSeeFace current status | **IMPLEMENTED / WINDOWS EVIDENCE REQUIRED** | The browser avatar path can distinguish fresh external VMC data from idle/test/stale data, but neither a socket nor a synthetic packet constitutes proof that the real Windows VSeeFace workflow is live. |
+
+### Focused validation
+
+| Gate | Result |
+|---|---|
+| Local workspace + browser approval pytest | **PASS** — `pytest -q tests/test_local_workspace.py tests/test_browser_agent_approval.py`: 8 passed. |
+| Frontend TypeScript | **PASS** — `pnpm typecheck` (`tsc -b`). |
+| External publication or device action | **NOT ATTEMPTED** — no browser, messaging, operating-system, VSeeFace, screen, camera, or cloud action was performed by this pass. |
+
+The remaining user-facing Windows experience requires real hardware-side evidence: paired companion installation, explicit capability selection, fresh VMC packets from VSeeFace, calibrated avatar motion, a visible screen-capture consent indicator, single-tab browser receipts, message-send previews/receipts, IDE diff/command review, and companion revocation. Until then these features must remain unavailable or proposal-only rather than simulated.

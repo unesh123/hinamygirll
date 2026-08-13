@@ -85,6 +85,8 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
   const [title, setTitle] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
   const [planGoal, setPlanGoal] = useState("");
+  const [siteBrief, setSiteBrief] = useState("");
+  const [siteBusy, setSiteBusy] = useState(false);
   const [sourceTitle, setSourceTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [runGoal, setRunGoal] = useState("");
@@ -151,6 +153,28 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
       await loadProjects(selected.id);
     } catch {
       setError("Could not create the local work plan.");
+    }
+  };
+
+  const createWebsiteBlueprint = async () => {
+    const brief = siteBrief.trim();
+    if (!selected || brief.length < 10) {
+      setError("Describe the website in at least 10 characters before creating its local blueprint.");
+      return;
+    }
+    setSiteBusy(true);
+    setError("");
+    try {
+      await request(`/projects/${selected.id}/website-blueprint`, {
+        method: "POST",
+        body: JSON.stringify({ brief, stack: "React + TypeScript" }),
+      });
+      setSiteBrief("");
+      await loadProjects(selected.id);
+    } catch {
+      setError("Could not create the local website blueprint.");
+    } finally {
+      setSiteBusy(false);
     }
   };
 
@@ -319,11 +343,18 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
         <div style={{ marginTop: 18, display: "grid", gap: 16 }}>
           <section>
             <label style={sectionLabelStyle}><ListTodo size={14} /> TASK TREE</label>
-            <div style={{ display: "grid", gap: 6, marginTop: 7 }}>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input value={planGoal} onChange={(event) => setPlanGoal(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void createPlan()} placeholder="What should Hinaa plan?" aria-label="Project goal for plan" style={inputStyle} />
-                <button type="button" onClick={() => void createPlan()} style={primaryButtonStyle} title="Create plan"><Sparkles size={16} /></button>
-              </div>
+                          <div style={{ display: "grid", gap: 6, marginTop: 7 }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input value={planGoal} onChange={(event) => setPlanGoal(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void createPlan()} placeholder="What should Hinaa plan?" aria-label="Project goal for plan" style={inputStyle} />
+                  <button type="button" onClick={() => void createPlan()} style={primaryButtonStyle} title="Create plan"><Sparkles size={16} /></button>
+                </div>
+                <div style={{ display: "grid", gap: 5, padding: "8px", borderRadius: 9, border: "1px solid rgba(245,167,187,.18)", background: "rgba(245,167,187,.045)" }}>
+                  <small style={{ color: "#ffd4df", fontWeight: 750 }}>WEBSITE BUILD BLUEPRINT</small>
+                  <input value={siteBrief} onChange={(event) => setSiteBrief(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void createWebsiteBlueprint()} placeholder="Describe the site, audience, pages, and style" aria-label="Website build brief" style={inputStyle} />
+                  <button type="button" disabled={siteBusy || siteBrief.trim().length < 10} onClick={() => void createWebsiteBlueprint()} style={{ ...miniButtonStyle, justifyContent: "center", opacity: siteBusy || siteBrief.trim().length < 10 ? .55 : 1 }}><FileText size={12} />{siteBusy ? "Creating blueprint…" : "Create local blueprint"}</button>
+                  <small style={{ color: "#94a3b8", lineHeight: 1.35 }}>Creates tasks and a private brief only. HINAA will request approval before writing, running, or publishing a site.</small>
+                </div>
+
               <div style={{ display: "flex", gap: 6 }}>
                 <input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void addTask()} placeholder="Add a task" aria-label="Add project task" style={inputStyle} />
                 <button type="button" onClick={() => void addTask()} style={primaryButtonStyle} title="Add task"><Plus size={16} /></button>

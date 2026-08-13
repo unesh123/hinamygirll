@@ -212,3 +212,33 @@ def test_uploaded_text_document_becomes_private_exportable_artifact(tmp_path) ->
 
     assert exported.status_code == 200
     assert "Build a local workspace" in exported.text
+
+
+def test_website_blueprint_creates_local_tasks_artifact_and_publish_gate(tmp_path) -> None:
+    settings = Settings(
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_PERSISTENCE_ENABLED=False,
+        HINAA_LOCAL_WORKSPACE_DIR=tmp_path,
+        _env_file=None,
+    )
+    with TestClient(create_app(settings)) as client:
+        project = client.post("/v1/projects", json={"title": "Website workspace"}).json()
+        response = client.post(
+            f"/v1/projects/{project['id']}/website-blueprint",
+            json={
+                "brief": "Build a responsive portfolio for a local creative studio with a gallery and contact section.",
+                "stack": "React + TypeScript",
+            },
+        )
+        assert response.status_code == 201
+        blueprint = response.json()
+        assert blueprint["externalActionStarted"] is False
+        assert blueprint["artifact"]["kind"] == "document"
+        assert "React + TypeScript" in blueprint["artifact"]["content"]
+        tasks = blueprint["tasks"]
+        assert any(task["title"] == "Build inside the local workspace" and task["requiresApproval"] for task in tasks)
+        assert any(task["title"] == "Approve deployment or external publication" and task["requiresApproval"] for task in tasks)
+
+        detail = client.get(f"/v1/projects/{project['id']}").json()
+        assert "Website build brief" in [artifact["title"] for artifact in detail["artifacts"]]

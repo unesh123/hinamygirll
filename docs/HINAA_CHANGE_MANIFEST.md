@@ -360,3 +360,19 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Humanizer API options | **RESEARCHED AND DOCUMENTED** | `docs/HINAA_HUMANIZER_OPTIONS.md` compares local deterministic polish, existing HINAA brain, local Ollama, and LanguageTool. The default remains local-only; any future cloud route must disclose text transfer and require explicit selection. |
 | Acceptance evidence | **DOCUMENTED** | Added `docs/HINAA_ACCEPTANCE_MATRIX.md`, distinguishing code-verified features from tests needing the user’s Windows hardware, private keys, VSeeFace, microphone/speakers, or local ComfyUI process. |
 | Full release gate | **PASSED** | Complete API suite, full frontend suite, mobile checks, type checking, production build, lint, and whitespace validation passed. Lint reports 36 warnings and 0 errors. |
+
+
+## Safe Agent Foundation, Website Blueprint, and Windows Companion Boundary — 2026-08-14
+
+| File or area | Change | Acceptance evidence |
+|---|---|---|
+| `docs/HINAA_FEATURE_SERVICE_MATRIX.md` | Classify the requested Jarvis-style catalogue by implemented local capability, required provider/service, explicit approval level, Windows-companion dependency, and intentionally unsupported behavior. | Repository audit; documentation remains explicit that a catalogue entry is not proof of a live capability. |
+| `apps/api/hinaa_api/tools/browser_agent.py` | Return a structured, non-resumable approval result when the browser sub-agent reaches a consequential action rather than throwing and losing the user-visible preview. | Focused browser approval and browser-tool tests pass. |
+| `apps/api/hinaa_api/main.py` | Surface the repaired browser approval response and add the local project website-blueprint endpoint. The latter creates only durable tasks/artifacts and has no file-write, command, deployment, or external-side-effect path. | Focused API tests pass; `externalActionStarted: false` is asserted. |
+| `apps/api/tests/test_browser_agent_approval.py` | Regress the approval interruption contract so a browser action cannot execute after HTTP interruption without a fresh request. | Focused pytest passes. |
+| `apps/api/hinaa_api/persistence/project_service.py` | Add a durable site-build blueprint with design/research/build/validation/publication stages and explicit approval gates for local code writing and external publication. | New workspace regression confirms artifact persistence and approval-gated build/publication tasks. |
+| `apps/api/tests/test_local_workspace.py` | Cover website-blueprint task hierarchy, private brief artifact, and no-external-action result. | `pytest -q tests/test_local_workspace.py tests/test_browser_agent_approval.py`: **8 passed**. |
+| `apps/web/src/components/ui/LocalProjectWorkspace.tsx` | Add an Ink Rose local website-blueprint control that creates an editable task tree and private artifact, while clearly stating that writing, commands, and publication need approval. | `pnpm typecheck` passed. |
+| `docs/HINAA_WINDOWS_COMPANION_BOUNDARY.md` | Define the future trusted Windows companion scope for screen, VSeeFace/VMC, voice, browser, WhatsApp, media, VS Code, system, and scheduling requests; document pairing, receipts, revocation, and mandatory Windows evidence. | Official Microsoft and VMC protocol references cited; no unsupported device-control claim made. |
+
+No VRM binary, ComfyUI workflow/model, provider secret, SQLite database, generated media, or user Windows file is included. The changes remain isolated on `work/hinaa-automation-image-reliability`; `main` is untouched.

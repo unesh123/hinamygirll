@@ -53,6 +53,11 @@ class ProjectPlanBody(BaseModel):
     goal: Annotated[str, Field(min_length=3, max_length=1000)]
 
 
+class ProjectWebsiteBlueprintBody(BaseModel):
+    brief: Annotated[str, Field(min_length=10, max_length=8_000)]
+    stack: Annotated[str, Field(max_length=180)] = "React + TypeScript"
+
+
 class ProjectTaskBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=240)]
     detail: Annotated[str, Field(max_length=8000)] = ""
@@ -626,9 +631,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         
         from hinaa_api.tools.browser_agent import approval_events
         if approval_id in approval_events:
-            approval_events[approval_id]["approved"] = approved
-            approval_events[approval_id]["event"].set()
-            return {"status": "success"}
+            pending = approval_events[approval_id]
+            # Approval is recorded for audit/status visibility. The browser agent
+            # deliberately does not execute the saved click/type in the
+            # background: HTTP execution has no durable resumable checkpoint yet.
+            pending["approved"] = bool(approved)
+            pending["status"] = "approved" if approved else "declined"
+            return {
+                "status": "success",
+                "approvalId": approval_id,
+                "approved": bool(approved),
+                "action": pending.get("action"),
+                "resumeSupported": False,
+                "nextStep": "Review and explicitly start the next browser action; no browser input was performed automatically.",
+            }
         return {"status": "error", "error": "Approval ID not found"}
 
     @app.get("/v1/tools/poll")
@@ -788,17 +804,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             result = await handler(parsed_params)
             completed_at = int(time.time() * 1000)
             
-            # If the handler returned a REQUIRES_APPROVAL string
+            # A handler can interrupt safely with a structured approval request.
+            # This is not a completed external action and must never be rendered as
+            # one. Browser-agent HTTP runs expose the proposed click/type, then
+            # stop because durable resume is not implemented yet.
             if isinstance(result, str) and result.startswith("REQUIRES_APPROVAL:"):
-                parts = result.split(":", 2)
-                if len(parts) == 3:
-                    action, args = parts[1], parts[2]
+                parts = result.split(":", 3)
+                if len(parts) == 4:
+                    _, approval_id, action, raw_args = parts
+                    try:
+                        args: object = json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        args = {"raw": raw_args}
                     return {
                         "status": "RequiresApproval",
                         "data": {
+                            "approvalId": approval_id,
                             "action": action,
-                            "args": args
-                        }
+                            "parameters": args,
+                            "resumeSupported": False,
+                            "detail": "HINAA stopped before browser input. Review the proposed action; approval is recorded, but it will not be executed automatically.",
+                        },
                     }
 
             # If the handler already returned a StandardToolResultEnvelope-like dict, use it directly.
@@ -862,6 +888,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if project is None:
             raise HTTPException(status_code=404, detail="Project not found")
         return project
+
+    @app.post("/v1/projects/{project_id}/website-blueprint", status_code=201)
+    async def create_website_blueprint(
+        request: Request,
+        project_id: str,
+        body: ProjectWebsiteBlueprintBody,
+    ) -> dict[str, Any]:
+        blueprint = workspace_service.create_website_blueprint(
+            _workspace_user_id(request), project_id, body.brief, body.stack
+        )
+        if blueprint is None:
+            raise HTTPException(status_code=404, detail="Local project not found")
+        return blueprint
 
     @app.post("/v1/projects/{project_id}/tasks", status_code=201)
     async def create_project_task(

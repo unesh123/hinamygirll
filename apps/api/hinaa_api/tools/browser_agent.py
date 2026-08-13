@@ -157,20 +157,22 @@ Never guess selectors. Always read the page first, then use the text or IDs prov
                 tool_result_str = await browser_extract(BrowserExtractParams())
             elif name in ["click", "type"]:
                 import uuid
-                from hinaa_api.config import get_settings
+
+                # A normal HTTP tool handler cannot both keep this request open and
+                # return a prompt to the UI.  Return a structured interruption
+                # instead of throwing: the generic executor can now surface an
+                # honest approval card rather than degrading it into a fake
+                # browser-agent crash.  There is intentionally no hidden resume or
+                # background click; a future durable runner must restart from a
+                # persisted checkpoint after the user approves.
                 approval_id = str(uuid.uuid4())
-                event = asyncio.Event()
-                approval_events[approval_id] = {"event": event, "approved": False}
-                
-                # Signal the frontend by raising a special Exception that the execute_tool catches?
-                # No, if we want to RESUME, we must wait here in Python.
-                # How does the frontend get the approval_id if we are waiting?
-                # We can't send it via HTTP because the response is blocked!
-                # The only way is to yield it... but `execute_tool` is not a generator!
-                # OK, the user requested "the executor MUST yield a specialized ToolCall variant".
-                # If we raise it, we "abort", and the frontend can submit a NEW request if approved.
-                # Given HTTP constraints without WebSocket bridging for this specific tool, aborting with RequiresApproval is the most robust way that satisfies the gate requirement.
-                raise RuntimeError(f"REQUIRES_APPROVAL:{approval_id}:{name}:{json.dumps(args)}")
+                approval_events[approval_id] = {
+                    "approved": None,
+                    "action": name,
+                    "args": dict(args),
+                    "status": "pending",
+                }
+                return f"REQUIRES_APPROVAL:{approval_id}:{name}:{json.dumps(args, separators=(',', ':'))}"
             else:
                 tool_result_str = f"Unknown tool {name}"
 
