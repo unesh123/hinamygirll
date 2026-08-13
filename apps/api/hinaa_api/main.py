@@ -397,13 +397,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "llm",
                     "structured-turn-plan",
                     "text-stream",
-                    "anthropic-messages",
+                    "openai-compatible" if active_settings.active_claude_protocol == "openai-compatible" else "anthropic-messages",
+                    f"protocol:{active_settings.active_claude_protocol}",
                     f"default-model:{active_settings.claude_model}",
                     *[f"model:{model}" for model in active_settings.claude_allowed_models],
                 ],
                 state="healthy" if active_settings.claude_configured else "unavailable",
                 userMessage=(
-                    "Claude configuration is present; no live call has been made."
+                    f"Claude configuration is present using {active_settings.active_claude_protocol}; no live call has been made."
                     if active_settings.claude_configured
                     else "Claude needs HINAA_CLAUDE_API_KEY (or ANTHROPIC_API_KEY)."
                 ),

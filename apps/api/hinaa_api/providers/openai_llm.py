@@ -93,7 +93,7 @@ class OpenAILLMProvider:
             plan = validate_or_none(raw)
             if (
                 plan is None
-                and self._provider_id in {"custom", "cx-gateway"}
+                and self._provider_id in {"custom", "cx-gateway", "claude"}
                 and raw.strip()
             ):
                 # Reasoning/gateway models often answer in plain prose even when
@@ -123,7 +123,7 @@ class OpenAILLMProvider:
                                     plan.memoryCandidates.append(MemoryCandidate(**mc))
                 except Exception:
                     pass
-            if plan is None and self._provider_id in {"custom", "cx-gateway"}:
+            if plan is None and self._provider_id in {"custom", "cx-gateway", "claude"}:
                 # Prose-recovery is the real path for gateway models; a schema
                 # repair round trip would send response_format these gateways
                 # may reject. Fail typed instead of burning a second call.
@@ -211,7 +211,7 @@ class OpenAILLMProvider:
         )
 
     async def _chat_json(self, prompt: PromptPackage) -> str:
-        if self._provider_id in {"custom", "cx-gateway"}:
+        if self._provider_id in {"custom", "cx-gateway", "claude"}:
             return await self._chat_text(prompt)
         payload = {
             "model": self._model,
@@ -280,7 +280,7 @@ class OpenAILLMProvider:
         return content if isinstance(content, str) else ""
 
     async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
-        if self._provider_id in {"custom", "cx-gateway"}:
+        if self._provider_id in {"custom", "cx-gateway", "claude"}:
             # OpenAI-compatible gateways host reasoning models (e.g. Kimi,
             # cx/gpt-5.6-sol) that spend tokens on hidden "reasoning_content"
             # before any spoken "content". A small cap starves the actual
@@ -398,6 +398,8 @@ class OpenAILLMProvider:
             return "CX gateway"
         if self._provider_id == "custom":
             return "Custom model gateway"
+        if self._provider_id == "claude":
+            return "Claude gateway"
         return "OpenAI"
 
 

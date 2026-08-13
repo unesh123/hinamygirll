@@ -271,3 +271,11 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Secret handling | Claude accepts `HINAA_CLAUDE_API_KEY` or standard `ANTHROPIC_API_KEY`. It does not consume `ANTHROPIC_AUTH_TOKEN`, which may be a separate Claude Code gateway credential. | Environment-template documentation and secret-safe status regression added. |
 | Diagnostics | Expanded provider diagnostics to show safe readiness messages and capability labels. It never renders credential values. | Provider status API regression confirms the test key is absent from output. |
 | Provider verification | Full release gate completes with no external provider invocation; configuration presence is not represented as authentication or synthesis proof. | API tests, frontend tests, mobile checks, TypeScript, build, and lint pass. |
+
+## Phase 30 — Claude gateway protocol compatibility
+| Surface | Change | Verification |
+|---|---|---|
+| Gateway protocol | Added `HINAA_CLAUDE_PROTOCOL` (`auto`, `anthropic`, or `openai-compatible`). Auto selects OpenAI-compatible transport for a Claude gateway base URL ending `/v1`, matching the supplied mwapi guide's documented application route. | No-network regression asserts `/v1/chat/completions`, Bearer authorization shape, and safe protocol capability status. |
+| Claude adapter selection | The provider router now selects HINAA's OpenAI-compatible adapter for the documented gateway mode and retains Anthropic Messages for the official/default Anthropic route. | Provider-router, API status, and security regression suites pass. |
+| Structured answers | The OpenAI-compatible Claude route uses HINAA's existing gateway prose-to-plan recovery and streaming path, avoiding unsupported JSON response-format retries. | Type and regression checks pass. |
+| Authentication UX | Claude authentication errors now give a clear local recovery instruction with the documented base URL/protocol format and backend restart requirement. | Frontend TypeScript and full test/build gates pass. |

@@ -468,3 +468,12 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Sandbox provider status | **PARTIAL / ENVIRONMENT-SPECIFIC** | This sandbox has OpenAI configuration present, while CX Gateway, Agent Router, ElevenLabs, Gemini, Deepgram, and local ComfyUI readiness were unavailable in the active service diagnostics. The user's separate Windows `.env.local` was not present here and was not modified. |
 | Provider diagnostics | **VERIFIED** | Settings now displays each provider's safe readiness reason and capabilities only. No key values are returned by the endpoint or UI. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile responsive checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 30 — Claude Gateway Compatibility — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Documented mwapi-compatible route | **IMPLEMENTED AND TESTED WITHOUT LIVE BILLING** | For `HINAA_CLAUDE_BASE_URL=https://api.mwapi.dev/v1`, HINAA auto-selects `openai-compatible`, posts to `/v1/chat/completions`, and uses Bearer authorization. This replaces the incompatible Anthropic Messages request shape that produced the observed authentication failure. |
+| Official Anthropic route | **SUPPORTED** | The default `https://api.anthropic.com` continues using the Anthropic Messages adapter. `HINAA_CLAUDE_PROTOCOL` can explicitly override automatic routing. |
+| Authentication result | **CREDENTIAL-SIDE VERIFICATION REQUIRED** | A real provider authentication test was intentionally not sent because the attachment contained an exposed credential and the real Windows `.env.local` is unavailable in this sandbox. After credential rotation and a backend restart, one short typed test is required to prove the provider account accepts the replacement key. |
+| Safe token boundary | **VERIFIED** | `ANTHROPIC_AUTH_TOKEN` alone cannot configure HINAA. HINAA requires `HINAA_CLAUDE_API_KEY` or `ANTHROPIC_API_KEY`; it never prints either value. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |

@@ -44,6 +44,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("HINAA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY"),
     )
     claude_base_url: str = Field("https://api.anthropic.com", alias="HINAA_CLAUDE_BASE_URL")
+    # auto uses the documented OpenAI-compatible route for an /v1 gateway such
+    # as mwapi.dev; choose anthropic or openai-compatible explicitly to override.
+    claude_protocol: Literal["auto", "anthropic", "openai-compatible"] = Field("auto", alias="HINAA_CLAUDE_PROTOCOL")
     claude_model: str = Field("claude-sonnet-4-20250514", alias="HINAA_CLAUDE_MODEL")
     claude_allowed_models_raw: str = Field(
         "claude-sonnet-4-20250514,claude-opus-4-20250514,claude-3-5-haiku-20241022",
@@ -229,6 +232,14 @@ class Settings(BaseSettings):
     def active_claude_base_url(self) -> str | None:
         value = self.claude_base_url.strip().rstrip("/")
         return value or None
+
+    @property
+    def active_claude_protocol(self) -> Literal["anthropic", "openai-compatible"]:
+        if self.claude_protocol != "auto":
+            return self.claude_protocol
+        # mwapi.dev documents /v1 with Bearer authentication and the OpenAI
+        # chat-completions contract. Official Anthropic uses the Messages API.
+        return "openai-compatible" if self.active_claude_base_url and self.active_claude_base_url.endswith("/v1") else "anthropic"
 
     @property
     def claude_allowed_models(self) -> list[str]:

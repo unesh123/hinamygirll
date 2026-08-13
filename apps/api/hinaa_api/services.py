@@ -418,6 +418,13 @@ class ProviderRouter:
                     retryable=False,
                     user_action_required=True,
                 ) from error
+            if self.settings.active_claude_protocol == "openai-compatible":
+                return OpenAILLMProvider(
+                    active_claude_key.get_secret_value(),
+                    model,
+                    base_url=active_claude_base_url,
+                    provider_id="claude",
+                )
             return ClaudeLLMProvider(
                 api_key=active_claude_key.get_secret_value(),
                 model=model,
