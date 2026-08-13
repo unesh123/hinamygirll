@@ -189,3 +189,15 @@ No original VRM binary, ComfyUI model/workflow, secret, SQLite database, generat
 | `docs/HINAA_PRODUCT_DESIGN.md`, `docs/HINAA_VISUAL_POLISH_EVIDENCE_2026-08-13.md` | Recorded screenshot-driven visual targets and two-pass local visual evidence, including the aura stacking diagnosis and explicit VRM visual verification boundary. | Evidence files added. |
 
 No VRM binary, secret, local database, generated media, or ComfyUI asset is included. This pass remains on an isolated branch and does not merge `main`.
+
+
+## Phase 22 — You.com real-time web intelligence
+
+| Surface | Change | Verification |
+|---|---|---|
+| Private configuration | Added server-only `YDC_API_KEY`, verified You.com endpoint overrides, readiness state, and a safe `.env.example` entry. The key is never sent to Vite/browser code or committed. | Configuration-only provider-health regression passes. |
+| Grounded tools | Replaced the key-configured web-search path with You.com real-time search and added explicit approval-gated tools for cited answers, selected URL contents, cited research, background research status, and opt-in finance research. | Mocked HTTP client regressions cover request normalization, source cards, key non-disclosure, private URL rejection, and confirmation gates. |
+| Agent workflow | CX remains HINAA’s conversation brain. The deterministic router proposes a tool only for unambiguous user commands; normal chat never silently spends paid web credits. | Conversation routing regressions pass for every new command and for no-side-effect framing. |
+| Citation and cost contract | Source cards retain a title, URL, bounded snippet, stable ID, and provider mode. Search defaults to five current sources, research defaults to `lite`, and expensive research levels are visible before approval. | Complete backend and frontend release gates pass. |
+
+The current sandbox does not contain `apps/api/.env.local`, so live paid-key validation was intentionally not simulated or claimed. The user’s Windows-local runtime must restart after adding `YDC_API_KEY` and perform an explicitly approved search to validate the account and available credit.

@@ -466,6 +466,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
 
             ProviderStatus(
+                id="youcom",
+                capabilities=[
+                    "web-search",
+                    "web-news",
+                    "cited-answer",
+                    "contents-markdown",
+                    "cited-research",
+                    "finance-research-opt-in",
+                ],
+                state="healthy" if active_settings.youcom_configured else "unavailable",
+                userMessage=(
+                    "You.com real-time search, cited answers, page extraction, and research are configured locally; HINAA asks for approval before each request."
+                    if active_settings.youcom_configured
+                    else "You.com is not configured. Add YDC_API_KEY to apps/api/.env.local and restart HINAA."
+                ),
+            ),
+            ProviderStatus(
                 id="azure-speech",
                 capabilities=["stt", "tts", "hi-IN", "pcm-wav"],
                 state="disabled",

@@ -200,6 +200,10 @@ def test_explicit_tool_commands_require_command_mood_and_target(settings: Settin
         "एउटा image generate गर।": "image_generate",
         "Open Netflix.": "browser_navigate",
         "Search the web for current ComfyUI documentation.": "web_search",
+        "Answer with sources why is the sky blue.": "web_answer",
+        "Research the web with sources about current ComfyUI documentation.": "web_research",
+        "Read https://developer.mozilla.org/en-US/docs/Web/API and summarize it.": "web_extract",
+        "Financial research on NVIDIA earnings.": "finance_research",
     }
     for text, tool_name in expected.items():
         plan = _routing_plan()
@@ -218,6 +222,9 @@ def test_explanations_negations_quotes_and_capability_questions_do_not_execute_t
         "Can HINAA generate images?",
         "The phrase 'open Netflix' is an example.",
         "I may search the web later.",
+        "Can HINAA research the web with sources?",
+        "How does financial research work?",
+        "Why did HINAA read https://example.com/docs?",
     ]
     for text in no_execution:
         plan = _routing_plan()

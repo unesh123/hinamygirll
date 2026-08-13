@@ -85,6 +85,12 @@ class Settings(BaseSettings):
         "gpt-5.6-sol,claude-opus-4.8,opus-5",
         alias="AGENT_ROUTER_ALLOWED_MODELS",
     )
+    # You.com — private, server-side real-time web intelligence. Keep the key
+    # in apps/api/.env.local as YDC_API_KEY; never expose it to Vite/browser code.
+    youcom_api_key: SecretStr | None = Field(None, alias="YDC_API_KEY")
+    youcom_base_url: str = Field("https://api.you.com", alias="YOUCOM_BASE_URL")
+    youcom_contents_base_url: str = Field("https://ydc-index.io", alias="YOUCOM_CONTENTS_BASE_URL")
+    youcom_timeout_seconds: float = Field(30.0, alias="YOUCOM_TIMEOUT_SECONDS")
     azure_speech_female_voice: str = Field("hi-IN-SwaraNeural", alias="AZURE_SPEECH_FEMALE_VOICE")
     azure_speech_male_voice: str = Field("hi-IN-MadhurNeural", alias="AZURE_SPEECH_MALE_VOICE")
     elevenlabs_api_key: SecretStr | None = Field(None, alias="ELEVENLABS_API_KEY")
@@ -219,6 +225,10 @@ class Settings(BaseSettings):
             and self.agent_router_api_key.get_secret_value()
             and self.active_agent_router_base_url
         )
+
+    @property
+    def youcom_configured(self) -> bool:
+        return bool(self.youcom_api_key and self.youcom_api_key.get_secret_value())
 
     @property
     def cx_gateway_configured(self) -> bool:

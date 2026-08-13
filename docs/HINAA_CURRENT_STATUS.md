@@ -370,3 +370,25 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Backend suite | **PASS** — complete `pytest -q` suite. |
 
 > The previous Nepali-only experimental evidence is superseded for active HINAA behavior. HINAA now responds through Hindi (Devanagari) and English only. Historical ledger entries are retained as repository history, not as current capability claims.
+
+
+## Phase 22 — You.com Real-Time Web Intelligence — 2026-08-13
+
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Live web search and news | **IMPLEMENTED / LOCAL KEY NOT PRESENT IN SANDBOX** | `web_search` uses You.com’s current search path with bounded source cards when `YDC_API_KEY` is configured. It retains public fallback only when no local You.com key exists. |
+| Cited answers | **IMPLEMENTED** | `web_answer` calls the verified You.com Answer endpoint only after user approval and returns the provider answer plus citation source cards. |
+| Page reading | **IMPLEMENTED** | `web_extract` calls You.com Contents for up to five HTTP/HTTPS pages, rejects local/private targets, and returns bounded Markdown previews and metadata. |
+| Deep research | **IMPLEMENTED** | `web_research` exposes explicit `lite` through `frontier` effort, optional background task handles, and `web_research_status` for approved task retrieval. No ordinary chat silently starts research. |
+| Finance research | **IMPLEMENTED / EXPLICIT ONLY** | The optional finance endpoint is high-confirmation and returns informational cited research, never trade or investment execution. |
+| Credit and privacy controls | **IMPLEMENTED** | Every remote You.com action uses HINAA’s existing confirmation path. The key is server-only, excluded from Git/templates, and never returned in tool or health output. |
+
+### Phase 22 release gates
+
+| Gate | Result |
+|---|---|
+| Mocked You.com client and tool suite | **PASS** — structured search/citation normalization, source bounds, private URL rejection, key non-disclosure, provider health, and confirmation gates. |
+| Backend full suite | **PASS** — complete `pytest -q` suite. |
+| Frontend release gates | **PASS** — 28 Vitest files, 120 passing tests, 2 existing todos; `tsc -b`; Vite/PWA production build. |
+
+> **Runtime boundary:** this sandbox has no `apps/api/.env.local` and therefore cannot assert that the user’s paid You.com key was loaded or accepted. On the Windows-local HINAA runtime, add `YDC_API_KEY=...` to `apps/api/.env.local`, restart the API, verify `GET /v1/providers` shows `youcom` healthy, and approve one `Search the live web` request. That explicit request is the first valid account/credit evidence.

@@ -722,13 +722,65 @@ class ConversationService:
                     parameters={"url": destination},
                 ))
 
-        research_command = is_command(
-            [r"^\s*(please\s+)?(search the web for|look up|find information about|research|google search for|खोज|खोज्नुहोस्)\b"],
+        cited_answer_command = is_command(
+            [r"^\s*(please\s+)?(answer with sources|give (?:me )?a cited answer|verify online)\b"],
+            target=r"\b(sources?|citations?|online|web|internet)\b|वेब|स्रोत",
+        )
+        if cited_answer_command and not any(t.toolName == "web_answer" for t in plan.toolRequests):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:answer with sources|give (?:me )?a cited answer|verify online)\s*(?:for|about|:)?\s*",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_answer",
+                parameters={"query": prompt_str or text},
+            ))
+
+        extract_command = is_command(
+            [r"^\s*(please\s+)?(read|extract|summarize)\b"],
+            target=r"https?://[^\s]+",
+        )
+        if extract_command and not any(t.toolName == "web_extract" for t in plan.toolRequests):
+            urls = re.findall(r"https?://[^\s]+", text)
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_extract",
+                parameters={"urls": urls[:5]},
+            ))
+
+        finance_command = is_command(
+            [r"^\s*(please\s+)?(?:financial|finance) research\b"],
+            target=r"\b(finance|financial|earnings|filing|stock|market|company)\b",
+        )
+        if finance_command and not any(t.toolName == "finance_research" for t in plan.toolRequests):
+            prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:financial|finance) research\s*(?:on|about|:)?\s*", "", text).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="finance_research",
+                parameters={"query": prompt_str or text, "effort": "deep"},
+            ))
+
+        deep_research_command = is_command(
+            [r"^\s*(please\s+)?(research|investigate|compare with sources|deep research)\b"],
+            target=r"\b(web|internet|online|sources?|citations?|documentation|current)\b|वेब|स्रोत",
+        )
+        if deep_research_command and not any(t.toolName == "web_research" for t in plan.toolRequests):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:research|investigate|compare with sources|deep research)\s*(?:the web for|online|with sources|:)?\s*",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_research",
+                parameters={"query": prompt_str or text, "effort": "lite"},
+            ))
+
+        search_command = is_command(
+            [r"^\s*(please\s+)?(search the web for|look up|find information about|google search for|खोज|खोज्नुहोस्)\b"],
             target=r"\b(web|internet|online|google|documentation|sources?)\b|वेब|इन्टरनेट",
         )
-        if research_command and not any(t.toolName == "web_search" for t in plan.toolRequests):
+        if search_command and not any(t.toolName == "web_search" for t in plan.toolRequests):
             prompt_str = re.sub(
-                r"(?i)^\s*(?:please\s+)?(?:search the web for|look up|find information about|research|google search for)\s+",
+                r"(?i)^\s*(?:please\s+)?(?:search the web for|look up|find information about|google search for)\s+",
                 "",
                 text,
             ).strip()
