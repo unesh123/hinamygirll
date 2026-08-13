@@ -585,3 +585,15 @@ This follow-on pass preserves the local-first HINAA architecture. It neither ins
 | External publication or device action | **NOT ATTEMPTED** — no browser, messaging, operating-system, VSeeFace, screen, camera, or cloud action was performed by this pass. |
 
 The remaining user-facing Windows experience requires real hardware-side evidence: paired companion installation, explicit capability selection, fresh VMC packets from VSeeFace, calibrated avatar motion, a visible screen-capture consent indicator, single-tab browser receipts, message-send previews/receipts, IDE diff/command review, and companion revocation. Until then these features must remain unavailable or proposal-only rather than simulated.
+
+
+### Full release gate — 2026-08-14
+
+The isolated branch completed the prescribed release command without an error exit:
+
+```text
+apps/api: pytest -q
+apps/web: pnpm vitest run && pnpm check:mobile && pnpm typecheck && pnpm build && pnpm lint
+```
+
+The API suite reached 100% progress successfully; its only reported item was the existing FastAPI/TestClient deprecation warning. Frontend validation completed with **33 passing test files**, **142 passing tests**, and **2 existing todos**. Mobile checks, TypeScript compilation, and the production Vite build completed successfully. Lint completed with **0 errors** and **36 existing warnings**. This validates the current repository code and preserves the separate requirement for real Windows companion/VSeeFace/device runtime evidence.

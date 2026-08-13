@@ -376,3 +376,5 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | `docs/HINAA_WINDOWS_COMPANION_BOUNDARY.md` | Define the future trusted Windows companion scope for screen, VSeeFace/VMC, voice, browser, WhatsApp, media, VS Code, system, and scheduling requests; document pairing, receipts, revocation, and mandatory Windows evidence. | Official Microsoft and VMC protocol references cited; no unsupported device-control claim made. |
 
 No VRM binary, ComfyUI workflow/model, provider secret, SQLite database, generated media, or user Windows file is included. The changes remain isolated on `work/hinaa-automation-image-reliability`; `main` is untouched.
+
+| Full release gate | Completed `pytest -q`, `pnpm vitest run`, `pnpm check:mobile`, `pnpm typecheck`, `pnpm build`, and `pnpm lint` on the isolated branch. | API suite reached 100% with only an existing TestClient deprecation warning; frontend: 33 files / 142 tests passed, 2 existing todos; production build passed; lint: 0 errors, 36 existing warnings. |
