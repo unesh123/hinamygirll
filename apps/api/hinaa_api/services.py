@@ -331,6 +331,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_qwen_brain(self) -> None:
+        if self.settings.active_qwen_key is None or self.settings.active_qwen_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Qwen is not configured. Add HINAA_QWEN_API_KEY (or QWEN_API_KEY) to apps/api/.env.local and restart the backend.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_agent_router_brain(self) -> None:
         if self.settings.active_agent_router_key is None or self.settings.active_agent_router_base_url is None:
             raise HinaaError(
@@ -447,6 +456,27 @@ class ProviderRouter:
                 api_key=active_claude_key.get_secret_value(),
                 model=model,
                 base_url=active_claude_base_url,
+            )
+        if mode == "qwen":
+            self._require_qwen_brain()
+            active_qwen_key = self.settings.active_qwen_key
+            active_qwen_base_url = self.settings.active_qwen_base_url
+            assert active_qwen_key and active_qwen_base_url
+            try:
+                model = self.settings.resolve_qwen_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "QWEN_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    retryable=False,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_qwen_key.get_secret_value(),
+                model,
+                base_url=active_qwen_base_url,
+                provider_id="qwen",
             )
         if mode == "agent-router":
             self._require_agent_router_brain()
@@ -1030,49 +1060,60 @@ class ConversationService:
                         result.latency_ms,
                         stages=timing.snapshot(),
                     )
-        except Exception as error:
-            # A failed fast brain must not be retried forever: negative-cache
-            # its key so the next casual turn uses a working fast brain (or the
-            # reasoning brain) instead of burning another failed attempt.
-            if fast_provider_id and isinstance(error, HinaaError) and error.code in {
+        except HinaaError as error:
+            # A short social turn may use an optional fast brain. If that fast
+            # brain fails, retry the user-selected reasoning brain exactly once.
+            # Never conceal an explicit provider failure behind an unrelated
+            # Gemini/OpenAI/mock response: that was the source of the misleading
+            # ‘technical glitch’ paragraph visible in live mode.
+            if fast_provider_id and error.code in {
                 "PROVIDER_KEY_INVALID",
                 "PROVIDER_UNAVAILABLE",
                 "PROVIDER_RATE_LIMIT",
             }:
                 self._mark_fast_key_bad(fast_provider_id)
-            logger.warning("Primary provider %r failed or timed out (%s); engaging fast fallback", request.providerMode, error)
-            try:
-                # Attempt fast fallback to Gemini or OpenAI if configured, but
-                # never straight back to the fast provider that just failed.
-                fallback_provider_id = (
-                    "gemini"
-                    if self.settings.gemini_configured and fast_provider_id != "gemini"
-                    else "openai"
-                    if self.settings.openai_configured and fast_provider_id != "openai"
-                    else "mock"
-                )
-                fallback_provider = self.router.llm(fallback_provider_id, None)
-                if isinstance(fallback_provider, GeminiLLMProvider | OpenAILLMProvider):
-                    async with asyncio.timeout(self.settings.llm_timeout_seconds):
-                        result = await fallback_provider.create_live_plan(
-                            request.text,
-                            request.companionId,
-                            request.language,
-                            history,
-                            emit_delta,
-                            prompt,
-                        )
+                selected_provider = self.router.llm(request.providerMode, request.brainModel)
+                if getattr(selected_provider, "id", None) != fast_provider_id:
+                    try:
+                        async with asyncio.timeout(self.settings.llm_timeout_seconds):
+                            if isinstance(selected_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                                result = await selected_provider.create_live_plan(
+                                    request.text,
+                                    request.companionId,
+                                    request.language,
+                                    history,
+                                    emit_delta,
+                                    prompt,
+                                )
+                            else:
+                                result = await selected_provider.create_plan(
+                                    request.text,
+                                    request.companionId,
+                                    request.language,
+                                    history,
+                                    prompt,
+                                )
+                    except HinaaError:
+                        raise
+                    except Exception as retry_error:
+                        raise HinaaError(
+                            "PROVIDER_UNAVAILABLE",
+                            "The selected brain could not complete this live turn.",
+                            503,
+                            True,
+                        ) from retry_error
                 else:
-                    raise error
-            except Exception:
-                plan = neutral_fallback_plan(
-                    user_text=request.text,
-                    companion_id=request.companionId,
-                    language=request.language,
-                    depth=prompt.response_depth,
-                )
-                await emit_delta(plan.displayText)
-                result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
+                    raise
+            else:
+                raise
+        except Exception as error:
+            logger.exception("Live provider %r failed before producing a valid plan", request.providerMode)
+            raise HinaaError(
+                "PROVIDER_UNAVAILABLE",
+                "The selected brain could not complete this live turn.",
+                503,
+                True,
+            ) from error
 
         _apply_response_quality_guard(result.value)
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())

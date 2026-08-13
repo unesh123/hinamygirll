@@ -5,7 +5,7 @@ from typing import Annotated, Literal, Any
 from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 
 Language = Literal["en-US", "hi-IN", "mixed"]
-ProviderMode = Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "agent-router", "cx-gateway", "gemini-live"]
+ProviderMode = Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live"]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal["conversation", "professional", "technical", "research", "automation", "academic", "creative", "concise_voice"]
 

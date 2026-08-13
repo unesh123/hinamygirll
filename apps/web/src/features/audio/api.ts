@@ -6,6 +6,7 @@ export type ProviderMode =
   | "custom"
   | "real"
   | "claude"
+  | "qwen"
   | "agent-router"
   | "cx-gateway"
   | "gemini-live";

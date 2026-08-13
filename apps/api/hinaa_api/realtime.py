@@ -351,7 +351,7 @@ class RealtimeGateway:
             # configured voice output can safely begin on a stable clause while
             # later text continues to stream, as long as delivery remains ordered.
             stream_real_audio = session.hello.providerMode in {
-                "real", "openai", "custom", "cx-gateway", "agent-router"
+                "real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen"
             } or (session.hello.providerMode == "groq" and self.settings.azure_configured)
             streamed_delivery_tail: asyncio.Task[None] | None = None
 
@@ -408,7 +408,7 @@ class RealtimeGateway:
                         "provider": speech.provider,
                         "requestedVoice": voice,
                         "actualVoice": voice
-                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router"}
+                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen"}
                         or (session.hello.providerMode == "groq" and self.settings.azure_configured)
                         else f"{session.hello.providerMode}-tone",
                         "calibration": session.hello.calibration,
@@ -656,8 +656,14 @@ class RealtimeGateway:
             "AUDIO_SEQUENCE_GAP": "A microphone frame was lost; listening can restart safely.",
             "AUDIO_BUFFER_LIMIT": "The live recording reached its safety limit.",
             "PROVIDER_CONFIGURATION_MISSING": (
-                "Real providers are not ready; mock mode remains available."
+                "The selected brain is not configured in the local backend environment."
             ),
+            "PROVIDER_KEY_INVALID": "The selected brain rejected its local backend API key.",
+            "PROVIDER_RATE_LIMIT": "The selected brain is rate-limited; try again shortly or choose another configured brain.",
+            "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE": "The selected gateway has no available upstream account right now.",
+            "PROVIDER_TIMEOUT": "The selected brain did not finish before HINAA’s live safety timeout.",
+            "PROVIDER_UNAVAILABLE": "The selected brain could not complete this live turn. Check the local backend diagnostic status, then retry.",
+            "MODEL_RESPONSE_INVALID": "The selected brain returned an unusable response plan; no fallback reply was spoken.",
         }
         return messages.get(
             code, "The live turn stopped safely. Mock and text controls remain available."

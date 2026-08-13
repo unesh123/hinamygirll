@@ -13,6 +13,7 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   real:   { label: "Gemini",         description: "Google Gemini cloud cascade." },
   groq:   { label: "Groq",           description: "Fast Groq inference." },
   claude: { label: "Claude", description: "Anthropic Messages API through HINAA's local backend configuration." },
+  qwen: { label: "Qwen", description: "QwenCloud models through the private local backend configuration." },
   "agent-router": { label: "Agent Router", description: "Unified router with server-side security policies." },
   "cx-gateway":   { label: "CX Gateway",   description: "cx/gpt-5.6-sol — your private premium gateway." },
   "gemini-live":   { label: "Gemini Live",  description: "Native Speech-to-Speech (<300ms multimodal voice)." },
@@ -61,7 +62,7 @@ export function buildProviderOptions(statuses: ProviderStatus[]): ProviderOption
   const byId = new Map(statuses.map((s) => [s.id, s]));
 
   const alwaysPresent: ProviderMode[] = ["mock", "local"];
-  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "cx-gateway", "claude", "gemini-live"];
+  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "cx-gateway", "claude", "qwen", "gemini-live"];
 
   const options: ProviderOption[] = [];
 

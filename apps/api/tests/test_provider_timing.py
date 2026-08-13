@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from hinaa_api.config import Settings
+from hinaa_api.errors import HinaaError
 from hinaa_api.models import TurnRequest
 from hinaa_api.providers.timing import STAGE_ORDER, ProviderTiming
 from hinaa_api.services import ConversationService
@@ -66,12 +67,12 @@ async def test_mock_live_plan_emits_sanitized_timing_stages() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_plan_brain_timeout_engages_neutral_fallback() -> None:
-    """A brain-provider timeout must never escape create_live_plan.
+async def test_live_plan_brain_timeout_surfaces_typed_provider_error() -> None:
+    """A brain-provider timeout must become a typed live error, never fake success.
 
-    The primary LLM is wrapped in ``llm_timeout_seconds`` (and the fast
-    fallback is too). If both hang, the neutral fallback plan must be emitted
-    instead of a raw TimeoutError killing the websocket turn.
+    The realtime gateway translates this error into a safe, actionable websocket
+    diagnostic. It must not synthesize HINAA’s generic fallback paragraph, which
+    makes a broken live brain appear to have successfully answered the user.
     """
     settings = Settings(
         HINAA_PROVIDER_MODE="cx-gateway",
@@ -92,20 +93,19 @@ async def test_live_plan_brain_timeout_engages_neutral_fallback() -> None:
     async def emit(delta: str) -> None:
         deltas.append(delta)
 
-    result = await service.create_live_plan(
-        TurnRequest(
-            sessionId="timeout-live",
-            text="hello there",
-            companionId="hinaa",
-            language="mixed",
-            providerMode="cx-gateway",
-        ),
-        emit,
-    )
-    # The neutral fallback is served and streamed instead of raising.
-    assert result.provider.startswith("fallback:")
-    assert deltas
-    assert result.value.displayText
+    with pytest.raises(HinaaError) as raised:
+        await service.create_live_plan(
+            TurnRequest(
+                sessionId="timeout-live",
+                text="hello there",
+                companionId="hinaa",
+                language="mixed",
+                providerMode="cx-gateway",
+            ),
+            emit,
+        )
+    assert raised.value.code == "PROVIDER_UNAVAILABLE"
+    assert not deltas
 
 
 def test_ordinary_api_tests_remain_provider_free(client: TestClient) -> None:

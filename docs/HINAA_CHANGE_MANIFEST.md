@@ -319,3 +319,13 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Composer | Existing Ink Rose composer now provides both `@` power-ups and `/` commands with filtering, click/keyboard selection, Escape dismissal, and safe intent-tag insertion. | Two component interaction regressions pass. |
 | Action routing | Commands move into existing research, images, browser, music, email, tasks, files, memory, and tools surfaces. No command auto-executes an external browser, music, or email action. | Typecheck and full frontend suite pass. |
 | Fullscreen/mobile voice | Existing fullscreen overlay received mobile-safe spacing, larger touch controls, focus rings, bounded transcript area, and command menu sizing. | Mobile check and production build pass. |
+
+## Phase 36 — QwenCloud brain and truthful live-voice recovery
+| Surface | Change | Verification |
+|---|---|---|
+| QwenCloud brain | Added optional `qwen` provider using its documented OpenAI-compatible Chat Completions endpoint, Bearer authentication, backend-only key aliases, validated model allow-list, provider status, settings selection, and CX → Claude → Qwen automatic fallback order. | Focused provider tests plus complete API/frontend release gate passed. |
+| Qwen structured turns | Qwen uses documented `max_tokens` and JSON-object plans; live mode buffers the raw response, validates it, then emits only natural `displayText`. | Dedicated regression verifies no `spokenText`/`displayText` JSON contract reaches live deltas. |
+| Voice brain selection | Typed chat and realtime session hello now forward selected models for Claude, CX, and Qwen rather than silently dropping them. | Frontend typecheck and full Vitest suite passed. |
+| Live speech queue | Validated Claude and Qwen display text now use HINAA’s existing ordered ElevenLabs audio queue, keeping the avatar’s audio-driven lip-sync lifecycle intact. | Realtime regression suite and production build passed. |
+| Failure truthfulness | Removed the neutral generic live-answer fallback after a selected brain timeout/failure. The gateway now sends an explicit safe provider error instead of pretending HINAA answered. | Timeout regression changed to assert `PROVIDER_UNAVAILABLE`; full API suite passed. |
+| Diagnostics | Live dock now displays safe server diagnostic text; backend maps configuration, key, rate-limit, capacity, timeout, and invalid-plan errors to actionable wording without exposing credentials. | Typecheck and full frontend suite passed. |

@@ -73,6 +73,10 @@ class OpenAILLMProvider:
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._provider_id = provider_id
+        # Instance identity drives routing diagnostics and fast-brain recovery.
+        # Keep it aligned with the selected compatible gateway rather than the
+        # class-level OpenAI default.
+        self.id = provider_id
 
     async def create_plan(
         self,
@@ -169,6 +173,15 @@ class OpenAILLMProvider:
                 500,
                 True,
             )
+        if self._provider_id == "qwen":
+            # QwenCloud supports JSON-object plans, but live token deltas are
+            # still the raw contract. Validate the complete plan first, then
+            # stream only the companion-facing display text to chat and TTS.
+            result = await self.create_plan(text, companion_id, language, history, prompt)
+            for start in range(0, len(result.value.displayText), 96):
+                await emit_delta(result.value.displayText[start : start + 96])
+            return result
+
         started = perf_counter()
         timing = ProviderTiming()
         chunks: list[str] = []
@@ -215,13 +228,15 @@ class OpenAILLMProvider:
     async def _chat_json(self, prompt: PromptPackage) -> str:
         if self._provider_id in {"custom", "cx-gateway", "claude"}:
             return await self._chat_text(prompt)
-        payload = {
+        payload: dict[str, object] = {
             "model": self._model,
             "messages": _messages(prompt),
             "temperature": 0.45,
-            "max_completion_tokens": 1800,
             "response_format": {"type": "json_object"},
         }
+        # QwenCloud's compatible endpoint documents `max_tokens`; its
+        # OpenAI `max_completion_tokens` alias is ignored.
+        payload["max_tokens" if self._provider_id == "qwen" else "max_completion_tokens"] = 1800
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 self._chat_url(),
@@ -282,7 +297,7 @@ class OpenAILLMProvider:
         return content if isinstance(content, str) else ""
 
     async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
-        if self._provider_id in {"custom", "cx-gateway", "claude"}:
+        if self._provider_id in {"custom", "cx-gateway", "claude", "qwen"}:
             # OpenAI-compatible gateways host reasoning models (e.g. Kimi,
             # cx/gpt-5.6-sol) that spend tokens on hidden "reasoning_content"
             # before any spoken "content". A small cap starves the actual
@@ -422,6 +437,8 @@ class OpenAILLMProvider:
             return "Custom model gateway"
         if self._provider_id == "claude":
             return "Claude gateway"
+        if self._provider_id == "qwen":
+            return "Qwen"
         return "OpenAI"
 
 

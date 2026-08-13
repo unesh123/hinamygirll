@@ -465,9 +465,10 @@ export function useLiveConversation({
       setDetail(
         code === "PROVIDER_KEY_INVALID"
           ? "Brain provider key rejected · fix the API key in backend .env.local"
-          : liveProviderUnavailable
-            ? `Provider unavailable (${code})`
-            : `Live turn failed (${code})`,
+          : event.message?.trim() ||
+            (liveProviderUnavailable
+              ? `Provider unavailable (${code})`
+              : `Live turn failed (${code})`),
       );
     }
   }, []);
@@ -487,7 +488,10 @@ export function useLiveConversation({
           callbacks.current.controller.routing.activeMode === "custom" ||
           callbacks.current.controller.routing.activeMode === "openai" ||
           callbacks.current.controller.routing.activeMode === "real" ||
-          callbacks.current.controller.routing.activeMode === "agent-router"
+          callbacks.current.controller.routing.activeMode === "agent-router" ||
+          callbacks.current.controller.routing.activeMode === "claude" ||
+          callbacks.current.controller.routing.activeMode === "cx-gateway" ||
+          callbacks.current.controller.routing.activeMode === "qwen"
             ? callbacks.current.controller.routing.activeModel ?? undefined
             : undefined,
         generation: generation.current,
@@ -589,9 +593,16 @@ export function useLiveConversation({
             ? "Zero-credit local live · text/placeholder voice only until local STT is installed"
             : mode === "groq"
               ? "Groq brain live · local STT required before microphone speech works"
-              : mode === "custom"
-                ? "Custom gateway brain live · Microsoft Speech handles voice"
-              : "Connecting realtime providers…",
+                          : mode === "qwen"
+                ? "Qwen brain live · ElevenLabs handles speech recognition and voice"
+                : mode === "claude"
+                  ? "Claude brain live · ElevenLabs handles speech recognition and voice"
+                  : mode === "cx-gateway"
+                    ? "CX brain live · ElevenLabs handles speech recognition and voice"
+                    : mode === "custom"
+                      ? "Custom gateway brain live · ElevenLabs handles speech recognition and voice"
+                      : "Connecting realtime providers…",
+
       );
       connect();
     } catch (error) {

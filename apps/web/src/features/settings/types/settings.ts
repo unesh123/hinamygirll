@@ -44,6 +44,7 @@ export type ProviderPreferenceMode =
   | "local"
   | "mock"
   | "claude"
+  | "qwen"
   | "agent-router"
   | "cx-gateway"
   | "gemini-live";

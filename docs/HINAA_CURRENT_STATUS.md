@@ -518,3 +518,12 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Fullscreen/live voice safety | **REPAIRED IN CODE AND TESTED AT TYPE LEVEL** | Visible live deltas are guarded, and the validated plan’s `spokenText` owns TTS fallback. Final microphone-to-audio runtime proof still requires the user’s Windows browser/audio session. |
 | @ and / command palette | **IMPLEMENTED AND TESTED** | Both triggers open the matching Ink Rose palette, insert the durable intent tag, and route to a real existing HINAA workspace without triggering sensitive external automation. |
 | Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | API tests, frontend Vitest, mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 35 warnings and 0 errors. |
+
+## Phase 36 — QwenCloud and Live Voice Truthfulness — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| QwenCloud provider | **IMPLEMENTED AND TESTED IN CODE** | Uses the official OpenAI-compatible base URL and backend-only `HINAA_QWEN_API_KEY`/`QWEN_API_KEY` aliases. Qwen is selectable in settings and available as an automatic fallback after CX and Claude. No actual user key was inspected, logged, or committed. |
+| Qwen live response | **IMPLEMENTED AND TESTED** | Raw structured output is buffered and schema-validated before natural display text streams to the live transcript/TTS queue. |
+| Claude/CX/Qwen live model routing | **REPAIRED AND TESTED AT TYPE/PROTOCOL LEVEL** | Selected model values now reach websocket `session.hello` as well as typed chat. |
+| ElevenLabs live path | **REPAIRED IN CODE; WINDOWS AUDIO PROOF PENDING** | Synthesized `tts.audio` continues through the existing ordered playback queue and avatar audio/viseme lifecycle. A selected brain failure now produces an explicit live error rather than a generic spoken fallback. Final microphone → STT → brain → audible browser playback → mouth-reset proof still requires the user’s Windows local runtime. |
+| Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | API suite, frontend Vitest, responsive/mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 35 warnings and 0 errors. |

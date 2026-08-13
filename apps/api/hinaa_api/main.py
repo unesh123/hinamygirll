@@ -411,6 +411,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ),
             ProviderStatus(
+                id="qwen",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    "bearer-auth",
+                    f"default-model:{active_settings.qwen_model}",
+                    *[f"model:{model}" for model in active_settings.qwen_allowed_models],
+                ],
+                state="healthy" if active_settings.qwen_configured else "unavailable",
+                userMessage=(
+                    "QwenCloud configuration is present; no live call has been made."
+                    if active_settings.qwen_configured
+                    else "Qwen needs HINAA_QWEN_API_KEY (or QWEN_API_KEY) in the backend .env.local file."
+                ),
+            ),
+            ProviderStatus(
                 id="custom",
                 capabilities=[
                     "llm",
