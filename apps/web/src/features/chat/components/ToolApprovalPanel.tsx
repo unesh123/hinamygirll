@@ -37,6 +37,7 @@ export function ToolApprovalPanel({ messageId, requests, activity = [], onResolv
         const running = state?.status === "running";
         const complete = state?.status === "complete";
         const declined = state?.status === "cancelled";
+        const blocked = state?.status === "blocked";
         const failed = state?.status === "error";
         const tone = complete ? "#34d399" : declined ? "#94a3b8" : failed ? "#fda4af" : "#fbbf24";
 
@@ -48,7 +49,7 @@ export function ToolApprovalPanel({ messageId, requests, activity = [], onResolv
               </span>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <strong style={{ display: "block", color: "#f8fafc", fontSize: 12 }}>Approval required · {request.toolName}</strong>
-                <span style={{ display: "block", marginTop: 3, overflow: "hidden", color: "#94a3b8", fontSize: 11, lineHeight: 1.4, textOverflow: "ellipsis" }}>{state?.label || summary(request)}</span>
+                <span style={{ display: "block", marginTop: 3, overflow: "hidden", color: blocked ? "#fde68a" : "#94a3b8", fontSize: 11, lineHeight: 1.4, textOverflow: "ellipsis" }}>{state?.label || summary(request)}</span>
               </div>
             </div>
             {pending && (

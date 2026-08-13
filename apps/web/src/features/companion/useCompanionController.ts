@@ -10,6 +10,7 @@ import {
 } from "./types";
 import type { ProviderRuntimeSelection } from "../providers/utils/resolveProviderSelection";
 import type { ActiveLanguagePolicy } from "../settings/types/settings";
+import { resolveToolOutcome } from "../tools/toolOutcome";
 import {
   deserializeAssistantTurn,
   getAssistantDisplayText,
@@ -364,11 +365,12 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
           })();
           return;
         }
+        const outcome = resolveToolOutcome(request.toolName, payload);
         setMessages((current) => current.map((message) => message.id === messageId ? {
           ...message,
-          toolResults: [...(message.toolResults || []), { toolName: request.toolName, result: payload.data ?? payload }],
+          toolResults: [...(message.toolResults || []), { toolName: request.toolName, result: outcome.result }],
           toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
-            ...activity, status: "complete", label: `Completed: ${request.toolName}`,
+            ...activity, status: outcome.status, label: outcome.label,
           } : activity),
         } : message));
       } catch (error) {

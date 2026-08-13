@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { TranscriptMessage } from "../companion/types";
+import { resolveToolOutcome } from "./toolOutcome";
 
 export function useToolRunner(
   messages: TranscriptMessage[],
@@ -51,16 +52,18 @@ export function useToolRunner(
           });
           const data = await res.json();
 
-          if (res.ok && data.status === "success") {
-            // Store result and mark complete
+          if (res.ok && (data.status === "success" || data.status === "blocked")) {
+            // HTTP completion does not necessarily mean the user's goal completed.
+            // In particular, YouTube reports blocked when a player did not verify.
+            const outcome = resolveToolOutcome(req.toolName, data);
             updateMessage(lastMessage.id, (msg) => {
               const results = msg.toolResults || [];
               const act = msg.toolActivity || [];
               return {
                 ...msg,
-                toolResults: [...results, { toolName: req.toolName, result: data.data !== undefined ? data.data : data }],
+                toolResults: [...results, { toolName: req.toolName, result: outcome.result }],
                 toolActivity: act.map(a => 
-                  a.id === req.toolName ? { ...a, status: "complete", label: `Completed ${req.toolName}` } : a
+                  a.id === req.toolName ? { ...a, status: outcome.status, label: outcome.label } : a
                 )
               };
             });

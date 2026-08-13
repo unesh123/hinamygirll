@@ -392,3 +392,16 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Frontend release gates | **PASS** — 28 Vitest files, 120 passing tests, 2 existing todos; `tsc -b`; Vite/PWA production build. |
 
 > **Runtime boundary:** this sandbox has no `apps/api/.env.local` and therefore cannot assert that the user’s paid You.com key was loaded or accepted. On the Windows-local HINAA runtime, add `YDC_API_KEY=...` to `apps/api/.env.local`, restart the API, verify `GET /v1/providers` shows `youcom` healthy, and approve one `Search the live web` request. That explicit request is the first valid account/credit evidence.
+
+
+## Phase 23 — Verified YouTube Playback — 2026-08-13
+
+| Requirement | Result |
+|---|---|
+| One owned playback target | **IMPLEMENTED** — HINAA now reuses the existing owned Playwright page, closes YouTube-created popups in that dedicated context, and remains on one first-party `/watch` URL. It no longer calls system `webbrowser.open()` or launches `yt-dlp`. |
+| Real player evidence | **IMPLEMENTED** — a green complete state requires a ready, unpaused video element whose `currentTime` advances across two samples. Opening a URL is not treated as playback. |
+| Truthful autoplay recovery | **IMPLEMENTED** — consent, sign-in, player absence, pausing, blocked media, or non-advancing time returns an amber **YouTube needs you** state telling the user to press Play in HINAA’s owned tab. |
+| Accurate activity state | **IMPLEMENTED** — both approved-action execution paths now distinguish `complete`, `blocked`, and `error`; a structured blocked playback result cannot render as `Completed`. |
+| Release gates | **PASS** — complete backend `pytest -q`; frontend 29 Vitest files, 123 passing tests, 2 existing todos; TypeScript; Vite/PWA production build. |
+
+> **Runtime boundary:** the repair does not bypass YouTube consent, login, ads, content availability, browser settings, or audible autoplay policy. Final acceptance requires a real Windows HINAA browser action: approve a song, observe exactly one owned YouTube watch page, then either observe advancing playback with the verified state or receive the honest press-Play recovery state.

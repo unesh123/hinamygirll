@@ -201,3 +201,16 @@ No VRM binary, secret, local database, generated media, or ComfyUI asset is incl
 | Citation and cost contract | Source cards retain a title, URL, bounded snippet, stable ID, and provider mode. Search defaults to five current sources, research defaults to `lite`, and expensive research levels are visible before approval. | Complete backend and frontend release gates pass. |
 
 The current sandbox does not contain `apps/api/.env.local`, so live paid-key validation was intentionally not simulated or claimed. The user’s Windows-local runtime must restart after adding `YDC_API_KEY` and perform an explicitly approved search to validate the account and available credit.
+
+
+## Phase 23 — Verified YouTube playback
+
+| Surface | Change | Verification |
+|---|---|---|
+| `apps/api/hinaa_api/tools/youtube.py` | Removed `yt-dlp` and unowned `webbrowser.open()` playback claims. The tool now reuses HINAA’s single owned Playwright page, opens one first-party watch result in the same tab, attempts player start, and returns success only when unpaused ready media time advances across two observations. | Backend YouTube regression covers first-party URL filtering, advancing-media evidence, one-page verified success, blocked media, and confirmation gating. |
+| `apps/web/src/features/tools/toolOutcome.ts` | Added a single result interpreter that distinguishes HTTP/tool completion from verified user-goal completion. | Frontend regression proves YouTube is complete only with `verified: true`; optimistic or blocked payloads stay incomplete. |
+| `apps/web/src/features/companion/useCompanionController.ts` and `apps/web/src/features/tools/useToolRunner.ts` | Use the outcome interpreter in both tool-execution paths instead of labeling every non-error response `Completed`. | Full frontend suite passes. |
+| `apps/web/src/features/chat/components/ToolApprovalPanel.tsx` | Added an amber blocked/needs-user-attention state so YouTube autoplay/consent blocks are not shown as green completion. | Frontend type check and production build pass. |
+| `docs/HINAA_YOUTUBE_PLAYBACK_CONTRACT_2026-08-13.md` | Recorded one-tab ownership, player-state acceptance, autoplay recovery, and source-backed browser limitations. | Contract review and release evidence recorded. |
+
+The supplied UI failure is mechanically addressed, but real playback remains **PENDING_USER_RUNTIME** because YouTube, account/consent pages, advertisements, and Chrome autoplay policy require a real local browser observation. HINAA now reports the blocked state honestly rather than claiming sound is playing.
