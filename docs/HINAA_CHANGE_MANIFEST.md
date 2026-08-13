@@ -214,3 +214,20 @@ The current sandbox does not contain `apps/api/.env.local`, so live paid-key val
 | `docs/HINAA_YOUTUBE_PLAYBACK_CONTRACT_2026-08-13.md` | Recorded one-tab ownership, player-state acceptance, autoplay recovery, and source-backed browser limitations. | Contract review and release evidence recorded. |
 
 The supplied UI failure is mechanically addressed, but real playback remains **PENDING_USER_RUNTIME** because YouTube, account/consent pages, advertisements, and Chrome autoplay policy require a real local browser observation. HINAA now reports the blocked state honestly rather than claiming sound is playing.
+
+
+## Phase 24 — Automation and image-workflow reliability
+
+| Surface | Change | Verification |
+|---|---|---|
+| Shared tool dispatcher | Resolved postponed Python type annotations with `get_type_hints()` before Pydantic construction. This fixes the observed `youtube_playback_request` 502: the prior dispatcher passed a raw dict to a future-annotated Pydantic handler. | Transport-level API regression reproduces the prior future-annotation scenario and receives the typed model successfully. |
+| Verified YouTube path | The existing owned-tab media verification repair can now reach its browser code instead of crashing at parameter dispatch. | YouTube helper and dispatcher regressions pass; actual Windows browser playback remains user-runtime evidence. |
+| Local ComfyUI generation | `image_generate` now checks the local renderer before persisting an image set. An offline service returns `COMFYUI_UNAVAILABLE` and the exact local recovery path rather than creating doomed pending slots. | Offline provider regression passes without a DB write or remote request. |
+| You.com public image search | Added explicit confirmation-gated `image_search`, normalized bounded public image/source links, intent routing for `search/find images`, and a chat gallery. The provider's documented beta/early-access 403 becomes an actionable access message. | Mocked image client covers query, URL safety, normalized cards, access denial, and tool confirmation. |
+
+The You.com Images endpoint is documented as beta, unmaintained, and early-access-only. HINAA labels it accordingly; it is not substituted for private local ComfyUI generation and must not be represented as universally available.[8]
+
+[8]: https://you.com/docs/api-reference/images/images "You.com Images API Reference"
+
+
+| Tool-language truthfulness | Updated the immutable tool policy after the supplied screenshot showed HINAA saying a song was playing before its approved action returned. Planned actions now use future-facing language; completed language is reserved for verified returned tool events. Image status examples now use Devanagari Hindi plus English technical terms. | Prompt-assembly and conversation-brain regressions pass. |

@@ -89,6 +89,35 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
     );
   }
 
+  if (toolName === 'image_search') {
+    const images = Array.isArray(data.images) ? data.images.filter((image: any) => image && typeof image.imageUrl === 'string').slice(0, 12) : [];
+    if (data.error || result.status === 'error') {
+      return (
+        <section style={{ marginTop: 10, border: '1px solid rgba(251,191,36,.32)', borderRadius: 14, background: 'rgba(251,191,36,.07)', padding: 12 }} aria-label="Image search availability">
+          <strong style={{ color: '#fde68a', fontSize: 12 }}>Image search needs attention</strong>
+          <p style={{ color: '#e5d8c5', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>{data.error}</p>
+          {data.code === 'YOUCOM_IMAGE_ACCESS_REQUIRED' ? <small style={{ display: 'block', marginTop: 6, color: '#cbbca8' }}>This You.com image endpoint is beta and requires early-access permission for the configured key. Local ComfyUI remains HINAA’s private image-generation route.</small> : null}
+        </section>
+      );
+    }
+    return (
+      <section style={{ marginTop: 10, display: 'grid', gap: 9 }} aria-label="Public image search results">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#f3e8dd', fontSize: 12, fontWeight: 750 }}>
+          <span>Public image results</span><span style={{ color: '#cbbca8', fontWeight: 600 }}>{images.length} result{images.length === 1 ? '' : 's'} · beta</span>
+        </div>
+        {images.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 9 }}>
+          {images.map((image: any, index: number) => (
+            <motion.a key={image.id || image.imageUrl || index} href={image.pageUrl || image.imageUrl} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: index * 0.025 }} whileHover={{ y: -2 }} style={{ overflow: 'hidden', border: '1px solid rgba(255,255,255,.12)', borderRadius: 12, background: '#211823', color: '#f4e9df', textDecoration: 'none' }}>
+              <img src={image.imageUrl} alt={image.title || 'Public image result'} loading="lazy" referrerPolicy="no-referrer" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: '#130d15' }} />
+              <span style={{ display: 'block', padding: '7px 8px 8px', fontSize: 11, fontWeight: 650, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{image.title || 'Open source page'}</span>
+            </motion.a>
+          ))}
+        </div> : <p style={{ color: '#cbbca8', fontSize: 12, margin: 0 }}>No public image links were returned for this query. Try a more specific search.</p>}
+        <small style={{ color: '#a99a8b', fontSize: 11, lineHeight: 1.45 }}>Public web image links may have licensing restrictions. Open the source page before saving or reusing an image.</small>
+      </section>
+    );
+  }
+
   // Render browser_execute_task as WorkTree
   if (toolName === 'browser_execute_task') {
     const isError = data.error || result.status === 'error';

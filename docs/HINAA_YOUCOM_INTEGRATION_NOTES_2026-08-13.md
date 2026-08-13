@@ -43,3 +43,10 @@ The implementation will expose a single `YouComClient` with typed public methods
 | `web_research` | Required | `lite` effort | Only requested effort is sent; expensive levels remain visible in the approval parameters. |
 | `web_extract` | Required | Five requested URLs | Validate HTTP/HTTPS URLs and return bounded Markdown previews with source metadata. |
 | `finance_research` | Required, high sensitivity | `deep` effort | Return cited informational research; HINAA must not frame it as personalized trade or investment execution advice. |
+
+
+## Image-search capability boundary
+
+You.com documents `GET https://api.you.com/v1/images?q=...` as an image URL search endpoint, but explicitly labels it **beta and unmaintained** and says access is limited to early-access partners. HINAA may expose it as an explicit, confirmation-gated preview tool that returns public image and source-page URLs when the configured key has access. A `403` must be presented as an access limitation with an actionable request path, not as an image-search failure or generated-image capability.[7]
+
+[7]: https://you.com/docs/api-reference/images/images "You.com Images API Reference"

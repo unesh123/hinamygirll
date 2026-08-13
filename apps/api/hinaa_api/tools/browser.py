@@ -129,6 +129,31 @@ async def search_web(params: dict[str, Any]) -> dict[str, Any]:
         return _provider_error(error, query=query)
 
 
+async def search_images(params: dict[str, Any]) -> dict[str, Any]:
+    query = str(params.get("query", "")).strip()
+    try:
+        return await YouComClient(get_settings()).image_search(
+            query,
+            count=int(params.get("count", 6) or 6),
+        )
+    except (TypeError, ValueError):
+        return {
+            "error": "Image count must be a whole number.",
+            "code": "YOUCOM_INVALID_IMAGE_COUNT",
+            "query": query,
+            "images": [],
+            "imageCount": 0,
+        }
+    except YouComError as error:
+        return {
+            "error": str(error),
+            "code": error.code,
+            "query": query,
+            "images": [],
+            "imageCount": 0,
+        }
+
+
 async def answer_web(params: dict[str, Any]) -> dict[str, Any]:
     query = str(params.get("query", "")).strip()
     try:
@@ -221,6 +246,20 @@ web_search_def = ToolDefinition(
     voice_aliases=["search for", "look up", "find"],
 )
 
+image_search_def = ToolDefinition(
+    name="image_search",
+    display_name="Find public images",
+    description="Use You.com's beta image-search API to find public web image links. Availability requires early-access permission for the configured You.com key; source-page licensing still must be verified before reuse.",
+    parameters={
+        "query": {"type": "string", "description": "The public image search query"},
+        "count": {"type": "number", "description": "Optional result count; default 6, maximum 12"},
+    },
+    required_parameters=["query"],
+    requires_confirmation=True,
+    cancellable=True,
+    voice_aliases=["find images", "search images", "look for pictures"],
+)
+
 web_answer_def = ToolDefinition(
     name="web_answer",
     display_name="Answer with live citations",
@@ -299,6 +338,7 @@ finance_research_def = ToolDefinition(
 )
 
 registry.register(web_search_def, search_web)
+registry.register(image_search_def, search_images)
 registry.register(web_answer_def, answer_web)
 registry.register(web_research_def, research_web)
 registry.register(web_research_status_def, research_web_status)

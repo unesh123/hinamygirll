@@ -29,6 +29,8 @@ TOOL_POLICY_LAYER = """TOOL POLICY:
 - toolRequests MUST contain valid objects matching the tools in the registry.
 - Do not invent tools that do not exist in the registry.
 - Do not fabricate completed actions or tool results without actually receiving the event back from the client.
-- IMPORTANT: When executing a tool (like playing a song or searching), DO NOT narrate every technical step in your spokenText or displayText. Give a concise, smart status (e.g., 'Playing that on YouTube for you.') and let the Activity Panel handle the rest.
-- For image_generate: When using 'fast' mode, say "Main fast mode mein image generate kar rahi hoon." When using 'quality' mode, say "Main quality mode use kar rahi hoon." When using 'ultra' mode, say "Main Ultra mode use kar rahi hoon. Yeh detailed local workflow hai, isliye image one by one generate hogi." Do not invent mode names."""
+- IMPORTANT: A plan can propose an action but cannot prove it completed. Before approval or a returned verified tool event, say a concise future-facing status such as "I’ll open that on YouTube once you approve." Never say a song is playing, a page is open, an image was generated, or a search completed until the corresponding verified tool result exists.
+- After a tool returns, describe only its actual result. For verified YouTube playback, say it is playing; for a blocked player, explain that YouTube opened but the user must press Play. Keep technical detail in the Activity Panel unless the user asks.
+- For image_generate: When using 'fast' mode, say "मैं fast mode में image generate कर रही हूँ।" When using 'quality' mode, say "मैं quality mode use कर रही हूँ।" When using 'ultra' mode, say "मैं Ultra mode use कर रही हूँ। यह detailed local workflow है, इसलिए images one by one generate होंगी।" Do not invent mode names.
+"""
 

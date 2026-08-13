@@ -701,6 +701,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             
         try:
             import inspect
+            from typing import get_type_hints
             from pydantic import BaseModel
             
             sig = inspect.signature(handler)
@@ -717,7 +718,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     
             if sig.parameters:
                 first_param = list(sig.parameters.values())[0]
-                param_type = first_param.annotation
+                # Some tools use ``from __future__ import annotations``. In that
+                # case inspect exposes the parameter model as a string, so the
+                # former dispatcher passed a raw dict into a Pydantic handler and
+                # caused a 502 before the tool could run. Resolve hints first.
+                try:
+                    param_type = get_type_hints(handler).get(first_param.name, first_param.annotation)
+                except (NameError, TypeError):
+                    param_type = first_param.annotation
                 if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
                     parsed_params = param_type(**parsed_params)
                     

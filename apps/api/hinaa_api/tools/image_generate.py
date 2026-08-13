@@ -132,6 +132,17 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
             session.commit()
 
 async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
+    # Fail before creating durable pending slots when the only supported local
+    # renderer is offline. This keeps the chat action truthful and gives the
+    # user a direct recovery path instead of a delayed generic poll failure.
+    if not await comfyui_provider.health_check():
+        return {
+            "status": "error",
+            "error": "Local ComfyUI is unavailable. Start ComfyUI on http://127.0.0.1:8188, then try the image request again.",
+            "code": "COMFYUI_UNAVAILABLE",
+            "localOnly": True,
+        }
+
     generation_set_id = str(uuid.uuid4())
     
     settings = get_settings()

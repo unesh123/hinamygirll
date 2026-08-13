@@ -405,3 +405,19 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Release gates | **PASS** — complete backend `pytest -q`; frontend 29 Vitest files, 123 passing tests, 2 existing todos; TypeScript; Vite/PWA production build. |
 
 > **Runtime boundary:** the repair does not bypass YouTube consent, login, ads, content availability, browser settings, or audible autoplay policy. Final acceptance requires a real Windows HINAA browser action: approve a song, observe exactly one owned YouTube watch page, then either observe advancing playback with the verified state or receive the honest press-Play recovery state.
+
+
+## Phase 24 — Automation and Image Workflow Reliability — 2026-08-13
+
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Approved YouTube action 502 | **FIXED IN SOURCE / WINDOWS RESTART REQUIRED** | The shared dispatcher now resolves `from __future__ import annotations` before Pydantic validation. This removes the raw-dict crash that caused the supplied screenshot’s `Action failed (502)`. |
+| YouTube playback truthfulness | **IMPLEMENTED / WINDOWS BROWSER PROOF PENDING** | After dispatch succeeds, HINAA reuses one owned tab and reports `Playing verified` only for advancing player media; consent/autoplay/login blocks show the explicit press-Play recovery state. |
+| Local ComfyUI image generation | **IMPLEMENTED / LOCAL SERVICE REQUIRED** | Offline ComfyUI produces immediate `COMFYUI_UNAVAILABLE` guidance before persisting image jobs. Real generation still requires a running workflow-compatible ComfyUI at `127.0.0.1:8188`. |
+| Public image search | **IMPLEMENTED / PROVIDER ACCESS DEPENDENT** | The confirmation-gated You.com beta image search can render bounded public image cards and source links. A configured key may receive documented early-access `403`; HINAA reports that permission boundary rather than fabricating results. |
+| Release gates | **PASS** | Complete backend `pytest -q`; frontend 29 Vitest files, 123 passing tests, 2 existing todos; TypeScript; Vite/PWA production build. |
+
+> Real acceptance requires restarting the Windows-local API after applying this source repair. First approve one song: the former 502 must be absent. Then verify either player-progress success or a truthful autoplay/consent recovery. Separately, click Image Studio **Check** to verify local ComfyUI and approve an explicit public image search to establish whether the configured You.com key has beta image access.
+
+
+| Pre-approval action language | **IMPLEMENTED** | The tool policy now requires future-facing wording before approval/verified results. HINAA may say she will open a song after approval, but may say it is playing only after verified player evidence returns. This corrects the premature chat claim visible in the supplied screenshot. |

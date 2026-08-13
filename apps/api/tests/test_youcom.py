@@ -11,6 +11,7 @@ from hinaa_api.main import create_app
 from hinaa_api.providers.youcom import YouComClient, YouComError
 from hinaa_api.tools.browser import (
     finance_research_def,
+    image_search_def,
     web_answer_def,
     web_extract_def,
     web_research_def,
@@ -94,6 +95,43 @@ def test_youcom_answer_preserves_citations_as_source_cards() -> None:
     ]
 
 
+def test_youcom_image_search_normalizes_bounded_public_cards() -> None:
+    observed: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            json={
+                "images": {
+                    "results": [
+                        {"title": "HINAA reference", "page_url": "https://images.example.com/page", "image_url": "https://cdn.example.com/hinaa.png"},
+                        {"title": "Unsafe result", "page_url": "http://127.0.0.1/private", "image_url": "http://127.0.0.1/private.png"},
+                    ]
+                }
+            },
+        )
+
+    client = YouComClient(_youcom_settings(), transport=httpx.MockTransport(handler))
+    result = asyncio.run(client.image_search("HINAA companion", count=6))
+
+    assert observed["url"] == "https://api.you.com/v1/images?q=HINAA+companion"
+    assert result["mode"] == "image-search-beta"
+    assert result["imageCount"] == 1
+    assert result["images"][0]["imageUrl"] == "https://cdn.example.com/hinaa.png"
+    assert result["images"][0]["pageUrl"] == "https://images.example.com/page"
+
+
+def test_youcom_image_search_explains_beta_access_denial() -> None:
+    client = YouComClient(_youcom_settings(), transport=httpx.MockTransport(lambda _: httpx.Response(403, json={"message": "Forbidden"})))
+
+    with pytest.raises(YouComError) as error:
+        asyncio.run(client.image_search("HINAA companion"))
+
+    assert error.value.code == "YOUCOM_IMAGE_ACCESS_REQUIRED"
+    assert "early-access" in str(error.value)
+
+
 def test_youcom_contents_rejects_private_urls_without_network() -> None:
     client = YouComClient(_youcom_settings(), transport=httpx.MockTransport(lambda _: pytest.fail("network must not run")))
 
@@ -113,6 +151,6 @@ def test_youcom_provider_status_reports_configured_capabilities_without_calling_
 
 
 def test_youcom_tools_remain_confirmation_gated() -> None:
-    for tool in [web_search_def, web_answer_def, web_research_def, web_research_status_def, web_extract_def, finance_research_def]:
+    for tool in [web_search_def, image_search_def, web_answer_def, web_research_def, web_research_status_def, web_extract_def, finance_research_def]:
         assert tool.requires_confirmation is True
     assert finance_research_def.permission_level == "high"

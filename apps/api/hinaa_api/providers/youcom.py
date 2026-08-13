@@ -31,6 +31,22 @@ class YouComError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class YouComImage:
+    id: str
+    title: str
+    image_url: str
+    page_url: str | None = None
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "imageUrl": self.image_url,
+            "pageUrl": self.page_url,
+        }
+
+
+@dataclass(frozen=True)
 class YouComSource:
     id: str
     title: str
@@ -114,6 +130,34 @@ def _sources_from_result_groups(payload: dict[str, Any]) -> list[YouComSource]:
                 )
             )
     return sources
+
+
+def _images_from_payload(payload: dict[str, Any], *, limit: int) -> list[YouComImage]:
+    images = payload.get("images")
+    records = images.get("results") if isinstance(images, dict) else []
+    if not isinstance(records, list):
+        return []
+    normalized: list[YouComImage] = []
+    seen: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        image_url = str(record.get("image_url") or "").strip()
+        if not image_url or image_url in seen or not _is_safe_external_url(image_url):
+            continue
+        seen.add(image_url)
+        page_url = str(record.get("page_url") or "").strip()
+        normalized.append(
+            YouComImage(
+                id=f"I{len(normalized) + 1}",
+                title=_bounded_text(record.get("title") or "Untitled image", 240) or "Untitled image",
+                image_url=image_url,
+                page_url=page_url if _is_safe_external_url(page_url) else None,
+            )
+        )
+        if len(normalized) >= limit:
+            break
+    return normalized
 
 
 def _sources_from_citations(citations: object) -> list[YouComSource]:
@@ -206,6 +250,7 @@ class YouComClient:
         method: str,
         path: str,
         json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> Any:
         url = f"{base_url.rstrip('/')}{path}"
         try:
@@ -214,7 +259,7 @@ class YouComClient:
                 follow_redirects=False,
                 transport=self.transport,
             ) as client:
-                response = await client.request(method, url, headers=self._headers(), json=json)
+                response = await client.request(method, url, headers=self._headers(), json=json, params=params)
         except httpx.TimeoutException as error:
             raise YouComError("YOUCOM_TIMEOUT", "You.com did not respond before HINAA's local timeout.") from error
         except httpx.HTTPError as error:
@@ -293,6 +338,38 @@ class YouComClient:
             "results": [source.as_dict() for source in sources],
             "sources": [source.as_dict() for source in sources],
             "sourceCount": len(sources),
+        }
+
+    async def image_search(self, query: str, *, count: int = 6) -> dict[str, Any]:
+        """Return public image URLs when the configured key has beta image access."""
+        cleaned = query.strip()
+        if not cleaned:
+            raise YouComError("YOUCOM_INVALID_QUERY", "An image-search query is required.")
+        try:
+            response = await self._request(
+                base_url=self.settings.youcom_base_url,
+                method="GET",
+                path="/v1/images",
+                params={"q": cleaned},
+            )
+        except YouComError as error:
+            if error.status_code == 403:
+                raise YouComError(
+                    "YOUCOM_IMAGE_ACCESS_REQUIRED",
+                    "You.com image search is beta and this API key does not have early-access permission. Request image-search access from You.com or use HINAA's local ComfyUI generation.",
+                    status_code=403,
+                ) from error
+            raise
+        if not isinstance(response, dict):
+            raise YouComError("YOUCOM_INVALID_RESPONSE", "You.com returned an unexpected image-search response.")
+        images = _images_from_payload(response, limit=max(1, min(int(count), 12)))
+        return {
+            "provider": "you.com",
+            "mode": "image-search-beta",
+            "query": cleaned,
+            "images": [image.as_dict() for image in images],
+            "imageCount": len(images),
+            "notice": "You.com image search is beta and availability can change. Results are public web image links; open their source pages to verify licensing and use rights.",
         }
 
     async def answer(self, query: str, **filters: Any) -> dict[str, Any]:

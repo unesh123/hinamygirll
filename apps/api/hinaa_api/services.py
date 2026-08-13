@@ -674,6 +674,25 @@ class ConversationService:
                 return False
             return any(re.search(pattern, unquoted, re.IGNORECASE) for pattern in patterns)
 
+        image_search_command = is_command(
+            [
+                r"^\s*(please\s+)?(?:search|find|look\s+for)\s+(?:public\s+)?(?:images?|pictures?|photos?)\b",
+                r"^\s*(?:images?|pictures?|photos?)\s+(?:search|find|lookup)\b",
+                r"^\s*(?:तस्वीरें|चित्र)\s+(?:खोजो|ढूंढो)\b",
+            ],
+            target=r"\b(images?|pictures?|photos?)\b|तस्वीरें|चित्र",
+        )
+        if image_search_command and not any(t.toolName == "image_search" for t in plan.toolRequests):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:search|find|look\s+for)\s+(?:public\s+)?(?:images?|pictures?|photos?)\s+(?:of|for|about)?\s*",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="image_search",
+                parameters={"query": prompt_str or text, "count": 6},
+            ))
+
         image_command = is_command(
             [
                 r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
