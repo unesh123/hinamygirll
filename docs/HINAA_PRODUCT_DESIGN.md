@@ -45,3 +45,18 @@ The implementation is ready only when the companion pane, VMC panel, image studi
 [1]: https://www.tasteskill.dev/docs "Taste Skill documentation"
 [2]: https://github.com/pbakaus/impeccable "Impeccable design guidance"
 [3]: https://21st.dev/ "21st.dev React component registry"
+
+
+## Screenshot-driven workspace correction — 2026-08-13
+
+The supplied desktop screen exposed an incomplete visual migration: a dark Ink Rose shell was surrounding transcript modules, navigation controls, and composer states that still used legacy light-surface, mint/cyan, and dark-text values. The result was low contrast, weak message hierarchy, and an unfinished split-dashboard feel.
+
+The corrective visual target is a **focused companion workspace**, not a generic admin dashboard. The avatar remains a single dedicated left stage with restrained framing and a small presence label; it must not compete with the conversation. The right pane becomes the reading surface: it uses a warm near-black canvas, a narrow readable text measure, clearly separated assistant and user message surfaces, substantial vertical rhythm, and high-contrast text. The composer is elevated as the main action surface with one clear rose send action and quiet secondary tools. The compact rail uses plum glass, a single rose active state, and no leftover cyan/mint gradients.
+
+| Surface | Corrected target |
+|---|---|
+| Avatar stage | Stable 34–38% desktop width, dark cinematic vignette, compact top presence chip, clear model controls in a low-profile dock. |
+| Conversation | High-contrast assistant text on a subtle document surface; user turns use a deeper rose, not a pale cyan capsule. |
+| Composer | Opaque/tinted elevated input tray with readable placeholder, grouped quiet controls, one distinctive send button, and keyboard focus glow. |
+| Header and rail | Fewer but stronger visual anchors, 1 px low-contrast separators, semantic live green only for verified status, no competing rainbow accents. |
+| Motion | 120–220 ms transform/opacity interactions; no layout-shifting decorative animation; reduced-motion support preserved. |

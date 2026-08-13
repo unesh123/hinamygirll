@@ -1,146 +1,49 @@
-/* TranscriptView.module.css — Cinematic spatial document layout */
+/* TranscriptView.module.css — Ink Rose transcript scaffold */
 
 .container {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 0;
-  padding: 24px 20px 8px;
+  min-height: 0;
+  padding: 30px 0 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
   scroll-behavior: smooth;
 }
 
-.container::-webkit-scrollbar { width: 4px; }
+.container::-webkit-scrollbar { width: 5px; }
 .container::-webkit-scrollbar-track { background: transparent; }
-.container::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 2px; }
+.container::-webkit-scrollbar-thumb { border-radius: 8px; background: rgba(238,145,173,.28); }
 
-/* ── Empty State ─────────────────────────────────────────────── */
 .empty {
-  flex: 1;
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 40px;
-  padding: 40px 24px;
+  gap: 28px;
+  min-height: 100%;
+  padding: 44px 24px;
   text-align: center;
 }
 
-.emptyGlyph {
-  font-size: 3rem;
-  display: block;
-  filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.4));
-}
+.emptyGlyph { display: block; font-size: 3rem; filter: drop-shadow(0 0 16px rgba(238,145,173,.38)); }
+.greetingTitle { margin: 0; color: #fff5f8; font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 800; letter-spacing: -.04em; line-height: 1.1; }
+.subtitle { max-width: 440px; margin: 0; color: #cdbbc5; font-size: 1.03rem; font-weight: 450; }
 
-.greetingTitle {
-  font-size: clamp(2rem, 5vw, 3.5rem);
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  color: #1a1f2e;
-  line-height: 1.1;
-  margin: 0;
-  position: relative;
-}
+.welcomeCards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: min(100%, 520px); }
+.welcomeCard { padding: 18px; border: 1px solid rgba(255,220,232,.14); border-radius: 18px; background: rgba(255,255,255,.045); color: #fff5f8; box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 14px 36px rgba(5,2,6,.12); cursor: pointer; text-align: left; transition: transform 180ms var(--ease-out-expo, ease), background 180ms var(--ease-out-expo, ease), border-color 180ms var(--ease-out-expo, ease); }
+.welcomeCard:hover { border-color: rgba(255,220,232,.28); background: rgba(255,255,255,.075); transform: translateY(-2px); }
+.welcomeCardIcon { display: block; margin-bottom: 8px; font-size: 1.5rem; }
+.welcomeCardTitle { margin-bottom: 3px; color: #fff5f8; font-size: .88rem; font-weight: 750; }
+.welcomeCardDesc { color: #bca7b1; font-size: .75rem; line-height: 1.4; }
 
-.subtitle {
-  font-size: 1.05rem;
-  color: #64748b;
-  margin: 0;
-  font-weight: 400;
-  max-width: 420px;
-}
+.divider { display:flex; align-items:center; gap:12px; margin:26px 2px 14px; color:#9e8893; font-size:.68rem; font-weight:650; letter-spacing:.04em; }
+.divider::before, .divider::after { content:''; flex:1; height:1px; background:rgba(255,220,232,.09); }
 
-/* Welcome action cards grid */
-.welcomeCards {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  max-width: 520px;
-  width: 100%;
-}
+.jumpBtn { position: sticky; bottom: 14px; align-self: flex-end; margin: 0 5px 0 auto; padding: 8px 12px; border: 1px solid rgba(255,220,232,.18); border-radius: 999px; background: rgba(42,29,42,.93); box-shadow: 0 10px 28px rgba(5,2,6,.26); color: #f8e8ef; backdrop-filter: blur(14px); cursor:pointer; font-size:.72rem; font-weight:700; transition: transform 160ms var(--ease-out-expo, ease), border-color 160ms var(--ease-out-expo, ease), background 160ms var(--ease-out-expo, ease); z-index:10; }
+.jumpBtn:hover { border-color: rgba(255,205,220,.42); background: rgba(66,43,60,.96); transform: translateY(-1px); }
 
-.welcomeCard {
-  padding: 18px;
-  background: rgba(255,255,255,0.65);
-  backdrop-filter: blur(16px);
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.8);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.04);
-  cursor: pointer;
-  transition: all 0.25s ease;
-  text-align: left;
-}
-
-.welcomeCard:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 40px rgba(0,0,0,0.08);
-  background: rgba(255,255,255,0.82);
-}
-
-.welcomeCardIcon {
-  font-size: 1.5rem;
-  margin-bottom: 8px;
-  display: block;
-}
-
-.welcomeCardTitle {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: #1a1f2e;
-  margin-bottom: 3px;
-}
-
-.welcomeCardDesc {
-  font-size: 0.75rem;
-  color: #94a3b8;
-  line-height: 1.4;
-}
-
-/* ── Time Divider ────────────────────────────────────────────── */
-.divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 20px 0 12px;
-  color: #94a3b8;
-  font-size: 0.72rem;
-  font-weight: 500;
-}
-
-.divider::before,
-.divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(0, 0, 0, 0.06);
-}
-
-/* ── Jump to Bottom ──────────────────────────────────────────── */
-.jumpBtn {
-  position: sticky;
-  bottom: 16px;
-  align-self: flex-end;
-  margin-right: 4px;
-  padding: 7px 14px;
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.9);
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #475569;
-  cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.2s ease;
-  z-index: 10;
-}
-
-.jumpBtn:hover {
-  background: rgba(255,255,255,0.95);
-  color: #1a1f2e;
-  transform: translateY(-1px);
-}
+@media (max-width: 640px) { .container { padding-top: 20px; } .welcomeCards { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .welcomeCard, .jumpBtn { transition-duration: 1ms; } }

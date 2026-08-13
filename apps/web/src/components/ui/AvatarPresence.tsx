@@ -655,9 +655,9 @@ function Cam({ mode, modelUrl, anatomy }: { mode: PresenceMode; modelUrl: string
 /* ─── Fallback ────────────────────────────────────────────── */
 function AvatarFallback({ state }: { state: CompanionState }) {
   return (
-    <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:12, color:"#64748b" }}>
-      <div style={{ width:72, height:72, borderRadius:"50%", background:"linear-gradient(135deg,rgba(167,243,208,.5),rgba(103,232,249,.5))", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.8rem", border:"2px solid rgba(255,255,255,.8)" }}>◇</div>
-      <div style={{ fontWeight:700, color:"#1a1f2e", fontSize:"0.85rem" }}>HINAA — {state}</div>
+    <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:12, color:"#cdbbc5" }}>
+      <div style={{ width:72, height:72, borderRadius:"50%", background:"linear-gradient(135deg,rgba(255,214,225,.72),rgba(238,145,173,.6))", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.8rem", color:"#331722", border:"1px solid rgba(255,220,232,.48)" }}>◇</div>
+      <div style={{ fontWeight:700, color:"#fff2f6", fontSize:"0.85rem" }}>HINAA — {state}</div>
     </div>
   );
 }
@@ -732,7 +732,7 @@ export function AvatarPresence({
   return (
     <div ref={playgroundRef} className={`avatar-playground${isFullscreen ? " avatar-playground--fullscreen" : ""}`} style={{ position:"relative", width:"100%", height:"100%", minHeight:200 }}>
       {/* Atmospheric glow */}
-      <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse 70% 55% at 50% 35%, rgba(103,232,249,.06) 0%, transparent 70%)", pointerEvents:"none", zIndex:0 }} />
+      <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse 70% 55% at 50% 35%, rgba(238,145,173,.14) 0%, transparent 70%)", pointerEvents:"none", zIndex:0 }} />
 
       {modelUrl && !webglFailed && (
         <Canvas
@@ -756,8 +756,8 @@ export function AvatarPresence({
             {/* Cinematic lighting */}
             <ambientLight intensity={0.9}  color="#fffef8" />
             <directionalLight position={[1.5, 3, 2.5]} intensity={1.5} color="#fffcf0" castShadow={false} />
-            <spotLight position={[-2.5, 2.5, 2]} intensity={1.3} color="#b7f5d8" angle={0.55} penumbra={0.7} />
-            <spotLight position={[ 2.5, 2.0,-1]} intensity={1.0} color="#d4c0fd" angle={0.5}  penumbra={0.7} />
+            <spotLight position={[-2.5, 2.5, 2]} intensity={1.15} color="#ffd4df" angle={0.55} penumbra={0.7} />
+            <spotLight position={[ 2.5, 2.0,-1]} intensity={.82} color="#d8b8e4" angle={0.5}  penumbra={0.7} />
             <pointLight position={[0, 1.6, 2.2]} intensity={0.55} color="#fff5e8" />
 
               <Model
@@ -779,7 +779,7 @@ export function AvatarPresence({
             <ContactShadows
               resolution={256} scale={2.8} blur={2.5}
               opacity={0.20} far={1.5}
-              position={[0, -0.02, 0]} color="#1e293b"
+              position={[0, -0.02, 0]} color="#160d16"
             />
             <Environment preset="apartment" environmentIntensity={0.3} />
           </Suspense>
@@ -789,17 +789,17 @@ export function AvatarPresence({
       {(!modelUrl || webglFailed) && <AvatarFallback state={state} />}
 
       {/* Controls */}
-      <div className="avatar-playground__controls" style={{ position:"absolute", bottom:10, right:10, zIndex:5, display:"flex", gap:5 }}>
+      <div className="avatar-playground__controls">
         {faceTrackingActive && (
-          <div style={{ display:"flex", alignItems:"center", gap:3, padding:"3px 7px", borderRadius:8, background:"rgba(34,197,94,.85)", backdropFilter:"blur(8px)", border:"1px solid rgba(255,255,255,.5)" }}>
-            <Radio size={9} color="#fff" />
-            <span style={{ fontSize:"0.6rem", color:"#fff", fontWeight:700, letterSpacing:"0.04em" }}>LIVE</span>
+          <div className="avatar-playground__live-badge">
+            <Radio size={9} aria-hidden="true" />
+            <span>LIVE</span>
           </div>
         )}
         <motion.button
           type="button" onClick={toggleFullscreen}
           whileHover={{ scale:1.08 }} whileTap={{ scale:0.92 }}
-          style={{ width:30, height:30, borderRadius:9, border:"1px solid rgba(255,255,255,.72)", background:"rgba(255,255,255,.64)", backdropFilter:"blur(10px)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#356961" }}
+          className="avatar-playground__control avatar-playground__fullscreen"
           title={isFullscreen ? "Exit Hinaa playground" : "Open Hinaa playground full screen"}
           aria-label={isFullscreen ? "Exit Hinaa playground full screen" : "Open Hinaa playground full screen"}
         >
@@ -808,7 +808,7 @@ export function AvatarPresence({
         <motion.button
           type="button" onClick={cycle}
           whileHover={{ scale:1.1 }} whileTap={{ scale:0.9 }}
-          style={{ width:28, height:28, borderRadius:8, border:"1px solid rgba(255,255,255,.65)", background:"rgba(255,255,255,.55)", backdropFilter:"blur(8px)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:"#64748b" }}
+          className="avatar-playground__control"
           title={`Camera: ${mode === "upperbody" ? "upper body" : mode}`}
           aria-label={`Change avatar camera from ${mode === "upperbody" ? "upper body" : mode}`}
         >

@@ -40,9 +40,9 @@ function renderMarkdown(text: string): string {
     // Links
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
     // @ Power-up keywords
-    .replace(/(^|\s)(@[a-zA-Z0-9_]+)/g, '$1<span style="color: #a855f7; font-weight: 700; text-shadow: 0 0 10px rgba(168,85,247,0.4); padding: 2px 8px; background: rgba(168,85,247,0.15); border-radius: 6px; margin: 0 2px; border: 1px solid rgba(168,85,247,0.3);">$2</span>')
+    .replace(/(^|\s)(@[a-zA-Z0-9_]+)/g, '$1<span style="color:#ffc8d8;font-weight:700;padding:2px 7px;background:rgba(238,145,173,.15);border-radius:6px;margin:0 2px;border:1px solid rgba(255,193,211,.24);">$2</span>')
     // Hashtags
-    .replace(/(^|\s)(#[a-zA-Z0-9_]+)/g, '$1<span style="color: var(--hinaa-accent, #14b8a6); font-weight: 600; text-shadow: 0 0 8px rgba(20,184,166,0.3); padding: 2px 6px; background: rgba(20,184,166,0.1); border-radius: 4px; margin: 0 2px;">$2</span>');
+    .replace(/(^|\s)(#[a-zA-Z0-9_]+)/g, '$1<span style="color:#f2c6d4;font-weight:650;padding:2px 6px;background:rgba(255,255,255,.06);border-radius:5px;margin:0 2px;">$2</span>');
   return html;
 }
 
@@ -116,9 +116,9 @@ export const MessageBubble = memo(function MessageBubble({
       <div className={styles.stack}>
         {/* Thinking dots */}
         {isThinking ? (
-          <div className={styles.thinkingDots} aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 24, color: "#64748b", fontSize: 12, fontWeight: 650 }}>
-            <motion.span animate={{ opacity: [0.45, 1, 0.45] }} transition={{ duration: 1.25, repeat: Infinity }} style={{ width: 7, height: 7, borderRadius: 99, background: "#38bdf8" }} />
-            Preparing a focused response
+          <div className={styles.thinkingDots} aria-live="polite">
+            <motion.span className={styles.thinkingPulse} animate={{ opacity: [0.45, 1, 0.45] }} transition={{ duration: 1.25, repeat: Infinity }} />
+            <span className={styles.thinkingLabel}>Preparing a focused response</span>
           </div>
         ) : (
           <div className={styles.content}>

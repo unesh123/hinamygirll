@@ -175,3 +175,17 @@ For every subsequent changed file, add a row before publishing the related phase
 | `apps/api/hinaa_api/{config,models,prompts,voice_performance,voice_profiles}.py`, realtime schema and corpus | Replaced retired Nepali defaults, prompt instructions, locales, voice metadata, schema values, and offline fixtures with Hindi-English equivalents. Default Azure metadata is `hi-IN-SwaraNeural` / `hi-IN-MadhurNeural`; actual cloud audio remains credential-dependent. | Complete backend pytest suite passes. |
 
 No original VRM binary, ComfyUI model/workflow, secret, SQLite database, generated media, or Windows-local user file is included. `main` remains untouched.
+
+## Visual Polish Pass — Screenshot-Driven Workspace Refinement — 2026-08-13
+
+| File or area | Change | Acceptance evidence |
+|---|---|---|
+| `apps/web/src/App.css` | Reworked the desktop shell above the aura layer; introduced premium Ink Rose rail, avatar stage, model dock, header, reading surface, composer, and compact avatar-control treatment. | Two local 1600×960 headless visual renders; follow-up confirms readable shell/control hierarchy. Frontend suite, type check, and production build pass. |
+| `apps/web/src/features/chat/components/MessageBubble.module.css` | Replaced legacy dark-on-dark assistant text and mint/cyan user capsules with high-contrast assistant document surfaces, deep rose user turns, readable timestamps, thinking feedback, and reduced-motion-safe streaming. | Message bubble and full frontend regression suite pass. |
+| `apps/web/src/features/chat/components/TranscriptView.module.css` | Reworked transcript scaffold, dividers, empty state, cards, scrollbar, and latest action into the Ink Rose system. | Local desktop visual render and frontend suite pass. |
+| `apps/web/src/features/chat/components/MessageBubble.tsx` | Removed legacy purple/teal inline rich-text and blue-gray thinking accents in favor of high-contrast rose-compatible output. | TypeScript and component regression pass. |
+| `apps/web/src/components/ui/NavRail.tsx` | Replaced legacy inline mint/cyan/white surfaces with semantic class-based HINAA navigation markup, preserving buttons, labels, tooltips, and keyboard targets. | App shell regression and frontend suite pass. |
+| `apps/web/src/components/ui/AvatarPresence.tsx` | Re-themed only the existing single avatar playground backdrop, lights, fallback, live badge, fullscreen, and camera controls; no VRM model binary or second canvas was added. | TypeScript and avatar/app regressions pass. Windows avatar visual proof remains separate. |
+| `docs/HINAA_PRODUCT_DESIGN.md`, `docs/HINAA_VISUAL_POLISH_EVIDENCE_2026-08-13.md` | Recorded screenshot-driven visual targets and two-pass local visual evidence, including the aura stacking diagnosis and explicit VRM visual verification boundary. | Evidence files added. |
+
+No VRM binary, secret, local database, generated media, or ComfyUI asset is included. This pass remains on an isolated branch and does not merge `main`.
