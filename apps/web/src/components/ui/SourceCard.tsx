@@ -30,7 +30,7 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
         {source.favicon ? (
           <img src={source.favicon} alt="" className="source-favicon" onError={e => (e.currentTarget.style.display = 'none')} />
         ) : (
-          <div className="source-favicon" style={{ background: 'linear-gradient(135deg, #a7f3d0, #67e8f9)', borderRadius: 3 }} />
+          <div className="source-favicon" style={{ background: 'linear-gradient(135deg, #f5a7bb, #b78ee5)', borderRadius: 4, boxShadow: '0 0 0 1px rgba(255,224,236,.12)' }} />
         )}
         <span className="source-domain">{source.domain}</span>
         <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: '#94a3b8', fontWeight: 700 }}>#{(index + 1).toString().padStart(2, '0')}</span>
@@ -40,7 +40,7 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
         <button
           onClick={() => window.open(source.url, '_blank', 'noopener,noreferrer')}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.73rem', fontWeight: 600, color: '#0891b2', background: 'rgba(8,145,178,0.1)', border: '1px solid rgba(8,145,178,0.2)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.73rem', fontWeight: 700, color: '#ffd7e2', background: 'rgba(238,145,173,0.12)', border: '1px solid rgba(238,145,173,0.30)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', transition: 'transform 160ms var(--ease-out-expo), background 160ms var(--ease-out-expo)' }}
         >
           <ExternalLink size={11} />
           Open
@@ -49,7 +49,7 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
           <button
             type="button"
             onClick={() => onSave(source)}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.73rem', fontWeight: 600, color: '#94a3b8', background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.73rem', fontWeight: 700, color: '#eadce2', background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,219,231,.16)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', transition: 'transform 160ms var(--ease-out-expo), background 160ms var(--ease-out-expo)' }}
           >
             <BookmarkPlus size={11} />
             Save

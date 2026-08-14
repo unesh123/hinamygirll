@@ -624,3 +624,29 @@ apps/web: pnpm vitest run && pnpm check:mobile && pnpm typecheck && pnpm build &
 ```
 
 The API suite reached 100% successfully. Frontend validation completed with **33 passing test files**, **144 passing tests**, and **2 existing todos**. Mobile checks, TypeScript, and the production build passed. Lint completed with **0 errors** and **34 existing warnings**. This is repository validation only; it does not turn unavailable ComfyUI, cloud TTS/provider credentials, VSeeFace hardware tracking, or the absent trusted Windows companion into verified runtime capability.
+
+
+## Research Workspace Activation and Windows-Boundary Reconciliation — 2026-08-14
+
+The previously inert research context source array is now derived from **completed successful research tool results**. HINAA filters to attributable HTTP(S) sources from supported research tools, rejects errored/non-web results, derives a visible domain, and de-duplicates URLs. The research workspace displays the returned cards and lets the user explicitly save one card to the currently selected local project. The same shared helper now serves both chat result cards and the context workspace, preventing divergent artifact payloads.
+
+| Capability | State | Evidence / boundary |
+|---|---|---|
+| Completed research source workspace | **IMPLEMENTED / REGRESSION-TESTED** | Valid completed research tool results populate visible attributable source cards instead of an inert empty state. |
+| Private source-to-project save | **IMPLEMENTED / REGRESSION-TESTED** | User click writes a `research` artifact only to the active local project, with source URL/domain/origin metadata. It does not open a source, invoke a provider, or perform an external browser action. |
+| Source-card presentation | **IMPLEMENTED / REGRESSION-TESTED** | Existing source cards were refined into the Ink Rose surface while retaining user-clicked open/save behavior. |
+| VSeeFace, screen, device, messaging, music, VS Code, system controls | **NOT IMPLEMENTED IN THIS WEB APP** | The companion protocol and approval/receipt contract remain documented. A paired trusted Windows runtime and real device acceptance evidence are required before any of these may be represented as available. |
+
+Focused frontend validation passed: **3 source-projection/context/chat test files**, **7 tests**, and TypeScript compilation. No live You.com request, browser navigation, VSeeFace interaction, screen capture, message, media, or device action was attempted.
+
+
+### Full release gate — Research workspace activation pass
+
+The isolated feature branch completed the full release command successfully:
+
+```text
+apps/api: pytest -q
+apps/web: pnpm vitest run && pnpm check:mobile && pnpm typecheck && pnpm build && pnpm lint
+```
+
+The API suite reached 100% successfully. Frontend validation completed with **34 passing test files**, **146 passing tests**, and **2 existing todos**. Mobile checks, TypeScript, and the production build passed. Lint completed with **0 errors** and **33 existing warnings**. These release gates verify repository behavior only; they do not represent a live You.com call, real ComfyUI output, cloud voice/provider completion, Windows VSeeFace tracking, or Windows companion/device control as passed.

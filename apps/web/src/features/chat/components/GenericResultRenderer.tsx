@@ -5,6 +5,7 @@ import { ImageGeneration } from '@/components/ui/image-generation';
 import { SourceCard, type SourceItem } from '@/components/ui/SourceCard';
 import { WorkTree } from './WorkTree';
 import type { WorkTreeNode } from './WorkTree';
+import { saveResearchSourceToActiveProject } from '../../projects/saveResearchSource';
 
 interface GenericResultRendererProps {
   toolName: string;
@@ -16,29 +17,9 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
   const [sourceSaveState, setSourceSaveState] = useState<Record<string, string>>({});
 
   const saveSourceToProject = async (source: SourceItem) => {
-    const projectId = localStorage.getItem("hinaa-active-project-id");
-    if (!projectId) {
-      setSourceSaveState((current) => ({ ...current, [source.id]: "Select a local project first to save this source." }));
-      return;
-    }
     setSourceSaveState((current) => ({ ...current, [source.id]: "Saving locally…" }));
-    try {
-      const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/artifacts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind: "research",
-          title: source.title,
-          content: source.snippet,
-          sourceUrl: source.url,
-          metadata: { sourceId: source.id, domain: source.domain },
-        }),
-      });
-      if (!response.ok) throw new Error("save failed");
-      setSourceSaveState((current) => ({ ...current, [source.id]: "Saved to the active local project." }));
-    } catch {
-      setSourceSaveState((current) => ({ ...current, [source.id]: "Could not save this source locally." }));
-    }
+    const outcome = await saveResearchSourceToActiveProject(source);
+    setSourceSaveState((current) => ({ ...current, [source.id]: outcome.message }));
   };
   
   if (!result) return null;

@@ -38,6 +38,7 @@ import { VmcControlPanel } from "./components/ui/VmcControlPanel";
 
 import type { PowerUp } from "./components/ui/PowerUpMentions";
 import useMemory from "./features/memory/useMemory";
+import { collectResearchSources } from "./features/projects/saveResearchSource";
 
 const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
 const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
@@ -182,7 +183,6 @@ export default function App() {
   const [contextMode, setContextMode] = useState<ContextMode>("hidden");
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [actionChips, setActionChips] = useState<ActionChip[]>([]);
-  const [contextSources] = useState<any[]>([]);
   // Use the owner-supplied local model as the preferred avatar. The procedural
   // renderer remains the safe fallback if an asset cannot load.
   const [avatarModel, setAvatarModel] = useState<string>(getPersistedAvatarModel);
@@ -249,6 +249,10 @@ export default function App() {
   // deterministic expression accent; it never classifies webcam/user emotion.
   const latestAssistantExpressionText = [...controller.messages].reverse().find((message) => message.role === "assistant")?.text;
   useMemory();
+  const contextSources = useMemo(
+    () => collectResearchSources(controller.messages.flatMap((message) => message.toolResults ?? [])),
+    [controller.messages],
+  );
 
   // Keep the first interactive paint light, then warm the local-only panels in
   // the background so opening Projects or Image Studio feels immediate.

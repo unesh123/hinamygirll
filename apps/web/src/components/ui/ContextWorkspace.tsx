@@ -1,8 +1,10 @@
 import React from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Globe, Image as ImageIcon, Music, Mail, type LucideIcon } from 'lucide-react';
 import { ActivityPanel, type AgentStep } from './ActivityPanel';
 import { SourceCard, type SourceItem } from './SourceCard';
+import { saveResearchSourceToActiveProject } from '../../features/projects/saveResearchSource';
 
 export type ContextMode = 'hidden' | 'research' | 'images' | 'music' | 'email' | 'browser';
 
@@ -42,8 +44,14 @@ const MODE_EMPTY_STATES: Record<Exclude<ContextMode, 'hidden'>, string> = {
 };
 
 export function ContextWorkspace({ mode, onClose, sources = [], isSearching = false, steps = [], title }: ContextWorkspaceProps) {
+  const [sourceSaveState, setSourceSaveState] = useState<Record<string, string>>({});
   const isOpen = mode !== 'hidden';
   const ModeIcon = mode !== 'hidden' ? MODE_ICONS[mode] : null;
+  const saveSource = async (source: SourceItem) => {
+    setSourceSaveState((current) => ({ ...current, [source.id]: 'Saving locally…' }));
+    const outcome = await saveResearchSourceToActiveProject(source);
+    setSourceSaveState((current) => ({ ...current, [source.id]: outcome.message }));
+  };
 
   return (
     <div
@@ -89,9 +97,16 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
 
             {/* Source cards */}
             {mode === 'research' && sources.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }} aria-label="Attributable research sources">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, color: '#eadbe1', fontSize: 11, fontWeight: 760 }}>
+                  <span>{sources.length} attributable source{sources.length === 1 ? '' : 's'}</span>
+                  <span style={{ color: '#bca7b1', fontWeight: 600 }}>Save only to a selected local project</span>
+                </div>
                 {sources.map((src, i) => (
-                  <SourceCard key={src.id} source={src} index={i} />
+                  <div key={src.id} style={{ display: 'grid', gap: 4 }}>
+                    <SourceCard source={src} index={i} onSave={saveSource} />
+                    {sourceSaveState[src.id] && <small role="status" style={{ color: sourceSaveState[src.id].startsWith('Saved') ? '#86efac' : '#cbbca8', fontSize: 11 }}>{sourceSaveState[src.id]}</small>}
+                  </div>
                 ))}
               </div>
             )}

@@ -394,3 +394,20 @@ No VRM binary, ComfyUI workflow/model, provider secret, SQLite database, generat
 
 No provider key, text payload, VRM binary, ComfyUI model/workflow, SQLite database, generated media, or Windows-local user file is included. External actions remain explicit; `main` remains untouched.
 | Full release gate — Humanizer completion pass | Completed full API/frontend release validation after the private humanizer and local artifact workflow changes. | API suite reached 100%; frontend: 33 files / 144 tests passed, 2 existing todos; mobile/typecheck/build passed; lint: 0 errors and 34 existing warnings. |
+
+
+## Research Workspace Activation and Source Artifact Consistency — 2026-08-14
+
+| File or area | Change | Acceptance evidence |
+|---|---|---|
+| `apps/web/src/features/projects/saveResearchSource.ts` | Add a shared local active-project source-artifact writer and a safe, de-duplicated projection from completed successful research-tool results to card-safe sources. | Source projection regression passed; invalid URL, error, non-research tool, and duplicate filtering covered. |
+| `apps/web/src/features/projects/saveResearchSource.test.ts` | Cover source derivation, domain normalization, de-duplication, and failed/non-web filtering. | 1 focused test passed. |
+| `apps/web/src/App.tsx` | Replace the inert context-source state with a memoized projection of completed conversation tool results. | TypeScript passed; context workspace receives actual attributable source records. |
+| `apps/web/src/components/ui/ContextWorkspace.tsx` | Render attributable research-card count, real source cards, and explicit active-project private-save feedback through the shared helper. | Context workspace regression passed. |
+| `apps/web/src/components/ui/ContextWorkspace.test.tsx` | Cover visible source cards and exact local artifact payload/active-project path. | 3 context workspace tests passed. |
+| `apps/web/src/features/chat/components/GenericResultRenderer.tsx` | Refactor existing source-card saving to the shared helper, retaining the same explicit user-clicked local artifact flow. | Generic renderer regression passed. |
+| `apps/web/src/components/ui/SourceCard.tsx` | Re-theme visible source-card affordances into the Ink Rose system without changing external-open or local-save semantics. | Existing chat/context source regressions and TypeScript passed. |
+| `docs/HINAA_FEATURE_SERVICE_MATRIX.md`, `docs/HINAA_CURRENT_STATUS.md` | Reconcile the active research workspace with the continued Windows companion/device-control dependency boundary. | Source audit and focused regression evidence recorded. |
+
+No live research provider call, browser navigation, cloud transfer, device action, VRM binary change, secret, generated media, or user Windows file is included. `main` remains untouched.
+| Full release gate — Research workspace activation pass | Completed full API/frontend validation after activating source projection, local source saving, and Ink Rose source-card polish. | API suite reached 100%; frontend: 34 files / 146 tests passed, 2 existing todos; mobile/typecheck/build passed; lint: 0 errors and 33 existing warnings. |
