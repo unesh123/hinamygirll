@@ -393,6 +393,103 @@ class LocalProjectService:
             session.commit()
             return [self._task_public(task) for task in tasks]
 
+    def create_local_report(
+        self,
+        user_id: str,
+        project_id: str,
+        title: str = "Local project report",
+    ) -> dict[str, Any] | None:
+        """Build a bounded, portable report from already saved local project data.
+
+        This is intentionally deterministic: it neither calls a model nor follows
+        instructions embedded in artifacts. The output is a reviewable Markdown
+        document artifact; exporting or sending it remains a separate user action.
+        """
+        clean_title = title.strip() or "Local project report"
+        with self._factory() as session:
+            project = session.get(LocalProject, project_id)
+            if project is None or project.user_id != user_id:
+                return None
+            tasks = (
+                session.query(LocalProjectTask)
+                .filter_by(project_id=project.id)
+                .order_by(LocalProjectTask.position.asc(), LocalProjectTask.created_at.asc())
+                .all()
+            )
+            artifacts = (
+                session.query(LocalProjectArtifact)
+                .filter_by(project_id=project.id)
+                .order_by(LocalProjectArtifact.created_at.desc())
+                .limit(12)
+                .all()
+            )
+            generated_at = datetime.now(timezone.utc).isoformat()
+            lines = [
+                f"# {clean_title}",
+                "",
+                "> Private local report. It was assembled deterministically from saved HINAA project data; no provider, browser, or external service was used.",
+                "",
+                "## Project overview",
+                "",
+                f"- **Project:** {project.title}",
+                f"- **Description:** {project.description or 'No description saved.'}",
+                f"- **Generated:** {generated_at}",
+                "",
+                "## Task status",
+                "",
+            ]
+            if tasks:
+                for task in tasks:
+                    depth = "  " if task.parent_task_id else ""
+                    approval = " · approval required" if task.requires_approval else ""
+                    detail = f" — {task.detail}" if task.detail else ""
+                    lines.append(f"{depth}- **{task.status}** · {task.title}{approval}{detail}")
+            else:
+                lines.append("- No tasks have been saved yet.")
+            lines.extend(["", "## Saved artifacts", ""])
+            source_urls: list[str] = []
+            for artifact in artifacts:
+                content = (artifact.content or "").strip()
+                excerpt = content[:4_000]
+                if len(content) > len(excerpt):
+                    excerpt = f"{excerpt.rstrip()}\n\n_[Excerpt truncated in this report; open the original local artifact for the full content.]_"
+                lines.extend([f"### {artifact.title}", "", f"**Kind:** {artifact.kind}"])
+                if artifact.source_url:
+                    source_urls.append(artifact.source_url)
+                    lines.append(f"**Source:** {artifact.source_url}")
+                lines.extend(["", excerpt or "No additional content was saved.", ""])
+            if not artifacts:
+                lines.extend(["- No artifacts have been saved yet.", ""])
+            unique_sources = list(dict.fromkeys(source_urls))
+            lines.extend(["## Source links", ""])
+            if unique_sources:
+                lines.extend([f"- {url}" for url in unique_sources])
+            else:
+                lines.append("- No source links were attached to the included artifacts.")
+            report = "\n".join(lines).strip() + "\n"
+            artifact = LocalProjectArtifact(
+                project_id=project.id,
+                kind="document",
+                title=clean_title[:240],
+                content=report[:90_000],
+                metadata_json=json.dumps(
+                    {
+                        "origin": "local-project-report",
+                        "localOnly": True,
+                        "externalTextTransfer": False,
+                        "generatedAt": generated_at,
+                        "includedArtifactIds": [artifact.id for artifact in artifacts],
+                        "includedTaskCount": len(tasks),
+                        "includedSourceCount": len(unique_sources),
+                        "contentTruncated": len(report) > 90_000,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            session.add(artifact)
+            session.commit()
+            return self._artifact_public(artifact)
+
     def create_website_blueprint(
         self,
         user_id: str,

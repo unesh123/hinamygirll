@@ -650,3 +650,30 @@ apps/web: pnpm vitest run && pnpm check:mobile && pnpm typecheck && pnpm build &
 ```
 
 The API suite reached 100% successfully. Frontend validation completed with **34 passing test files**, **146 passing tests**, and **2 existing todos**. Mobile checks, TypeScript, and the production build passed. Lint completed with **0 errors** and **33 existing warnings**. These release gates verify repository behavior only; they do not represent a live You.com call, real ComfyUI output, cloud voice/provider completion, Windows VSeeFace tracking, or Windows companion/device control as passed.
+
+
+## Deterministic Private Project Report — 2026-08-14
+
+HINAA can now create a **user-triggered private Markdown report** from an active project’s already saved tasks, artifacts, and source links. It is deterministic and bounded: it does not call a model, browser, research provider, or external document service; it does not follow instructions contained in uploaded artifacts; it retains source URLs; and it stores the result as a normal local `document` artifact for review and Markdown export.
+
+| Requirement | Result | Evidence |
+|---|---|---|
+| Local report creation | **IMPLEMENTED / REGRESSION-TESTED** | `POST /v1/projects/{project_id}/report` creates a private `document` artifact with `origin: local-project-report`, `localOnly: true`, and `externalTextTransfer: false`. |
+| Bounded deterministic assembly | **IMPLEMENTED / REGRESSION-TESTED** | The report includes saved task state, up to 12 saved artifacts, bounded excerpts, de-duplicated source links, and explicit truncation metadata. |
+| User-visible workflow | **IMPLEMENTED / REGRESSION-TESTED** | Local Workspace exposes a report title and **Build report** control; the newly created artifact can use the existing Markdown export link. |
+| Responsive usability | **VERIFIED BY MOBILE CHECK** | Project workspace and report controls collapse safely at narrow widths; existing 393×851 and 320×568 checks retain no horizontal overflow or console error. |
+| Provider/avatar/Windows effects | **UNCHANGED — REAL RUNTIME EVIDENCE REQUIRED** | This feature does not validate cloud generation, ComfyUI, ElevenLabs, VSeeFace, browser automation, screen capture, or device control. |
+
+Focused validation passed: **8 API local-workspace tests**, **1 project-workspace UI test**, TypeScript compilation, and mobile layout checks. No external request or publication was made.
+
+
+### Full release gate — Private project report pass
+
+The full release command completed successfully before the final test-only lint cleanup:
+
+```text
+apps/api: pytest -q
+apps/web: pnpm vitest run && pnpm check:mobile && pnpm typecheck && pnpm build && pnpm lint
+```
+
+The API suite reached 100% successfully. Frontend validation completed with **35 passing test files**, **147 passing tests**, and **2 existing todos**. Mobile checks, TypeScript, and the production build passed. Lint completed with **0 errors**. The final focused test/lint recheck retained **0 errors** and returned the warning count to **33 existing warnings**. Repository validation does not substitute for real provider, ComfyUI, voice, VSeeFace, or Windows companion acceptance evidence.

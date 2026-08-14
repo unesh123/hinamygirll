@@ -87,6 +87,8 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
   const [planGoal, setPlanGoal] = useState("");
   const [siteBrief, setSiteBrief] = useState("");
   const [siteBusy, setSiteBusy] = useState(false);
+  const [reportTitle, setReportTitle] = useState("Local project report");
+  const [reportBusy, setReportBusy] = useState(false);
   const [sourceTitle, setSourceTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [runGoal, setRunGoal] = useState("");
@@ -175,6 +177,23 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
       setError("Could not create the local website blueprint.");
     } finally {
       setSiteBusy(false);
+    }
+  };
+
+  const createLocalReport = async () => {
+    if (!selected || reportBusy) return;
+    setReportBusy(true);
+    setError("");
+    try {
+      await request(`/projects/${selected.id}/report`, {
+        method: "POST",
+        body: JSON.stringify({ title: reportTitle.trim() || "Local project report" }),
+      });
+      await loadProjects(selected.id);
+    } catch {
+      setError("Could not create the private local Markdown report.");
+    } finally {
+      setReportBusy(false);
     }
   };
 
@@ -299,6 +318,7 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
 
   return (
     <aside
+      className="local-project-workspace"
       aria-label="Local project workspace"
       style={{
         width: 300,
@@ -400,6 +420,14 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
               <input aria-label="Upload local project file" type="file" hidden disabled={fileBusy} accept=".txt,.md,.markdown,.csv,.json,.pdf,.docx,.pptx" onChange={(event) => { void uploadFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
             </label>
             <p style={{ color: "#94a3b8", fontSize: 11, lineHeight: 1.4, margin: "7px 0" }}>Files remain local. Analyze supported files to create a private text artifact HINAA can reference and export.</p>
+            <div className="local-project-report" style={{ display: "grid", gap: 5, padding: "8px", borderRadius: 9, border: "1px solid rgba(125,211,252,.18)", background: "rgba(125,211,252,.045)", marginBottom: 9 }}>
+              <small style={{ color: "#c8efff", fontWeight: 750 }}>PRIVATE MARKDOWN REPORT</small>
+              <div className="local-project-report__controls" style={{ display: "flex", gap: 6 }}>
+                <input value={reportTitle} onChange={(event) => setReportTitle(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void createLocalReport()} placeholder="Report title" aria-label="Local report title" style={inputStyle} />
+                <button type="button" disabled={reportBusy} onClick={() => void createLocalReport()} style={{ ...miniButtonStyle, opacity: reportBusy ? .55 : 1 }} title="Create private local report"><FileText size={11} />{reportBusy ? "Building…" : "Build report"}</button>
+              </div>
+              <small style={{ color: "#94a3b8", lineHeight: 1.35 }}>Combines saved local tasks, artifacts, and source links into an exportable Markdown document. No model, provider, browser, or external transfer is used.</small>
+            </div>
             <div style={{ display: "grid", gap: 5 }}>
               {selected.artifacts.slice(0, 4).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12 }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.kind}: {item.title}</span><a href={`${API}/projects/artifacts/${item.id}/export`} title={`Export ${item.title} as Markdown`} aria-label={`Export ${item.title} as Markdown`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a></div>)}
               {selected.files.slice(0, 6).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12, padding: "2px 0" }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>file: {item.name}</span><a href={`${API}/projects/files/${item.id}`} title={`Download ${item.name}`} aria-label={`Download ${item.name}`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a><button type="button" disabled={fileBusy} onClick={() => void analyzeFile(item)} title={`Analyze ${item.name} locally`} style={miniButtonStyle}><FileSearch size={11} /> Analyze</button></div>)}

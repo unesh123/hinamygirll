@@ -411,3 +411,19 @@ No provider key, text payload, VRM binary, ComfyUI model/workflow, SQLite databa
 
 No live research provider call, browser navigation, cloud transfer, device action, VRM binary change, secret, generated media, or user Windows file is included. `main` remains untouched.
 | Full release gate — Research workspace activation pass | Completed full API/frontend validation after activating source projection, local source saving, and Ink Rose source-card polish. | API suite reached 100%; frontend: 34 files / 146 tests passed, 2 existing todos; mobile/typecheck/build passed; lint: 0 errors and 33 existing warnings. |
+
+
+## Deterministic Private Project Report — 2026-08-14
+
+| File or area | Change | Acceptance evidence |
+|---|---|---|
+| `apps/api/hinaa_api/persistence/project_service.py` | Add a bounded deterministic local Markdown report builder over saved local tasks, artifacts, and source links. It uses no model/provider/browser and stores metadata for origin, local-only handling, included records, and truncation. | Local workspace report API/export regression passed. |
+| `apps/api/hinaa_api/main.py` | Add `POST /v1/projects/{project_id}/report` with a bounded title request body. | Report route returns a private document artifact or project-not-found response. |
+| `apps/api/tests/test_local_workspace.py` | Cover task/artifact/source inclusion, local-only/no-external-transfer metadata, and Markdown export. | 8 focused local-workspace tests passed. |
+| `apps/web/src/components/ui/LocalProjectWorkspace.tsx` | Add an explicit title + **Build report** control that refreshes the active project after private report creation. | Project-workspace UI regression passed. |
+| `apps/web/src/components/ui/LocalProjectWorkspace.test.tsx` | Assert the exact private local report request and refreshed artifact display. | 1 focused UI test passed. |
+| `apps/web/src/App.css` | Add narrow-screen workspace/report-control responsiveness without replacing the existing workspace. | Mobile layout check passed at 393×851 and 320×568 with no horizontal overflow or console errors. |
+| `docs/HINAA_FEATURE_SERVICE_MATRIX.md`, `docs/HINAA_CURRENT_STATUS.md` | Record report availability and preserve provider/avatar/Windows evidence boundaries. | Source reviewed against implementation and focused regressions. |
+
+No provider, browser, research call, cloud document service, VSeeFace action, user Windows file, VRM binary, secret, generated media, or publication was involved. `main` remains untouched.
+| Full release gate — Private project report pass | Completed full API/frontend validation after the deterministic report, workspace control, and responsive layout work; then removed the pass-specific lint warning. | API suite reached 100%; frontend: 35 files / 147 tests passed, 2 existing todos; mobile/typecheck/build passed; final lint: 0 errors and 33 existing warnings. |

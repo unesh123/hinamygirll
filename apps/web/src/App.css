@@ -2423,3 +2423,44 @@ body {
   .smart-suggestions__option { padding: 9px; }
   .smart-suggestions__apply { display: none; }
 }
+
+
+/* ─── Local project workspace: responsive report controls ───────────────── */
+.local-project-workspace {
+  box-sizing: border-box;
+  scrollbar-color: rgba(238,145,173,.34) transparent;
+}
+.local-project-report {
+  box-shadow: inset 0 1px 0 rgba(225,247,255,.04);
+}
+.local-project-report__controls > input {
+  min-width: 0;
+  flex: 1 1 150px;
+}
+.local-project-report__controls > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .local-project-workspace {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none;
+    max-height: min(54vh, 520px);
+    border-right: 0 !important;
+    border-bottom: 1px solid rgba(255,219,231,.16);
+    padding: 12px !important;
+  }
+  .local-project-report__controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .local-project-report__controls > button {
+    justify-content: center;
+    width: 100%;
+  }
+}
+@media (max-width: 390px) {
+  .local-project-workspace { max-height: 50vh; padding: 10px !important; }
+  .local-project-report { padding: 7px !important; }
+}

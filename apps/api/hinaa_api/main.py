@@ -58,6 +58,10 @@ class ProjectWebsiteBlueprintBody(BaseModel):
     stack: Annotated[str, Field(max_length=180)] = "React + TypeScript"
 
 
+class ProjectReportBody(BaseModel):
+    title: Annotated[str, Field(max_length=240)] = "Local project report"
+
+
 class ProjectTaskBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=240)]
     detail: Annotated[str, Field(max_length=8000)] = ""
@@ -901,6 +905,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if blueprint is None:
             raise HTTPException(status_code=404, detail="Local project not found")
         return blueprint
+
+    @app.post("/v1/projects/{project_id}/report", status_code=201)
+    async def create_project_report(
+        request: Request,
+        project_id: str,
+        body: ProjectReportBody,
+    ) -> dict[str, Any]:
+        artifact = workspace_service.create_local_report(
+            _workspace_user_id(request), project_id, body.title
+        )
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return artifact
 
     @app.post("/v1/projects/{project_id}/tasks", status_code=201)
     async def create_project_task(

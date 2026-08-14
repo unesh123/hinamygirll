@@ -242,3 +242,52 @@ def test_website_blueprint_creates_local_tasks_artifact_and_publish_gate(tmp_pat
 
         detail = client.get(f"/v1/projects/{project['id']}").json()
         assert "Website build brief" in [artifact["title"] for artifact in detail["artifacts"]]
+
+
+
+def test_local_project_report_builds_private_exportable_markdown(tmp_path) -> None:
+    settings = Settings(
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_PERSISTENCE_ENABLED=False,
+        HINAA_LOCAL_WORKSPACE_DIR=tmp_path,
+        _env_file=None,
+    )
+    with TestClient(create_app(settings)) as client:
+        project = client.post("/v1/projects", json={"title": "Research report project", "description": "Private report scope"}).json()
+        task = client.post(
+            f"/v1/projects/{project['id']}/tasks",
+            json={"title": "Review saved findings", "detail": "Confirm cited source material.", "requiresApproval": True},
+        )
+        assert task.status_code == 201
+        source = client.post(
+            f"/v1/projects/{project['id']}/artifacts",
+            json={
+                "kind": "research",
+                "title": "Local research finding",
+                "content": "This source was saved locally for review.",
+                "sourceUrl": "https://example.test/source",
+            },
+        )
+        assert source.status_code == 201
+
+        response = client.post(
+            f"/v1/projects/{project['id']}/report",
+            json={"title": "Private evidence report"},
+        )
+        assert response.status_code == 201
+        report = response.json()
+        assert report["kind"] == "document"
+        assert report["title"] == "Private evidence report"
+        assert report["metadata"]["origin"] == "local-project-report"
+        assert report["metadata"]["localOnly"] is True
+        assert report["metadata"]["externalTextTransfer"] is False
+        assert "no provider, browser, or external service was used" in report["content"]
+        assert "Review saved findings" in report["content"]
+        assert "https://example.test/source" in report["content"]
+
+        exported = client.get(f"/v1/projects/artifacts/{report['id']}/export")
+
+    assert exported.status_code == 200
+    assert "# Private evidence report" in exported.text
+    assert "Local research finding" in exported.text
