@@ -378,3 +378,19 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 No VRM binary, ComfyUI workflow/model, provider secret, SQLite database, generated media, or user Windows file is included. The changes remain isolated on `work/hinaa-automation-image-reliability`; `main` is untouched.
 
 | Full release gate | Completed `pytest -q`, `pnpm vitest run`, `pnpm check:mobile`, `pnpm typecheck`, `pnpm build`, and `pnpm lint` on the isolated branch. | API suite reached 100% with only an existing TestClient deprecation warning; frontend: 33 files / 142 tests passed, 2 existing todos; production build passed; lint: 0 errors, 36 existing warnings. |
+
+
+## Private Humanizer Completion Pass — 2026-08-14
+
+| File or area | Change | Acceptance evidence |
+|---|---|---|
+| `apps/api/hinaa_api/humanizer.py` | Extend the local protected-span layer to preserve/report citation markers, email addresses, Windows/Unix paths, URLs, links, Markdown, and code. The route remains deterministic and external-transfer-free. | Focused `test_humanizer.py`: 4 passed. |
+| `apps/api/tests/test_humanizer.py` | Add email/path/citation/code/link preservation and protected-span-metadata coverage. | 4 focused humanizer tests passed. |
+| `apps/web/src/components/ui/LocalHumanizerStudio.tsx` | Add responsive safe comparison feedback, style radio semantics, clear, one-step restore, protected-span metrics, a real local-tools route, and explicit active-project artifact save. | Focused Humanizer Studio regression: 3 tests passed; TypeScript passed. |
+| `apps/web/src/components/ui/LocalHumanizerStudio.test.tsx` | Cover protected-span feedback, restore, and exact private active-project artifact payload. | 3 Humanizer Studio tests passed. |
+| `apps/web/src/components/ui/SidebarPanel.tsx`, `apps/web/src/App.tsx` | Add and wire **Local tools → Humanize a draft** to the existing drawer; no duplicate interface or placeholder was introduced. | Sidebar regression: 2 tests passed; TypeScript passed. |
+| `apps/web/src/components/ui/SidebarPanel.test.tsx` | Assert the humanizer shortcut invokes a real callback. | 2 sidebar tests passed. |
+| `docs/HINAA_HUMANIZER_OPTIONS.md`, `docs/HINAA_CURRENT_STATUS.md` | Reconcile current private local implementation, optional cloud-brain boundary, project-artifact retention, and remaining hardware/service evidence. | Documentation reviewed against source and focused test results. |
+
+No provider key, text payload, VRM binary, ComfyUI model/workflow, SQLite database, generated media, or Windows-local user file is included. External actions remain explicit; `main` remains untouched.
+| Full release gate — Humanizer completion pass | Completed full API/frontend release validation after the private humanizer and local artifact workflow changes. | API suite reached 100%; frontend: 33 files / 144 tests passed, 2 existing todos; mobile/typecheck/build passed; lint: 0 errors and 34 existing warnings. |

@@ -1,7 +1,7 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowRight, Brain, CheckSquare, FolderOpen, Image, MessageSquare, Mic, Plus, Search, Settings, Sparkles, Wrench, X,
+  ArrowRight, Brain, CheckSquare, FolderOpen, Image, Mic, Plus, Search, Settings, Sparkles, Wand2, X,
 } from "lucide-react";
 import type { NavSection } from "./NavRail";
 
@@ -12,6 +12,7 @@ interface SidebarPanelProps {
   onStartVoice?: () => void;
   onOpenMemory?: () => void;
   onOpenImageStudio?: () => void;
+  onOpenHumanizer?: () => void;
   onOpenProjects?: () => void;
   onOpenSettings?: () => void;
   onQuickPrompt?: (prompt: string) => void;
@@ -69,6 +70,7 @@ function shortcutsFor(section: NavSection, props: SidebarPanelProps): { eyebrow:
         items: [
           { label: "Research with sources", detail: "Ask for attributable findings", icon: <Search size={16} />, action: () => props.onQuickPrompt?.("Research this with clear sources and practical next steps: ") },
           { label: "Create an image", detail: "Open the local Image Studio", icon: <Image size={16} />, action: props.onOpenImageStudio },
+          { label: "Humanize a draft", detail: "Polish text locally; no provider required", icon: <Wand2 size={16} />, action: props.onOpenHumanizer },
           { label: "Check local diagnostics", detail: "Review configured services", icon: <Settings size={16} />, action: props.onOpenSettings },
         ],
       };

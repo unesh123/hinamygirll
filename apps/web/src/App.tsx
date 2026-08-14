@@ -546,6 +546,7 @@ export default function App() {
               onStartVoice={() => { setSidebarExpanded(null); interruptPlayback(); live.start(); }}
               onOpenMemory={() => { setSidebarExpanded(null); setMemoryOpen(true); }}
               onOpenImageStudio={() => { setSidebarExpanded(null); openImageStudio(); }}
+              onOpenHumanizer={() => { setSidebarExpanded(null); openHumanizer(); }}
               onOpenProjects={() => { setSidebarExpanded(null); setNavSection("tasks"); }}
               onOpenSettings={() => { setSidebarExpanded(null); setSettingsOpen(true); }}
               onQuickPrompt={(prompt) => { setSidebarExpanded(null); setInput(prompt); }}

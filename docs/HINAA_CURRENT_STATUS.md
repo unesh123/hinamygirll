@@ -597,3 +597,30 @@ apps/web: pnpm vitest run && pnpm check:mobile && pnpm typecheck && pnpm build &
 ```
 
 The API suite reached 100% progress successfully; its only reported item was the existing FastAPI/TestClient deprecation warning. Frontend validation completed with **33 passing test files**, **142 passing tests**, and **2 existing todos**. Mobile checks, TypeScript compilation, and the production Vite build completed successfully. Lint completed with **0 errors** and **36 existing warnings**. This validates the current repository code and preserves the separate requirement for real Windows companion/VSeeFace/device runtime evidence.
+
+
+## Private Humanizer Completion Pass — 2026-08-14
+
+HINAA’s **Text Humanizer** is now a verified private, deterministic writing tool rather than a detector-evasion or hidden cloud-rewrite feature. It is reachable through `@humanize` and the real **Local tools → Humanize a draft** action. The route preserves Markdown fenced/inline code, links, URLs, citation markers, email addresses, Windows/Unix paths, headings, lists, tables, quotations, Hindi text, numbers, and other technical spans. Its result records `externalTextTransfer: false`, character counts, and protected-span metrics.
+
+| Requirement | Result | Evidence |
+|---|---|---|
+| Private local polish | **VERIFIED BY REGRESSION** | The API route stays `local-deterministic` and returns no external transfer. New backend coverage preserves code, URL, email, Windows path, and citation marker content. |
+| Safe user controls | **VERIFIED BY UI REGRESSION** | The Studio has responsive columns, style radio semantics, clear, copy, use-as-draft, one-step original restore, protected-span feedback, and local result metrics. |
+| Project retention | **VERIFIED BY UI REGRESSION** | A user can explicitly save a completed result to the currently selected private project as a `document` artifact. Its metadata records `origin: local-humanizer` and the local-only transfer state. |
+| Cloud/model rewrite | **NOT AUTOMATIC** | A configured brain remains an explicit chat alternative. No provider request is chained behind the private humanizer, and an unavailable provider cannot become a disguised fallback. |
+| Device/avatar/image readiness | **UNCHANGED — REAL RUNTIME EVIDENCE REQUIRED** | ComfyUI, real cloud TTS/provider completion, Windows VSeeFace calibration, screen/device controls, and the trusted Windows companion remain dependent on their actual local services/hardware. |
+
+Focused validation passed: **4 API humanizer tests**, **2 local-workspace tests**, **5 frontend humanizer/sidebar tests**, and TypeScript compilation. No external provider, browser, messaging, operating-system, camera, VSeeFace, or cloud action was attempted by this pass.
+
+
+### Full release gate — Humanizer completion pass
+
+The complete release command finished successfully on the isolated feature branch:
+
+```text
+apps/api: pytest -q
+apps/web: pnpm vitest run && pnpm check:mobile && pnpm typecheck && pnpm build && pnpm lint
+```
+
+The API suite reached 100% successfully. Frontend validation completed with **33 passing test files**, **144 passing tests**, and **2 existing todos**. Mobile checks, TypeScript, and the production build passed. Lint completed with **0 errors** and **34 existing warnings**. This is repository validation only; it does not turn unavailable ComfyUI, cloud TTS/provider credentials, VSeeFace hardware tracking, or the absent trusted Windows companion into verified runtime capability.

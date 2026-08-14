@@ -45,3 +45,20 @@ def test_humanizer_endpoint_is_private_and_bounded() -> None:
 
         invalid = client.post("/v1/text/humanize", json={"text": "x", "style": "mystery"})
         assert invalid.status_code == 422
+
+
+def test_local_humanizer_preserves_paths_email_and_citation_markers() -> None:
+    source = (
+        "Additionally, use C:\\HINAA\\workspace\\brief.md and email hello@example.test. "
+        "The evidence is in [1], with `pnpm build` documented at https://example.test/guide."
+    )
+    result = humanize_text(source, "concise")
+
+    assert "C:\\HINAA\\workspace\\brief.md" in result.text
+    assert "hello@example.test" in result.text
+    assert "[1]" in result.text
+    assert "`pnpm build`" in result.text
+    assert "https://example.test/guide" in result.text
+    assert result.protectedSegmentCount >= 5
+    assert result.protectedCharacterCount > 0
+    assert "Protected technical spans and citations" in result.changes

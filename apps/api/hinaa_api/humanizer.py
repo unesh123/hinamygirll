@@ -15,8 +15,11 @@ HumanizerStyle = Literal["natural", "warm", "professional", "concise"]
 
 _MAX_TEXT_LENGTH = 60_000
 _PROTECTED_TOKEN = re.compile(
-    r"```[\s\S]*?```|`[^`\n]+`|https?://[^\s)\]>]+|\[[^\]]+\]\([^)]*\)",
-    re.MULTILINE,
+    r"```[\s\S]*?```|`[^`\n]+`|https?://[^\s)\]>]+|\[[^\]]+\]\([^)]*\)"
+    r"|(?:mailto:)?[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"
+    r"|\b[A-Z]:\\[^\s<>|?*]+|(?<!\w)/(?:[\w.@+-]+/)*[\w.@+-]+"
+    r"|\[(?:\d{1,3}|[A-Za-z][^\]\n]{0,44})\]",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -29,6 +32,8 @@ class HumanizerResult:
     changes: tuple[str, ...]
     originalCharacterCount: int
     outputCharacterCount: int
+    protectedSegmentCount: int
+    protectedCharacterCount: int
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -99,10 +104,15 @@ def humanize_text(text: str, style: HumanizerStyle = "natural") -> HumanizerResu
     pieces: list[str] = []
     changes: set[str] = set()
     position = 0
+    protected_segment_count = 0
+    protected_character_count = 0
     for protected in _PROTECTED_TOKEN.finditer(text):
         prose, prose_changes = _normalise_prose(text[position:protected.start()], style)
         pieces.append(prose)
-        pieces.append(protected.group(0))
+        protected_text = protected.group(0)
+        pieces.append(protected_text)
+        protected_segment_count += 1
+        protected_character_count += len(protected_text)
         changes.update(prose_changes)
         position = protected.end()
     prose, prose_changes = _normalise_prose(text[position:], style)
@@ -114,6 +124,8 @@ def humanize_text(text: str, style: HumanizerStyle = "natural") -> HumanizerResu
         polished = text.strip()
     if polished != text.strip() and not changes:
         changes.add("Polished spacing and formatting")
+    if protected_segment_count:
+        changes.add("Protected technical spans and citations")
     if not changes:
         changes.add("Preserved the original wording because no safe local edit was needed")
 
@@ -125,4 +137,6 @@ def humanize_text(text: str, style: HumanizerStyle = "natural") -> HumanizerResu
         changes=tuple(sorted(changes)),
         originalCharacterCount=len(text),
         outputCharacterCount=len(polished),
+        protectedSegmentCount=protected_segment_count,
+        protectedCharacterCount=protected_character_count,
     )

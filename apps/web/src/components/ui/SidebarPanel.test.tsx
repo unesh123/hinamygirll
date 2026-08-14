@@ -5,6 +5,7 @@ import { SidebarPanel } from "./SidebarPanel";
 describe("SidebarPanel", () => {
   it("offers actual local tool actions instead of fabricated tool status data", () => {
     const openImageStudio = vi.fn();
+    const openHumanizer = vi.fn();
     const openSettings = vi.fn();
     const prompt = vi.fn();
     render(
@@ -12,6 +13,7 @@ describe("SidebarPanel", () => {
         section="tools"
         onClose={vi.fn()}
         onOpenImageStudio={openImageStudio}
+        onOpenHumanizer={openHumanizer}
         onOpenSettings={openSettings}
         onQuickPrompt={prompt}
       />,
@@ -23,6 +25,8 @@ describe("SidebarPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Create an image/i }));
     expect(openImageStudio).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /Humanize a draft/i }));
+    expect(openHumanizer).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: /Research with sources/i }));
     expect(prompt).toHaveBeenCalledWith("Research this with clear sources and practical next steps: ");
   });
