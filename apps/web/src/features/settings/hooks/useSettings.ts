@@ -13,6 +13,7 @@ import { loadSettings, saveSettings } from "../state/settingsStore";
 import { DEFAULT_SETTINGS } from "../types/settings";
 import type {
   AppearanceSettings,
+  AutomationSettings,
   HinaaSettings,
   LanguageSettings,
   ProviderPreferences,
@@ -23,6 +24,7 @@ export interface UseSettingsReturn {
   setAppearance: (patch: Partial<AppearanceSettings>) => void;
   setLanguage: (patch: Partial<LanguageSettings>) => void;
   setProvider: (patch: Partial<ProviderPreferences>) => void;
+  setAutomation: (patch: Partial<AutomationSettings>) => void;
   resetToDefaults: () => void;
 }
 
@@ -78,11 +80,22 @@ export function useSettings(): UseSettingsReturn {
     });
   }, []);
 
+  const setAutomation = useCallback((patch: Partial<AutomationSettings>) => {
+    setSettings((current) => {
+      const next: HinaaSettings = {
+        ...current,
+        automation: { ...current.automation, ...patch },
+      };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
   const resetToDefaults = useCallback(() => {
     const next = { ...DEFAULT_SETTINGS };
     saveSettings(next);
     setSettings(next);
   }, []);
 
-  return { settings, setAppearance, setLanguage, setProvider, resetToDefaults };
+  return { settings, setAppearance, setLanguage, setProvider, setAutomation, resetToDefaults };
 }

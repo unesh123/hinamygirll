@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { motion } from 'framer-motion';
+import { useSpring, animated, config } from '@react-spring/web';
 import { Search, Sparkles, Briefcase, Mic, type LucideIcon } from 'lucide-react';
 
 interface WelcomeCard {
@@ -17,6 +18,71 @@ const CARDS: WelcomeCard[] = [
   { icon: Briefcase, title: 'Continue my work', desc: 'Projects, files and tasks', action: 'work', color: '#059669', bgGradient: 'linear-gradient(135deg, rgba(167,243,208,0.2), rgba(103,232,249,0.15))' },
   { icon: Mic, title: 'Talk with HINAA', desc: 'Start a natural live conversation', action: 'voice', color: '#d97706', bgGradient: 'linear-gradient(135deg, rgba(253,230,138,0.2), rgba(167,243,208,0.15))' },
 ];
+
+function WelcomeCardUI({ card, delay, onAction }: { card: WelcomeCard; delay: number; onAction?: (action: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [{ xys }, api] = useSpring(() => ({
+    xys: [0, 0, 1], // rx, ry, scale
+    config: config.wobbly,
+  }));
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const rx = -(y - rect.height / 2) / 10;
+    const ry = (x - rect.width / 2) / 10;
+    
+    api.start({ xys: [rx, ry, 1.02] });
+  };
+  
+  const handlePointerDown = () => {
+    api.start({ xys: [0, 0, 0.95], config: { mass: 1, tension: 500, friction: 30 } });
+  };
+
+  const handlePointerUp = () => {
+    api.start({ xys: [0, 0, 1.02], config: config.wobbly });
+  };
+
+  const handlePointerLeave = () => {
+    api.start({ xys: [0, 0, 1], config: config.wobbly });
+  };
+
+  const Icon = card.icon;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay }}
+    >
+      <animated.div
+        ref={ref}
+        className="welcome-card"
+        style={{
+          background: card.bgGradient + ', rgba(255,255,255,0.65)',
+          transform: xys.to((x, y, s) => `perspective(600px) rotateX(${x}deg) rotateY(${y}deg) scale(${s})`),
+          cursor: 'pointer',
+          willChange: 'transform'
+        }}
+        onClick={() => onAction?.(card.action)}
+        onPointerMove={handlePointerMove}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
+        onPointerCancel={handlePointerLeave}
+      >
+        <div className="welcome-card-icon">
+          <Icon size={22} style={{ color: card.color }} />
+        </div>
+        <div className="welcome-card-title">{card.title}</div>
+        <div className="welcome-card-desc">{card.desc}</div>
+      </animated.div>
+    </motion.div>
+  );
+}
 
 interface WelcomeSceneProps {
   userName?: string;
@@ -73,28 +139,9 @@ export function WelcomeScene({ userName, onAction }: WelcomeSceneProps) {
         animate={{ opacity: 1 }}
         transition={{ delay: 1.0, duration: 0.5 }}
       >
-        {CARDS.map((card, i) => {
-          const Icon = card.icon;
-          return (
-            <motion.div
-              key={card.action}
-              className="welcome-card"
-              style={{ background: card.bgGradient + ', rgba(255,255,255,0.65)' }}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.1 + i * 0.08 }}
-              onClick={() => onAction?.(card.action)}
-              whileHover={{ y: -3, scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <div className="welcome-card-icon">
-                <Icon size={22} style={{ color: card.color }} />
-              </div>
-              <div className="welcome-card-title">{card.title}</div>
-              <div className="welcome-card-desc">{card.desc}</div>
-            </motion.div>
-          );
-        })}
+        {CARDS.map((card, i) => (
+          <WelcomeCardUI key={card.action} card={card} delay={1.1 + i * 0.08} onAction={onAction} />
+        ))}
       </motion.div>
     </div>
   );

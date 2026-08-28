@@ -14,6 +14,7 @@ class ToolDefinition(BaseModel):
     required_parameters: list[str]
     permission_level: str = "default"
     requires_confirmation: bool = False
+    risk_level: str = "medium"  # low, medium, high
     cancellable: bool = True
     voice_aliases: list[str] = []
 

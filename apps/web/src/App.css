@@ -177,8 +177,9 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
+  text-align: center;
   padding: 40px 0;
   gap: 16px;
 }
@@ -2368,4 +2369,249 @@ body {
     padding-right: 4px;
   }
   .fullscreen-companion-overlay__detail { max-width: 31ch; }
+}
+
+/* ==== AutoCoder UI Refinement appended ===== */
+/*
+ * HINAA UI Refinement (AutoCoder redesign pass)
+ * ─────────────────────────────────────────────────────────────────────────
+ * Appended last so it wins the cascade over both the light base theme and
+ * the later `.hinaa-shell` companion-dark block.
+ *
+ * What it fixes:
+ *   1. Welcome cards were still light-theme (white glass, dark text) on the
+ *      dark companion shell. Now they match: dark rose-tinted glass with a
+ *      gradient icon chip, light text, and a soft hover glow.
+ *   2. Welcome card icons were sized for emoji; lucide SVGs get proper
+ *      sizing inside the chip.
+ *   3. Work-tree (project task rows) get a staggered entrance animation and
+ *      an animated status pulse, so "work in progress" reads as alive.
+ */
+
+/* ── Welcome center: headline + helper ─────────────────────────────────── */
+.welcome-center .welcome-greeting {
+  background: linear-gradient(120deg, #fff7fa 0%, #ffd9e4 55%, #e9c6ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #fff5f8;
+}
+
+.welcome-center .welcome-subtitle {
+  color: #dcc7d1;
+  max-width: 46ch;
+}
+
+/* ── Welcome cards: dark premium glass ─────────────────────────────────── */
+.welcome-center .welcome-cards {
+  gap: 12px;
+  max-width: 560px;
+}
+
+.welcome-center .welcome-card {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 16px;
+  background: linear-gradient(150deg, rgba(66, 44, 62, .86), rgba(34, 22, 36, .92));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 214, 228, .16);
+  border-radius: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .07),
+    0 10px 30px rgba(4, 2, 5, .24);
+  transition: transform 180ms var(--ease-out-expo, cubic-bezier(.22, 1, .36, 1)),
+    border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.welcome-center .welcome-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 12% 0%, rgba(238, 145, 173, .14), transparent 55%);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.welcome-center .welcome-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 190, 208, .42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .09),
+    0 16px 40px rgba(4, 2, 5, .36),
+    0 0 0 1px rgba(238, 145, 173, .12);
+  background: linear-gradient(150deg, rgba(74, 48, 68, .92), rgba(40, 25, 42, .96));
+}
+
+.welcome-center .welcome-card:hover::before {
+  opacity: 1;
+}
+
+/* Gradient icon chip for lucide icons */
+.welcome-center .welcome-card-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 10px;
+  border-radius: 11px;
+  color: #fff0f5;
+  background: linear-gradient(135deg, #f09bb4, #c76fd8);
+  box-shadow: 0 6px 16px rgba(199, 111, 216, .35), inset 0 1px rgba(255, 255, 255, .35);
+  font-size: 0;
+}
+
+.welcome-center .welcome-card-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.welcome-center .welcome-card-title {
+  color: #fff5f8;
+  font-size: .84rem;
+}
+
+.welcome-center .welcome-card-desc {
+  color: #c6aeb9;
+  font-size: .72rem;
+}
+
+/* Mobile media-query variants (match cascade at 2279) */
+@media (max-width: 768px) {
+  .welcome-center .welcome-card {
+    grid-template-columns: 30px minmax(0, 1fr);
+    column-gap: 10px;
+    min-height: 66px;
+    padding: 11px 12px;
+    border-radius: 14px;
+  }
+
+  .welcome-center .welcome-card-icon {
+    grid-row: 1 / span 2;
+    width: 30px;
+    height: 30px;
+    margin: 1px 0 0;
+    border-radius: 10px;
+  }
+
+  .welcome-center .welcome-card-icon svg {
+    width: 17px;
+    height: 17px;
+  }
+}
+
+/* ── Work-tree (project task rows) animation ───────────────────────────── */
+@keyframes hinaa-task-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hinaa-task-dot-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, .5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(45, 212, 191, 0);
+    transform: scale(1.25);
+  }
+}
+
+.lwp-task-row {
+  animation: hinaa-task-in 340ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.lwp-task-dot {
+  transition: background 180ms ease, transform 180ms ease;
+}
+
+.lwp-task-dot.lwp-task-dot--active {
+  animation: hinaa-task-dot-pulse 1.6s ease-in-out infinite;
+}
+
+.lwp-task-row:hover {
+  background: rgba(255, 255, 255, .03);
+}
+
+/* ── Tool ActivityPanel (features/tools variant) glyph → lucide sizing ── */
+.hinaa-tool-activity .tool-activity-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font-size: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lwp-task-row,
+  .lwp-task-dot.lwp-task-dot--active {
+    animation: none !important;
+  }
+}
+/*
+ * HINAA UI Refinement — compact small-phone pass
+ * Keeps all four welcome actions fully inside 320×568 viewports.
+ */
+@media (max-width: 420px) {
+  .welcome-center {
+    padding: 14px 0 10px;
+    justify-content: flex-start;
+  }
+
+  .welcome-center .welcome-greeting {
+    font-size: clamp(1.5rem, 7vw, 2rem);
+    margin-bottom: 2px;
+  }
+
+  .welcome-center .welcome-subtitle {
+    font-size: 0.78rem;
+    line-height: 1.4;
+    margin-bottom: 4px;
+  }
+
+  .welcome-center .welcome-cards {
+    gap: 7px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 2px;
+  }
+
+  .welcome-center .welcome-card {
+    grid-template-columns: 24px minmax(0, 1fr);
+    column-gap: 6px;
+    min-height: 54px;
+    padding: 8px 9px;
+    border-radius: 12px;
+  }
+
+  .welcome-center .welcome-card-icon {
+    grid-row: 1 / span 2;
+    width: 24px;
+    height: 24px;
+    margin: 1px 0 0;
+    border-radius: 8px;
+  }
+
+  .welcome-center .welcome-card-icon svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .welcome-center .welcome-card-title {
+    font-size: 0.68rem;
+    line-height: 1.2;
+  }
+
+  .welcome-center .welcome-card-desc {
+    font-size: 0.6rem;
+    line-height: 1.2;
+    margin-top: 2px;
+  }
 }

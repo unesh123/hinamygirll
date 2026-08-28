@@ -3,8 +3,10 @@
  * Welcome state: animated "Hello, Unesh" with capability cards.
  */
 
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import Lenis from "lenis";
+import gsap from "gsap";
 import { GeneratingLoader } from "../../../components/ui/GeneratingLoader";
 import { useAutoScroll } from "../hooks/useAutoScroll";
 import type { TranscriptMessage } from "../../companion/types";
@@ -43,6 +45,8 @@ interface Props {
     request: AssistantTurnPlan["toolRequests"][number],
     approved: boolean,
   ) => void | Promise<void>;
+  /** Autonomy mode — actions run without a per-action approval click. */
+  autoRunTools?: boolean;
 }
 
 export function TranscriptView({
@@ -53,6 +57,7 @@ export function TranscriptView({
   isThinking,
   onWelcomeAction,
   onResolveTool,
+  autoRunTools = false,
 }: Props) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([
     messages.length,
@@ -60,6 +65,52 @@ export function TranscriptView({
     partialTranscript,
     isThinking,
   ]);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const bgRef = useRef<HTMLDivElement>(null);
+
+  // Lenis & GSAP setup
+  useEffect(() => {
+    if (!scrollRef.current || !contentRef.current) return;
+
+    // Check for reduced motion or coarse pointer (touch)
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    const isReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    
+    if (isTouch || isReducedMotion) return; // Skip Lenis on touch or reduced motion
+
+    const lenis = new Lenis({
+      wrapper: scrollRef.current,
+      content: contentRef.current,
+      lerp: 0.1,
+      duration: 1.2,
+      smoothWheel: true,
+      wheelMultiplier: 1.2,
+    });
+
+    const onScroll = (e: any) => {
+      // Ambient scroll-linked GSAP effect (Ink Rose atmosphere)
+      if (bgRef.current) {
+        gsap.to(bgRef.current, {
+          y: e.scroll * 0.15,
+          opacity: Math.max(0.2, 0.4 - e.scroll * 0.0005),
+          duration: 0, // scrub directly
+        });
+      }
+    };
+
+    lenis.on('scroll', onScroll);
+
+    function raf(time: number) {
+      lenis.raf(time);
+      requestAnimationFrame(raf);
+    }
+    const rafId = requestAnimationFrame(raf);
+
+    return () => {
+      lenis.destroy();
+      cancelAnimationFrame(rafId);
+    };
+  }, [scrollRef]);
 
   const isEmpty =
     messages.length === 0 &&
@@ -84,7 +135,20 @@ export function TranscriptView({
 
   /* ── Conversation view ────────────────────────────────────── */
   return (
-    <div className={styles.container} ref={scrollRef}>
+    <div className={styles.container} ref={scrollRef} style={{ position: 'relative' }}>
+      {/* GSAP Ambient Background */}
+      <div 
+        ref={bgRef} 
+        style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0, height: '150%',
+          background: 'radial-gradient(ellipse at top center, rgba(238,145,173,0.1) 0%, transparent 70%)',
+          pointerEvents: 'none',
+          zIndex: 0,
+        }} 
+      />
+      
+      <div ref={contentRef} style={{ position: 'relative', zIndex: 1, paddingBottom: 40, display: 'flex', flexDirection: 'column' }}>
       {messages.map((msg, i) => {
         const prev = messages[i - 1];
         const showDivider =
@@ -113,6 +177,7 @@ export function TranscriptView({
               aria-label={`${msg.role === "user" ? "You" : companionName}: ${msg.text.slice(0, 60)}`}
               data-testid={`msg-${i}`}
               onResolveTool={onResolveTool}
+              autoRunTools={autoRunTools}
             />
           </Fragment>
         );
@@ -184,6 +249,7 @@ export function TranscriptView({
 
       {/* Invisible scroll anchor */}
       <div ref={endRef} />
+      </div>
     </div>
   );
 }

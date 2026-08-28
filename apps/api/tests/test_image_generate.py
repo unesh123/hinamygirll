@@ -10,6 +10,7 @@ def test_image_generation_reports_local_comfyui_unavailable_before_queueing(monk
         return False
 
     monkeypatch.setattr(image_generate.comfyui_provider, "health_check", offline)
+    monkeypatch.setattr(image_generate, "cloud_image_available", lambda: False)
 
     result = asyncio.run(
         image_generate.image_generate_handler(
@@ -22,9 +23,56 @@ def test_image_generation_reports_local_comfyui_unavailable_before_queueing(monk
     )
 
     assert result["status"] == "error"
-    assert result["code"] == "COMFYUI_UNAVAILABLE"
-    assert result["localOnly"] is True
+    assert result["code"] == "IMAGE_RENDERER_UNAVAILABLE"
     assert "127.0.0.1:8188" in result["error"]
+
+
+def test_image_generation_prefers_local_comfyui_when_ready(monkeypatch) -> None:
+    async def ready() -> bool:
+        return True
+
+    scheduled: list = []
+    monkeypatch.setattr(image_generate.comfyui_provider, "health_check", ready)
+    monkeypatch.setattr(
+        image_generate.asyncio,
+        "create_task",
+        lambda task: (scheduled.append(task), task.close()),
+    )
+
+    result = asyncio.run(
+        image_generate.image_generate_handler(
+            image_generate.ImageGenerateParams(
+                prompt="A warm companion workspace",
+                userId="local-user",
+                conversationId="local-conversation",
+            )
+        )
+    )
+
+    assert result["status"] == "processing"
+    assert result["strategy"] == "independent-queue-variations"
+
+
+def test_image_generation_uses_cloud_gateway_when_comfyui_offline(monkeypatch) -> None:
+    async def offline() -> bool:
+        return False
+
+    monkeypatch.setattr(image_generate.comfyui_provider, "health_check", offline)
+    monkeypatch.setattr(image_generate, "cloud_image_available", lambda: True)
+
+    result = asyncio.run(
+        image_generate.image_generate_handler(
+            image_generate.ImageGenerateParams(
+                prompt="A warm companion workspace",
+                userId="local-user",
+                conversationId="local-conversation",
+            )
+        )
+    )
+
+    assert result["status"] == "processing"
+    assert result["strategy"] == "cloud-gateway-step-image"
+    assert result["total"] == 1
 
 
 def test_comfyui_workflow_keeps_each_variation_as_a_safe_single_latent() -> None:

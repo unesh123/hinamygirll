@@ -40,6 +40,16 @@ def init_db(settings: Settings) -> sessionmaker[Session]:
     global _session_factory
     engine = make_engine(settings.database_url)
     Base.metadata.create_all(engine)
+    
+    if settings.database_url.startswith("sqlite"):
+        from sqlalchemy import text
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE explicit_memories ADD COLUMN expires_at DATETIME;"))
+                conn.commit()
+        except Exception:
+            pass
+            
     _session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     return _session_factory
 

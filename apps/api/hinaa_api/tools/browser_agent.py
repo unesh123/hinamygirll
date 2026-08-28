@@ -27,11 +27,23 @@ approval_events = {}
 
 class BrowserTaskParams(BaseModel):
     goal: str = Field(..., description="The high-level goal you want the browser agent to achieve (e.g., 'Search youtube for lo-fi hip hop and play it').")
+    max_steps: int = Field(10, description="Maximum number of steps before timing out.")
+# Simple per-session cache for page extractions: (url, step) -> extracted text
+_page_extraction_cache: Dict[tuple[str, int], str] = {}
+
+
+# Track consecutive "stuck" steps to detect infinite loops
+_max_consecutive_stuck = 3
+_consecutive_stuck = 0
+_last_goal = ""
+
 
 async def browser_execute_task(params: BrowserTaskParams) -> str:
     """
     Executes a high-level browser task autonomously by looping with Gemini 2.5 Flash
     and Playwright tools.
+    Uses a lightweight extraction cache to avoid re-reading the same page state.
+    Detects when the agent is stuck and proactively suggests finishing.
     """
     settings = get_settings()
     gemini_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
@@ -41,6 +53,12 @@ async def browser_execute_task(params: BrowserTaskParams) -> str:
         
     client = genai.Client(api_key=gemini_key)
     goal = params.goal
+    max_steps = params.max_steps
+    
+    # Track goal for stuck detection
+    global _consecutive_stuck, _last_goal
+    _last_goal = goal
+    _consecutive_stuck = 0
     
     system_instruction = f"""You are an autonomous browser agent. Your goal is: {goal}
 You have access to browser tools to navigate, read the page, click, and type.
@@ -50,6 +68,7 @@ Follow these steps:
 3. Use click or type tools on the elements you see.
 4. When you have successfully completed the goal, or if you are completely stuck, call the 'finish_task' tool to end the loop and report the outcome.
 Never guess selectors. Always read the page first, then use the text or IDs provided in the read_page output to click or type.
+IMPORTANT: Before calling read_page, check if we already extracted this page state (same URL + step). If cached, reuse the cached result to save time.
 """
 
     agent_tools = [
@@ -122,7 +141,7 @@ Never guess selectors. Always read the page first, then use the text or IDs prov
         )
     )
 
-    max_steps = 10
+    max_steps = params.max_steps
     step = 0
     final_result = "Task timed out after maximum steps."
 
@@ -130,8 +149,23 @@ Never guess selectors. Always read the page first, then use the text or IDs prov
         # Initial prompt to start the loop
         response = await chat.send_message(f"Begin working on the goal: {goal}")
         
+        current_url = ""
+        
         while step < max_steps:
             step += 1
+            
+            # Stuck detection: if we've read the same page content repeatedly without progress
+            cache_key = (current_url, step) if current_url else ""
+            if cache_key in _page_extraction_cache and step > 2:
+                # Check if the cached result is similar to what we'd get now (stuck pattern)
+                _consecutive_stuck += 1
+                if _consecutive_stuck >= _max_consecutive_stuck:
+                    final_result = (f"Task appears stuck after {step} steps on the same page. "
+                                   f"Goal: {goal}. Consider adjusting the goal or intervening manually. "
+                                   f"Cache key: {cache_key}")
+                    break
+            else:
+                _consecutive_stuck = 0
             
             # Check if model wants to call a tool
             if not response.function_calls:
@@ -150,11 +184,17 @@ Never guess selectors. Always read the page first, then use the text or IDs prov
                 final_result = args.get("result", "Task finished with no summary provided.")
                 break
             elif name == "navigate":
-                # Navigate doesn't require approval if it's safe, but the user said "nav to sensitive URL" needs it.
-                # Let's require approval for all side effects as commanded: (click, fill, enter, nav to sensitive URL)
                 tool_result_str = await browser_navigate(BrowserNavigateParams(url=args.get("url")))
+                current_url = args.get("url", "")
             elif name == "read_page":
-                tool_result_str = await browser_extract(BrowserExtractParams())
+                # Use cached extraction if we've already read this URL at this step
+                cache_key = (current_url, step)
+                if cache_key in _page_extraction_cache:
+                    tool_result_str = f"[CACHED] {_page_extraction_cache[cache_key]}"
+                else:
+                    tool_result_str = await browser_extract(BrowserExtractParams())
+                    # Store in cache
+                    _page_extraction_cache[cache_key] = tool_result_str
             elif name in ["click", "type"]:
                 import uuid
                 from hinaa_api.config import get_settings

@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     )
 
     provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live"] = Field(
-        "cx-gateway", alias="HINAA_PROVIDER_MODE"
+        "claude", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
     azure_speech_region: str | None = Field(None, alias="AZURE_SPEECH_REGION")
@@ -157,6 +157,19 @@ class Settings(BaseSettings):
     elevenlabs_tts_model_expressive: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_TTS_MODEL_EXPRESSIVE")
     elevenlabs_output_format: str = Field("mp3_44100_128", alias="ELEVENLABS_OUTPUT_FORMAT")
     elevenlabs_language_policy: str = Field("auto", alias="ELEVENLABS_LANGUAGE_POLICY")
+    # Fish Audio — server-side multilingual TTS with Nepali/English
+    # switching. The key is read from FISH_AUDIO_API_KEY or the legacy
+    # Fish_Audio_API_KEY spelling; never expose it to the browser.
+    fish_audio_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("FISH_AUDIO_API_KEY", "Fish_Audio_API_KEY"),
+    )
+    fish_audio_base_url: str = Field("https://api.fish.audio", alias="FISH_AUDIO_BASE_URL")
+    fish_audio_hinaa_voice_id: str = Field("", alias="FISH_AUDIO_HINAA_VOICE_ID")
+    fish_audio_hiro_voice_id: str = Field("", alias="FISH_AUDIO_HIRO_VOICE_ID")
+    fish_audio_model_id: str = Field("fish-speech-1.5", alias="FISH_AUDIO_MODEL_ID")
+    fish_audio_output_format: str = Field("mp3", alias="FISH_AUDIO_OUTPUT_FORMAT")
+    fish_audio_timeout_seconds: float = Field(30.0, alias="HINAA_FISH_AUDIO_TIMEOUT_SECONDS")
     # Deepgram — used for Hiro's voice (TTS) and STT transcription
     deepgram_api_key: SecretStr | None = Field(None, alias="Deepgram_API_KEY")
     deepgram_base_url: str = Field("https://api.deepgram.com", alias="Deepgram_BASE_URL")
@@ -194,16 +207,24 @@ class Settings(BaseSettings):
     realtime_idle_timeout_seconds: float = 35.0
     realtime_commit_timeout_seconds: float = 8.0
     database_url: str = Field(DEFAULT_LOCAL_DATABASE_URL, alias="HINAA_DATABASE_URL")
-    auth_mode: Literal["dev", "oidc"] = Field("dev", alias="HINAA_AUTH_MODE")
+    auth_mode: Literal["dev", "oidc", "clerk"] = Field("dev", alias="HINAA_AUTH_MODE")
     dev_auth_subject: str = Field("local-dev-user", alias="HINAA_DEV_AUTH_SUBJECT")
     oidc_issuer: str | None = Field(None, alias="HINAA_OIDC_ISSUER")
     allow_oidc_scaffold_tokens: bool = Field(False, alias="HINAA_ALLOW_OIDC_SCAFFOLD_TOKENS")
+    clerk_jwt_key: str | None = Field(None, alias="CLERK_JWT_KEY")
+    clerk_authorized_parties: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"],
+        alias="CLERK_AUTHORIZED_PARTIES",
+    )
+    tinyfish_api_key: str | None = Field(None, alias="TINYFISH_API_KEY")
+    tinyfish_search_timeout_seconds: float = Field(10.0, alias="HINAA_TINYFISH_SEARCH_TIMEOUT_SECONDS")
+    tinyfish_fetch_timeout_seconds: float = Field(150.0, alias="HINAA_TINYFISH_FETCH_TIMEOUT_SECONDS")
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
     local_workspace_dir: Path = Field(
         Path.home() / ".hinaa" / "workspace", alias="HINAA_LOCAL_WORKSPACE_DIR"
     )
 
-    @field_validator("allowed_origins", mode="before")
+    @field_validator("allowed_origins", "clerk_authorized_parties", mode="before")
     @classmethod
     def split_origins(cls, value: object) -> object:
         if isinstance(value, str):
@@ -407,6 +428,14 @@ class Settings(BaseSettings):
             raise ValueError(f"CX gateway model not in CX_GATEWAY_ALLOWED_MODELS: {allowed}")
         return model
 
+
+    @property
+    def fish_audio_configured(self) -> bool:
+        return bool(self.fish_audio_api_key and self.fish_audio_api_key.get_secret_value())
+
+    @property
+    def fish_audio_voice_ids(self) -> tuple[str, str]:
+        return self.fish_audio_hinaa_voice_id, self.fish_audio_hiro_voice_id
 
     @property
     def elevenlabs_configured(self) -> bool:

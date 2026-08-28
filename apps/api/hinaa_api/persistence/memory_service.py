@@ -5,7 +5,7 @@ import json
 import re
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..errors import HinaaError
@@ -191,6 +191,45 @@ class MemoryService:
             session.commit()
             return {"forgotten": True, "id": memory_id}
 
+    def update_memory(
+        self, user_id: str, memory_id: str, content: str, expires_at: datetime | None = None
+    ) -> dict[str, object]:
+        text = content.strip()
+        if not text or len(text) > 500:
+            raise HinaaError("MEMORY_INVALID", "Memory content is empty or too long.", 422, False)
+        if SENSITIVE.search(text):
+            raise HinaaError(
+                "MEMORY_SENSITIVE_BLOCKED",
+                "That looks like sensitive credential data and was not stored.",
+                422,
+                False,
+            )
+        with self._factory() as session:
+            memory = session.scalar(
+                select(ExplicitMemory).where(
+                    ExplicitMemory.id == memory_id,
+                    ExplicitMemory.user_id == user_id,
+                    ExplicitMemory.deleted_at.is_(None),
+                )
+            )
+            if memory is None:
+                raise HinaaError("MEMORY_NOT_FOUND", "That memory was not found.", 404, False)
+            memory.content = text
+            memory.expires_at = expires_at
+            memory.updated_at = datetime.now(UTC)
+            session.add(
+                AuditEvent(
+                    user_id=user_id,
+                    action="memory.update",
+                    resource_type="memory",
+                    resource_id=memory_id,
+                    result="ok",
+                )
+            )
+            session.commit()
+            session.refresh(memory)
+            return self._public_memory(memory)
+
     def approved_memory_blocks(self, user_id: str, limit: int = 8) -> tuple[str, ...]:
         with self._factory() as session:
             user = session.scalar(select(User).where(User.id == user_id))
@@ -202,6 +241,7 @@ class MemoryService:
                     ExplicitMemory.user_id == user_id,
                     ExplicitMemory.deleted_at.is_(None),
                     ExplicitMemory.status == "approved",
+                    or_(ExplicitMemory.expires_at.is_(None), ExplicitMemory.expires_at > datetime.now(UTC)),
                 )
                 .order_by(ExplicitMemory.updated_at.desc())
                 .limit(limit)
@@ -312,6 +352,30 @@ class MemoryService:
                 "note": "Export excludes deleted content and never includes provider secrets.",
             }
 
+    def delete_all_memories(self, user_id: str) -> dict[str, object]:
+        with self._factory() as session:
+            self._user(session, user_id)
+            now = datetime.now(UTC)
+            for memory in session.scalars(
+                select(ExplicitMemory).where(
+                    ExplicitMemory.user_id == user_id,
+                    ExplicitMemory.deleted_at.is_(None),
+                )
+            ):
+                memory.deleted_at = now
+                memory.status = "revoked"
+            session.add(
+                AuditEvent(
+                    user_id=user_id,
+                    action="memory.clear_all",
+                    resource_type="user",
+                    resource_id=user_id,
+                    result="ok",
+                )
+            )
+            session.commit()
+            return {"cleared": True}
+
     def delete_all(self, user_id: str) -> dict[str, object]:
         with self._factory() as session:
             user = self._user(session, user_id)
@@ -385,6 +449,7 @@ class MemoryService:
             "status": memory.status,
             "consentState": memory.consent_state,
             "sourceTurnRef": memory.source_turn_ref,
+            "expiresAt": memory.expires_at.isoformat() if memory.expires_at else None,
             "createdAt": memory.created_at.isoformat() if memory.created_at else None,
             "updatedAt": memory.updated_at.isoformat() if memory.updated_at else None,
         }

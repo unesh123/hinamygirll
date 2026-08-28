@@ -39,6 +39,7 @@ export const POWER_UPS: PowerUp[] = [
   { id: "@automate", icon: Wrench, label: "Automation", shortcut: "@automate", description: "Chain tool pipelines", color: "#f59e0b", group: "Automate", action: "automation" },
   { id: "@system", icon: Cpu, label: "System Tools", shortcut: "@system", description: "Open apps and system actions", color: "#6366f1", group: "Tools", action: "system-open" },
   { id: "@export", icon: Download, label: "Export", shortcut: "@export", description: "Download or save results", color: "#84cc16", group: "Tools", action: "export" },
+  { id: "@humanize", icon: Sparkles, label: "Text Humanizer", shortcut: "@humanize", description: "Rewrite and polish text drafts", color: "#10b981", group: "Create", action: "open-humanizer" },
 ];
 
 interface PowerUpMentionsProps {

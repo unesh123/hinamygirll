@@ -78,11 +78,12 @@ function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> 
   const migrated = { ...raw };
   if (version < 2) {
     const provider = isObject(raw.provider) ? { ...raw.provider } : {};
-    // CX becomes the default for fresh and previously automatic installs. An
-    // explicit provider choice remains untouched, and runtime routing still
-    // falls back safely when CX is not configured on this local machine.
+    // Claude is the default brain for fresh and previously automatic installs:
+    // it runs on a stable gateway (api.mwapi.dev) and is verified working. An
+    // explicit provider choice remains untouched here, and runtime routing
+    // still falls back safely when a provider is not configured.
     if (provider.preferredMode === undefined || provider.preferredMode === "auto") {
-      provider.preferredMode = "cx-gateway";
+      provider.preferredMode = "claude";
     }
     migrated.provider = provider;
   }
@@ -91,6 +92,26 @@ function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> 
   }
   if (version < 4) {
     migrated.language = { activePolicy: "auto-hi-en" };
+  }
+  if (version < 5) {
+    // The CX Gateway ran on an ephemeral Cloudflare quick tunnel that is no
+    // longer reachable, so a persisted "cx-gateway" choice can never complete a
+    // turn. Move only those users to Claude (a live, verified brain); every
+    // other explicit provider choice is preserved.
+    const provider = isObject(migrated.provider) ? { ...migrated.provider } : {};
+    if (provider.preferredMode === "cx-gateway") {
+      provider.preferredMode = "claude";
+    }
+    migrated.provider = provider;
+  }
+  if (version < 6) {
+    // Autonomy default: HINAA executes her proposed actions without a per-action
+    // approval click. This is a user-visible, reversible toggle in Settings.
+    migrated.automation = {
+      autoRunTools: isObject(migrated.automation)
+        ? safeBoolean(migrated.automation.autoRunTools, true)
+        : true,
+    };
   }
   migrated._version = SETTINGS_VERSION;
   return migrated;
@@ -157,12 +178,23 @@ function validateLanguage(raw: unknown): HinaaSettings["language"] {
   };
 }
 
+function validateAutomation(raw: unknown): HinaaSettings["automation"] {
+  const obj = isObject(raw) ? raw : {};
+  return {
+    autoRunTools: safeBoolean(
+      obj.autoRunTools,
+      DEFAULT_SETTINGS.automation.autoRunTools,
+    ),
+  };
+}
+
 function validateSettings(raw: Record<string, unknown>): HinaaSettings {
   return {
     _version: SETTINGS_VERSION,
     appearance: validateAppearance(raw.appearance),
     provider: validateProvider(raw.provider),
     language: validateLanguage(raw.language),
+    automation: validateAutomation(raw.automation),
   };
 }
 
@@ -177,6 +209,7 @@ function mergeWithDefaults(validated: HinaaSettings): HinaaSettings {
     appearance: { ...DEFAULT_SETTINGS.appearance, ...validated.appearance },
     provider: { ...DEFAULT_SETTINGS.provider, ...validated.provider },
     language: { ...DEFAULT_SETTINGS.language, ...validated.language },
+    automation: { ...DEFAULT_SETTINGS.automation, ...validated.automation },
   };
 }
 

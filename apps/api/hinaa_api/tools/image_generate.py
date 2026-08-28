@@ -12,6 +12,7 @@ from ..config import get_settings
 from ..persistence.db import get_session_factory
 from ..persistence.orm import GenerationSet, ImageJob
 from ..providers.local_comfyui import ComfyUIConfig, LocalComfyUIProvider
+from .cloud_image import generate_cloud_images, cloud_image_available
 from .newbie_prompt_planner import NewBiePromptBuilder
 from .registry import ToolDefinition, registry
 
@@ -163,15 +164,62 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams) -> 
 
 
 async def image_generate_handler(params: ImageGenerateParams) -> dict[str, Any]:
-    # Fail before creating durable pending slots when the only supported local
-    # renderer is offline. This keeps chat actions truthful and gives the user a
-    # direct recovery path instead of a delayed generic poll failure.
+    # Prefer local ComfyUI when it is online; otherwise fall back to the cloud
+    # image gateway (hcnsec / step-image) when a codex key is configured. This
+    # keeps image generation working on machines without a local GPU renderer.
     if not await comfyui_provider.health_check():
+        if not cloud_image_available():
+            return {
+                "status": "error",
+                "error": "Local ComfyUI is unavailable and no cloud image gateway is configured. Start ComfyUI on http://127.0.0.1:8188 or set OPENAI_CODEX_API_KEY + OPENAI_CODEX_BASE_URL.",
+                "code": "IMAGE_RENDERER_UNAVAILABLE",
+            }
+
+        generation_set_id = str(uuid.uuid4())
+        session_factory = get_session_factory(settings)
+        with session_factory() as session:
+            validated_conversation_id: str | None = None
+            if params.conversationId:
+                from hinaa_api.persistence.orm import Conversation
+
+                if session.get(Conversation, params.conversationId):
+                    validated_conversation_id = params.conversationId
+            session.add(
+                GenerationSet(
+                    id=generation_set_id,
+                    user_id=params.userId,
+                    conversation_id=validated_conversation_id,
+                    prompt=params.prompt,
+                    workflow_mode=params.mode,
+                )
+            )
+            session.commit()
+
+        async def run_cloud(generation_set_id: str, params: ImageGenerateParams) -> None:
+            results = await generate_cloud_images(params.prompt, params.count)
+            session_factory = get_session_factory(settings)
+            with session_factory() as session:
+                jobs = [
+                    ImageJob(
+                        generation_set_id=generation_set_id,
+                        seed=0,
+                        status=("completed" if item["file_path"] else "failed"),
+                        width=1024,
+                        height=1024,
+                        file_path=item["file_path"],
+                        completed_at=datetime.now(timezone.utc) if item["file_path"] else None,
+                    )
+                    for item in results
+                ]
+                session.add_all(jobs)
+                session.commit()
+
+        asyncio.create_task(run_cloud(generation_set_id, params))
         return {
-            "status": "error",
-            "error": "Local ComfyUI is unavailable. Start ComfyUI on http://127.0.0.1:8188, then try the image request again.",
-            "code": "COMFYUI_UNAVAILABLE",
-            "localOnly": True,
+            "status": "processing",
+            "job_id": generation_set_id,
+            "total": min(max(1, params.count), 10),
+            "strategy": "cloud-gateway-step-image",
         }
 
     generation_set_id = str(uuid.uuid4())

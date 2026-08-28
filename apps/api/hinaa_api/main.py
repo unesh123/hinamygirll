@@ -6,6 +6,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any
 from uuid import UUID, uuid4
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,12 +18,13 @@ from .audio import validate_wav
 from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
-from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile
+from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse
 from .persistence import MemoryService, init_db
 from .persistence.auth import AuthContext, auth_dependency_factory, resolve_auth
 from .persistence.db import get_session_factory, reset_session_factory
 from .persistence.project_service import LocalProjectService
 from .prompts import PROMPT_VERSION
+from .reachability import is_ephemeral_tunnel, probe_gateway
 from .realtime import RealtimeGateway
 from .services import ConversationService
 from .tools import registry
@@ -37,6 +39,11 @@ class RememberBody(BaseModel):
     content: Annotated[str, Field(min_length=1, max_length=500)]
     category: Annotated[str, Field(default="other", max_length=40)] = "other"
     sourceTurnRef: str | None = None
+
+
+class UpdateMemoryBody(BaseModel):
+    content: Annotated[str, Field(min_length=1, max_length=500)]
+    expiresAt: datetime | None = None
 
 
 class MemoryToggleBody(BaseModel):
@@ -326,6 +333,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/v1/providers", response_model=list[ProviderStatus])
     async def provider_status() -> list[ProviderStatus]:
+        # A provider on an ephemeral quick tunnel can keep valid-looking config
+        # long after the tunnel has died. Probe those hosts so the UI never shows
+        # a green "Ready" badge for a brain that cannot answer a single turn.
+        cx_state = "unavailable"
+        cx_message = "CX Gateway needs CX_GATEWAY_API_KEY and CX_GATEWAY_BASE_URL."
+        if active_settings.cx_gateway_configured:
+            cx_base = active_settings.cx_gateway_base_url
+            if is_ephemeral_tunnel(cx_base):
+                probe = await probe_gateway(cx_base)
+                if probe.reachable:
+                    cx_state = "healthy"
+                    cx_message = (
+                        f"CX Gateway ({active_settings.cx_gateway_model}) is reachable and ready."
+                    )
+                else:
+                    cx_state = "unavailable"
+                    cx_message = (
+                        f"CX Gateway is configured but unreachable. {probe.detail} "
+                        "Restart the tunnel and update CX_GATEWAY_BASE_URL, or pick another brain."
+                    )
+            else:
+                cx_state = "healthy"
+                cx_message = (
+                    f"CX Gateway ({active_settings.cx_gateway_model}) is configured and ready."
+                )
+
         return [
             ProviderStatus(
                 id="mock",
@@ -477,12 +510,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"default-model:{active_settings.cx_gateway_model}",
                     *[f"model:{model}" for model in active_settings.cx_allowed_models],
                 ],
-                state="healthy" if active_settings.cx_gateway_configured else "unavailable",
-                userMessage=(
-                    "CX Gateway (cx/gpt-5.6-sol) is configured and ready."
-                    if active_settings.cx_gateway_configured
-                    else "CX Gateway needs CX_GATEWAY_API_KEY and CX_GATEWAY_BASE_URL."
-                ),
+                state=cx_state,
+                userMessage=cx_message,
             ),
             ProviderStatus(
                 id="gemini-live",
@@ -559,6 +588,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "Deepgram TTS and STT configured server-side for Hiro."
                     if active_settings.deepgram_configured
                     else "Deepgram_API_KEY is not configured in backend."
+                ),
+            ),
+            ProviderStatus(
+                id="fish-audio",
+                capabilities=["tts", "multilingual", "nepali", "english", "language-auto-detect"],
+                state="healthy" if active_settings.fish_audio_configured else "unavailable",
+                userMessage=(
+                    "Fish Audio TTS configured; Nepali/English auto-switches by text script."
+                    if active_settings.fish_audio_configured
+                    else "FISH_AUDIO_API_KEY is not configured in backend."
+                ),
+            ),
+            ProviderStatus(
+                id="tinyfish",
+                capabilities=["search", "fetch"],
+                state="healthy" if active_settings.tinyfish_api_key else "unavailable",
+                userMessage=(
+                    "TinyFish search/fetch tools registered server-side."
+                    if active_settings.tinyfish_api_key
+                    else "TINYFISH_API_KEY is not configured; paste it into apps/api/.env.local."
                 ),
             ),
         ]
@@ -1009,6 +1058,162 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service.memory.clear(session_id)
         return Response(status_code=204)
 
+    @app.post("/v1/text/humanize", response_model=TextHumanizerResponse)
+    async def text_humanize(body: TextHumanizerRequest) -> TextHumanizerResponse:
+        import re
+        
+        text = body.text
+        
+        protected_map = {}
+        counter = [0]
+        
+        def repl_protect(m):
+            key = f"[[PROTECTED_SPAN_{counter[0]}]]"
+            protected_map[key] = m.group(0)
+            counter[0] += 1
+            return key
+            
+        # Code
+        text = re.sub(r'```.*?```', repl_protect, text, flags=re.DOTALL)
+        text = re.sub(r'`[^`]+`', repl_protect, text)
+        
+        # Markdown Links
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', repl_protect, text)
+        # Raw Links
+        text = re.sub(r'https?://[^\s]+', repl_protect, text)
+        
+        # Citations: [1], [1, 2]
+        text = re.sub(r'\[\d+(?:,\s*\d+)*\]', repl_protect, text)
+        
+        # Paths: C:\foo\bar or /foo/bar
+        text = re.sub(r'(?:[a-zA-Z]:\\|/)(?:[\w.-]+(?:\\|/))*[\w.-]+', repl_protect, text)
+        
+        # Numbers
+        text = re.sub(r'\b\d+(?:\.\d+)?\b', repl_protect, text)
+        
+        # Emails
+        text = re.sub(r'[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}', repl_protect, text)
+        
+        # Hindi (Devanagari)
+        text = re.sub(r'[\u0900-\u097F]+', repl_protect, text)
+        
+        external_transfer = False
+        review_metrics = None
+        review_ideas = None
+        
+        if body.action == "review":
+            humanized = text
+            sentences = [s.strip() for s in re.split(r'[.!?]+', body.text) if s.strip()]
+            paragraphs = [p.strip() for p in body.text.split('\n\n') if p.strip()]
+            
+            word_count = len(re.findall(r'\b\w+\b', body.text))
+            english_word_count = len(re.findall(r'\b[A-Za-z]+\b', body.text))
+            
+            long_sentences = 0
+            dense_paragraphs = 0
+            ideas = []
+            
+            openings = []
+            for s in sentences:
+                if re.search(r'[\u0900-\u097F]', s):
+                    continue
+                
+                words = re.findall(r'\b[A-Za-z]+\b', s)
+                if words:
+                    opening = words[0].lower()
+                    if openings and openings[-1] == opening:
+                        ideas.append(f"Repetition: Consider varying sentence openings. Multiple sentences start with '{opening}'.")
+                    openings.append(opening)
+                    
+                    if len(words) > 30:
+                        long_sentences += 1
+                        
+            if long_sentences > 0:
+                ideas.append(f"Length: Found {long_sentences} sentences over 30 words. Consider breaking them up for clarity.")
+                
+            for p in paragraphs:
+                p_sentences = [s.strip() for s in re.split(r'[.!?]+', p) if s.strip()]
+                p_words = len(re.findall(r'\b\w+\b', p))
+                if len(p_sentences) > 5 or p_words > 100:
+                    dense_paragraphs += 1
+            
+            if dense_paragraphs > 0:
+                ideas.append(f"Density: Found {dense_paragraphs} dense paragraphs. Try splitting them to improve readability.")
+                
+            fillers = [r'\bactually\b', r'\bbasically\b', r'\bliterally\b', r'\bjust\b', r'\bvery\b']
+            filler_count = sum(len(re.findall(f, body.text, flags=re.IGNORECASE)) for f in fillers)
+            
+            if filler_count > 0:
+                ideas.append(f"Filler: Detected {filler_count} filler words. Removing them tightens the prose.")
+                
+            review_metrics = {
+                "wordCount": word_count,
+                "englishWordCount": english_word_count,
+                "sentenceCount": len(sentences),
+                "longEnglishSentences": long_sentences,
+                "denseParagraphs": dense_paragraphs
+            }
+            review_ideas = ideas
+
+        elif body.providerMode == "local":
+            text = re.sub(r'\s+', ' ', text)
+            fillers = [r'\bactually\b', r'\bbasically\b', r'\bliterally\b', r'\bjust\b', r'\bvery\b']
+            for f in fillers:
+                text = re.sub(f, '', text, flags=re.IGNORECASE)
+            
+            text = re.sub(r'\s+', ' ', text).strip()
+            humanized = text
+        else:
+            # We enforce externalTextTransfer=False for this tool per requirements.
+            external_transfer = False
+            from .prompts.models import PromptPackage, PersonalitySettings, MoodSnapshot
+            
+            mode_prompts = {
+                "natural": "Rewrite this text to sound more natural, flowing, and human-like. Fix typos but do not change the core meaning or facts.",
+                "warm": "Rewrite this text to sound warm, empathetic, supportive, and friendly. Do not change the facts.",
+                "professional": "Rewrite this text to sound professional, objective, and clear for a workplace setting.",
+                "concise": "Rewrite this text to be as concise, brief, and direct as possible. Remove all filler."
+            }
+            instruction = mode_prompts.get(body.mode, mode_prompts["natural"])
+            
+            prompt = PromptPackage(
+                companion_id="hinaa",
+                interaction_mode="rest",
+                system_instruction=f"You are a writing quality assistant. {instruction}\nReturn ONLY the final rewritten text. DO NOT add conversational filler like 'Here is the rewrite:'. Preserve any [[PROTECTED_*]] markers exactly as they appear.",
+                user_contents=text,
+                layers=[],
+                prompt_version="1",
+                safety_policy_version="1",
+                companion_profile_version="1",
+                fingerprint="humanizer",
+                response_depth="conversational",
+                language="en-US",
+                personality=PersonalitySettings(),
+                mood=MoodSnapshot(valence=0.0, arousal=0.0)
+            )
+            
+            provider = service._router.get_provider(body.providerMode, body.brainModel)
+            
+            try:
+                humanized = await provider._chat_text(prompt)
+                humanized = humanized.strip()
+            except Exception as e:
+                logger.error(f"Humanizer LLM error: {e}")
+                humanized = text
+                
+        for key, val in protected_map.items():
+            humanized = humanized.replace(key, val)
+            
+        return TextHumanizerResponse(
+            originalText=body.text,
+            humanizedText=humanized,
+            protectedSpans=len(protected_map),
+            externalTextTransfer=external_transfer,
+            mode=body.mode,
+            reviewMetrics=review_metrics,
+            reviewIdeas=review_ideas
+        )
+
     @app.post("/v1/speech/synthesis")
     async def synthesize(body: SpeechRequest) -> Response:
         started = perf_counter()
@@ -1058,6 +1263,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             memory_id: str, auth: AuthContext = Depends(require_auth)
         ) -> dict[str, object]:
             return memory_service.forget(auth.user_id, memory_id)
+
+        @app.put("/v1/privacy/memories/{memory_id}")
+        async def update_memory(
+            memory_id: str, body: UpdateMemoryBody, auth: AuthContext = Depends(require_auth)
+        ) -> dict[str, object]:
+            return memory_service.update_memory(
+                auth.user_id, memory_id, body.content, body.expiresAt
+            )
+
+        @app.delete("/v1/privacy/memories")
+        async def clear_all_memories(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:
+            return memory_service.delete_all_memories(auth.user_id)
 
         @app.delete("/v1/privacy/conversations/{conversation_id}")
         async def clear_conversation(

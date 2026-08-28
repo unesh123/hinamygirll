@@ -85,6 +85,12 @@ export interface CompanionController {
 export interface CompanionControllerOptions {
   routing: ProviderRuntimeSelection;
   languagePolicy: ActiveLanguagePolicy;
+  /**
+   * Standing consent for tool execution. When true, proposed actions run
+   * immediately instead of waiting for a per-action approval click. Defaults to
+   * false so any caller that does not opt in keeps the explicit approval gate.
+   */
+  autoRunTools?: boolean;
 }
 
 function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US" | "hi-IN" {
@@ -93,7 +99,7 @@ function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US
   return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
 }
 
-export function useCompanionController({ routing, languagePolicy }: CompanionControllerOptions): CompanionController {
+export function useCompanionController({ routing, languagePolicy, autoRunTools = false }: CompanionControllerOptions): CompanionController {
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
   const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
@@ -498,24 +504,35 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
     if (processedToolMessageIds.current.has(lastMessage.id)) return;
 
     processedToolMessageIds.current.add(lastMessage.id);
-    // A model proposal is not consent to browse, send, purchase, or call an
-    // external service. Keep it visible until a dedicated confirmation UI is
-    // implemented, then submit with `confirmed: true` only after approval.
+    const messageId = lastMessage.id;
+
+    // Autonomy mode carries standing consent from Settings, so a proposal is
+    // executed immediately. With autonomy off, a model proposal is still not
+    // consent to browse, send, purchase, or call an external service: the action
+    // stays visible and pending until it is explicitly allowed or declined, and
+    // only then is it submitted with `confirmed: true`.
     setMessages((current) =>
       current.map((message) =>
-        message.id === lastMessage.id
+        message.id === messageId
           ? {
               ...message,
               toolActivity: toolRequests.map((request) => ({
                 id: request.toolName,
                 status: "pending" as const,
-                label: `Proposed action: ${request.toolName}`,
+                label: autoRunTools
+                  ? `Auto-running: ${request.toolName}`
+                  : `Proposed action: ${request.toolName}`,
               })),
             }
           : message,
       ),
     );
-  }, [messages]);
+
+    if (!autoRunTools) return;
+    for (const request of toolRequests) {
+      void resolveToolRequest(messageId, request, true);
+    }
+  }, [messages, autoRunTools, resolveToolRequest]);
 
   return {
     companionId,

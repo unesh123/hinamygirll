@@ -24,7 +24,11 @@ def test_default_database_is_private_and_durable() -> None:
     settings = Settings(_env_file=None, HINAA_PROVIDER_MODE="mock")
     assert settings.database_url.startswith("sqlite+pysqlite:///")
     assert not settings.database_url.endswith(":memory:")
-    assert ".hinaa/hinaa.db" in settings.database_url
+    assert ".hinaa" in settings.database_url
+    assert "hinaa.db" in settings.database_url
+    # Windows and POSIX both point at the durable per-user DB, just with
+    # different path separators.
+    assert ":memory:" not in settings.database_url
 
 
 def test_llm_timeout_is_independent_of_media_timeout() -> None:

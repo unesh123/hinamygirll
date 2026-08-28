@@ -1,3 +1,4 @@
+import { ClerkProvider } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./app/styles/global.css";
@@ -21,8 +22,17 @@ if (import.meta.env.DEV && "serviceWorker" in navigator) {
     });
 }
 
+const authMode = import.meta.env.VITE_HINAA_AUTH_MODE;
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    {authMode === "clerk" && PUBLISHABLE_KEY ? (
+      <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
+        <App />
+      </ClerkProvider>
+    ) : (
+      <App />
+    )}
   </StrictMode>,
 );

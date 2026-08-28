@@ -32,6 +32,7 @@ from .providers.groq import GroqLLMProvider
 from .providers.local import LocalLLMProvider, make_local_stt, make_local_tts
 from .providers.mock import MockLLMProvider, MockSTTProvider, MockTTSProvider
 from .providers.elevenlabs import ElevenLabsConfig, ElevenLabsHTTPStreamingProvider, ElevenLabsSTTProvider
+from .providers.fish_audio import FishAudioConfig, FishAudioTTSProvider
 from .providers.openai_llm import OpenAILLMProvider
 from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
 from .voice_profiles import resolve_calibration, resolve_voice
@@ -120,13 +121,15 @@ def _spoken_summary_from_display(text: str, *, limit: int = 420) -> str:
     return " ".join(summary).strip() or plain[:limit].strip()
 
 
-def _apply_response_quality_guard(plan: AssistantTurnPlan) -> None:
+def _apply_response_quality_guard(plan: AssistantTurnPlan, is_live: bool = False) -> None:
     """Normalize a completed plan without changing meaning or tool requests."""
     plan.displayText = _remove_repeated_passages(plan.displayText)
     plan.spokenText = _remove_repeated_passages(plan.spokenText)
     # Voice should complement a long display answer, not replay it verbatim.
+    # In live streaming mode, the contract guarantees natural conversational text.
     if (
-        len(plan.displayText) > 160
+        not is_live
+        and len(plan.displayText) > 160
         and _comparison_key(plan.displayText) == _comparison_key(plan.spokenText)
     ):
         plan.spokenText = _spoken_summary_from_display(plan.displayText)
@@ -549,6 +552,21 @@ class ProviderRouter:
             return DeepgramTTSProvider(
                 api_key=self.settings.deepgram_api_key.get_secret_value(),
                 base_url=self.settings.deepgram_base_url
+            )
+        # Fish Audio is the preferred multilingual TTS (Nepali/English)
+        # when configured WITH a voice id; ElevenLabs and Azure remain
+        # fallbacks when the key exists but no voice is chosen yet.
+        if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
+            assert self.settings.fish_audio_api_key
+            return FishAudioTTSProvider(
+                FishAudioConfig(
+                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                    base_url=self.settings.fish_audio_base_url,
+                    voice_id=self.settings.fish_audio_voice_ids[0],
+                    model_id=self.settings.fish_audio_model_id,
+                    output_format=self.settings.fish_audio_output_format,
+                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                )
             )
         if self.settings.elevenlabs_configured:
             assert self.settings.elevenlabs_api_key
@@ -1115,7 +1133,7 @@ class ConversationService:
                 True,
             ) from error
 
-        _apply_response_quality_guard(result.value)
+        _apply_response_quality_guard(result.value, is_live=True)
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
         self._persist_learned_memories(user_id, request.sessionId)
         
@@ -1199,6 +1217,20 @@ class ConversationService:
                 else:
                     raise HinaaError("TTS_FAILED", f"Deepgram TTS failed and no fallback configured: {deepgram_err}", 503, True) from deepgram_err
         
+        if isinstance(provider, FishAudioTTSProvider):
+            # Language hint auto-detects Nepali (Devanagari) vs English per turn.
+            voice_id = (
+                self.settings.fish_audio_voice_ids[0]
+                if companion_id == "hinaa"
+                else self.settings.fish_audio_voice_ids[1]
+            )
+            if not voice_id:
+                raise HinaaError("TTS_FAILED", "Fish Audio voice id is not configured.", 503, True)
+            try:
+                async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                    return await provider.synthesize(text, voice=voice_id)
+            except Exception as error:
+                raise HinaaError("TTS_FAILED", f"Fish Audio TTS failed: {error}", 503, True) from error
         if isinstance(provider, ElevenLabsHTTPStreamingProvider):
             # Select per-companion voice ID
             if companion_id == "hiro":

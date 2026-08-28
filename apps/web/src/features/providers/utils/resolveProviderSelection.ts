@@ -70,10 +70,24 @@ export function resolveProviderSelection(
     // no longer configured on this deployment, recover to deterministic mock
     // mode rather than surfacing a provider-configuration error in chat.
     if (providers.loaded && (health === "unavailable" || health === "disabled")) {
+      // Recover to a live real brain when one exists (Claude first) instead of
+      // the canned mock responder, so a persisted-but-now-unreachable provider
+      // (e.g. a CX gateway whose ephemeral tunnel has expired) still answers
+      // with a genuine model. Mock remains the last resort.
+      const recoveryMode: ConcreteProviderMode =
+        providers.getHealth("claude") === "healthy" ? "claude" : "mock";
+      const recoveryModel =
+        recoveryMode === "claude"
+          ? resolveCurrentModel(
+              "claude",
+              models["claude" as keyof typeof models],
+              providers,
+            )
+          : null;
       return {
         preferredMode,
-        activeMode: "mock",
-        activeModel: null,
+        activeMode: recoveryMode,
+        activeModel: recoveryModel,
         reason: "recovery",
       };
     }

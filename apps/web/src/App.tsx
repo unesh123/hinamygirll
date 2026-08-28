@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/react";
 import "./App.css";
 import { motion } from "framer-motion";
+import { AudioLines, ListChecks, ScanFace, Search, Wand2 } from "lucide-react";
 import { TranscriptView } from "./features/chat/components/TranscriptView";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
 import {
@@ -27,6 +29,7 @@ import { SettingsDialog, SettingsTrigger, useSettings, useSettingsPersistence } 
 import { AppearanceSettings } from "./features/settings/sections/AppearanceSettings";
 import { LanguageSettings } from "./features/settings/sections/LanguageSettings";
 import { ProviderSettings } from "./features/settings/sections/ProviderSettings";
+import { AutomationSettings } from "./features/settings/sections/AutomationSettings";
 import { DiagnosticsSettings } from "./features/settings/sections/DiagnosticsSettings";
 import { NavRail, type NavSection } from "./components/ui/NavRail";
 import { ActivityPanel, type AgentStep } from "./components/ui/ActivityPanel";
@@ -44,6 +47,56 @@ const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((modul
 const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
 const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").then((module) => ({ default: module.LocalImageStudio })));
 const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
+const HumanizerStudio = lazy(() => import("./features/tools/HumanizerStudio").then((module) => ({ default: module.HumanizerStudio })));
+
+function ClerkAuthWrapper() {
+  const { isSignedIn } = useAuth();
+  return (
+    <>
+      <ClerkFetchInterceptor />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '8px' }}>
+        {isSignedIn ? (
+          <UserButton />
+        ) : (
+          <>
+            <SignInButton mode="modal" />
+            <SignUpButton mode="modal" />
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ClerkFetchInterceptor() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      let [resource, config] = args;
+      const url = typeof resource === 'string' ? resource : resource instanceof URL ? resource.toString() : (resource as Request).url;
+      if (url.startsWith('/api') || url.startsWith('/v1') || url.startsWith('http://localhost:8000/v1')) {
+        try {
+          const token = await getToken();
+          if (token) {
+            config = config || {};
+            config.headers = {
+              ...config.headers,
+              Authorization: `Bearer ${token}`
+            };
+          }
+        } catch (e) {
+          console.error("Failed to get Clerk token", e);
+        }
+      }
+      return originalFetch(resource, config);
+    };
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [getToken]);
+  return null;
+}
 
 const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize: 12 }}>Loading local workspace…</div>;
 
@@ -156,7 +209,7 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
 export default function App() {
   const playback = useAudioPlayback();
   const providers = useProviders();
-  const { settings, setAppearance, setLanguage, setProvider } = useSettings();
+  const { settings, setAppearance, setLanguage, setProvider, setAutomation } = useSettings();
   useSettingsPersistence(settings);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -234,6 +287,7 @@ export default function App() {
   const controller = useCompanionController({
     routing,
     languagePolicy: settings.language.activePolicy,
+    autoRunTools: settings.automation.autoRunTools,
   });
   // This is HINAA's own text only. The avatar director uses it for a subtle
   // deterministic expression accent; it never classifies webcam/user emotion.
@@ -408,6 +462,7 @@ export default function App() {
       "automation": () => { setNavSection("tasks"); setSidebarExpanded(null); },
       "system-open": () => { setNavSection("tools"); setSidebarExpanded(null); },
       "export": () => { setNavSection("files"); setSidebarExpanded(null); },
+      "open-humanizer": openHumanizerStudio,
     };
     map[p.action]?.();
   }, []);
@@ -444,6 +499,13 @@ export default function App() {
     setDrawerMode("image");
     setDrawerTitle("Hinaa Image Studio");
     setDrawerContent(<Suspense fallback={lazyPanelFallback}><LocalImageStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
+    setDrawerOpen(true);
+  };
+
+  const openHumanizerStudio = () => {
+    setDrawerMode("info");
+    setDrawerTitle("Text Humanizer Studio");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><HumanizerStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
     setDrawerOpen(true);
   };
 
@@ -621,9 +683,9 @@ export default function App() {
                   title="Open VSeeFace and VMC connection controls"
                   aria-label="Open VSeeFace and VMC connection controls"
                 >
-                  {faceTrack.status === "connecting" ? "⏳ Connecting" :
-                   faceTrack.status === "live" ? "🎭 LIVE" :
-                   faceTrack.status === "test" ? "🎭 TEST" : "🎭 VSeeFace"}
+                  {faceTrack.status === "connecting" ? <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> Connecting</> :
+                   faceTrack.status === "live" ? <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> LIVE</> :
+                   faceTrack.status === "test" ? <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> TEST</> : <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> VSeeFace</>}
                 </button>
               </div>
               {avatarUploadMessage && <div className="vrm-upload-status" role="status">{avatarUploadMessage}</div>}
@@ -652,9 +714,14 @@ export default function App() {
                 <div className="header-right">
                   <span className="header-status"><span className="header-status-dot" />{stateLabels[controller.state]}</span>
                   {routing.activeMode === "cx-gateway" && <span title="CX Gateway is the active Hinaa brain" style={{ color: "#0f766e", fontSize: 11, fontWeight: 750 }}>CX Brain</span>}
-                  {routing.activeMode === "claude" && <span title="Claude is the active Hinaa brain" style={{ color: "#d97706", fontSize: 11, fontWeight: 750 }}>Claude</span>}
+                  {routing.activeMode === "claude" && <span title="Claude is the active Hinaa brain" style={{ color: "#ffd0dd", fontSize: 11, fontWeight: 750, padding: "5px 10px", border: "1px solid rgba(255,181,203,.24)", borderRadius: 999, background: "rgba(238,145,173,.10)" }}>Claude</span>}
                   {routing.reason === "recovery" && <button type="button" onClick={() => setSettingsOpen(true)} title="CX is not available locally; open settings to configure it" style={{ border: "1px solid rgba(245,158,11,.30)", borderRadius: 999, color: "#92400e", background: "rgba(254,243,199,.70)", padding: "4px 7px", cursor: "pointer", fontSize: 10, fontWeight: 750 }}>CX offline · safe mode</button>}
                   <SearchingLoader visible={searching} />
+                  
+                  {import.meta.env.VITE_HINAA_AUTH_MODE === "clerk" && (
+                    <ClerkAuthWrapper />
+                  )}
+
                   <SettingsTrigger onClick={() => setSettingsOpen(true)} isOpen={settingsOpen} />
                 </div>
               </header>
@@ -669,10 +736,10 @@ export default function App() {
                     <motion.p className="welcome-subtitle" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }}>Main tumhare liye ready hoon. What would you like to do?</motion.p>
                     <motion.div className="welcome-cards" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
                       {[
-                        { icon: "🔍", title: "Research", desc: "Search with sources", action: "research" },
-                        { icon: "✨", title: "Create", desc: "Images, documents, ideas", action: "create" },
-                        { icon: "💼", title: "Continue work", desc: "Projects & tasks", action: "work" },
-                        { icon: "🎤", title: "Talk to HINAA", desc: "Voice conversation", action: "voice" },
+                        { icon: <Search size={19} strokeWidth={1.9} />, title: "Research", desc: "Search with sources", action: "research" },
+                        { icon: <Wand2 size={19} strokeWidth={1.9} />, title: "Create", desc: "Images, documents, ideas", action: "create" },
+                        { icon: <ListChecks size={19} strokeWidth={1.9} />, title: "Continue work", desc: "Projects & tasks", action: "work" },
+                        { icon: <AudioLines size={19} strokeWidth={1.9} />, title: "Talk to HINAA", desc: "Voice conversation", action: "voice" },
                       ].map((c, i) => (
                         <motion.button type="button" key={c.action} className="welcome-card" aria-label={c.title} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 + i * 0.08 }} onClick={() => handleWelcome(c.action)} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
                           <span className="welcome-card-icon" aria-hidden="true">{c.icon}</span>
@@ -687,7 +754,8 @@ export default function App() {
                     partialTranscript={controller.partialTranscript} companionName={companionProfiles[controller.companionId].name}
                     isThinking={controller.state === "thinking" && !controller.streamingText && !controller.partialTranscript}
                     onWelcomeAction={handleWelcome}
-                    onResolveTool={controller.resolveToolRequest} />
+                    onResolveTool={controller.resolveToolRequest}
+                    autoRunTools={settings.automation.autoRunTools} />
                 )}
 
                 {actionChips.length > 0 && controller.state === "idle" && (
@@ -729,6 +797,7 @@ export default function App() {
           <AppearanceSettings appearance={settings.appearance} onChange={setAppearance} />
           <LanguageSettings language={settings.language} onChange={setLanguage} />
           <ProviderSettings provider={settings.provider} providers={providers} onChange={setProvider} activeMode={routing.activeMode as any} />
+          <AutomationSettings automation={settings.automation} onChange={setAutomation} />
           <DiagnosticsSettings providers={providers} />
         </SettingsDialog>
         <HinaDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} mode={drawerMode} title={drawerTitle} side="bottom">{drawerContent}</HinaDrawer>

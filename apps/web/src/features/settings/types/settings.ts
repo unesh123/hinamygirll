@@ -11,9 +11,13 @@
  *
  * Version 4 — fluent Hindi (Devanagari) and English are the only active HINAA
  * language routes. Older experimental Nepali selections migrate to auto Hindi/English.
+ *
+ * Version 6 — automation autonomy. HINAA may execute her proposed tool actions
+ * without a per-action approval click. The toggle stays user-visible and
+ * reversible so consent remains an explicit, revocable choice.
  */
 
-export const SETTINGS_VERSION = 4 as const;
+export const SETTINGS_VERSION = 6 as const;
 export const SETTINGS_KEY = "hinaa_settings_v1" as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -68,11 +72,21 @@ export interface LanguageSettings {
   activePolicy: ActiveLanguagePolicy;
 }
 
+export interface AutomationSettings {
+  /**
+   * When true, HINAA runs her proposed tool actions immediately instead of
+   * waiting for a per-action approval click. Turning this off restores the
+   * explicit "Allow once / Decline" gate for every proposed action.
+   */
+  autoRunTools: boolean;
+}
+
 export interface HinaaSettings {
   _version: typeof SETTINGS_VERSION;
   appearance: AppearanceSettings;
   provider: ProviderPreferences;
   language: LanguageSettings;
+  automation: AutomationSettings;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -86,10 +100,13 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     avatarStyle: "auto",
   },
   provider: {
-    preferredMode: "cx-gateway",
+    preferredMode: "claude",
     preferredModelByProvider: {},
   },
   language: {
     activePolicy: "auto-hi-en",
+  },
+  automation: {
+    autoRunTools: true,
   },
 };

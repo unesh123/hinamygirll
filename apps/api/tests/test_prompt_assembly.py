@@ -82,13 +82,15 @@ ATTUNEMENT_MARKERS = (
     "Mirror their energy naturally",
     "Show you were listening",
     "Use endearments warmly and sparingly",
-    "Ask one warm follow-up",
+    "Ask smart, engaging follow-up questions to understand him better",
     "Never be flat, robotic, or dismissive",
 )
 
 REPLY_LENGTH_MARKERS = (
     "SHORT REPLY HARD CAP",
-    "AT MOST 2-3",
+    "a warm acknowledgement",
+    "a highly smart answer",
+    "a proactive question if relevant",
 )
 
 CHARACTER_STAY_MARKERS = (
@@ -146,8 +148,8 @@ def test_hinaa_identity_enforces_short_reply_cap_but_scopes_warmth() -> None:
         assert marker in HINAA_IDENTITY, f"Missing reply-length rule: {marker}"
     # The cap must reach the realtime system instruction so voice replies start fast.
     realtime = assemble_prompt(_input(interaction_mode="realtime"))  # type: ignore[arg-type]
-    assert "AT MOST 2-3" in realtime.system_instruction
-    assert "casual/conversational turns only" in HINAA_IDENTITY.lower()
+    assert "a highly smart answer" in realtime.system_instruction
+    assert "casual/conversational turns" in HINAA_IDENTITY.lower()
 
 
 def test_hinaa_stays_in_character_on_ai_topic_and_budgets_endearments() -> None:
@@ -440,10 +442,10 @@ def test_build_plan_from_text_validates() -> None:
     assert plan.performance.gesture == "wave" or plan.performance.gesture == "small_nod"
 
 
-def test_hinaa_humanization_avoids_habitual_followups_and_keeps_safe_local_agency() -> None:
-    assert "never add a routine question after a complete answer" in HINAA_IDENTITY
+def test_hinaa_humanization_keeps_engaging_tone_and_safe_local_agency() -> None:
+    assert "Ask smart, engaging follow-up questions to understand him better" in HINAA_IDENTITY
     assert "take the next useful step yourself" in HINAA_IDENTITY
-    assert "wait for explicit approval" in HINAA_IDENTITY
+    assert "Do not merely describe what you could do" in HINAA_IDENTITY
 
 
 def test_depth_classifier_uses_hindi_english_route_without_nepali_aliases() -> None:

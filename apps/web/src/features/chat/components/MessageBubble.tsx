@@ -26,6 +26,8 @@ interface Props {
     request: AssistantTurnPlan["toolRequests"][number],
     approved: boolean,
   ) => void | Promise<void>;
+  /** Autonomy mode — actions run without a per-action approval click. */
+  autoRunTools?: boolean;
 }
 
 /** Simple markdown-to-HTML for inline formatting */
@@ -56,6 +58,7 @@ export const MessageBubble = memo(function MessageBubble({
   "aria-label": ariaLabel,
   "data-testid": testId,
   onResolveTool,
+  autoRunTools = false,
 }: Props) {
   const isUser = message.role === "user";
   const isError =
@@ -143,7 +146,7 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         {message.role === "assistant" && message.plan && message.plan.toolRequests.length > 0 && onResolveTool ? (
-          <ToolApprovalPanel messageId={message.id} requests={message.plan.toolRequests} activity={message.toolActivity} onResolve={onResolveTool} />
+          <ToolApprovalPanel messageId={message.id} requests={message.plan.toolRequests} activity={message.toolActivity} autoRun={autoRunTools} onResolve={onResolveTool} />
         ) : null}
 
         {/* Render tool results */}

@@ -182,8 +182,37 @@ class VoiceCalibration(StrictModel):
 
 class VoiceProfile(StrictModel):
     companionId: CompanionId
-    provider: Literal["azure-speech"]
+    provider: Literal["azure-speech", "fish-audio", "elevenlabs"]
     requestedVoice: str
-    locale: Literal["hi-IN"]
+    locale: Literal["hi-IN", "ne-NP", "en-US", "mixed"]
     identityDisclosure: str
     calibrations: list[VoiceCalibration]
+
+
+class TextHumanizerRequest(StrictModel):
+    text: Annotated[str, Field(min_length=1, max_length=20000)]
+    mode: Literal["natural", "warm", "professional", "concise"] = "natural"
+    providerMode: ProviderMode = "local"
+    action: Literal["humanize", "review"] = "humanize"
+    brainModel: Annotated[
+        str | None,
+        Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
+    ] = None
+
+
+class ReviewMetrics(StrictModel):
+    wordCount: int
+    englishWordCount: int
+    sentenceCount: int
+    longEnglishSentences: int
+    denseParagraphs: int
+
+
+class TextHumanizerResponse(StrictModel):
+    originalText: str
+    humanizedText: str
+    protectedSpans: int
+    externalTextTransfer: bool
+    mode: str
+    reviewMetrics: ReviewMetrics | None = None
+    reviewIdeas: list[str] | None = None

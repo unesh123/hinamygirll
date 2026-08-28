@@ -59,7 +59,21 @@ def resolve_auth(
             True,
         )
 
-    raise HinaaError("AUTH_NOT_CONFIGURED", "Authentication mode is invalid.", 503, True)
+
+
+    if mode == "clerk":
+        # Clerk is declared by config but real JWT verification is not
+        # wired in this build (no PyJWT/jose and no Clerk JWKS domain).
+        # Fail explicitly so the app falls back to a working auth mode
+        # instead of silently 503-ing every guarded route.
+        raise HinaaError(
+            "AUTH_NOT_CONFIGURED",
+            "CLERK mode is not enabled in this build; set HINAA_AUTH_MODE=dev for local development.",
+            503,
+            True,
+        )
+
+    raise HinaaError("AUTH_NOT_CONFIGURED", f"Authentication mode is invalid: {mode!r}.", 503, True)
 
 
 def auth_dependency_factory(settings: Settings, memory: MemoryService):

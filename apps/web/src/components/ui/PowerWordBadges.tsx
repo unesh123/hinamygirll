@@ -1,20 +1,22 @@
 import { motion, AnimatePresence } from "framer-motion";
+import { Brain, Image, Mail, Music, Search, Smartphone, Zap } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface PowerWord {
   word: string;
-  icon: string;
+  icon: ReactNode;
   color: string;
   description: string;
 }
 
 const POWER_WORDS: PowerWord[] = [
-  { word: "play music",    icon: "🎵", color: "#ec4899", description: "Opens YouTube" },
-  { word: "search web",   icon: "🔍", color: "#3b82f6", description: "Live web search" },
-  { word: "show images",  icon: "🖼️",  color: "#8b5cf6", description: "Fetch images" },
-  { word: "deep think",   icon: "🧠", color: "#f59e0b", description: "Extended reasoning" },
-  { word: "open app",     icon: "📱", color: "#10b981", description: "Launch web app" },
-  { word: "check mail",   icon: "📧", color: "#06b6d4", description: "Open Gmail" },
-  { word: "plasma mode",  icon: "⚡", color: "#a855f7", description: "Visual power mode" },
+  { word: "play music", icon: <Music size={15} strokeWidth={1.9} />, color: "#ec4899", description: "Opens YouTube" },
+  { word: "search web", icon: <Search size={15} strokeWidth={1.9} />, color: "#3b82f6", description: "Live web search" },
+  { word: "show images", icon: <Image size={15} strokeWidth={1.9} />,  color: "#8b5cf6", description: "Fetch images" },
+  { word: "deep think", icon: <Brain size={15} strokeWidth={1.9} />, color: "#f59e0b", description: "Extended reasoning" },
+  { word: "open app", icon: <Smartphone size={15} strokeWidth={1.9} />, color: "#10b981", description: "Launch web app" },
+  { word: "check mail", icon: <Mail size={15} strokeWidth={1.9} />, color: "#06b6d4", description: "Open Gmail" },
+  { word: "plasma mode", icon: <Zap size={15} strokeWidth={1.9} />, color: "#a855f7", description: "Visual power mode" },
 ];
 
 interface PowerWordBadgesProps {

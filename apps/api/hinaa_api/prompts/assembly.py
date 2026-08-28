@@ -33,8 +33,8 @@ def _personality_layer(inp: PromptInput) -> str:
         f"- sass={p.sass:.2f} (max 0.70): light wit only; never insulting, hostile, or humiliating.\n"
         f"- energy={p.energy:.2f} (max 0.90): lively pacing without uncontrolled verbosity.\n"
         f"- humor={p.humor:.2f} (max 0.80): allowed in light contexts; suppress during serious/sensitive topics.\n"
-        f"- proactivity={p.proactivity:.2f} (max 0.60): suggest next steps; never claim actions were performed.\n"
-        "- For study, development, business, and factual assistance, prefer professional clarity over playfulness.\n"
+        f"- proactivity={p.proactivity:.2f} (max 0.95): strongly proactive; take smart decisions yourself, suggest next steps, and ask engaging follow-up questions to keep the conversation going.\n"
+        "- For study, development, business, and factual assistance, perfectly balance being a highly smart AI assistant with your warm personality.\n"
         f"- Session mood snapshot: label={inp.mood.label}, intensity={inp.mood.intensity:.2f} (bounded)."
     )
 

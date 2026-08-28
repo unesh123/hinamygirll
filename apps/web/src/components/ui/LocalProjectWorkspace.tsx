@@ -330,8 +330,8 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
               </div>
             </div>
             <div style={{ display: "grid", gap: 7, marginTop: 10 }}>
-              {selected.tasks.map((task) => <div key={task.id} style={{ ...rowStyle, marginLeft: task.parentTaskId ? 14 : 0, borderLeft: task.parentTaskId ? "2px solid rgba(45,212,191,.35)" : "2px solid transparent" }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: statusColor(task.status), flexShrink: 0, marginTop: 5 }} />
+              {selected.tasks.map((task, taskIndex) => <div key={task.id} className="lwp-task-row" style={{ ...rowStyle, marginLeft: task.parentTaskId ? 14 : 0, borderLeft: task.parentTaskId ? "2px solid rgba(45,212,191,.35)" : "2px solid transparent", animationDelay: `${taskIndex * 45}ms` }}>
+                <span className={`lwp-task-dot${task.status === "active" ? " lwp-task-dot--active" : ""}`} style={{ width: 8, height: 8, borderRadius: 99, background: statusColor(task.status), flexShrink: 0, marginTop: 5 }} />
                 <div style={{ minWidth: 0, flex: 1 }}><strong>{task.title}</strong>{task.detail && <small>{task.detail}</small>}{task.requiresApproval && <em><ShieldCheck size={11} /> Approval required</em>}</div>
                 <select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => void updateTaskStatus(task, event.target.value as TaskStatus)} style={statusSelectStyle}>
                   <option value="pending">Queued</option><option value="active">Active</option><option value="waiting_approval">Approve</option><option value="success">Done</option><option value="error">Blocked</option><option value="cancelled">Stopped</option>

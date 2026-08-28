@@ -162,6 +162,8 @@ def test_gateway_no_available_accounts_is_classified_as_upstream_capacity() -> N
 def test_claude_live_plan_emits_display_text_not_structured_json() -> None:
     import asyncio
     from hinaa_api.prompts import build_plan_from_text
+    from hinaa_api.prompts.assembly import assemble_prompt
+    from hinaa_api.prompts.models import PromptInput
     from hinaa_api.providers.base import ProviderResult
 
     provider = ProviderRouter(
@@ -183,7 +185,21 @@ def test_claude_live_plan_emits_display_text_not_structured_json() -> None:
     async def emit_delta(value: str) -> None:
         emitted.append(value)
 
-    provider.create_plan = fake_create_plan  # type: ignore[method-assign]
+    # create_live_plan streams through `_stream_text` before parsing the plan,
+    # so stub that seam with the fenced contract the model would emit. The
+    # point under test: the pipeline de-fences it and pushes only displayText.
+    async def fake_stream(_prompt):
+        yield structured_contract
+
+    provider._stream_text = fake_stream  # type: ignore[method-assign]
+    prompt = assemble_prompt(
+        PromptInput(
+            companion_id="hinaa",
+            interaction_mode="realtime",
+            user_text="hey HINAA",
+            language="mixed",
+        )
+    )
     result = asyncio.run(
         provider.create_live_plan(
             "hey HINAA",
@@ -191,7 +207,7 @@ def test_claude_live_plan_emits_display_text_not_structured_json() -> None:
             "mixed",
             (),
             emit_delta,
-            None,
+            prompt,
         )
     )
 

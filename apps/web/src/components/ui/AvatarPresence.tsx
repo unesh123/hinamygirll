@@ -25,6 +25,7 @@ import type { FaceExpressions } from "../../features/audio/useVSeeFace";
 import { expressionIntentFor, type CompanionExpressionIntent } from "../../features/avatar/companionExpression";
 import type { VisemeEvent } from "../../features/audio/textToViseme";
 import { getActiveViseme } from "../../features/audio/textToViseme";
+import { optimizeVrm } from "../../features/avatar/vrmOptimizer";
 
 export type PresenceMode = "portrait" | "closeup" | "upperbody" | "full" | "hidden";
 
@@ -221,6 +222,11 @@ function Model({
   const headBoneRef = useRef<THREE.Object3D | null>(null);
   const headRestQRef = useRef<THREE.Quaternion | null>(null);
   const headCurQRef = useRef<THREE.Quaternion | null>(null);
+  // Idle liveliness: the chest/upperChest bone is NOT in POSE_BONES, so it is
+  // safe to drive a gentle breathing motion here without fighting the arm/
+  // shoulder pose-lock. Rest quaternion is captured once at load.
+  const chestBoneRef = useRef<THREE.Object3D | null>(null);
+  const chestRestQRef = useRef<THREE.Quaternion | null>(null);
 
   // Per-frame refs — no allocations
   const t           = useRef(0);
@@ -247,6 +253,8 @@ function Model({
     headBoneRef.current = null;
     headRestQRef.current = null;
     headCurQRef.current = null;
+    chestBoneRef.current = null;
+    chestRestQRef.current = null;
     availRef.current = new Set();
     t.current = 0;
     mouthW.current = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
@@ -261,14 +269,34 @@ function Model({
       const v = gltf.userData.vrm as VRM;
       if (!v) { setFailed(true); return; }
 
-      // Optimizations
+      // Optimizations — live path. This is the (previously missing) GPU-load
+      // reduction the avatar exports need: the VRM ships ~2048 textures and
+      // hundreds of morph targets; without this the first frame uploads
+      // everything at full size and integrated GPUs stutter or lose the
+      // context. Downscale to 1024, prune morphs to the expressions HINAA
+      // drives (presets + viseme aliases), and re-enable per-mesh culling.
       try { VRMUtils.removeUnnecessaryVertices(v.scene); } catch {}
       try { VRMUtils.removeUnnecessaryJoints(v.scene); } catch {}
+      try {
+        optimizeVrm(v, {
+          maxTextureSize: 1024,
+          keepExpressionNames: [
+            "happy", "angry", "sad", "relaxed", "surprised", "neutral",
+            "blink", "blinkLeft", "blinkRight",
+            "aa", "ih", "ou", "ee", "oh",
+            "a", "i", "u", "e", "o",
+            "joy", "sorrow", "fun", "blink_l", "blink_r",
+          ],
+        });
+      } catch { /* keep the model as loaded */ }
       v.scene.traverse((o: THREE.Object3D) => {
-        o.frustumCulled = false;
+        // Culling: compute real bounding spheres so the renderer can skip
+        // off-screen parts (the old hard-coded false disabled culling for the
+        // whole model — measurable cost at closeup mode). Kept as a traverse
+        // loop because a VRM 0.x model can expose a mix of mesh types.
         if ((o as THREE.Mesh).isMesh) {
-          const mat = (o as THREE.Mesh).material as THREE.Material;
-          if (mat) mat.side = THREE.DoubleSide;
+          const mesh = o as THREE.Mesh;
+          try { mesh.geometry.computeBoundingSphere(); } catch {}
         }
       });
 
@@ -352,6 +380,15 @@ function Model({
             headCurQRef.current = headNode.quaternion.clone();
           }
         } catch {}
+        try {
+          const chestNode = hd.getNormalizedBoneNode("upperChest" as any)
+            ?? hd.getNormalizedBoneNode("chest" as any)
+            ?? hd.getNormalizedBoneNode("spine" as any);
+          if (chestNode) {
+            chestBoneRef.current = chestNode;
+            chestRestQRef.current = chestNode.quaternion.clone();
+          }
+        } catch {}
       }
 
       if (import.meta.env.DEV) {
@@ -419,7 +456,9 @@ function Model({
       // them for visible but natural articulation instead of treating quiet
       // speech as silence.
       const rawEnergy = Math.min(1, Math.max(0, jawEnergy.current * 3.2));
-      const energy = speaking ? Math.max(0.16, Math.sqrt(rawEnergy) * 0.82) : rawEnergy;
+      // Syllable-shaped envelope: sqrt opens the mouth on soft consonants,
+      // the 0.82 scale keeps quiet speech visible without full-open shouting.
+      const energy = speaking ? Math.max(0.14, Math.sqrt(rawEnergy) * 0.86) : rawEnergy;
 
       if (speaking) {
         // ── Speaking: viseme-based mouth animation ──
@@ -447,10 +486,14 @@ function Model({
               targetWeight = energy * 0.36;
             }
           } else {
-            // Fallback: cycle based on energy timing
-            const idx = Math.floor(t.current * 7) % ALL_MOUTH_KEYS.length;
-            targetMouth = ALL_MOUTH_KEYS[idx];
-            targetWeight = energy;
+            // Fallback when the AudioContext clock is unavailable: blend mouth
+            // shape from the energy envelope instead of robotic 7Hz cycling.
+            // Aa (open) dominates on peaks, Ou/Ih shape the sustained vowels.
+            const env = energy;
+            if (env > 0.72) { targetMouth = "aa"; targetWeight = Math.min(1, env); }
+            else if (env > 0.48) { targetMouth = "ou"; targetWeight = env * 0.85; }
+            else if (env > 0.28) { targetMouth = "ih"; targetWeight = env * 0.7; }
+            else { targetMouth = "aa"; targetWeight = Math.max(0.05, env * 0.5); }
           }
         } else {
           // No viseme events — energy-based jaw-open fallback
@@ -458,10 +501,12 @@ function Model({
           targetWeight = energy;
         }
 
-        // Smooth all mouth shapes
+        // Smooth all mouth shapes (forward faster than decay: the mouth opens
+        // onto the phoneme, then closes gradually into the next window).
         for (const k of ALL_MOUTH_KEYS) {
           const tgt = k === targetMouth ? targetWeight : 0;
-          mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 14);
+          const rate = tgt > mouthW.current[k] ? 20 : 13;
+          mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * rate);
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
       } else if (face && trackingCalibration?.expressionBaseline) {
@@ -601,10 +646,19 @@ function Model({
         delta.slerp(new THREE.Quaternion(), 1 - maxAngle / (2 * Math.acos(THREE.MathUtils.clamp(delta.w, -1, 1))));
       }
       const targetHead = headRest.clone().multiply(delta);
-      headCurrent.slerp(targetHead, Math.min(1, dt * 7));
+      headCurrent.slerp(targetHead, Math.min(1, 1 - Math.exp(-dt * 9)));
       head.quaternion.copy(headCurrent);
     } else if (head && headRest && headCurrent) {
-      headCurrent.slerp(headRest, Math.min(1, dt * 5));
+      // Idle head life — a gentle multi-frequency drift so she never freezes
+      // into a statue. Angles are deliberately small (a few degrees) to read as
+      // calm, human presence rather than a nervous wobble.
+      const yaw = Math.sin(t.current * 0.42) * 0.055 + Math.sin(t.current * 0.19 + 1.7) * 0.03;
+      const pitch = Math.sin(t.current * 0.35 + 0.6) * 0.035;
+      const roll = Math.sin(t.current * 0.29 + 2.2) * 0.02;
+      const swayTarget = headRest.clone().multiply(
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, roll)),
+      );
+      headCurrent.slerp(swayTarget, Math.min(1, 1 - Math.exp(-dt * 3.5)));
       head.quaternion.copy(headCurrent);
     }
 
@@ -632,6 +686,25 @@ function Model({
     // The body lock intentionally runs after `vrm.update` above. VMC packets
     // never write shoulders, arms, hands, spine, hips, or root transforms.
     // Only the calibrated Head bone can receive a bounded live delta.
+
+    /* ── IDLE / ALWAYS-ON BREATHING ───────────────────────────────── */
+    // The chest/upperChest bone is not pose-locked, so a small periodic pitch
+    // reads as calm breathing and keeps HINAA visibly alive even in silence.
+    // Runs during speech too (a touch deeper), because people breathe while
+    // talking. This is the final write of the frame, matching the head/arm
+    // "last write wins" convention above.
+    const chestBone = chestBoneRef.current;
+    const chestRest = chestRestQRef.current;
+    if (chestBone && chestRest) {
+      const depth = speakingRef.current ? 0.030 : 0.024; // ~1.4–1.7° amplitude
+      const breathe = Math.sin(t.current * 1.5) * depth; // ~0.24 Hz ≈ 14 breaths/min
+      const drift = Math.sin(t.current * 0.6 + 1.0) * 0.006; // subtle non-mechanical feel
+      chestBone.quaternion.copy(
+        chestRest.clone().multiply(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(-(breathe + drift), 0, 0)),
+        ),
+      );
+    }
   });
 
   if (failed || !loaded) return null;
@@ -821,12 +894,34 @@ export function AvatarPresence({
                 onAnatomyFrame={applyAnatomy}
               />
 
+            {/* ContactShadows re-renders the scene every frame by default
+                (frames=Infinity). Baking once at mount costs a fraction and
+                removes a full shadow pass from the frame loop. */}
             <ContactShadows
-              resolution={256} scale={2.8} blur={2.5}
-              opacity={0.20} far={1.5}
+              resolution={128} scale={2.8} blur={2.5}
+              opacity={0.18} far={1.5} frames={1}
               position={[0, -0.02, 0]} color="#160d16"
             />
-            <Environment preset="apartment" environmentIntensity={0.3} />
+            {/* `Environment preset="apartment"` fetched an HDR from the
+                network at runtime every session (PMREM + download stall).
+                Replaced with a cheap procedural environment baked once; the
+                four lights above carry the cinematic look. */}
+            <Environment resolution={64} frames={1}>
+              <group>
+                <mesh position={[0, 2.5, 3]}>
+                  <planeGeometry args={[2, 1]} />
+                  <meshBasicMaterial color="#fff0e8" toneMapped={false} />
+                </mesh>
+                <mesh position={[-3, 1, 1]} rotation-y={Math.PI / 2}>
+                  <planeGeometry args={[2, 2]} />
+                  <meshBasicMaterial color="#ffd4df" toneMapped={false} />
+                </mesh>
+                <mesh position={[3, 1, -1]} rotation-y={-Math.PI / 2}>
+                  <planeGeometry args={[2, 2]} />
+                  <meshBasicMaterial color="#d8b8e4" toneMapped={false} />
+                </mesh>
+              </group>
+            </Environment>
           </Suspense>
         </Canvas>
       )}
