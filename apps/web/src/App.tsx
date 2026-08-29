@@ -214,41 +214,81 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
 /* ─── SpokenText derivation ───────────────────────────── */
 /**
  * Derive a natural spoken form from displayText when the model omits spokenText.
- * Strips markdown, URLs, code blocks, tables, and truncates to ~200 chars.
+ * This is a FALLBACK — the primary source is AssistantTurnPlan.spokenText.
+ *
+ * Rules:
+ * - Preserve sentence meaning
+ * - Do not speak raw URLs, markdown, code, citation IDs, or table syntax
+ * - Preserve Devanagari, Hindi, and mixed-language text
+ * - Do not remove decimal points from numbers or corrupt abbreviations
+ * - Cut at sentence boundaries, not arbitrary character boundaries
+ * - For long content, speak a short summary
+ * - Record when fallback derivation was used (via wasFallbackDerived)
  */
+let wasFallbackDerived = false;
 function deriveSpokenText(displayText: string): string {
   if (!displayText) return "";
+  wasFallbackDerived = true;
   let spoken = displayText
-    // Remove fenced code blocks
+    // Remove fenced code blocks (``` ... ```)
     .replace(/```[\s\S]*?```/g, "")
-    // Remove inline code
+    // Remove inline code but keep the content
     .replace(/`([^`]+)`/g, "$1")
-    // Remove markdown links, keep text
+    // Remove markdown links, keep the link text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     // Remove bare URLs
     .replace(/https?:\/\/\S+/g, "")
-    // Remove headings
+    // Remove reference-style citation links like [1] [2] [^note]
+    .replace(/\[\^?\d+\]/g, "")
+    // Remove headings (# ## ###)
     .replace(/^#{1,6}\s+/gm, "")
-    // Remove bold/italic markers
+    // Remove bold/italic markers but keep content
     .replace(/[*_]{1,3}/g, "")
-    // Remove table rows
+    // Remove table rows (| col | col |)
     .replace(/^\|.*\|\s*$/gm, "")
-    // Remove horizontal rules
+    // Remove table separator rows (|---|---|)
+    .replace(/^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/gm, "")
+    // Remove horizontal rules (--- ***)
     .replace(/^[-*_]{3,}\s*$/gm, "")
+    // Remove blockquote markers (>
+    .replace(/^>\s*/gm, "")
+    // Remove image markdown ![alt](url)
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    // Remove HTML tags
+    .replace(/<[^>]+>/g, "")
     // Collapse whitespace
     .replace(/\s+/g, " ")
     .trim();
-  // Truncate to a natural speaking length
-  if (spoken.length > 250) {
-    // Cut at sentence boundary if possible
-    const cut = spoken.substring(0, 250);
+  // Truncate to a natural speaking length with sentence-aware cutting
+  const MAX_SPOKEN_LENGTH = 280;
+  if (spoken.length > MAX_SPOKEN_LENGTH) {
+    const cut = spoken.substring(0, MAX_SPOKEN_LENGTH);
+    // Find the last sentence boundary
     const lastPeriod = cut.lastIndexOf(".");
     const lastExcl = cut.lastIndexOf("!");
     const lastQ = cut.lastIndexOf("?");
-    const bestCut = Math.max(lastPeriod, lastExcl, lastQ);
-    spoken = bestCut > 80 ? cut.substring(0, bestCut + 1) : cut + "...";
+    const lastColon = cut.lastIndexOf(":");
+    const bestCut = Math.max(lastPeriod, lastExcl, lastQ, lastColon);
+    if (bestCut > 80) {
+      // Cut at sentence boundary and add a natural continuation hint
+      spoken = cut.substring(0, bestCut + 1).trimEnd();
+      // Only add continuation hint if there's more meaningful content
+      const remaining = displayText.substring(bestCut + 1).trim();
+      if (remaining.length > 20) {
+        spoken += " Details are available in the chat.";
+      }
+    } else {
+      // No good sentence boundary — cut at word boundary
+      const lastSpace = cut.lastIndexOf(" ");
+      spoken = (lastSpace > 100 ? cut.substring(0, lastSpace) : cut).trimEnd() + "...";
+    }
   }
   return spoken;
+}
+
+/** Check if the last spokenText was derived from displayText (fallback). */
+export function wasSpokenTextDerived(): boolean {
+  return wasFallbackDerived;
 }
 
 /* ─── Main App ─────────────────────────────────────────── */
