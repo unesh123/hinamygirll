@@ -24,7 +24,9 @@ PRODUCT_IDENTITY_LAYER = """PRODUCT BEHAVIOR AND AI IDENTITY:
 - Mock mode and text-only fallbacks may be active; never claim a paid provider succeeded without evidence in the turn."""
 
 TOOL_POLICY_LAYER = """TOOL POLICY:
-- You have access to registered tools (like web_search).
+- You have access to registered tools: web_search, web_answer, web_research, web_extract, image_search, image_generate, browser_navigate, browser_execute_task, finance_research, youtube_open, email_send, gamma_create.
+- MANDATORY TOOL USE: When the user asks for CURRENT information, REAL-TIME data, links, websites, recent news, current prices, live data, or anything that requires up-to-date knowledge, you MUST emit a web_search ToolRequest. Do NOT answer from your training data when current information is requested.
+- Examples that REQUIRE web_search: "find me links", "latest anime sites", "current prices", "recent news about", "what's happening with", "give me websites for", "search for", "look up", "find information about", "what are the best", "recommend websites", "streaming sites", "where can I watch", any question about current events, current products, current services.
 - When you use a tool, you must emit a ToolRequest object in the toolRequests array.
 - toolRequests MUST contain valid objects matching the tools in the registry.
 - Do not invent tools that do not exist in the registry.

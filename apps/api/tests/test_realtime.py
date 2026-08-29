@@ -66,7 +66,10 @@ def test_mock_live_turn_is_versioned_validated_and_voice_explicit(client: TestCl
             events.append(socket.receive_json())
 
     types = [event["type"] for event in events]
-    assert types[:2] == ["stt.final", "assistant.thinking"]
+    # voice.pipeline may appear before stt.final as a progress notification
+    assert "stt.final" in types
+    assert "assistant.thinking" in types
+    assert types.index("stt.final") < types.index("assistant.thinking")
     assert "assistant.text.delta" in types
     assert "assistant.plan" in types
     audio = next(event for event in events if event["type"] == "tts.audio")
@@ -129,7 +132,10 @@ def test_interrupt_advances_generation_and_cancels_active_turn(client: TestClien
         send_frame(socket, 0)
         socket.receive_json()
         socket.send_json({"type": "audio.commit", "generation": 1, "endedAtMs": 20})
-        assert socket.receive_json()["type"] == "stt.final"
+        # Consume events until we see stt.final (voice.pipeline may precede it)
+        event = socket.receive_json()
+        while event["type"] != "stt.final":
+            event = socket.receive_json()
         socket.send_json({"type": "interrupt", "generation": 2})
         event = socket.receive_json()
         while event["type"] != "turn.cancelled":

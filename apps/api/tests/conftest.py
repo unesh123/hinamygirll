@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
+from hinaa_api.vmc_bridge import vmc_bridge
 
 
 def pcm_wav(seconds: float = 0.08) -> bytes:
@@ -39,8 +40,17 @@ def settings() -> Settings:
         HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
         HINAA_AUTH_MODE="dev",
         HINAA_PERSISTENCE_ENABLED=True,
+        HINAA_VMC_PORT=0,
         _env_file=None,
     )
+
+
+@pytest.fixture(autouse=True)
+def _reset_vmc_bridge():
+    """Ensure the VMC singleton releases its UDP port between tests."""
+    vmc_bridge.reset()
+    yield
+    vmc_bridge.reset()
 
 
 @pytest.fixture

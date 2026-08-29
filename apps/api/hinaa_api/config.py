@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     # Local ComfyUI remains private to this machine. Submitting multiple jobs
     # fills its queue promptly; GPU execution concurrency stays conservative by
     # default to avoid OOM on consumer cards such as an 8 GB RTX 4060.
+    vmc_port: int = Field(39539, alias="HINAA_VMC_PORT")
     comfyui_base_url: str = Field("http://127.0.0.1:8188", alias="HINAA_COMFYUI_BASE_URL")
     comfyui_max_concurrent_jobs: int = Field(1, ge=1, le=4, alias="HINAA_COMFYUI_MAX_CONCURRENT_JOBS")
     groq_api_key: SecretStr | None = Field(None, alias="GROQ_API_KEY")

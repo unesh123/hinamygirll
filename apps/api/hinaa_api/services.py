@@ -897,8 +897,16 @@ class ConversationService:
             ))
 
         search_command = is_command(
-            [r"^\s*(please\s+)?(search the web for|look up|find information about|google search for|खोज|खोज्नुहोस्)\b"],
-            target=r"\b(web|internet|online|google|documentation|sources?)\b|वेब|इन्टरनेट",
+            [
+                r"^\s*(please\s+)?(search the web for|look up|find information about|google search for|खोज|खोज्नुहोस्)\b",
+                r"\b(give me|find me|show me|get me|fetch me)\b.*\b(links?|sites?|websites?|urls?|results?)\b",
+                r"\b(latest|current|recent|new|best|top|popular)\b.*\b(sites?|websites?|links?|platforms?|services?|apps?)\b",
+                r"\b(where can I|how can I|where to)\b.*\b(watch|stream|see|find|get)\b",
+                r"\b(recommend|suggest|list)\b.*\b(sites?|websites?|links?|platforms?|services?)\b",
+                r"\b(streaming|anime|movie|music|video)\b.*\b(sites?|websites?|links?|platforms?)\b",
+                r"\b(search|find|look)\b.*\b(for|about|on)\b",
+            ],
+            target=r"\b(web|internet|online|google|documentation|sources?|links?|sites?|websites?|find|search|latest|current|recent|best|top|watch|stream|recommend|anime|movie|music|video)\b|वेब|इन्टरनेट|खोज",
         )
         if search_command and not any(t.toolName == "web_search" for t in plan.toolRequests):
             prompt_str = re.sub(

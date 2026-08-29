@@ -149,7 +149,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # type: ignore[no-untyped-def]
         # Start VMC UDP listener for VSeeFace face tracking
-        await vmc_bridge.start_udp(port=39539)
+        await vmc_bridge.start_udp(port=active_settings.vmc_port)
         yield
         vmc_bridge.stop()
 
