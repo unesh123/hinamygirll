@@ -308,6 +308,12 @@ class RealtimeGateway:
         generation = session.hello.generation
         turn_started = perf_counter()
         try:
+            # Notify frontend: pipeline is processing
+            await self._send_current(
+                websocket, session, generation,
+                "voice.pipeline",
+                {"stage": "transcribing", "detail": "Audio received, transcribing…"},
+            )
             stt_started = perf_counter()
             if session.hello.providerMode == "mock":
                 transcript = (
@@ -319,18 +325,34 @@ class RealtimeGateway:
                 transcript = commit.mockTranscript
                 stt_provider = f"{session.hello.providerMode}-stt-scripted-v1"
             else:
-                stt_result = await self.service.transcribe(
-                    bytes(session.audio), session.hello.language, session.hello.providerMode
+                stt_result = await asyncio.timeout(self.settings.voice_stt_timeout_seconds)(
+                    self.service.transcribe(
+                        bytes(session.audio), session.hello.language, session.hello.providerMode
+                    )
                 )
                 transcript, stt_provider = stt_result.value, stt_result.provider
             if not transcript.strip():
-                logger.info("realtime: STT returned empty transcript; cancelling turn safely")
+                audio_bytes = len(session.audio)
+                logger.info("realtime: STT returned empty transcript (%d audio bytes, provider=%s)", audio_bytes, stt_provider)
+                await self._send_current(
+                    websocket,
+                    session,
+                    generation,
+                    "voice.error",
+                    {
+                        "code": "STT_EMPTY_TRANSCRIPT",
+                        "message": "I detected audio but could not understand the words. Try speaking closer to the microphone or use push-to-talk.",
+                        "provider": stt_provider,
+                        "audioBytes": audio_bytes,
+                        "turnId": f"turn-{session.turn}",
+                    },
+                )
                 await self._send_current(
                     websocket,
                     session,
                     generation,
                     "turn.cancelled",
-                    {"cancelledGeneration": generation, "generation": generation, "reason": "no_speech_detected"},
+                    {"cancelledGeneration": generation, "generation": generation, "reason": "STT_EMPTY_TRANSCRIPT"},
                 )
                 return
             stt_ms = int((perf_counter() - stt_started) * 1000)
@@ -342,6 +364,11 @@ class RealtimeGateway:
                 {"text": transcript, "provider": stt_provider, "latencyMs": stt_ms},
             )
             await self._send_current(websocket, session, generation, "assistant.thinking", {})
+            await self._send_current(
+                websocket, session, generation,
+                "voice.pipeline",
+                {"stage": "brain", "detail": f"Transcript: {transcript[:80]}…"},
+            )
             llm_started = perf_counter()
             first_delta_ms: int | None = None
             sentence_tasks: list[tuple[str, asyncio.Task]] = []
@@ -537,6 +564,11 @@ class RealtimeGateway:
                     )
                     sentence_tasks.append((phrase, task))
 
+            await self._send_current(
+                websocket, session, generation,
+                "voice.pipeline",
+                {"stage": "tts", "detail": f"{len(sentence_tasks)} phrases to synthesize"},
+            )
             if streamed_delivery_tail is not None:
                 # Wait only for the ordered delivery tail. Each real-audio clause
                 # has already been synthesized concurrently with the model stream.
@@ -551,6 +583,17 @@ class RealtimeGateway:
                         segments=total_segments,
                         streaming=False,
                     )
+            # Determine TTS status for the frontend
+            tts_count = len(sentence_tasks)
+            tts_succeeded = sum(1 for _, t in sentence_tasks if t.done() and t.exception() is None)
+            tts_failed = sum(1 for _, t in sentence_tasks if t.done() and t.exception() is not None)
+            tts_status = (
+                "not_requested" if tts_count == 0
+                else "completed" if tts_succeeded > 0 and tts_failed == 0
+                else "partial" if tts_succeeded > 0 and tts_failed > 0
+                else "failed"
+            )
+            output_mode = "text_and_audio" if tts_succeeded > 0 else "text"
             await self._send_current(
                 websocket,
                 session,
@@ -563,10 +606,26 @@ class RealtimeGateway:
                     "ttsMs": sum(tts_latency_ms),
                     "totalMs": int((perf_counter() - turn_started) * 1000),
                     "targetsAreGoals": True,
+                    "outputMode": output_mode,
+                    "ttsRequested": tts_count > 0,
+                    "ttsStatus": tts_status,
+                    "ttsChunksTotal": tts_count,
+                    "ttsChunksSucceeded": tts_succeeded,
                 },
             )
         except asyncio.CancelledError:
             raise
+        except TimeoutError:
+            logger.warning("realtime: turn timed out after %.1fs", self.settings.voice_total_turn_timeout_seconds)
+            await self._send_current(
+                websocket, session, generation,
+                "voice.error",
+                {
+                    "code": "VOICE_TURN_TIMEOUT",
+                    "message": "The voice response took too long. Please try again.",
+                },
+            )
+            await self._error(websocket, session, "VOICE_TURN_TIMEOUT", True, generation)
         except HinaaError as error:
             logger.warning(
                 "realtime: turn failed with HinaaError code=%s retryable=%s",
@@ -643,6 +702,7 @@ class RealtimeGateway:
                     "protocolVersion": self.settings.realtime_protocol_version,
                     "sessionId": session.hello.sessionId,
                     "turn": session.turn,
+                    "turnId": f"turn-{session.turn}-{session.hello.generation}",
                     "generation": session.hello.generation if generation is None else generation,
                     "serverAtMs": _timestamp_ms(),
                     **payload,

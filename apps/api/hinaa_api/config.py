@@ -184,6 +184,12 @@ class Settings(BaseSettings):
     # Media (STT/TTS) calls fail fast — an 8s budget is plenty for a single
     # transcription or synthesis request.
     provider_timeout_seconds: float = 8.0
+    # Stage-specific voice timeouts — each stage gets its own deadline so
+    # a slow STT doesn't kill the entire turn prematurely.
+    voice_stt_timeout_seconds: float = Field(12.0, alias="HINAA_VOICE_STT_TIMEOUT")
+    voice_brain_first_token_timeout_seconds: float = Field(15.0, alias="HINAA_VOICE_BRAIN_TIMEOUT")
+    voice_tts_phrase_timeout_seconds: float = Field(10.0, alias="HINAA_VOICE_TTS_TIMEOUT")
+    voice_total_turn_timeout_seconds: float = Field(90.0, alias="HINAA_VOICE_TURN_TIMEOUT")
     # Brain (LLM) calls get a far larger budget: reasoning models such as
     # cx/gpt-5.6-sol burn hidden ``reasoning_content`` tokens before the first
     # visible token, so the old 8s media timeout killed the whole turn mid-

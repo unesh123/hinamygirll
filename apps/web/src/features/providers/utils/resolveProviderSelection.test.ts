@@ -43,6 +43,7 @@ describe("resolveProviderSelection", () => {
       preferredMode: "cx-gateway",
       activeMode: "mock",
       activeModel: null,
+      providersLoaded: true,
       reason: "recovery",
     });
   });
@@ -78,6 +79,7 @@ describe("resolveProviderSelection", () => {
       preferredMode: "auto",
       activeMode: "claude",
       activeModel: "claude-sonnet-4-20250514",
+      providersLoaded: true,
       reason: "automatic-fallback",
     });
   });

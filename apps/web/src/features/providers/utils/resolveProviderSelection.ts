@@ -12,12 +12,61 @@ export interface ProviderRuntimeSelection {
   preferredMode: ProviderMode | "auto";
   activeMode: ConcreteProviderMode | null;
   activeModel: string | null;
+  /** Whether provider health has finished loading from the backend. */
+  providersLoaded: boolean;
   reason:
     | "explicit-user-choice"
     | "automatic-primary"
     | "automatic-fallback"
     | "recovery"
+    | "providers-loading"
     | null;
+}
+
+/**
+ * Voice route selects STT, Brain, and TTS independently.
+ * A single "activeMode" conflates capabilities that may use different providers.
+ */
+export type VoiceRoute = {
+  sttProvider: "elevenlabs" | "deepgram" | "browser";
+  brainProvider: "claude" | "cx" | "qwen" | "openai" | "gemini";
+  ttsProvider: "elevenlabs" | "azure" | "browser";
+  ready: boolean;
+};
+
+/**
+ * Resolve a voice route from current provider health.
+ * STT, Brain, and TTS are selected independently so a provider
+ * outage in one capability does not silently disable the others.
+ */
+export function resolveVoiceRoute(
+  providers: ProvidersState,
+): VoiceRoute {
+  // Service-level providers (elevenlabs, deepgram, azure-speech) live in
+  // the statuses array with string IDs; ProviderMode covers brain modes.
+  const health = (id: string): string =>
+    providers.statuses.find((s) => s.id === id)?.state ?? "unknown";
+
+  const sttProvider: VoiceRoute["sttProvider"] =
+    health("elevenlabs") === "healthy" ? "elevenlabs"
+    : health("deepgram") === "healthy" ? "deepgram"
+    : "browser";
+  const brainProvider: VoiceRoute["brainProvider"] =
+    providers.getHealth("claude") === "healthy" ? "claude"
+    : providers.getHealth("cx-gateway") === "healthy" ? "cx"
+    : providers.getHealth("qwen") === "healthy" ? "qwen"
+    : providers.getHealth("openai") === "healthy" ? "openai"
+    : "gemini";
+  const ttsProvider: VoiceRoute["ttsProvider"] =
+    health("elevenlabs") === "healthy" ? "elevenlabs"
+    : health("azure-speech") === "healthy" ? "azure"
+    : "browser";
+  return {
+    sttProvider,
+    brainProvider,
+    ttsProvider,
+    ready: providers.loaded,
+  };
 }
 
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
@@ -88,6 +137,7 @@ export function resolveProviderSelection(
         preferredMode,
         activeMode: recoveryMode,
         activeModel: recoveryModel,
+        providersLoaded: true,
         reason: "recovery",
       };
     }
@@ -96,33 +146,48 @@ export function resolveProviderSelection(
       preferredMode,
       activeMode: concrete,
       activeModel: explicitModel,
+      providersLoaded: providers.loaded,
       reason: "explicit-user-choice",
     };
   }
 
-  // 2. Automatic selection
-  for (const mode of AUTO_PRIORITY) {
-    if (providers.getHealth(mode) === "healthy") {
-      const model = resolveCurrentModel(
-        mode,
-        models[mode as keyof typeof models],
-        providers,
-      );
-      return {
-        preferredMode: "auto",
-        activeMode: mode,
-        activeModel: model,
-        reason: mode === AUTO_PRIORITY[0] ? "automatic-primary" : "automatic-fallback",
-      };
+  // 2. Automatic selection — only after providers have loaded
+  if (providers.loaded) {
+    for (const mode of AUTO_PRIORITY) {
+      if (providers.getHealth(mode) === "healthy") {
+        const model = resolveCurrentModel(
+          mode,
+          models[mode as keyof typeof models],
+          providers,
+        );
+        return {
+          preferredMode: "auto",
+          activeMode: mode,
+          activeModel: model,
+          providersLoaded: true,
+          reason: mode === AUTO_PRIORITY[0] ? "automatic-primary" : "automatic-fallback",
+        };
+      }
     }
   }
 
-  // 3. Complete outage / nothing healthy
-  // Fall back to mock if literally everything else is down
+  // 3. Providers still loading — never silently fall to mock
+  if (!providers.loaded) {
+    return {
+      preferredMode: "auto",
+      activeMode: null,
+      activeModel: null,
+      providersLoaded: false,
+      reason: "providers-loading",
+    };
+  }
+
+  // 4. Complete outage / all providers explicitly unavailable
   return {
     preferredMode: "auto",
     activeMode: "mock",
     activeModel: null,
+    providersLoaded: true,
     reason: "automatic-fallback",
   };
 }

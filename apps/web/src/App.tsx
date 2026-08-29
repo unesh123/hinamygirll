@@ -1,8 +1,14 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/react";
 import "./App.css";
-import { motion } from "framer-motion";
-import { AudioLines, ListChecks, ScanFace, Search, Wand2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { AudioLines, ListChecks, ScanFace, Search, Wand2, Sparkles } from "lucide-react";
+import { AppShell } from "./design-system/layout/AppShell";
+import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
+import { WorkMode } from "./design-system/modes/WorkMode";
+import { OperateMode } from "./design-system/modes/OperateMode";
+import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
+import { VoiceLab } from "./features/voice/VoiceLab";
 import { TranscriptView } from "./features/chat/components/TranscriptView";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
 import {
@@ -213,6 +219,7 @@ export default function App() {
   useSettingsPersistence(settings);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"info" | "image" | "web" | "music" | "slides" | "code">("info");
   const [drawerTitle, setDrawerTitle] = useState("");
@@ -226,6 +233,18 @@ export default function App() {
   });
   const [playbackSession, setPlaybackSession] = useState<PlaybackSession | null>(null);
   const activePlaybackId = useRef<string | null>(null);
+
+  // ─── Sakura OS mode state ──────────────────────────────
+  const [sakuraView, setSakuraView] = useState<"talk" | "work" | "operate">("work");
+  const [visualMode, setVisualMode] = useState<VisualMode>(() => {
+    try {
+      return (window.localStorage.getItem("hinaa-visual-mode") as VisualMode) || "vrm";
+    } catch { return "vrm"; }
+  });
+  const changeVisualMode = (mode: VisualMode) => {
+    setVisualMode(mode);
+    try { window.localStorage.setItem("hinaa-visual-mode", mode); } catch {}
+  };
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [sidebarExpanded, setSidebarExpanded] = useState<NavSection | null>(null);
@@ -569,231 +588,131 @@ export default function App() {
 
   const showWelcome = controller.messages.length <= 1 && !controller.streamingText && !controller.partialTranscript && controller.state === "idle" && !live.active;
 
+  // Map existing CompanionState to the modes' expected types
+  const mapCompanionState = (s: CompanionState): "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error" => s;
+
+  // Voice Lab — developer-only diagnostic route
+  const isVoiceLab = typeof window !== "undefined" && window.location.pathname === "/dev/voice-lab";
+  if (isVoiceLab) return <VoiceLab />;
+
   return (
     <SidebarProvider defaultExpanded={false}>
       <div className="hinaa-shell">
-        <ParticleOrbitEffect particleCount={12} radius={80} intensity={0.4} fadeOpacity={0.03} particleSize={1.5} colorRange={[140, 175]} autoColors={false} />
-        <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />
-        <FullScreenAura state={controller.state} />
+      {/* ─── Sakura OS (Canonical) ──────────────────────────── */}
+          <AppShell>
+            {/* Mode navigation tabs */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "var(--space-1)",
+              padding: "var(--space-2) var(--space-4)",
+              borderBottom: "1px solid var(--border-subtle)",
+              background: "var(--bg-secondary)",
+              flexShrink: 0,
+            }}>
+              {(["talk", "work", "operate"] as const).map((mode) => (
+                <motion.button
+                  key={mode}
+                  onClick={() => setSakuraView(mode)}
+                  whileTap={{ scale: 0.95 }}
+                  style={{
+                    padding: "var(--space-1-5) var(--space-4)",
+                    borderRadius: "var(--radius-pill)",
+                    border: "none",
+                    background: sakuraView === mode ? "var(--accent-pale)" : "transparent",
+                    color: sakuraView === mode ? "var(--accent)" : "var(--text-tertiary)",
+                    fontSize: "var(--text-sm)",
+                    fontWeight: sakuraView === mode ? 600 : 500,
+                    fontFamily: "var(--font-body)",
+                    cursor: "pointer",
+                    textTransform: "capitalize",
+                  }}
+                  aria-pressed={sakuraView === mode}
+                >
+                  {mode}
+                </motion.button>
+              ))}
+            </div>
 
-        <div className="hinaa-layout">
-          {/* Nav Rail */}
-          <NavRail active={navSection} onNavigate={handleNav} onNewChat={controller.resetConversation} onSettings={() => setSettingsOpen(true)} />
-          {navSection === "tasks" || navSection === "files" ? (
-            <Suspense fallback={lazyPanelFallback}><LocalProjectWorkspace active /></Suspense>
-          ) : (
-            <SidebarPanel
-              section={sidebarExpanded}
-              onClose={() => setSidebarExpanded(null)}
-              onNewChat={() => { controller.resetConversation(); setSidebarExpanded(null); }}
-              onStartVoice={() => { setSidebarExpanded(null); interruptPlayback(); live.start(); }}
-              onOpenMemory={() => { setSidebarExpanded(null); setMemoryOpen(true); }}
-              onOpenImageStudio={() => { setSidebarExpanded(null); openImageStudio(); }}
-              onOpenProjects={() => { setSidebarExpanded(null); setNavSection("tasks"); }}
-              onOpenSettings={() => { setSidebarExpanded(null); setSettingsOpen(true); }}
-              onQuickPrompt={(prompt) => { setSidebarExpanded(null); setInput(prompt); }}
-            />
-          )}
-
-          {/* Center: Avatar LEFT, Chat RIGHT */}
-          <div className="layout-body">
-            {/* Left: Avatar + Model Switcher */}
-            <div className="avatar-pane">
-              <Suspense fallback={<div style={{ display: "grid", placeItems: "center", height: "100%", color: "#94a3b8", fontSize: 12 }}>Preparing Hinaa…</div>}><AvatarPresence
-                mode={avatarMode}
-                state={controller.state}
+            {/* Mode content */}
+            {sakuraView === "talk" && (
+              <TalkMode
+                companionState={mapCompanionState(controller.state)}
+                companionName={companionProfiles[controller.companionId].name}
+                visualMode={visualMode}
+                onVisualModeChange={changeVisualMode}
+                isVoiceActive={live.active}
+                isPaused={live.paused}
+                voiceDetail={live.detail}
+                microphoneLevel={live.microphoneLevel}
+                onStartVoice={() => { interruptPlayback(); live.start(); }}
+                onStopVoice={() => live.stop()}
+                onPauseVoice={() => live.pause()}
+                onResumeVoice={() => live.resume()}
+                partialTranscript={controller.partialTranscript}
+                streamingText={controller.streamingText}
+                avatarModel={avatarModel}
+                avatarMode={avatarMode}
                 jawEnergy={playback.jawEnergy}
                 speakingRef={playback.playingRef}
                 visemeEvents={playback.visemeEvents}
                 audioStartTimeRef={playback.audioStartTimeRef}
-                modelUrl={avatarModel}
-                onModeChange={changeAvatarMode}
                 faceExpressions={facialSignalActive ? faceTrack.expressionsRef.current : null}
                 faceBones={faceActive ? faceTrack.bonesRef.current : null}
                 faceTrackingActive={faceActive}
                 trackingCalibration={faceTrack.calibration}
-                expressionText={latestAssistantExpressionText}
-                presentation={avatarPresentation}
-                companionName={companionProfiles[controller.companionId].name}
-                liveStatus={{
-                  active: live.active,
-                  paused: live.paused,
-                  detail: live.detail,
-                  microphoneLevel: live.microphoneLevel,
-                }}
+                expressionText={latestAssistantExpressionText ?? ""}
+                avatarPresentation={avatarPresentation}
                 messages={controller.messages}
-                partialTranscript={controller.partialTranscript}
+                onOpenAvatarLab={openAvatarLab}
+                onToggleFullscreen={() => {}}
+                onTypeInstead={() => setSakuraView("work")}
+                isMuted={playback.muted}
+                onToggleMute={playback.toggleMute}
+                onReplay={() => void playback.replay()}
+                hasReplay={playback.hasReplay}
+                diagnostics={live.diagnostics}
+                onManualCommit={live.manualCommit}
+                onToggleDiagnostics={() => setDiagnosticsOpen((v) => !v)}
+              />
+            )}
+
+            {sakuraView === "work" && (
+              <WorkMode
+                companionState={mapCompanionState(controller.state)}
+                messages={controller.messages}
                 streamingText={controller.streamingText}
-                onStartLive={() => { interruptPlayback(); live.start(); }}
-                onStopLive={() => live.stop()}
-                onPauseLive={() => live.pause()}
-                onResumeLive={() => live.resume()}
-              /></Suspense>
-              {/* A small, direct selector: choose Hinaa, choose Classic, or add a local VRM.
-                  Rejected legacy B/C assets remain absent. */}
-              <div className="vrm-switcher" role="group" aria-label="Choose Hinaa avatar">
-                <input
-                  ref={avatarUploadRef}
-                  type="file"
-                  accept=".vrm,.glb,.gltf"
-                  aria-label="Upload a local avatar model"
-                  className="vrm-file-input"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void importAndSelectAvatar(file);
-                    event.currentTarget.value = "";
-                  }}
-                />
-                {HINAA_AVATAR_MODELS.map((m) => (
-                  <button
-                    key={m.url}
-                    type="button"
-                    className={`vrm-pill${avatarModel === m.url ? " vrm-pill--active" : ""}`}
-                    onClick={() => selectAvatarModel(m.url)}
-                    title={m.label}
-                    aria-label={`Use ${m.label}`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="vrm-pill vrm-pill--add"
-                  onClick={() => avatarUploadRef.current?.click()}
-                  title="Choose a local VRM file and use it in HINAA"
-                  aria-label="Add a local avatar model"
-                >
-                  + Add avatar
-                </button>
-                <button
-                  type="button"
-                  className={`vrm-pill vrm-pill--face${faceActive ? " vrm-pill--face-active" : ""}`}
-                  onClick={() => {
-                    setDrawerMode("info");
-                    setDrawerTitle("VSeeFace and VMC");
-                    setDrawerContent(<VmcControlPanel
-                      tracker={faceTrack}
-                      selectedModelLabel={HINAA_AVATAR_MODELS.find((model) => model.url === avatarModel)?.label ?? "Imported HINAA avatar"}
-                      selectedModelMode={avatarTrackingMode}
-                      onClose={() => setDrawerOpen(false)}
-                      onOpenAvatarLab={openAvatarLab}
-                    />);
-                    setDrawerOpen(true);
-                  }}
-                  title="Open VSeeFace and VMC connection controls"
-                  aria-label="Open VSeeFace and VMC connection controls"
-                >
-                  {faceTrack.status === "connecting" ? <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> Connecting</> :
-                   faceTrack.status === "live" ? <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> LIVE</> :
-                   faceTrack.status === "test" ? <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> TEST</> : <><ScanFace size={13} style={{ marginRight: 6, verticalAlign: -2 }} /> VSeeFace</>}
-                </button>
-              </div>
-              {avatarUploadMessage && <div className="vrm-upload-status" role="status">{avatarUploadMessage}</div>}
-              <div style={{ fontSize:"0.62rem", color: faceActive ? "#15803d" : faceTrack.status === "stale" ? "#b45309" : faceTrack.status === "test" ? "#6d28d9" : faceTrack.status === "error" ? "#dc2626" : "#64748b", padding:"3px 12px 5px", textAlign:"center", lineHeight:1.4 }} aria-live="polite">
-                {facialSignalActive ? "VSeeFace Live — fresh external facial channels are driving HINAA's expression layer."
-                  : faceActive ? "VSeeFace Live — motion packets are fresh; waiting for supported blendshape channels before mirroring expressions."
-                  : faceTrack.status === "listening" ? "VMC Listening — waiting for VSeeFace packets."
-                  : faceTrack.status === "stale" ? "Tracking Stale — the avatar is returning safely to autonomous presence."
-                  : faceTrack.status === "test" ? "Test Signal — diagnostic fixture only, not live camera tracking."
-                  : faceTrack.status === "connecting" ? "Starting local VMC connection…"
-                  : faceTrack.status === "error" ? `VMC error — ${faceTrack.error ?? "open the control panel to retry."}`
-                  : "VSeeFace is disconnected — open the control panel to connect/listen."}
-              </div>
-            </div>
+                partialTranscript={controller.partialTranscript}
+                isThinking={controller.state === "thinking" && !controller.streamingText && !controller.partialTranscript}
+                input={input}
+                onInputChange={setInput}
+                onSend={() => submit()}
+                onStop={() => controller.stop()}
+                disabled={controller.state !== "idle" && controller.state !== "thinking"}
+                isVoiceActive={live.active}
+                onStartVoice={() => { interruptPlayback(); live.start(); }}
+                onStopVoice={() => live.stop()}
+                voiceFeedback={voiceReply}
+                powerUps={[]}
+                onPowerUpToggle={() => {}}
+                onResolveTool={controller.resolveToolRequest}
+                autoRunTools={settings.automation.autoRunTools}
+                agentSteps={agentSteps}
+                onWelcomeAction={handleWelcome}
+                attachedImage={attachedImage}
+                onImageAttach={setAttachedImage}
+              />
+            )}
 
-            {/* Right: Chat */}
-            <main className="chat-pane">
-              {/* Header */}
-              <header className="app-header">
-                <div className="brand-group">
-                  <motion.span className="brand-mark" aria-hidden="true" animate={{ rotate: [0, 360] }} transition={{ duration: 30, repeat: Infinity, ease: "linear" }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
-                  </motion.span>
-                  <span className="brand-name">HINAA</span>
-                </div>
-                <div className="header-right">
-                  <span className="header-status"><span className="header-status-dot" />{stateLabels[controller.state]}</span>
-                  {routing.activeMode === "cx-gateway" && <span title="CX Gateway is the active Hinaa brain" style={{ color: "#0f766e", fontSize: 11, fontWeight: 750 }}>CX Brain</span>}
-                  {routing.activeMode === "claude" && <span title="Claude is the active Hinaa brain" style={{ color: "#ffd0dd", fontSize: 11, fontWeight: 750, padding: "5px 10px", border: "1px solid rgba(255,181,203,.24)", borderRadius: 999, background: "rgba(238,145,173,.10)" }}>Claude</span>}
-                  {routing.reason === "recovery" && <button type="button" onClick={() => setSettingsOpen(true)} title="CX is not available locally; open settings to configure it" style={{ border: "1px solid rgba(245,158,11,.30)", borderRadius: 999, color: "#92400e", background: "rgba(254,243,199,.70)", padding: "4px 7px", cursor: "pointer", fontSize: 10, fontWeight: 750 }}>CX offline · safe mode</button>}
-                  <SearchingLoader visible={searching} />
-                  
-                  {import.meta.env.VITE_HINAA_AUTH_MODE === "clerk" && (
-                    <ClerkAuthWrapper />
-                  )}
-
-                  <SettingsTrigger onClick={() => setSettingsOpen(true)} isOpen={settingsOpen} />
-                </div>
-              </header>
-
-              {/* Conversation */}
-              <div className="chat-scroll">
-                {agentSteps.length > 0 && <ActivityPanel steps={agentSteps} title={contextMode === "research" ? "Research workflow" : "Execution workflow"} mode={contextMode === "research" ? "research" : "execution"} />}
-
-                {showWelcome ? (
-                  <div className="welcome-center">
-                    <motion.h1 className="welcome-greeting" initial={{ opacity: 0, y: 16, filter: "blur(4px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0)" }} transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}>Hello</motion.h1>
-                    <motion.p className="welcome-subtitle" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }}>Main tumhare liye ready hoon. What would you like to do?</motion.p>
-                    <motion.div className="welcome-cards" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-                      {[
-                        { icon: <Search size={19} strokeWidth={1.9} />, title: "Research", desc: "Search with sources", action: "research" },
-                        { icon: <Wand2 size={19} strokeWidth={1.9} />, title: "Create", desc: "Images, documents, ideas", action: "create" },
-                        { icon: <ListChecks size={19} strokeWidth={1.9} />, title: "Continue work", desc: "Projects & tasks", action: "work" },
-                        { icon: <AudioLines size={19} strokeWidth={1.9} />, title: "Talk to HINAA", desc: "Voice conversation", action: "voice" },
-                      ].map((c, i) => (
-                        <motion.button type="button" key={c.action} className="welcome-card" aria-label={c.title} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 + i * 0.08 }} onClick={() => handleWelcome(c.action)} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
-                          <span className="welcome-card-icon" aria-hidden="true">{c.icon}</span>
-                          <span className="welcome-card-title">{c.title}</span>
-                          <span className="welcome-card-desc">{c.desc}</span>
-                        </motion.button>
-                      ))}
-                    </motion.div>
-                  </div>
-                ) : (
-                  <TranscriptView messages={controller.messages} streamingText={controller.streamingText}
-                    partialTranscript={controller.partialTranscript} companionName={companionProfiles[controller.companionId].name}
-                    isThinking={controller.state === "thinking" && !controller.streamingText && !controller.partialTranscript}
-                    onWelcomeAction={handleWelcome}
-                    onResolveTool={controller.resolveToolRequest}
-                    autoRunTools={settings.automation.autoRunTools} />
-                )}
-
-                {actionChips.length > 0 && controller.state === "idle" && (
-                  <ActionChips chips={actionChips} onChip={c => {
-                    if (c.id === "src") setContextMode("research");
-                    else if (c.id === "img") openImageStudio();
-                    else if (c.id === "deepen") setInput("Go deeper with a researched answer and clear sources: ");
-                    else if (c.id === "plan") setInput("Turn this into a clear task plan with milestones, dependencies, and approval steps: ");
-                    else setInput("Continue, and ask me the most useful next question: ");
-                  }} />
-                )}
-              </div>
-
-              {/* Composer */}
-              <div className="premium-composer-wrapper">
-                <PremiumComposer value={input} onChange={setInput} onSend={() => submit()} onVoiceStart={() => { interruptPlayback(); live.start(); }}
-                  onVoiceStop={() => live.stop()} onPowerUp={handlePowerUp} onImageAttach={setAttachedImage}
-                  imagePreview={attachedImage}
-                  isVoiceActive={live.active}
-                  isGenerating={controller.state === "thinking"} disabled={controller.state !== "idle" && controller.state !== "thinking"}
-                  companionName={companionProfiles[controller.companionId].name}
-                  voiceFeedback={voiceReply}
-                  hasReplay={playback.hasReplay}
-                  muted={playback.muted}
-                  onReplay={() => void playback.replay()}
-                  onToggleMute={playback.toggleMute} />
-              </div>
-            </main>
-          </div>
-
-          {/* Context workspace */}
-          <Suspense fallback={lazyPanelFallback}><ContextWorkspace mode={contextMode} onClose={() => setContextMode("hidden")} sources={contextSources} isSearching={searching} steps={agentSteps} /></Suspense>
-        </div>
+            {sakuraView === "operate" && (
+              <OperateMode />
+            )}
+          </AppShell>
 
         {/* Overlays */}
         <Suspense fallback={null}><MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} /></Suspense>
         <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}>
-          <CompanionSwitch value={controller.companionId} onChange={id => { if (id === controller.companionId) return; if (live.active) live.stop(); controller.switchCompanion(id); }} />
           <AppearanceSettings appearance={settings.appearance} onChange={setAppearance} />
           <LanguageSettings language={settings.language} onChange={setLanguage} />
           <ProviderSettings provider={settings.provider} providers={providers} onChange={setProvider} activeMode={routing.activeMode as any} />
@@ -801,6 +720,13 @@ export default function App() {
           <DiagnosticsSettings providers={providers} />
         </SettingsDialog>
         <HinaDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} mode={drawerMode} title={drawerTitle} side="bottom">{drawerContent}</HinaDrawer>
+        <VoiceDiagnosticsDrawer
+          isOpen={diagnosticsOpen}
+          onClose={() => setDiagnosticsOpen(false)}
+          data={live.diagnostics}
+          onManualCommit={live.manualCommit}
+          isListening={live.active}
+        />
       </div>
     </SidebarProvider>
   );
