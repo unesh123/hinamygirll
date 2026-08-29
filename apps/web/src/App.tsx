@@ -211,6 +211,46 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
   );
 }
 
+/* ─── SpokenText derivation ───────────────────────────── */
+/**
+ * Derive a natural spoken form from displayText when the model omits spokenText.
+ * Strips markdown, URLs, code blocks, tables, and truncates to ~200 chars.
+ */
+function deriveSpokenText(displayText: string): string {
+  if (!displayText) return "";
+  let spoken = displayText
+    // Remove fenced code blocks
+    .replace(/```[\s\S]*?```/g, "")
+    // Remove inline code
+    .replace(/`([^`]+)`/g, "$1")
+    // Remove markdown links, keep text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Remove bare URLs
+    .replace(/https?:\/\/\S+/g, "")
+    // Remove headings
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove bold/italic markers
+    .replace(/[*_]{1,3}/g, "")
+    // Remove table rows
+    .replace(/^\|.*\|\s*$/gm, "")
+    // Remove horizontal rules
+    .replace(/^[-*_]{3,}\s*$/gm, "")
+    // Collapse whitespace
+    .replace(/\s+/g, " ")
+    .trim();
+  // Truncate to a natural speaking length
+  if (spoken.length > 250) {
+    // Cut at sentence boundary if possible
+    const cut = spoken.substring(0, 250);
+    const lastPeriod = cut.lastIndexOf(".");
+    const lastExcl = cut.lastIndexOf("!");
+    const lastQ = cut.lastIndexOf("?");
+    const bestCut = Math.max(lastPeriod, lastExcl, lastQ);
+    spoken = bestCut > 80 ? cut.substring(0, bestCut + 1) : cut + "...";
+  }
+  return spoken;
+}
+
 /* ─── Main App ─────────────────────────────────────────── */
 export default function App() {
   const playback = useAudioPlayback();
@@ -233,6 +273,34 @@ export default function App() {
   });
   const [playbackSession, setPlaybackSession] = useState<PlaybackSession | null>(null);
   const activePlaybackId = useRef<string | null>(null);
+  // Audio unlock state: AudioContext may be suspended by browser autoplay policy.
+  // When blocked, we show an unlock button so the user can tap to resume audio.
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const audioBlockedRef = useRef(false);
+  useEffect(() => {
+    const checkAudioContext = () => {
+      const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
+      if (ctx && ctx.state === "suspended" && !audioBlockedRef.current) {
+        audioBlockedRef.current = true;
+        setAudioBlocked(true);
+      }
+    };
+    // Check periodically (low frequency)
+    const interval = setInterval(checkAudioContext, 2000);
+    return () => clearInterval(interval);
+  }, []);
+  const unlockAudio = useCallback(async () => {
+    try {
+      const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
+      if (ctx && ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      audioBlockedRef.current = false;
+      setAudioBlocked(false);
+    } catch {
+      // AudioContext unlock failed — browser may require a different gesture
+    }
+  }, []);
 
   // ─── Sakura OS mode state ──────────────────────────────
   const [sakuraView, setSakuraView] = useState<"talk" | "work" | "operate">("work");
@@ -380,8 +448,10 @@ export default function App() {
     void (async () => {
       const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
       const plan = result?.plan;
-      const spoken = plan?.spokenText?.trim();
-      if (!result || !plan || !spoken) return;
+      if (!result || !plan) return;
+      // Derive spokenText from displayText when the model omits it.
+      // Strip markdown, URLs, code blocks, and keep it under 200 chars.
+      const spoken = plan.spokenText?.trim() || deriveSpokenText(plan.displayText);
 
       const playbackId = `playback-${result.turnId}-${Date.now()}`;
       activePlaybackId.current = playbackId;
@@ -428,12 +498,16 @@ export default function App() {
 
       try {
         updateSession("buffering", { provider: ttsMode });
+        // TTS with 12-second timeout — falls back to browser speech on timeout
+        const ttsController = new AbortController();
+        const ttsTimeout = setTimeout(() => ttsController.abort(), 12_000);
         const speech = await synthesizeSpeech(
           spoken,
           controller.companionId,
           ttsMode,
-          new AbortController().signal,
+          ttsController.signal,
         );
+        clearTimeout(ttsTimeout);
         if (activePlaybackId.current !== playbackId) return;
         if (/placeholder|mock/i.test(speech.provider)) {
           await startBrowserFallback(
@@ -453,11 +527,17 @@ export default function App() {
         });
       } catch (error) {
         if (activePlaybackId.current !== playbackId) return;
-        await startBrowserFallback(
-          error instanceof Error
-            ? `${error.message} Using the device voice instead.`
-            : "Cloud voice is unavailable, so Hinaa is using the device voice instead.",
-        );
+        // If TTS timed out or failed, try browser speech as fallback
+        const reason = error instanceof Error ? error.message : "Cloud voice is unavailable";
+        if (reason.includes("aborted") || reason.includes("timeout")) {
+          await startBrowserFallback(
+            "Voice synthesis took too long. Using your device voice instead.",
+          );
+        } else {
+          await startBrowserFallback(
+            `${reason}. Using the device voice instead.`,
+          );
+        }
       }
     })();
   }, [input, live.active, controller, playback, attachedImage, interruptPlayback]);
@@ -709,6 +789,41 @@ export default function App() {
               <OperateMode />
             )}
           </AppShell>
+
+        {/* Audio unlock overlay — shows when AudioContext is suspended by browser autoplay policy */}
+        <AnimatePresence>
+          {audioBlocked && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              style={{
+                position: "fixed",
+                bottom: 80,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 2000,
+                background: "var(--accent-pale)",
+                border: "1px solid var(--accent)",
+                borderRadius: "var(--radius-lg)",
+                padding: "var(--space-3) var(--space-5)",
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-3)",
+                boxShadow: "var(--shadow-lg)",
+                cursor: "pointer",
+              }}
+              onClick={unlockAudio}
+              role="button"
+              aria-label="Enable HINAA voice"
+            >
+              <span style={{ fontSize: 20 }}>🔊</span>
+              <span style={{ fontFamily: "var(--font-body)", color: "var(--text-primary)", fontSize: "var(--text-sm)", fontWeight: 500 }}>
+                Tap to enable HINAA's voice
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Overlays */}
         <Suspense fallback={null}><MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} /></Suspense>
