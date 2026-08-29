@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useSpring, animated, config } from "@react-spring/web";
 import { Mic, MicOff, Pause, Play, Radio, Sparkles, Square, Volume2 } from "lucide-react";
@@ -71,6 +72,18 @@ export function FullscreenCompanionOverlay({
     config: config.stiff,
   }));
 
+  // Escape key handling
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onStopLive();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onStopLive]);
+
   if (!open) return null;
 
   const recentMessages = messages.slice(-3);
@@ -105,7 +118,7 @@ export function FullscreenCompanionOverlay({
         <AnimatePresence initial={false}>
           {recentMessages.map((message, index) => (
             <motion.article
-              key={message.id}
+              key={message.id || `msg-${index}`}
               className={`fullscreen-turn fullscreen-turn--${message.role}`}
               initial={{ opacity: 0, x: -14, y: 8 }}
               animate={{ opacity: 1, x: 0, y: 0 }}

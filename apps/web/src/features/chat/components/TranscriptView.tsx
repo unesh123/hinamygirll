@@ -161,7 +161,7 @@ export function TranscriptView({
           showDivider;
 
         return (
-          <Fragment key={msg.id ?? i}>
+          <Fragment key={msg.id || `msg-${i}`}>
             {showDivider && (
               <div className={styles.divider} role="separator">
                 <time>{dividerTime(msg.createdAt)}</time>
