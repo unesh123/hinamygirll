@@ -899,8 +899,8 @@ export function AvatarPresence({
                 removes a full shadow pass from the frame loop. */}
             <ContactShadows
               resolution={128} scale={2.8} blur={2.5}
-              opacity={0.18} far={1.5} frames={1}
-              position={[0, -0.02, 0]} color="#160d16"
+              opacity={0.12} far={1.5} frames={1}
+              position={[0, -0.02, 0]} color="#8B6080"
             />
             {/* `Environment preset="apartment"` fetched an HDR from the
                 network at runtime every session (PMREM + download stall).

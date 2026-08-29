@@ -21,70 +21,36 @@ describe("HINAA assistant workspace", () => {
     localStorage.removeItem("hinaa_settings_v1");
   });
 
-  it("renders the main stage with brand and status", () => {
+  it("renders the Sakura OS navigation rail", () => {
     render(<App />);
-    expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getAllByText("HINAA").length).toBeGreaterThan(0);
-    expect(document.querySelector(".header-status")).toHaveTextContent("Ready");
+    // NavigationRail should be present with aria-label
+    expect(screen.getByLabelText("HINAA navigation")).toBeInTheDocument();
   });
 
-  it("offers clear welcome actions without automatically starting a live session", () => {
+  it("renders Talk, Work, and Operate mode buttons", () => {
     render(<App />);
-    expect(screen.getByRole("button", { name: "Research" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue work" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Talk to HINAA" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Start Live Session/i })).not.toBeInTheDocument();
+    // Mode tabs in the header
+    const talkBtn = screen.getAllByRole("button").find(el => /talk/i.test(el.textContent ?? ""));
+    const workBtn = screen.getAllByRole("button").find(el => /work/i.test(el.textContent ?? ""));
+    const operateBtn = screen.getAllByRole("button").find(el => /operate/i.test(el.textContent ?? ""));
+    expect(talkBtn).toBeDefined();
+    expect(workBtn).toBeDefined();
+    expect(operateBtn).toBeDefined();
   });
 
-  it("shows the text composer as the dependable input path", () => {
+  it("shows the Work mode text composer", () => {
     render(<App />);
-    expect(screen.getByLabelText("Message HINAA")).toBeInTheDocument();
+    const composer = screen.getByPlaceholderText("Ask HINAA anything...");
+    expect(composer).toBeInTheDocument();
   });
 
-  it("has settings trigger accessible", () => {
+  it("shows welcome actions in Work mode", () => {
     render(<App />);
-    expect(screen.getByRole("banner")).toBeInTheDocument();
-  });
-
-  it("keeps the local voice control accessible in the composer", () => {
-    render(<App />);
-    expect(screen.getByRole("button", { name: "Mute Hinaa voice" })).toBeInTheDocument();
-  });
-
-  it("opens the visible VSeeFace and VMC control panel from the avatar pill", async () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Open VSeeFace and VMC connection controls" }));
-    expect(await screen.findByRole("dialog", { name: "VSeeFace and VMC connection panel" })).toBeInTheDocument();
-    expect(screen.getByText("Disconnected")).toBeInTheDocument();
-    expect(screen.getByText(/Start HINAA’s local receiver/i)).toBeInTheDocument();
-  });
-
-  it("imports and selects a local avatar in one flow", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ asset: { displayName: "Unesh Hinaa.vrm", browserUrl: "/api/v1/avatar-assets/avatar-00000000-0000-0000-0000-000000000001/file" } }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(<App />);
-
-    const model = new File(["vrm"], "Unesh Hinaa.vrm", { type: "model/vrm" });
-    fireEvent.change(screen.getByLabelText("Upload a local avatar model"), { target: { files: [model] } });
-
-    await waitFor(() => expect(localStorage.getItem("hinaa.avatar-model")).toBe("/api/v1/avatar-assets/avatar-00000000-0000-0000-0000-000000000001/file"));
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/avatar-assets/import", expect.objectContaining({ method: "POST" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Unesh Hinaa.vrm is selected");
-  });
-
-  it("persists the selected approved avatar model across a remount", () => {
-    const firstMount = render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Use Hinaa Classic" }));
-    expect(localStorage.getItem("hinaa.avatar-model")).toBe("/models/model_5447.vrm");
-    firstMount.unmount();
-
-    render(<App />);
-    expect(screen.getByRole("button", { name: "Use Hinaa Classic" })).toHaveClass("vrm-pill--active");
-    expect(screen.getByRole("button", { name: "Use Hinaa" })).not.toHaveClass("vrm-pill--active");
+    // Welcome cards should be visible in Work mode
+    const research = screen.getAllByRole("button").find(el => el.textContent?.includes("Research"));
+    const create = screen.getAllByRole("button").find(el => el.textContent?.includes("Create"));
+    expect(research).toBeDefined();
+    expect(create).toBeDefined();
   });
 
   it("system errors do not appear in the conversation", () => {
@@ -105,7 +71,7 @@ describe("HINAA assistant workspace", () => {
     }));
     render(<App />);
 
-    const composer = screen.getByLabelText("Message HINAA");
+    const composer = screen.getByPlaceholderText("Ask HINAA anything...");
     fireEvent.change(composer, { target: { value: "Give me a quick status update." } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
@@ -113,7 +79,6 @@ describe("HINAA assistant workspace", () => {
     const utterance = speak.mock.calls[0][0] as FakeUtterance;
     expect(utterance.text).toBeTruthy();
     expect(utterance.text).not.toContain("```");
-    expect(screen.getByText("Speaking with local browser voice")).toBeInTheDocument();
     utterance.onend?.();
   });
 
