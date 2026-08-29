@@ -226,9 +226,10 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
  * - Record when fallback derivation was used (via wasFallbackDerived)
  */
 let wasFallbackDerived = false;
-function deriveSpokenText(displayText: string): string {
+export function deriveSpokenText(displayText: string): string {
   if (!displayText) return "";
   wasFallbackDerived = true;
+  const originalLength = displayText.length;
   let spoken = displayText
     // Remove fenced code blocks (``` ... ```)
     .replace(/```[\s\S]*?```/g, "")
@@ -239,7 +240,8 @@ function deriveSpokenText(displayText: string): string {
     // Remove bare URLs
     .replace(/https?:\/\/\S+/g, "")
     // Remove reference-style citation links like [1] [2] [^note]
-    .replace(/\[\^?\d+\]/g, "")
+    .replace(/\[\^[a-zA-Z0-9]+\]/g, "")
+    .replace(/\[\d+\]/g, "")
     // Remove headings (# ## ###)
     .replace(/^#{1,6}\s+/gm, "")
     // Remove bold/italic markers but keep content
@@ -261,26 +263,28 @@ function deriveSpokenText(displayText: string): string {
     .trim();
   // Truncate to a natural speaking length with sentence-aware cutting
   const MAX_SPOKEN_LENGTH = 280;
+  const LOOKAHEAD_LIMIT = 40; // allow looking a few words past the target
   if (spoken.length > MAX_SPOKEN_LENGTH) {
-    const cut = spoken.substring(0, MAX_SPOKEN_LENGTH);
-    // Find the last sentence boundary
-    const lastPeriod = cut.lastIndexOf(".");
-    const lastExcl = cut.lastIndexOf("!");
-    const lastQ = cut.lastIndexOf("?");
-    const lastColon = cut.lastIndexOf(":");
+    // Search for the last sentence boundary in a window around the target length
+    const searchEnd = Math.min(spoken.length, MAX_SPOKEN_LENGTH + LOOKAHEAD_LIMIT);
+    const searchWindow = spoken.substring(0, searchEnd);
+    const lastPeriod = searchWindow.lastIndexOf(".");
+    const lastExcl = searchWindow.lastIndexOf("!");
+    const lastQ = searchWindow.lastIndexOf("?");
+    const lastColon = searchWindow.lastIndexOf(":");
     const bestCut = Math.max(lastPeriod, lastExcl, lastQ, lastColon);
     if (bestCut > 80) {
-      // Cut at sentence boundary and add a natural continuation hint
-      spoken = cut.substring(0, bestCut + 1).trimEnd();
-      // Only add continuation hint if there's more meaningful content
-      const remaining = displayText.substring(bestCut + 1).trim();
-      if (remaining.length > 20) {
+      // Cut at sentence boundary — keep the sentence-ending punctuation for natural speech
+      spoken = searchWindow.substring(0, bestCut + 1).trimEnd();
+      // Add continuation hint if there's more meaningful content remaining
+      const remainingAfterCut = originalLength - (bestCut + 1);
+      if (remainingAfterCut > 20) {
         spoken += " Details are available in the chat.";
       }
     } else {
       // No good sentence boundary — cut at word boundary
-      const lastSpace = cut.lastIndexOf(" ");
-      spoken = (lastSpace > 100 ? cut.substring(0, lastSpace) : cut).trimEnd() + "...";
+      const lastSpace = searchWindow.lastIndexOf(" ");
+      spoken = (lastSpace > 100 ? searchWindow.substring(0, lastSpace) : searchWindow).trimEnd() + "...";
     }
   }
   return spoken;
