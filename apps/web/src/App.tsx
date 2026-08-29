@@ -536,11 +536,19 @@ export default function App() {
         return;
       }
 
+      // Track TTS terminal state to prevent duplicate fallback.
+      // Backend has a 10s TTS timeout; frontend has 12s.
+      // Once one fires, the other must not start another voice.
+      let ttsTerminalReached = false;
+      const markTtsTerminal = () => { ttsTerminalReached = true; };
+
       try {
         updateSession("buffering", { provider: ttsMode });
         // TTS with 12-second timeout — falls back to browser speech on timeout
         const ttsController = new AbortController();
-        const ttsTimeout = setTimeout(() => ttsController.abort(), 12_000);
+        const ttsTimeout = setTimeout(() => {
+          if (!ttsTerminalReached) ttsController.abort();
+        }, 12_000);
         const speech = await synthesizeSpeech(
           spoken,
           controller.companionId,
@@ -550,12 +558,14 @@ export default function App() {
         clearTimeout(ttsTimeout);
         if (activePlaybackId.current !== playbackId) return;
         if (/placeholder|mock/i.test(speech.provider)) {
+          markTtsTerminal();
           await startBrowserFallback(
             "The selected mode has no intelligible server voice yet, so Hinaa is using your device voice.",
           );
           return;
         }
         await playback.play(speech.blob, spoken);
+        markTtsTerminal();
         if (!updateSession("playing", {
           provider: speech.provider,
           startedAt: new Date().toISOString(),
@@ -567,6 +577,9 @@ export default function App() {
         });
       } catch (error) {
         if (activePlaybackId.current !== playbackId) return;
+        // Prevent duplicate fallback — only one terminal outcome per turn
+        if (ttsTerminalReached) return;
+        markTtsTerminal();
         // If TTS timed out or failed, try browser speech as fallback
         const reason = error instanceof Error ? error.message : "Cloud voice is unavailable";
         if (reason.includes("aborted") || reason.includes("timeout")) {
