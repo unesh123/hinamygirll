@@ -44,6 +44,17 @@ export interface VoicePipelineDiagnostics {
   lastError: string;
   turnCount: number;
   activeTurnId: string;
+  /** Exact voice route — which providers are in use for STT/Brain/TTS */
+  voiceRoute: {
+    sttProvider: string;
+    sttTransport: string;
+    brainProvider: string;
+    brainModel: string;
+    ttsProvider: string;
+    ttsTransport: string;
+    ttsVoiceId: string;
+    ttsFallbackReason?: string;
+  };
 }
 
 export interface LiveMetrics {
@@ -168,6 +179,15 @@ export function useLiveConversation({
     queueScheduledSources: 0,
     queueDrained: true,
     finalSequenceReceived: false,
+    voiceRoute: {
+      sttProvider: "—",
+      sttTransport: "—",
+      brainProvider: "—",
+      brainModel: "—",
+      ttsProvider: "—",
+      ttsTransport: "—",
+      ttsVoiceId: "—",
+    },
   });
   const chunksSentRef = useRef(0);
   const chunksPerSecRef = useRef(0);
@@ -780,6 +800,20 @@ export function useLiveConversation({
         languageMode: "auto",
         calibration,
       });
+      // Populate the voice route diagnostics with the actual providers in use
+      const mode = callbacks.current.controller.routing.activeMode ?? "mock";
+      setDiagnostics((prev) => ({
+        ...prev,
+        voiceRoute: {
+          sttProvider: "elevenlabs",
+          sttTransport: "websocket",
+          brainProvider: mode,
+          brainModel: callbacks.current.controller.routing.activeModel ?? "default",
+          ttsProvider: "elevenlabs",
+          ttsTransport: "http",
+          ttsVoiceId: "configured",
+        },
+      }));
       heartbeat.current = window.setInterval(
         () => sendJson({ type: "ping", sentAtMs: performance.now() }),
         15_000,

@@ -38,6 +38,18 @@ export interface VoiceDiagnosticsData {
   // Playback
   playbackState: "idle" | "playing" | "error";
   
+  // Voice Route (exact providers in use)
+  voiceRoute: {
+    sttProvider: string;
+    sttTransport: string;
+    brainProvider: string;
+    brainModel: string;
+    ttsProvider: string;
+    ttsTransport: string;
+    ttsVoiceId: string; // redacted
+    ttsFallbackReason?: string;
+  };
+  
   // Pipeline
   currentStage: string;
   lastError: string;
@@ -234,6 +246,20 @@ export function VoiceDiagnosticsDrawer({ isOpen, onClose, data, onManualCommit, 
             <DiagRow label="TTS provider" value={data.ttsProvider || "—"} />
             <DiagRow label="Audio chunks" value={`${data.audioChunksReceived}`} />
             <DiagRow label="Playback" value={data.playbackState} />
+          </div>
+
+          {/* Voice Route */}
+          <div style={{ padding: "var(--space-3) var(--space-4)", borderBottom: "1px solid var(--border-subtle)" }}>
+            <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "var(--space-2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Voice Route
+            </div>
+            <DiagRow label="STT" value={`${data.voiceRoute.sttProvider} · ${data.voiceRoute.sttTransport}`} />
+            <DiagRow label="Brain" value={`${data.voiceRoute.brainProvider} · ${data.voiceRoute.brainModel}`} />
+            <DiagRow label="TTS" value={`${data.voiceRoute.ttsProvider} · ${data.voiceRoute.ttsTransport}`} />
+            <DiagRow label="Voice ID" value={data.voiceRoute.ttsVoiceId} />
+            {data.voiceRoute.ttsFallbackReason && (
+              <DiagRow label="Fallback" value={data.voiceRoute.ttsFallbackReason} warn />
+            )}
           </div>
 
           {/* Actions */}
