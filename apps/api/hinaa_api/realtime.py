@@ -344,7 +344,6 @@ class RealtimeGateway:
                         "message": "I detected audio but could not understand the words. Try speaking closer to the microphone or use push-to-talk.",
                         "provider": stt_provider,
                         "audioBytes": audio_bytes,
-                        "turnId": f"turn-{session.turn}",
                     },
                 )
                 await self._send_current(

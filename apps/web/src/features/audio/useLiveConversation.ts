@@ -138,6 +138,26 @@ function decodeAudio(value: string, mediaType = "audio/wav"): Blob {
   return new Blob([bytes], { type: mediaType });
 }
 
+/**
+ * Opt-in voice pipeline trace. Set sessionStorage["hinaa-voice-trace"] = "1"
+ * before starting a live session, then read DevTools console for
+ * "[voice-trace]" entries covering every mic frame decision, turn boundary,
+ * and server event — including events silently discarded by turn/generation
+ * guards, which is how stuck-listening bugs hide.
+ */
+function voiceTraceEnabled(): boolean {
+  try {
+    return typeof sessionStorage !== "undefined" &&
+      sessionStorage.getItem("hinaa-voice-trace") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function voiceTrace(...parts: unknown[]): void {
+  if (voiceTraceEnabled()) console.debug("[voice-trace]", ...parts);
+}
+
 export function useLiveConversation({
   controller,
   playback,
@@ -218,6 +238,7 @@ export function useLiveConversation({
   const textGeneration = useRef<number | undefined>(undefined);
   const audibleGeneration = useRef<number | undefined>(undefined);
   const lastPartial = useRef("");
+  const frameTraceCount = useRef(0);
   const turnTaking = useRef(new TurnTakingController());
   const phraseDetector = useRef(new PhraseDetector());
   const latency = useRef(new LatencyClock());
@@ -338,6 +359,11 @@ export function useLiveConversation({
       latency.current.mark("playback_stopped");
       sendJson({ type: "interrupt", generation: generation.current });
     }
+    // A new user turn is starting: clear the previous turn's correlation ID so
+    // the server's NEW turnId (turn-{n}-{gen} increments per turn) is adopted
+    // instead of discarded as a "late event from a previous turn". Without
+    // this reset every turn after the first was silently dropped.
+    activeTurnIdRef.current = "";
     sequence.current = 0;
     capturing.current = true;
     speechStartedAt.current = performance.now();
@@ -375,6 +401,17 @@ export function useLiveConversation({
       });
       setMetrics((current) => ({ ...current, turnState: decision.state }));
 
+      // Periodic frame-level trace so quiet-mic / threshold issues are visible
+      frameTraceCount.current = (frameTraceCount.current + 1) % 25;
+      if (frameTraceCount.current === 0)
+        voiceTrace(
+          "mic-frame",
+          "rms:", level.toFixed(4),
+          "state:", decision.state,
+          "capturing:", capturing.current,
+          "assistantPlaying:", playbackState.current,
+        );
+
       // Only allow true intentional user barge-in (level >= 0.22) so assistant speaker output never cuts her off mid-sentence
       if (decision.bargeIn && level >= 0.22) {
         const started = performance.now();
@@ -406,9 +443,12 @@ export function useLiveConversation({
         preRoll.current.push(frame);
         if (preRoll.current.length > 10) preRoll.current.shift();
       }
-      if (decision.speechStart) beginSpeech();
-      else if (capturing.current) sendFrame(frame);
+      if (decision.speechStart) {
+        voiceTrace("speech-start", "rms:", level.toFixed(4), "state:", decision.state);
+        beginSpeech();
+      } else if (capturing.current) sendFrame(frame);
       if (decision.speechCommit && capturing.current) {
+        voiceTrace("speech-commit", "frames-captured:", sequence.current);
         speechEndedAt.current = performance.now();
         latency.current.mark("speech_ended");
         latency.current.mark("turn_committed");
@@ -426,17 +466,34 @@ export function useLiveConversation({
   );
 
   const handleServerEvent = useCallback((event: LiveEvent) => {
+    voiceTrace(
+      "server-event",
+      event.type,
+      "turnId:", event.turnId ?? "—",
+      "active:", activeTurnIdRef.current || "—",
+      "gen:", event.generation ?? "—",
+    );
     // Reject events from a stale generation
     if (
       typeof event.generation === "number" &&
       event.generation < generation.current
-    )
+    ) {
+      voiceTrace("discard:stale-generation", event.type, event.generation, "current:", generation.current);
       return;
+    }
     // Session-level events bypass turn correlation
     if (event.type === "session.ready" || event.type === "pong" || event.type === "error") {
       // fall through to handler below
     } else if (event.turnId && activeTurnIdRef.current && event.turnId !== activeTurnIdRef.current) {
-      // Late event from a previous turn — discard silently
+      // Late event from a previous turn — discard, but say so loudly: a
+      // flood of these for a turn we just started means the correlation
+      // state went stale (this hid the multi-turn stuck-listening bug).
+      console.warn(
+        "[voice] discarded event from another turn:",
+        event.type,
+        "event turnId:", event.turnId,
+        "active turnId:", activeTurnIdRef.current,
+      );
       return;
     }
     // Track the active turn ID from any event that carries one
@@ -1132,6 +1189,10 @@ export function useLiveConversation({
     if (!active.current || !ready.current || capturing.current) return;
     // Reset the stuck timer
     window.clearTimeout(stuckTimerRef.current);
+    // New turn correlation: same reasoning as beginSpeech — the server will
+    // assign a fresh turnId and it must be adopted, not discarded.
+    activeTurnIdRef.current = "";
+    voiceTrace("manual-commit", "generation:", generation.current);
     // Send a manual commit with the current audio buffer
     speechEndedAt.current = performance.now();
     latency.current.mark("speech_ended");
