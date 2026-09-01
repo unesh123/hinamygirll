@@ -612,6 +612,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         ]
 
+    @app.get("/v1/commands")
+    async def command_registry() -> dict[str, Any]:
+        """Return the canonical command registry with availability based on provider configuration."""
+        from .commands.registry import list_commands, CapabilityStatus
+        from .providers.youcom import YouComClient
+        from .tools.image_generate import comfyui_provider
+        
+        commands = list_commands()
+        youcom_client = YouComClient(active_settings)
+        comfyui_ready = await comfyui_provider.health_check()
+        
+        result = []
+        for cmd in commands:
+            # Determine availability based on provider configuration
+            availability = CapabilityStatus.UNCONFIGURED
+            if cmd.capability in {"web_search", "web_research", "web_answer", "web_extract", "image_search", "cited_answer"}:
+                availability = CapabilityStatus.AVAILABLE if youcom_client.configured else CapabilityStatus.UNCONFIGURED
+            elif cmd.capability in {"image_generation", "pdf_generation", "document_generation", "presentation_generation"}:
+                availability = CapabilityStatus.AVAILABLE if comfyui_ready else CapabilityStatus.DEGRADED
+            elif cmd.capability in {"memory", "file_search", "planning", "summarization", "analysis", "model_selection", "voice_config", "avatar_config", "settings"}:
+                availability = CapabilityStatus.AVAILABLE
+            elif cmd.capability == "automation":
+                availability = CapabilityStatus.CONFIGURED  # Requires worker setup
+            elif cmd.capability == "media_playback":
+                availability = CapabilityStatus.DEGRADED  # Requires browser YouTube
+            
+            result.append({
+                "name": cmd.name,
+                "aliases": cmd.aliases,
+                "description": cmd.description,
+                "descriptionShort": cmd.descriptionShort,
+                "examples": cmd.examples,
+                "inputSchema": cmd.inputSchema,
+                "capability": cmd.capability,
+                "riskLevel": cmd.riskLevel.value,
+                "approvalPolicy": cmd.approvalPolicy.value,
+                "availability": availability.value,
+                "executionLocation": cmd.executionLocation.value,
+                "requiresAuth": cmd.requiresAuth,
+            })
+        
+        return {"commands": result, "version": 1}
+
     @app.get("/v1/voice-profiles", response_model=list[VoiceProfile])
     async def voice_profiles() -> list[VoiceProfile]:
         return public_profiles(
@@ -1019,6 +1062,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="File not found")
         path, media_type = resolved
         return FileResponse(path, media_type=media_type, filename=path.name)
+
+    @app.get("/v1/artifacts/lookup")
+    async def lookup_artifact(
+        request: Request,
+        kind: str,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Look up an artifact by kind (pdf, docx, pptx, image, etc.) in the current session or recent tasks."""
+        user_id = _resolve_user_id(request)
+        if not user_id:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for artifact lookup", 401, True)
+        
+        # Search in project artifacts for the current user
+        from .persistence.db import get_session_factory
+        from .persistence.orm import ProjectArtifact
+        from .config import get_settings
+        
+        settings = get_settings()
+        session_factory = get_session_factory(settings)
+        
+        with session_factory() as session:
+            query = session.query(ProjectArtifact).filter(
+                ProjectArtifact.user_id == user_id,
+                ProjectArtifact.kind == kind,
+            )
+            if session_id:
+                # Filter by conversation/session if provided
+                pass  # Would need conversation linkage
+            
+            # Get the most recent artifact of this kind
+            artifact = query.order_by(ProjectArtifact.created_at.desc()).first()
+            
+            if not artifact:
+                return {
+                    "found": False,
+                    "kind": kind,
+                    "message": f"No {kind.upper()} artifact found in your projects.",
+                    "suggestion": f"Use /{kind} to create a new {kind.upper()} document.",
+                }
+            
+            return {
+                "found": True,
+                "artifact": {
+                    "id": artifact.id,
+                    "kind": artifact.kind,
+                    "title": artifact.title,
+                    "createdAt": artifact.created_at.isoformat() if artifact.created_at else None,
+                    "projectId": artifact.project_id,
+                    "metadata": artifact.metadata,
+                },
+                "downloadUrl": f"/api/v1/projects/artifacts/{artifact.id}/export",
+            }
 
     @app.post("/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:

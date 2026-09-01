@@ -1,11 +1,16 @@
 import httpx
+import logging
 from collections.abc import Awaitable, Callable
-from typing import AsyncIterator
+from typing import AsyncIterator, Any
 from urllib.parse import urlparse
 from anthropic import AsyncAnthropic, APIError, APIConnectionError, APITimeoutError, RateLimitError, AuthenticationError
 from hinaa_api.providers.openai_llm import OpenAILLMProvider
 from hinaa_api.errors import HinaaError
 from hinaa_api.prompts import PromptPackage
+from hinaa_api.providers.blocks import normalize_anthropic_response, extract_text_from_canonical_blocks
+
+logger = logging.getLogger("hinaa.providers.agent_router")
+
 
 def _map_httpx_error(e: Exception) -> HinaaError:
     if isinstance(e, httpx.HTTPStatusError):
@@ -143,7 +148,8 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                 system=system,
                 messages=messages
             )
-            return response.content[0].text
+            visible_text, _ = normalize_anthropic_response(response)
+            return visible_text
         except Exception as e:
             raise self._map_anthropic_error(e)
             

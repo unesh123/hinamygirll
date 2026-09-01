@@ -1,0 +1,33 @@
+from .registry import (
+    CommandDefinition,
+    CommandInvocation,
+    ContextReference,
+    AttachmentReference,
+    ComposerParseResult,
+    COMMAND_REGISTRY,
+    CONTEXT_TYPES,
+    get_command,
+    list_commands,
+    get_commands_by_capability,
+    CapabilityStatus,
+    RiskLevel,
+    ApprovalPolicy,
+    ExecutionLocation,
+)
+
+__all__ = [
+    "CommandDefinition",
+    "CommandInvocation",
+    "ContextReference",
+    "AttachmentReference",
+    "ComposerParseResult",
+    "COMMAND_REGISTRY",
+    "CONTEXT_TYPES",
+    "get_command",
+    "list_commands",
+    "get_commands_by_capability",
+    "CapabilityStatus",
+    "RiskLevel",
+    "ApprovalPolicy",
+    "ExecutionLocation",
+]

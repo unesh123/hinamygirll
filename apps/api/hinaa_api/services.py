@@ -7,6 +7,7 @@ import re
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .config import Settings
@@ -38,6 +39,71 @@ from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
 from .voice_profiles import resolve_calibration, resolve_voice
 
 logger = logging.getLogger("hinaa.conversation")
+
+
+@dataclass
+class ParsedCommand:
+    command: str
+    args: str
+    raw: str
+
+
+@dataclass
+class ParsedContext:
+    kind: str
+    source_id: str
+    raw: str
+
+
+def parse_composer_input(text: str) -> tuple[str, list[ParsedContext], ParsedCommand | None]:
+    """Parse composer input for @context references and /commands.
+
+    Returns: (plain_text, context_references, explicit_command)
+    """
+    if not text:
+        return "", [], None
+
+    contexts: list[ParsedContext] = []
+    command: ParsedCommand | None = None
+    plain_parts: list[str] = []
+
+    parts = text.split(" ")
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+
+        if part.startswith("@") and len(part) > 1:
+            context_spec = part[1:]
+            if ":" in context_spec:
+                kind, source_id = context_spec.split(":", 1)
+            else:
+                kind, source_id = context_spec, "current"
+            contexts.append(ParsedContext(kind=kind, source_id=source_id, raw=part))
+            i += 1
+            continue
+
+        if part.startswith("/") and len(part) > 1:
+            cmd_name = part[1:]
+            args_parts: list[str] = []
+            i += 1
+            while i < len(parts):
+                next_part = parts[i]
+                if next_part.startswith("@") or next_part.startswith("/"):
+                    break
+                args_parts.append(next_part)
+                i += 1
+            command = ParsedCommand(
+                command=cmd_name,
+                args=" ".join(args_parts),
+                raw=part + " " + " ".join(args_parts) if args_parts else part,
+            )
+            continue
+
+        plain_parts.append(part)
+        i += 1
+
+    plain_text = " ".join(plain_parts).strip()
+    return plain_text, contexts, command
 
 
 def _durable_content(block: str) -> str:
@@ -763,7 +829,18 @@ class ConversationService:
         remain conversational text.  Ambiguous requests are left to the selected
         model rather than causing an unexpected side effect.
         """
-        lower_text = text.casefold().strip()
+        # First, parse explicit commands from composer
+        plain_text, parsed_contexts, parsed_command = parse_composer_input(text)
+        
+        # If there's an explicit command, map it to a tool request
+        if parsed_command:
+            self._map_explicit_command(parsed_command, plan)
+        
+        # Detect artifact follow-up questions (e.g., "where is the pdf file?")
+        self._detect_artifact_lookup(plain_text, plan)
+        
+        # Continue with existing deterministic intent detection on plain text
+        lower_text = plain_text.casefold().strip()
         unquoted = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", lower_text).strip()
         blocked_framing = (
             r"\b(do not|don't|dont|never|not|may|might|later|example|phrase|"
@@ -918,6 +995,91 @@ class ConversationService:
                 toolName="web_search",
                 parameters={"query": prompt_str or text},
             ))
+
+    def _map_explicit_command(self, parsed_command: ParsedCommand, plan: AssistantTurnPlan) -> None:
+        """Map an explicit /command to a tool request."""
+        cmd = parsed_command.command.lower()
+        args = parsed_command.args.strip()
+        
+        # Map commands to tool names
+        command_to_tool: dict[str, tuple[str, dict]] = {
+            "search": ("web_search", {"query": args}),
+            "find": ("web_search", {"query": args}),
+            "lookup": ("web_search", {"query": args}),
+            "research": ("web_research", {"query": args, "effort": "lite"}),
+            "investigate": ("web_research", {"query": args, "effort": "standard"}),
+            "deep research": ("web_research", {"query": args, "effort": "deep"}),
+            "answer": ("web_answer", {"query": args}),
+            "verify": ("web_answer", {"query": args}),
+            "extract": ("web_extract", {"urls": args.split()}),
+            "read": ("web_extract", {"urls": args.split()}),
+            "image search": ("image_search", {"query": args, "count": 6}),
+            "find images": ("image_search", {"query": args, "count": 6}),
+            "generate image": ("image_generate", {"prompt": args, "count": 1, "mode": "fast"}),
+            "create image": ("image_generate", {"prompt": args, "count": 1, "mode": "fast"}),
+            "draw": ("image_generate", {"prompt": args, "count": 1, "mode": "fast"}),
+            "document": ("document_generate", {"title": args, "content": "", "format": "pdf"}),
+            "create doc": ("document_generate", {"title": args, "content": "", "format": "docx"}),
+            "pdf": ("pdf_generate", {"title": args, "content": ""}),
+            "presentation": ("presentation_generate", {"title": args, "content": "", "slides": 10}),
+            "slides": ("presentation_generate", {"title": args, "content": "", "slides": 10}),
+            "analyze": ("analyze_text", {"target": args, "focus": "summary"}),
+            "summarize": ("summarize_text", {"target": args, "length": "standard"}),
+            "plan": ("create_plan", {"goal": args, "horizon": "week"}),
+            "play": ("play_music", {"query": args}),
+            "memory": ("memory_manage", {"action": "save", "content": args}),
+            "files": ("search_files", {"query": args}),
+            "model": ("switch_model", {"model": args}),
+            "voice": ("voice_config", {"action": "test", "provider": args}),
+            "avatar": ("avatar_config", {"action": "switch", "model": args}),
+            "settings": ("open_settings", {"section": args}),
+            "automate": ("create_automation", {"schedule": "", "task": args, "tools": []}),
+        }
+        
+        if cmd in command_to_tool:
+            tool_name, base_params = command_to_tool[cmd]
+            # Check if already present
+            if not any(t.toolName == tool_name for t in plan.toolRequests):
+                plan.toolRequests.append(ToolRequest(
+                    toolName=tool_name,
+                    parameters=base_params,
+                ))
+
+    def _detect_artifact_lookup(self, text: str, plan: AssistantTurnPlan) -> None:
+        """Detect artifact follow-up questions and add lookup tool requests.
+        
+        Handles questions like:
+        - "where is the pdf file?"
+        - "where's my document?"
+        - "show me the pdf"
+        - "find the pdf"
+        """
+        lower_text = text.casefold().strip()
+        
+        # Patterns for artifact lookup questions
+        artifact_patterns = [
+            (r"\bwhere (is|'s|was) (the|my|a) (pdf|docx|pptx|document|image|video|audio|file)\b", "pdf"),
+            (r"\b(find|show|get|locate) (the|my|a) (pdf|docx|pptx|document|image|video|audio|file)\b", "pdf"),
+            (r"\b(pdf|docx|pptx|document) (file|artifact)? (where|location)\b", "pdf"),
+        ]
+        
+        import re
+        for pattern, default_kind in artifact_patterns:
+            match = re.search(pattern, lower_text)
+            if match:
+                # Extract the artifact kind from the match
+                kind_match = re.search(r"(pdf|docx|pptx|document|image|video|audio|file)", lower_text)
+                kind = kind_match.group(1) if kind_match else default_kind
+                if kind == "document":
+                    kind = "pdf"
+                
+                # Add artifact lookup tool request
+                if not any(t.toolName == "artifact_lookup" for t in plan.toolRequests):
+                    plan.toolRequests.append(ToolRequest(
+                        toolName="artifact_lookup",
+                        parameters={"kind": kind, "sessionId": ""},
+                    ))
+                break
 
     async def create_plan(
         self, request: TurnRequest, *, user_id: str | None = None
@@ -1152,8 +1314,20 @@ class ConversationService:
     async def stream_turn(
         self, request: TurnRequest, correlation_id: str, *, user_id: str | None = None
     ) -> AsyncIterator[bytes]:
+        import uuid
         yield self._event("thinking", {"correlationId": correlation_id})
         result = await self.create_plan(request, user_id=user_id)
+        
+        # Emit tool proposed events for each tool request
+        for tool_req in result.value.toolRequests:
+            tool_run_id = str(uuid.uuid4())
+            yield self._event("tool.proposed", {
+                "toolRunId": tool_run_id,
+                "toolName": tool_req.toolName,
+                "parameters": tool_req.parameters,
+                "correlationId": correlation_id,
+            })
+        
         words = result.value.displayText.split(" ")
         for index, word in enumerate(words):
             delta = word if index == len(words) - 1 else f"{word} "

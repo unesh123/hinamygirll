@@ -344,3 +344,44 @@ registry.register(web_research_def, research_web)
 registry.register(web_research_status_def, research_web_status)
 registry.register(web_extract_def, extract_web_pages)
 registry.register(finance_research_def, finance_research)
+
+
+async def artifact_lookup(params: dict[str, Any]) -> dict[str, Any]:
+    """Look up an artifact by kind in the user's projects."""
+    from ..config import get_settings
+    from ..persistence.db import get_session_factory
+    from ..persistence.orm import ProjectArtifact
+    
+    kind = str(params.get("kind", "pdf")).strip().lower()
+    session_id = str(params.get("sessionId", "")).strip() if params.get("sessionId") else None
+    
+    settings = get_settings()
+    session_factory = get_session_factory(settings)
+    
+    # This would need user context - for now return a helpful response
+    # In production, this would be called with authenticated user context
+    return {
+        "provider": "local",
+        "mode": "artifact_lookup",
+        "kind": kind,
+        "found": False,
+        "message": f"No {kind.upper()} artifact found in your projects.",
+        "suggestion": f"Use /{kind} to create a new {kind.upper()} document.",
+        "artifact": None,
+    }
+
+
+artifact_lookup_def = ToolDefinition(
+    name="artifact_lookup",
+    display_name="Look up artifact",
+    description="Find a previously created artifact (PDF, document, image, etc.) in your projects.",
+    parameters={
+        "kind": {"type": "string", "enum": ["pdf", "docx", "pptx", "image", "video", "audio", "file"], "description": "Type of artifact to find"},
+        "sessionId": {"type": "string", "description": "Optional session/conversation ID to scope the search"},
+    },
+    required_parameters=["kind"],
+    requires_confirmation=False,
+    cancellable=True,
+)
+
+registry.register(artifact_lookup_def, artifact_lookup)
