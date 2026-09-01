@@ -32,8 +32,11 @@ Legend: Verified | Partially verified | Blocked | Not implemented | Not applicab
 - No HTTPS staging / Android trusted mic proof  
 - No OIDC production auth  
 - No backup restore  
-- VRM licence unknowns  
-- Dirty uncommitted tree (reproducibility)
+- VRM licence unknowns
+
+## Release blockers cleared
+
+- ~~Dirty uncommitted tree (reproducibility)~~ — **CLEARED 2026-09-01** (Phase P0): in-flight voice/agent/UI work repaired and committed as `38b00fc` + `2c22129`; all gates green (backend pytest 235 passed, frontend typecheck + 186 Vitest passed, production build passed). See `HINAA_CURRENT_STATUS.md` Phase 38.
 
 ## Recommendation
 

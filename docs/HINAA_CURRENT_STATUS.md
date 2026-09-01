@@ -540,3 +540,24 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Fullscreen responsive companion | Existing frontend interaction suite, mobile checks, type check, production build, and CSS verification passed. | **IMPLEMENTATION VERIFIED** |
 | VSeeFace packet truth | VMC bridge tests verify `listening`, synthetic `test`, external `live`, and `stale` transitions. The browser now applies face/head samples only for fresh external `live` diagnostics. No VSeeFace process or camera exists in the sandbox. | **CODE VERIFIED; WINDOWS HARDWARE EVIDENCE REQUIRED** |
 | Release gate | Full API suite, full frontend Vitest suite, responsive/mobile check, type check, production build, lint, and diff check completed. Lint: 35 warnings, 0 errors. | **PASSED** |
+
+## Phase 38 — P0 Stabilization and Reproducibility Gate — 2026-09-01
+
+The in-flight uncommitted work was repaired, verified, and committed under the production-readiness master plan (Phase P0). Three defects in the uncommitted tree blocked the test suites and were fixed before committing:
+
+| Defect | Root cause | Repair |
+|---|---|---|
+| `NameError: artifact_lookup_def` at import | `tools/browser.py` registered `artifact_lookup` before its definition | Registration moved after the definition |
+| `IndentationError` in `services.py` | New composer-parser module code (`ParsedCommand`, `parse_composer_input`) was spliced mid-class, destroying `ConversationService` structure | Module-level helpers moved to top of file with `from dataclasses import dataclass`; `_inject_deterministic_tool_intents` restored as a class method |
+| `TypeError` in `providers/blocks.py` | Canonical block dataclasses placed defaulted `type` field before required fields; `CanonicalUnknownBlock` constructed with wrong kwarg `provider_type` | All canonical dataclasses now `kw_only=True`; construction uses `providerType` |
+
+Additionally, a real UX defect surfaced by the test run: the `@`/`/` power-up palette stayed on the Contexts tab when opened via `/` because `activeTab` was only initialized from `trigger` at mount. `PowerUpMentions` now syncs `activeTab` on trigger change, and the over-broad test matcher was tightened to the exact leaf label.
+
+| Gate | Result |
+|---|---|
+| Backend `pytest -q` | **PASS** — 235 tests, 0 failures |
+| Frontend `pnpm typecheck` (`tsc -b`) | **PASS** |
+| Frontend `pnpm test` (Vitest) | **PASS** — 35 files, 186 tests, 2 todos |
+| Production build (`tsc -b && vite build` + PWA) | **PASS** — known non-blocking 1.19 MB avatar-chunk warning (P7 lazy-load target) |
+
+**Commits:** `38b00fc` (API: composer slash-command parsing, canonical provider blocks, artifact lookup tool), `2c22129` (Web: palette tab sync, audio turn-taking hardening, e2e suite). `scratch/zcode-diagnosis/` remains intentionally uncommitted. The reproducibility release blocker from the production-readiness audit is **CLEARED**; remaining blockers are the external credential/service gates (AgentRouter, ComfyUI, real Azure/ElevenLabs audio) and the P8 production-hardening items (OIDC, Postgres RLS, HTTPS staging, restore drill).
