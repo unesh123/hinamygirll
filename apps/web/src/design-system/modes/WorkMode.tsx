@@ -1,8 +1,9 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   Wand2,
+  Brain,
   ListChecks,
   AudioLines,
   Mic,
@@ -13,15 +14,33 @@ import {
   Globe,
   FileText,
   Image,
+  Bot,
+  Slash,
+  AtSign,
 } from "lucide-react";
 import type { CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
+import { PowerUpMentions, type ContextItem, type CommandItem } from "../../components/ui/PowerUpMentions";
+import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
 
 const ActivityPanel = lazy(() =>
   import("../../components/ui/ActivityPanel").then((m) => ({
     default: m.ActivityPanel,
   }))
 );
+
+
+/* Local command registry fallback - used when /api/v1/commands is unavailable.
+ * The capability field carries the frontend action routed through onCommand. */
+const DEFAULT_COMMANDS: CommandItem[] = [
+  { name: "search", aliases: ["web", "research"], label: "Web Search", description: "Research a question with attributed sources", descriptionShort: "Research with sources", icon: Search, color: "#4FB989", group: "research", inputSchema: {}, capability: "search-web", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/search best coffee in Kathmandu"] },
+  { name: "image", aliases: ["draw", "generate"], label: "Generate Image", description: "Open Image Studio to create an image locally", descriptionShort: "Create an image", icon: Sparkles, color: "#F36F9C", group: "creative", inputSchema: {}, capability: "generate-image", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/image a sakura sunset"] },
+  { name: "humanize", aliases: ["rewrite", "tone"], label: "Humanizer", description: "Open Humanizer Studio to rewrite text naturally", descriptionShort: "Rewrite text naturally", icon: Wand2, color: "#5B9DCF", group: "writing", inputSchema: {}, capability: "open-humanizer", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/humanize"] },
+  { name: "memory", aliases: ["remember"], label: "Memory", description: "Open your saved memories", descriptionShort: "Open memories", icon: Brain, color: "#B8A7F2", group: "personal", inputSchema: {}, capability: "remember-this", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/memory"] },
+
+
+
+];
 
 interface WorkModeProps {
   companionState: CompanionState;
@@ -40,6 +59,7 @@ interface WorkModeProps {
   voiceFeedback: { kind: string; label: string; detail?: string };
   powerUps: PowerUp[];
   onPowerUpToggle: (id: PowerUpId) => void;
+  onCommand?: (action: string) => void;
   onResolveTool: (messageId: string, request: any, approved: boolean) => Promise<void>;
   autoRunTools: boolean;
   agentSteps: Array<{
@@ -70,18 +90,62 @@ export function WorkMode({
   onResolveTool,
   agentSteps,
   onWelcomeAction,
+  powerUps,
+  onPowerUpToggle,
+  onCommand,
   attachedImage,
   onImageAttach,
 }: WorkModeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputHeight, setInputHeight] = useState(44);
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionCursorPos, setMentionCursorPos] = useState(0);
+  const [trigger, setTrigger] = useState<"@" | "/">("@");
+  const [commands, setCommands] = useState<CommandItem[]>([]);
+  const [contexts, setContexts] = useState<ContextItem[]>([]);
+  const [commandRegistryLoaded, setCommandRegistryLoaded] = useState(false);
   const showWelcome =
     messages.length <= 1 &&
     !streamingText &&
     !partialTranscript &&
     companionState === "idle" &&
     !isVoiceActive;
+
+  // Fetch command registry on mount
+  useEffect(() => {
+    async function fetchCommands() {
+      try {
+        const res = await fetch("/api/v1/commands");
+        const data = await res.json();
+        const fetched: CommandItem[] = data.commands || [];
+        setCommands(fetched.length > 0 ? fetched : DEFAULT_COMMANDS);
+        setCommandRegistryLoaded(true);
+      } catch (e) {
+        console.warn("Failed to load command registry, using local commands:", e);
+        setCommands(DEFAULT_COMMANDS);
+        setCommandRegistryLoaded(true);
+      }
+    }
+    fetchCommands();
+  }, []);
+
+  // Build context items from available data
+  const availableContexts = useMemo((): ContextItem[] => {
+    const items: ContextItem[] = [
+      { id: "project", kind: "project", label: "Current Project", description: "Reference the active project", icon: AtSign, color: "#7c3aed", sourceId: "current", access: "read" },
+      { id: "conversation", kind: "conversation", label: "This Conversation", description: "Reference recent messages", icon: AtSign, color: "#14b8a6", sourceId: "current", access: "read" },
+      { id: "memory", kind: "memory", label: "Saved Memories", description: "Reference your saved memories", icon: AtSign, color: "#ec4899", sourceId: "memories", access: "read" },
+    ];
+    // Add project files if available
+    if (messages.some(m => m.text?.includes(".py") || m.text?.includes(".ts"))) {
+      items.push({ id: "files", kind: "file", label: "Project Files", description: "Reference project files", icon: AtSign, color: "#0891b2", sourceId: "files", access: "read" });
+    }
+    return items;
+  }, [messages]);
+
+  // contexts are driven by the useMemo above; no separate state copy needed
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -93,7 +157,31 @@ export function WorkMode({
   // Auto-resize textarea
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      onInputChange(e.target.value);
+      const val = e.target.value;
+      onInputChange(val);
+      // Detect @ context picker or / command palette at cursor
+      const cursorPos = e.target.selectionStart ?? val.length;
+      const beforeCursor = val.slice(0, cursorPos);
+      const mentionMatch = beforeCursor.match(/@(\S*)$/);
+      // "/" only triggers a command palette at the start of a word,
+      // so URLs (example.com/x) and dates (12/08) never pop the palette.
+      const commandMatch = /^\/(\S*)$/.test(beforeCursor.trim()) || /\s\/(\S*)$/.test(beforeCursor)
+        ? beforeCursor.match(/\/(\S*)$/)
+        : null;
+      if (mentionMatch) {
+        setTrigger("@");
+        setShowMentions(true);
+        setMentionFilter(mentionMatch[1]);
+        setMentionCursorPos(cursorPos - mentionMatch[1].length - 1);
+      } else if (commandMatch) {
+        setTrigger("/");
+        setShowMentions(true);
+        setMentionFilter(commandMatch[1]);
+        setMentionCursorPos(cursorPos - commandMatch[1].length - 1);
+      } else {
+        setShowMentions(false);
+        setMentionFilter("");
+      }
       const el = e.target;
       el.style.height = "auto";
       const newHeight = Math.min(Math.max(44, el.scrollHeight), 160);
@@ -114,12 +202,66 @@ export function WorkMode({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (showMentions && (e.key === "Escape")) {
+        setShowMentions(false);
+        setMentionFilter("");
+        return;
+      }
+      if (showMentions && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
+        return;
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
     },
     [handleSubmit]
+  );
+
+  const handleContextSelect = useCallback(
+    (context: ContextItem) => {
+      if (!inputRef.current) return;
+      const el = inputRef.current;
+      const val = el.value;
+      const before = val.slice(0, mentionCursorPos);
+      const after = val.slice(el.selectionStart ?? val.length);
+      // Replace @trigger with a context chip reference
+      const newVal = before + `@${context.kind}:${context.sourceId} ` + after;
+      onInputChange(newVal);
+      setShowMentions(false);
+      setMentionFilter("");
+    },
+    [mentionCursorPos, onInputChange],
+  );
+
+  const handleCommandSelect = useCallback(
+    (command: CommandItem) => {
+      setShowMentions(false);
+      setMentionFilter("");
+      // Commands with a capability action run immediately through the app
+      // dispatcher (opens the matching workspace/studio), matching @context
+      // behavior. The /trigger text is stripped from the input.
+      const action = command.capability;
+      if (onCommand && action) {
+        if (inputRef.current) {
+          const el = inputRef.current;
+          const before = el.value.slice(0, mentionCursorPos);
+          const after = el.value.slice(el.selectionStart ?? el.value.length);
+          onInputChange((before + after).replace(/^\s+/, ""));
+        }
+        onCommand(action);
+        return;
+      }
+      // Fallback: insert the command text for the model to interpret.
+      if (!inputRef.current) return;
+      const el = inputRef.current;
+      const val = el.value;
+      const before = val.slice(0, mentionCursorPos);
+      const after = val.slice(el.selectionStart ?? val.length);
+      const newVal = before + `/${command.name} ` + after;
+      onInputChange(newVal);
+    },
+    [mentionCursorPos, onInputChange, onCommand],
   );
 
   // Find tool approval requests
@@ -370,6 +512,22 @@ export function WorkMode({
           </div>
         )}
 
+        {/* @-mention dropdown / command palette */}
+        {showMentions && (
+          <div style={{ position: "relative", marginBottom: "var(--space-1)" }}>
+            <PowerUpMentions
+              visible={true}
+              filter={mentionFilter}
+              onSelectContext={handleContextSelect}
+              onSelectCommand={handleCommandSelect}
+              onClose={() => { setShowMentions(false); setMentionFilter(""); }}
+              trigger={trigger}
+              contexts={availableContexts}
+              commands={commands}
+            />
+          </div>
+        )}
+
         {/* Input area */}
         <div
           style={{
@@ -522,6 +680,44 @@ function WorkMessage({
 }) {
   const isUser = message.role === "user";
 
+  // Convert tool results to SourceItem format for SourceCard
+  const renderToolResults = () => {
+    if (!message.toolResults || message.toolResults.length === 0) return null;
+    
+    return (
+      <div style={{ marginTop: "var(--space-2)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+        {message.toolResults.map((tr, idx) => {
+          const result = tr.result;
+          if (!result || !result.sources) return null;
+          
+          const sources: SourceItem[] = result.sources.map((s: any, i: number) => ({
+            id: s.id || `${tr.toolName}-${i}`,
+            title: s.title || s.url || "Untitled",
+            domain: new URL(s.url).hostname || "unknown",
+            snippet: s.snippet || "",
+            url: s.url,
+            index: i,
+          }));
+          
+          if (sources.length === 0) return null;
+          
+          return (
+            <div key={`${tr.toolName}-${idx}`} style={{ marginTop: "var(--space-2)" }}>
+              <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--accent)", marginBottom: "var(--space-1)" }}>
+                Sources from {tr.toolName}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                {sources.map((source) => (
+                  <SourceCard key={source.id} source={source} index={source.index || 0} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div
       style={{
@@ -579,6 +775,9 @@ function WorkMessage({
           />
         )}
       </div>
+
+      {/* Tool Results with Source Cards */}
+      {!isUser && renderToolResults()}
 
       {/* Timestamp */}
       {message.createdAt && (

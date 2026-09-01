@@ -34,7 +34,7 @@ export interface PowerUp {
   enabled: boolean;
 }
 
-const DEFAULT_POWER_UPS: PowerUp[] = [
+export const DEFAULT_POWER_UPS: PowerUp[] = [
   { id: "web-research", label: "Web Research", icon: <Globe size={14} />, color: "#4FB989", colorSoft: "rgba(79, 185, 137, 0.12)", enabled: false },
   { id: "humanizer", label: "Humanizer", icon: <Sparkles size={14} />, color: "#5B9DCF", colorSoft: "rgba(91, 157, 207, 0.12)", enabled: false },
   { id: "code", label: "Code", icon: <Code size={14} />, color: "#B8A7F2", colorSoft: "rgba(184, 167, 242, 0.12)", enabled: false },

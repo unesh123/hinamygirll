@@ -137,16 +137,28 @@ export class TurnTakingController {
       };
     }
 
-    // Adaptive noise floor tracking when user is silent & assistant is not playing
-    if (!this.speaking && !input.assistantPlaying) {
+    // Adaptive noise floor tracking — only absorb energy below the candidate
+    // threshold so quiet speech is never pumped into the noise floor baseline.
+    const candidateStart = Math.max(
+      this.config.startThreshold,
+      this.noiseFloor * 2.5,
+    );
+    if (!this.speaking && !input.assistantPlaying && input.level < candidateStart) {
       this.noiseFloor = this.noiseFloor * 0.95 + input.level * 0.05;
     }
 
-    // Dynamic thresholds relative to baseline noise floor (e.g. laptop fan noise)
+    // Dynamic thresholds relative to the tracked noise floor, but the
+    // operator-configured startThreshold is always honored as the sensitivity
+    // floor: the adaptive component may only make detection STRICTER in
+    // genuinely noisy rooms. The previous hard 0.012 floor ignored
+    // config.startThreshold entirely, so quiet microphones could never
+    // start a turn.
     const dynamicStartThreshold = Math.max(
-      0.012,
-      this.noiseFloor * 2.2 + 0.008
+      this.config.startThreshold,
+      this.noiseFloor * 2.5,
     );
+    // Barge-in threshold stays conservative to avoid speaker-echo
+    // self-interruption; only the start threshold is relaxed.
     const dynamicBargeInThreshold = Math.max(
       0.12,
       this.noiseFloor * 3.5 + 0.08

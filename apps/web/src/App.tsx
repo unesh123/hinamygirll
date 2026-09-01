@@ -6,6 +6,7 @@ import { AudioLines, ListChecks, ScanFace, Search, Wand2, Sparkles } from "lucid
 import { AppShell } from "./design-system/layout/AppShell";
 import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
+import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
 import { OperateMode } from "./design-system/modes/OperateMode";
 import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
@@ -604,8 +605,8 @@ export default function App() {
     // tag in the composer. It never performs an external action by itself.
     const map: Record<string, () => void> = {
       "search-web": () => { setContextMode("research"); setSearching(true); },
-      "image-search": () => setContextMode("images"),
-      "generate-image": () => setContextMode("images"),
+      "image-search": openImageStudio,
+      "generate-image": openImageStudio,
       "browser-navigate": () => setContextMode("browser"),
       "browser-read": () => setContextMode("browser"),
       "write-code": () => { setNavSection("tools"); setSidebarExpanded(null); },
@@ -831,8 +832,18 @@ export default function App() {
                 onStartVoice={() => { interruptPlayback(); live.start(); }}
                 onStopVoice={() => live.stop()}
                 voiceFeedback={voiceReply}
-                powerUps={[]}
-                onPowerUpToggle={() => {}}
+                powerUps={DEFAULT_POWER_UPS}
+                onPowerUpToggle={(id: PowerUpId) => {
+                  const idToAction: Record<PowerUpId, string> = {
+                    "web-research": "search-web", "humanizer": "open-humanizer",
+                    "code": "write-code", "pc-control": "browser-navigate",
+                    "files": "search-files", "memory": "remember-this",
+                    "creative": "generate-image", "data": "search-web",
+                  };
+                  const action = idToAction[id];
+                  if (action) handlePowerUp({ action, label: id, id } as any);
+                }}
+                onCommand={(action: string) => handlePowerUp({ action } as any)}
                 onResolveTool={controller.resolveToolRequest}
                 autoRunTools={settings.automation.autoRunTools}
                 agentSteps={agentSteps}

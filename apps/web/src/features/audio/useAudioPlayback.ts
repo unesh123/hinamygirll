@@ -118,7 +118,8 @@ export function useAudioPlayback(): PlaybackController {
       let context: AudioContext;
       try {
         context = ensureGraph();
-      } catch {
+      } catch (e) {
+        console.warn("[HINAA] AudioContext creation failed:", e);
         return;
       }
       if (context.state === "suspended") {
@@ -136,7 +137,8 @@ export function useAudioPlayback(): PlaybackController {
         bytes = await blob.arrayBuffer();
         if (session !== sessionRef.current) return;
         buffer = await context.decodeAudioData(bytes);
-      } catch {
+      } catch (e) {
+        console.warn("[HINAA] Audio decode failed:", e);
         return;
       }
       if (session !== sessionRef.current || !masterRef.current) return;
@@ -178,7 +180,8 @@ export function useAudioPlayback(): PlaybackController {
 
       try {
         source.start(startAt);
-      } catch {
+      } catch (e) {
+        console.warn("[HINAA] AudioBufferSource start failed:", e);
         sourcesRef.current.delete(source);
         syncPlaying();
         return;

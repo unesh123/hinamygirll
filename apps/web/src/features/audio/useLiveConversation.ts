@@ -590,6 +590,17 @@ export function useLiveConversation({
         playbackQueueRef.current.encodedChunks -= 1;
         playbackQueueRef.current.decoding += 1;
         updateQueueDiagnostics();
+
+        let decodingDrained = false;
+        const ensureDecodingDrained = () => {
+          if (!decodingDrained) {
+            decodingDrained = true;
+            playbackQueueRef.current.decoding -= 1;
+            updateQueueDiagnostics();
+          }
+        };
+
+        try {
         const spokenText = isPlaceholder
           ? lastSpokenTextRef.current.trim()
           : typeof event.text === "string" && event.text.trim()
@@ -658,8 +669,12 @@ export function useLiveConversation({
         } catch (playErr) {
           console.error("[HINAA] TTS playback failed:", playErr);
           playbackQueueRef.current.decodedBuffers -= 1;
+          ensureDecodingDrained();
           updateQueueDiagnostics();
           setDiagnostics((prev) => ({ ...prev, lastError: "PLAYBACK_FAILED", currentStage: "playback-error" }));
+        }
+        } finally {
+          ensureDecodingDrained();
         }
       });
     } else if (event.type === "turn.complete") {
@@ -728,7 +743,21 @@ export function useLiveConversation({
         setDetail("Turn complete · automatically listening again");
         current.controller.setLiveState("listening");
       }
-    } else if (event.type === "turn.cancelled") {
+    } else if (event.type === "voice.error") {
+      // Informational — backend reports a voice-pipeline issue.
+      // The turn.cancelled event handles flow control; this captures
+      // the diagnostic detail without tearing down the live session.
+      const code = (event as any).code ?? "voice_error";
+      const reason = (event as any).reason ?? "";
+      setDiagnostics((prev) => ({
+        ...prev,
+        lastError: `voice_error:${code}`,
+        currentStage: `voice-error-${code}`,
+      }));
+      if (reason) {
+        setDetail(reason);
+      }
+            } else if (event.type === "turn.cancelled") {
       latency.current.mark("server_cancel_acknowledged");
       const reason = (event as any).reason || "unknown";
       current.controller.setLiveState("listening");
@@ -770,6 +799,8 @@ export function useLiveConversation({
           ? "The voice service is temporarily unavailable. You can still type to me."
           : "Something went wrong with the voice session. Let's try again."),
       );
+      // Release mic/websocket so Start button works for retry.
+      teardownSession();
     }
   }, []);
 
@@ -833,11 +864,12 @@ export function useLiveConversation({
       if (heartbeat.current) window.clearInterval(heartbeat.current);
       if (!active.current || manualStop.current) return;
       if (reconnectAttempt.current >= 3) {
-        setStatus("error");
-        turnTaking.current.setSessionState("error");
         callbacks.current.controller.applyLiveError(
           "Realtime reconnection stopped after three bounded attempts.",
         );
+        teardownSession();
+        setStatus("error");
+        callbacks.current.controller.setLiveState("error");
         return;
       }
       setStatus("reconnecting");
@@ -911,11 +943,11 @@ export function useLiveConversation({
       const mode = callbacks.current.controller.routing.activeMode;
       const providersReady = callbacks.current.controller.routing.providersLoaded;
       if (!providersReady && !mode) {
-        setStatus("error");
-        turnTaking.current.setSessionState("error");
-        callbacks.current.controller.setLiveState("error");
-        setDetail("Voice services are still loading. Wait a moment and try again.");
+        setDetail("Voice services are still loading. Releasing microphone — try again shortly.");
         setDiagnostics((prev) => ({ ...prev, currentStage: "providers-loading" }));
+        teardownSession();
+        setStatus("error");
+        callbacks.current.controller.setLiveState("error");
         return;
       }
       const effectiveMode = mode ?? "mock";
@@ -950,8 +982,49 @@ export function useLiveConversation({
       // Mirror the failure into the companion state so the header pill and the
       // avatar show the error too, not just the stage status bar.
       callbacks.current.controller.setLiveState("error");
+      // Best-effort cleanup of any partially-acquired audio resources
+      try { worklet.current?.disconnect(); } catch {}
+      try { source.current?.disconnect(); } catch {}
+      for (const track of stream.current?.getTracks() ?? []) track.stop();
+      if (audioContext.current?.state !== "closed") void audioContext.current?.close();
+      stream.current = undefined; worklet.current = undefined;
+      source.current = undefined; audioContext.current = undefined;
     }
   }, [connect, handleWorkletFrame, outputMode]);
+
+  // Release all microphone/websocket resources without changing UI state.
+  // Callers are responsible for setting status/detail/liveState after this.
+  const teardownSession = useCallback(() => {
+    active.current = false;
+    ready.current = false;
+    capturing.current = false;
+    sendJson({ type: "session.close" });
+    socket.current?.close();
+    socket.current = undefined;
+    if (heartbeat.current) window.clearInterval(heartbeat.current);
+    if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
+    worklet.current?.disconnect();
+    source.current?.disconnect();
+    for (const track of stream.current?.getTracks() ?? []) track.stop();
+    if (audioContext.current?.state !== "closed")
+      void audioContext.current?.close();
+    stream.current = undefined;
+    worklet.current = undefined;
+    source.current = undefined;
+    audioContext.current = undefined;
+    preRoll.current = [];
+    turnTaking.current.resetSpeech();
+    turnTaking.current.setSessionState("inactive");
+    phraseDetector.current.reset();
+    setMicrophoneLevel(0);
+    playbackQueueRef.current = { encodedChunks: 0, decoding: 0, decodedBuffers: 0, scheduledSources: 0, finalSequenceReceived: false };
+    turnCompleteReceivedRef.current = false;
+    if (playbackState.current) manualAudioStop.current = true;
+    callbacks.current.playback.stop();
+    window.clearTimeout(drainTimerRef.current);
+    window.clearTimeout(stuckTimerRef.current);
+    window.clearTimeout(brainTimerRef.current);
+  }, [sendJson]);
 
   const pause = useCallback(() => {
     if (!active.current) return;
@@ -975,36 +1048,13 @@ export function useLiveConversation({
 
   const stop = useCallback(() => {
     manualStop.current = true;
-    active.current = false;
-    ready.current = false;
-    capturing.current = false;
     pausedRef.current = false;
     setPaused(false);
-    sendJson({ type: "session.close" });
-    socket.current?.close();
-    socket.current = undefined;
-    if (heartbeat.current) window.clearInterval(heartbeat.current);
-    if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
-    worklet.current?.disconnect();
-    source.current?.disconnect();
-    for (const track of stream.current?.getTracks() ?? []) track.stop();
-    if (audioContext.current?.state !== "closed")
-      void audioContext.current?.close();
-    if (playbackState.current) manualAudioStop.current = true;
-    callbacks.current.playback.stop();
-    stream.current = undefined;
-    worklet.current = undefined;
-    source.current = undefined;
-    audioContext.current = undefined;
-    preRoll.current = [];
-    turnTaking.current.resetSpeech();
-    turnTaking.current.setSessionState("inactive");
-    phraseDetector.current.reset();
-    setMicrophoneLevel(0);
+    teardownSession();
     setStatus("idle");
     setDetail("Live microphone is off");
     callbacks.current.controller.setLiveState("idle");
-  }, [sendJson]);
+  }, [teardownSession]);
 
   // ── Chunk rate counter (updates diagnostics every second) ──
   useEffect(() => {
