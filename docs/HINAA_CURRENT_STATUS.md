@@ -561,3 +561,18 @@ Additionally, a real UX defect surfaced by the test run: the `@`/`/` power-up pa
 | Production build (`tsc -b && vite build` + PWA) | **PASS** — known non-blocking 1.19 MB avatar-chunk warning (P7 lazy-load target) |
 
 **Commits:** `38b00fc` (API: composer slash-command parsing, canonical provider blocks, artifact lookup tool), `2c22129` (Web: palette tab sync, audio turn-taking hardening, e2e suite). `scratch/zcode-diagnosis/` remains intentionally uncommitted. The reproducibility release blocker from the production-readiness audit is **CLEARED**; remaining blockers are the external credential/service gates (AgentRouter, ComfyUI, real Azure/ElevenLabs audio) and the P8 production-hardening items (OIDC, Postgres RLS, HTTPS staging, restore drill).
+
+## Phase 39 — P3 Multi-Agent Orchestration: Parallel Tools, Approval Gate, hcnsec Disable — 2026-09-01
+
+Under the master plan (Phase P3), tool orchestration was verified and hardened:
+
+1. **Parallel tool execution (frontend):** `useToolRunner.ts` rewrote sequential `for...await` dispatch into `Promise.all` over `toolRequests`, each tool updating only its own `toolActivity` entry through functional state updates (race-safe; appended result order is now nondeterministic by design). Committed as `c1a3fa9`.
+2. **Runtime proof against a live server (mock mode, port 8123/8124):**
+   - Unknown tool → `404 Tool not found` (registry allowlist holds; the model cannot execute unregistered tools).
+   - Side-effect tool without confirmation → `409 TOOL_CONFIRMATION_REQUIRED`; with `confirmed: true` → accepted.
+   - Image generation with no local ComfyUI and no cloud gateway → truthful `IMAGE_RENDERER_UNAVAILABLE` BLOCKED state.
+3. **Security finding and fix — hcnsec gateway disabled:** the runtime proof revealed `apps/api/.env.local` had `OPENAI_CODEX_BASE_URL=https://api.hcnsec.cn/v1` with a live key, contradicting the project's own standing rule that hcnsec remains disabled until ownership, authorization, privacy, retention, billing, and security are independently verified. Both `OPENAI_CODEX_*` lines are now commented out (guarded with `# HINAA-GUARD` markers) so image generation falls back to the truthful BLOCKED state. The key was never exposed in output or committed. Note: one image-generation request reached hcnsec before the disable (fallback triggered during the initial proof); assume that prompt (`"sunset over Kathmandu"`) touched the gateway.
+   - Also noted: `CX_GATEWAY_BASE_URL` points at a temporary `trycloudflare.com` tunnel and `AGENT_ROUTER_BASE_URL=https://api.mwapi.dev` (reseller-class gateway). Both are user-configured and opt-in; they are flagged here for the user's own verification decision but were left untouched.
+4. **ComfyUI auto-detect:** `LocalComfyUIProvider.health_check()` gates every image job against `HINAA_COMFYUI_BASE_URL` (default `127.0.0.1:8188`); absent renderer yields the BLOCKED state above. Truthful and mock-safe.
+
+**Gates:** backend `pytest -q` PASS (full suite, 0 failures; consistent with the 235-test suite from Phase 38), frontend `pnpm typecheck` PASS, tool-runner Vitest suite 4/4 PASS.

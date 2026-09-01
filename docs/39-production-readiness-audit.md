@@ -32,7 +32,14 @@ Legend: Verified | Partially verified | Blocked | Not implemented | Not applicab
 - No HTTPS staging / Android trusted mic proof  
 - No OIDC production auth  
 - No backup restore  
-- VRM licence unknowns
+- VRM licence unknowns  
+- **hcnsec gateway verification decision** — flagged 2026-09-01 (Phase P3 runtime proof): `apps/api/.env.local` had `OPENAI_CODEX_BASE_URL=https://api.hcnsec.cn/v1` with a live key active, contradicting the project rule that hcnsec stays disabled until independently verified. Both `OPENAI_CODEX_*` lines are now commented out (`# HINAA-GUARD` markers) and image generation truthfully reports `IMAGE_RENDERER_UNAVAILABLE`. User action required: verify hcnsec properly (ownership, model authorization, privacy/retention, billing, security) or keep it disabled; re-enable only after verification. Also flagged but left user-configured: `CX_GATEWAY_BASE_URL` (temporary trycloudflare tunnel) and `AGENT_ROUTER_BASE_URL=https://api.mwapi.dev` (reseller-class gateway).
+
+## Tool orchestration (Phase P3, 2026-09-01)
+
+- Parallel tool execution verified: frontend runner dispatches `toolRequests` concurrently with per-tool status (`c1a3fa9`); Vitest 4/4 green.
+- Runtime proof (mock server): registry allowlist rejects unknown tools (`404`); side-effect tools gate on `409 TOOL_CONFIRMATION_REQUIRED`; no-renderer image generation returns truthful `IMAGE_RENDERER_UNAVAILABLE` BLOCKED state.
+- ComfyUI auto-detect confirmed: `health_check()` against `HINAA_COMFYUI_BASE_URL` (default `127.0.0.1:8188`) gates every job.
 
 ## Release blockers cleared
 
