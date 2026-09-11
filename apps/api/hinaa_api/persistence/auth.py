@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from clerk_backend_api import Clerk
+from clerk_backend_api.security.types import AuthenticateRequestOptions
 from fastapi import Header, Request
 
 from ..config import Settings
@@ -26,12 +28,22 @@ def resolve_auth(
     """
     Dev/local mode: X-HINAA-Dev-User header when HINAA_AUTH_MODE=dev.
     OIDC bearer is reserved; without a configured issuer, bearer is rejected.
+    Clerk: verified via official clerk_backend_api SDK.
+    Enforces HINAA_ALLOWED_USER_IDS single-owner gate if configured.
     """
     mode = settings.auth_mode
     if mode == "dev":
         subject = (x_hinaa_dev_user or settings.dev_auth_subject).strip()
         if not subject or len(subject) > 120:
             raise HinaaError("AUTH_REQUIRED", "Dev user identity is required.", 401, True)
+        if settings.hinaa_allowed_user_ids:
+            allowed_ids = {u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()}
+            if subject not in allowed_ids:
+                raise HinaaError(
+                    "USER_NOT_AUTHORIZED",
+                    f"User '{subject}' is not authorized to access this private HINAA instance.",
+                    status_code=403,
+                )
         user = memory.ensure_user(subject)
         return AuthContext(user_id=user.id, auth_subject=subject, mode="dev")
 
@@ -45,11 +57,17 @@ def resolve_auth(
                 503,
                 True,
             )
-        # Offline-safe scaffold: treat opaque local test tokens as subjects only in tests
-        # when explicitly prefixed. Real JWT validation is deployment-gated.
         token = authorization.split(" ", 1)[1].strip()
         if settings.allow_oidc_scaffold_tokens and token.startswith("scaffold:"):
             subject = token.removeprefix("scaffold:")
+            if settings.hinaa_allowed_user_ids:
+                allowed_ids = {u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()}
+                if subject not in allowed_ids:
+                    raise HinaaError(
+                        "USER_NOT_AUTHORIZED",
+                        f"User '{subject}' is not authorized to access this private HINAA instance.",
+                        status_code=403,
+                    )
             user = memory.ensure_user(subject)
             return AuthContext(user_id=user.id, auth_subject=subject, mode="oidc-scaffold")
         raise HinaaError(
@@ -59,19 +77,51 @@ def resolve_auth(
             True,
         )
 
-
-
     if mode == "clerk":
-        # Clerk is declared by config but real JWT verification is not
-        # wired in this build (no PyJWT/jose and no Clerk JWKS domain).
-        # Fail explicitly so the app falls back to a working auth mode
-        # instead of silently 503-ing every guarded route.
-        raise HinaaError(
-            "AUTH_NOT_CONFIGURED",
-            "CLERK mode is not enabled in this build; set HINAA_AUTH_MODE=dev for local development.",
-            503,
-            True,
-        )
+        if not settings.clerk_jwt_key:
+            raise HinaaError(
+                "AUTH_NOT_CONFIGURED",
+                "Clerk authentication needs CLERK_JWT_KEY on the API server.",
+                503,
+                False,
+                True,
+            )
+        try:
+            state = Clerk().authenticate_request(
+                request,
+                AuthenticateRequestOptions(
+                    jwt_key=settings.clerk_jwt_key.replace("\\n", "\n"),
+                    authorized_parties=settings.clerk_authorized_parties or None,
+                ),
+            )
+        except Exception as error:
+            raise HinaaError(
+                "AUTH_INVALID",
+                "The sign-in token could not be verified.",
+                401,
+                False,
+                True,
+            ) from error
+        payload = state.payload if state.is_signed_in else None
+        subject = str((payload or {}).get("sub") or "").strip()
+        if not subject or len(subject) > 160:
+            raise HinaaError(
+                "AUTH_REQUIRED",
+                "Sign in again to continue.",
+                401,
+                False,
+                True,
+            )
+        if settings.hinaa_allowed_user_ids:
+            allowed_ids = {u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()}
+            if subject not in allowed_ids:
+                raise HinaaError(
+                    "USER_NOT_AUTHORIZED",
+                    f"User '{subject}' is not authorized to access this private HINAA instance.",
+                    status_code=403,
+                )
+        user = memory.ensure_user(subject)
+        return AuthContext(user_id=user.id, auth_subject=subject, mode="clerk")
 
     raise HinaaError("AUTH_NOT_CONFIGURED", f"Authentication mode is invalid: {mode!r}.", 503, True)
 

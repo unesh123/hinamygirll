@@ -1,0 +1,6 @@
+{
+  "name":"hinaa-enterprise-starter","private":true,"version":"0.1.0",
+  "scripts":{"dev":"next dev --turbo","build":"next build","start":"next start","lint":"next lint"},
+  "dependencies":{"@react-three/drei":"latest","@react-three/fiber":"latest","@supabase/ssr":"latest","@supabase/supabase-js":"latest","lucide-react":"latest","next":"latest","openai":"latest","react":"latest","react-dom":"latest","three":"latest","zod":"latest"},
+  "devDependencies":{"@types/node":"latest","@types/react":"latest","@types/react-dom":"latest","@types/three":"latest","tailwindcss":"latest","typescript":"latest"}
+}

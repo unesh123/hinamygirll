@@ -8,4 +8,7 @@ from . import email
 from . import browser_agent
 from . import image_generate
 from . import tinyfish
+from . import pdf_generate
+from . import freepik_suite
+from . import image_fabric
 __all__ = ["registry"]

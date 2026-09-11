@@ -19,7 +19,7 @@ test.describe('Artifact Follow-up Lookup', () => {
     for (let i = 0; i < count; i++) {
       const text = await messages.nth(i).textContent() || '';
       // Should not invent file paths
-      expect(text).not.toMatch(/C:\\|\\/home\\|\\/tmp\\/);
+      expect(text).not.toMatch(/C:\\|\/home\/|\/tmp\//);
       expect(text).not.toContain('PROVIDER_RESPONSE_INVALID');
       expect(text).not.toContain("ThinkingBlock");
     }

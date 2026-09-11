@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { textToVisemeEvents, getActiveViseme, type VisemeEvent } from "./textToViseme";
+import { createLipSyncTimeline, textToVisemeEvents, getActiveViseme, type VisemeEvent } from "./textToViseme";
 
 export interface PlaybackController {
   playing: boolean;
@@ -13,7 +13,13 @@ export interface PlaybackController {
   visemeEvents: React.MutableRefObject<VisemeEvent[]>;
   /** AudioContext time when current audio started (for playback clock sync) */
   audioStartTimeRef: React.MutableRefObject<number>;
-  play: (blob: Blob, spokenText?: string, onStarted?: () => void) => Promise<void>;
+  play: (
+    blob: Blob,
+    spokenText?: string,
+    onStarted?: () => void,
+    onEnded?: () => void,
+    providerVisemes?: VisemeEvent[],
+  ) => Promise<void>;
   /** Speak through the browser's local speech engine when no intelligible TTS provider is available. */
   speakBrowser: (spokenText: string, language?: string) => Promise<boolean>;
   replay: () => Promise<void>;
@@ -46,6 +52,7 @@ export function useAudioPlayback(): PlaybackController {
   const mutedRef = useRef(false);
   const playingRef = useRef(false);
   const browserSpeechActiveRef = useRef(false);
+  const browserWatchdogRef = useRef<number | undefined>(undefined);
   const lastBrowserSpeechRef = useRef<{ text: string; language: string } | null>(null);
 
   const ensureGraph = useCallback(() => {
@@ -86,6 +93,10 @@ export function useAudioPlayback(): PlaybackController {
   const stop = useCallback(() => {
     sessionRef.current += 1;
     browserSpeechActiveRef.current = false;
+    if (browserWatchdogRef.current !== undefined) {
+      window.clearTimeout(browserWatchdogRef.current);
+      browserWatchdogRef.current = undefined;
+    }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -113,35 +124,53 @@ export function useAudioPlayback(): PlaybackController {
   }, [syncPlaying]);
 
   const play = useCallback(
-    async (blob: Blob, spokenText?: string, onStarted?: () => void) => {
+    async (
+      blob: Blob,
+      spokenText?: string,
+      onStarted?: () => void,
+      onEnded?: () => void,
+      providerVisemes?: VisemeEvent[],
+    ) => {
       const session = sessionRef.current;
       let context: AudioContext;
       try {
         context = ensureGraph();
       } catch (e) {
         console.warn("[HINAA] AudioContext creation failed:", e);
+        onEnded?.();
         return;
       }
       if (context.state === "suspended") {
         try {
           await context.resume();
         } catch {
+          onEnded?.();
           return;
         }
       }
-      if (session !== sessionRef.current) return;
+      if (session !== sessionRef.current) {
+        onEnded?.();
+        return;
+      }
 
       let bytes: ArrayBuffer;
       let buffer: AudioBuffer;
       try {
         bytes = await blob.arrayBuffer();
-        if (session !== sessionRef.current) return;
+        if (session !== sessionRef.current) {
+          onEnded?.();
+          return;
+        }
         buffer = await context.decodeAudioData(bytes);
       } catch (e) {
         console.warn("[HINAA] Audio decode failed:", e);
+        onEnded?.();
         return;
       }
-      if (session !== sessionRef.current || !masterRef.current) return;
+      if (session !== sessionRef.current || !masterRef.current) {
+        onEnded?.();
+        return;
+      }
 
       lastBlobRef.current = blob;
       if (spokenText) lastTextRef.current = spokenText;
@@ -151,30 +180,65 @@ export function useAudioPlayback(): PlaybackController {
       source.buffer = buffer;
       source.connect(masterRef.current);
 
-      const startAt = Math.max(
-        context.currentTime + 0.02,
-        endedAtRef.current - 0.025,
-      );
+      // Gapless, click-free seam: schedule exactly where the previous chunk
+      // ends (no negative overlap — that double-plays 25ms at every chunk
+      // seam). If the queue has drained, start promptly instead.
+      const previousEndedAt = endedAtRef.current;
+      const isContinuation = previousEndedAt > context.currentTime;
+      const startAt = Math.max(context.currentTime + 0.02, previousEndedAt);
       endedAtRef.current = startAt + buffer.duration;
       sourcesRef.current.add(source);
       syncPlaying();
 
-      // Build viseme timeline from spoken text + audio duration
-      if (spokenText && buffer.duration > 0) {
+      // Build viseme timeline from spoken text + audio duration.
+      // For streamed chunks the queue is still hot (isContinuation), so this
+      // chunk's syllables must APPEND to the existing timeline at the right
+      // offset — replacing it would jerk the mouth back to the start of the
+      // sentence on every packet.
+      if ((spokenText || providerVisemes?.length) && buffer.duration > 0) {
         const durationMs = buffer.duration * 1000;
-        visemeEvents.current = textToVisemeEvents(spokenText, durationMs);
-        audioStartTimeRef.current = startAt;
+        if (isContinuation && visemeEvents.current.length > 0) {
+          const offsetMs = Math.max(
+            0,
+            (startAt - audioStartTimeRef.current) * 1000,
+          );
+          visemeEvents.current = visemeEvents.current.concat(
+            createLipSyncTimeline({
+              text: spokenText,
+              durationMs,
+              startMs: offsetMs,
+              providerEvents: providerVisemes,
+            }),
+          );
+        } else {
+          visemeEvents.current = createLipSyncTimeline({
+            text: spokenText,
+            durationMs,
+            providerEvents: providerVisemes,
+          });
+          audioStartTimeRef.current = startAt;
+        }
       }
+
+      let endedDispatched = false;
+      const dispatchEnded = () => {
+        if (!endedDispatched) {
+          endedDispatched = true;
+          onEnded?.();
+        }
+      };
 
       source.onended = () => {
         sourcesRef.current.delete(source);
         syncPlaying();
+        dispatchEnded();
       };
       // Watchdog for stuck sources
       window.setTimeout(() => {
         if (sourcesRef.current.has(source)) {
           sourcesRef.current.delete(source);
           syncPlaying();
+          dispatchEnded();
         }
       }, Math.ceil((buffer.duration + 2) * 1000));
 
@@ -184,6 +248,7 @@ export function useAudioPlayback(): PlaybackController {
         console.warn("[HINAA] AudioBufferSource start failed:", e);
         sourcesRef.current.delete(source);
         syncPlaying();
+        dispatchEnded();
         return;
       }
 
@@ -261,7 +326,17 @@ export function useAudioPlayback(): PlaybackController {
       syncPlaying();
 
       const finish = () => {
+        if (!browserSpeechActiveRef.current) return; // idempotent — onend/onerror/watchdog race
         browserSpeechActiveRef.current = false;
+        if (browserWatchdogRef.current !== undefined) {
+          window.clearTimeout(browserWatchdogRef.current);
+          browserWatchdogRef.current = undefined;
+        }
+        if (frameRef.current !== undefined) {
+          window.cancelAnimationFrame(frameRef.current);
+          frameRef.current = undefined;
+        }
+        jawEnergy.current = 0;
         syncPlaying();
       };
       utterance.onend = finish;
@@ -269,6 +344,49 @@ export function useAudioPlayback(): PlaybackController {
 
       try {
         engine.speak(utterance);
+        // Real-time syllable modulation & viseme sync for browser speech
+        if (frameRef.current !== undefined) {
+          window.cancelAnimationFrame(frameRef.current);
+          frameRef.current = undefined;
+        }
+        const speechStartTime = performance.now();
+        const tick = () => {
+          if (!browserSpeechActiveRef.current) {
+            jawEnergy.current = 0;
+            return;
+          }
+          const elapsedMs = performance.now() - speechStartTime;
+          const currentViseme = getActiveViseme(elapsedMs, visemeEvents.current);
+          if (currentViseme && currentViseme.mouth !== "closed") {
+            // Modulate active phoneme weight with natural acoustic vibration
+            const pulse = 0.72 + 0.28 * Math.sin(elapsedMs * 0.024);
+            const targetEnergy = Math.min(1.0, Math.max(0.18, (currentViseme.weight || 0.8) * pulse));
+            jawEnergy.current += (targetEnergy - jawEnergy.current) * 0.45;
+          } else {
+            // Natural syllable cadence (~5 Hz) between words and during phrase transitions
+            const tSec = elapsedMs / 1000;
+            const syllableOsc = 0.42 + 0.34 * Math.sin(tSec * 2 * Math.PI * 4.9) + 0.14 * Math.sin(tSec * 2 * Math.PI * 8.4);
+            const targetEnergy = Math.min(0.88, Math.max(0.08, syllableOsc));
+            jawEnergy.current += (targetEnergy - jawEnergy.current) * 0.35;
+          }
+          frameRef.current = window.requestAnimationFrame(tick);
+        };
+        frameRef.current = window.requestAnimationFrame(tick);
+
+        // Chrome has a long-standing bug where speechSynthesis silently stops
+        // producing audio (or never fires onend after a pause) — the avatar
+        // would then pose "playing" forever and the conversation would hang.
+        // A generous watchdog guarantees the UI always recovers.
+        browserWatchdogRef.current = window.setTimeout(() => {
+          browserWatchdogRef.current = undefined;
+          if (!browserSpeechActiveRef.current) return;
+          try {
+            engine.cancel();
+          } catch {
+            // best-effort
+          }
+          finish();
+        }, estimatedDurationMs + 5_000);
         return true;
       } catch {
         finish();
@@ -296,7 +414,24 @@ export function useAudioPlayback(): PlaybackController {
     setMuted(mutedRef.current);
     if (masterRef.current)
       masterRef.current.gain.value = mutedRef.current ? 0 : 1;
-  }, []);
+    // The browser speech engine bypasses the AudioContext gain graph
+    // entirely, so muting must hard-stop any in-flight utterance.
+    if (mutedRef.current && browserSpeechActiveRef.current) {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          // best-effort
+        }
+      }
+      browserSpeechActiveRef.current = false;
+      if (browserWatchdogRef.current !== undefined) {
+        window.clearTimeout(browserWatchdogRef.current);
+        browserWatchdogRef.current = undefined;
+      }
+      syncPlaying();
+    }
+  }, [syncPlaying]);
 
   useEffect(
     () => () => {
@@ -313,6 +448,10 @@ export function useAudioPlayback(): PlaybackController {
       if (contextRef.current?.state !== "closed")
         void contextRef.current?.close();
       browserSpeechActiveRef.current = false;
+      if (browserWatchdogRef.current !== undefined) {
+        window.clearTimeout(browserWatchdogRef.current);
+        browserWatchdogRef.current = undefined;
+      }
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         try {
           window.speechSynthesis.cancel();

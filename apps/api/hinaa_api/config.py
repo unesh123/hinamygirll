@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env.local"
@@ -24,6 +24,10 @@ MWAPI_CLAUDE_MODEL_ALIASES = {
     "claude-sonnet-4-20250514": "claude-sonnet-4-6",
     "claude-opus-4-20250514": "claude-opus-4-6",
     "claude-3-5-haiku-20241022": "claude-haiku-4-5-20251001",
+    "claude-haiku": "claude-haiku-4-5-20251001",
+    "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+    "claude-sonnet": "claude-sonnet-4-6",
+    "claude-opus": "claude-opus-4-6",
 }
 
 
@@ -42,13 +46,13 @@ class Settings(BaseSettings):
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
     azure_speech_region: str | None = Field(None, alias="AZURE_SPEECH_REGION")
     gemini_api_key: SecretStr | None = Field(None, alias="GEMINI_API_KEY")
-    gemini_model: str = Field("gemini-3.6-flash", alias="GEMINI_MODEL")
+    gemini_model: str = Field("gemini-3.5-flash-lite", alias="GEMINI_MODEL")
+    gemini_planner_model: str = Field("gemini-3.5-flash-lite", alias="GEMINI_PLANNER_MODEL")
     gemini_allowed_models_raw: str = Field(
         (
-            "gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,"
-            "gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash,"
-            "gemini-2.5-flash-lite,gemini-2.0-flash,gemini-flash-latest,"
-            "gemini-flash-lite-latest,gemini-pro-latest"
+            "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,"
+            "gemini-3.8-flash,gemini-3.5-flash,gemini-3-flash-preview,"
+            "gemini-flash-latest,gemini-flash-lite-latest,gemini-pro-latest"
         ),
         alias="GEMINI_ALLOWED_MODELS",
     )
@@ -226,10 +230,43 @@ class Settings(BaseSettings):
     tinyfish_api_key: str | None = Field(None, alias="TINYFISH_API_KEY")
     tinyfish_search_timeout_seconds: float = Field(10.0, alias="HINAA_TINYFISH_SEARCH_TIMEOUT_SECONDS")
     tinyfish_fetch_timeout_seconds: float = Field(150.0, alias="HINAA_TINYFISH_FETCH_TIMEOUT_SECONDS")
+    gamma_ai_api_key: SecretStr | None = Field(None, alias="GAMMA_AI_API_KEY")
+    zyte_api_key: SecretStr | None = Field(None, alias="ZYTE_API_KEY")
+    freepik_api_key: SecretStr | None = Field(None, alias="FREEPIK_API_KEY")
+    magnific_api_key: SecretStr | None = Field(None, alias="MAGNIFIC_API_KEY")
+    freepik_model: str = Field("flux-schnell", alias="FREEPIK_DEFAULT_MODEL")
+    freepik_daily_limit: int = Field(100, alias="FREEPIK_DAILY_LIMIT")
+    auto_fallback_enabled: bool = Field(True, alias="HINAA_AUTO_FALLBACK_ENABLED")
+    magnific_daily_soft_target_override: int | None = Field(None, alias="MAGNIFIC_DAILY_SOFT_TARGET_OVERRIDE")
+    magnific_monthly_plan_credits: int = Field(45000, alias="MAGNIFIC_MONTHLY_PLAN_CREDITS")
+    magnific_billing_cycle_anchor_day: int = Field(3, alias="MAGNIFIC_BILLING_CYCLE_ANCHOR_DAY")
+    magnific_video_generation_enabled: bool = Field(False, alias="MAGNIFIC_VIDEO_GENERATION_ENABLED")
+    video_mode: str = Field("auto_economy", alias="VIDEO_MODE")
+    hinaa_allowed_user_ids: str | None = Field(None, alias="HINAA_ALLOWED_USER_IDS")
+    cx_gateway_quota_url: str | None = Field(None, alias="CX_GATEWAY_QUOTA_URL")
+    cx_gateway_quota_key: SecretStr | None = Field(None, alias="CX_GATEWAY_QUOTA_KEY")
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
+    environment: str = Field("development", alias="ENVIRONMENT")
     local_workspace_dir: Path = Field(
         Path.home() / ".hinaa" / "workspace", alias="HINAA_LOCAL_WORKSPACE_DIR"
     )
+    agent_runtime_enabled: bool = Field(True, alias="HINAA_AGENT_RUNTIME_ENABLED")
+    agent_max_steps: int = Field(12, ge=1, le=100, alias="HINAA_AGENT_MAX_STEPS")
+    agent_max_replans: int = Field(2, ge=0, le=10, alias="HINAA_AGENT_MAX_REPLANS")
+    agent_default_step_attempts: int = Field(2, ge=1, le=5, alias="HINAA_AGENT_DEFAULT_STEP_ATTEMPTS")
+    agent_run_timeout_seconds: float = Field(300.0, gt=0, le=3600, alias="HINAA_AGENT_RUN_TIMEOUT_SECONDS")
+    agent_default_tool_timeout_seconds: float = Field(60.0, gt=0, le=600, alias="HINAA_AGENT_DEFAULT_TOOL_TIMEOUT_SECONDS")
+    agent_recovery_enabled: bool = Field(True, alias="HINAA_AGENT_RECOVERY_ENABLED")
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> Settings:
+        env = (self.environment or "").strip().lower()
+        if env == "production" and self.auth_mode == "dev":
+            raise ValueError(
+                "FATAL CONFIGURATION ERROR: Development authentication bypass cannot be enabled in production. "
+                "Set HINAA_AUTH_MODE=clerk and configure HINAA_ALLOWED_USER_IDS."
+            )
+        return self
 
     @field_validator("allowed_origins", "clerk_authorized_parties", mode="before")
     @classmethod
@@ -271,10 +308,12 @@ class Settings(BaseSettings):
         configured = [
             model.strip() for model in self.gemini_allowed_models_raw.split(",") if model.strip()
         ]
-        models = configured or [self.gemini_model]
-        if self.gemini_model and self.gemini_model not in models:
+        models = list(configured)
+        if self.gemini_model:
+            if self.gemini_model in models:
+                models.remove(self.gemini_model)
             models.insert(0, self.gemini_model)
-        return models
+        return models or [self.gemini_model]
 
     def resolve_gemini_model(self, requested: str | None = None) -> str:
         model = (requested or "").strip() or self.gemini_model
@@ -430,10 +469,27 @@ class Settings(BaseSettings):
 
     def resolve_cx_model(self, requested: str | None = None) -> str:
         model = (requested or "").strip() or self.cx_gateway_model
-        if model not in self.cx_allowed_models:
-            allowed = ", ".join(self.cx_allowed_models)
-            raise ValueError(f"CX gateway model not in CX_GATEWAY_ALLOWED_MODELS: {allowed}")
-        return model
+        if model in self.cx_allowed_models:
+            return model
+        if model.startswith("cx/") and model[3:] in self.cx_allowed_models:
+            return model
+        if f"cx/{model}" in self.cx_allowed_models:
+            return model
+        # Default gracefully to cx_gateway_model if requested is not listed
+        return self.cx_gateway_model
+
+    @property
+    def active_freepik_key(self) -> SecretStr | None:
+        return self.freepik_api_key or self.magnific_api_key
+
+    @property
+    def freepik_configured(self) -> bool:
+        key = self.active_freepik_key
+        return bool(key and key.get_secret_value().strip())
+
+    @property
+    def magnific_daily_credit_budget(self) -> int:
+        return self.magnific_daily_soft_target_override or 1600
 
 
     @property

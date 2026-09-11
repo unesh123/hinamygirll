@@ -1,14 +1,35 @@
 import { useState, useCallback, type ReactNode } from "react";
 import { NavigationRail, type NavSection } from "./NavigationRail";
 import { MobileNavigation } from "./MobileNavigation";
+import { ConversationSidebar } from "./ConversationSidebar";
 
 interface AppShellProps {
   children: ReactNode;
   isOnline?: boolean;
+  activeSection?: NavSection;
+  onNavigate?: (section: NavSection) => void;
+  onNewChat?: () => void;
+  onToggleHistory?: () => void;
+  historyOpen?: boolean;
+  activeConversationId?: string | null;
+  onSelectConversation?: (id: string) => void;
+  onDeleteConversation?: (id: string) => void;
 }
 
-export function AppShell({ children, isOnline = true }: AppShellProps) {
-  const [activeSection, setActiveSection] = useState<NavSection>("chat");
+export function AppShell({
+  children,
+  isOnline = true,
+  activeSection: controlledActiveSection,
+  onNavigate,
+  onNewChat,
+  onToggleHistory,
+  historyOpen = false,
+  activeConversationId,
+  onSelectConversation,
+  onDeleteConversation,
+}: AppShellProps) {
+  const [internalActiveSection, setInternalActiveSection] = useState<NavSection>("chat");
+  const activeSection = controlledActiveSection ?? internalActiveSection;
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== "undefined") {
       return document.documentElement.getAttribute("data-theme") === "dark";
@@ -29,9 +50,13 @@ export function AppShell({ children, isOnline = true }: AppShellProps) {
   }, []);
 
   const handleNavigate = useCallback((section: NavSection) => {
-    setActiveSection(section);
+    if (onNavigate) {
+      onNavigate(section);
+    } else {
+      setInternalActiveSection(section);
+    }
     setMobileMenuOpen(false);
-  }, []);
+  }, [onNavigate]);
 
   return (
     <div
@@ -55,15 +80,32 @@ export function AppShell({ children, isOnline = true }: AppShellProps) {
       <NavigationRail
         active={activeSection}
         onNavigate={handleNavigate}
+        onNewChat={onNewChat}
+        onToggleHistory={onToggleHistory}
+        historyOpen={historyOpen}
         isOnline={isOnline}
         isDark={isDark}
         onToggleTheme={toggleTheme}
       />
 
+      {/* Conversation History Sidebar */}
+      {onToggleHistory && (
+        <ConversationSidebar
+          isOpen={historyOpen}
+          onClose={() => onToggleHistory()}
+          activeConversationId={activeConversationId ?? null}
+          onSelectConversation={(id) => {
+            onSelectConversation?.(id);
+            onToggleHistory();
+          }}
+          onDeleteConversation={onDeleteConversation}
+        />
+      )}
+
       {/* Main content area */}
       <main
         id="main-content"
-        className="sakura-main-content"
+        className="sakura-main-content hinaa-stage"
         style={{
           flex: 1,
           display: "flex",

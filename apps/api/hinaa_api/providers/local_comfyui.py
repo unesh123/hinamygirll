@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 import logging
 import os
@@ -54,7 +56,7 @@ class LocalComfyUIProvider:
 
     async def health_check(self) -> bool:
         try:
-            response = await self._http.get("/system_stats")
+            response = await self._http.get("/system_stats", timeout=1.0)
             response.raise_for_status()
             return True
         except Exception as error:
@@ -127,6 +129,7 @@ class LocalComfyUIProvider:
         height: int,
         filename_prefix: str,
         mode: str,
+        reference_name: str | None = None,
     ) -> Dict[str, Any]:
         if mode == "ultra":
             workflow = self.load_ultra_workflow()
@@ -155,7 +158,67 @@ class LocalComfyUIProvider:
             latent_inputs["batch_size"] = 1
         if "save_image" in mapping:
             workflow[mapping["save_image"]]["inputs"]["filename_prefix"] = filename_prefix
+        if reference_name:
+            # Seed the sampler from the supplied pixels, not an empty latent.
+            # Use the same VAE as the output decoder so model-specific latent
+            # formats (including the ultra workflow) stay consistent.
+            sampler_id = mapping.get("sampler")
+            decoder = next((node for node in workflow.values()
+                            if node.get("class_type") == "VAEDecode"), None)
+            if not sampler_id or not decoder or not decoder.get("inputs", {}).get("vae"):
+                raise ValueError("This workflow does not support reference-image editing.")
+            next_id = max((int(key) for key in workflow if key.isdigit()), default=0) + 1
+            load_id, scale_id, encode_id = map(str, range(next_id, next_id + 3))
+            workflow[load_id] = {"class_type": "LoadImage", "inputs": {"image": reference_name}}
+            workflow[scale_id] = {"class_type": "ImageScale", "inputs": {
+                "image": [load_id, 0], "upscale_method": "lanczos",
+                "width": width, "height": height, "crop": "disabled",
+            }}
+            workflow[encode_id] = {"class_type": "VAEEncode", "inputs": {
+                "pixels": [scale_id, 0], "vae": decoder["inputs"]["vae"],
+            }}
+            workflow[sampler_id]["inputs"]["latent_image"] = [encode_id, 0]
+            workflow[sampler_id]["inputs"]["denoise"] = 0.55
         return workflow
+
+    @staticmethod
+    def validate_reference(reference: str) -> tuple[bytes, str]:
+        """Accept bounded uploaded images; never fetch arbitrary reference URLs."""
+        from PIL import Image
+
+        if len(reference) > 14_000_000:
+            raise ValueError("Reference image exceeds the 10 MB limit.")
+        header, separator, encoded = reference.partition(",")
+        formats = {"data:image/png;base64": "png", "data:image/jpeg;base64": "jpeg",
+                   "data:image/webp;base64": "webp"}
+        if not separator or header not in formats:
+            raise ValueError("Upload a PNG, JPEG, or WebP reference image.")
+        try:
+            content = base64.b64decode(encoded, validate=True)
+            if not content or len(content) > 10 * 1024 * 1024:
+                raise ValueError("Reference image exceeds the 10 MB limit or is empty.")
+            with Image.open(io.BytesIO(content)) as image:
+                if image.width * image.height > 25_000_000:
+                    raise ValueError("Reference image exceeds 25 megapixels.")
+                if image.format.lower() != formats[header]:
+                    raise ValueError("Reference image format does not match its content.")
+                image.verify()
+        except Exception as exc:
+            raise ValueError("Invalid reference image. Upload a PNG, JPEG, or WebP under 10 MB and 25 megapixels.") from exc
+        return content, formats[header]
+
+    async def upload_reference(self, reference: str) -> str:
+        content, extension = self.validate_reference(reference)
+        response = await self._http.post("/upload/image", files={
+            "image": (f"hinaa-reference-{uuid.uuid4().hex}.{extension}", content, f"image/{extension}"),
+        }, data={"type": "input", "overwrite": "false"})
+        response.raise_for_status()
+        result = response.json()
+        name = result.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("ComfyUI did not return the uploaded reference filename.")
+        folder = result.get("subfolder", "")
+        return f"{folder}/{name}" if folder else name
 
     async def enqueue_prompt(
         self,
@@ -167,11 +230,13 @@ class LocalComfyUIProvider:
         height: int = 1024,
         filename_prefix: str = "HINAA_Anima",
         mode: str = "fast",
+        reference_image: str | None = None,
     ) -> str:
         """Submit a distinct prompt to the local ComfyUI queue and return its ID."""
         async with self._submission_semaphore:
             if not await self.health_check():
                 raise ConnectionError("Local ComfyUI is unavailable or offline.")
+            reference_name = await self.upload_reference(reference_image) if reference_image else None
             workflow = self._build_workflow(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
@@ -180,6 +245,7 @@ class LocalComfyUIProvider:
                 height=height,
                 filename_prefix=filename_prefix,
                 mode=mode,
+                reference_name=reference_name,
             )
             response = await self._http.post("/prompt", json={"prompt": workflow})
             response.raise_for_status()

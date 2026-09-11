@@ -10,7 +10,6 @@ import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComp
 import { OperateMode } from "./design-system/modes/OperateMode";
 import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
-import { TranscriptView } from "./features/chat/components/TranscriptView";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
 import {
   type AvatarPresentation,
@@ -20,7 +19,6 @@ import {
 import { FullScreenAura } from "./components/ui/FullScreenAura";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
 import { PremiumComposer } from "./components/ui/PremiumComposer";
-import ParticleOrbitEffect from "./components/lightswind/ParticleOrbitEffect";
 import type { PresenceMode } from "./components/ui/AvatarPresence";
 import { HinaDrawer } from "./components/lightswind/Drawer";
 import { SidebarProvider } from "./components/lightswind/Sidebar";
@@ -55,6 +53,7 @@ const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWor
 const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").then((module) => ({ default: module.LocalImageStudio })));
 const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
 const HumanizerStudio = lazy(() => import("./features/tools/HumanizerStudio").then((module) => ({ default: module.HumanizerStudio })));
+const MusicMiniPlayer = lazy(() => import("./components/ui/MusicMiniPlayer").then((module) => ({ default: module.MusicMiniPlayer })));
 
 function ClerkAuthWrapper() {
   const { isSignedIn } = useAuth();
@@ -75,7 +74,7 @@ function ClerkAuthWrapper() {
   );
 }
 
-function ClerkFetchInterceptor() {
+export function ClerkFetchInterceptor() {
   const { getToken } = useAuth();
   useEffect(() => {
     const originalFetch = window.fetch;
@@ -165,8 +164,20 @@ function extractYouTubeIntent(text: string): string | null {
 }
 
 const stateLabels: Record<CompanionState, string> = {
-  idle: "Ready", listening: "Listening", thinking: "Understanding",
-  speaking: "Speaking", interrupted: "Interrupted", error: "Connection Issue",
+  idle: "Ready",
+  listening: "Listening",
+  understanding: "Understanding",
+  thinking: "Thinking",
+  researching: "Researching",
+  using_tool: "Using Tool",
+  generating: "Generating",
+  writing: "Writing",
+  waiting: "Waiting",
+  speaking: "Speaking",
+  success: "Completed",
+  confused: "Refining",
+  interrupted: "Interrupted",
+  error: "Connection Issue",
 };
 
 type AvatarTrackingMode = "autonomous" | "exact-vseeface" | "tracking-proxy";
@@ -305,6 +316,7 @@ export default function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [musicPlayerOpen, setMusicPlayerOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"info" | "image" | "web" | "music" | "slides" | "code">("info");
   const [drawerTitle, setDrawerTitle] = useState("");
@@ -457,13 +469,32 @@ export default function App() {
 
   const interruptPlayback = useCallback((status: "interrupted" | "failed" = "interrupted", error?: string) => {
     const playbackId = activePlaybackId.current;
-    if (!playbackId) return;
     activePlaybackId.current = null;
     playback.stop();
-    setPlaybackSession((current) => current?.playbackId === playbackId
-      ? { ...current, status, completedAt: new Date().toISOString(), error }
-      : current);
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+    if (playbackId) {
+      setPlaybackSession((current) => current?.playbackId === playbackId
+        ? { ...current, status, completedAt: new Date().toISOString(), error }
+        : current);
+    }
   }, [playback]);
+
+  const handleStop = useCallback(() => {
+    controller.stop();
+    interruptPlayback();
+    if (live.active) {
+      live.stop();
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  }, [controller, interruptPlayback, live]);
 
   // A started playback owns its own terminal transition. The hook changes
   // `playing` when decoded audio or browser speech ends; no render effect can
@@ -610,7 +641,7 @@ export default function App() {
       "browser-navigate": () => setContextMode("browser"),
       "browser-read": () => setContextMode("browser"),
       "write-code": () => { setNavSection("tools"); setSidebarExpanded(null); },
-      "play-music": () => setContextMode("music"),
+      "play-music": () => { setContextMode("music"); setMusicPlayerOpen(true); },
       "check-email": () => setContextMode("email"),
       "show-calendar": () => { setNavSection("tools"); setSidebarExpanded(null); },
       "search-files": () => { setNavSection("files"); setSidebarExpanded(null); },
@@ -666,6 +697,20 @@ export default function App() {
     setDrawerOpen(true);
   };
 
+  const openProjectWorkspace = () => {
+    setDrawerMode("code");
+    setDrawerTitle("Local Project Workspace");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><LocalProjectWorkspace active={true} /></Suspense>);
+    setDrawerOpen(true);
+  };
+
+  const openMemoryPanel = () => {
+    setDrawerMode("info");
+    setDrawerTitle("Memory System");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><MemoryPanel isOpen={true} onClose={() => setDrawerOpen(false)} /></Suspense>);
+    setDrawerOpen(true);
+  };
+
   const handleWelcome = (action: string) => {
     if (action === "voice") live.start();
     else if (action === "research") setInput("Search for: ");
@@ -675,35 +720,45 @@ export default function App() {
 
   /* ─── Agent steps ────────────────────────────────────── */
   useEffect(() => {
-    const latestUserText = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
-    const isResearch = /search|find|research|look up|source|citation/i.test(latestUserText);
+    if (controller.agentSteps.length > 0) {
+      setAgentSteps(controller.agentSteps);
+      const hasActionableRuntimeState = controller.agentSteps.some((step) =>
+        step.status === "pending" || step.status === "error" || step.status === "cancelled" || step.status === "active",
+      );
+      if ((controller.state === "idle" || controller.state === "speaking") && !hasActionableRuntimeState) {
+        const timer = window.setTimeout(() => setAgentSteps([]), 2200);
+        return () => window.clearTimeout(timer);
+      }
+      return;
+    }
 
     if (controller.state === "thinking") {
+      const latestUserText = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
+      const isResearch = /search|find|research|look up|source|citation/i.test(latestUserText);
       setSearching(isResearch);
-      if (isResearch) {
-        setContextMode("research");
-        setAgentSteps([
-          { id: "scope", label: "Understand the question", detail: "Checking scope and evidence needs", status: "done" },
-          { id: "strategy", label: "Prepare source strategy", detail: "Selecting a focused research route — no web pages fetched yet", status: "active" },
-          { id: "approval", label: "Wait for your approval", detail: "Live research begins only after you confirm the proposed action", status: "pending" },
-          { id: "synthesis", label: "Prepare concise findings", detail: "Returned sources stay visible and attributable", status: "pending" },
-        ]);
-      } else {
-        setAgentSteps([
-          { id: "scope", label: "Understand the request", detail: "Identifying the useful outcome", status: "done" },
-          { id: "work", label: "Build the response", detail: "Working through the next best action", status: "active" },
-        ]);
-      }
+      if (isResearch) setContextMode("research");
+      setAgentSteps([
+        {
+          id: "awaiting-live-progress",
+          label: "Waiting for live execution updates",
+          detail: "The backend runtime will report each real step as it starts",
+          status: "active",
+        },
+      ]);
       return;
     }
 
     setSearching(false);
     if (controller.state === "speaking" || controller.state === "idle") {
-      setAgentSteps((previous) => previous.map((step) => ({ ...step, status: "done" as const })));
+      setAgentSteps((previous) => previous.map((step) =>
+        step.status === "error" || step.status === "cancelled" || step.status === "pending"
+          ? step
+          : { ...step, status: "done" as const },
+      ));
       const timer = window.setTimeout(() => setAgentSteps([]), 1800);
       return () => window.clearTimeout(timer);
     }
-  }, [controller.state, controller.messages]);
+  }, [controller.state, controller.messages, controller.agentSteps]);
 
   /* ─── Action chips ───────────────────────────────────── */
   useEffect(() => {
@@ -727,7 +782,31 @@ export default function App() {
   const showWelcome = controller.messages.length <= 1 && !controller.streamingText && !controller.partialTranscript && controller.state === "idle" && !live.active;
 
   // Map existing CompanionState to the modes' expected types
-  const mapCompanionState = (s: CompanionState): "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error" => s;
+  const mapCompanionState = (s: CompanionState): "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error" => {
+    switch (s) {
+      case "listening":
+        return "listening";
+      case "understanding":
+      case "thinking":
+      case "researching":
+      case "using_tool":
+      case "generating":
+      case "writing":
+      case "waiting":
+      case "confused":
+        return "thinking";
+      case "speaking":
+        return "speaking";
+      case "interrupted":
+        return "interrupted";
+      case "error":
+        return "error";
+      case "idle":
+      case "success":
+      default:
+        return "idle";
+    }
+  };
 
   // Voice Lab — developer-only diagnostic route
   const isVoiceLab = typeof window !== "undefined" && window.location.pathname === "/dev/voice-lab";
@@ -737,7 +816,23 @@ export default function App() {
     <SidebarProvider defaultExpanded={false}>
       <div className="hinaa-shell">
       {/* ─── Sakura OS (Canonical) ──────────────────────────── */}
-          <AppShell>
+          <AppShell
+            activeSection={navSection as any}
+            onNavigate={(section: any) => {
+              setNavSection(section);
+              if (section === "talk" || section === "voice") setSakuraView("talk");
+              else if (section === "chat") setSakuraView("work");
+              else if (section === "images") openImageStudio();
+              else if (section === "library" || section === "projects" || section === "files") openProjectWorkspace();
+              else if (section === "creations") openHumanizerStudio();
+              else if (section === "memory") openMemoryPanel();
+              else if (section === "settings") setSettingsOpen(true);
+            }}
+            onNewChat={() => controller.resetConversation()}
+            onToggleHistory={() => setSidebarExpanded((prev) => (prev ? null : "chat"))}
+            historyOpen={Boolean(sidebarExpanded)}
+            activeConversationId={null}
+          >
             {/* Mode navigation tabs */}
             <div style={{
               display: "flex",
@@ -818,7 +913,8 @@ export default function App() {
 
             {sakuraView === "work" && (
               <WorkMode
-                companionState={mapCompanionState(controller.state)}
+                companionId={controller.companionId}
+                companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
                 messages={controller.messages}
                 streamingText={controller.streamingText}
                 partialTranscript={controller.partialTranscript}
@@ -826,7 +922,7 @@ export default function App() {
                 input={input}
                 onInputChange={setInput}
                 onSend={() => submit()}
-                onStop={() => controller.stop()}
+                onStop={handleStop}
                 disabled={controller.state !== "idle" && controller.state !== "thinking"}
                 isVoiceActive={live.active}
                 onStartVoice={() => { interruptPlayback(); live.start(); }}
@@ -847,9 +943,43 @@ export default function App() {
                 onResolveTool={controller.resolveToolRequest}
                 autoRunTools={settings.automation.autoRunTools}
                 agentSteps={agentSteps}
+                currentAgentRunId={controller.currentAgentRunId}
+                currentAgentConfirmationStepId={controller.currentAgentConfirmationStepId}
+                onCancelAgentRun={() => { void controller.cancelCurrentAgentRun(); handleStop(); }}
+                onResumeAgentRun={() => { void controller.resumeCurrentAgentRun(); }}
+                onConfirmAgentStep={(approved) => { void controller.confirmCurrentAgentStep(approved); }}
+                onRecoverAgentRun={() => { void controller.recoverCurrentAgentRun(); }}
                 onWelcomeAction={handleWelcome}
                 attachedImage={attachedImage}
                 onImageAttach={setAttachedImage}
+                // Companion & 3D Avatar
+                avatarModel={avatarModel}
+                avatarMode={avatarMode}
+                onChangeAvatarMode={changeAvatarMode}
+                avatarPresentation={avatarPresentation}
+                onOpenAvatarLab={openAvatarLab}
+                onSelectModel={selectAvatarModel}
+                companionName={companionProfiles[controller.companionId]?.name || "Hinaa"}
+                jawEnergy={playback.jawEnergy}
+                speakingRef={playback.playingRef}
+                visemeEvents={playback.visemeEvents}
+                audioStartTimeRef={playback.audioStartTimeRef}
+                // Provider micro-status & fallback props
+                activeProviderMode={routing.activeMode ?? "mock"}
+                activeProviderModel={routing.activeModel}
+                providerHealth={routing.activeMode ? providers.getHealth(routing.activeMode as any) : "healthy"}
+                providerLatencyMs={null}
+                onSelectProvider={(mode, modelId) => {
+                  setProvider({
+                    preferredMode: mode as any,
+                    preferredModelByProvider: modelId ? { ...settings.provider.preferredModelByProvider, [mode]: modelId } : settings.provider.preferredModelByProvider,
+                  });
+                }}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenLibrary={openProjectWorkspace}
+                onOpenImages={openImageStudio}
+                providerOptions={providers.providerOptions}
+                getModelOptions={providers.getModelOptions}
               />
             )}
 
@@ -910,6 +1040,15 @@ export default function App() {
           onManualCommit={live.manualCommit}
           isListening={live.active}
         />
+        <Suspense fallback={null}>
+          <MusicMiniPlayer
+            isOpen={musicPlayerOpen || contextMode === "music"}
+            onClose={() => {
+              setMusicPlayerOpen(false);
+              if (contextMode === "music") setContextMode("hidden");
+            }}
+          />
+        </Suspense>
       </div>
     </SidebarProvider>
   );

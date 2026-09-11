@@ -81,12 +81,12 @@ export function buildProviderOptions(statuses: ProviderStatus[]): ProviderOption
     if (!status) continue; // not returned by backend — skip
 
     const health = status.state;
-    const available = health === "healthy";
+    const available = health === "healthy" || health === "degraded";
     options.push({
       mode,
       ...PROVIDER_LABELS[mode],
       health,
-      healthReason: !available ? (status.userMessage ?? undefined) : undefined,
+      healthReason: status.userMessage ?? undefined,
       available,
     });
   }

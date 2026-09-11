@@ -2377,6 +2377,56 @@ body {
 @media (max-height: 630px) and (min-width: 761px) { .fullscreen-companion-overlay__conversation { max-height:30vh; } .fullscreen-companion-overlay__voice-dock { padding:10px 16px; } .fullscreen-companion-overlay__hint { display:none; } }
 @media (prefers-reduced-motion: reduce) { .fullscreen-companion-overlay *, .fullscreen-companion-overlay *::before, .fullscreen-companion-overlay *::after { animation:none !important; transition-duration:1ms !important; } }
 
+.hinaa-caption {
+  left: 50%;
+  bottom: 16px;
+  max-width: min(640px, 85%);
+  max-height: 30%;
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  text-align: center;
+  transform: translateX(-50%);
+  backdrop-filter: blur(16px);
+}
+
+.hinaa-caption--full {
+  top: 18px;
+  bottom: auto;
+  left: auto;
+  right: clamp(16px, 4vw, 48px);
+  width: min(380px, 34vw);
+  max-width: calc(100% - 32px);
+  max-height: 26%;
+  text-align: left;
+  transform: none;
+}
+
+@media (max-width: 760px) {
+  .hinaa-caption {
+    bottom: 10px;
+    max-width: calc(100% - 28px);
+    max-height: 26%;
+    padding: 10px 12px;
+    font-size: .78rem;
+  }
+
+  .hinaa-caption--full {
+    top: 10px;
+    right: 14px;
+    left: 14px;
+    width: auto;
+    max-height: 21%;
+    text-align: center;
+  }
+}
+
 /* Native fullscreen is preferred; this theater fallback keeps the same single stage usable when the browser declines the API. */
 .avatar-playground--fullscreen { position:fixed !important; inset:0 !important; width:100vw !important; height:100dvh !important; min-height:100dvh !important; z-index:1000 !important; }
 
@@ -3187,6 +3237,24 @@ body {
 
 .avatar-fallback strong { color: var(--text-primary); }
 .avatar-fallback small { color: var(--text-muted); }
+
+/* Keep the VRM surface measurable in every layout, especially the dedicated
+   mobile avatar screen where flex children otherwise collapse before R3F can
+   size its canvas. */
+.vrm-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  overflow: hidden;
+}
+
+.vrm-canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 280px;
+}
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {

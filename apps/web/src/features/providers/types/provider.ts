@@ -56,4 +56,5 @@ export interface ProvidersState {
   getDefaultModel: (mode: ProviderMode) => string | null;
   getHealth: (mode: ProviderMode) => ProviderHealth;
   refresh: () => void;
+  reprobeCx?: () => Promise<void>;
 }

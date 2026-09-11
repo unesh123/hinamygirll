@@ -6,6 +6,16 @@ from hinaa_api.persistence.db import get_session_factory
 from hinaa_api.persistence.orm import LocalProject
 
 
+def _workspace_settings(tmp_path):
+    return Settings(
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_PERSISTENCE_ENABLED=False,
+        HINAA_LOCAL_WORKSPACE_DIR=tmp_path,
+        _env_file=None,
+    )
+
+
 def test_local_comfyui_status_is_actionable(tmp_path) -> None:
     settings = Settings(
         HINAA_PROVIDER_MODE="mock",
@@ -21,6 +31,79 @@ def test_local_comfyui_status_is_actionable(tmp_path) -> None:
     assert payload["service"] == "ComfyUI"
     assert payload["localOnly"] is True
     assert payload["status"] in {"ready", "unavailable"}
+
+
+def test_agent_run_progress_is_durable_and_terminal_state_is_immutable(tmp_path) -> None:
+    with TestClient(create_app(_workspace_settings(tmp_path))) as client:
+        project = client.post("/v1/projects", json={"title": "Runner"}).json()
+        run = client.post(
+            f"/v1/projects/{project['id']}/runs", json={"goal": "Implement the feature"}
+        ).json()
+        assert run["runtimeRunId"] == run["id"]
+        canonical = client.get(f"/v1/agent/runs/{run['runtimeRunId']}")
+        assert canonical.status_code == 200
+        assert canonical.json()["project_id"] == project["id"]
+        assert canonical.json()["status"] == "executing"
+        event = client.post(
+            f"/v1/projects/runs/{run['id']}/events",
+            json={"kind": "step", "label": "Writing code", "detail": "Scoped workspace"},
+        )
+        assert event.status_code == 200
+        assert event.json()["events"][-1]["label"] == "Writing code"
+
+        completed = client.patch(
+            f"/v1/projects/runs/{run['id']}",
+            json={"status": "completed", "summary": "Verified"},
+        )
+        assert completed.status_code == 200
+        late_event = client.post(
+            f"/v1/projects/runs/{run['id']}/events",
+            json={"label": "Late worker callback"},
+        )
+        assert late_event.status_code == 404
+        illegal_transition = client.patch(
+            f"/v1/projects/runs/{run['id']}", json={"status": "running"}
+        )
+        assert illegal_transition.status_code == 404
+
+
+def test_code_file_writer_is_scoped_and_requires_explicit_overwrite(tmp_path) -> None:
+    with TestClient(create_app(_workspace_settings(tmp_path))) as client:
+        project = client.post("/v1/projects", json={"title": "Code"}).json()
+        run = client.post(
+            f"/v1/projects/{project['id']}/runs", json={"goal": "Write source"}
+        ).json()
+        created = client.post(
+            f"/v1/projects/{project['id']}/code/files",
+            json={"path": "src/main.py", "content": "print('hi')", "runId": run["id"]},
+        )
+        assert created.status_code == 201
+        assert created.json()["path"] == "src/main.py"
+        assert created.json()["overwritten"] is False
+        written = next(tmp_path.rglob("src/main.py"))
+        assert written.read_text() == "print('hi')"
+
+        conflict = client.post(
+            f"/v1/projects/{project['id']}/code/files",
+            json={"path": "src/main.py", "content": "print('bye')"},
+        )
+        assert conflict.status_code == 409
+        traversal = client.post(
+            f"/v1/projects/{project['id']}/code/files",
+            json={"path": "../escape.py", "content": "bad"},
+        )
+        assert traversal.status_code == 422
+        invalid_ext = client.post(
+            f"/v1/projects/{project['id']}/code/files",
+            json={"path": "secret.env", "content": "bad"},
+        )
+        assert invalid_ext.status_code == 422
+        replaced = client.post(
+            f"/v1/projects/{project['id']}/code/files",
+            json={"path": "src/main.py", "content": "print('bye')", "overwrite": True},
+        )
+        assert replaced.status_code == 201
+        assert replaced.json()["overwritten"] is True
 
 
 def test_local_project_workspace_round_trip(tmp_path) -> None:
@@ -86,6 +169,11 @@ def test_local_project_workspace_round_trip(tmp_path) -> None:
         assert [item["title"] for item in payload["artifacts"]] == ["Creator notes"]
         assert [item["name"] for item in payload["files"]] == ["brief.txt"]
 
+        looked_up = client.get("/v1/artifacts/lookup", params={"kind": "research"})
+        assert looked_up.status_code == 200
+        assert looked_up.json()["found"] is True
+        assert looked_up.json()["artifact"]["title"] == "Creator notes"
+
         downloaded = client.get(f"/v1/projects/files/{file_record['id']}")
         assert downloaded.status_code == 200
         assert downloaded.content == b"Hinaa local workspace"
@@ -133,7 +221,8 @@ def test_local_agent_run_lifecycle_is_durable_and_explicit(tmp_path) -> None:
         assert created.status_code == 201
         run = created.json()
         assert run["status"] == "waiting_approval"
-        assert [event["kind"] for event in run["events"]] == ["run", "approval"]
+        assert [event["kind"] for event in run["events"][:2]] == ["run", "approval"]
+        assert run["runtimeRunId"] == run["id"]
 
         resumed = client.patch(
             f"/v1/projects/runs/{run['id']}",
@@ -141,7 +230,9 @@ def test_local_agent_run_lifecycle_is_durable_and_explicit(tmp_path) -> None:
         )
         assert resumed.status_code == 200
         assert resumed.json()["status"] == "running"
-        assert resumed.json()["events"][-1]["label"] == "Run resumed"
+        resumed_labels = [event["label"] for event in resumed.json()["events"]]
+        assert "Run resumed" in resumed_labels
+        assert "agent.step.started" in resumed_labels
 
         completed = client.patch(
             f"/v1/projects/runs/{run['id']}",
@@ -153,7 +244,10 @@ def test_local_agent_run_lifecycle_is_durable_and_explicit(tmp_path) -> None:
         detail = client.get(f"/v1/projects/{project['id']}")
         assert detail.status_code == 200
         assert detail.json()["runs"][0]["status"] == "completed"
-        assert len(detail.json()["runs"][0]["events"]) == 4
+        assert len(detail.json()["runs"][0]["events"]) >= 4
+        canonical = client.get(f"/v1/agent/runs/{run['runtimeRunId']}")
+        assert canonical.status_code == 200
+        assert canonical.json()["status"] == "completed"
 
 
 def test_local_project_artifact_exports_as_markdown(tmp_path) -> None:

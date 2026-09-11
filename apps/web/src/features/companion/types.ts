@@ -22,9 +22,37 @@ export type HinaaExperienceState =
   | "error";
 
 export type CompanionState =
-  | "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error";
+  | "idle"
+  | "listening"
+  | "understanding"
+  | "thinking"
+  | "researching"
+  | "using_tool"
+  | "generating"
+  | "writing"
+  | "waiting"
+  | "speaking"
+  | "success"
+  | "confused"
+  | "error"
+  | "interrupted";
 
 export type CompanionId = "hinaa" | "hiro";
+
+export interface MessageAttachment {
+  asset_id?: string;
+  assetId?: string;
+  kind?: "image" | "document" | "spreadsheet" | "text" | "code" | "audio" | "video" | "archive";
+  mime_type?: string;
+  mimeType?: string;
+  filename?: string;
+  size_bytes?: number;
+  sizeBytes?: number;
+  sha256?: string;
+  ordinal?: number;
+  role?: string | null;
+  url?: string | null;
+}
 
 export interface TranscriptMessage {
   id: string;
@@ -37,6 +65,15 @@ export interface TranscriptMessage {
   plan?: AssistantTurnPlan;
   toolActivity?: Array<{ status: string; label: string; id: string }>;
   toolResults?: Array<{ toolName: string; result: any }>;
+  imageUrl?: string | null;
+  attachments?: MessageAttachment[];
+  requestedProvider?: string | null;
+  requestedModel?: string | null;
+  resolvedProvider?: string | null;
+  resolvedModel?: string | null;
+  fallback?: boolean;
+  fallbackReason?: string | null;
+  latencyMs?: number | null;
 }
 
 export const companionProfiles: Record<

@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://hinaa.local/schemas/agent-plan/1.0.json","type":"object","required":["plan_id","run_id","goal","steps"],"properties":{"plan_id":{"type":"string"},"run_id":{"type":"string"},"goal":{"type":"string"},"version":{"type":"integer","minimum":1},"steps":{"type":"array","items":{"type":"object"}}}}

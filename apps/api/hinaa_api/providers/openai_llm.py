@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
+from typing import Any
 from collections.abc import AsyncIterator, Awaitable, Callable
 from time import perf_counter
 
 import httpx
 from pydantic import ValidationError
 
+from ..circuit_breaker import get_circuit_breaker
 from ..errors import HinaaError, safe_error_text
 from ..models import AssistantTurnPlan, CompanionId, Language
 from ..prompts import (
@@ -27,33 +30,109 @@ def _sanitize_delta(value: str) -> str:
     return value.replace("<", "").replace(">", "").replace("{", "").replace("}", "")
 
 
-def _messages(prompt: PromptPackage) -> list[dict[str, str]]:
+def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
+    user_text = "\n\n".join(str(item) for item in prompt.user_contents)
+    system_msg = {"role": "system", "content": prompt.system_instruction}
+
+    attachments = getattr(prompt, "attachments", None) or []
+    image_parts: list[dict[str, Any]] = []
+    for att in attachments:
+        bytes_data = getattr(att, "bytes_data", None)
+        mime = getattr(att, "mime_type", "image/png")
+        if bytes_data and mime.startswith("image/"):
+            b64 = base64.b64encode(bytes_data).decode("utf-8")
+            image_parts.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime};base64,{b64}",
+                },
+            })
+
+    if not image_parts:
+        return [
+            system_msg,
+            {"role": "user", "content": user_text},
+        ]
+
+    user_content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
+    user_content.extend(image_parts)
     return [
-        {"role": "system", "content": prompt.system_instruction},
-        {"role": "user", "content": "\n\n".join(str(item) for item in prompt.user_contents)},
+        system_msg,
+        {"role": "user", "content": user_content},
     ]
 
 
-def _custom_text_from_raw(raw: str) -> str:
+def _extract_xml_metadata(raw: str) -> tuple[str, dict[str, Any]]:
+    """Extract XML tag metadata blocks and return clean text plus parsed metadata."""
     cleaned = raw.strip()
+    meta: dict[str, Any] = {}
+
+    # Extract <language>
+    lang_match = re.search(r"<language[^>]*>(.*?)</language>", cleaned, re.DOTALL | re.IGNORECASE)
+    if lang_match:
+        meta["language"] = lang_match.group(1).strip()
+        cleaned = cleaned[:lang_match.start()] + cleaned[lang_match.end():]
+
+    # Extract <emotion>
+    emotion_match = re.search(r"<emotion[^>]*>(.*?)</emotion>", cleaned, re.DOTALL | re.IGNORECASE)
+    if emotion_match:
+        meta["emotion_raw"] = emotion_match.group(1).strip()
+        cleaned = cleaned[:emotion_match.start()] + cleaned[emotion_match.end():]
+
+    # Extract <performance>
+    perf_match = re.search(r"<performance[^>]*>(.*?)</performance>", cleaned, re.DOTALL | re.IGNORECASE)
+    if perf_match:
+        meta["performance_raw"] = perf_match.group(1).strip()
+        cleaned = cleaned[:perf_match.start()] + cleaned[perf_match.end():]
+
+    # Extract <memoryCandidates>
+    mem_match = re.search(r"<memoryCandidates[^>]*>(.*?)</memoryCandidates>", cleaned, re.DOTALL | re.IGNORECASE)
+    if mem_match:
+        meta["memory_candidates_raw"] = mem_match.group(1).strip()
+        cleaned = cleaned[:mem_match.start()] + cleaned[mem_match.end():]
+
+    # Extract <toolRequests>
+    tool_match = re.search(r"<toolRequests[^>]*>(.*?)</toolRequests>", cleaned, re.DOTALL | re.IGNORECASE)
+    if tool_match:
+        meta["tool_requests_raw"] = tool_match.group(1).strip()
+        cleaned = cleaned[:tool_match.start()] + cleaned[tool_match.end():]
+
+    # Strip wrapper tags
+    cleaned = re.sub(r"</?response[^>]*>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"</?(?:spokenText|displayText|think|thought|content|message)[^>]*>", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(), meta
+
+
+def _custom_text_from_raw(raw: str) -> str:
+    cleaned, _ = _extract_xml_metadata(raw)
     try:
         from ..prompts.fallback import extract_json_object
 
         payload = json.loads(extract_json_object(cleaned))
     except (json.JSONDecodeError, ValueError):
-        return cleaned
+        payload = None
     if isinstance(payload, dict):
         for key in ("displayText", "spokenText", "text", "message", "content"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()
-    if isinstance(payload, list):
-        # A JSON array is likely broken chat output; speak the joined pieces
-        # rather than raw JSON syntax.
+                cleaned = value.strip()
+                break
+    elif isinstance(payload, list):
         parts = [item for item in payload if isinstance(item, str) and item.strip()]
         if parts:
-            return " ".join(parts)
-    return cleaned
+            cleaned = " ".join(parts)
+    cleaned = re.sub(
+        r"</?(?:response|spokenText|displayText|think|thought|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\s*\([a-zA-Z_]+=[0-9.]+(?:,\s*[a-zA-Z_]+=[0-9.]+)*\)\s*$",
+        "",
+        cleaned,
+    )
+    return cleaned.strip()
 
 
 class OpenAILLMProvider:
@@ -77,6 +156,7 @@ class OpenAILLMProvider:
         # Keep it aligned with the selected compatible gateway rather than the
         # class-level OpenAI default.
         self.id = provider_id
+        self._circuit_breaker = get_circuit_breaker(provider_id)
 
     async def create_plan(
         self,
@@ -93,6 +173,11 @@ class OpenAILLMProvider:
                 500,
                 True,
             )
+        can_exec, reason, remaining = self._circuit_breaker.can_execute()
+        if not can_exec:
+            code = "PROVIDER_RATE_LIMIT" if "rate_limited" in (reason or "") else "PROVIDER_UNAVAILABLE"
+            status_code = 429 if code == "PROVIDER_RATE_LIMIT" else 503
+            raise HinaaError(code, reason or f"{self._provider_label()} is currently in cooldown.", status_code, True)
         started = perf_counter()
         try:
             raw = await self._chat_json(prompt)
@@ -153,8 +238,10 @@ class OpenAILLMProvider:
             raise
         except Exception as error:
             raise self._map_provider_error(error) from error
+        latency_ms = int((perf_counter() - started) * 1000)
+        self._circuit_breaker.record_success(latency_ms)
         return ProviderResult(
-            plan, f"{self._provider_id}:{self._model}", int((perf_counter() - started) * 1000)
+            plan, f"{self._provider_id}:{self._model}", latency_ms
         )
 
     async def create_live_plan(
@@ -173,6 +260,11 @@ class OpenAILLMProvider:
                 500,
                 True,
             )
+        can_exec, reason, remaining = self._circuit_breaker.can_execute()
+        if not can_exec:
+            code = "PROVIDER_RATE_LIMIT" if "rate_limited" in (reason or "") else "PROVIDER_UNAVAILABLE"
+            status_code = 429 if code == "PROVIDER_RATE_LIMIT" else 503
+            raise HinaaError(code, reason or f"{self._provider_label()} is currently in cooldown.", status_code, True)
         if self._provider_id == "qwen":
             # QwenCloud supports JSON-object plans, but live token deltas are
             # still the raw contract. Validate the complete plan first, then
@@ -218,18 +310,25 @@ class OpenAILLMProvider:
             raise self._map_provider_error(error) from error
         stages = timing.snapshot()
         stages["provider_events"] = provider_events
+        latency_ms = int((perf_counter() - started) * 1000)
+        self._circuit_breaker.record_success(latency_ms)
         return ProviderResult(
             plan,
             f"{self._provider_id}:{self._model}",
-            int((perf_counter() - started) * 1000),
+            latency_ms,
             stages=stages,
         )
+
+    def _model_for_payload(self) -> str:
+        if self._provider_id == "cx-gateway" and self._model.startswith("cx/"):
+            return self._model[3:]
+        return self._model
 
     async def _chat_json(self, prompt: PromptPackage) -> str:
         if self._provider_id in {"custom", "cx-gateway", "claude"}:
             return await self._chat_text(prompt)
         payload: dict[str, object] = {
-            "model": self._model,
+            "model": self._model_for_payload(),
             "messages": _messages(prompt),
             "temperature": 0.45,
             "response_format": {"type": "json_object"},
@@ -251,7 +350,7 @@ class OpenAILLMProvider:
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
         payload = {
-            "model": self._model,
+            "model": self._model_for_payload(),
             "messages": _messages(prompt),
             "temperature": 0.35,
             # Reasoning models spend hidden tokens before the answer; a small
@@ -272,7 +371,7 @@ class OpenAILLMProvider:
 
     async def _repair_json(self, invalid_raw: str) -> str:
         payload = {
-            "model": self._model,
+            "model": self._model_for_payload(),
             "messages": [
                 {
                     "role": "system",
@@ -303,7 +402,7 @@ class OpenAILLMProvider:
             # before any spoken "content". A small cap starves the actual
             # answer, so allow more headroom and a longer gateway timeout.
             payload: dict[str, object] = {
-                "model": self._model,
+                "model": self._model_for_payload(),
                 "messages": _messages(prompt),
                 "temperature": 0.45,
                 "max_tokens": 2200,
@@ -357,22 +456,44 @@ class OpenAILLMProvider:
     def _chat_url(self) -> str:
         if self._base_url.endswith("/chat/completions"):
             return self._base_url
-        return f"{self._base_url.rstrip('/')}/chat/completions"
+        base = self._base_url.rstrip("/")
+        if not base.endswith("/v1"):
+            base = f"{base}/v1"
+        return f"{base}/chat/completions"
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         if response.status_code < 400:
             return
+        retry_after_str = response.headers.get("retry-after")
+        retry_after: float | None = None
+        if retry_after_str and retry_after_str.strip().isdigit():
+            retry_after = float(retry_after_str.strip())
+
+        if response.status_code == 404:
+            provider_text = safe_error_text(response.text, [self._key]).lower()
+            if "model" in provider_text:
+                msg = f"{self._provider_label()} model '{self._model}' was not found on upstream provider."
+                self._circuit_breaker.record_failure("MODEL_UNAVAILABLE", msg)
+                raise HinaaError("MODEL_UNAVAILABLE", msg, 404, user_action_required=True)
+            msg = f"{self._provider_label()} returned 404 (endpoint or model mismatch)."
+            self._circuit_breaker.record_failure("ENDPOINT_MISMATCH", msg)
+            raise HinaaError("ENDPOINT_MISMATCH", msg, 404, user_action_required=True)
+
         if response.status_code in {401, 403}:
+            msg = f"{self._provider_label()} needs its backend connection fixed."
+            self._circuit_breaker.record_failure("PROVIDER_KEY_INVALID", msg)
             raise HinaaError(
                 "PROVIDER_KEY_INVALID",
-                f"{self._provider_label()} needs its backend connection fixed.",
+                msg,
                 503,
                 user_action_required=True,
             )
         if response.status_code == 429:
+            msg = f"{self._provider_label()} is rate limited right now."
+            self._circuit_breaker.record_failure("PROVIDER_RATE_LIMIT", msg, retry_after=retry_after)
             raise HinaaError(
                 "PROVIDER_RATE_LIMIT",
-                f"{self._provider_label()} is rate limited right now.",
+                msg,
                 429,
                 True,
             )
@@ -381,16 +502,20 @@ class OpenAILLMProvider:
             marker in provider_text
             for marker in ("no available accounts", "no available account", "upstream account unavailable")
         ):
+            msg = f"{self._provider_label()} accepted the request, but its upstream service has no available accounts right now. Check the gateway balance/account status or retry later."
+            self._circuit_breaker.record_failure("PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE", msg)
             raise HinaaError(
                 "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
-                f"{self._provider_label()} accepted the request, but its upstream service has no available accounts right now. Check the gateway balance/account status or retry later.",
+                msg,
                 503,
                 True,
                 True,
             )
+        msg = f"{self._provider_label()} is unavailable safely."
+        self._circuit_breaker.record_failure("PROVIDER_UNAVAILABLE", msg)
         raise HinaaError(
             "PROVIDER_UNAVAILABLE",
-            f"{self._provider_label()} is unavailable safely.",
+            msg,
             502,
             True,
         )
@@ -405,29 +530,43 @@ class OpenAILLMProvider:
             )
         redacted = safe_error_text(error, [self._key]).lower()
         if "api key" in redacted or "401" in redacted or "403" in redacted:
+            msg = f"{self._provider_label()} needs its backend connection fixed."
+            self._circuit_breaker.record_failure("PROVIDER_KEY_INVALID", msg)
             return HinaaError(
                 "PROVIDER_KEY_INVALID",
-                f"{self._provider_label()} needs its backend connection fixed.",
+                msg,
                 503,
                 user_action_required=True,
             )
         if "429" in redacted or "quota" in redacted or "rate limit" in redacted:
+            msg = f"{self._provider_label()} is rate limited right now."
+            self._circuit_breaker.record_failure("PROVIDER_RATE_LIMIT", msg)
             return HinaaError(
                 "PROVIDER_RATE_LIMIT",
-                f"{self._provider_label()} is rate limited right now.",
+                msg,
                 429,
                 True,
             )
         if "no available accounts" in redacted or "no available account" in redacted:
+            msg = f"{self._provider_label()} accepted the request, but its upstream service has no available accounts right now. Check the gateway balance/account status or retry later."
+            self._circuit_breaker.record_failure("PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE", msg)
             return HinaaError(
                 "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
-                f"{self._provider_label()} accepted the request, but its upstream service has no available accounts right now. Check the gateway balance/account status or retry later.",
+                msg,
                 503,
                 True,
                 True,
             )
+        if "timeout" in redacted or "timed out" in redacted:
+            msg = f"{self._provider_label()} timed out."
+            self._circuit_breaker.record_failure("PROVIDER_TIMEOUT", msg)
+            return HinaaError(
+                "PROVIDER_TIMEOUT", msg, 504, True
+            )
+        msg = f"{self._provider_label()} is unavailable safely."
+        self._circuit_breaker.record_failure("PROVIDER_UNAVAILABLE", msg)
         return HinaaError(
-            "PROVIDER_UNAVAILABLE", f"{self._provider_label()} is unavailable safely.", 502, True
+            "PROVIDER_UNAVAILABLE", msg, 502, True
         )
 
     def _provider_label(self) -> str:

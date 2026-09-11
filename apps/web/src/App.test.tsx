@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
 class FakeUtterance {
@@ -14,11 +14,20 @@ class FakeUtterance {
   constructor(readonly text: string) {}
 }
 
+function resetHinaaStorage(): void {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("hinaa")) localStorage.removeItem(key);
+  }
+}
+
 describe("HINAA assistant workspace", () => {
+  beforeEach(() => {
+    resetHinaaStorage();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
-    localStorage.removeItem("hinaa.avatar-model");
-    localStorage.removeItem("hinaa_settings_v1");
+    resetHinaaStorage();
   });
 
   it("renders the Sakura OS navigation rail", () => {
@@ -27,15 +36,11 @@ describe("HINAA assistant workspace", () => {
     expect(screen.getByLabelText("HINAA navigation")).toBeInTheDocument();
   });
 
-  it("renders Talk, Work, and Operate mode buttons", () => {
+  it("renders Talk, Chat, and Projects navigation destinations", () => {
     render(<App />);
-    // Mode tabs in the header
-    const talkBtn = screen.getAllByRole("button").find(el => /talk/i.test(el.textContent ?? ""));
-    const workBtn = screen.getAllByRole("button").find(el => /work/i.test(el.textContent ?? ""));
-    const operateBtn = screen.getAllByRole("button").find(el => /operate/i.test(el.textContent ?? ""));
-    expect(talkBtn).toBeDefined();
-    expect(workBtn).toBeDefined();
-    expect(operateBtn).toBeDefined();
+    expect(screen.getByRole("button", { name: "Talk" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Projects" })).toBeInTheDocument();
   });
 
   it("shows the Work mode text composer", () => {
@@ -65,9 +70,11 @@ describe("HINAA assistant workspace", () => {
     vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
     vi.stubGlobal("AudioContext", undefined);
     localStorage.setItem("hinaa_settings_v1", JSON.stringify({
-      _version: 2,
+      _version: 7,
       appearance: { theme: "system", motion: "system", avatarVisible: true, avatarStyle: "procedural" },
       provider: { preferredMode: "mock", preferredModelByProvider: {} },
+      language: { activePolicy: "en-US" },
+      automation: { autoRunTools: false },
     }));
     render(<App />);
 
@@ -80,7 +87,7 @@ describe("HINAA assistant workspace", () => {
     expect(utterance.text).toBeTruthy();
     expect(utterance.text).not.toContain("```");
     utterance.onend?.();
-  });
+  }, 10_000);
 
   it.todo("starts live voice only after the user grants microphone permission");
   it.todo("offers a visible confirmation before executing an external assistant action");

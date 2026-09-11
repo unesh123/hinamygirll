@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://hinaa.local/schemas/confirmation-required/1.0.json","type":"object","required":["event_type","run_id","step_id","summary"],"properties":{"event_type":{"const":"confirmation.required"},"run_id":{"type":"string"},"step_id":{"type":"string"},"summary":{"type":"string"}}}

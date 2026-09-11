@@ -113,6 +113,23 @@ function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> 
         : true,
     };
   }
+  if (version < 7) {
+    // CX Gateway (cx/gpt-5.6-sol) is the primary live brain. Migrate stale
+    // or rate-limited Claude/auto selections to CX Gateway while preserving
+    // explicit local/mock selections.
+    const provider = isObject(migrated.provider) ? { ...migrated.provider } : {};
+    if (
+      provider.preferredMode === undefined ||
+      provider.preferredMode === "auto" ||
+      provider.preferredMode === "claude"
+    ) {
+      provider.preferredMode = "cx-gateway";
+    }
+    const models = isObject(provider.preferredModelByProvider) ? { ...provider.preferredModelByProvider } : {};
+    models["cx-gateway"] = "cx/gpt-5.6-sol";
+    provider.preferredModelByProvider = models;
+    migrated.provider = provider;
+  }
   migrated._version = SETTINGS_VERSION;
   return migrated;
 }
@@ -172,7 +189,7 @@ function validateLanguage(raw: unknown): HinaaSettings["language"] {
   return {
     activePolicy: safeString<ActiveLanguagePolicy>(
       obj.activePolicy,
-      ["auto-hi-en", "hi-IN", "en-US"],
+      ["auto", "auto-hi-en", "ne-NP", "ne-en", "hi-IN", "hi-en", "en-US"],
       DEFAULT_SETTINGS.language.activePolicy,
     ),
   };

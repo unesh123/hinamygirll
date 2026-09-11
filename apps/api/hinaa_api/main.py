@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -19,6 +21,8 @@ from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse
+from .creative import CreativeJobStore, CreativeModelRegistry, MagnificBudgetManager
+from .media import AssetSource, get_asset_store
 from .persistence import MemoryService, init_db
 from .persistence.auth import AuthContext, auth_dependency_factory, resolve_auth
 from .persistence.db import get_session_factory, reset_session_factory
@@ -80,6 +84,36 @@ class ProjectAgentRunStatusBody(BaseModel):
     summary: Annotated[str, Field(max_length=20_000)] | None = None
 
 
+class ProjectAgentRunEventBody(BaseModel):
+    kind: Annotated[str, Field(min_length=1, max_length=40)] = "progress"
+    status: Annotated[str, Field(max_length=30)] | None = None
+    label: Annotated[str, Field(min_length=1, max_length=240)]
+    detail: Annotated[str, Field(max_length=20_000)] = ""
+
+
+class ProjectCodeFileBody(BaseModel):
+    path: Annotated[str, Field(min_length=1, max_length=600)]
+    content: Annotated[str, Field(max_length=1_048_576)]
+    overwrite: bool = False
+    runId: str | None = None
+
+
+class CreativeBudgetSnapshotBody(BaseModel):
+    balance: Annotated[int, Field(ge=0)]
+
+
+class CreativeEstimateBody(BaseModel):
+    model: Annotated[str, Field(min_length=1, max_length=120)]
+    width: Annotated[int, Field(default=1024, ge=1, le=16384)] = 1024
+    height: Annotated[int, Field(default=1024, ge=1, le=16384)] = 1024
+    scale: Annotated[float, Field(default=2.0, ge=1, le=8)] = 2.0
+
+
+class CreativeJobBody(BaseModel):
+    prompt: Annotated[str, Field(min_length=1, max_length=4000)]
+    model: Annotated[str, Field(min_length=1, max_length=120)]
+
+
 class ProjectArtifactBody(BaseModel):
     kind: Annotated[str, Field(pattern="^(note|research|image|document|export|link)$")]
     title: Annotated[str, Field(min_length=1, max_length=240)]
@@ -115,6 +149,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     workspace_service = LocalProjectService(
         get_session_factory(active_settings), active_settings.local_workspace_dir
     )
+    creative_budget = MagnificBudgetManager(settings=active_settings)
+    creative_jobs = CreativeJobStore()
+    asset_store = get_asset_store()
     avatar_assets = AvatarAssetService(
         active_settings.local_workspace_dir,
         Path(__file__).resolve().parents[3],
@@ -125,12 +162,75 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if memory_service is not None
         else None
     )
+    from .agent import AgentRuntime
+    from .agent.contracts import AgentEvent, OperationType, PlanStep, RunStatus
+    from .agent.persistence import AgentPersistenceService
+
+    async def _agent_executor(step: PlanStep) -> Any:
+        if step.operation_type == OperationType.TOOL:
+            if not step.tool_name:
+                raise HinaaError("TOOL_UNAVAILABLE", "Tool name required for tool step", 400)
+            tool_def = registry.get_tool(step.tool_name)
+            if not tool_def:
+                raise HinaaError("TOOL_UNAVAILABLE", f"Tool {step.tool_name} not found", 404)
+            handler = registry._handlers.get(step.tool_name)
+            if not handler:
+                raise HinaaError("TOOL_UNAVAILABLE", f"Tool handler for {step.tool_name} not found", 404)
+            import inspect
+            from typing import get_type_hints
+            from pydantic import BaseModel
+
+            sig = inspect.signature(handler)
+            parsed_params = dict(step.tool_parameters or {})
+            if len(sig.parameters) == 1:
+                param_name = next(iter(sig.parameters.keys()))
+                hints = get_type_hints(handler)
+                param_type = hints.get(param_name, sig.parameters[param_name].annotation)
+                if isinstance(param_type, type) and issubclass(param_type, BaseModel):
+                    arg = param_type(**parsed_params)
+                    res = handler(arg)
+                else:
+                    res = handler(parsed_params)
+            else:
+                res = handler(**parsed_params)
+            if inspect.isawaitable(res):
+                res = await res
+            return res
+        return {"status": "success", "content": step.description or step.title}
+
+    agent_persistence = (
+        AgentPersistenceService(get_session_factory(active_settings))
+        if active_settings.persistence_enabled
+        else None
+    )
+
+    agent_runtime = AgentRuntime(
+        executor=_agent_executor,
+        max_steps=active_settings.agent_max_steps,
+        max_replans=active_settings.agent_max_replans,
+        step_attempts=active_settings.agent_default_step_attempts,
+        run_timeout=active_settings.agent_run_timeout_seconds,
+        enabled=active_settings.agent_runtime_enabled,
+        allowed_tools={t.name for t in registry.get_all_tools()},
+        persistence=agent_persistence,
+    )
+
+    def _runtime_event_payload(event: AgentEvent) -> bytes:
+        return service._event(
+            event.event_type,
+            {
+                "runId": event.run_id,
+                "stepId": event.step_id,
+                "event": event.model_dump(mode="json"),
+            },
+        )
+
 
     def _resolve_user_id(request: Request) -> str | None:
         """Best-effort user identity for durable memory.
 
         When persistence is disabled (or auth cannot be resolved) the turn
-        still works — it simply has no durable memory attached.
+        still works - it simply has no durable memory attached.
         """
         if memory_service is None:
             return None
@@ -145,6 +245,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except HinaaError:
             return None
         return auth.user_id
+
+    async def conversation_auth(request: Request) -> AuthContext | None:
+        """Resolve route identity without ever accepting a client user id."""
+        if memory_service is None:
+            return None
+        return resolve_auth(
+            request,
+            active_settings,
+            memory_service,
+            authorization=request.headers.get("Authorization"),
+            x_hinaa_dev_user=request.headers.get("X-HINAA-Dev-User"),
+        )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # type: ignore[no-untyped-def]
@@ -165,6 +277,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.memory_service = memory_service
     app.state.workspace_service = workspace_service
     app.state.avatar_assets = avatar_assets
+    app.state.creative_budget = creative_budget
+    app.state.creative_jobs = creative_jobs
+    app.state.asset_store = asset_store
+    app.state.agent_runtime = agent_runtime
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -189,6 +305,99 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health/live")
     async def liveness() -> dict[str, str]:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.post("/v1/assets", status_code=201)
+    async def upload_asset(file: UploadFile = File(...)) -> dict[str, Any]:
+        """Store a supported attachment and return its canonical asset reference."""
+        raw_bytes = await file.read()
+        try:
+            stored = asset_store.store_bytes(
+                raw_bytes=raw_bytes,
+                filename=file.filename,
+                mime_type=file.content_type or "application/octet-stream",
+                source=AssetSource.UPLOAD,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        finally:
+            await file.close()
+        return {
+            "id": stored.id,
+            "asset_id": stored.id,
+            "kind": stored.kind.value,
+            "mime_type": stored.mime_type,
+            "filename": stored.filename,
+            "url": stored.public_url,
+            "sha256": stored.sha256,
+            "size_bytes": stored.size_bytes,
+            "asset": stored.model_dump(),
+        }
+
+    @app.get("/v1/assets/{asset_id}/file")
+    async def get_asset_file(asset_id: str) -> FileResponse:
+        path = asset_store.get_file_path(asset_id)
+        reference = asset_store.get_asset(asset_id)
+        if path is None or reference is None or not path.is_file():
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return FileResponse(path, media_type=reference.mime_type, filename=reference.filename or path.name)
+
+    @app.get("/v1/creative/budget")
+    async def creative_budget_status() -> dict[str, Any]:
+        return creative_budget.get_budget_status()
+
+    @app.post("/v1/creative/budget/snapshot")
+    async def update_creative_budget_snapshot(body: CreativeBudgetSnapshotBody) -> dict[str, Any]:
+        creative_budget.set_manual_balance_snapshot(body.balance)
+        return creative_budget.get_budget_status()
+
+    @app.get("/v1/creative/models")
+    async def creative_models() -> list[dict[str, Any]]:
+        return [
+            {
+                "id": model.id,
+                "name": model.name,
+                "costCredits": model.cost_credits,
+                "category": model.category,
+                "tier": model.tier,
+                "description": model.description,
+                "recommendedFor": list(model.recommended_for),
+                "costType": model.cost_type,
+                "requiresCostCalculation": model.requires_cost_calculation,
+            }
+            for model in CreativeModelRegistry.list_models()
+        ]
+
+    def _creative_estimate(model_id: str, width: int, height: int, scale: float) -> dict[str, Any]:
+        model = CreativeModelRegistry.get_model(model_id)
+        if model.requires_cost_calculation and model.category == "upscale":
+            cost = CreativeModelRegistry.calculate_upscale_credits(width, height, scale)
+            source = "calculated_estimate"
+        else:
+            cost = model.cost_credits
+            source = "fixed"
+        return {
+            "modelId": model.id,
+            "costCredits": cost,
+            "costSource": source,
+            "costType": model.cost_type,
+            "outputResolution": f"{int(width * scale)}x{int(height * scale)}",
+        }
+
+    @app.get("/v1/creative/estimate")
+    async def get_creative_estimate(
+        model: str, width: int = 1024, height: int = 1024, scale: float = 2.0
+    ) -> dict[str, Any]:
+        return _creative_estimate(model, width, height, scale)
+
+    @app.post("/v1/creative/estimate")
+    async def post_creative_estimate(body: CreativeEstimateBody) -> dict[str, Any]:
+        return _creative_estimate(body.model, body.width, body.height, body.scale)
+
+    @app.post("/v1/creative/jobs", status_code=201)
+    async def create_creative_job(body: CreativeJobBody) -> dict[str, Any]:
+        model = CreativeModelRegistry.get_model(body.model)
+        job = await creative_jobs.create_job(body.prompt, model.id, model.cost_credits)
+        return job.to_dict()
 
     @app.get("/v1/local-services/comfyui")
     async def comfyui_status() -> JSONResponse:
@@ -768,54 +977,83 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
 
     @app.get("/v1/generated-images/{image_id}")
+    @app.get("/api/v1/generated-images/{image_id}")
     async def get_generated_image(image_id: str):
         from hinaa_api.persistence.db import get_session_factory
         from hinaa_api.persistence.orm import ImageJob
         from hinaa_api.config import get_settings
         settings = get_settings()
         from fastapi.responses import FileResponse
-        import os
         from pathlib import Path
         
-        session_factory = get_session_factory(settings)
-        with session_factory() as session:
-            job = session.query(ImageJob).filter_by(id=image_id).first()
-            if not job or not job.file_path:
-                raise HTTPException(status_code=404, detail="Image not found")
-                
-            file_path = Path(job.file_path)
+        allowed_root = Path("apps/api/data/images").resolve()
+        resolved_path = None
+
+        # 1. Direct file lookup in allowed_root (for Freepik/Magnific/Pollinations saved files)
+        clean_name = Path(image_id).name
+        direct_candidate = (allowed_root / clean_name).resolve()
+        if direct_candidate.is_relative_to(allowed_root) and direct_candidate.exists() and direct_candidate.is_file():
+            resolved_path = direct_candidate
+        else:
+            for ext in (".jpg", ".png", ".jpeg", ".webp"):
+                candidate = (allowed_root / f"{clean_name}{ext}").resolve()
+                if candidate.is_relative_to(allowed_root) and candidate.exists() and candidate.is_file():
+                    resolved_path = candidate
+                    break
+
+        # 2. Database job lookup (for local ComfyUI queued jobs)
+        if not resolved_path:
+            session_factory = get_session_factory(settings)
+            with session_factory() as session:
+                job = session.query(ImageJob).filter_by(id=image_id).first()
+                if job and job.file_path:
+                    try:
+                        p = Path(job.file_path).resolve()
+                        if p.is_relative_to(allowed_root) and p.exists() and p.is_file():
+                            resolved_path = p
+                    except Exception:
+                        pass
+
+        if not resolved_path or not resolved_path.exists() or not resolved_path.is_file():
+            raise HTTPException(status_code=404, detail="Image not found")
             
-            # Security checks
-            allowed_root = Path("apps/api/data/images").resolve()
-            try:
-                resolved_path = file_path.resolve()
-            except Exception:
-                raise HTTPException(status_code=400, detail="Invalid path")
-                
-            if not resolved_path.is_relative_to(allowed_root):
-                raise HTTPException(status_code=403, detail="Forbidden path traversal")
-                
-            if not resolved_path.exists() or not resolved_path.is_file():
-                raise HTTPException(status_code=404, detail="File missing on disk")
-                
-            ext = resolved_path.suffix.lower()
-            if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
-                raise HTTPException(status_code=415, detail="Unsupported media type")
-                
-            content_type = "image/png"
-            if ext in [".jpg", ".jpeg"]:
-                content_type = "image/jpeg"
-            elif ext == ".webp":
-                content_type = "image/webp"
-                
-            return FileResponse(resolved_path, media_type=content_type)
+        ext = resolved_path.suffix.lower()
+        if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
+            raise HTTPException(status_code=415, detail="Unsupported media type")
+            
+        content_type = "image/png"
+        if ext in [".jpg", ".jpeg"]:
+            content_type = "image/jpeg"
+        elif ext == ".webp":
+            content_type = "image/webp"
+            
+        return FileResponse(resolved_path, media_type=content_type)
 
     @app.post("/v1/tools/execute")
     async def execute_tool(request: Request, body: ToolRequest) -> dict[str, Any]:
         tool_def = registry.get_tool(body.toolName)
         if not tool_def:
             raise HTTPException(status_code=404, detail="Tool not found")
-        if tool_def.requires_confirmation and not body.confirmed:
+        is_user_approved = body.confirmed and body.approvalSource == "user"
+        is_safe_standing_consent = (
+            body.confirmed
+            and body.approvalSource == "standing-consent"
+            and body.toolName in (
+                "image_search",
+                "web_search",
+                "web_answer",
+                "web_research",
+                "web_extract",
+                "diagnostic_echo",
+                "image_generate",
+                "pdf_generate",
+                "magnific_image_generate",
+                "freepik_image_generate",
+                "magnific_upscale",
+                "freepik_stock_search",
+            )
+        )
+        if tool_def.requires_confirmation and not (is_user_approved or is_safe_standing_consent):
             raise HinaaError(
                 "TOOL_CONFIRMATION_REQUIRED",
                 f"Confirm the {tool_def.display_name} action before HINAA runs it.",
@@ -835,15 +1073,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             
             sig = inspect.signature(handler)
             parsed_params = body.parameters.copy()
+
+            # Canonical boundary normalization: attachment identifiers may be
+            # sent at the top level by the web client or nested in parameters.
+            # Preserve explicit nested values and support both historical names.
+            if body.attachment_ids:
+                if not parsed_params.get("attachment_ids"):
+                    parsed_params["attachment_ids"] = list(body.attachment_ids)
+                if not parsed_params.get("attachmentIds"):
+                    parsed_params["attachmentIds"] = list(body.attachment_ids)
+            if body.reference_images and not parsed_params.get("reference_images"):
+                parsed_params["reference_images"] = list(body.reference_images)
+            if body.imageUrl and not parsed_params.get("imageUrl"):
+                parsed_params["imageUrl"] = body.imageUrl
             
-            user_id = body.userId or _resolve_user_id(request)
-            if user_id:
-                parsed_params.setdefault("userId", user_id)
+            # Normalize prompt alias variations if model passed 'description', 'text', 'query', or 'prompt_text'
+            if tool_def.name in ("image_generate", "magnific_image_generate", "freepik_image_generate"):
+                if "prompt" not in parsed_params:
+                    prompt_val = (
+                        parsed_params.get("description")
+                        or parsed_params.get("text")
+                        or parsed_params.get("query")
+                        or parsed_params.get("prompt_text")
+                    )
+                    if prompt_val:
+                        parsed_params["prompt"] = str(prompt_val)
+            
+            # Server-resolved owner identity overrides client payload
+            server_user_id = _resolve_user_id(request)
+            parsed_params.pop("userId", None)
+            parsed_params.pop("user_id", None)
+            if server_user_id:
+                parsed_params["userId"] = server_user_id
+
             if "conversationId" not in parsed_params:
                 conv_id = body.conversationId or request.headers.get("X-Conversation-ID")
                 if conv_id:
                     parsed_params["conversationId"] = conv_id
 
+            # Validate required parameters before invoking handler
+            missing = [name for name in tool_def.required_parameters if name not in parsed_params or parsed_params[name] is None]
+            if missing:
+                raise HinaaError(
+                    "TOOL_ARGUMENTS_INVALID",
+                    f"Missing required argument(s) for {tool_def.display_name}: {', '.join(missing)}.",
+                    422,
+                    False,
+                    True,
+                )
                     
             if sig.parameters:
                 first_param = list(sig.parameters.values())[0]
@@ -862,7 +1139,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             import uuid
             
             started_at = int(time.time() * 1000)
-            result = await handler(parsed_params)
+            timeout = getattr(tool_def, "timeout_seconds", None) or 60.0
+            try:
+                result = await asyncio.wait_for(handler(parsed_params), timeout=timeout)
+            except asyncio.TimeoutError:
+                raise HinaaError(
+                    "TOOL_TIMEOUT",
+                    f"Tool {tool_def.display_name} timed out after {timeout} seconds.",
+                    504,
+                    False,
+                    False,
+                )
             completed_at = int(time.time() * 1000)
             
             # If the handler returned a REQUIRES_APPROVAL string
@@ -940,6 +1227,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Project not found")
         return project
 
+    @app.get("/v1/projects/runs/{run_id}/events")
+    async def list_run_events(request: Request, run_id: str) -> dict[str, Any]:
+        user_id = _workspace_user_id(request)
+        run = workspace_service.get_agent_run(user_id, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"runId": run_id, "events": run.get("events", [])}
+
+    @app.post("/v1/projects/runs/{run_id}/events")
+    async def append_run_event(
+        request: Request, run_id: str, body: ProjectAgentRunEventBody
+    ) -> dict[str, Any]:
+        result = workspace_service.append_agent_run_event(
+            _workspace_user_id(request),
+            run_id,
+            kind=body.kind,
+            status=body.status,
+            label=body.label,
+            detail=body.detail,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Run not found or is terminal")
+        return result
+
     @app.post("/v1/projects/{project_id}/tasks", status_code=201)
     async def create_project_task(
         request: Request, project_id: str, body: ProjectTaskBody
@@ -955,6 +1266,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if task is None:
             raise HTTPException(status_code=404, detail="Project not found")
         return task
+
+    @app.get("/v1/projects/{project_id}/code/files")
+    async def list_code_files(request: Request, project_id: str) -> list[dict[str, Any]]:
+        files = workspace_service.list_code_files(_workspace_user_id(request), project_id)
+        if files is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return files
+
+    @app.post("/v1/projects/{project_id}/code/files", status_code=201)
+    async def save_code_file(
+        request: Request, project_id: str, body: ProjectCodeFileBody
+    ) -> dict[str, Any]:
+        try:
+            result = workspace_service.save_code_file(
+                _workspace_user_id(request),
+                project_id,
+                body.path,
+                body.content,
+                overwrite=body.overwrite,
+                run_id=body.runId,
+            )
+        except FileExistsError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if result is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return result
 
     @app.patch("/v1/projects/tasks/{task_id}")
     async def update_project_task(
@@ -978,23 +1317,172 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def create_project_run(
         request: Request, project_id: str, body: ProjectAgentRunBody
     ) -> dict[str, Any]:
+        user_id = _workspace_user_id(request)
+        runtime_run = (
+            agent_runtime.create_run(body.goal, user_id, project_id=project_id)
+            if active_settings.agent_runtime_enabled and agent_runtime is not None
+            else None
+        )
         run = workspace_service.create_agent_run(
-            _workspace_user_id(request), project_id, body.goal, body.rootTaskId
+            user_id,
+            project_id,
+            body.goal,
+            body.rootTaskId,
+            run_id=runtime_run.run_id if runtime_run else None,
         )
         if run is None:
+            if runtime_run:
+                agent_runtime.cancel(runtime_run.run_id, {user_id})
             raise HTTPException(status_code=404, detail="Project or selected task not found")
+        if runtime_run:
+            runtime_events = agent_runtime.get_events(runtime_run.run_id, {user_id}) or []
+            if run.get("status") == "running":
+                _, _, started_events = agent_runtime.begin_stream_turn(runtime_run)
+                runtime_events = [*runtime_events, *started_events]
+            for runtime_event in runtime_events:
+                workspace_service.append_agent_run_event(
+                    user_id,
+                    run["id"],
+                    kind="runtime",
+                    status="running" if run.get("status") == "running" else "waiting_approval",
+                    label=runtime_event.event_type,
+                    detail=str(runtime_event.payload or ""),
+                    allow_terminal=True,
+                )
+            refreshed = workspace_service.get_agent_run(user_id, run["id"])
+            if refreshed is not None:
+                run = refreshed
         return run
 
     @app.patch("/v1/projects/runs/{run_id}")
     async def update_project_run(
         request: Request, run_id: str, body: ProjectAgentRunStatusBody
     ) -> dict[str, Any]:
-        run = workspace_service.update_agent_run(
-            _workspace_user_id(request), run_id, body.status, body.summary
-        )
+        user_id = _workspace_user_id(request)
+        run = workspace_service.update_agent_run(user_id, run_id, body.status, body.summary)
         if run is None:
             raise HTTPException(status_code=404, detail="Agent run not found")
+        runtime_run = (
+            agent_runtime.get_run(run_id, {user_id})
+            if active_settings.agent_runtime_enabled and agent_runtime is not None
+            else None
+        )
+        runtime_events: list[AgentEvent] = []
+        if runtime_run:
+            if body.status == "cancelled":
+                before = len(agent_runtime.get_events(run_id, {user_id}) or [])
+                agent_runtime.cancel(run_id, {user_id})
+                runtime_events = (agent_runtime.get_events(run_id, {user_id}) or [])[before:]
+            elif body.status == "running" and runtime_run.status == RunStatus.QUEUED:
+                _, _, runtime_events = agent_runtime.begin_stream_turn(runtime_run)
+            elif body.status == "completed":
+                plan = agent_runtime.get_plan(run_id)
+                step = next((s for s in plan.steps if s.status.value == "running"), None) if plan else None
+                if plan and step:
+                    runtime_events = agent_runtime.complete_stream_turn(
+                        runtime_run,
+                        plan,
+                        step,
+                        result={"summary": body.summary or ""},
+                    )
+            elif body.status == "failed":
+                plan = agent_runtime.get_plan(run_id)
+                step = next((s for s in plan.steps if s.status.value == "running"), None) if plan else None
+                runtime_events = agent_runtime.fail_stream_turn(
+                    runtime_run,
+                    step=step,
+                    code="PROJECT_RUN_FAILED",
+                    message=body.summary or "Project run failed.",
+                )
+        for runtime_event in runtime_events:
+            workspace_service.append_agent_run_event(
+                user_id,
+                run_id,
+                kind="runtime",
+                status=run.get("status", body.status),
+                label=runtime_event.event_type,
+                detail=str(runtime_event.payload or ""),
+                allow_terminal=True,
+            )
+        if runtime_events:
+            refreshed = workspace_service.get_agent_run(user_id, run_id)
+            if refreshed is not None:
+                run = refreshed
         return run
+
+    def _agent_user_ids(request: Request) -> set[str]:
+        ids: set[str] = set()
+        dev_hdr = request.headers.get("X-HINAA-Dev-User")
+        if dev_hdr:
+            ids.add(dev_hdr)
+        else:
+            ids.add(active_settings.dev_auth_subject)
+        uid = _resolve_user_id(request)
+        if uid:
+            ids.add(uid)
+        return ids
+
+    @app.get("/v1/agent/runs/{run_id}")
+    async def get_agent_run(request: Request, run_id: str) -> dict[str, Any]:
+        user_id = _agent_user_ids(request)
+        run = agent_runtime.get_run(run_id, user_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run.model_dump(mode="json")
+
+    @app.get("/v1/agent/runs/{run_id}/steps")
+    async def list_agent_run_steps(request: Request, run_id: str) -> dict[str, Any]:
+        user_id = _agent_user_ids(request)
+        steps = agent_runtime.get_steps(run_id, user_id)
+        if steps is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"runId": run_id, "steps": [s.model_dump(mode="json") for s in steps]}
+
+    @app.get("/v1/agent/runs/{run_id}/events")
+    async def list_agent_run_events(request: Request, run_id: str) -> dict[str, Any]:
+        user_id = _agent_user_ids(request)
+        events = agent_runtime.get_events(run_id, user_id)
+        if events is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"runId": run_id, "events": [e.model_dump(mode="json") for e in events]}
+
+    @app.post("/v1/agent/runs/{run_id}/cancel")
+    async def cancel_agent_run(request: Request, run_id: str) -> dict[str, Any]:
+        user_id = _agent_user_ids(request)
+        run = agent_runtime.cancel(run_id, user_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"run_id": run.run_id, "status": run.status.value, "idempotent": True}
+
+    @app.post("/v1/agent/runs/{run_id}/resume")
+    async def resume_agent_run(request: Request, run_id: str) -> dict[str, Any]:
+        user_id = _agent_user_ids(request)
+        run = agent_runtime.resume(run_id, user_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run.model_dump(mode="json")
+
+    @app.post("/v1/agent/runs/{run_id}/recover")
+    async def recover_agent_run(request: Request, run_id: str) -> dict[str, Any]:
+        user_id = _agent_user_ids(request)
+        run = agent_runtime.recover(run_id, user_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run.model_dump(mode="json")
+
+    @app.post("/v1/agent/runs/{run_id}/confirm")
+    async def confirm_agent_run(
+        request: Request, run_id: str, body: dict[str, Any] = Body(default_factory=dict)
+    ) -> dict[str, Any]:
+        user_id = _agent_user_ids(request)
+        step_id = body.get("step_id") or body.get("stepId")
+        if not step_id:
+            raise HTTPException(status_code=400, detail="step_id is required")
+        approved = body.get("approved", True)
+        run = agent_runtime.confirm(run_id, step_id, user_id, approved)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run.model_dump(mode="json")
 
     @app.post("/v1/projects/{project_id}/artifacts", status_code=201)
     async def create_project_artifact(
@@ -1070,6 +1558,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session_id: str | None = None,
     ) -> dict[str, Any]:
         """Look up an artifact by kind (pdf, docx, pptx, image, etc.) in the current session or recent tasks."""
+        # Local workspace artifacts are scoped to the configured development
+        # owner and do not require persistent auth. Persistent artifacts still
+        # require server-resolved identity below.
+        if memory_service is None:
+            local_artifact = workspace_service.latest_artifact(_workspace_user_id(request), kind)
+            if not local_artifact:
+                return {"found": False, "kind": kind}
+            return {
+                "found": True,
+                "artifact": local_artifact,
+                "downloadUrl": f"/v1/projects/artifacts/{local_artifact['id']}/export",
+            }
+
         user_id = _resolve_user_id(request)
         if not user_id:
             raise HinaaError("AUTH_REQUIRED", "Authentication required for artifact lookup", 401, True)
@@ -1079,8 +1580,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .persistence.orm import ProjectArtifact
         from .config import get_settings
         
-        settings = get_settings()
-        session_factory = get_session_factory(settings)
+        session_factory = get_session_factory(active_settings)
         
         with session_factory() as session:
             query = session.query(ProjectArtifact).filter(
@@ -1115,6 +1615,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "downloadUrl": f"/api/v1/projects/artifacts/{artifact.id}/export",
             }
 
+    @app.get("/v1/conversations")
+    async def list_conversations(
+        auth: AuthContext | None = Depends(conversation_auth),
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        if memory_service is None or auth is None:
+            return []
+        return memory_service.list_conversations(auth.user_id, limit=max(1, min(limit, 100)), offset=max(0, offset))
+
+    @app.get("/v1/conversations/{conversation_id}/messages")
+    async def conversation_messages(
+        conversation_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        if memory_service is None or auth is None:
+            return []
+        return memory_service.get_conversation_messages(
+            auth.user_id, conversation_id, limit=max(1, min(limit, 200)), offset=max(0, offset)
+        )
+
+    class ConversationTitleBody(BaseModel):
+        title: Annotated[str, Field(min_length=1, max_length=200)]
+
+    @app.patch("/v1/conversations/{conversation_id}")
+    async def rename_conversation(
+        conversation_id: str,
+        body: ConversationTitleBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if memory_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for conversation updates", 401, True)
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="Conversation title cannot be empty")
+        if not memory_service.update_conversation_title(auth.user_id, conversation_id, title):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        conversations = memory_service.list_conversations(auth.user_id, limit=100)
+        return next((item for item in conversations if item["id"] == conversation_id), {"id": conversation_id, "title": title})
+
     @app.post("/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:
         # The web client normally sends its resolved provider explicitly. For
@@ -1129,13 +1671,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             body = body.model_copy(update={"providerMode": default_mode})
         user_id = _resolve_user_id(request)
 
+        agent_run = None
+        if active_settings.agent_runtime_enabled and agent_runtime is not None:
+            effective_user_id = user_id or active_settings.dev_auth_subject
+            agent_run = agent_runtime.create_run(
+                goal=body.text,
+                user_id=effective_user_id,
+                conversation_id=body.conversationId or body.sessionId,
+            )
+
         async def guarded_stream():  # type: ignore[no-untyped-def]
+            stream_plan = None
+            stream_step = None
+            pending_runtime_events: list[AgentEvent] = []
+            runtime_events_flushed = False
             try:
+                if agent_run:
+                    created_events = agent_runtime.get_events(agent_run.run_id, {agent_run.user_id}) or []
+                    if created_events:
+                        pending_runtime_events.append(created_events[-1])
+                    stream_plan, stream_step, started_events = agent_runtime.begin_stream_turn(agent_run)
+                    pending_runtime_events.extend(started_events)
+
+                final_plan_payload: dict[str, Any] | None = None
                 async for event in service.stream_turn(
                     body, request.state.correlation_id, user_id=user_id
                 ):
+                    try:
+                        decoded = json.loads(event.decode("utf-8"))
+                        if decoded.get("type") == "plan" and isinstance(decoded.get("plan"), dict):
+                            final_plan_payload = decoded["plan"]
+                    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                        pass
                     yield event
+                    if pending_runtime_events and not runtime_events_flushed:
+                        runtime_events_flushed = True
+                        for runtime_event in pending_runtime_events:
+                            yield _runtime_event_payload(runtime_event)
+
+                if agent_run and stream_plan and stream_step:
+                    completed_events = agent_runtime.complete_stream_turn(
+                        agent_run,
+                        stream_plan,
+                        stream_step,
+                        result=final_plan_payload,
+                    )
+                    for runtime_event in completed_events:
+                        yield _runtime_event_payload(runtime_event)
             except HinaaError as error:
+                if agent_run:
+                    for runtime_event in agent_runtime.fail_stream_turn(
+                        agent_run,
+                        step=stream_step,
+                        code=error.code,
+                        message=error.message,
+                    ):
+                        yield _runtime_event_payload(runtime_event)
                 yield service._event(
                     "error",
                     {
@@ -1145,6 +1736,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "correlationId": request.state.correlation_id,
                     },
                 )
+            except Exception as error:
+                if agent_run:
+                    for runtime_event in agent_runtime.fail_stream_turn(
+                        agent_run,
+                        step=stream_step,
+                        code="STREAM_ERROR",
+                        message=str(error),
+                    ):
+                        yield _runtime_event_payload(runtime_event)
+                raise
 
         return StreamingResponse(guarded_stream(), media_type="application/x-ndjson")
 

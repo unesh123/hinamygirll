@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hinaa.local/schemas/phase-1-compatibility/1.0.json",
+  "title": "HINAA Phase 1 compatibility payloads",
+  "type": "object",
+  "additionalProperties": false,
+  "oneOf": [
+    { "$ref": "#/$defs/conversation" },
+    { "$ref": "#/$defs/message" },
+    { "$ref": "#/$defs/runEvent" },
+    { "$ref": "#/$defs/codeFile" },
+    { "$ref": "#/$defs/artifact" },
+    { "$ref": "#/$defs/toolExecution" }
+  ],
+  "$defs": {
+    "conversation": {
+      "type": "object", "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string" }, "title": { "type": "string" },
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "message_count": { "type": "integer", "minimum": 0 },
+        "last_message_preview": { "type": "string" },
+        "companion_id": { "type": ["string", "null"] }
+      }
+    },
+    "message": {
+      "type": "object", "required": ["id", "role", "content"],
+      "properties": {
+        "id": { "type": "string" }, "role": { "type": "string" },
+        "content": { "type": "string" }, "spoken_text": { "type": ["string", "null"] },
+        "language": { "type": ["string", "null"] },
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "attachments": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "runEvent": {
+      "type": "object", "required": ["id", "sequence", "kind", "status", "label"],
+      "properties": {
+        "id": { "type": "string" }, "sequence": { "type": "integer", "minimum": 1 },
+        "kind": { "type": "string" }, "status": { "type": "string" },
+        "label": { "type": "string" }, "detail": { "type": "string" },
+        "createdAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "codeFile": {
+      "type": "object", "required": ["id", "projectId", "path"],
+      "properties": {
+        "id": { "type": "string" }, "projectId": { "type": "string" },
+        "path": { "type": "string" }, "name": { "type": "string" },
+        "relativePath": { "type": "string" }, "sizeBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "artifact": {
+      "type": "object", "required": ["found"],
+      "properties": { "found": { "type": "boolean" }, "kind": { "type": "string" }, "artifact": { "type": ["object", "null"] } }
+    },
+    "toolExecution": {
+      "type": "object", "required": ["toolName", "parameters"],
+      "properties": {
+        "toolName": { "type": "string" }, "parameters": { "type": "object" },
+        "attachment_ids": { "type": "array", "items": { "type": "string" } },
+        "reference_images": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

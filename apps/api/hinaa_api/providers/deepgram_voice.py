@@ -1,5 +1,6 @@
 import httpx
 import logging
+from time import perf_counter
 from typing import Any
 
 from .base import TTSProvider, STTProvider, ProviderResult
@@ -14,6 +15,7 @@ class DeepgramTTSProvider(TTSProvider):
         self._base_url = base_url.rstrip("/")
 
     async def synthesize(self, text: str, voice: str) -> ProviderResult[bytes]:
+        started = perf_counter()
         url = f"{self._base_url}/v1/speak?model={voice}&encoding=mp3"
         headers = {
             "Authorization": f"Token {self._api_key}",
@@ -31,7 +33,7 @@ class DeepgramTTSProvider(TTSProvider):
                 return ProviderResult(
                     value=response.content,
                     provider=self.id,
-                    latency_ms=int((time.time() - start) * 1000)
+                    latency_ms=int((perf_counter() - started) * 1000)
                 )
         except Exception as e:
             logger.error(f"Deepgram TTS exception: {e}")

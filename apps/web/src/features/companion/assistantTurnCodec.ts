@@ -13,8 +13,13 @@ type SerializedAssistantTurn = {
 function decodeStructuredPayload(value: unknown): AssistantTurnPlan | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<SerializedAssistantTurn>;
-  const parsed = assistantTurnPlanSchema.safeParse(candidate.turn ?? value);
-  return parsed.success ? parsed.data : undefined;
+  const raw = candidate.turn ?? value;
+  const parsed = assistantTurnPlanSchema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  if (raw && typeof raw === "object" && typeof (raw as any).displayText === "string" && (raw as any).displayText.trim().length > 0) {
+    return raw as AssistantTurnPlan;
+  }
+  return undefined;
 }
 
 function parseStructuredJsonText(value: string): AssistantTurnPlan | undefined {
@@ -66,6 +71,15 @@ export function getAssistantDisplayText(content: unknown): string {
   const turn = deserializeAssistantTurn(content);
   if (turn) return turn.displayText;
   if (typeof content === "string" && content.startsWith(TURN_PREFIX)) {
+    try {
+      const rawJson = JSON.parse(content.slice(TURN_PREFIX.length));
+      const text = rawJson?.turn?.displayText || rawJson?.displayText || rawJson?.text;
+      if (typeof text === "string" && text.trim().length > 0) {
+        return text;
+      }
+    } catch {
+      // ignore
+    }
     return "A saved response could not be restored safely.";
   }
   return typeof content === "string" ? content : "";
@@ -73,7 +87,19 @@ export function getAssistantDisplayText(content: unknown): string {
 
 export function getAssistantSpokenText(content: unknown): string {
   const turn = deserializeAssistantTurn(content);
-  return turn?.spokenText ?? getAssistantDisplayText(content);
+  if (turn?.spokenText) return turn.spokenText;
+  if (typeof content === "string" && content.startsWith(TURN_PREFIX)) {
+    try {
+      const rawJson = JSON.parse(content.slice(TURN_PREFIX.length));
+      const spoken = rawJson?.turn?.spokenText || rawJson?.spokenText || rawJson?.turn?.displayText || rawJson?.displayText;
+      if (typeof spoken === "string" && spoken.trim().length > 0) {
+        return spoken;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return getAssistantDisplayText(content);
 }
 
 export function getAssistantArtifacts(content: unknown): AssistantTurnPlan["toolRequests"] {

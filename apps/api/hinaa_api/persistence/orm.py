@@ -68,6 +68,30 @@ class Message(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+    attachments: Mapped[list[MessageAttachment]] = relationship(
+        back_populates="message", cascade="all, delete-orphan", order_by="MessageAttachment.ordinal"
+    )
+
+
+class MessageAttachment(Base):
+    __tablename__ = "message_attachments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    message_id: Mapped[str] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    asset_id: Mapped[str] = mapped_column(String(64), index=True)
+    kind: Mapped[str] = mapped_column(String(30), default="image")
+    mime_type: Mapped[str] = mapped_column(String(100), default="image/png")
+    filename: Mapped[str] = mapped_column(String(255), default="attachment")
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    message: Mapped[Message] = relationship(back_populates="attachments")
 
 
 class ConversationSummary(Base):
@@ -269,3 +293,84 @@ class LocalAgentRunEvent(Base):
     label: Mapped[str] = mapped_column(String(240))
     detail: Mapped[str] = mapped_column(Text(), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProviderUsage(Base):
+    """Tracks credit consumption and latency per provider and operation."""
+
+    __tablename__ = "provider_usage"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    provider: Mapped[str] = mapped_column(String(50), index=True)
+    operation: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(100))
+    credits: Mapped[int] = mapped_column(Integer(), default=1)
+    status: Mapped[str] = mapped_column(String(30), default="success")
+    latency_ms: Mapped[int] = mapped_column(Integer(), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AgentRunRecord(Base):
+    __tablename__ = "agent_runs"
+
+    run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    goal: Mapped[str] = mapped_column(Text())
+    status: Mapped[str] = mapped_column(String(30), default="queued")
+    failure_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    maximum_steps: Mapped[int] = mapped_column(Integer(), default=12)
+    maximum_replans: Mapped[int] = mapped_column(Integer(), default=2)
+    replan_count: Mapped[int] = mapped_column(Integer(), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[str] = mapped_column(Text(), default="{}")
+
+
+class AgentPlanRecord(Base):
+    __tablename__ = "agent_plans"
+
+    plan_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(64), ForeignKey("agent_runs.run_id", ondelete="CASCADE"), index=True)
+    goal: Mapped[str] = mapped_column(Text())
+    version: Mapped[int] = mapped_column(Integer(), default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentStepRecord(Base):
+    __tablename__ = "agent_plan_steps"
+
+    step_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(String(64), ForeignKey("agent_plans.plan_id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer(), default=0)
+    title: Mapped[str] = mapped_column(String(255))
+    operation_type: Mapped[str] = mapped_column(String(50), default="respond")
+    tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    parameters_json: Mapped[str] = mapped_column(Text(), default="{}")
+    state: Mapped[str] = mapped_column(String(30), default="pending")
+    requires_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
+    confirmed_by_user: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempt_count: Mapped[int] = mapped_column(Integer(), default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer(), default=2)
+    error_message: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    dependencies_json: Mapped[str] = mapped_column(Text(), default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentEventRecord(Base):
+    __tablename__ = "agent_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String(64), ForeignKey("agent_runs.run_id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer(), default=0)
+    event_type: Mapped[str] = mapped_column(String(60))
+    step_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text(), default="{}")
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+

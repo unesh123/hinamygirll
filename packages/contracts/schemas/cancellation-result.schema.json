@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://hinaa.local/schemas/cancellation-result/1.0.json","type":"object","required":["run_id","status"],"properties":{"run_id":{"type":"string"},"status":{"const":"cancelled"},"idempotent":{"type":"boolean"}}}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -74,6 +74,7 @@ class PromptInput(StrictModel):
     # injected as a dedicated prompt layer like approved memory.
     session_memories: tuple[str, ...] = ()
     visible_actions: list[str] = Field(default_factory=list)
+    attachments: tuple[Any, ...] = ()
 
     @field_validator("session_memories")
     @classmethod
@@ -119,3 +120,4 @@ class PromptPackage(StrictModel):
     language: Language
     personality: PersonalitySettings
     mood: MoodSnapshot
+    attachments: list[Any] = Field(default_factory=list)

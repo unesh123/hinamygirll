@@ -44,8 +44,9 @@ def _schema_layer(mode: str) -> str:
         return (
             "REALTIME OUTPUT CONTRACT:\n"
             "- Reply with natural conversational text only (no JSON wrapper in the stream).\n"
-            "- Do not emit stage directions, emotion tags, markdown tables, or tool markup.\n"
-            "- The server will attach bounded emotion/performance allowlist values after your text.\n"
+            "- Do not emit stage directions, XML tags (no <spokenText> or <displayText>), emotion tags, markdown tables, or tool markup.\n"
+            "- Do not append or output personality scores or parameter values (e.g. no affection=... or sass=...).\n"
+            "- Speak directly to the user as your persona.\n"
             f"- Schema contract version reference: {SCHEMA_CONTRACT_VERSION}."
         )
     return (
@@ -102,7 +103,16 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             trusted=True,
             text=professional_answer_layer(inp.interaction_mode),
         ),
-        PromptLayer(name="tool_policy", priority=9, trusted=True, text=TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()),
+        PromptLayer(
+            name="tool_policy",
+            priority=9,
+            trusted=True,
+            text=(
+                f"{TOOL_POLICY_LAYER}\n\n(Realtime voice stream: Direct conversational mode. Full tool schemas are omitted to maximize streaming speed.)"
+                if inp.interaction_mode == "realtime"
+                else TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()
+            ),
+        ),
         PromptLayer(
             name="schema_contract",
             priority=10,
@@ -138,6 +148,30 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             text=build_user_block(inp.user_text),
         ),
     ]
+
+    # Build attached document context if available
+    doc_sections: list[str] = []
+    for att in (inp.attachments or ()):
+        extracted = getattr(att, "extracted_text", None)
+        fn = getattr(att, "filename", None) or getattr(att, "asset_id", "attachment")
+        mime = getattr(att, "mime_type", "application/octet-stream")
+        role = getattr(att, "role", None)
+        if extracted:
+            role_tag = f" (Role: {role})" if role else ""
+            doc_sections.append(
+                f"--- ATTACHED FILE: {fn} [MIME: {mime}{role_tag}] ---\n{extracted.strip()}\n--- END FILE ---"
+            )
+
+    if doc_sections:
+        layers.append(
+            PromptLayer(
+                name="document_context",
+                priority=10,
+                trusted=True,
+                text="ATTACHED DOCUMENTS & STRUCTURED DATA CONTEXT:\n" + "\n\n".join(doc_sections),
+            )
+        )
+
     layers.sort(key=lambda layer: layer.priority)
 
     # Application-trusted memory layers (approved long-term + self-learned session
@@ -164,11 +198,27 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
         actions_str = "\n".join(f"- {a}" for a in inp.visible_actions)
         screen_context = f"\nVisible UI Actions (can be triggered by tools if requested):\n{actions_str}\n"
 
+    attachment_context = ""
+    if doc_sections:
+        attachment_context += "\n[The user has attached the structured document(s) shown in the context above for reference/analysis.]\n"
+
+    image_refs: list[str] = []
+    for idx, att in enumerate(inp.attachments or (), 1):
+        mime = getattr(att, "mime_type", "")
+        role = getattr(att, "role", None)
+        fn = getattr(att, "filename", None) or f"Reference #{idx}"
+        if mime.startswith("image/"):
+            role_desc = f" (Role: {role})" if role else ""
+            image_refs.append(f"- Image #{idx}: {fn}{role_desc}")
+    if image_refs:
+        attachment_context += "\nAttached Image References:\n" + "\n".join(image_refs) + "\n"
+
     user_contents = (
         f"Companion style marker: {companion_style_marker(inp.companion_id)}\n"
         f"Interaction mode: {inp.interaction_mode}\n"
         f"Response depth: {depth}\n"
-        f"{screen_context}\n"
+        f"{screen_context}"
+        f"{attachment_context}"
         f"{history.text}\n\n"
         f"{user_msg.text}"
     )
@@ -201,4 +251,5 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
         language=inp.language,
         personality=inp.personality,
         mood=inp.mood,
+        attachments=list(inp.attachments),
     )

@@ -40,7 +40,7 @@ describe("PerformanceScheduler", () => {
     const frame = scheduler.sample();
     expect(frame.generation).toBe(0);
     expect(frame.gesture).toBe("wave");
-    expect(frame.lipSyncLevel).toBe("amplitude");
+    expect(frame.lipSyncLevel).toBe("viseme");
   });
 
   it("ignores stale generation jaw and plans after interrupt", () => {

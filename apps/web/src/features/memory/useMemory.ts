@@ -26,7 +26,7 @@ async function memoryFetch(path: string, init?: RequestInit) {
       ...(init?.headers ?? {}),
     },
   });
-  if (!response.ok) {
+  if (!response?.ok) {
     throw new Error("Memory API failed");
   }
   return response.json();

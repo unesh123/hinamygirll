@@ -61,6 +61,9 @@ export default defineConfig({
     },
     VitePWA({
       registerType: "autoUpdate",
+      devOptions: {
+        enabled: false,
+      },
       includeAssets: ["favicon.svg"],
       manifest: {
         name: "HINAA Voice Companion",
@@ -87,6 +90,46 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          const normalized = id.replace(/\\/g, "/");
+          const packagePath = normalized.split("/node_modules/").pop() ?? "";
+          const parts = packagePath.split("/");
+          const packageName = parts[0]?.startsWith("@")
+            ? `${parts[0]}/${parts[1] ?? ""}`
+            : parts[0];
+          if (
+            ["react", "react-dom", "react-router-dom", "react-reconciler", "scheduler", "use-sync-external-store"].includes(packageName)
+          ) {
+            return "vendor-react";
+          }
+          if (packageName === "three") return "vendor-three";
+          if (packageName === "three-stdlib") return "vendor-three-stdlib";
+          if (packageName.startsWith("@react-three/")) return "vendor-react-three";
+          if (packageName.startsWith("@pixiv/")) return "vendor-vrm";
+          if (
+            ["framer-motion", "gsap", "ogl"].includes(packageName) ||
+            packageName.startsWith("@react-spring/")
+          ) {
+            return "vendor-motion";
+          }
+          if (
+            ["lucide-react", "zod", "clsx", "tailwind-merge", "class-variance-authority"].includes(packageName) ||
+            packageName.startsWith("@radix-ui/")
+          ) {
+            return "vendor-ui";
+          }
+          if (packageName.startsWith("@clerk/")) {
+            return "vendor-auth";
+          }
+          return `vendor-${packageName.replace("@", "").replace("/", "-").replace(/[^a-zA-Z0-9_-]/g, "") || "misc"}`;
+        },
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

@@ -9,6 +9,18 @@ describe("backend conversation provider", () => {
     const plan = buildMockPlan("hello", "hinaa");
     const body = [
       JSON.stringify({ type: "thinking" }),
+      JSON.stringify({
+        type: "agent.step.started",
+        runId: "run_1",
+        stepId: "step_1",
+        event: {
+          sequence: 3,
+          event_type: "agent.step.started",
+          run_id: "run_1",
+          step_id: "step_1",
+          payload: { title: "Generate assistant response" },
+        },
+      }),
       JSON.stringify({ type: "text.delta", delta: "Namaste " }),
       JSON.stringify({ type: "plan", plan }),
       "",
@@ -33,9 +45,18 @@ describe("backend conversation provider", () => {
       events.push(event);
     expect(events.map((event) => event.type)).toEqual([
       "thinking",
+      "agent.event",
       "text.delta",
       "plan",
     ]);
+    expect(events[1]).toMatchObject({
+      type: "agent.event",
+      event: {
+        event_type: "agent.step.started",
+        run_id: "run_1",
+        step_id: "step_1",
+      },
+    });
   });
 
   it("rejects a backend error event without exposing a vendor body", async () => {

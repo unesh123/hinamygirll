@@ -37,7 +37,9 @@ def detect_language_hint(text: str) -> str:
     if devanagari and latin:
         return "auto"
     if devanagari:
-        return "ne"
+        # Hindi and Nepali share this script. Let the provider detect unless
+        # an explicit locale was supplied by the conversation.
+        return "auto"
     return "en"
 
 

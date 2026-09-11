@@ -89,6 +89,9 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
   const [sourceUrl, setSourceUrl] = useState("");
   const [runGoal, setRunGoal] = useState("");
   const [runBusy, setRunBusy] = useState(false);
+  const [codePath, setCodePath] = useState("src/main.py");
+  const [codeContent, setCodeContent] = useState("");
+  const [codeBusy, setCodeBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fileBusy, setFileBusy] = useState(false);
@@ -117,9 +120,21 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (active) void loadProjects();
-    // Refresh only when the panel is opened; do not poll the local API.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  // Runs are durable server-side jobs. Keep the maker UI live while one is
+  // executing so event/state changes (including cancellation or approval
+  // waits) are visible without forcing the user to press refresh.
+  useEffect(() => {
+    if (!active || !selected?.id || !selected.runs.some((run) => run.status === "running" || run.status === "queued")) return;
+    const timer = window.setInterval(() => {
+      if (!loading) void loadProjects(selected.id);
+    }, 2000);
+    return () => window.clearInterval(timer);
+    // loadProjects is intentionally kept stable for this polling subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, selected?.id, selected?.runs, loading]);
 
   const createProject = async () => {
     const clean = title.trim();
@@ -271,6 +286,24 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
     }
   };
 
+  const saveCodeFile = async () => {
+    if (!selected || !codePath.trim() || !codeContent.trim()) return;
+    setCodeBusy(true);
+    setError("");
+    try {
+      await request(`/projects/${selected.id}/code/files`, {
+        method: "POST",
+        body: JSON.stringify({ path: codePath.trim(), content: codeContent, overwrite: false }),
+      });
+      setCodeContent("");
+      await loadProjects(selected.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save the source file. Choose a new path or inspect the conflict.");
+    } finally {
+      setCodeBusy(false);
+    }
+  };
+
   if (!active) return null;
 
   return (
@@ -354,7 +387,7 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
                 const color = run.status === "completed" ? "#34d399" : run.status === "waiting_approval" ? "#fbbf24" : run.status === "failed" ? "#fb7185" : run.status === "running" ? "#38bdf8" : "#94a3b8";
                 return <div key={run.id} style={{ ...rowStyle, display: "grid", gap: 6, borderLeft: `2px solid ${color}` }}>
                   <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}><span style={{ width: 8, height: 8, marginTop: 4, borderRadius: 99, background: color }} /><div style={{ minWidth: 0, flex: 1 }}><strong>{run.goal}</strong><small>{latest?.label || "Run created"}{latest?.detail ? ` · ${latest.detail}` : ""}</small></div></div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, paddingLeft: 15 }}><span style={{ color, fontSize: 10, fontWeight: 800, letterSpacing: ".05em" }}>{run.status.replace("_", " ").toUpperCase()}</span><span style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>{run.status === "waiting_approval" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><Play size={11} /> Resume</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{run.status === "running" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "waiting_approval")} style={miniButtonStyle}><Pause size={11} /> Pause</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "completed")} style={miniButtonStyle}><CheckCircle2 size={11} /> Finish</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{(run.status === "failed" || run.status === "cancelled" || run.status === "completed") && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><RotateCcw size={11} /> Resume context</button>}</span></div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, paddingLeft: 15 }}><span style={{ color, fontSize: 10, fontWeight: 800, letterSpacing: ".05em" }}>{run.status.replace("_", " ").toUpperCase()}</span><span style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>{run.status === "waiting_approval" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><Play size={11} /> Resume</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{run.status === "running" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "waiting_approval")} style={miniButtonStyle}><Pause size={11} /> Pause</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "completed")} style={miniButtonStyle}><CheckCircle2 size={11} /> Finish</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{run.status === "failed" && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "queued")} style={miniButtonStyle}><RotateCcw size={11} /> Retry run</button>}</span></div>
                 </div>;
               })}
               {selected.runs.length === 0 && <small style={{ color: "#94a3b8" }}>Start a run to preserve a focused execution context and inspect its event history later.</small>}
@@ -373,6 +406,16 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
               {selected.artifacts.slice(0, 4).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12 }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.kind}: {item.title}</span><a href={`${API}/projects/artifacts/${item.id}/export`} title={`Export ${item.title} as Markdown`} aria-label={`Export ${item.title} as Markdown`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a></div>)}
               {selected.files.slice(0, 6).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12, padding: "2px 0" }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>file: {item.name}</span><a href={`${API}/projects/files/${item.id}`} title={`Download ${item.name}`} aria-label={`Download ${item.name}`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a><button type="button" disabled={fileBusy} onClick={() => void analyzeFile(item)} title={`Analyze ${item.name} locally`} style={miniButtonStyle}><FileSearch size={11} /> Analyze</button></div>)}
             </div>
+          </section>
+
+          <section>
+            <label style={sectionLabelStyle}><FileText size={14} /> CODE MAKER</label>
+            <p style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.45, margin: "8px 0" }}>Write a source artifact into this private project. Paths stay inside the project and existing files are never replaced implicitly.</p>
+            <input value={codePath} onChange={(event) => setCodePath(event.target.value)} placeholder="src/main.py" aria-label="Code file path" style={{ ...inputStyle, width: "100%" }} />
+            <textarea value={codeContent} onChange={(event) => setCodeContent(event.target.value)} placeholder="Paste or draft code here…" aria-label="Code file content" rows={7} style={{ ...inputStyle, width: "100%", resize: "vertical", marginTop: 6, fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace", lineHeight: 1.45 }} />
+            <button type="button" disabled={codeBusy || !codeContent.trim()} onClick={() => void saveCodeFile()} style={{ ...miniButtonStyle, marginTop: 6, opacity: codeBusy ? 0.6 : 1 }}>
+              {codeBusy ? <Loader2 size={11} className="spin" /> : <Sparkles size={11} />} Save source artifact
+            </button>
           </section>
 
           <section>

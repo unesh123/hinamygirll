@@ -28,9 +28,12 @@ from urllib.parse import urlsplit
 
 __all__ = [
     "ProbeOutcome",
+    "ThreeStageHealthOutcome",
     "is_ephemeral_tunnel",
     "probe_gateway",
+    "probe_gateway_3stage",
     "reset_probe_cache",
+    "reset_inference_cache",
 ]
 
 # Hosts whose URLs routinely outlive the process serving them. These are the
@@ -183,3 +186,251 @@ async def _connect(host: str, port: int, timeout: float) -> ProbeOutcome:
                 await writer.wait_closed()
             except Exception:
                 pass
+
+
+@dataclass(frozen=True)
+class ThreeStageHealthOutcome:
+    configured: bool
+    reachable: bool
+    inference: bool
+    state: str  # "healthy", "degraded", "rate_limited", "unavailable"
+    latency_ms: int
+    user_message: str
+    retry_after_seconds: float = 0.0
+
+
+_inference_cache: dict[str, tuple[float, ThreeStageHealthOutcome]] = {}
+
+
+def reset_inference_cache() -> None:
+    """Clear cached inference probe results."""
+    _inference_cache.clear()
+
+
+async def probe_gateway_3stage(
+    base_url: str | None,
+    api_key: str | None,
+    model: str,
+    provider_id: str = "cx-gateway",
+    label: str = "CX Gateway",
+    *,
+    timeout: float = 20.0,
+    allow_cached_fast: bool = True,
+) -> ThreeStageHealthOutcome:
+    """3-stage health check: CONFIG -> REACHABILITY -> INFERENCE."""
+    # Stage 1: Config
+    if not base_url or not api_key:
+        return ThreeStageHealthOutcome(
+            configured=False,
+            reachable=False,
+            inference=False,
+            state="unavailable",
+            latency_ms=0,
+            user_message=f"{label} requires both base URL and API key to be configured.",
+        )
+
+    # Circuit breaker check: fail-fast if already in cooldown
+    from .circuit_breaker import CircuitBreakerState, get_circuit_breaker
+
+    breaker = get_circuit_breaker(provider_id)
+    can_exec, breaker_reason, remaining_cooldown = breaker.can_execute()
+
+    if not can_exec:
+        state_map = {
+            CircuitBreakerState.RATE_LIMITED: "rate_limited",
+            CircuitBreakerState.AUTH_ERROR: "unavailable",
+            CircuitBreakerState.CIRCUIT_OPEN: "unavailable",
+            CircuitBreakerState.MODEL_UNAVAILABLE: "unavailable",
+            CircuitBreakerState.TIMEOUT: "unavailable",
+            CircuitBreakerState.OFFLINE: "unavailable",
+            CircuitBreakerState.ENDPOINT_MISMATCH: "unavailable",
+        }
+        mapped_state = state_map.get(breaker.state, "unavailable")
+        msg = breaker_reason or f"{label} is currently in {breaker.state.value} cooldown."
+        return ThreeStageHealthOutcome(
+            configured=True,
+            reachable=True,
+            inference=False,
+            state=mapped_state,
+            latency_ms=breaker.last_latency_ms,
+            user_message=msg,
+            retry_after_seconds=remaining_cooldown,
+        )
+
+    # Stage 2: Reachability
+    reach_outcome = await probe_gateway(base_url)
+    if not reach_outcome.reachable:
+        breaker.record_failure("OFFLINE", reach_outcome.detail)
+        return ThreeStageHealthOutcome(
+            configured=True,
+            reachable=False,
+            inference=False,
+            state="unavailable",
+            latency_ms=0,
+            user_message=f"{label} is configured but unreachable. {reach_outcome.detail}",
+        )
+
+    # Stage 3: Minimal Live Inference Probe with cache
+    cache_key = f"{provider_id}:{model}"
+    cached = _inference_cache.get(cache_key)
+    if cached is not None:
+        expires_at, outcome = cached
+        now = monotonic()
+        if now < expires_at or allow_cached_fast:
+            if now >= expires_at:
+                try:
+                    asyncio.create_task(
+                        probe_gateway_3stage(
+                            base_url,
+                            api_key,
+                            model,
+                            provider_id,
+                            label=label,
+                            timeout=timeout,
+                            allow_cached_fast=False,
+                        )
+                    )
+                except Exception:
+                    pass
+            return outcome
+
+    started = monotonic()
+    cleaned = base_url.rstrip("/")
+    if cleaned.endswith("/chat/completions"):
+        chat_url = cleaned
+    elif cleaned.endswith("/v1"):
+        chat_url = f"{cleaned}/chat/completions"
+    else:
+        chat_url = f"{cleaned}/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    model_for_probe = (
+        model[3:] if (provider_id == "cx-gateway" and model.startswith("cx/")) else model
+    )
+    payload = {
+        "model": model_for_probe,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+    }
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(chat_url, headers=headers, json=payload)
+            latency_ms = int((monotonic() - started) * 1000)
+
+            if resp.status_code == 200:
+                breaker.record_success(latency_ms)
+                outcome = ThreeStageHealthOutcome(
+                    configured=True,
+                    reachable=True,
+                    inference=True,
+                    state="healthy" if latency_ms < 4500 else "degraded",
+                    latency_ms=latency_ms,
+                    user_message=f"{label} ({model}) verified live ({latency_ms}ms).",
+                )
+                _inference_cache[cache_key] = (monotonic() + 300.0, outcome)
+                return outcome
+
+            if resp.status_code == 404:
+                resp_text = resp.text.lower()
+                if "model" in resp_text:
+                    msg = f"{label} model '{model}' not found on endpoint."
+                    breaker.record_failure("MODEL_UNAVAILABLE", msg)
+                else:
+                    msg = f"{label} endpoint mismatch (HTTP 404): verify base URL and route path."
+                    breaker.record_failure("ENDPOINT_MISMATCH", msg)
+                outcome = ThreeStageHealthOutcome(
+                    configured=True,
+                    reachable=True,
+                    inference=False,
+                    state="unavailable",
+                    latency_ms=latency_ms,
+                    user_message=msg,
+                )
+                _inference_cache[cache_key] = (monotonic() + 30.0, outcome)
+                return outcome
+
+            if resp.status_code == 429:
+                retry_after_str = resp.headers.get("retry-after")
+                retry_after = (
+                    float(retry_after_str)
+                    if retry_after_str and retry_after_str.strip().isdigit()
+                    else 15.0
+                )
+                msg = f"{label} is rate limited right now ({int(retry_after)}s cooldown active)."
+                breaker.record_failure("PROVIDER_RATE_LIMIT", msg, retry_after=retry_after)
+                outcome = ThreeStageHealthOutcome(
+                    configured=True,
+                    reachable=True,
+                    inference=False,
+                    state="rate_limited",
+                    latency_ms=latency_ms,
+                    user_message=msg,
+                    retry_after_seconds=retry_after,
+                )
+                _inference_cache[cache_key] = (monotonic() + 15.0, outcome)
+                return outcome
+
+            if resp.status_code in {401, 403}:
+                msg = f"{label} credentials rejected (HTTP {resp.status_code})."
+                breaker.record_failure("AUTH_ERROR", msg)
+                outcome = ThreeStageHealthOutcome(
+                    configured=True,
+                    reachable=True,
+                    inference=False,
+                    state="unavailable",
+                    latency_ms=latency_ms,
+                    user_message=msg,
+                )
+                _inference_cache[cache_key] = (monotonic() + 60.0, outcome)
+                return outcome
+
+            resp_text = resp.text.lower()
+            if any(m in resp_text for m in ("no available accounts", "no available account", "upstream account unavailable")):
+                msg = f"{label} has no available upstream accounts."
+                breaker.record_failure("PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE", msg)
+                outcome = ThreeStageHealthOutcome(
+                    configured=True,
+                    reachable=True,
+                    inference=False,
+                    state="unavailable",
+                    latency_ms=latency_ms,
+                    user_message=msg,
+                )
+                _inference_cache[cache_key] = (monotonic() + 30.0, outcome)
+                return outcome
+
+            msg = f"{label} returned HTTP {resp.status_code}."
+            breaker.record_failure("PROVIDER_UNAVAILABLE", msg)
+            outcome = ThreeStageHealthOutcome(
+                configured=True,
+                reachable=True,
+                inference=False,
+                state="unavailable",
+                latency_ms=latency_ms,
+                user_message=msg,
+            )
+            _inference_cache[cache_key] = (monotonic() + 20.0, outcome)
+            return outcome
+
+    except Exception as exc:
+        latency_ms = int((monotonic() - started) * 1000)
+        msg = f"{label} probe error ({exc.__class__.__name__})."
+        code = "PROVIDER_TIMEOUT" if "timeout" in msg.lower() else "PROVIDER_UNAVAILABLE"
+        breaker.record_failure(code, msg)
+        is_hard_failure = breaker.consecutive_failures >= breaker.failure_threshold
+        outcome = ThreeStageHealthOutcome(
+            configured=True,
+            reachable=True,
+            inference=False,
+            state="unavailable" if is_hard_failure else "degraded",
+            latency_ms=latency_ms,
+            user_message=msg,
+        )
+        _inference_cache[cache_key] = (monotonic() + 15.0, outcome)
+        return outcome

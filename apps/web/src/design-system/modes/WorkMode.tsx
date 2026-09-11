@@ -18,7 +18,7 @@ import {
   Slash,
   AtSign,
 } from "lucide-react";
-import type { CompanionState, TranscriptMessage } from "../../features/companion/types";
+import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
 import { PowerUpMentions, type ContextItem, type CommandItem } from "../../components/ui/PowerUpMentions";
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
@@ -42,7 +42,30 @@ const DEFAULT_COMMANDS: CommandItem[] = [
 
 ];
 
+import { GenericResultRenderer } from "../../features/chat/components/GenericResultRenderer";
+import { AgentActivityCard, type ActivityStep } from "../../features/chat/components/AgentActivityCard";
+import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
+import { AVATAR_REGISTRY, DEFAULT_AVATAR_FILE } from "../../features/avatar/avatarRegistry";
+import { VRMAvatar } from "../../features/avatar/VRMAvatar";
+import { ModelControlBar } from "../layout/ModelControlBar";
+import type { PresenceMode } from "../../components/ui/AvatarPresence";
+
+function getProviderDisplayName(mode?: string): string {
+  if (!mode) return "Provider";
+  switch (mode) {
+    case "cx-gateway": return "CX Gateway";
+    case "anthropic-direct": return "Claude Direct";
+    case "groq": return "Groq";
+    case "real": return "Gemini";
+    case "custom": return "Custom Gateway";
+    case "agent-router": return "Agent Router";
+    default:
+      return mode.charAt(0).toUpperCase() + mode.slice(1);
+  }
+}
+
 interface WorkModeProps {
+  companionId?: CompanionId;
   companionState: CompanionState;
   messages: TranscriptMessage[];
   streamingText: string;
@@ -68,12 +91,52 @@ interface WorkModeProps {
     detail?: string;
     status: "pending" | "active" | "done" | "error" | "cancelled";
   }>;
+  currentAgentRunId?: string;
+  currentAgentConfirmationStepId?: string;
+  onCancelAgentRun?: () => void;
+  onResumeAgentRun?: () => void;
+  onConfirmAgentStep?: (approved: boolean) => void;
+  onRecoverAgentRun?: () => void;
   onWelcomeAction: (action: string) => void;
   attachedImage: string | null;
   onImageAttach: (image: string | null) => void;
+  // Companion & Avatar Props
+  avatarModel?: string;
+  avatarMode?: PresenceMode;
+  onChangeAvatarMode?: (mode: PresenceMode) => void;
+  avatarPresentation?: any;
+  onOpenAvatarLab?: () => void;
+  onSelectModel?: (modelUrl: string) => void;
+  companionName?: string;
+  jawEnergy?: number | React.MutableRefObject<number>;
+  speakingRef?: React.MutableRefObject<boolean>;
+  visemeEvents?: React.MutableRefObject<any[]>;
+  audioStartTimeRef?: React.MutableRefObject<number>;
+  // Provider micro-status & fallback props
+  activeProviderMode?: string;
+  activeProviderModel?: string | null;
+  providerHealth?: string;
+  providerLatencyMs?: number | null;
+  onSelectProvider?: (mode: string, modelId?: string) => void;
+  onRetry?: () => void;
+  attachedAttachments?: any[];
+  onUpdateAttachmentRole?: any;
+  onRemoveAttachment?: any;
+  onReorderAttachment?: any;
+  onReuseAsReference?: any;
+  onOpenLibrary?: () => void;
+  onOpenImages?: () => void;
+  providerOptions?: any[];
+  getModelOptions?: (mode: any) => Array<{ id: string; label: string; isDefault: boolean }>;
+  imageEngine?: string;
+  onSelectImageEngine?: (engine: string) => void;
+  voiceEngine?: string;
+  onSelectVoiceEngine?: (engine: string) => void;
+  onOpenSettings?: () => void;
 }
 
 export function WorkMode({
+  companionId = "hinaa",
   companionState,
   messages,
   streamingText,
@@ -89,12 +152,42 @@ export function WorkMode({
   onStopVoice,
   onResolveTool,
   agentSteps,
+  currentAgentRunId,
+  currentAgentConfirmationStepId,
+  onCancelAgentRun,
+  onResumeAgentRun,
+  onConfirmAgentStep,
+  onRecoverAgentRun,
   onWelcomeAction,
   powerUps,
   onPowerUpToggle,
   onCommand,
   attachedImage,
   onImageAttach,
+  avatarModel = DEFAULT_AVATAR_FILE,
+  avatarMode = "portrait",
+  onChangeAvatarMode,
+  avatarPresentation,
+  onOpenAvatarLab,
+  onSelectModel,
+  companionName = "HINAA",
+  jawEnergy,
+  speakingRef,
+  visemeEvents,
+  audioStartTimeRef,
+  activeProviderMode,
+  activeProviderModel,
+  providerHealth = "healthy",
+  providerLatencyMs,
+  onSelectProvider,
+  onRetry,
+  providerOptions,
+  getModelOptions,
+  imageEngine,
+  onSelectImageEngine,
+  voiceEngine,
+  onSelectVoiceEngine,
+  onOpenSettings,
 }: WorkModeProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -105,6 +198,117 @@ export function WorkMode({
   const [trigger, setTrigger] = useState<"@" | "/">("@");
   const [commands, setCommands] = useState<CommandItem[]>([]);
   const [contexts, setContexts] = useState<ContextItem[]>([]);
+  const [dockPosition, setDockPosition] = useState<"right" | "left" | "floating">("right");
+  const [companionVisible, setCompanionVisible] = useState<boolean>(true);
+  const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
+  const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          onImageAttach(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = "";
+  }, [onImageAttach]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result === "string") {
+                onImageAttach(reader.result);
+              }
+            };
+            reader.readAsDataURL(file);
+            e.preventDefault();
+            break;
+          }
+        }
+      }
+    }
+  }, [onImageAttach]);
+
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth <= 768;
+    }
+    return false;
+  });
+  const [mobileTab, setMobileTab] = useState<"chat" | "avatar">("chat");
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const [internalImageEngine, setInternalImageEngine] = useState<string>(() => {
+    try {
+      const prefs = localStorage.getItem("hinaa-model-prefs");
+      return prefs ? JSON.parse(prefs).imageEngine || "auto" : "auto";
+    } catch { return "auto"; }
+  });
+  const [internalVoiceEngine, setInternalVoiceEngine] = useState<string>(() => {
+    try {
+      const prefs = localStorage.getItem("hinaa-model-prefs");
+      return prefs ? JSON.parse(prefs).voiceEngine || "auto" : "auto";
+    } catch { return "auto"; }
+  });
+
+  const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
+  const currentModelName = currentAvatarDef?.name || "Hinaa (Original)";
+
+  const convertedActivitySteps: ActivityStep[] = useMemo(() => {
+    // Only inspect the assistant message of the current active turn to avoid leaking previous turns' completed tools
+    const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+    if (isThinking && lastMessage && lastMessage.role === "assistant" && lastMessage.toolActivity && lastMessage.toolActivity.length > 0) {
+      return lastMessage.toolActivity.map((act, index, arr) => ({
+        id: act.id,
+        toolName: act.id,
+        title: act.label || `Running ${act.id}`,
+        status: act.status === "complete" || act.status === "completed" ? ("completed" as const) : act.status === "error" || act.status === "failed" ? ("failed" as const) : ("running" as const),
+        message: act.label,
+        stepNumber: index + 1,
+        totalSteps: arr.length,
+      }));
+    }
+
+    if (agentSteps.length > 0) {
+      return agentSteps.map((step, index, arr) => ({
+        id: step.id,
+        title: step.label,
+        status: step.status === "done"
+          ? ("completed" as const)
+          : step.status === "error"
+            ? ("failed" as const)
+            : step.status === "cancelled"
+              ? ("cancelled" as const)
+              : step.status === "pending"
+                ? ("pending" as const)
+                : ("running" as const),
+        message: step.detail,
+        stepNumber: index + 1,
+        totalSteps: arr.length,
+      }));
+    }
+
+    return [];
+  }, [isThinking, messages, agentSteps]);
+
   const [commandRegistryLoaded, setCommandRegistryLoaded] = useState(false);
   const showWelcome =
     messages.length <= 1 &&
@@ -119,7 +323,24 @@ export function WorkMode({
       try {
         const res = await fetch("/api/v1/commands");
         const data = await res.json();
-        const fetched: CommandItem[] = data.commands || [];
+        const raw: any[] = data.commands || [];
+        const fetched: CommandItem[] = raw.map((cmd) => ({
+          name: cmd.name || "",
+          aliases: cmd.aliases || [],
+          label: cmd.label || (cmd.name ? cmd.name.charAt(0).toUpperCase() + cmd.name.slice(1) : "Command"),
+          description: cmd.description || "",
+          descriptionShort: cmd.descriptionShort || cmd.description || "",
+          icon: cmd.name === "search" || cmd.name === "web" ? Search : (cmd.name === "memory" ? Brain : Sparkles),
+          color: cmd.color || (cmd.name === "search" ? "#0891b2" : "#F36F9C"),
+          group: cmd.group || "Commands",
+          inputSchema: cmd.inputSchema || {},
+          capability: cmd.capability || "",
+          riskLevel: cmd.riskLevel || "read",
+          approvalPolicy: cmd.approvalPolicy || "automatic",
+          availability: cmd.availability || "available",
+          executionLocation: cmd.executionLocation || "api",
+          examples: cmd.examples || [],
+        }));
         setCommands(fetched.length > 0 ? fetched : DEFAULT_COMMANDS);
         setCommandRegistryLoaded(true);
       } catch (e) {
@@ -210,12 +431,19 @@ export function WorkMode({
       if (showMentions && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
         return;
       }
+      if (e.key === "Escape") {
+        if (isThinking || companionState === "thinking" || companionState === "speaking") {
+          e.preventDefault();
+          onStop();
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [handleSubmit]
+    [handleSubmit, isThinking, companionState, onStop, showMentions]
   );
 
   const handleContextSelect = useCallback(
@@ -238,30 +466,24 @@ export function WorkMode({
     (command: CommandItem) => {
       setShowMentions(false);
       setMentionFilter("");
-      // Commands with a capability action run immediately through the app
-      // dispatcher (opens the matching workspace/studio), matching @context
-      // behavior. The /trigger text is stripped from the input.
-      const action = command.capability;
-      if (onCommand && action) {
-        if (inputRef.current) {
-          const el = inputRef.current;
-          const before = el.value.slice(0, mentionCursorPos);
-          const after = el.value.slice(el.selectionStart ?? el.value.length);
-          onInputChange((before + after).replace(/^\s+/, ""));
-        }
-        onCommand(action);
-        return;
-      }
-      // Fallback: insert the command text for the model to interpret.
       if (!inputRef.current) return;
       const el = inputRef.current;
       const val = el.value;
       const before = val.slice(0, mentionCursorPos);
       const after = val.slice(el.selectionStart ?? val.length);
-      const newVal = before + `/${command.name} ` + after;
+      const cmdText = `/${command.name} `;
+      const newVal = before + cmdText + after;
       onInputChange(newVal);
+      // Position cursor immediately after the inserted command
+      window.requestAnimationFrame(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          const targetPos = before.length + cmdText.length;
+          inputRef.current.setSelectionRange(targetPos, targetPos);
+        }
+      });
     },
-    [mentionCursorPos, onInputChange, onCommand],
+    [mentionCursorPos, onInputChange],
   );
 
   // Find tool approval requests
@@ -298,6 +520,200 @@ export function WorkMode({
     }
   }
 
+  const renderCompanionPanel = () => {
+    const isFloating = dockPosition === "floating";
+    const isLeft = dockPosition === "left";
+
+    let panelStyle: React.CSSProperties = {
+      display: "flex",
+      flexDirection: "column",
+      background: "var(--bg-surface)",
+      borderLeft: dockPosition === "right" ? "1px solid var(--border-subtle)" : undefined,
+      borderRight: dockPosition === "left" ? "1px solid var(--border-subtle)" : undefined,
+      zIndex: isFloating ? 50 : 10,
+      flexShrink: 0,
+      overflow: "hidden",
+    };
+
+    if (isFloating) {
+      panelStyle = {
+        ...panelStyle,
+        position: "absolute",
+        top: 16,
+        right: 16,
+        width: "320px",
+        height: "440px",
+        borderRadius: "var(--radius-xl, 16px)",
+        border: "1px solid var(--border-default)",
+        boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+      };
+    } else if (isLeft) {
+      panelStyle = {
+        ...panelStyle,
+        position: "relative",
+        width: 320,
+        left: "0px",
+        order: -1,
+        height: "100%",
+      };
+    } else {
+      panelStyle = {
+        ...panelStyle,
+        position: "relative",
+        width: 320,
+        right: "0px",
+        order: 1,
+        height: "100%",
+      };
+    }
+
+    return (
+      <aside
+        data-testid="work-companion-panel"
+        style={panelStyle}
+        aria-label="Companion avatar panel"
+      >
+        {/* Companion Panel Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            borderBottom: "1px solid var(--border-subtle)",
+            background: "var(--bg-surface-raised)",
+            flexShrink: 0,
+          }}
+        >
+          {/* Model Switcher Button */}
+          <div style={{ position: "relative" }}>
+            <button
+              ref={modelPickerTriggerRef}
+              type="button"
+              aria-label="Switch 3D Avatar Model"
+              onClick={() => setShowModelPicker((prev) => !prev)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 8px",
+                borderRadius: "var(--radius-sm, 6px)",
+                border: "1px solid var(--border-default)",
+                background: "var(--bg-surface)",
+                color: "var(--text-primary)",
+                fontSize: "var(--text-xs)",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Sparkles size={12} color="var(--accent)" />
+              <span>{currentModelName}</span>
+            </button>
+            <AvatarModelPicker
+              isOpen={showModelPicker}
+              onClose={() => setShowModelPicker(false)}
+              triggerRef={modelPickerTriggerRef}
+              currentModel={avatarModel}
+              onSelectModel={(url) => {
+                onSelectModel?.(url);
+                setShowModelPicker(false);
+              }}
+              onOpenAvatarLab={onOpenAvatarLab}
+            />
+          </div>
+
+          {/* Dock and Close controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <button
+              type="button"
+              aria-label="Dock Left"
+              title="Dock Left"
+              onClick={() => setDockPosition("left")}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "none",
+                background: dockPosition === "left" ? "var(--accent-pale)" : "transparent",
+                color: dockPosition === "left" ? "var(--accent)" : "var(--text-tertiary)",
+                cursor: "pointer",
+                fontSize: "0.7rem",
+              }}
+            >
+              Dock Left
+            </button>
+            <button
+              type="button"
+              aria-label="Float Companion"
+              title="Float Companion"
+              onClick={() => setDockPosition("floating")}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "none",
+                background: dockPosition === "floating" ? "var(--accent-pale)" : "transparent",
+                color: dockPosition === "floating" ? "var(--accent)" : "var(--text-tertiary)",
+                cursor: "pointer",
+                fontSize: "0.7rem",
+              }}
+            >
+              Float Companion
+            </button>
+            <button
+              type="button"
+              aria-label="Dock Right"
+              title="Dock Right"
+              onClick={() => setDockPosition("right")}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "none",
+                background: dockPosition === "right" ? "var(--accent-pale)" : "transparent",
+                color: dockPosition === "right" ? "var(--accent)" : "var(--text-tertiary)",
+                cursor: "pointer",
+                fontSize: "0.7rem",
+              }}
+            >
+              Dock Right
+            </button>
+            <button
+              type="button"
+              aria-label="Hide Companion"
+              title="Hide Companion"
+              onClick={() => setCompanionVisible(false)}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "none",
+                background: "transparent",
+                color: "var(--text-tertiary)",
+                cursor: "pointer",
+                fontSize: "0.7rem",
+              }}
+            >
+              Hide Companion
+            </button>
+          </div>
+        </div>
+
+        {/* Companion Avatar View Container */}
+        <div style={{ flex: 1, position: "relative", minHeight: 240, overflow: "hidden" }}>
+          <VRMAvatar
+            companionId={companionId}
+            state={companionState}
+            reducedMotion={false}
+            textOnly={false}
+            jawEnergy={jawEnergy}
+            speakingRef={speakingRef}
+            visemeEvents={visemeEvents}
+            audioStartTimeRef={audioStartTimeRef}
+            modelUrl={avatarModel ?? null}
+            closeUp={avatarMode !== "full"}
+          />
+        </div>
+      </aside>
+    );
+  };
+
   return (
     <div
       data-testid="work-mode"
@@ -320,6 +736,7 @@ export function WorkMode({
           background: "var(--bg-surface)",
           flexShrink: 0,
           height: 48,
+          gap: 8,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
@@ -333,17 +750,325 @@ export function WorkMode({
           >
             Work
           </span>
-          {messages.length > 0 && (
+          {messages.length > 0 && !isMobile && (
             <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
-              · {messages.length} messages
+              · {messages.length} {messages.length === 1 ? "message" : "messages"}
             </span>
           )}
         </div>
-        <StatusDot state={companionState} />
+
+        {/* Mobile View Switcher: [💬 Chat] [🌸 3D Avatar] */}
+        {isMobile && avatarModel && (
+          <div
+            data-testid="mobile-mode-switcher"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              background: "var(--bg-surface-raised, rgba(0,0,0,0.05))",
+              padding: "2px",
+              borderRadius: "20px",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <button
+              type="button"
+              data-testid="mobile-tab-chat"
+              onClick={() => setMobileTab("chat")}
+              style={{
+                padding: "3px 10px",
+                borderRadius: "16px",
+                border: "none",
+                background: mobileTab === "chat" ? "var(--accent)" : "transparent",
+                color: mobileTab === "chat" ? "#ffffff" : "var(--text-secondary)",
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 150ms ease",
+              }}
+            >
+              💬 Chat
+            </button>
+            <button
+              type="button"
+              data-testid="mobile-tab-avatar"
+              onClick={() => setMobileTab("avatar")}
+              style={{
+                padding: "3px 10px",
+                borderRadius: "16px",
+                border: "none",
+                background: mobileTab === "avatar" ? "var(--accent)" : "transparent",
+                color: mobileTab === "avatar" ? "#ffffff" : "var(--text-secondary)",
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 150ms ease",
+              }}
+            >
+              🌸 3D Avatar
+            </button>
+          </div>
+        )}
+
+        {/* Desktop Model Control Bar */}
+        {!isMobile && (
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <ModelControlBar
+              currentMode={(activeProviderMode as any) || "auto"}
+              currentModel={activeProviderModel}
+              providerOptions={providerOptions || []}
+              getModelOptions={getModelOptions || (() => [])}
+              onSelectProvider={(mode, modelId) => onSelectProvider?.(mode, modelId ?? undefined)}
+              imageEngine={imageEngine || internalImageEngine}
+              onSelectImageEngine={(engine) => {
+                onSelectImageEngine?.(engine);
+                setInternalImageEngine(engine);
+              }}
+              voiceEngine={voiceEngine || internalVoiceEngine}
+              onSelectVoiceEngine={(engine) => {
+                onSelectVoiceEngine?.(engine);
+                setInternalVoiceEngine(engine);
+              }}
+              onOpenSettings={onOpenSettings}
+            />
+          </div>
+        )}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {!isMobile && avatarModel && !companionVisible && (
+            <button
+              type="button"
+              aria-label="Show companion panel"
+              onClick={() => setCompanionVisible(true)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 10px",
+                borderRadius: "var(--radius-sm, 6px)",
+                border: "1px solid var(--border-default)",
+                background: "var(--bg-surface-raised)",
+                color: "var(--text-secondary)",
+                fontSize: "var(--text-xs)",
+                cursor: "pointer",
+              }}
+            >
+              <Bot size={14} color="var(--accent)" />
+              <span>Show companion panel</span>
+            </button>
+          )}
+          <StatusDot state={companionState} />
+        </div>
       </header>
 
+      {/* ── Voice Active Banner ───────────────────────── */}
+      {isVoiceActive && (
+        <div
+          role="status"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 16px",
+            background: "var(--accent-pale, rgba(235, 111, 146, 0.12))",
+            borderBottom: "1px solid var(--border-subtle)",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--text-xs)", color: "var(--text-primary)" }}>
+            <AudioLines size={16} color="var(--accent)" />
+            <span>HINAA Live Voice is active — speaking & listening</span>
+          </div>
+          <button
+            type="button"
+            aria-label="Done"
+            onClick={onStopVoice}
+            style={{
+              padding: "4px 14px",
+              borderRadius: 999,
+              background: "var(--accent)",
+              color: "#ffffff",
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: "var(--text-xs)",
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
+
       {/* ── Main Area ───────────────────────────────── */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      {isMobile && mobileTab === "avatar" && avatarModel ? (
+        <div
+          data-testid="mobile-avatar-screen"
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            position: "relative",
+            width: "100%",
+            height: "100%",
+            overflow: "hidden",
+            background: "var(--bg-canvas)",
+          }}
+        >
+          {/* Top Floating Bar: Avatar Picker & Model Name */}
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              left: 12,
+              right: 12,
+              zIndex: 30,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 12px",
+              borderRadius: 24,
+              background: "var(--bg-surface-raised, rgba(255, 255, 255, 0.9))",
+              backdropFilter: "blur(12px)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <div style={{ position: "relative" }}>
+              <button
+                ref={modelPickerTriggerRef}
+                type="button"
+                aria-label="Switch Avatar Model"
+                onClick={() => setShowModelPicker((prev) => !prev)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 10px",
+                  borderRadius: "16px",
+                  border: "1px solid var(--border-default)",
+                  background: "var(--bg-surface)",
+                  color: "var(--text-primary)",
+                  fontSize: "var(--text-xs)",
+                  fontWeight: 650,
+                  cursor: "pointer",
+                }}
+              >
+                <Sparkles size={13} color="var(--accent)" />
+                <span>{currentModelName}</span>
+              </button>
+              <AvatarModelPicker
+                isOpen={showModelPicker}
+                onClose={() => setShowModelPicker(false)}
+                triggerRef={modelPickerTriggerRef}
+                currentModel={avatarModel}
+                onSelectModel={(url) => {
+                  onSelectModel?.(url);
+                  setShowModelPicker(false);
+                }}
+                onOpenAvatarLab={onOpenAvatarLab}
+              />
+            </div>
+
+            <button
+              type="button"
+              data-testid="mobile-back-to-chat"
+              onClick={() => setMobileTab("chat")}
+              style={{
+                padding: "4px 12px",
+                borderRadius: "16px",
+                border: "none",
+                background: "var(--accent-pale)",
+                color: "var(--accent)",
+                fontSize: "var(--text-xs)",
+                fontWeight: 650,
+                cursor: "pointer",
+              }}
+            >
+              Open Chat 💬
+            </button>
+          </div>
+
+          {/* Dedicated Full Portrait 3D VRM Canvas */}
+          <div style={{ flex: 1, position: "relative", width: "100%", height: "100%" }}>
+            <VRMAvatar
+              companionId={companionId}
+              state={companionState}
+              reducedMotion={false}
+              textOnly={false}
+              jawEnergy={jawEnergy}
+              speakingRef={speakingRef}
+              visemeEvents={visemeEvents}
+              audioStartTimeRef={audioStartTimeRef}
+              modelUrl={avatarModel ?? null}
+              closeUp={avatarMode !== "full"}
+            />
+          </div>
+
+          {/* Bottom Floating Card: Live Speech Subtitle & Push to Talk */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: 16,
+              left: 16,
+              right: 16,
+              zIndex: 30,
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            {(streamingText || partialTranscript || (messages.length > 0 && messages[messages.length - 1].role === "assistant")) && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: "18px",
+                  background: "var(--bg-surface-raised, rgba(255, 255, 255, 0.9))",
+                  backdropFilter: "blur(16px)",
+                  boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
+                  border: "1px solid var(--border-subtle)",
+                  fontSize: "0.85rem",
+                  lineHeight: 1.4,
+                  color: "var(--text-primary)",
+                  maxHeight: 120,
+                  overflowY: "auto",
+                }}
+              >
+                <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>
+                  {companionName}
+                </div>
+                <div>{streamingText || partialTranscript || messages[messages.length - 1]?.text}</div>
+              </motion.div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12 }}>
+              <button
+                type="button"
+                onClick={isVoiceActive ? onStopVoice : onStartVoice}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "10px 24px",
+                  borderRadius: "30px",
+                  background: isVoiceActive ? "var(--danger, #ef4444)" : "var(--accent)",
+                  color: "#ffffff",
+                  border: "none",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+                  fontWeight: 700,
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                }}
+              >
+                {isVoiceActive ? <Square size={16} fill="#fff" /> : <Mic size={16} />}
+                <span>{isVoiceActive ? "Stop Voice" : "Talk Live"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
         {/* Transcript column — centered, readable width */}
         <div
           ref={scrollRef}
@@ -359,6 +1084,64 @@ export function WorkMode({
             margin: "0 auto",
           }}
         >
+          {/* Rate limit recovery card if message contains rate limit error */}
+          {messages.some((m) => m.role === "assistant" && /rate\s*limit/i.test(m.text || "")) && (
+            <div
+              data-testid="rate-limit-recovery-card"
+              style={{
+                padding: "var(--space-3) var(--space-4)",
+                background: "rgba(239, 68, 68, 0.08)",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
+                borderRadius: "var(--radius-md, 10px)",
+                marginBottom: "var(--space-3)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-2)",
+              }}
+            >
+              <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--danger, #ef4444)" }}>
+                Brain Model Rate Limit / Cooldown Active
+              </div>
+              <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+                The selected brain model is temporarily rate limited. Please wait a moment or switch to Gemini.
+              </div>
+              <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-1)" }}>
+                <button
+                  type="button"
+                  onClick={() => onSelectProvider?.("real", "gemini-2.5-flash")}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "var(--radius-sm, 6px)",
+                    background: "var(--accent)",
+                    color: "#ffffff",
+                    border: "none",
+                    fontWeight: 600,
+                    fontSize: "var(--text-xs)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Switch to Gemini 2.5 Flash
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRetry?.()}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "var(--radius-sm, 6px)",
+                    background: "var(--bg-surface-raised)",
+                    color: "var(--text-primary)",
+                    border: "1px solid var(--border-default)",
+                    fontWeight: 600,
+                    fontSize: "var(--text-xs)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Retry Prompt
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Activity */}
           {agentSteps.length > 0 && (
             <Suspense fallback={null}>
@@ -464,6 +1247,42 @@ export function WorkMode({
           {/* Spacer for composer */}
           <div style={{ height: "var(--space-2)", flexShrink: 0 }} />
         </div>
+
+        {/* Mobile floating 3D avatar jump button */}
+        {isMobile && avatarModel && (
+          <motion.button
+            type="button"
+            data-testid="mobile-floating-avatar-pill"
+            whileTap={{ scale: 0.94 }}
+            onClick={() => setMobileTab("avatar")}
+            aria-label="Switch to 3D Avatar Screen"
+            style={{
+              position: "fixed",
+              bottom: 84,
+              right: 16,
+              zIndex: 40,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 14px",
+              borderRadius: "24px",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-default)",
+              boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
+              color: "var(--text-primary)",
+              fontSize: "0.78rem",
+              fontWeight: 650,
+              cursor: "pointer",
+            }}
+          >
+            <Sparkles size={14} color="var(--accent)" />
+            <span>3D Hinaa</span>
+            <StatusDot state={companionState} />
+          </motion.button>
+        )}
+
+        {/* Desktop Companion Panel */}
+        {!isMobile && avatarModel && companionVisible && renderCompanionPanel()}
       </div>
 
       {/* ── Composer (attached to bottom) ─────────── */}
@@ -479,6 +1298,106 @@ export function WorkMode({
           background: "var(--bg-surface)",
         }}
       >
+        {/* Agent Activity Card (Pulsing multi-stage progress, animated spinner, elapsed timer) */}
+        <AgentActivityCard
+          isActive={isThinking}
+          steps={convertedActivitySteps}
+          onCancel={currentAgentRunId ? onCancelAgentRun : onStop}
+          onResume={currentAgentRunId ? onResumeAgentRun : undefined}
+          onConfirm={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(true) : undefined}
+          onReject={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(false) : undefined}
+          onRecover={currentAgentRunId ? onRecoverAgentRun : undefined}
+        />
+
+        {/* Provider micro-status */}
+        {(activeProviderMode || activeProviderModel) && (
+          <div
+            data-testid="provider-micro-status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "4px 8px 6px",
+              fontSize: "0.72rem",
+              color: "var(--text-tertiary)",
+            }}
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpenSettings?.()}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpenSettings?.(); }}
+              title="Click to switch brain models or configure provider settings"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: onOpenSettings ? "pointer" : "default",
+                padding: "2px 6px",
+                borderRadius: 4,
+                transition: "background 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                if (onOpenSettings) (e.currentTarget as HTMLElement).style.background = "var(--bg-surface-hover, rgba(255,255,255,0.06))";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.background = "transparent";
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: providerHealth === "unavailable" ? "var(--danger, #ef4444)" : "var(--success, #10b981)",
+                }}
+              />
+              <span style={{ fontWeight: 650, color: "var(--text-secondary)" }}>
+                {getProviderDisplayName(activeProviderMode)}
+              </span>
+              {activeProviderModel && (
+                <span
+                  style={{
+                    padding: "1px 6px",
+                    borderRadius: 4,
+                    background: "var(--bg-surface-raised)",
+                    border: "1px solid var(--border-subtle)",
+                    fontFamily: "monospace",
+                    fontSize: "0.68rem",
+                  }}
+                >
+                  {activeProviderModel}
+                </span>
+              )}
+              <span>·</span>
+              <span>
+                {providerHealth === "unavailable"
+                  ? "Offline"
+                  : `Ready${providerLatencyMs ? ` · ${providerLatencyMs}ms` : ""}`}
+              </span>
+            </div>
+
+            {providerHealth === "unavailable" && (
+              <button
+                type="button"
+                onClick={() => onSelectProvider?.("real", "gemini-2.5-flash")}
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                  background: "var(--accent)",
+                  color: "#ffffff",
+                  border: "none",
+                  fontSize: "0.7rem",
+                  fontWeight: 650,
+                  cursor: "pointer",
+                }}
+              >
+                Switch to Gemini
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Image preview */}
         {attachedImage && (
           <div
@@ -542,10 +1461,23 @@ export function WorkMode({
             transition: "border-color 150ms ease, box-shadow 150ms ease",
           }}
         >
+          {/* Hidden file input */}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleImageFile}
+            data-testid="image-file-input"
+          />
+
           {/* Attach */}
           <button
+            type="button"
             title="Attach image"
             aria-label="Attach image"
+            data-testid="attach-image-button"
+            onClick={() => imageInputRef.current?.click()}
             style={{
               flexShrink: 0,
               width: 32,
@@ -555,9 +1487,10 @@ export function WorkMode({
               justifyContent: "center",
               borderRadius: "var(--radius-sm)",
               border: "none",
-              background: "transparent",
-              color: "var(--text-tertiary)",
+              background: attachedImage ? "var(--accent-pale, rgba(244,114,182,0.15))" : "transparent",
+              color: attachedImage ? "var(--accent, #f472b6)" : "var(--text-tertiary)",
               cursor: "pointer",
+              transition: "all 150ms ease",
             }}
           >
             <Paperclip size={16} />
@@ -569,6 +1502,7 @@ export function WorkMode({
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="Ask HINAA anything..."
             rows={1}
             data-testid="chat-input"
@@ -611,11 +1545,11 @@ export function WorkMode({
           </button>
 
           {/* Send / Stop */}
-          {isThinking || companionState === "thinking" ? (
+          {isThinking || companionState === "thinking" || companionState === "speaking" ? (
             <button
               onClick={onStop}
-              title="Stop generation"
-              aria-label="Stop generation"
+              title="Stop generation & playback"
+              aria-label="Stop generation & playback"
               style={{
                 flexShrink: 0,
                 width: 32,
@@ -666,6 +1600,8 @@ export function WorkMode({
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }
@@ -680,40 +1616,15 @@ function WorkMessage({
 }) {
   const isUser = message.role === "user";
 
-  // Convert tool results to SourceItem format for SourceCard
+  // Render tool results using GenericResultRenderer (supports images, PDFs, browser actions, sources, etc.)
   const renderToolResults = () => {
     if (!message.toolResults || message.toolResults.length === 0) return null;
     
     return (
-      <div style={{ marginTop: "var(--space-2)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-        {message.toolResults.map((tr, idx) => {
-          const result = tr.result;
-          if (!result || !result.sources) return null;
-          
-          const sources: SourceItem[] = result.sources.map((s: any, i: number) => ({
-            id: s.id || `${tr.toolName}-${i}`,
-            title: s.title || s.url || "Untitled",
-            domain: new URL(s.url).hostname || "unknown",
-            snippet: s.snippet || "",
-            url: s.url,
-            index: i,
-          }));
-          
-          if (sources.length === 0) return null;
-          
-          return (
-            <div key={`${tr.toolName}-${idx}`} style={{ marginTop: "var(--space-2)" }}>
-              <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--accent)", marginBottom: "var(--space-1)" }}>
-                Sources from {tr.toolName}
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-                {sources.map((source) => (
-                  <SourceCard key={source.id} source={source} index={source.index || 0} />
-                ))}
-              </div>
-            </div>
-          );
-        })}
+      <div style={{ marginTop: "var(--space-2)", display: "flex", flexDirection: "column", gap: "var(--space-2)", width: "100%" }}>
+        {message.toolResults.map((tr, idx) => (
+          <GenericResultRenderer key={`${tr.toolName}-${idx}`} toolName={tr.toolName} result={tr.result} />
+        ))}
       </div>
     );
   };
@@ -739,6 +1650,24 @@ function WorkMessage({
           }}
         >
           HINAA
+        </div>
+      )}
+
+      {/* Attached image preview if user or assistant sent an image */}
+      {message.imageUrl && (
+        <div style={{ marginBottom: "var(--space-2)", maxWidth: "85%" }}>
+          <img
+            src={message.imageUrl}
+            alt="Message attachment"
+            style={{
+              maxHeight: 240,
+              maxWidth: "100%",
+              borderRadius: "var(--radius-md, 8px)",
+              objectFit: "contain",
+              border: "1px solid var(--border-subtle)",
+              display: "block",
+            }}
+          />
         </div>
       )}
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,6 +17,7 @@ from .orm import (
     ExplicitMemory,
     MemoryConsent,
     Message,
+    MessageAttachment,
     User,
 )
 
@@ -256,6 +258,7 @@ class MemoryService:
         user_text: str,
         assistant_text: str,
         language: str,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> str:
         with self._factory() as session:
             self._user(session, user_id)
@@ -271,14 +274,36 @@ class MemoryService:
                 conversation = Conversation(user_id=user_id, companion_id=companion_id)
                 session.add(conversation)
                 session.flush()
-            session.add(
-                Message(
-                    conversation_id=conversation.id,
-                    role="user",
-                    content=user_text,
-                    language=language,
-                )
+
+            user_msg = Message(
+                conversation_id=conversation.id,
+                role="user",
+                content=user_text,
+                language=language,
             )
+            session.add(user_msg)
+            session.flush()
+
+            if attachments:
+                for idx, att in enumerate(attachments):
+                    asset_id = att.get("asset_id") or att.get("assetId") or att.get("id")
+                    if not asset_id:
+                        continue
+                    session.add(
+                        MessageAttachment(
+                            message_id=user_msg.id,
+                            asset_id=str(asset_id),
+                            kind=str(att.get("kind", "image")),
+                            mime_type=str(att.get("mime_type") or att.get("mimeType", "image/png")),
+                            filename=str(att.get("filename", "attachment")),
+                            size_bytes=int(att.get("size_bytes") or att.get("sizeBytes", 0)),
+                            sha256=str(att.get("sha256", "")),
+                            ordinal=int(att.get("ordinal", idx)),
+                            role=att.get("role"),
+                            url=att.get("url") or f"/v1/assets/{asset_id}/file",
+                        )
+                    )
+
             session.add(
                 Message(
                     conversation_id=conversation.id,
@@ -432,6 +457,149 @@ class MemoryService:
                     "azureSpeech": "audio stream when real mode enabled",
                 },
             }
+
+    def list_conversations(self, user_id: str, *, limit: int = 50, offset: int = 0) -> list[dict]:
+        """Return recent conversations for a user, newest first."""
+        with self._factory() as session:
+            from sqlalchemy import func, select
+            from .orm import Conversation, Message
+            
+            # Subquery for last message and count
+            msg_count = (
+                select(func.count(Message.id))
+                .where(Message.conversation_id == Conversation.id)
+                .where(Message.deleted_at.is_(None))
+                .correlate(Conversation)
+                .scalar_subquery()
+            )
+            
+            convos = (
+                session.query(Conversation)
+                .filter(Conversation.user_id == user_id)
+                .filter(Conversation.ended_at.is_(None))
+                .order_by(Conversation.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            
+            results = []
+            for c in convos:
+                # Get last message preview
+                last_msg = (
+                    session.query(Message)
+                    .filter(Message.conversation_id == c.id)
+                    .filter(Message.deleted_at.is_(None))
+                    .order_by(Message.created_at.desc())
+                    .first()
+                )
+                preview = ""
+                if last_msg:
+                    if last_msg.role == "user":
+                        preview = last_msg.content[:100] if last_msg.content else ""
+                    else:
+                        # Assistant content is JSON, extract displayText
+                        try:
+                            import json
+                            data = json.loads(last_msg.content)
+                            preview = (data.get("displayText") or "")[:100]
+                        except Exception:
+                            preview = (last_msg.content or "")[:100]
+                
+                msg_ct = (
+                    session.query(func.count(Message.id))
+                    .filter(Message.conversation_id == c.id)
+                    .filter(Message.deleted_at.is_(None))
+                    .scalar()
+                )
+                
+                results.append({
+                    "id": c.id,
+                    "title": c.title or preview[:60] or "New conversation",
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                    "message_count": msg_ct or 0,
+                    "last_message_preview": preview,
+                    "companion_id": c.companion_id,
+                })
+            return results
+
+    def get_conversation_messages(self, user_id: str, conversation_id: str, *, limit: int = 100, offset: int = 0) -> list[dict]:
+        """Return messages for a conversation, oldest first."""
+        with self._factory() as session:
+            from .orm import Conversation, Message
+            
+            # Verify ownership
+            convo = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .filter(Conversation.user_id == user_id)
+                .first()
+            )
+            if not convo:
+                return []
+            
+            messages = (
+                session.query(Message)
+                .filter(Message.conversation_id == conversation_id)
+                .filter(Message.deleted_at.is_(None))
+                .order_by(Message.created_at.asc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            
+            results = []
+            for m in messages:
+                content = m.content or ""
+                display_text = content
+                spoken_text = None
+                if m.role == "assistant":
+                    try:
+                        import json
+                        data = json.loads(content)
+                        display_text = data.get("displayText", content)
+                        spoken_text = data.get("spokenText")
+                    except Exception:
+                        pass
+                msg_attachments = []
+                if hasattr(m, "attachments") and m.attachments:
+                    for att in m.attachments:
+                        msg_attachments.append({
+                            "asset_id": att.asset_id,
+                            "filename": att.filename,
+                            "mime_type": att.mime_type,
+                            "size_bytes": att.size_bytes,
+                            "kind": att.kind,
+                            "role": att.role,
+                            "url": att.url or f"/v1/assets/{att.asset_id}/file",
+                        })
+
+                results.append({
+                    "id": m.id,
+                    "role": m.role,
+                    "content": display_text,
+                    "spoken_text": spoken_text,
+                    "language": m.language,
+                    "created_at": m.created_at.isoformat() if m.created_at else None,
+                    "attachments": msg_attachments,
+                })
+            return results
+
+    def update_conversation_title(self, user_id: str, conversation_id: str, title: str) -> bool:
+        """Update a conversation's title. Returns True if successful."""
+        with self._factory() as session:
+            from .orm import Conversation
+            convo = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .filter(Conversation.user_id == user_id)
+                .first()
+            )
+            if not convo:
+                return False
+            convo.title = title[:200]
+            session.commit()
+            return True
 
     @staticmethod
     def _user(session: Session, user_id: str) -> User:

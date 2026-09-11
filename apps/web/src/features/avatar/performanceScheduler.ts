@@ -112,7 +112,7 @@ export class PerformanceScheduler {
       return performanceSequenceSchema.parse({
         generation: this.generation,
         createdAtMs: this.now(),
-        lipSyncLevel: "amplitude",
+        lipSyncLevel: "viseme",
         cues: [],
       });
     }
@@ -215,7 +215,7 @@ export class PerformanceScheduler {
     const sequence = performanceSequenceSchema.parse({
       generation: gen,
       createdAtMs: this.now(),
-      lipSyncLevel: "amplitude",
+      lipSyncLevel: "viseme",
       cues,
     });
     this.sequence = sequence;

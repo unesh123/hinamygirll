@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 from ..config import Settings
 from ..models import TurnRequest
@@ -28,6 +29,7 @@ def build_turn_prompt(
     interaction_mode: InteractionMode,
     session_memories: tuple[str, ...] = (),
     approved_memory_blocks: tuple[str, ...] = (),
+    attachments: tuple[Any, ...] = (),
 ) -> PromptPackage:
     inp = PromptInput(
         companion_id=request.companionId,
@@ -42,5 +44,6 @@ def build_turn_prompt(
         session_memories=session_memories,
         approved_memory_blocks=approved_memory_blocks,
         visible_actions=request.visibleActions,
+        attachments=attachments,
     )
     return assemble_prompt(inp)

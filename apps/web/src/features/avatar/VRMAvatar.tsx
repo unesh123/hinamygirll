@@ -24,9 +24,13 @@ import {
   type VrmExpressionInput,
 } from "./vrmExpressionMap";
 import { optimizeVrm } from "./vrmOptimizer";
-import type { AvatarThemeId } from "./themes";
+import { normalizeVrmAvatar } from "./normalization";
+import { getDefaultAvatarForCompanion } from "./avatarRegistry";
+import { disposeVrmModel } from "./avatarDisposal";
+import { getActiveViseme } from "../audio/textToViseme";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { CompanionId, CompanionState } from "../companion/types";
+import type { AvatarThemeId } from "./themes";
 
 export interface VRMAvatarProps {
   companionId: CompanionId;
@@ -34,11 +38,18 @@ export interface VRMAvatarProps {
   plan?: AssistantTurnPlan;
   reducedMotion: boolean;
   textOnly: boolean;
-  jawEnergy?: number;
+  jawEnergy?: number | React.MutableRefObject<number>;
+  speakingRef?: React.MutableRefObject<boolean>;
+  visemeEvents?: React.MutableRefObject<any[]>;
+  audioStartTimeRef?: React.MutableRefObject<number>;
   theme?: AvatarThemeId;
   lowPerformance?: boolean;
   /** Code-explanation mode: camera pulls wider and she steps to the left. */
   codeMode?: boolean;
+  /** Explicit model URL to load — overrides the default auto-detection. */
+  modelUrl?: string | null;
+  /** Close-up portrait framing (face, cat ears, and upper bust) for companion panel. Default: true */
+  closeUp?: boolean;
 }
 
 /**
@@ -115,6 +126,14 @@ async function loadAndOptimizeVrm(url: string): Promise<VRM> {
     optimizeVrm(vrm, { keepExpressionNames: VRM_EXPRESSION_KEYS });
   } catch {
     // Non-fatal: model keeps its original resources.
+  }
+  try {
+    if (vrm.meta?.metaVersion?.startsWith("0") && !(vrm as any).__hinaa_rotated) {
+      VRMUtils.rotateVRM0(vrm);
+      (vrm as any).__hinaa_rotated = true;
+    }
+  } catch {
+    // Non-fatal.
   }
   return vrm;
 }
@@ -218,27 +237,74 @@ function ContextLossGuard({ onLost }: { onLost: () => void }) {
 function VrmRig({
   vrm,
   input,
+  jawEnergyRef,
+  speakingRef,
+  visemeEventsRef,
+  audioStartTimeRef,
 }: {
   vrm: VRM;
-  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean };
+  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean; closeUp?: boolean };
+  jawEnergyRef?: number | React.MutableRefObject<number>;
+  speakingRef?: React.MutableRefObject<boolean>;
+  visemeEventsRef?: React.MutableRefObject<any[]>;
+  audioStartTimeRef?: React.MutableRefObject<number>;
 }) {
+  const camera = useThree((state) => state.camera);
   const lookTarget = useMemo(() => new THREE.Object3D(), []);
+  const metrics = useMemo(() => normalizeVrmAvatar(vrm), [vrm]);
+  if (typeof window !== "undefined") {
+    (window as any).__HINAA_DEBUG_VRM = { vrm, metrics, camera };
+  }
 
-  useEffect(() => {
-    // VRM 0.x reports metaVersion "0.0" — rotate it into the +Z-facing pose.
-    if (vrm.meta?.metaVersion?.startsWith("0")) VRMUtils.rotateVRM0(vrm);
-  }, [vrm]);
+  const frameCountRef = useRef(0);
+  const lastParamsRef = useRef({ closeUp: input.closeUp, codeMode: input.codeMode, vrm });
 
   useFrame((_, rawDelta) => {
     const delta = Math.min(rawDelta, 0.05);
     const time = performance.now() / 1000;
 
+    // Read live jaw energy and speaking status dynamically on EVERY frame
+    let liveJaw = 0;
+    if (typeof input.jawEnergy === "number") {
+      liveJaw = input.jawEnergy;
+    }
+    if (jawEnergyRef) {
+      if (typeof jawEnergyRef === "number") {
+        liveJaw = jawEnergyRef;
+      } else if ("current" in jawEnergyRef && typeof jawEnergyRef.current === "number") {
+        liveJaw = jawEnergyRef.current;
+      }
+    }
+    const isSpeaking =
+      (speakingRef && "current" in speakingRef ? speakingRef.current : false) ||
+      input.speaking ||
+      input.state === "speaking" ||
+      liveJaw > 0.03;
+
+    let activeVisemeName: string | undefined;
+    let activeVisemeWeight: number | undefined;
+
+    if (isSpeaking && visemeEventsRef?.current && visemeEventsRef.current.length > 0) {
+      const audioCtx = (window as any).__hinaaAudioCtx;
+      const startTime = audioStartTimeRef?.current ?? 0;
+      const playTimeMs = audioCtx ? Math.max(0, (audioCtx.currentTime - startTime) * 1000) : (time * 1000) % 2000;
+      const active = getActiveViseme(playTimeMs, visemeEventsRef.current);
+      if (active && active.mouth !== "closed") {
+        activeVisemeName = active.mouth;
+        activeVisemeWeight = active.weight;
+      }
+    }
+
+    const frameInput: VrmExpressionInput = {
+      ...input,
+      jawEnergy: liveJaw,
+      speaking: isSpeaking,
+      viseme: activeVisemeName,
+      visemeWeight: activeVisemeWeight,
+    };
+
     // Expressions — face presets + jaw lip-sync + blink.
-    // NOTE: `manager.expressions` is an *array* (VRMExpression[]), so the old
-    // `key in manager.expressions` guard was always false and no expression
-    // was ever applied. `setValue` resolves the expression by name internally
-    // and is a safe no-op for presets the model does not ship.
-    const weights = buildVrmExpressionWeights(input);
+    const weights = buildVrmExpressionWeights(frameInput);
     const manager = vrm.expressionManager;
     if (manager) {
       try {
@@ -292,6 +358,18 @@ function VrmRig({
       const rightArm = humanoid.getNormalizedBoneNode(
         VRMHumanBoneName.RightUpperArm,
       );
+      const leftLowerArm = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.LeftLowerArm,
+      );
+      const rightLowerArm = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.RightLowerArm,
+      );
+      const leftHand = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.LeftHand,
+      );
+      const rightHand = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.RightHand,
+      );
       const chest = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Chest);
       const hips = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Hips);
 
@@ -302,6 +380,9 @@ function VrmRig({
       const idleY = quiet
         ? Math.sin(time * 0.8) * 0.005
         : Math.sin(time * 0.5) * 0.02;
+      const idleSway = quiet
+        ? Math.sin(time * 0.8) * 0.008
+        : Math.sin(time * 1.4) * 0.018;
       const settled = quiet
         ? { x: 0.08, y: 0, z: 0.06 }
         : { x: headTarget.x, y: headTarget.y, z: headTarget.z };
@@ -325,44 +406,178 @@ function VrmRig({
           delta,
         );
       }
+
+      const isVrm1 = Boolean(vrm.meta?.metaVersion?.startsWith("1"));
+      // In VRM 1.0, left arm extends along +X, so negative Z rotates arm down.
+      // In VRM 0.x, left arm extends along -X, so positive Z rotates arm down.
+      const armZSign = isVrm1 ? -1 : 1;
+
       if (input.gesture === "wave" && rightArm) {
-        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -1.6, 8, delta);
-        rightArm.rotation.z = THREE.MathUtils.damp(
-          rightArm.rotation.z,
-          Math.sin(time * 6) * 0.45,
-          10,
-          delta,
-        );
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.6, 8, delta);
+        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.95 * armZSign, 8, delta);
+        if (rightLowerArm) {
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -1.25, 8, delta);
+        }
+        if (rightHand) {
+          rightHand.rotation.z = THREE.MathUtils.damp(
+            rightHand.rotation.z,
+            Math.sin(time * 7) * 0.35,
+            12,
+            delta,
+          );
+        }
       } else if (input.gesture === "celebrate") {
         if (leftArm) {
-          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -1.2, 8, delta);
-          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 0.3 + Math.sin(time * 5) * 0.12, 8, delta);
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -0.8, 8, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.8 * armZSign, 8, delta);
         }
         if (rightArm) {
-          rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -1.2, 8, delta);
-          rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.3 - Math.sin(time * 5) * 0.12, 8, delta);
+          rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.8, 8, delta);
+          rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -1.8 * armZSign, 8, delta);
+        }
+        if (leftLowerArm) {
+          leftLowerArm.rotation.y = THREE.MathUtils.damp(leftLowerArm.rotation.y, 0.6, 8, delta);
+        }
+        if (rightLowerArm) {
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -0.6, 8, delta);
         }
       } else if (input.gesture === "explain" && rightArm) {
         rightArm.rotation.x = THREE.MathUtils.damp(
           rightArm.rotation.x,
-          -0.8 + Math.sin(time * 2.6) * 0.25,
+          -0.5 + Math.sin(time * 2.6) * 0.15,
           8,
           delta,
         );
+        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.45 * armZSign, 8, delta);
+        if (rightLowerArm) {
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(
+            rightLowerArm.rotation.y,
+            -0.65 + Math.sin(time * 2.8) * 0.12,
+            8,
+            delta,
+          );
+        }
+        if (rightHand) {
+          rightHand.rotation.z = THREE.MathUtils.damp(
+            rightHand.rotation.z,
+            Math.sin(time * 2.6) * 0.15,
+            8,
+            delta,
+          );
+        }
+      } else {
+        // Natural resting companion pose: arms relaxed alongside torso, hands resting naturally
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.08, 6, delta);
+          leftArm.rotation.y = THREE.MathUtils.damp(leftArm.rotation.y, 0, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, (1.22 - idleSway) * armZSign, 6, delta);
+        }
+        if (rightArm) {
+          rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, 0.08, 6, delta);
+          rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, 0, 6, delta);
+          rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, (-1.22 + idleSway) * armZSign, 6, delta);
+        }
+        if (leftLowerArm) {
+          leftLowerArm.rotation.x = THREE.MathUtils.damp(leftLowerArm.rotation.x, 0.15, 6, delta);
+          leftLowerArm.rotation.y = THREE.MathUtils.damp(leftLowerArm.rotation.y, 0.15 * -armZSign, 6, delta);
+          leftLowerArm.rotation.z = THREE.MathUtils.damp(leftLowerArm.rotation.z, 0.1 * armZSign, 6, delta);
+        }
+        if (rightLowerArm) {
+          rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.15, 6, delta);
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -0.15 * -armZSign, 6, delta);
+          rightLowerArm.rotation.z = THREE.MathUtils.damp(rightLowerArm.rotation.z, -0.1 * armZSign, 6, delta);
+        }
+        if (leftHand) {
+          leftHand.rotation.x = THREE.MathUtils.damp(leftHand.rotation.x, 0, 6, delta);
+          leftHand.rotation.y = THREE.MathUtils.damp(leftHand.rotation.y, 0, 6, delta);
+          leftHand.rotation.z = THREE.MathUtils.damp(leftHand.rotation.z, 0, 6, delta);
+        }
+        if (rightHand) {
+          rightHand.rotation.x = THREE.MathUtils.damp(rightHand.rotation.x, 0, 6, delta);
+          rightHand.rotation.y = THREE.MathUtils.damp(rightHand.rotation.y, 0, 6, delta);
+          rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, 0, 6, delta);
+        }
       }
       // Breathing — subtle chest/hips rise. Quieter while listening.
       const breath = Math.sin(time * 1.4) * (quiet ? 0.0018 : 0.004);
       if (chest) chest.position.y = breath;
-      if (hips) hips.position.y = -breath;
+      if (hips) {
+        hips.position.x = 0;
+        hips.position.z = 0;
+        hips.position.y = THREE.MathUtils.clamp(-breath, -0.015, 0.015);
+      }
     }
 
     vrm.update(delta);
+
+    // Dynamic Landmark Camera: Frame camera directly to the character's true face position
+    // AFTER vrm.update has fully resolved humanoid bone solvers, inverse kinematics, and matrix transforms.
+    const paramsChanged =
+      lastParamsRef.current.closeUp !== input.closeUp ||
+      lastParamsRef.current.codeMode !== input.codeMode ||
+      lastParamsRef.current.vrm !== vrm;
+
+    if (frameCountRef.current < 5 || paramsChanged) {
+      frameCountRef.current += 1;
+      if (paramsChanged) frameCountRef.current = 1;
+      lastParamsRef.current = { closeUp: input.closeUp, codeMode: input.codeMode, vrm };
+      const humanoid = vrm.humanoid;
+      if (humanoid) {
+        const head = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head);
+        const leftEye = humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftEye) || head;
+        if (head) {
+          head.updateWorldMatrix(true, false);
+          const headMat = head.matrixWorld.elements;
+          const headX = headMat[12];
+          const headY = headMat[13];
+          const headZ = headMat[14];
+
+          let eyeX = headX;
+          let eyeY = headY;
+          let eyeZ = headZ;
+          if (leftEye) {
+            leftEye.updateWorldMatrix(true, false);
+            const eyeMat = leftEye.matrixWorld.elements;
+            eyeX = eyeMat[12];
+            eyeY = eyeMat[13];
+            eyeZ = eyeMat[14];
+          }
+
+          const faceCenterX = (headX + eyeX) / 2;
+          const faceCenterY = (headY + eyeY) / 2;
+          const faceCenterZ = (headZ + eyeZ) / 2;
+          const isCloseUp = input.closeUp ?? true;
+
+          const camDistance = isCloseUp ? 1.18 : 1.75;
+          const camYOffset = isCloseUp ? 0.04 : 0.10;
+
+          camera.position.set(
+            faceCenterX + (input.codeMode ? -0.35 : 0),
+            faceCenterY + camYOffset,
+            faceCenterZ + camDistance
+          );
+          camera.lookAt(new THREE.Vector3(
+            faceCenterX,
+            faceCenterY + (isCloseUp ? 0.01 : -0.04),
+            faceCenterZ
+          ));
+          camera.updateProjectionMatrix();
+        }
+      }
+    }
   });
+
+  const baseX = (input.codeMode ? -0.42 : 0) + metrics.offset[0] * metrics.scale;
+  // Use the normalized Y offset so different VRM rigs (different bone pivots)
+  // all land correctly in the camera frame instead of floating or sinking.
+  const baseY = metrics.offset[1] * metrics.scale;
+  const baseZ = metrics.offset[2] * metrics.scale;
+  const finalScale = metrics.scale * (input.codeMode ? 1.0 : 1.12);
 
   return (
     <group
-      position={input.codeMode ? [-0.42, -0.25, 0] : [0, -0.25, 0]}
-      scale={input.codeMode ? 1.02 : 1.15}
+      position={[baseX, baseY, baseZ]}
+      scale={finalScale}
     >
       <primitive object={lookTarget} />
       <primitive object={vrm.scene} />
@@ -373,11 +588,19 @@ function VrmRig({
 function VrmModel({
   url,
   input,
+  jawEnergyRef,
+  speakingRef,
+  visemeEventsRef,
+  audioStartTimeRef,
   onReady,
   onError,
 }: {
   url: string;
-  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean };
+  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean; closeUp?: boolean };
+  jawEnergyRef?: number | React.MutableRefObject<number>;
+  speakingRef?: React.MutableRefObject<boolean>;
+  visemeEventsRef?: React.MutableRefObject<any[]>;
+  audioStartTimeRef?: React.MutableRefObject<number>;
   onReady: () => void;
   onError: () => void;
 }) {
@@ -390,7 +613,7 @@ function VrmModel({
       .then((loaded) => {
         if (!alive) {
           // Superseded (StrictMode double-run or unmount) — free it now.
-          VRMUtils.deepDispose(loaded.scene);
+          disposeVrmModel(loaded);
           return;
         }
         setVrm(loaded);
@@ -404,25 +627,24 @@ function VrmModel({
     };
   }, [url, onReady, onError]);
 
-  // Free GPU resources when the model leaves the render loop. VrmRig does
-  // not dispose — VrmModel is the single owner of the loaded VRM.
+  // Free GPU resources when the model leaves the render loop.
   useEffect(() => {
     return () => {
-      if (vrm) VRMUtils.deepDispose(vrm.scene);
+      if (vrm) disposeVrmModel(vrm);
     };
   }, [vrm]);
 
   if (!vrm) return null;
-  return <VrmRig vrm={vrm} input={input} />;
-}
-
-function CameraRig() {
-  const camera = useThree((state) => state.camera);
-  const look = useMemo(() => new THREE.Vector3(0, 1.25, 0), []);
-  useEffect(() => {
-    camera.lookAt(look);
-  }, [camera, look]);
-  return null;
+  return (
+    <VrmRig
+      vrm={vrm}
+      input={input}
+      jawEnergyRef={jawEnergyRef}
+      speakingRef={speakingRef}
+      visemeEventsRef={visemeEventsRef}
+      audioStartTimeRef={audioStartTimeRef}
+    />
+  );
 }
 
 export function VRMAvatar(props: VRMAvatarProps) {
@@ -448,6 +670,14 @@ export function VRMAvatar(props: VRMAvatarProps) {
   }, []);
 
   useEffect(() => {
+    // When the parent explicitly passes a modelUrl, use it directly (no HEAD probe needed).
+    if (props.modelUrl !== undefined) {
+      setModelUrl(props.modelUrl ?? null);
+      setFailed(false);
+      setModelLoading(true);
+      return;
+    }
+    // Fallback: auto-detect the best available model.
     let alive = true;
     void resolveCachedModelUrl().then((url) => {
       if (alive) setModelUrl(url);
@@ -455,11 +685,18 @@ export function VRMAvatar(props: VRMAvatarProps) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [props.modelUrl]);
+
+  const resolvedJawEnergy =
+    typeof props.jawEnergy === "number"
+      ? props.jawEnergy
+      : (props.jawEnergy && typeof props.jawEnergy === "object" && "current" in props.jawEnergy)
+        ? props.jawEnergy.current
+        : 0;
 
   const performance = usePerformanceClock({
     plan: props.plan,
-    jawEnergy: props.jawEnergy,
+    jawEnergy: resolvedJawEnergy,
     reducedMotion: props.reducedMotion || Boolean(props.lowPerformance),
     interrupted: props.state === "interrupted",
   });
@@ -477,7 +714,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
   // GPU context loss does NOT land here — it remounts the canvas with
   // conservative settings first; only a second loss marks `failed`.)
   if (modelUrl === null || failed || !webglAvailable) {
-    return <ProceduralAvatar {...props} />;
+    return <ProceduralAvatar {...props} jawEnergy={resolvedJawEnergy} />;
   }
 
   if (props.textOnly) {
@@ -494,17 +731,19 @@ export function VRMAvatar(props: VRMAvatarProps) {
     gesture: string;
     state: string;
     codeMode: boolean;
+    closeUp?: boolean;
   } = {
     emotion,
     facePreset: props.plan?.performance.facePreset,
     intensity: props.plan?.emotion.intensity ?? 0.5,
-    jawEnergy: props.jawEnergy ?? 0,
+    jawEnergy: resolvedJawEnergy,
     blinking: performance.blinking,
     speaking: props.state === "speaking",
     reducedMotion: props.reducedMotion || Boolean(props.lowPerformance),
     gesture,
     state: props.state,
     codeMode: Boolean(props.codeMode),
+    closeUp: Boolean(props.closeUp ?? true),
   };
 
   return (
@@ -533,21 +772,22 @@ export function VRMAvatar(props: VRMAvatarProps) {
               powerPreference: glContextLost ? "low-power" : "default",
             }}
             camera={{
-              // Code mode: camera pulls slightly wider so she and the editor
-              // panel share the frame; she steps left inside the rig.
-              position: props.codeMode ? [0, 1.6, 2.15] : [0, 1.55, 1.45],
-              fov: props.codeMode ? 44 : 38,
+              position: [0, 0.54, 0.90],
+              fov: (props.closeUp ?? true) ? 32 : 38,
             }}
           >
             <ambientLight intensity={0.75} />
             <directionalLight position={[1.5, 2.5, 2]} intensity={1.1} />
             <directionalLight position={[-2, 1, -1]} intensity={0.25} />
             <ContextLossGuard onLost={handleContextLost} />
-            <CameraRig />
             <ModelErrorBoundary onError={handleModelError}>
               <VrmModel
                 url={modelUrl}
                 input={input}
+                jawEnergyRef={props.jawEnergy}
+                speakingRef={props.speakingRef}
+                visemeEventsRef={props.visemeEvents}
+                audioStartTimeRef={props.audioStartTimeRef}
                 onReady={handleModelReady}
                 onError={handleModelError}
               />

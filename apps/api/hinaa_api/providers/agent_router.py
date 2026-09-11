@@ -121,8 +121,10 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         return HinaaError(code="PROVIDER_RESPONSE_INVALID", status_code=500, message=str(e))
 
     async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
+        from .anthropic_direct import build_anthropic_content
         system = prompt.system_instruction
-        messages = [{"role": "user", "content": "\n\n".join(str(item) for item in prompt.user_contents)}]
+        content = build_anthropic_content(prompt.user_contents, getattr(prompt, "attachments", None))
+        messages = [{"role": "user", "content": content}]
         
         try:
             async with self.anthropic_client.messages.stream(
@@ -138,8 +140,10 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             raise self._map_anthropic_error(e)
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
+        from .anthropic_direct import build_anthropic_content
         system = prompt.system_instruction
-        messages = [{"role": "user", "content": "\n\n".join(str(item) for item in prompt.user_contents)}]
+        content = build_anthropic_content(prompt.user_contents, getattr(prompt, "attachments", None))
+        messages = [{"role": "user", "content": content}]
         
         try:
             response = await self.anthropic_client.messages.create(

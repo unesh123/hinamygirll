@@ -229,4 +229,83 @@ describe("TurnTakingController", () => {
     controller.setSessionState("reconnecting");
     expect(controller.currentState).toBe("reconnecting");
   });
+
+  it("handles high baseline noise floor (0.055 RMS) and commits speech cleanly without partial", () => {
+    const controller = new TurnTakingController({
+      startFrames: 2,
+      minimumSpeechFrames: 3,
+      endOfTurnFrames: 4,
+      maxSilenceFrames: 8,
+      hesitationFrames: 1,
+      initialNoiseFloor: 0.055,
+    });
+    // Ambient room noise matches calibrated baseline
+    controller.process({
+      level: 0.055,
+      assistantPlaying: false,
+      partialText: "",
+      sessionActive: true,
+      paused: false,
+    });
+    expect(controller.currentState).toBe("listening");
+
+    // Then user speaks at 0.14 RMS (6 frames) then pauses back at 0.055 ambient noise (5 frames)
+    const decisions = runFrames(
+      controller,
+      [...Array(6).fill(0.14), ...Array(5).fill(0.055)],
+      "",
+    );
+    expect(decisions.some((d) => d.speechCommit)).toBe(true);
+    expect(decisions.find((d) => d.speechCommit)?.reason).toBe("silence_commit_no_partial");
+  });
+
+  it("commits on hardMax frames even when no partial transcript is emitted", () => {
+    const controller = new TurnTakingController({
+      startFrames: 2,
+      minimumSpeechFrames: 3,
+      maxSpeechFrames: 10,
+    });
+    const decisions = runFrames(controller, Array(12).fill(0.12), "");
+    expect(decisions.some((d) => d.speechCommit)).toBe(true);
+  });
+
+  it("ignores ambient noise and breathing while waiting for provider, but allows intentional bargeIn", () => {
+    const controller = new TurnTakingController();
+    controller.setSessionState("waiting_for_provider");
+
+    // Ambient flutter (0.015 RMS, 10 frames)
+    for (let i = 0; i < 10; i++) {
+      const decision = controller.process({
+        level: 0.015,
+        assistantPlaying: false,
+        partialText: "",
+        sessionActive: true,
+        paused: false,
+        waitingForProvider: true,
+      });
+      expect(decision.speechStart).toBe(false);
+      expect(decision.bargeIn).toBe(false);
+      expect(controller.currentState).toBe("waiting_for_provider");
+    }
+
+    // Loud intentional barge-in (> 0.20 RMS for bargeInFrames)
+    let bargeInDetected = false;
+    for (let i = 0; i < 12; i++) {
+      const decision = controller.process({
+        level: 0.25,
+        assistantPlaying: false,
+        partialText: "",
+        sessionActive: true,
+        paused: false,
+        waitingForProvider: true,
+      });
+      if (decision.bargeIn) {
+        bargeInDetected = true;
+        break;
+      }
+    }
+    expect(bargeInDetected).toBe(true);
+  });
 });
+
+

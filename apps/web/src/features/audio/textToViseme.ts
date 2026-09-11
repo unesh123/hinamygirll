@@ -22,6 +22,13 @@ export interface VisemeEvent {
   weight: number;       // 0-1 intensity
 }
 
+export interface LipSyncTimelineInput {
+  text?: string;
+  durationMs: number;
+  startMs?: number;
+  providerEvents?: VisemeEvent[] | null;
+}
+
 // ── Phoneme → viseme classification ──────────────────────────────────────────
 // ARPAbet-inspired groups mapped to VRM mouth expressions
 const PHONEME_MAP: Record<string, VrmMouth> = {
@@ -188,6 +195,39 @@ export function textToVisemeEvents(
   }
 
   return events;
+}
+
+export function normalizeProviderVisemeEvents(
+  providerEvents: VisemeEvent[] | null | undefined,
+  durationMs: number,
+  startMs = 0,
+): VisemeEvent[] {
+  if (!providerEvents?.length || durationMs <= 0) return [];
+  const validMouths = new Set<VrmMouth>(["aa", "ih", "ou", "ee", "oh", "closed"]);
+  return providerEvents
+    .filter((event) => validMouths.has(event.mouth))
+    .map((event) => {
+      const timeMs = startMs + Math.max(0, Math.min(durationMs, event.timeMs));
+      const remainingMs = Math.max(0, startMs + durationMs - timeMs);
+      return {
+        timeMs,
+        durationMs: Math.max(16, Math.min(remainingMs || 16, event.durationMs)),
+        mouth: event.mouth,
+        weight: Math.max(0, Math.min(1, event.weight)),
+      };
+    })
+    .sort((a, b) => a.timeMs - b.timeMs);
+}
+
+export function createLipSyncTimeline({
+  text = "",
+  durationMs,
+  startMs = 0,
+  providerEvents,
+}: LipSyncTimelineInput): VisemeEvent[] {
+  const providerTimeline = normalizeProviderVisemeEvents(providerEvents, durationMs, startMs);
+  if (providerTimeline.length > 0) return providerTimeline;
+  return textToVisemeEvents(text, durationMs, startMs);
 }
 
 function pushOrMerge(events: VisemeEvent[], event: VisemeEvent): void {

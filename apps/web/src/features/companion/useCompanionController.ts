@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { BackendConversationProvider } from "../providers/backendConversationProvider";
+import type { AgentRuntimeEvent } from "../providers/conversationProvider";
 import { MockConversationProvider } from "../providers/mockConversationProvider";
 import {
   companionProfiles,
@@ -17,6 +18,10 @@ import {
   getSafeAssistantStreamingText,
   serializeAssistantTurn,
 } from "./assistantTurnCodec";
+import {
+  loadConversationMessages,
+  saveConversationMessages,
+} from "./sessionManager";
 
 function createId(): string {
   return (
@@ -50,19 +55,119 @@ function createMessage(
   };
 }
 
+export interface LiveAgentStep {
+  id: string;
+  label: string;
+  status: "pending" | "active" | "done" | "error" | "cancelled";
+  detail?: string;
+}
+
+function runtimeEventToSteps(
+  previous: LiveAgentStep[],
+  event: AgentRuntimeEvent,
+): LiveAgentStep[] {
+  const payload = event.payload ?? {};
+  const stepId = event.step_id ?? "runtime";
+  const title =
+    typeof payload.title === "string"
+      ? payload.title
+      : event.event_type.replace(/^agent\./, "").replace(/\./g, " ");
+  const message =
+    typeof payload.message === "string"
+      ? payload.message
+      : typeof payload.code === "string"
+        ? payload.code
+        : undefined;
+  const upsert = (step: LiveAgentStep) => {
+    const existing = previous.findIndex((item) => item.id === step.id);
+    if (existing === -1) return [...previous, step];
+    const next = [...previous];
+    next[existing] = { ...next[existing], ...step };
+    return next;
+  };
+
+  if (event.event_type === "agent.run.created") {
+    return upsert({
+      id: "run",
+      label: "Run accepted",
+      status: "done",
+      detail: "Server created a durable agent run",
+    });
+  }
+  if (event.event_type === "agent.run.started" || event.event_type === "agent.planning.started") {
+    return upsert({
+      id: "plan",
+      label: "Plan live turn",
+      status: "active",
+      detail: "HINAA is preparing a bounded runtime plan",
+    });
+  }
+  if (event.event_type === "agent.plan.ready") {
+    return upsert({
+      id: "plan",
+      label: "Plan ready",
+      status: "done",
+      detail: "Runtime validated the execution plan",
+    });
+  }
+  if (event.event_type === "agent.step.started") {
+    return upsert({ id: stepId, label: title, status: "active", detail: "Running through server runtime" });
+  }
+  if (event.event_type === "agent.step.progress") {
+    return upsert({ id: stepId, label: title, status: "active", detail: message ?? "Runtime step updated" });
+  }
+  if (event.event_type === "agent.step.completed") {
+    return upsert({ id: stepId, label: title, status: "done", detail: "Runtime step completed" });
+  }
+  if (event.event_type === "agent.step.failed") {
+    return upsert({ id: stepId, label: title, status: "error", detail: message ?? "Runtime step failed" });
+  }
+  if (event.event_type === "confirmation.required") {
+    return upsert({ id: stepId, label: title, status: "pending", detail: "Waiting for your approval" });
+  }
+  if (event.event_type === "agent.run.completed") {
+    return previous.map((step) => ({ ...step, status: step.status === "error" ? step.status : "done" }));
+  }
+  if (event.event_type === "agent.run.failed") {
+    return upsert({ id: "run", label: "Run needs attention", status: "error", detail: message ?? "Runtime failed safely" });
+  }
+  if (event.event_type === "agent.run.recovered") {
+    return upsert({ id: "run", label: "Recovery requested", status: "active", detail: "Runtime restored recoverable work" });
+  }
+  if (event.event_type === "agent.run.cancelled" || event.event_type === "turn.cancelled") {
+    return previous.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" }));
+  }
+  return previous;
+}
+
 export interface CompanionController {
   companionId: CompanionId;
   switchCompanion: (id: CompanionId) => void;
   resetConversation: () => void;
   state: CompanionState;
   messages: TranscriptMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<TranscriptMessage[]>>;
   partialTranscript: string;
   streamingText: string;
   routing: ProviderRuntimeSelection;
   activePlan?: AssistantTurnPlan;
+  agentSteps: LiveAgentStep[];
+  currentAgentRunId?: string;
+  currentAgentConfirmationStepId?: string;
+  cancelCurrentAgentRun: () => Promise<void>;
+  resumeCurrentAgentRun: () => Promise<void>;
+  confirmCurrentAgentStep: (approved: boolean) => Promise<void>;
+  recoverCurrentAgentRun: () => Promise<void>;
   sendText: (
     text: string,
-    options?: { forceBackend?: boolean },
+    options?: {
+      forceBackend?: boolean;
+      imageUrl?: string;
+      attachment_ids?: string[];
+      attachments?: import("./types").MessageAttachment[];
+      imageEngine?: string;
+      voiceEngine?: string;
+    },
   ) => Promise<
     { turnId: string; plan: AssistantTurnPlan; providerLatencyMs?: number } | undefined
   >;
@@ -83,6 +188,7 @@ export interface CompanionController {
 }
 
 export interface CompanionControllerOptions {
+  conversationId?: string | null;
   routing: ProviderRuntimeSelection;
   languagePolicy: ActiveLanguagePolicy;
   /**
@@ -99,23 +205,53 @@ function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US
   return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
 }
 
-export function useCompanionController({ routing, languagePolicy, autoRunTools = false }: CompanionControllerOptions): CompanionController {
+export function useCompanionController({ conversationId, routing, languagePolicy, autoRunTools = false }: CompanionControllerOptions): CompanionController {
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
+  const [agentSteps, setAgentSteps] = useState<LiveAgentStep[]>([]);
+  const [currentAgentRunId, setCurrentAgentRunId] = useState<string>();
+  const [currentAgentConfirmationStepId, setCurrentAgentConfirmationStepId] = useState<string>();
+  const effectiveKey = conversationId ? `hinaa-messages-${conversationId}` : `hinaa-messages-${companionId}`;
   const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
     try {
-      const stored = localStorage.getItem(`hinaa-messages-hinaa`);
-      if (stored) {
-        const restored = restoreMessages(JSON.parse(stored));
-        if (restored) return restored;
-      }
+      const storedMessages = conversationId
+        ? loadConversationMessages(conversationId)
+        : (() => {
+            const stored = localStorage.getItem(effectiveKey);
+            return stored ? restoreMessages(JSON.parse(stored)) : null;
+          })();
+      const restored = restoreMessages(storedMessages);
+      if (restored && restored.length > 0) return restored;
     } catch {}
     return [createMessage("assistant", companionProfiles.hinaa.greeting)];
   });
 
+  const prevConvoIdRef = useRef(conversationId);
   useEffect(() => {
-    localStorage.setItem(`hinaa-messages-${companionId}`, JSON.stringify(messages));
-  }, [messages, companionId]);
+    if (prevConvoIdRef.current !== conversationId) {
+      prevConvoIdRef.current = conversationId;
+      try {
+        const storedMessages = conversationId
+          ? loadConversationMessages(conversationId)
+          : (() => {
+              const stored = localStorage.getItem(`hinaa-messages-${companionId}`);
+              return stored ? restoreMessages(JSON.parse(stored)) : null;
+            })();
+        const restored = restoreMessages(storedMessages);
+        if (restored && restored.length > 0) {
+          setMessages(restored);
+          return;
+        }
+      } catch {}
+      setMessages([createMessage("assistant", companionProfiles[companionId]?.greeting ?? companionProfiles.hinaa.greeting)]);
+    }
+  }, [conversationId, companionId]);
+
+  useEffect(() => {
+    const key = conversationId ? `hinaa-messages-${conversationId}` : `hinaa-messages-${companionId}`;
+    if (conversationId) saveConversationMessages(conversationId, messages);
+    else localStorage.setItem(key, JSON.stringify(messages));
+  }, [messages, conversationId, companionId]);
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();
@@ -174,20 +310,26 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
+      setAgentSteps([]);
+      setCurrentAgentRunId(undefined);
+      setCurrentAgentConfirmationStepId(undefined);
       const initialMessages = (() => {
         try {
-          const stored = localStorage.getItem(`hinaa-messages-${id}`);
-          if (stored) {
-            const restored = restoreMessages(JSON.parse(stored));
-            if (restored) return restored;
-          }
+          const storedMessages = conversationId
+            ? loadConversationMessages(conversationId)
+            : (() => {
+                const stored = localStorage.getItem(`hinaa-messages-${id}`);
+                return stored ? restoreMessages(JSON.parse(stored)) : null;
+              })();
+          const restored = restoreMessages(storedMessages);
+          if (restored && restored.length > 0) return restored;
         } catch {}
         return [createMessage("assistant", companionProfiles[id].greeting)];
       })();
       setMessages(initialMessages);
       setState("idle");
     },
-    [clearTimers, companionId, finalizeTurn],
+    [clearTimers, companionId, conversationId, finalizeTurn],
   );
 
   const resetConversation = useCallback(() => {
@@ -198,6 +340,9 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
     setPartialTranscript("");
     setStreamingText("");
     setActivePlan(undefined);
+    setAgentSteps([]);
+    setCurrentAgentRunId(undefined);
+    setCurrentAgentConfirmationStepId(undefined);
     setMessages([createMessage("assistant", companionProfiles[companionId].greeting)]);
     setState("idle");
   }, [clearTimers, companionId, finalizeTurn]);
@@ -205,6 +350,14 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
   const stop = useCallback(() => {
     const previousTurn = activeTurnId.current;
     currentAbort.current?.abort();
+    if (currentAgentRunId) {
+      void fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
+        method: "POST",
+      }).catch(() => undefined);
+      setAgentSteps((current) =>
+        current.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" })),
+      );
+    }
     if (previousTurn) {
       finalizeTurn(previousTurn);
       return;
@@ -213,10 +366,87 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
     setPartialTranscript("");
     setStreamingText("");
     setState("idle");
-  }, [clearTimers, finalizeTurn]);
+  }, [clearTimers, currentAgentRunId, finalizeTurn]);
+
+  const cancelCurrentAgentRun = useCallback(async () => {
+    if (!currentAgentRunId) return;
+    await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
+      method: "POST",
+    }).catch(() => undefined);
+    setAgentSteps((current) =>
+      current.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" })),
+    );
+    setState("idle");
+  }, [currentAgentRunId]);
+
+  const resumeCurrentAgentRun = useCallback(async () => {
+    if (!currentAgentRunId) return;
+    const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/resume`, {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error(`Resume failed (${response.status})`);
+    setAgentSteps((current) =>
+      current.map((step) =>
+        step.status === "pending" || step.status === "cancelled"
+          ? { ...step, status: "active", detail: "Runtime resume requested" }
+          : step,
+      ),
+    );
+    setState("thinking");
+  }, [currentAgentRunId]);
+
+  const confirmCurrentAgentStep = useCallback(async (approved: boolean) => {
+    if (!currentAgentRunId || !currentAgentConfirmationStepId) return;
+    const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stepId: currentAgentConfirmationStepId, approved }),
+    });
+    if (!response.ok) throw new Error(`Confirmation failed (${response.status})`);
+    setAgentSteps((current) =>
+      current.map((step) =>
+        step.id === currentAgentConfirmationStepId
+          ? {
+              ...step,
+              status: approved ? "active" : "cancelled",
+              detail: approved ? "Approval sent to runtime" : "Rejected by user",
+            }
+          : step,
+      ),
+    );
+    if (!approved) setState("idle");
+  }, [currentAgentConfirmationStepId, currentAgentRunId]);
+
+  const recoverCurrentAgentRun = useCallback(async () => {
+    if (!currentAgentRunId) return;
+    const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/recover`, {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error(`Recovery failed (${response.status})`);
+    setAgentSteps((current) => [
+      ...current.filter((step) => step.id !== "run-recovery"),
+      {
+        id: "run-recovery",
+        label: "Recovery requested",
+        status: "active",
+        detail: "Runtime is restoring safe resumable work",
+      },
+    ]);
+    setState("thinking");
+  }, [currentAgentRunId]);
 
   const sendText = useCallback(
-    async (rawText: string, options?: { forceBackend?: boolean }) => {
+    async (
+      rawText: string,
+      options?: {
+        forceBackend?: boolean;
+        imageUrl?: string;
+        attachment_ids?: string[];
+        attachments?: import("./types").MessageAttachment[];
+        imageEngine?: string;
+        voiceEngine?: string;
+      },
+    ) => {
       const text = rawText.trim();
       if (!text) return;
 
@@ -230,11 +460,17 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
       currentAbort.current = abortController;
       setMessages((current) => [
         ...current,
-        createMessage("user", text),
+        createMessage("user", text, {
+          imageUrl: options?.imageUrl,
+          attachments: options?.attachments,
+        }),
       ]);
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
+      setAgentSteps([]);
+      setCurrentAgentRunId(undefined);
+      setCurrentAgentConfirmationStepId(undefined);
       setState("thinking");
 
       try {
@@ -258,6 +494,12 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
           signal: abortController.signal,
           language,
           brainModel: turnModel,
+          imageEngine: options?.imageEngine,
+          voiceEngine: options?.voiceEngine,
+          conversationId: conversationId || undefined,
+          imageUrl: options?.imageUrl,
+          attachment_ids: options?.attachment_ids,
+          attachments: options?.attachments,
         })) {
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {
@@ -281,6 +523,19 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
             // usage metadata after the plan; finalizing early makes the next
             // stream event look stale and drops the completed turn before typed
             // chat can hand its spokenText to the playback owner.
+          } else if (event.type === "agent.event") {
+            setCurrentAgentRunId(event.event.run_id);
+            if (event.event.event_type === "confirmation.required") {
+              setCurrentAgentConfirmationStepId(event.event.step_id ?? undefined);
+            }
+            if (
+              event.event.event_type === "agent.run.completed" ||
+              event.event.event_type === "agent.run.failed" ||
+              event.event.event_type === "agent.run.cancelled"
+            ) {
+              setCurrentAgentConfirmationStepId(undefined);
+            }
+            setAgentSteps((current) => runtimeEventToSteps(current, event.event));
           } else {
             providerLatencyMs = event.latencyMs;
           }
@@ -300,15 +555,29 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
           return undefined;
         }
         const message = error instanceof Error ? error.message : "";
-        const friendly = message.includes("PROVIDER_RATE_LIMIT")
-          ? "The selected brain key/model is rate limited. Switch the Brain model, wait a moment, or use the Codex key source."
-          : message.includes("PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE")
-            ? "Claude gateway received your request, but its upstream service has no available accounts right now. This is not a HINAA model setting problem. Check the gateway balance/account status, wait for capacity, or use another healthy brain."
+        const isSchemaError =
+          (error as any)?.name === "ZodError" ||
+          message.includes("unrecognized_keys") ||
+          message.includes("validation_error") ||
+          message.includes("Invalid input");
+        const isRateLimit =
+          message.includes("PROVIDER_RATE_LIMIT") ||
+          message.includes("429") ||
+          message.includes("rate_limit_exceeded") ||
+          message.includes("temporarily rate limited");
+        const friendly = isSchemaError
+          ? "HINAA encountered a plan formatting error while generating this response. Your prompt is preserved."
+          : isRateLimit
+          ? "The brain gateway is temporarily rate limited. Your prompt is preserved, and Hinaa will auto-route to an available brain."
+          : message.includes("PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE") || message.includes("capacity")
+            ? "The gateway is temporarily at capacity. Your prompt is preserved."
             : message.includes("PROVIDER_KEY_INVALID") || message.includes("PROVIDER_AUTH_FAILED")
             ? routing.activeMode === "claude"
-              ? "Claude could not authenticate. For an OpenAI-compatible Claude gateway, set HINAA_CLAUDE_BASE_URL to its documented /v1 URL, set HINAA_CLAUDE_PROTOCOL=openai-compatible, use a newly rotated HINAA_CLAUDE_API_KEY, then restart the backend."
-              : "The selected brain could not authenticate. Check its local backend key and endpoint, restart HINAA, then retry."
-            : `Response failed safely. ${message} Try another brain model or text mode.`;
+              ? "Claude could not authenticate. Please verify your Claude gateway key and endpoint."
+              : "The selected brain could not authenticate. Check its configuration and retry."
+            : message.includes("PROVIDER_UNAVAILABLE") || message.includes("cooldown") || message.includes("timeout")
+            ? "The primary brain is reconnecting. You can send your message again or switch to Gemini in brain settings."
+            : `Execution paused safely. ${message} Try another brain model or text mode.`;
         finalizeTurn(turnId, { errorText: friendly });
         return undefined;
       } finally {
@@ -323,6 +592,7 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
       messageId: string,
       request: AssistantTurnPlan["toolRequests"][number],
       approved: boolean,
+      approvalSource: "user" | "standing-consent" = "user",
     ) => {
       const actionId = request.toolName;
       const requestKey = `${messageId}:${actionId}:${JSON.stringify(request.parameters)}`;
@@ -349,7 +619,7 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
         const response = await fetch("/api/v1/tools/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...request, confirmed: true }),
+          body: JSON.stringify({ ...request, confirmed: true, approvalSource }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || payload.status === "error") {
@@ -530,7 +800,7 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
 
     if (!autoRunTools) return;
     for (const request of toolRequests) {
-      void resolveToolRequest(messageId, request, true);
+      void resolveToolRequest(messageId, request, true, "standing-consent");
     }
   }, [messages, autoRunTools, resolveToolRequest]);
 
@@ -540,10 +810,18 @@ export function useCompanionController({ routing, languagePolicy, autoRunTools =
     resetConversation,
     state,
     messages,
+    setMessages,
     partialTranscript,
     streamingText,
     routing,
     activePlan,
+    agentSteps,
+    currentAgentRunId,
+    currentAgentConfirmationStepId,
+    cancelCurrentAgentRun,
+    resumeCurrentAgentRun,
+    confirmCurrentAgentStep,
+    recoverCurrentAgentRun,
     sendText,
     startMockListening,
     beginListening,

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTriangle, Network, Globe } from 'lucide-react';
+import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTriangle, Network, Globe, FileText, Download, ExternalLink } from 'lucide-react';
 import { ImageGeneration } from '@/components/ui/image-generation';
 import { SourceCard, type SourceItem } from '@/components/ui/SourceCard';
 import { WorkTree } from './WorkTree';
@@ -129,18 +129,18 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
     }
     return (
       <section style={{ marginTop: 10, display: 'grid', gap: 9 }} aria-label="Public image search results">
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#f3e8dd', fontSize: 12, fontWeight: 750 }}>
-          <span>Public image results</span><span style={{ color: '#cbbca8', fontWeight: 600 }}>{images.length} result{images.length === 1 ? '' : 's'} · beta</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--text-primary)', fontSize: 12, fontWeight: 750 }}>
+          <span>Public image results</span><span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{images.length} result{images.length === 1 ? '' : 's'}</span>
         </div>
         {images.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 9 }}>
           {images.map((image: any, index: number) => (
-            <motion.a key={image.id || image.imageUrl || index} href={image.pageUrl || image.imageUrl} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: index * 0.025 }} whileHover={{ y: -2 }} style={{ overflow: 'hidden', border: '1px solid rgba(255,255,255,.12)', borderRadius: 12, background: '#211823', color: '#f4e9df', textDecoration: 'none' }}>
-              <img src={image.imageUrl} alt={image.title || 'Public image result'} loading="lazy" referrerPolicy="no-referrer" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: '#130d15' }} />
+            <motion.a key={image.id || image.imageUrl || index} href={image.pageUrl || image.imageUrl} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: index * 0.025 }} whileHover={{ y: -2 }} style={{ overflow: 'hidden', border: '1px solid var(--border-subtle)', borderRadius: 12, background: 'var(--bg-surface-raised)', color: 'var(--text-primary)', textDecoration: 'none', boxShadow: 'var(--shadow-xs)' }}>
+              <img src={image.imageUrl} alt={image.title || 'Public image result'} loading="lazy" referrerPolicy="no-referrer" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: 'var(--bg-secondary)' }} />
               <span style={{ display: 'block', padding: '7px 8px 8px', fontSize: 11, fontWeight: 650, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{image.title || 'Open source page'}</span>
             </motion.a>
           ))}
-        </div> : <p style={{ color: '#cbbca8', fontSize: 12, margin: 0 }}>No public image links were returned for this query. Try a more specific search.</p>}
-        <small style={{ color: '#a99a8b', fontSize: 11, lineHeight: 1.45 }}>Public web image links may have licensing restrictions. Open the source page before saving or reusing an image.</small>
+        </div> : <p style={{ color: 'var(--text-tertiary)', fontSize: 12, margin: 0 }}>No public image links were returned for this query. Try a more specific search.</p>}
+        <small style={{ color: 'var(--text-tertiary)', fontSize: 11, lineHeight: 1.45 }}>Public web image links may have licensing restrictions. Open the source page before saving or reusing an image.</small>
       </section>
     );
   }
@@ -193,48 +193,296 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
 
   // Render browser_execute_task as WorkTree
   if (toolName === 'browser_execute_task') {
-    const isError = data.error || result.status === 'error';
-    const isProcessing = !data && result.status !== 'success' && !isError;
-    const finalOutcome = typeof data === 'string' ? data : (data.details || JSON.stringify(data));
+    const isError = Boolean(data?.error || result?.status === 'error');
+    
+    // Extract clean readable outcome
+    let finalOutcome: React.ReactNode = null;
+    if (typeof data === 'string') {
+      finalOutcome = data;
+    } else if (data && typeof data === 'object') {
+      const candidate = data.details || data.result || data.summary || data.message || data.output;
+      if (typeof candidate === 'string') {
+        finalOutcome = candidate;
+      } else if (data.error) {
+        finalOutcome = String(data.error);
+      } else if (data.imageCount || (Array.isArray(data.images) && data.images.length > 0)) {
+        const count = data.imageCount || data.images?.length || 0;
+        finalOutcome = (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)' }}>
+            <span style={{ 
+              display: 'inline-block',
+              padding: '2px 8px', 
+              borderRadius: 6, 
+              background: 'rgba(244, 114, 182, 0.15)', 
+              color: 'var(--accent, #f472b6)', 
+              fontWeight: 650, 
+              fontSize: '0.75rem' 
+            }}>
+              {count} Results
+            </span>
+            <span>Retrieved {count} visual assets successfully ✨</span>
+          </div>
+        );
+      } else {
+        const entries = Object.entries(data).filter(([k]) => !['status', 'ok', 'provider', 'code', 'mode', 'sessionId'].includes(k));
+        if (entries.length > 0) {
+          finalOutcome = (
+            <div style={{ display: 'grid', gap: 6 }}>
+              {entries.map(([k, v]) => {
+                const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+                return (
+                  <div key={k} style={{ fontSize: '0.78rem', display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontWeight: 650, color: 'var(--accent, #f472b6)' }}>{label}:</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{typeof v === 'string' ? v : JSON.stringify(v)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        } else {
+          finalOutcome = isError ? 'Autonomous task stopped or encountered an error.' : 'Autonomous execution completed successfully ✨';
+        }
+      }
+    } else {
+      finalOutcome = isError ? 'Autonomous task stopped or encountered an error.' : 'Autonomous execution completed successfully ✨';
+    }
     
     const nodes: WorkTreeNode[] = [
       { id: 'start', status: 'success', title: 'Initializing Autonomous Agent', detail: 'Agent spawned successfully.' },
       { id: 'work', status: isError ? 'error' : (data ? 'success' : 'active'), title: 'Deep Researching / Browsing', detail: 'Navigating, reading pages, and analyzing content.' },
     ];
     if (data || isError) {
-      nodes.push({ id: 'done', status: isError ? 'error' : 'success', title: 'Task Completed', detail: finalOutcome });
+      nodes.push({
+        id: 'done',
+        status: isError ? 'error' : 'success',
+        title: isError ? 'Execution Interrupted' : 'Task Completed',
+        detail: finalOutcome,
+      });
     }
 
     return <WorkTree title="Autonomous Browser Task" icon={<Globe size={16} />} nodes={nodes} />;
   }
 
+  // Render PDF Generation Result (ChatGPT Style with Download & Python Code Block)
+  if (toolName === 'pdf_generate') {
+    const isError = Boolean(data?.error || result?.status === 'error');
+    if (isError) {
+      return (
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
+          <div style={{ color: '#ef4444', fontWeight: 650, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertTriangle size={14} /> PDF Compilation Failed
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '6px 0 0' }}>
+            {data.error || 'Could not compile document.'}
+          </p>
+        </div>
+      );
+    }
+
+    const title = data.title || 'Academic Document';
+    const filename = data.filename || 'document.pdf';
+    const baseDownloadUrl = data.downloadUrl || (data.docId ? `/api/v1/generated-docs/${data.docId}` : '');
+    const downloadUrl = baseDownloadUrl
+      ? `${baseDownloadUrl}${baseDownloadUrl.includes('?') ? '&' : '?'}filename=${encodeURIComponent(filename)}`
+      : '#';
+    const pageCount = data.pageCount || 2;
+    const fileSizeKb = data.fileSizeKb || 12;
+    const pythonSnippet = data.pythonSnippet;
+
+    return (
+      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* ChatGPT Style Download Card */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 14,
+          padding: '14px 18px',
+          borderRadius: 14,
+          background: 'linear-gradient(135deg, rgba(244, 114, 182, 0.08) 0%, rgba(20, 16, 28, 0.7) 100%)',
+          border: '1px solid rgba(244, 114, 182, 0.3)',
+          backdropFilter: 'blur(16px)',
+          boxShadow: '0 8px 24px -4px rgba(244, 114, 182, 0.12)',
+        }}>
+          {/* File icon and info */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <div style={{
+              width: 42,
+              height: 42,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, #ef4444 0%, #be123c 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.35)',
+              flexShrink: 0,
+            }}>
+              <span style={{ fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.05em' }}>PDF</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+              <span style={{
+                fontSize: '0.88rem',
+                fontWeight: 650,
+                color: 'var(--text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {title}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                <span style={{ fontFamily: 'monospace', color: 'var(--accent, #f472b6)' }}>{filename}</span>
+                <span>•</span>
+                <span>{pageCount} Pages</span>
+                <span>•</span>
+                <span>{fileSizeKb} KB</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <a
+              href={downloadUrl}
+              download={filename}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 16px',
+                borderRadius: 999,
+                background: 'var(--accent, #f472b6)',
+                color: '#ffffff',
+                textDecoration: 'none',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                boxShadow: '0 2px 10px rgba(244, 114, 182, 0.4)',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease',
+              }}
+            >
+              <Download size={14} /> Download PDF
+            </a>
+          </div>
+        </div>
+
+        {/* Collapsible Python Analysis / Code block (like ChatGPT) */}
+        {pythonSnippet && (
+          <div style={{
+            borderRadius: 10,
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: 'rgba(15, 12, 22, 0.6)',
+            overflow: 'hidden',
+          }}>
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              style={{
+                width: '100%',
+                padding: '7px 12px',
+                background: 'transparent',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                color: 'var(--text-tertiary)',
+                fontSize: '0.74rem',
+                cursor: 'pointer',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'monospace' }}>
+                <Terminal size={12} color="var(--accent, #f472b6)" /> Python Code Interpreter ({pageCount} pages generated)
+              </span>
+              {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+            {expanded && (
+              <pre style={{
+                margin: 0,
+                padding: '10px 14px',
+                background: 'rgba(0, 0, 0, 0.4)',
+                borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+                fontSize: '0.72rem',
+                fontFamily: 'monospace',
+                color: '#e2e8f0',
+                overflowX: 'auto',
+                lineHeight: 1.45,
+              }}>
+                {pythonSnippet}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Render images and processing state using WorkTree
-  if (toolName === 'image_generate' || toolName === 'comfy_ui') {
+  if (
+    toolName === 'image_generate' ||
+    toolName === 'comfy_ui' ||
+    toolName === 'magnific_image_generate' ||
+    toolName === 'freepik_image_generate' ||
+    toolName === 'magnific_upscale'
+  ) {
     const isProcessing = data.status === 'processing';
-    const hasImages = data.images && Array.isArray(data.images) && data.images.length > 0;
+    
+    // Extract image URLs safely from arrays of strings, objects ({url, file_path}), or single properties
+    const rawList = Array.isArray(data.images)
+      ? data.images
+      : data.url
+        ? [data.url]
+        : data.imageUrl
+          ? [data.imageUrl]
+          : data.upscaled_path
+            ? [data.url || data.upscaled_path]
+            : [];
+
+    const imageUrls: string[] = rawList
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') return item.url || item.file_path || '';
+        return '';
+      })
+      .filter(Boolean);
+
+    const hasImages = imageUrls.length > 0;
     
     // Determine workflow details
     let workflow = "HINAA_ANIMA_FAST (768x768)";
     if (data.mode === 'quality') workflow = "HINAA_ANIMA_QUALITY (1024x1024)";
     else if (data.mode === 'ultra') workflow = "HINAA_NEWBIE_ULTRA (1024x1536)";
+    else if (toolName.includes('magnific')) workflow = "MAGNIFIC_AI_HIGH_RES (1024x1024)";
+    else if (toolName.includes('freepik')) workflow = "FREEPIK_FLUX_SCHNELL (1024x1024)";
 
     // Use prompt from params if available
     const promptText = data.prompt || data.details?.[0]?.prompt || "Generating amazing artwork...";
 
+    const toolTitle = toolName === 'magnific_upscale'
+      ? 'Magnific AI Upscaler'
+      : toolName.includes('magnific')
+        ? 'Magnific AI Creative Suite'
+        : toolName.includes('freepik')
+          ? 'Freepik AI Studio'
+          : 'AI Image Generation';
+
     const nodes: WorkTreeNode[] = [
-      { id: '1', status: 'success', title: 'Connecting to AI Canvas', detail: `Workflow: ${workflow} | Mode: ${data.mode || 'Fast'}` },
+      { id: '1', status: 'success', title: 'Connecting to AI Canvas', detail: `Workflow: ${workflow} | Mode: ${data.mode || data.tier || 'Fast'}` },
       { id: '2', status: hasImages ? 'success' : 'active', title: 'Rendering Image(s)', detail: `Prompt: ${promptText}` }
     ];
 
     return (
       <div style={{ marginTop: 12 }}>
-        <WorkTree title="AI Image Generation" icon={<ImageIcon size={16} />} nodes={nodes} />
+        <WorkTree title={toolTitle} icon={<ImageIcon size={16} />} nodes={nodes} />
         
         {(hasImages || isProcessing) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12, padding: '0 16px' }}>
             {hasImages && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                {data.images.map((url: string, i: number) => (
+                {imageUrls.map((url: string, i: number) => (
                   <motion.a 
                     key={i} 
                     href={url} 
@@ -255,7 +503,7 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
             
             {isProcessing && (
               <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '10px 0' }}>
-                 <ImageGeneration prompt={promptText} resolution={workflow.split(' ')[1].replace(/[()]/g, '')} />
+                 <ImageGeneration prompt={promptText} resolution={workflow.split(' ')[1]?.replace(/[()]/g, '') || '1024x1024'} />
               </div>
             )}
           </div>
@@ -281,20 +529,20 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
 
   // Generic JSON renderer
   return (
-    <div style={{ marginTop: 12, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
+    <div style={{ marginTop: 12, borderRadius: 'var(--radius-md, 10px)', overflow: 'hidden', border: '1px solid var(--border-subtle)', background: 'var(--bg-surface-raised)' }}>
       <button
         onClick={() => setExpanded(!expanded)}
-        style={{ width: '100%', padding: '8px 12px', background: 'rgba(241, 245, 249, 0.5)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+        style={{ width: '100%', padding: '9px 14px', background: 'var(--bg-surface)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
       >
-        <span style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <FileJson size={14} /> {toolName} result
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <FileJson size={14} color="var(--accent)" /> {toolName} result
         </span>
-        {expanded ? <ChevronUp size={14} color="#64748b" /> : <ChevronDown size={14} color="#64748b" />}
+        {expanded ? <ChevronUp size={14} color="var(--text-tertiary)" /> : <ChevronDown size={14} color="var(--text-tertiary)" />}
       </button>
       
       {expanded && (
-        <div style={{ padding: 12, background: 'rgba(255,255,255,0.8)', borderTop: '1px solid rgba(0,0,0,0.05)', maxHeight: 300, overflowY: 'auto' }}>
-          <pre style={{ margin: 0, fontSize: '0.75rem', color: '#334155', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+        <div style={{ padding: 12, background: 'var(--bg-surface-raised)', borderTop: '1px solid var(--border-subtle)', maxHeight: 300, overflowY: 'auto' }}>
+          <pre style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'monospace' }}>
             {JSON.stringify(data, null, 2)}
           </pre>
         </div>

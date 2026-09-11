@@ -7,6 +7,21 @@ import { LatencyClock } from "./latencyClock";
 import { PhraseDetector } from "./phraseDetector";
 import { TurnTakingController } from "./turnTakingController";
 import type { ActiveLanguagePolicy } from "../settings/types/settings";
+import { recognitionLocale, browserSpeechLocale } from "./languagePolicy";
+
+function parseTurnId(turnId: string): { turn: number; generation: number } {
+  // Format: turn-{turnNumber}-{generation}
+  const parts = turnId.split("-");
+  if (parts.length >= 3) {
+    const turn = parseInt(parts[1], 10);
+    const gen = parseInt(parts[2], 10);
+    return {
+      turn: isNaN(turn) ? 0 : turn,
+      generation: isNaN(gen) ? 0 : gen,
+    };
+  }
+  return { turn: 0, generation: 0 };
+}
 
 type LiveStatus =
   "idle" | "connecting" | "listening" | "paused" | "reconnecting" | "error";
@@ -103,6 +118,7 @@ interface LiveEvent {
 }
 
 interface LiveOptions {
+  conversationId?: string;
   controller: CompanionController;
   playback: PlaybackController;
   calibration: "natural" | "soft" | "lively";
@@ -121,14 +137,7 @@ function websocketUrl(): string {
   return `${protocol}//${window.location.host}/api/v1/realtime`;
 }
 
-function liveLocaleForPolicy(policy: ActiveLanguagePolicy): "en-US" | "hi-IN" | "mixed" {
-  if (policy === "en-US" || policy === "hi-IN") return policy;
-  return "mixed";
-}
-
-function browserLanguageForText(text: string): string {
-  return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
-}
+const liveLocaleForPolicy = recognitionLocale;
 
 function decodeAudio(value: string, mediaType = "audio/wav"): Blob {
   const binary = atob(value);
@@ -164,13 +173,23 @@ export function useLiveConversation({
   calibration,
   outputMode,
   activeLanguagePolicy,
+  conversationId,
 }: LiveOptions) {
+  const localSessionId = useRef(globalThis.crypto.randomUUID());
+  const languagePolicyRef = useRef(activeLanguagePolicy);
+  languagePolicyRef.current = activeLanguagePolicy;
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [detail, setDetail] = useState("Live microphone is off");
   const [metrics, setMetrics] = useState<LiveMetrics>({});
   const [voiceMetadata, setVoiceMetadata] = useState("");
   const [paused, setPaused] = useState(false);
+  /** True from the moment a turn is committed until the first sign of an
+   *  assistant response. This is the ONLY reliable arming signal for the
+   *  brain-timeout watchdog — entering "waiting_for_provider" never changes
+   *  `status`, so an effect keyed on [status] would never re-run and the
+   *  watchdog would never arm. */
+  const [brainPending, setBrainPending] = useState(false);
   const [diagnostics, setDiagnostics] = useState<VoicePipelineDiagnostics>({
     micPermission: "unknown",
     trackState: "unknown",
@@ -216,6 +235,8 @@ export function useLiveConversation({
   const audioContext = useRef<AudioContext | undefined>(undefined);
   const source = useRef<MediaStreamAudioSourceNode | undefined>(undefined);
   const worklet = useRef<AudioWorkletNode | undefined>(undefined);
+  const silentNode = useRef<GainNode | undefined>(undefined);
+  const handleWorkletFrameRef = useRef<((frame: ArrayBuffer, level: number) => void) | undefined>(undefined);
   const active = useRef(false);
   const pausedRef = useRef(false);
   const manualStop = useRef(false);
@@ -223,10 +244,14 @@ export function useLiveConversation({
   const generation = useRef(1);
   const sequence = useRef(0);
   const capturing = useRef(false);
+  const pushToTalkHeld = useRef(false);
   const preRoll = useRef<ArrayBuffer[]>([]);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<number | undefined>(undefined);
   const heartbeat = useRef<number | undefined>(undefined);
+  const stuckTimerRef = useRef<number | undefined>(undefined);
+  const brainTimerRef = useRef<number | undefined>(undefined);
+  const drainTimerRef = useRef<number | undefined>(undefined);
   const playbackQueue = useRef(Promise.resolve());
   const playbackState = useRef(false);
   const wasPlayingRef = useRef(false);
@@ -239,6 +264,7 @@ export function useLiveConversation({
   const audibleGeneration = useRef<number | undefined>(undefined);
   const lastPartial = useRef("");
   const frameTraceCount = useRef(0);
+  const startupCalibrationCount = useRef(0);
   const turnTaking = useRef(new TurnTakingController());
   const phraseDetector = useRef(new PhraseDetector());
   const latency = useRef(new LatencyClock());
@@ -258,6 +284,10 @@ export function useLiveConversation({
   const callbacks = useRef({ controller, playback });
   callbacks.current = { controller, playback };
   playbackState.current = playback.playing;
+  // When the requested live brain is unconfigured, automatically retry the
+  // session once with the mock brain so the user can keep testing voice
+  // without an opaque "voice service is not configured" error.
+  const forcedMockFallback = useRef(false);
 
   const updateQueueDiagnostics = useCallback(() => {
     const pq = playbackQueueRef.current;
@@ -333,6 +363,43 @@ export function useLiveConversation({
       socket.current.send(JSON.stringify(value));
   }, []);
 
+  // Release all microphone/websocket resources without changing UI state.
+  // Declared before event/connect callbacks so their cleanup dependency is
+  // explicit and cannot capture a stale render.
+  const teardownSession = useCallback(() => {
+    active.current = false;
+    ready.current = false;
+    capturing.current = false;
+    sendJson({ type: "session.close" });
+    socket.current?.close();
+    socket.current = undefined;
+    if (heartbeat.current) window.clearInterval(heartbeat.current);
+    if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
+    worklet.current?.disconnect();
+    source.current?.disconnect();
+    silentNode.current?.disconnect();
+    for (const track of stream.current?.getTracks() ?? []) track.stop();
+    if (audioContext.current?.state !== "closed") void audioContext.current?.close();
+    stream.current = undefined;
+    worklet.current = undefined;
+    source.current = undefined;
+    silentNode.current = undefined;
+    audioContext.current = undefined;
+    preRoll.current = [];
+    turnTaking.current.resetSpeech();
+    turnTaking.current.setSessionState("inactive");
+    phraseDetector.current.reset();
+    setMicrophoneLevel(0);
+    playbackQueueRef.current = { encodedChunks: 0, decoding: 0, decodedBuffers: 0, scheduledSources: 0, finalSequenceReceived: false };
+    turnCompleteReceivedRef.current = false;
+    if (playbackState.current) manualAudioStop.current = true;
+    callbacks.current.playback.stop();
+    window.clearTimeout(drainTimerRef.current);
+    window.clearTimeout(stuckTimerRef.current);
+    window.clearTimeout(brainTimerRef.current);
+    setBrainPending(false);
+  }, [sendJson]);
+
   const sendFrame = useCallback(
     (frame: ArrayBuffer) => {
       if (!ready.current || !capturing.current || pausedRef.current) return;
@@ -376,6 +443,7 @@ export function useLiveConversation({
     textGeneration.current = undefined;
     audibleGeneration.current = undefined;
     lastPartial.current = "";
+    setBrainPending(false);
     phraseDetector.current.reset();
     diagnosticsRef.current.audioChunksReceived = 0;
     latency.current.mark("speech_started");
@@ -391,13 +459,34 @@ export function useLiveConversation({
       setMicrophoneLevel((current) => current * 0.7 + level * 0.3);
       chunksSentRef.current += 1;
       // Update RMS in diagnostics (throttled to avoid excessive re-renders)
-      setDiagnostics((prev) => ({ ...prev, rmsLevel: level }));
+      setDiagnostics((prev) => ({
+        ...prev,
+        rmsLevel: level,
+        noiseFloor: turnTaking.current.currentNoiseFloor,
+        vadThreshold: turnTaking.current.currentThreshold,
+      }));
+      if (pushToTalkHeld.current && capturing.current && active.current && ready.current && !pausedRef.current) {
+        sendFrame(frame);
+        return;
+      }
+      // On the first 8 frames when mic starts up (once per session), calibrate ambient noise floor.
+      // Ignore levels >= 0.025 so user speech is never mistaken for background noise.
+      if (startupCalibrationCount.current < 8 && !pushToTalkHeld.current && !capturing.current) {
+        startupCalibrationCount.current += 1;
+        if (level < 0.025) {
+          turnTaking.current.calibrateFloor(level);
+        }
+      }
+      const isWaiting =
+        brainPending ||
+        turnTaking.current.currentState === "waiting_for_provider";
       const decision = turnTaking.current.process({
         level,
         assistantPlaying: playbackState.current,
         partialText: lastPartial.current,
         sessionActive: active.current && ready.current,
         paused: pausedRef.current,
+        waitingForProvider: isWaiting,
       });
       setMetrics((current) => ({ ...current, turnState: decision.state }));
 
@@ -412,10 +501,16 @@ export function useLiveConversation({
           "assistantPlaying:", playbackState.current,
         );
 
-      // Only allow true intentional user barge-in (level >= 0.22) so assistant speaker output never cuts her off mid-sentence
-      if (decision.bargeIn && level >= 0.22) {
+      // Trust the controller's barge-in decision: it already enforces the
+      // sustained-intent threshold (0.22 floor + bargeInFrames). The old extra
+      // `level >= 0.22` check only ran on the single frame where hotFrames
+      // equaled bargeInFrames — if that one frame was slightly under 0.22 the
+      // barge-in was rejected and could never re-fire, creating a dead zone
+      // where the user shouted but HINAA never stopped.
+      if (decision.bargeIn) {
         const started = performance.now();
         manualAudioStop.current = true;
+        setBrainPending(false);
         callbacks.current.playback.stop();
         playbackState.current = false;
         generation.current += 1;
@@ -446,6 +541,7 @@ export function useLiveConversation({
       if (decision.speechStart) {
         voiceTrace("speech-start", "rms:", level.toFixed(4), "state:", decision.state);
         beginSpeech();
+        sendFrame(frame);
       } else if (capturing.current) sendFrame(frame);
       if (decision.speechCommit && capturing.current) {
         voiceTrace("speech-commit", "frames-captured:", sequence.current);
@@ -459,11 +555,13 @@ export function useLiveConversation({
         });
         capturing.current = false;
         turnTaking.current.setSessionState("waiting_for_provider");
+        setBrainPending(true);
         setDetail("Turn committed · waiting for HINAA…");
       }
     },
     [beginSpeech, sendFrame, sendJson],
   );
+  handleWorkletFrameRef.current = handleWorkletFrame;
 
   const handleServerEvent = useCallback((event: LiveEvent) => {
     voiceTrace(
@@ -484,25 +582,34 @@ export function useLiveConversation({
     // Session-level events bypass turn correlation
     if (event.type === "session.ready" || event.type === "pong" || event.type === "error") {
       // fall through to handler below
-    } else if (event.turnId && activeTurnIdRef.current && event.turnId !== activeTurnIdRef.current) {
-      // Late event from a previous turn — discard, but say so loudly: a
-      // flood of these for a turn we just started means the correlation
-      // state went stale (this hid the multi-turn stuck-listening bug).
-      console.warn(
-        "[voice] discarded event from another turn:",
-        event.type,
-        "event turnId:", event.turnId,
-        "active turnId:", activeTurnIdRef.current,
-      );
-      return;
-    }
-    // Track the active turn ID from any event that carries one
-    if (event.turnId) {
-      if (!activeTurnIdRef.current || event.turnId !== activeTurnIdRef.current) {
+    } else if (event.turnId) {
+      if (!activeTurnIdRef.current) {
+        // Adopt initial turn ID
         activeTurnIdRef.current = event.turnId;
         turnCompleteReceivedRef.current = false;
         diagnosticsRef.current.audioChunksReceived = 0;
         playbackQueueRef.current = { encodedChunks: 0, decoding: 0, decodedBuffers: 0, scheduledSources: 0, finalSequenceReceived: false };
+      } else if (event.turnId !== activeTurnIdRef.current) {
+        const incoming = parseTurnId(event.turnId);
+        const active = parseTurnId(activeTurnIdRef.current);
+
+        // If the incoming event is from a newer turn or generation, advance to it!
+        if (incoming.turn > active.turn || (incoming.turn === active.turn && incoming.generation > active.generation)) {
+          voiceTrace("turn-advance", "from:", activeTurnIdRef.current, "to:", event.turnId, "event:", event.type);
+          activeTurnIdRef.current = event.turnId;
+          turnCompleteReceivedRef.current = false;
+          diagnosticsRef.current.audioChunksReceived = 0;
+          playbackQueueRef.current = { encodedChunks: 0, decoding: 0, decodedBuffers: 0, scheduledSources: 0, finalSequenceReceived: false };
+        } else {
+          // Genuinely stale event from an older turn that was already completed or superseded
+          voiceTrace(
+            "discard:stale-turn",
+            event.type,
+            "event turnId:", event.turnId,
+            "active turnId:", activeTurnIdRef.current,
+          );
+          return;
+        }
       }
     }
     const current = callbacks.current;
@@ -544,6 +651,7 @@ export function useLiveConversation({
         ...prev,
         lastCommittedTranscript: event.text || "",
         sttLatencyMs: event.sttMs ?? 0,
+        brainProvider: prev.voiceRoute.brainProvider || "claude",
         currentStage: "stt-final",
         turnCount: prev.turnCount + 1,
         activeTurnId: `turn-${Date.now()}`,
@@ -568,10 +676,13 @@ export function useLiveConversation({
         setDetail("HINAA is thinking…");
       } else if (stage === "tts") {
         setDetail("Generating speech…");
+      } else if (detail) {
+        setDetail(detail);
       }
     } else if (event.type === "assistant.thinking") {
       current.controller.setLiveState("thinking");
     } else if (event.type === "assistant.text.delta" && event.delta) {
+      setBrainPending(false);
       setDiagnostics((prev) => ({ ...prev, currentStage: "brain-streaming" }));
       if (
         textGeneration.current !== generation.current &&
@@ -600,9 +711,15 @@ export function useLiveConversation({
         lastSpokenTextRef.current = safeText;
       }
     } else if (event.type === "assistant.plan") {
+      setBrainPending(false);
       phraseDetector.current.flush();
       latency.current.mark("final_text");
-      setDiagnostics((prev) => ({ ...prev, currentStage: "brain-complete", firstTokenReceived: true }));
+      setDiagnostics((prev) => ({
+        ...prev,
+        currentStage: "brain-complete",
+        firstTokenReceived: true,
+        brainProvider: prev.voiceRoute.brainProvider || "claude",
+      }));
       try {
         const plan = parseAssistantTurnPlan(event.plan);
         lastSpokenTextRef.current = plan.spokenText;
@@ -668,7 +785,7 @@ export function useLiveConversation({
           setVoiceMetadata("Device browser voice fallback · local speech output");
           const started = await current.playback.speakBrowser(
             spokenText,
-            browserLanguageForText(spokenText),
+            browserSpeechLocale(spokenText, languagePolicyRef.current),
           );
           if (started) {
             latency.current.mark("playback_started");
@@ -705,24 +822,42 @@ export function useLiveConversation({
         playbackQueueRef.current.decodedBuffers += 1;
         updateQueueDiagnostics();
         try {
-          await current.playback.play(blob, spokenText || undefined, () => {
-            latency.current.mark("playback_started");
-            playbackQueueRef.current.decodedBuffers -= 1;
-            playbackQueueRef.current.scheduledSources += 1;
-            updateQueueDiagnostics();
-            if (
-              audibleGeneration.current !== generation.current &&
-              speechEndedAt.current !== undefined
-            ) {
-              audibleGeneration.current = generation.current;
-              setMetrics((value) => ({
-                ...value,
-                firstAudibleAfterSpeechMs: Math.round(
-                  performance.now() - speechEndedAt.current!,
-                ),
-              }));
-            }
-          });
+          await current.playback.play(
+            blob,
+            spokenText || undefined,
+            () => {
+              latency.current.mark("playback_started");
+              playbackQueueRef.current.decodedBuffers -= 1;
+              playbackQueueRef.current.scheduledSources += 1;
+              updateQueueDiagnostics();
+              if (
+                audibleGeneration.current !== generation.current &&
+                speechEndedAt.current !== undefined
+              ) {
+                audibleGeneration.current = generation.current;
+                setMetrics((value) => ({
+                  ...value,
+                  firstAudibleAfterSpeechMs: Math.round(
+                    performance.now() - speechEndedAt.current!,
+                  ),
+                }));
+              }
+            },
+            () => {
+              playbackQueueRef.current.scheduledSources = Math.max(0, playbackQueueRef.current.scheduledSources - 1);
+              updateQueueDiagnostics();
+              const pq = playbackQueueRef.current;
+              if (pq.encodedChunks === 0 && pq.decoding === 0 && pq.decodedBuffers === 0 && pq.scheduledSources === 0) {
+                if (turnCompleteReceivedRef.current && !pausedRef.current) {
+                  window.clearTimeout(drainTimerRef.current);
+                  turnTaking.current.setSessionState("listening");
+                  setStatus("listening");
+                  setDetail("Microphone active · hands-free listening");
+                  current.controller.setLiveState("listening");
+                }
+              }
+            },
+          );
         } catch (playErr) {
           console.error("[HINAA] TTS playback failed:", playErr);
           playbackQueueRef.current.decodedBuffers -= 1;
@@ -735,6 +870,7 @@ export function useLiveConversation({
         }
       });
     } else if (event.type === "turn.complete") {
+      setBrainPending(false);
       turnCompleteReceivedRef.current = true;
       latency.current.mark("turn_completed");
       setDiagnostics((prev) => ({ ...prev, currentStage: "turn-complete" }));
@@ -806,6 +942,7 @@ export function useLiveConversation({
       // the diagnostic detail without tearing down the live session.
       const code = (event as any).code ?? "voice_error";
       const reason = (event as any).reason ?? "";
+      setBrainPending(false);
       setDiagnostics((prev) => ({
         ...prev,
         lastError: `voice_error:${code}`,
@@ -815,18 +952,21 @@ export function useLiveConversation({
         setDetail(reason);
       }
             } else if (event.type === "turn.cancelled") {
+      setBrainPending(false);
       latency.current.mark("server_cancel_acknowledged");
       const reason = (event as any).reason || "unknown";
-      current.controller.setLiveState("listening");
+      current.controller.setLiveState("idle");
+      turnTaking.current.resetSpeech();
       turnTaking.current.setSessionState("listening");
-      if (reason === "no_speech_detected") {
-        setDetail("No speech detected · try speaking again");
-        setDiagnostics((prev) => ({ ...prev, currentStage: "no-speech", lastError: "" }));
+      if (reason === "no_speech_detected" || reason === "STT_EMPTY_TRANSCRIPT") {
+        setDetail("Listening · hands-free · speak naturally");
+        setDiagnostics((prev) => ({ ...prev, currentStage: "listening", lastError: "" }));
       } else {
         setDetail("Previous response interrupted · listening");
       }
     } else if (event.type === "error") {
       capturing.current = false;
+      setBrainPending(false);
       const code = event.code ?? "error";
       setDiagnostics((prev) => ({ ...prev, lastError: code, currentStage: `error-${code}` }));
       // Clear playback queue on error
@@ -834,6 +974,40 @@ export function useLiveConversation({
       window.clearTimeout(drainTimerRef.current);
       const liveProviderUnavailable =
         code.includes("PROVIDER") || code.includes("CONFIGURATION");
+      // Auto-recover from a brain that is not configured locally: keep the mic
+      // and websocket alive, retry once with the local mock brain so the user
+      // can continue testing voice instead of seeing a hard error.
+      if (
+        code === "PROVIDER_CONFIGURATION_MISSING" &&
+        !forcedMockFallback.current
+      ) {
+        forcedMockFallback.current = true;
+        setDiagnostics((prev) => ({
+          ...prev,
+          currentStage: "mock-fallback",
+          voiceRoute: {
+            ...(prev.voiceRoute ?? {
+              sttProvider: "elevenlabs",
+              sttTransport: "websocket",
+              brainProvider: "mock",
+              brainModel: "default",
+              ttsProvider: "elevenlabs",
+              ttsTransport: "http",
+              ttsVoiceId: "configured",
+            }),
+            brainProvider: "mock",
+            ttsFallbackReason: "Selected brain is not configured locally — using local mock for this session.",
+          },
+        }));
+        setDetail(
+          "Selected brain is not configured in this backend — continuing with the local mock voice so you can keep testing.",
+        );
+        setStatus("reconnecting");
+        turnTaking.current.setSessionState("reconnecting");
+        reconnectAttempt.current = 0;
+        try { socket.current?.close(); } catch { /* already closing */ }
+        return;
+      }
       turnTaking.current.setSessionState(
         liveProviderUnavailable ? "provider_unavailable" : "error",
       );
@@ -859,7 +1033,7 @@ export function useLiveConversation({
       // Release mic/websocket so Start button works for retry.
       teardownSession();
     }
-  }, []);
+  }, [teardownSession, updateQueueDiagnostics]);
 
   const connect = useCallback(() => {
     const next = new WebSocket(websocketUrl());
@@ -867,48 +1041,51 @@ export function useLiveConversation({
     next.binaryType = "arraybuffer";
     setDiagnostics((prev) => ({ ...prev, sttSocketState: "connecting", currentStage: "stt-connecting" }));
     next.onopen = () => {
+      reconnectAttempt.current = 0;
+      const requestedMode = callbacks.current.controller.routing.activeMode ?? "mock";
+      const effectiveMode = forcedMockFallback.current ? "mock" : requestedMode;
       sendJson({
         type: "session.hello",
         protocolVersion: "1.0",
-        sessionId: "browser-live",
+        sessionId: conversationId ?? localSessionId.current,
         companionId: callbacks.current.controller.companionId,
-        providerMode: callbacks.current.controller.routing.activeMode ?? "mock",
+        providerMode: effectiveMode,
         brainModel:
-          callbacks.current.controller.routing.activeMode === "custom" ||
-          callbacks.current.controller.routing.activeMode === "openai" ||
-          callbacks.current.controller.routing.activeMode === "real" ||
-          callbacks.current.controller.routing.activeMode === "agent-router" ||
-          callbacks.current.controller.routing.activeMode === "claude" ||
-          callbacks.current.controller.routing.activeMode === "cx-gateway" ||
-          callbacks.current.controller.routing.activeMode === "qwen"
+          effectiveMode === "custom" ||
+          effectiveMode === "openai" ||
+          effectiveMode === "real" ||
+          effectiveMode === "agent-router" ||
+          effectiveMode === "claude" ||
+          effectiveMode === "cx-gateway" ||
+          effectiveMode === "qwen"
             ? callbacks.current.controller.routing.activeModel ?? undefined
             : undefined,
         generation: generation.current,
         language: liveLocaleForPolicy(activeLanguagePolicy),
-        languageMode: "auto",
+        languageMode: recognitionLocale(activeLanguagePolicy) === "mixed" ? "auto" : "fixed",
         calibration,
       });
       // Populate the voice route diagnostics with the actual providers in use
-      const mode = callbacks.current.controller.routing.activeMode ?? "mock";
       setDiagnostics((prev) => ({
         ...prev,
+        sttSocketState: "open",
+        currentStage: "session-ready",
         voiceRoute: {
-          sttProvider: "elevenlabs",
-          sttTransport: "websocket",
-          brainProvider: mode,
-          brainModel: callbacks.current.controller.routing.activeModel ?? "default",
-          ttsProvider: "elevenlabs",
-          ttsTransport: "http",
-          ttsVoiceId: "configured",
+          ...prev.voiceRoute,
+          brainProvider: effectiveMode === "mock" ? "mock" : "claude",
+          ttsProvider: effectiveMode === "mock" ? "mock" : "elevenlabs",
         },
       }));
-      heartbeat.current = window.setInterval(
-        () => sendJson({ type: "ping", sentAtMs: performance.now() }),
-        15_000,
-      );
+      turnTaking.current.setSessionState("listening");
+      setStatus("listening");
+      setDetail("Microphone active · hands-free listening");
+      callbacks.current.controller.setLiveState("idle");
+      if (heartbeat.current) window.clearInterval(heartbeat.current);
+      heartbeat.current = window.setInterval(() => {
+        sendJson({ type: "ping", sentAtMs: performance.now() });
+      }, 5000);
     };
-    next.onmessage = (message) => {
-      if (typeof message.data !== "string") return;
+    next.onmessage = (message: MessageEvent<string>) => {
       try {
         handleServerEvent(JSON.parse(message.data) as LiveEvent);
       } catch {
@@ -920,9 +1097,9 @@ export function useLiveConversation({
       ready.current = false;
       if (heartbeat.current) window.clearInterval(heartbeat.current);
       if (!active.current || manualStop.current) return;
-      if (reconnectAttempt.current >= 3) {
+      if (reconnectAttempt.current >= 10) {
         callbacks.current.controller.applyLiveError(
-          "Realtime reconnection stopped after three bounded attempts.",
+          "Realtime reconnection stopped after multiple bounded attempts.",
         );
         teardownSession();
         setStatus("error");
@@ -931,14 +1108,16 @@ export function useLiveConversation({
       }
       setStatus("reconnecting");
       turnTaking.current.setSessionState("reconnecting");
-      const delay = 250 * 2 ** reconnectAttempt.current;
+      const delay = Math.min(2000, 250 * 2 ** reconnectAttempt.current);
       reconnectAttempt.current += 1;
       reconnectTimer.current = window.setTimeout(connect, delay);
     };
-  }, [activeLanguagePolicy, calibration, handleServerEvent, sendJson]);
+  }, [activeLanguagePolicy, conversationId, calibration, handleServerEvent, sendJson, teardownSession]);
 
   const start = useCallback(async () => {
-    if (active.current) return;
+    if (active.current) {
+      teardownSession();
+    }
     manualStop.current = false;
     pausedRef.current = false;
     setPaused(false);
@@ -947,14 +1126,18 @@ export function useLiveConversation({
     setMetrics({});
     latency.current.reset();
     latency.current.mark("live_session_started");
+    startupCalibrationCount.current = 0;
+    // Each fresh session resets the one-shot mock-fallback retry.
+    forcedMockFallback.current = false;
     turnTaking.current = new TurnTakingController({
-      startThreshold: 0.006,
-      speakerThreshold: outputMode === "speaker" ? 0.015 : 0.008,
-      startFrames: 2,
-      minimumSpeechFrames: 3,
-      hesitationFrames: 10,
-      endOfTurnFrames: 22,
-      maxSilenceFrames: 38,
+      startThreshold: 0.012,
+      speakerThreshold: outputMode === "speaker" ? 0.095 : 0.045,
+      startFrames: 4,
+      minimumSpeechFrames: 8,
+      hesitationFrames: 14,
+      endOfTurnFrames: 28,
+      maxSilenceFrames: 40,
+      maxSpeechFrames: 1000,
     });
     turnTaking.current.setSessionState("initializing");
     try {
@@ -974,15 +1157,26 @@ export function useLiveConversation({
       }
       await context.audioWorklet.addModule("/worklets/pcm-capture.js");
       const mediaSource = context.createMediaStreamSource(media);
+
+      // High-pass filter at 140Hz to eliminate fan rumble, desk vibrations, and 50/60Hz AC hum.
+      // Human voice fundamentals start at 120Hz+ for women/children and 85Hz+ for men.
+      // Filtering sub-140Hz attenuates 95%+ of mechanical fan motor/air turbulence noise.
+      const highpass = context.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.value = 140;
+      highpass.Q.value = 0.8;
+
       const node = new AudioWorkletNode(context, "hinaa-pcm-capture");
       const silent = context.createGain();
       silent.gain.value = 0;
-      mediaSource.connect(node);
+      silentNode.current = silent;
+      mediaSource.connect(highpass);
+      highpass.connect(node);
       node.connect(silent);
       silent.connect(context.destination);
       node.port.onmessage = (message: MessageEvent) => {
         const value = message.data as { frame: ArrayBuffer; level: number };
-        handleWorkletFrame(value.frame, value.level);
+        handleWorkletFrameRef.current?.(value.frame, value.level);
       };
       stream.current = media;
       audioContext.current = context;
@@ -1028,6 +1222,7 @@ export function useLiveConversation({
       );
       connect();
     } catch (error) {
+      teardownSession();
       setStatus("error");
       turnTaking.current.setSessionState("microphone_denied");
       setDiagnostics((prev) => ({ ...prev, micPermission: "denied", currentStage: "mic-denied" }));
@@ -1039,51 +1234,11 @@ export function useLiveConversation({
       // Mirror the failure into the companion state so the header pill and the
       // avatar show the error too, not just the stage status bar.
       callbacks.current.controller.setLiveState("error");
-      // Best-effort cleanup of any partially-acquired audio resources
-      try { worklet.current?.disconnect(); } catch {}
-      try { source.current?.disconnect(); } catch {}
-      for (const track of stream.current?.getTracks() ?? []) track.stop();
-      if (audioContext.current?.state !== "closed") void audioContext.current?.close();
-      stream.current = undefined; worklet.current = undefined;
-      source.current = undefined; audioContext.current = undefined;
     }
-  }, [connect, handleWorkletFrame, outputMode]);
-
-  // Release all microphone/websocket resources without changing UI state.
-  // Callers are responsible for setting status/detail/liveState after this.
-  const teardownSession = useCallback(() => {
-    active.current = false;
-    ready.current = false;
-    capturing.current = false;
-    sendJson({ type: "session.close" });
-    socket.current?.close();
-    socket.current = undefined;
-    if (heartbeat.current) window.clearInterval(heartbeat.current);
-    if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
-    worklet.current?.disconnect();
-    source.current?.disconnect();
-    for (const track of stream.current?.getTracks() ?? []) track.stop();
-    if (audioContext.current?.state !== "closed")
-      void audioContext.current?.close();
-    stream.current = undefined;
-    worklet.current = undefined;
-    source.current = undefined;
-    audioContext.current = undefined;
-    preRoll.current = [];
-    turnTaking.current.resetSpeech();
-    turnTaking.current.setSessionState("inactive");
-    phraseDetector.current.reset();
-    setMicrophoneLevel(0);
-    playbackQueueRef.current = { encodedChunks: 0, decoding: 0, decodedBuffers: 0, scheduledSources: 0, finalSequenceReceived: false };
-    turnCompleteReceivedRef.current = false;
-    if (playbackState.current) manualAudioStop.current = true;
-    callbacks.current.playback.stop();
-    window.clearTimeout(drainTimerRef.current);
-    window.clearTimeout(stuckTimerRef.current);
-    window.clearTimeout(brainTimerRef.current);
-  }, [sendJson]);
+  }, [connect, handleWorkletFrame, outputMode, teardownSession]);
 
   const pause = useCallback(() => {
+    pushToTalkHeld.current = false;
     if (!active.current) return;
     pausedRef.current = true;
     setPaused(true);
@@ -1104,6 +1259,7 @@ export function useLiveConversation({
   }, []);
 
   const stop = useCallback(() => {
+    pushToTalkHeld.current = false;
     manualStop.current = true;
     pausedRef.current = false;
     setPaused(false);
@@ -1123,34 +1279,34 @@ export function useLiveConversation({
     return () => window.clearInterval(interval);
   }, []);
 
-  // ── Stuck-listening timeout: auto-recover if no transcript after 30s ──
-  const stuckTimerRef = useRef<number | undefined>(undefined);
+  // ── Idle listening guard: auto-recover if speech buffer gets stuck ──
   useEffect(() => {
     if (status === "listening" && !pausedRef.current) {
       stuckTimerRef.current = window.setTimeout(() => {
-        // If we've been listening 30s with no committed transcript, surface an error
+        if (turnTaking.current?.currentState === "waiting_for_provider") {
+          return; // turn already committed and awaiting brain — not stuck
+        }
         if (status === "listening" && active.current && ready.current) {
-          turnTaking.current.setSessionState("error");
-          setStatus("error");
-          setDetail("Listening timed out — no speech was transcribed. Try again or use text.");
-          setDiagnostics((prev) => ({ ...prev, lastError: "LISTENING_TIMEOUT_30S", currentStage: "timeout" }));
-          callbacks.current.controller.setLiveState("error");
+          turnTaking.current.resetSpeech();
+          capturing.current = false;
+          preRoll.current = [];
+          setDetail("Microphone active · hands-free listening");
         }
       }, 30_000);
       return () => window.clearTimeout(stuckTimerRef.current);
     }
     window.clearTimeout(stuckTimerRef.current);
-  }, [status, paused]);
+  }, [status, paused, diagnostics.lastPartialTranscript, diagnostics.lastCommittedTranscript]);
 
   // ── Brain timeout: if thinking for >25s with no text delta, surface error ──
-  const brainTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    const isThinking = turnTaking.current?.currentState === "waiting_for_provider";
-    if (isThinking) {
+    if (brainPending) {
       brainTimerRef.current = window.setTimeout(() => {
         if (turnTaking.current?.currentState === "waiting_for_provider" && active.current) {
+          teardownSession();
           turnTaking.current.setSessionState("error");
           setStatus("error");
+          setBrainPending(false);
           setDetail("Brain response timed out — the selected provider may be unavailable. Try a different brain.");
           setDiagnostics((prev) => ({ ...prev, lastError: "BRAIN_TIMEOUT_25S", currentStage: "brain-timeout" }));
           callbacks.current.controller.setLiveState("error");
@@ -1159,11 +1315,10 @@ export function useLiveConversation({
       return () => window.clearTimeout(brainTimerRef.current);
     }
     window.clearTimeout(brainTimerRef.current);
-  }, [status]);
+  }, [brainPending, teardownSession]);
 
   // ── Playback drain watchdog: when turn.complete is received but audio is still draining ──
   // This replaces the generic 15s timeout with queue-aware logic.
-  const drainTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (turnCompleteReceivedRef.current) {
       const pq = playbackQueueRef.current;
@@ -1204,8 +1359,39 @@ export function useLiveConversation({
     });
     capturing.current = false;
     turnTaking.current.setSessionState("waiting_for_provider");
+    setBrainPending(true);
     setDetail("Manual commit sent · waiting for HINAA…");
     setDiagnostics((prev) => ({ ...prev, currentStage: "committed-manual" }));
+  }, [sendJson]);
+
+  const startPushToTalk = useCallback(() => {
+    if (!active.current || !ready.current || pausedRef.current || pushToTalkHeld.current) return;
+    pushToTalkHeld.current = true;
+    if (capturing.current) return;
+    callbacks.current.playback.stop();
+    playbackState.current = false;
+    generation.current += 1;
+    sendJson({ type: "interrupt", generation: generation.current });
+    turnTaking.current.forceSpeechStart();
+    beginSpeech();
+  }, [beginSpeech, sendJson]);
+
+  const stopPushToTalk = useCallback(() => {
+    pushToTalkHeld.current = false;
+    if (!active.current || !ready.current || !capturing.current) return;
+    speechEndedAt.current = performance.now();
+    latency.current.mark("speech_ended");
+    latency.current.mark("turn_committed");
+    sendJson({
+      type: "audio.commit",
+      generation: generation.current,
+      endedAtMs: performance.now(),
+    });
+    capturing.current = false;
+    turnTaking.current.setSessionState("waiting_for_provider");
+    setBrainPending(true);
+    setDetail("Turn committed · waiting for HINAA…");
+    setDiagnostics((prev) => ({ ...prev, currentStage: "committed-push-to-talk" }));
   }, [sendJson]);
 
   return {
@@ -1218,6 +1404,8 @@ export function useLiveConversation({
     paused,
     diagnostics,
     manualCommit,
+    startPushToTalk,
+    stopPushToTalk,
     start,
     pause,
     resume,

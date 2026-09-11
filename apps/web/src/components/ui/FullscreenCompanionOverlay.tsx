@@ -30,8 +30,16 @@ interface FullscreenCompanionOverlayProps {
 const stateCopy: Record<CompanionState, string> = {
   idle: "Ready when you are",
   listening: "Listening carefully",
+  understanding: "Understanding your request",
   thinking: "Thinking through your request",
+  researching: "Researching information",
+  using_tool: "Using tools to help",
+  generating: "Generating response",
+  writing: "Writing answer",
+  waiting: "Waiting",
   speaking: "Speaking with you",
+  success: "Done!",
+  confused: "Thinking carefully",
   interrupted: "Interrupted — ready again",
   error: "Connection needs attention",
 };

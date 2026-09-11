@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from time import perf_counter
+from typing import Any
 
 from google import genai
 from google.genai import types
 from pydantic import ValidationError
 
 from ..errors import HinaaError, safe_error_text
+
+logger = logging.getLogger(__name__)
 from ..models import AssistantTurnPlan, CompanionId, Language
 from ..prompts import (
     PromptPackage,
@@ -23,6 +28,20 @@ from .timing import ProviderTiming
 def _sanitize_delta(value: str) -> str:
     value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
     return value.replace("<", "").replace(">", "").replace("{", "").replace("}", "")
+
+
+def _build_gemini_contents(prompt: PromptPackage) -> Any:
+    parts: list[Any] = []
+    if getattr(prompt, "attachments", None):
+        for att in prompt.attachments:
+            bytes_data = getattr(att, "bytes_data", None)
+            mime_type = getattr(att, "mime_type", "image/png")
+            if bytes_data:
+                parts.append(types.Part.from_bytes(data=bytes_data, mime_type=mime_type))
+    if not parts:
+        return prompt.user_contents
+    parts.append(prompt.user_contents)
+    return parts
 
 
 class GeminiLLMProvider:
@@ -98,34 +117,46 @@ class GeminiLLMProvider:
         try:
             # thinking_config is intentionally unset here; model defaults may still
             # apply server-side for gemini-*-flash variants (observe via stages).
-            stream = await client.aio.models.generate_content_stream(
-                model=self._model,
-                contents=prompt.user_contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=prompt.system_instruction,
-                    temperature=0.4,
-                    max_output_tokens=500,
-                    response_mime_type="text/plain",
-                ),
-            )
-            timing.mark("request_sent")
-            size = 0
-            async for response in stream:
-                provider_events += 1
-                if provider_events == 1:
-                    timing.mark("first_provider_event")
-                delta = _sanitize_delta(response.text or "")
-                if not delta:
-                    continue
-                remaining = 4_000 - size
-                if remaining <= 0:
+            for attempt in range(2):
+                try:
+                    stream = await client.aio.models.generate_content_stream(
+                        model=self._model,
+                        contents=_build_gemini_contents(prompt),
+                        config=types.GenerateContentConfig(
+                            system_instruction=prompt.system_instruction,
+                            temperature=0.4,
+                            max_output_tokens=500,
+                            response_mime_type="text/plain",
+                        ),
+                    )
+                    timing.mark("request_sent")
+                    size = 0
+                    async for response in stream:
+                        provider_events += 1
+                        if provider_events == 1:
+                            timing.mark("first_provider_event")
+                        delta = _sanitize_delta(response.text or "")
+                        if not delta:
+                            continue
+                        remaining = 4_000 - size
+                        if remaining <= 0:
+                            break
+                        delta = delta[:remaining]
+                        size += len(delta)
+                        chunks.append(delta)
+                        timing.mark("first_text_delta")
+                        await emit_delta(delta)
+                    timing.mark("text_complete")
                     break
-                delta = delta[:remaining]
-                size += len(delta)
-                chunks.append(delta)
-                timing.mark("first_text_delta")
-                await emit_delta(delta)
-            timing.mark("text_complete")
+                except Exception as e:
+                    msg = str(e).lower()
+                    if attempt == 0 and not chunks and (
+                        "503" in msg or "high demand" in msg or "unavailable" in msg or "overloaded" in msg
+                    ):
+                        logger.warning("Gemini 503/high demand transient error, retrying in 1s: %s", e)
+                        await asyncio.sleep(1.0)
+                        continue
+                    raise
             answer = "".join(chunks).strip()
             if not answer:
                 raise HinaaError(
@@ -155,22 +186,32 @@ class GeminiLLMProvider:
         )
 
     async def _stream_json(self, client: genai.Client, prompt: PromptPackage) -> str:
-        chunks: list[str] = []
-        stream = await client.aio.models.generate_content_stream(
-            model=self._model,
-            contents=prompt.user_contents,
-            config=types.GenerateContentConfig(
-                system_instruction=prompt.system_instruction,
-                temperature=0.45,
-                max_output_tokens=1800,
-                response_mime_type="application/json",
-                response_json_schema=AssistantTurnPlan.model_json_schema(),
-            ),
-        )
-        async for response in stream:
-            if response.text:
-                chunks.append(response.text)
-        return "".join(chunks)
+        for attempt in range(2):
+            try:
+                chunks: list[str] = []
+                stream = await client.aio.models.generate_content_stream(
+                    model=self._model,
+                    contents=_build_gemini_contents(prompt),
+                    config=types.GenerateContentConfig(
+                        system_instruction=prompt.system_instruction,
+                        temperature=0.45,
+                        max_output_tokens=1800,
+                        response_mime_type="application/json",
+                    ),
+                )
+                async for response in stream:
+                    if response.text:
+                        chunks.append(response.text)
+                return "".join(chunks)
+            except Exception as e:
+                msg = str(e).lower()
+                if attempt == 0 and (
+                    "503" in msg or "high demand" in msg or "unavailable" in msg or "overloaded" in msg
+                ):
+                    logger.warning("Gemini 503/high demand transient error in plan, retrying in 1s: %s", e)
+                    await asyncio.sleep(1.0)
+                    continue
+                raise
 
     async def _repair_json(
         self, client: genai.Client, prompt: PromptPackage, invalid_raw: str
@@ -187,7 +228,6 @@ class GeminiLLMProvider:
                 temperature=0.0,
                 max_output_tokens=1800,
                 response_mime_type="application/json",
-                response_json_schema=AssistantTurnPlan.model_json_schema(),
             ),
         )
         async for response in stream:

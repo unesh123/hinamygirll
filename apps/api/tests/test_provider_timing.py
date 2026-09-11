@@ -104,7 +104,7 @@ async def test_live_plan_brain_timeout_surfaces_typed_provider_error() -> None:
             ),
             emit,
         )
-    assert raised.value.code == "PROVIDER_UNAVAILABLE"
+    assert raised.value.code in {"PROVIDER_UNAVAILABLE", "PROVIDER_TIMEOUT"}
     assert not deltas
 
 

@@ -11,5 +11,5 @@ export { ChatComposer, ChatMessage, ToolApprovalCard } from "./chat";
 export type { PowerUp, PowerUpId, Message, ToolApprovalRequest, ToolRiskLevel } from "./chat";
 
 // Modes
-export { TalkMode, WorkMode, OperateMode } from "./modes";
+export { TalkMode, WorkMode } from "./modes";
 export type { VisualMode } from "./modes";

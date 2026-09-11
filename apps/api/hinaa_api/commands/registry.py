@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 
 class CapabilityStatus(str, Enum):
@@ -173,9 +173,34 @@ COMMAND_REGISTRY: dict[str, CommandDefinition] = {
         executionLocation=ExecutionLocation.API,
         descriptionShort="Find public images",
     ),
+    "image": CommandDefinition(
+        name="image",
+        aliases=["image", "draw", "generate", "imagine", "img", "pic", "image_generate"],
+        description="Generate AI images via local ComfyUI, Freepik/Magnific, or cloud models (Flux, Anime, Realism)",
+        examples=[
+            "/image a cyberpunk cityscape at sunset",
+            "/image sakura companion in anime style --model=flux-anime --seed=42",
+        ],
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Positive prompt"},
+                "model": {"type": "string", "description": "Image model: flux, flux-anime, flux-realism, flux-3d, turbo", "default": "flux"},
+                "seed": {"type": "integer", "description": "Seed for deterministic generation"},
+                "count": {"type": "integer", "default": 1, "minimum": 1, "maximum": 10},
+                "mode": {"type": "string", "enum": ["fast", "quality", "ultra"], "default": "fast"},
+            },
+            "required": ["prompt"],
+        },
+        capability="image_generation",
+        riskLevel=RiskLevel.LOW_MUTATION,
+        approvalPolicy=ApprovalPolicy.ALWAYS_CONFIRM,
+        executionLocation=ExecutionLocation.API,
+        descriptionShort="Generate AI images",
+    ),
     "image_generate": CommandDefinition(
         name="image_generate",
-        aliases=["generate image", "create image", "draw"],
+        aliases=["generate image", "create image", "draw", "imagine"],
         description="Generate images via local ComfyUI or cloud fallback",
         examples=[
             "/image_generate a cyberpunk cityscape at sunset",

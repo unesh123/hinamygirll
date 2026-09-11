@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveSpokenText } from "./App";
+import { deriveSpokenText } from "./features/audio/deriveSpokenText";
 
 describe("deriveSpokenText", () => {
   it("returns empty string for empty input", () => {

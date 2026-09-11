@@ -14,11 +14,17 @@ import {
   Sun,
   Wifi,
   WifiOff,
+  Image as ImageIcon,
+  BookOpen,
+  Plus,
+  Clock,
 } from "lucide-react";
 
 export type NavSection =
   | "talk"
   | "chat"
+  | "images"
+  | "library"
   | "projects"
   | "creations"
   | "memory"
@@ -33,18 +39,22 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "talk", label: "Talk", icon: <Mic size={20} />, section: "primary" },
   { id: "chat", label: "Chat", icon: <MessageCircle size={20} />, section: "primary" },
+  { id: "images", label: "Images", icon: <ImageIcon size={20} />, section: "primary" },
+  { id: "library", label: "Library", icon: <BookOpen size={20} />, section: "primary" },
+  { id: "talk", label: "Talk", icon: <Mic size={20} />, section: "primary" },
   { id: "projects", label: "Projects", icon: <FolderKanban size={20} />, section: "primary" },
-  { id: "creations", label: "Creations", icon: <Puzzle size={20} />, section: "primary" },
-  { id: "memory", label: "Memory", icon: <Brain size={20} />, section: "primary" },
-  { id: "studio", label: "Studio", icon: <Wrench size={20} />, section: "secondary" },
+  { id: "creations", label: "Plugins & Skills", icon: <Puzzle size={20} />, section: "primary" },
+  { id: "memory", label: "Memory", icon: <Brain size={20} />, section: "secondary" },
   { id: "settings", label: "Settings", icon: <Settings size={20} />, section: "secondary" },
 ];
 
 interface NavigationRailProps {
   active: NavSection;
   onNavigate: (section: NavSection) => void;
+  onNewChat?: () => void;
+  onToggleHistory?: () => void;
+  historyOpen?: boolean;
   isOnline?: boolean;
   isDark?: boolean;
   onToggleTheme?: () => void;
@@ -53,6 +63,9 @@ interface NavigationRailProps {
 export function NavigationRail({
   active,
   onNavigate,
+  onNewChat,
+  onToggleHistory,
+  historyOpen = false,
   isOnline = true,
   isDark = false,
   onToggleTheme,
@@ -115,6 +128,85 @@ export function NavigationRail({
             </motion.span>
           )}
         </AnimatePresence>
+      </div>
+
+      {/* New Chat + History buttons */}
+      <div style={{
+        display: "flex",
+        flexDirection: expanded ? "row" : "column",
+        gap: "var(--space-1)",
+        padding: expanded ? "0 var(--space-2)" : "0 var(--space-1-5)",
+        marginBottom: "var(--space-2)",
+        alignItems: "center",
+      }}>
+        {onNewChat && (
+          <motion.button
+            type="button"
+            onClick={onNewChat}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            aria-label="New chat"
+            title="New chat"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: expanded ? "flex-start" : "center",
+              gap: "var(--space-2)",
+              padding: expanded ? "var(--space-2) var(--space-3)" : "var(--space-2)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border-default)",
+              background: "var(--accent)",
+              color: "#ffffff",
+              cursor: "pointer",
+              fontSize: "var(--text-sm)",
+              fontWeight: 600,
+              fontFamily: "var(--font-body)",
+              width: expanded ? "100%" : 40,
+              minHeight: 40,
+              flex: expanded ? 1 : "none",
+            }}
+          >
+            <Plus size={18} />
+            <AnimatePresence>
+              {expanded && (
+                <motion.span
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -8 }}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  New chat
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+        )}
+        {onToggleHistory && (
+          <motion.button
+            type="button"
+            onClick={onToggleHistory}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            aria-label="Conversation history"
+            title="Conversation history"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "var(--space-2)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border-default)",
+              background: historyOpen ? "var(--accent-pale)" : "transparent",
+              color: historyOpen ? "var(--accent)" : "var(--text-tertiary)",
+              cursor: "pointer",
+              width: 40,
+              minHeight: 40,
+              flexShrink: 0,
+            }}
+          >
+            <Clock size={18} />
+          </motion.button>
+        )}
       </div>
 
       {/* Primary nav */}

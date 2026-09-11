@@ -31,7 +31,7 @@ class ClientHello(StrictModel):
     providerMode: ProviderMode = "mock"
     generation: Annotated[int, Field(ge=0, le=1_000_000)] = 0
     language: Language = "mixed"
-    languageMode: Literal["fixed-hi-IN", "auto"] = "auto"
+    languageMode: Literal["fixed", "fixed-hi-IN", "fixed-ne-NP", "fixed-en-US", "auto"] = "auto"
     calibration: Literal["natural", "soft", "lively"] = "natural"
     brainModel: Annotated[
         str | None,
@@ -227,7 +227,7 @@ class RealtimeGateway:
                     websocket, session, "event.ignored", {"reason": "stale-generation"}
                 )
                 return
-            if session.processing:
+            if session.processing and generation > session.hello.generation:
                 await self._interrupt(websocket, session, generation)
             session.hello.generation = generation
             session.expected_sequence = 0
@@ -280,33 +280,39 @@ class RealtimeGateway:
                     websocket, session, "event.ignored", {"reason": "stale-generation"}
                 )
                 return
-            if _is_dead_silence(bytes(session.audio)):
+            turn_audio = bytes(session.audio)
+            session.audio.clear()
+            session.expected_sequence = 0
+            session.speech_detected = False
+            session.partial_sent = False
+            if _is_dead_silence(turn_audio):
                 # All-zero capture is never speech, even if the frontend VAD
                 # fired on a glitch. Reject before any provider call.
                 await self._error(
                     websocket, session, "AUDIO_NO_SIGNAL", True, commit.generation
                 )
                 return
-            if not session.speech_detected:
-                # Trust the frontend's VAD (which already fired audio.start).
-                # The backend _has_speech might be too strict for quiet mics.
-                session.speech_detected = True
             if session.processing and not session.processing.done():
                 session.processing.cancel()
                 with suppress(asyncio.CancelledError):
                     await session.processing
             session.turn += 1
             session.processing = asyncio.create_task(
-                self._process_turn(websocket, session, commit), name=f"live-turn-{session.turn}"
+                self._process_turn(websocket, session, commit, turn_audio), name=f"live-turn-{session.turn}"
             )
             return
         await self._error(websocket, session, "PROTOCOL_MESSAGE_UNSUPPORTED", False)
 
     async def _process_turn(
-        self, websocket: WebSocket, session: LiveSession, commit: CommitMessage
+        self,
+        websocket: WebSocket,
+        session: LiveSession,
+        commit: CommitMessage,
+        turn_audio: bytes | None = None,
     ) -> None:
         generation = session.hello.generation
         turn_started = perf_counter()
+        pcm = turn_audio if turn_audio is not None else bytes(session.audio)
         try:
             # Notify frontend: pipeline is processing
             await self._send_current(
@@ -325,14 +331,13 @@ class RealtimeGateway:
                 transcript = commit.mockTranscript
                 stt_provider = f"{session.hello.providerMode}-stt-scripted-v1"
             else:
-                stt_result = await asyncio.timeout(self.settings.voice_stt_timeout_seconds)(
-                    self.service.transcribe(
-                        bytes(session.audio), session.hello.language, session.hello.providerMode
+                async with asyncio.timeout(self.settings.voice_stt_timeout_seconds):
+                    stt_result = await self.service.transcribe(
+                        pcm, session.hello.language, session.hello.providerMode
                     )
-                )
                 transcript, stt_provider = stt_result.value, stt_result.provider
             if not transcript.strip():
-                audio_bytes = len(session.audio)
+                audio_bytes = len(pcm)
                 logger.info("realtime: STT returned empty transcript (%d audio bytes, provider=%s)", audio_bytes, stt_provider)
                 await self._send_current(
                     websocket,
@@ -480,7 +485,7 @@ class RealtimeGateway:
                 # Split only on natural clause punctuation or a complete word
                 # boundary after enough text to sound natural. This prevents both
                 # choppy one-token TTS and a full-answer speech delay.
-                has_punct = any(p in delta for p in [".", "!", "?", "।", "\n", ",", ";"])
+                has_punct = any(p in delta for p in [".", "!", "?", "।", "\n", ";"]) or ("," in delta and len(sentence_buffer) >= 45)
                 has_word_break = " " in delta and len(sentence_buffer) >= 80
                 if has_punct or has_word_break:
                     phrase_text = speech_text_for_tts(sentence_buffer.strip())
@@ -502,12 +507,13 @@ class RealtimeGateway:
                         if stream_real_audio:
                             queue_streamed_speech(phrase_text, task)
 
+            turn_lang = "hi-IN" if session.hello.language in ("auto", "mixed") else session.hello.language
             plan_result = await self.service.create_live_plan(
                 TurnRequest(
                     sessionId=session.hello.sessionId,
                     text=transcript,
                     companionId=session.hello.companionId,
-                    language=session.hello.language,
+                    language=turn_lang,
                     providerMode=session.hello.providerMode,
                     brainModel=session.hello.brainModel,
                     visibleActions=commit.visibleActions,

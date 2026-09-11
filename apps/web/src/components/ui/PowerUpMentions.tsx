@@ -13,7 +13,7 @@ import {
   Search, Image, Sparkles, Globe, ExternalLink, Code, Music,
   Mail, Calendar, FileText, Brain, Bot, Wrench, Cpu, MessageSquare,
   LayoutDashboard, FileOutput, Presentation, Zap, BookOpen, Mic,
-  Settings, Monitor, GitBranch, type LucideIcon,
+  Settings, Monitor, GitBranch, Wand2, type LucideIcon,
 } from "lucide-react";
 
 export type TriggerType = "@" | "/";
@@ -92,6 +92,14 @@ const COMMAND_ICONS: Record<string, LucideIcon> = {
   extract: ExternalLink,
   image_search: Image,
   image_generate: Sparkles,
+  image: Sparkles,
+  draw: Sparkles,
+  generate: Sparkles,
+  img: Sparkles,
+  pic: Sparkles,
+  web: Search,
+  google: Search,
+  humanize: Wand2,
   document: FileText,
   pdf: FileOutput,
   presentation: Presentation,
@@ -114,7 +122,15 @@ const COMMAND_COLORS: Record<string, string> = {
   answer: "#10b981",
   extract: "#14b8a6",
   image_search: "#7c3aed",
-  image_generate: "#d97706",
+  image_generate: "#F36F9C",
+  image: "#F36F9C",
+  draw: "#F36F9C",
+  generate: "#F36F9C",
+  img: "#F36F9C",
+  pic: "#F36F9C",
+  web: "#0891b2",
+  google: "#0891b2",
+  humanize: "#5B9DCF",
   document: "#059669",
   pdf: "#dc2626",
   presentation: "#f97316",
@@ -136,11 +152,19 @@ const COMMAND_GROUPS: Record<string, string> = {
   research: "Search & Research",
   answer: "Search & Research",
   extract: "Search & Research",
+  web: "Search & Research",
+  google: "Search & Research",
   image_search: "Create",
   image_generate: "Create",
+  image: "Create",
+  draw: "Create",
+  generate: "Create",
+  img: "Create",
+  pic: "Create",
   document: "Create",
   pdf: "Create",
   presentation: "Create",
+  humanize: "Writing",
   analyze: "Analyze",
   summarize: "Analyze",
   plan: "Plan",
@@ -219,11 +243,12 @@ export function PowerUpMentions({
     if (!q) return commands;
     return commands.filter(
       (c) =>
-        c.label.toLowerCase().includes(q) ||
-        c.name.toLowerCase().includes(q) ||
-        c.aliases.some((a) => a.toLowerCase().includes(q)) ||
-        c.description.toLowerCase().includes(q) ||
-        c.group.toLowerCase().includes(q),
+        (c.label?.toLowerCase() || "").includes(q) ||
+        (c.name?.toLowerCase() || "").includes(q) ||
+        (c.aliases || []).some((a) => a?.toLowerCase().includes(q)) ||
+        (c.description?.toLowerCase() || "").includes(q) ||
+        (c.descriptionShort?.toLowerCase() || "").includes(q) ||
+        ((c.group || COMMAND_GROUPS[c.name])?.toLowerCase() || "").includes(q),
     );
   }, [filter, commands]);
 
@@ -285,7 +310,7 @@ export function PowerUpMentions({
   const groups = useMemo(() => {
     const map = new Map<string, (ContextItem | CommandItem)[]>();
     for (const item of activeItems) {
-      const group = "group" in item ? item.group : item.kind;
+      const group = "group" in item && item.group ? item.group : ("name" in item ? (COMMAND_GROUPS[item.name] || "Commands") : (item.kind || "Context"));
       const list = map.get(group) || [];
       list.push(item);
       map.set(group, list);
@@ -473,11 +498,16 @@ export function PowerUpMentions({
                   );
                 } else if (!isContext && !isContextItem(item)) {
                   const cmd = item;
-                  const Icon = cmd.icon;
-                  const availabilityColor = AVAILABILITY_COLORS[cmd.availability] || "#64748b";
+                  const Icon = (cmd.icon && typeof cmd.icon === "function" ? cmd.icon : null) || COMMAND_ICONS[cmd.name] || Sparkles;
+                  const cmdColor = cmd.color || COMMAND_COLORS[cmd.name] || "#F36F9C";
+                  const cmdLabel = cmd.label || `/${cmd.name}`;
+                  const cmdDescShort = cmd.descriptionShort || cmd.description || "";
+                  const cmdDesc = cmd.description || cmd.descriptionShort || "";
+                  const availabilityColor = (cmd.availability && AVAILABILITY_COLORS[cmd.availability]) || "#64748b";
+                  const availabilityLabel = (cmd.availability && AVAILABILITY_LABELS[cmd.availability]) || "Ready";
                   return (
                     <motion.button
-                      key={cmd.name}
+                      key={`${cmd.name}-${idx}`}
                       type="button"
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -505,22 +535,22 @@ export function PowerUpMentions({
                             width: 32,
                             height: 32,
                             borderRadius: 9,
-                            background: `${cmd.color}16`,
+                            background: `${cmdColor}16`,
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
                             flexShrink: 0,
-                            border: isSelected ? `1px solid ${cmd.color}40` : "1px solid transparent",
+                            border: isSelected ? `1px solid ${cmdColor}40` : "1px solid transparent",
                           }}
                         >
-                          <Icon size={15} color={cmd.color} />
+                          <Icon size={15} color={cmdColor} />
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "#fff4f8" }}>
-                            {cmd.label}
+                            {cmdLabel}
                           </div>
                           <div style={{ fontSize: "0.67rem", color: "#c9aeba", marginTop: 1 }}>
-                            {cmd.descriptionShort}
+                            {cmdDescShort}
                           </div>
                         </div>
                         <span
@@ -528,7 +558,7 @@ export function PowerUpMentions({
                             fontSize: "0.6rem",
                             fontWeight: 700,
                             color: isSelected ? "#ffd4e0" : "#c9aeba",
-                            background: isSelected ? `${cmd.color}22` : "rgba(255,255,255,.055)",
+                            background: isSelected ? `${cmdColor}22` : "rgba(255,255,255,.055)",
                             padding: "2px 8px",
                             borderRadius: 6,
                             fontFamily: "monospace",
@@ -547,12 +577,14 @@ export function PowerUpMentions({
                             fontFamily: "monospace",
                           }}
                         >
-                          {AVAILABILITY_LABELS[cmd.availability]}
+                          {availabilityLabel}
                         </span>
                       </div>
-                      <div style={{ fontSize: "0.65rem", color: "#c9aeba", width: "100%", paddingLeft: 42 }}>
-                        {cmd.description}
-                      </div>
+                      {cmdDesc && (
+                        <div style={{ fontSize: "0.65rem", color: "#c9aeba", width: "100%", paddingLeft: 42 }}>
+                          {cmdDesc}
+                        </div>
+                      )}
                     </motion.button>
                   );
                 }

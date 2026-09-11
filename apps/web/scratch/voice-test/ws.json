@@ -1,0 +1,3733 @@
+[
+  {
+    "kind": "open",
+    "url": "ws://127.0.0.1:5173/?token=BiyQa41l_1c0"
+  },
+  {
+    "kind": "open",
+    "url": "ws://127.0.0.1:5173/?token=BiyQa41l_1c0"
+  },
+  {
+    "kind": "recv",
+    "url": "ws://127.0.0.1:5173/?token=BiyQa41l_1c0",
+    "data": "{\"type\":\"connected\"}"
+  },
+  {
+    "kind": "open",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime"
+  },
+  {
+    "kind": "open",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"session.hello\",\"protocolVersion\":\"1.0\",\"sessionId\":\"17d417b2-6a70-4ff9-9778-9aadf67ef9b6\",\"companionId\":\"hinaa\",\"providerMode\":\"cx-gateway\",\"brainModel\":\"cx/gpt-5.6-sol\",\"generation\":1,\"language\":\"mixed\",\"languageMode\":\"auto\",\"calibration\":\"natural\"}"
+  },
+  {
+    "kind": "recv",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"session.ready\",\"protocolVersion\":\"1.0\",\"sessionId\":\"17d417b2-6a70-4ff9-9778-9aadf67ef9b6\",\"turn\":0,\"turnId\":\"turn-0-1\",\"generation\":1,\"serverAtMs\":179411629.9451,\"sampleRate\":16000,\"channels\":1,\"sampleFormat\":\"pcm-s16le\",\"frameDurationMs\":[20,40],\"maxFrameBytes\":1280,\"providerMode\":\"cx-gateway\",\"languageMode\":\"auto\"}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.start\",\"generation\":1}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":0,\"generation\":1,\"capturedAtMs\":7825.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":1,\"generation\":1,\"capturedAtMs\":7825.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":2,\"generation\":1,\"capturedAtMs\":7825.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":3,\"generation\":1,\"capturedAtMs\":7825.9000000059605,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":4,\"generation\":1,\"capturedAtMs\":7826.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":5,\"generation\":1,\"capturedAtMs\":7826.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":6,\"generation\":1,\"capturedAtMs\":7826.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":7,\"generation\":1,\"capturedAtMs\":7827,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":8,\"generation\":1,\"capturedAtMs\":7827.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":9,\"generation\":1,\"capturedAtMs\":7827.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":10,\"generation\":1,\"capturedAtMs\":7828,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":11,\"generation\":1,\"capturedAtMs\":7828.4000000059605,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":12,\"generation\":1,\"capturedAtMs\":7972.0999999940395,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":13,\"generation\":1,\"capturedAtMs\":7972.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":14,\"generation\":1,\"capturedAtMs\":7972.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":15,\"generation\":1,\"capturedAtMs\":7973.0999999940395,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":16,\"generation\":1,\"capturedAtMs\":7973.4000000059605,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":17,\"generation\":1,\"capturedAtMs\":7973.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":18,\"generation\":1,\"capturedAtMs\":7973.9000000059605,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":19,\"generation\":1,\"capturedAtMs\":7974.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":20,\"generation\":1,\"capturedAtMs\":7974.4000000059605,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":21,\"generation\":1,\"capturedAtMs\":7974.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "recv",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.started\",\"protocolVersion\":\"1.0\",\"sessionId\":\"17d417b2-6a70-4ff9-9778-9aadf67ef9b6\",\"turn\":0,\"turnId\":\"turn-0-1\",\"generation\":1,\"serverAtMs\":179411998.5344}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":22,\"generation\":1,\"capturedAtMs\":8132.5999999940395,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":23,\"generation\":1,\"capturedAtMs\":8133.5999999940395,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":24,\"generation\":1,\"capturedAtMs\":8133.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":25,\"generation\":1,\"capturedAtMs\":8134.0999999940395,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":26,\"generation\":1,\"capturedAtMs\":8134.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":27,\"generation\":1,\"capturedAtMs\":8134.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":28,\"generation\":1,\"capturedAtMs\":8134.9000000059605,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":29,\"generation\":1,\"capturedAtMs\":8135.0999999940395,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":30,\"generation\":1,\"capturedAtMs\":8310.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":31,\"generation\":1,\"capturedAtMs\":8311.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":32,\"generation\":1,\"capturedAtMs\":8312.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":33,\"generation\":1,\"capturedAtMs\":8312.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":34,\"generation\":1,\"capturedAtMs\":8312.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":35,\"generation\":1,\"capturedAtMs\":8313.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":36,\"generation\":1,\"capturedAtMs\":8313.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":37,\"generation\":1,\"capturedAtMs\":8313.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":38,\"generation\":1,\"capturedAtMs\":8506.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":39,\"generation\":1,\"capturedAtMs\":8506.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":40,\"generation\":1,\"capturedAtMs\":8507.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":41,\"generation\":1,\"capturedAtMs\":8507.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":42,\"generation\":1,\"capturedAtMs\":8508,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":43,\"generation\":1,\"capturedAtMs\":8508.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":44,\"generation\":1,\"capturedAtMs\":8508.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":45,\"generation\":1,\"capturedAtMs\":8509.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":46,\"generation\":1,\"capturedAtMs\":8509.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":47,\"generation\":1,\"capturedAtMs\":8686,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":48,\"generation\":1,\"capturedAtMs\":8686.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":49,\"generation\":1,\"capturedAtMs\":8686.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":50,\"generation\":1,\"capturedAtMs\":8686.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":51,\"generation\":1,\"capturedAtMs\":8687,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":52,\"generation\":1,\"capturedAtMs\":8687.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":53,\"generation\":1,\"capturedAtMs\":8687.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":54,\"generation\":1,\"capturedAtMs\":8687.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":55,\"generation\":1,\"capturedAtMs\":8687.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":56,\"generation\":1,\"capturedAtMs\":8839.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":57,\"generation\":1,\"capturedAtMs\":8839.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":58,\"generation\":1,\"capturedAtMs\":8840,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":59,\"generation\":1,\"capturedAtMs\":8840.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":60,\"generation\":1,\"capturedAtMs\":8840.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":61,\"generation\":1,\"capturedAtMs\":8841,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":62,\"generation\":1,\"capturedAtMs\":8841.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":63,\"generation\":1,\"capturedAtMs\":8841.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":64,\"generation\":1,\"capturedAtMs\":8841.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":65,\"generation\":1,\"capturedAtMs\":8973.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":66,\"generation\":1,\"capturedAtMs\":8973.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":67,\"generation\":1,\"capturedAtMs\":8973.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":68,\"generation\":1,\"capturedAtMs\":8974.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":69,\"generation\":1,\"capturedAtMs\":8974.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":70,\"generation\":1,\"capturedAtMs\":8974.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":71,\"generation\":1,\"capturedAtMs\":8975,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":72,\"generation\":1,\"capturedAtMs\":8975.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":73,\"generation\":1,\"capturedAtMs\":9121.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":74,\"generation\":1,\"capturedAtMs\":9121.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":75,\"generation\":1,\"capturedAtMs\":9122.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":76,\"generation\":1,\"capturedAtMs\":9122.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":77,\"generation\":1,\"capturedAtMs\":9122.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":78,\"generation\":1,\"capturedAtMs\":9122.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":79,\"generation\":1,\"capturedAtMs\":9123.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":80,\"generation\":1,\"capturedAtMs\":9250.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":81,\"generation\":1,\"capturedAtMs\":9251.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":82,\"generation\":1,\"capturedAtMs\":9251.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":83,\"generation\":1,\"capturedAtMs\":9251.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":84,\"generation\":1,\"capturedAtMs\":9251.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":85,\"generation\":1,\"capturedAtMs\":9252.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":86,\"generation\":1,\"capturedAtMs\":9252.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":87,\"generation\":1,\"capturedAtMs\":9395.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":88,\"generation\":1,\"capturedAtMs\":9395.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":89,\"generation\":1,\"capturedAtMs\":9395.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":90,\"generation\":1,\"capturedAtMs\":9396,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":91,\"generation\":1,\"capturedAtMs\":9396.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":92,\"generation\":1,\"capturedAtMs\":9396.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":93,\"generation\":1,\"capturedAtMs\":9396.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":94,\"generation\":1,\"capturedAtMs\":9541.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":95,\"generation\":1,\"capturedAtMs\":9542.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":96,\"generation\":1,\"capturedAtMs\":9542.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":97,\"generation\":1,\"capturedAtMs\":9542.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":98,\"generation\":1,\"capturedAtMs\":9543.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":99,\"generation\":1,\"capturedAtMs\":9543.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":100,\"generation\":1,\"capturedAtMs\":9543.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":101,\"generation\":1,\"capturedAtMs\":9688.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":102,\"generation\":1,\"capturedAtMs\":9688.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":103,\"generation\":1,\"capturedAtMs\":9689.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":104,\"generation\":1,\"capturedAtMs\":9689.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":105,\"generation\":1,\"capturedAtMs\":9689.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":106,\"generation\":1,\"capturedAtMs\":9689.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":107,\"generation\":1,\"capturedAtMs\":9690.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":108,\"generation\":1,\"capturedAtMs\":9818.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":109,\"generation\":1,\"capturedAtMs\":9818.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":110,\"generation\":1,\"capturedAtMs\":9818.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":111,\"generation\":1,\"capturedAtMs\":9819,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":112,\"generation\":1,\"capturedAtMs\":9819.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":113,\"generation\":1,\"capturedAtMs\":9819.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":114,\"generation\":1,\"capturedAtMs\":9819.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":115,\"generation\":1,\"capturedAtMs\":9820.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":116,\"generation\":1,\"capturedAtMs\":9963.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":117,\"generation\":1,\"capturedAtMs\":9963.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":118,\"generation\":1,\"capturedAtMs\":9964.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":119,\"generation\":1,\"capturedAtMs\":9964.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":120,\"generation\":1,\"capturedAtMs\":9964.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":121,\"generation\":1,\"capturedAtMs\":9964.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":122,\"generation\":1,\"capturedAtMs\":10095.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":123,\"generation\":1,\"capturedAtMs\":10096.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":124,\"generation\":1,\"capturedAtMs\":10096.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":125,\"generation\":1,\"capturedAtMs\":10096.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":126,\"generation\":1,\"capturedAtMs\":10096.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":127,\"generation\":1,\"capturedAtMs\":10097,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":128,\"generation\":1,\"capturedAtMs\":10097.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":129,\"generation\":1,\"capturedAtMs\":10237.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":130,\"generation\":1,\"capturedAtMs\":10237.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":131,\"generation\":1,\"capturedAtMs\":10237.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":132,\"generation\":1,\"capturedAtMs\":10238,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":133,\"generation\":1,\"capturedAtMs\":10238.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":134,\"generation\":1,\"capturedAtMs\":10238.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":135,\"generation\":1,\"capturedAtMs\":10238.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":136,\"generation\":1,\"capturedAtMs\":10372.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":137,\"generation\":1,\"capturedAtMs\":10372.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":138,\"generation\":1,\"capturedAtMs\":10373,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":139,\"generation\":1,\"capturedAtMs\":10373.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":140,\"generation\":1,\"capturedAtMs\":10373.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":141,\"generation\":1,\"capturedAtMs\":10373.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":142,\"generation\":1,\"capturedAtMs\":10374,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":143,\"generation\":1,\"capturedAtMs\":10526,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":144,\"generation\":1,\"capturedAtMs\":10526.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":145,\"generation\":1,\"capturedAtMs\":10527,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":146,\"generation\":1,\"capturedAtMs\":10527.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":147,\"generation\":1,\"capturedAtMs\":10527.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":148,\"generation\":1,\"capturedAtMs\":10527.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":149,\"generation\":1,\"capturedAtMs\":10528.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":150,\"generation\":1,\"capturedAtMs\":10684.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":151,\"generation\":1,\"capturedAtMs\":10685,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":152,\"generation\":1,\"capturedAtMs\":10685.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":153,\"generation\":1,\"capturedAtMs\":10685.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":154,\"generation\":1,\"capturedAtMs\":10686.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":155,\"generation\":1,\"capturedAtMs\":10686.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":156,\"generation\":1,\"capturedAtMs\":10686.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":157,\"generation\":1,\"capturedAtMs\":10877.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":158,\"generation\":1,\"capturedAtMs\":10878.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":159,\"generation\":1,\"capturedAtMs\":10878.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":160,\"generation\":1,\"capturedAtMs\":10879,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":161,\"generation\":1,\"capturedAtMs\":10879.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":162,\"generation\":1,\"capturedAtMs\":10879.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":163,\"generation\":1,\"capturedAtMs\":10880.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":164,\"generation\":1,\"capturedAtMs\":10880.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":165,\"generation\":1,\"capturedAtMs\":11050.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":166,\"generation\":1,\"capturedAtMs\":11051.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":167,\"generation\":1,\"capturedAtMs\":11051.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":168,\"generation\":1,\"capturedAtMs\":11052.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":169,\"generation\":1,\"capturedAtMs\":11052.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":170,\"generation\":1,\"capturedAtMs\":11052.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":171,\"generation\":1,\"capturedAtMs\":11053.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":172,\"generation\":1,\"capturedAtMs\":11053.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":173,\"generation\":1,\"capturedAtMs\":11053.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":174,\"generation\":1,\"capturedAtMs\":11054.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":175,\"generation\":1,\"capturedAtMs\":11206.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":176,\"generation\":1,\"capturedAtMs\":11206.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":177,\"generation\":1,\"capturedAtMs\":11207.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":178,\"generation\":1,\"capturedAtMs\":11207.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":179,\"generation\":1,\"capturedAtMs\":11207.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":180,\"generation\":1,\"capturedAtMs\":11207.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":181,\"generation\":1,\"capturedAtMs\":11208,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":182,\"generation\":1,\"capturedAtMs\":11208.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":183,\"generation\":1,\"capturedAtMs\":11208.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":184,\"generation\":1,\"capturedAtMs\":11338.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":185,\"generation\":1,\"capturedAtMs\":11339.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":186,\"generation\":1,\"capturedAtMs\":11339.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":187,\"generation\":1,\"capturedAtMs\":11339.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":188,\"generation\":1,\"capturedAtMs\":11339.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":189,\"generation\":1,\"capturedAtMs\":11340.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":190,\"generation\":1,\"capturedAtMs\":11340.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":191,\"generation\":1,\"capturedAtMs\":11477.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":192,\"generation\":1,\"capturedAtMs\":11477.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":193,\"generation\":1,\"capturedAtMs\":11478,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":194,\"generation\":1,\"capturedAtMs\":11478.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":195,\"generation\":1,\"capturedAtMs\":11478.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":196,\"generation\":1,\"capturedAtMs\":11478.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":197,\"generation\":1,\"capturedAtMs\":11478.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":198,\"generation\":1,\"capturedAtMs\":11608.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":199,\"generation\":1,\"capturedAtMs\":11608.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":200,\"generation\":1,\"capturedAtMs\":11609.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":201,\"generation\":1,\"capturedAtMs\":11609.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":202,\"generation\":1,\"capturedAtMs\":11609.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":203,\"generation\":1,\"capturedAtMs\":11609.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":204,\"generation\":1,\"capturedAtMs\":11610,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":205,\"generation\":1,\"capturedAtMs\":11749.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":206,\"generation\":1,\"capturedAtMs\":11749.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":207,\"generation\":1,\"capturedAtMs\":11749.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":208,\"generation\":1,\"capturedAtMs\":11750.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":209,\"generation\":1,\"capturedAtMs\":11750.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":210,\"generation\":1,\"capturedAtMs\":11750.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":211,\"generation\":1,\"capturedAtMs\":11750.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":212,\"generation\":1,\"capturedAtMs\":11886.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":213,\"generation\":1,\"capturedAtMs\":11887.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":214,\"generation\":1,\"capturedAtMs\":11887.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":215,\"generation\":1,\"capturedAtMs\":11887.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":216,\"generation\":1,\"capturedAtMs\":11887.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":217,\"generation\":1,\"capturedAtMs\":11888,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":218,\"generation\":1,\"capturedAtMs\":12034.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":219,\"generation\":1,\"capturedAtMs\":12035,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":220,\"generation\":1,\"capturedAtMs\":12035.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":221,\"generation\":1,\"capturedAtMs\":12035.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":222,\"generation\":1,\"capturedAtMs\":12035.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":223,\"generation\":1,\"capturedAtMs\":12035.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":224,\"generation\":1,\"capturedAtMs\":12036.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":225,\"generation\":1,\"capturedAtMs\":12167.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":226,\"generation\":1,\"capturedAtMs\":12168,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":227,\"generation\":1,\"capturedAtMs\":12168.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":228,\"generation\":1,\"capturedAtMs\":12168.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":229,\"generation\":1,\"capturedAtMs\":12168.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":230,\"generation\":1,\"capturedAtMs\":12168.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":231,\"generation\":1,\"capturedAtMs\":12169.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":232,\"generation\":1,\"capturedAtMs\":12169.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":233,\"generation\":1,\"capturedAtMs\":12311.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":234,\"generation\":1,\"capturedAtMs\":12311.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":235,\"generation\":1,\"capturedAtMs\":12311.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":236,\"generation\":1,\"capturedAtMs\":12312.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":237,\"generation\":1,\"capturedAtMs\":12312.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":238,\"generation\":1,\"capturedAtMs\":12312.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":239,\"generation\":1,\"capturedAtMs\":12445.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":240,\"generation\":1,\"capturedAtMs\":12446.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":241,\"generation\":1,\"capturedAtMs\":12446.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":242,\"generation\":1,\"capturedAtMs\":12446.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":243,\"generation\":1,\"capturedAtMs\":12446.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":244,\"generation\":1,\"capturedAtMs\":12447,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":245,\"generation\":1,\"capturedAtMs\":12447.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":246,\"generation\":1,\"capturedAtMs\":12447.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":247,\"generation\":1,\"capturedAtMs\":12588.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":248,\"generation\":1,\"capturedAtMs\":12589.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":249,\"generation\":1,\"capturedAtMs\":12589.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":250,\"generation\":1,\"capturedAtMs\":12589.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":251,\"generation\":1,\"capturedAtMs\":12589.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":252,\"generation\":1,\"capturedAtMs\":12590,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":253,\"generation\":1,\"capturedAtMs\":12719.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":254,\"generation\":1,\"capturedAtMs\":12719.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":255,\"generation\":1,\"capturedAtMs\":12720.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":256,\"generation\":1,\"capturedAtMs\":12720.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":257,\"generation\":1,\"capturedAtMs\":12720.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":258,\"generation\":1,\"capturedAtMs\":12720.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":259,\"generation\":1,\"capturedAtMs\":12721.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":260,\"generation\":1,\"capturedAtMs\":12721.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":261,\"generation\":1,\"capturedAtMs\":12855,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":262,\"generation\":1,\"capturedAtMs\":12855.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":263,\"generation\":1,\"capturedAtMs\":12855.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":264,\"generation\":1,\"capturedAtMs\":12855.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":265,\"generation\":1,\"capturedAtMs\":12856,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":266,\"generation\":1,\"capturedAtMs\":12856.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":267,\"generation\":1,\"capturedAtMs\":12979.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":268,\"generation\":1,\"capturedAtMs\":12980.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":269,\"generation\":1,\"capturedAtMs\":12980.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":270,\"generation\":1,\"capturedAtMs\":12980.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":271,\"generation\":1,\"capturedAtMs\":12980.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":272,\"generation\":1,\"capturedAtMs\":12981.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":273,\"generation\":1,\"capturedAtMs\":12981.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":274,\"generation\":1,\"capturedAtMs\":13121.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":275,\"generation\":1,\"capturedAtMs\":13122.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":276,\"generation\":1,\"capturedAtMs\":13122.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":277,\"generation\":1,\"capturedAtMs\":13122.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":278,\"generation\":1,\"capturedAtMs\":13122.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":279,\"generation\":1,\"capturedAtMs\":13123.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":280,\"generation\":1,\"capturedAtMs\":13249.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":281,\"generation\":1,\"capturedAtMs\":13249.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":282,\"generation\":1,\"capturedAtMs\":13250,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":283,\"generation\":1,\"capturedAtMs\":13250.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":284,\"generation\":1,\"capturedAtMs\":13250.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":285,\"generation\":1,\"capturedAtMs\":13250.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":286,\"generation\":1,\"capturedAtMs\":13250.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":287,\"generation\":1,\"capturedAtMs\":13393.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":288,\"generation\":1,\"capturedAtMs\":13394,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":289,\"generation\":1,\"capturedAtMs\":13394.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":290,\"generation\":1,\"capturedAtMs\":13394.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":291,\"generation\":1,\"capturedAtMs\":13394.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":292,\"generation\":1,\"capturedAtMs\":13394.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":293,\"generation\":1,\"capturedAtMs\":13395.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":294,\"generation\":1,\"capturedAtMs\":13520.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":295,\"generation\":1,\"capturedAtMs\":13520.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":296,\"generation\":1,\"capturedAtMs\":13521,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":297,\"generation\":1,\"capturedAtMs\":13521.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":298,\"generation\":1,\"capturedAtMs\":13521.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":299,\"generation\":1,\"capturedAtMs\":13521.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":300,\"generation\":1,\"capturedAtMs\":13522.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":301,\"generation\":1,\"capturedAtMs\":13662.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":302,\"generation\":1,\"capturedAtMs\":13663.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":303,\"generation\":1,\"capturedAtMs\":13663.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":304,\"generation\":1,\"capturedAtMs\":13663.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":305,\"generation\":1,\"capturedAtMs\":13663.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":306,\"generation\":1,\"capturedAtMs\":13664.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":307,\"generation\":1,\"capturedAtMs\":13792.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":308,\"generation\":1,\"capturedAtMs\":13793.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":309,\"generation\":1,\"capturedAtMs\":13793.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":310,\"generation\":1,\"capturedAtMs\":13793.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":311,\"generation\":1,\"capturedAtMs\":13793.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":312,\"generation\":1,\"capturedAtMs\":13794.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":313,\"generation\":1,\"capturedAtMs\":13794.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":314,\"generation\":1,\"capturedAtMs\":13935,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":315,\"generation\":1,\"capturedAtMs\":13935.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":316,\"generation\":1,\"capturedAtMs\":13935.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":317,\"generation\":1,\"capturedAtMs\":13936.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":318,\"generation\":1,\"capturedAtMs\":13936.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":319,\"generation\":1,\"capturedAtMs\":13936.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":320,\"generation\":1,\"capturedAtMs\":13936.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":321,\"generation\":1,\"capturedAtMs\":14059.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":322,\"generation\":1,\"capturedAtMs\":14060.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":323,\"generation\":1,\"capturedAtMs\":14060.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":324,\"generation\":1,\"capturedAtMs\":14060.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":325,\"generation\":1,\"capturedAtMs\":14061,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":326,\"generation\":1,\"capturedAtMs\":14061.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":327,\"generation\":1,\"capturedAtMs\":14061.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":328,\"generation\":1,\"capturedAtMs\":14206.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":329,\"generation\":1,\"capturedAtMs\":14206.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":330,\"generation\":1,\"capturedAtMs\":14206.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":331,\"generation\":1,\"capturedAtMs\":14206.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":332,\"generation\":1,\"capturedAtMs\":14207.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":333,\"generation\":1,\"capturedAtMs\":14207.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":334,\"generation\":1,\"capturedAtMs\":14333.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":335,\"generation\":1,\"capturedAtMs\":14334.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":336,\"generation\":1,\"capturedAtMs\":14334.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":337,\"generation\":1,\"capturedAtMs\":14334.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":338,\"generation\":1,\"capturedAtMs\":14334.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":339,\"generation\":1,\"capturedAtMs\":14335,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":340,\"generation\":1,\"capturedAtMs\":14335.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":341,\"generation\":1,\"capturedAtMs\":14482.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":342,\"generation\":1,\"capturedAtMs\":14482.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":343,\"generation\":1,\"capturedAtMs\":14482.90000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":344,\"generation\":1,\"capturedAtMs\":14483.199999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":345,\"generation\":1,\"capturedAtMs\":14483.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":346,\"generation\":1,\"capturedAtMs\":14483.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":347,\"generation\":1,\"capturedAtMs\":14483.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":348,\"generation\":1,\"capturedAtMs\":14614.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":349,\"generation\":1,\"capturedAtMs\":14615,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":350,\"generation\":1,\"capturedAtMs\":14615.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":351,\"generation\":1,\"capturedAtMs\":14615.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":352,\"generation\":1,\"capturedAtMs\":14615.699999988079,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":353,\"generation\":1,\"capturedAtMs\":14616,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":354,\"generation\":1,\"capturedAtMs\":14616.09999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":355,\"generation\":1,\"capturedAtMs\":14763.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":356,\"generation\":1,\"capturedAtMs\":14764,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":357,\"generation\":1,\"capturedAtMs\":14764.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":358,\"generation\":1,\"capturedAtMs\":14764.5,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":359,\"generation\":1,\"capturedAtMs\":14764.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":360,\"generation\":1,\"capturedAtMs\":14765,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":361,\"generation\":1,\"capturedAtMs\":14765.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":362,\"generation\":1,\"capturedAtMs\":14898.40000000596,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":363,\"generation\":1,\"capturedAtMs\":14898.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":364,\"generation\":1,\"capturedAtMs\":14899,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":365,\"generation\":1,\"capturedAtMs\":14899.300000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":366,\"generation\":1,\"capturedAtMs\":14899.59999999404,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":367,\"generation\":1,\"capturedAtMs\":14899.800000011921,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "{\"type\":\"audio.frame\",\"sequence\":368,\"generation\":1,\"capturedAtMs\":14900,\"byteLength\":640}"
+  },
+  {
+    "kind": "send",
+    "url": "ws://127.0.0.1:5173/api/v1/realtime",
+    "data": "(binary 640B)"
+  }
+]

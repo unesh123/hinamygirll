@@ -17,7 +17,7 @@
  * reversible so consent remains an explicit, revocable choice.
  */
 
-export const SETTINGS_VERSION = 6 as const;
+export const SETTINGS_VERSION = 8 as const;
 export const SETTINGS_KEY = "hinaa_settings_v1" as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -47,6 +47,7 @@ export type ProviderPreferenceMode =
   | "real"
   | "local"
   | "mock"
+  | "groq"
   | "claude"
   | "qwen"
   | "agent-router"
@@ -65,7 +66,7 @@ export interface ProviderPreferences {
   preferredModelByProvider: ModelByProvider;
 }
 
-export type ActiveLanguagePolicy = "auto-hi-en" | "hi-IN" | "en-US";
+export type ActiveLanguagePolicy = "auto" | "auto-hi-en" | "ne-NP" | "ne-en" | "hi-IN" | "hi-en" | "en-US";
 
 export interface LanguageSettings {
   /** HINAA responds in automatic Hindi-English, fixed Devanagari Hindi, or fixed English. */
@@ -100,11 +101,13 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     avatarStyle: "auto",
   },
   provider: {
-    preferredMode: "claude",
-    preferredModelByProvider: {},
+    preferredMode: "cx-gateway",
+    preferredModelByProvider: {
+      "cx-gateway": "cx/gpt-5.6-sol",
+    },
   },
   language: {
-    activePolicy: "auto-hi-en",
+    activePolicy: "auto",
   },
   automation: {
     autoRunTools: true,

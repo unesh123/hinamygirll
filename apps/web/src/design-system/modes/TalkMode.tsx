@@ -1,5 +1,7 @@
-import { Suspense, lazy, useCallback, useState } from "react";
-import { motion } from "framer-motion";
+import { Suspense, lazy, useState } from "react";
+import { PushToTalkButton } from "../../features/audio/PushToTalkButton";
+import type { PresenceMode } from "../../components/ui/AvatarPresence";
+import type { ActiveLanguagePolicy } from "../../features/settings/types/settings";
 import {
   Mic,
   MicOff,
@@ -10,6 +12,8 @@ import {
   Keyboard,
   Camera,
   Activity,
+  Languages,
+  Subtitles,
 } from "lucide-react";
 import type { CompanionState, TranscriptMessage } from "../../features/companion/types";
 
@@ -22,6 +26,9 @@ const AvatarPresence = lazy(() =>
 export type VisualMode = "vrm" | "orb" | "procedural_2d";
 
 interface TalkModeProps {
+  onCameraChange?: (mode: PresenceMode) => void;
+  languagePolicy?: ActiveLanguagePolicy;
+  onLanguageChange?: (policy: ActiveLanguagePolicy) => void;
   /** Real-time pipeline diagnostics */
   diagnostics?: any;
   /** Force commit any buffered audio */
@@ -62,13 +69,25 @@ interface TalkModeProps {
   onToggleMute: () => void;
   onReplay: () => void;
   hasReplay: boolean;
+  onSelectModel?: (modelUrl: string) => void;
+  availableModels?: readonly { url: string; label: string }[];
+  onStartPushToTalk?: () => void;
+  onStopPushToTalk?: () => void;
 }
 
 const STATE_LABELS: Record<CompanionState, string> = {
   idle: "Ready",
   listening: "Listening",
+  understanding: "Understanding",
   thinking: "Thinking",
+  researching: "Researching",
+  using_tool: "Using Tool",
+  generating: "Generating",
+  writing: "Writing",
+  waiting: "Waiting",
   speaking: "Speaking",
+  success: "Done",
+  confused: "Clarifying",
   interrupted: "Interrupted",
   error: "Error",
 };
@@ -76,8 +95,16 @@ const STATE_LABELS: Record<CompanionState, string> = {
 const STATE_COLORS: Record<CompanionState, string> = {
   idle: "var(--success)",
   listening: "var(--accent)",
+  understanding: "var(--accent)",
   thinking: "var(--warning)",
+  researching: "var(--warning)",
+  using_tool: "var(--accent)",
+  generating: "var(--accent)",
+  writing: "var(--accent)",
+  waiting: "var(--text-tertiary)",
   speaking: "var(--accent)",
+  success: "var(--success)",
+  confused: "var(--warning)",
   interrupted: "var(--danger)",
   error: "var(--danger)",
 };
@@ -90,7 +117,6 @@ export function TalkMode({
   isVoiceActive,
   isPaused,
   voiceDetail,
-  microphoneLevel,
   onStartVoice,
   onStopVoice,
   onPauseVoice,
@@ -110,7 +136,6 @@ export function TalkMode({
   expressionText,
   avatarPresentation,
   messages,
-  onOpenAvatarLab,
   onToggleFullscreen,
   onTypeInstead,
   isMuted,
@@ -120,13 +145,20 @@ export function TalkMode({
   diagnostics,
   onManualCommit,
   onToggleDiagnostics,
+  onSelectModel,
+  availableModels,
+  onStartPushToTalk,
+  onStopPushToTalk,
+  onCameraChange,
+  languagePolicy = "auto",
+  onLanguageChange,
 }: TalkModeProps) {
   const [showCaptions, setShowCaptions] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Get last assistant message for captions
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-  const captionText = streamingText || partialTranscript || lastAssistant?.text || "";
+  const captionText = streamingText || lastAssistant?.plan?.spokenText || lastAssistant?.text || "";
 
   // Get user's last message for live transcript
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
@@ -138,6 +170,7 @@ export function TalkMode({
       style={{
         display: "flex",
         flexDirection: "column",
+        ...(isFullscreen ? { position: "fixed", inset: 0, zIndex: 1000 } as const : { position: "relative" } as const),
         height: "100%",
         overflow: "hidden",
         background: "var(--bg-canvas)",
@@ -148,20 +181,172 @@ export function TalkMode({
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "space-between",
           padding: "0 var(--space-4)",
           borderBottom: "1px solid var(--border-subtle)",
           background: "var(--bg-surface)",
           flexShrink: 0,
           height: 40,
-          gap: "var(--space-3)",
         }}
       >
-        <StatusPill state={companionState} />
-        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
-          {companionName}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <StatusPill state={companionState} />
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
+            {companionName}
+          </span>
+        </div>
+
+        {/* VRM Model Switcher */}
+        {availableModels && onSelectModel && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--bg-secondary)", padding: 2, borderRadius: "var(--radius-pill)", border: "1px solid var(--border-subtle)" }}>
+            {availableModels.map((m) => (
+              <button
+                key={m.url}
+                onClick={() => onSelectModel(m.url)}
+                style={{
+                  border: "none",
+                  background: avatarModel === m.url ? "var(--accent-pale)" : "transparent",
+                  color: avatarModel === m.url ? "var(--accent)" : "var(--text-secondary)",
+                  borderRadius: "var(--radius-pill)",
+                  padding: "2px 8px",
+                  fontSize: 11,
+                  fontWeight: avatarModel === m.url ? 600 : 500,
+                  cursor: "pointer",
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
+
+      {/* ── Sakura Sleek Secondary Toolbar ── */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "var(--space-3, 12px)",
+          padding: "6px var(--space-4, 16px)",
+          background: "var(--bg-surface-raised, rgba(255, 255, 255, 0.9))",
+          borderBottom: "1px solid var(--border-subtle)",
+          backdropFilter: "blur(12px)",
+          flexShrink: 0,
+        }}
+      >
+        {/* Language selector pill */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Languages size={13} style={{ color: "var(--accent)" }} aria-hidden="true" />
+          <label style={{ fontSize: 11, fontWeight: 500, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>Language</span>
+            <select
+              aria-label="Voice language"
+              disabled={isVoiceActive}
+              value={languagePolicy}
+              onChange={(event) => onLanguageChange?.(event.target.value as ActiveLanguagePolicy)}
+              style={{
+                padding: "3px 8px",
+                borderRadius: "var(--radius-pill)",
+                color: "var(--text-primary)",
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border-subtle)",
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: isVoiceActive ? "not-allowed" : "pointer",
+                outline: "none",
+              }}
+            >
+              <option value="auto">Auto</option>
+              <option value="ne-NP">नेपाली</option>
+              <option value="hi-IN">हिन्दी</option>
+              <option value="en-US">English</option>
+              <option value="ne-en">नेपाली + English</option>
+              <option value="hi-en">हिन्दी + English</option>
+              <option value="auto-hi-en">Hindi / English auto</option>
+            </select>
+          </label>
+        </div>
+
+        {/* Camera / Framing pill */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Camera size={13} style={{ color: "var(--accent)" }} aria-hidden="true" />
+          <label style={{ fontSize: 11, fontWeight: 500, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>View</span>
+            <select
+              aria-label="Avatar framing"
+              value={avatarMode}
+              onChange={(event) => onCameraChange?.(event.target.value as PresenceMode)}
+              style={{
+                padding: "3px 8px",
+                borderRadius: "var(--radius-pill)",
+                color: "var(--text-primary)",
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border-subtle)",
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              <option value="upperbody">Companion (hands visible)</option>
+              <option value="portrait">Portrait</option>
+              <option value="upperbody">Upper body</option>
+              <option value="full">Full body</option>
+              <option value="closeup">Close-up</option>
+            </select>
+          </label>
+        </div>
+
+        {/* Captions toggle button */}
+        <button
+          type="button"
+          aria-pressed={showCaptions}
+          onClick={() => setShowCaptions(!showCaptions)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "3px 10px",
+            borderRadius: "var(--radius-pill)",
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: "pointer",
+            background: showCaptions ? "var(--accent-pale)" : "var(--bg-secondary)",
+            color: showCaptions ? "var(--accent)" : "var(--text-secondary)",
+            border: showCaptions ? "1px solid var(--accent)" : "1px solid var(--border-subtle)",
+            transition: "all 150ms ease",
+          }}
+        >
+          <Subtitles size={12} />
+          <span>Captions</span>
+        </button>
+
+        {/* Voice status pill */}
+        <div
+          role="status"
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 11,
+            color: "var(--text-tertiary)",
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: isVoiceActive ? "var(--accent)" : "var(--border-strong, #ccc)",
+              boxShadow: isVoiceActive ? "0 0 6px var(--accent)" : "none",
+              display: "inline-block",
+            }}
+          />
+          <span>{voiceDetail || "Ready when you are"}</span>
+        </div>
+      </div>
 
       {/* ── Main: Avatar Stage fills available height ─ */}
       <div
@@ -173,8 +358,7 @@ export function TalkMode({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background:
-            "radial-gradient(circle at 50% 30%, rgb(255 255 255 / 0.98) 0%, rgb(255 244 248 / 0.90) 38%, rgb(246 235 242 / 0.92) 100%)",
+          background: "radial-gradient(ellipse at 50% 35%, var(--accent-pale), var(--bg-primary) 75%)",
           borderRadius: "0",
           minHeight: 0,
         }}
@@ -234,6 +418,7 @@ export function TalkMode({
               }
             >
               <AvatarPresence
+                onModeChange={onCameraChange}
                 mode={avatarMode}
                 state={companionState}
                 jawEnergy={jawEnergy}
@@ -295,21 +480,10 @@ export function TalkMode({
         {showCaptions && captionText && (
           <div
             data-testid="hinaa-caption"
+            className={`hinaa-caption${avatarMode === "full" ? " hinaa-caption--full" : ""}`}
             style={{
               position: "absolute",
-              bottom: 80,
-              left: "50%",
-              transform: "translateX(-50%)",
-              maxWidth: "min(640px, 85%)",
-              padding: "var(--space-3) var(--space-4)",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-default)",
-              borderRadius: "var(--radius-xl)",
-              boxShadow: "var(--shadow-md)",
               color: "var(--text-primary)",
-              fontSize: "var(--text-sm)",
-              lineHeight: "var(--leading-normal)",
-              textAlign: "center",
               zIndex: 5,
             }}
           >
@@ -367,10 +541,12 @@ export function TalkMode({
       <div
         data-testid="voice-control-dock"
         style={{
-          position: "absolute",
-          bottom: "var(--space-4)",
-          left: "50%",
-          transform: "translateX(-50%)",
+          position: "relative",
+          alignSelf: "center",
+          margin: "12px",
+          maxWidth: "calc(100% - 24px)",
+          flexWrap: "wrap",
+          justifyContent: "center",
           display: "flex",
           alignItems: "center",
           gap: "var(--space-2)",
@@ -392,6 +568,14 @@ export function TalkMode({
         >
           {isVoiceActive ? <MicOff size={18} /> : <Mic size={18} />}
         </DockButton>
+
+        {/* Hold to speak (Push to talk) */}
+        {isVoiceActive && onStartPushToTalk && onStopPushToTalk && (
+          <PushToTalkButton onStart={onStartPushToTalk} onStop={onStopPushToTalk} />
+        )}
+
+        {isVoiceActive && <DockButton onClick={isPaused ? onResumeVoice : onPauseVoice} title={isPaused ? "Resume listening" : "Pause listening"} ariaLabel={isPaused ? "Resume listening" : "Pause listening"}><span>{isPaused ? "▶" : "Ⅱ"}</span></DockButton>}
+        {hasReplay && <DockButton onClick={onReplay} title="Replay last reply" ariaLabel="Replay last reply"><span>↻</span></DockButton>}
 
         {/* Mute */}
         <DockButton

@@ -5,26 +5,26 @@ import { loadSettings } from "./settingsStore";
 describe("CX provider default", () => {
   beforeEach(() => localStorage.clear());
 
-  it("uses Claude for a fresh local installation", () => {
-    expect(loadSettings().provider.preferredMode).toBe("claude");
+  it("uses CX Gateway for a fresh local installation", () => {
+    expect(loadSettings().provider.preferredMode).toBe("cx-gateway");
   });
 
-  it("migrates a previously automatic installation to Claude", () => {
+  it("migrates a previously automatic installation to CX Gateway", () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
       _version: 1,
       appearance: {},
       provider: { preferredMode: "auto", preferredModelByProvider: {} },
     }));
-    expect(loadSettings().provider.preferredMode).toBe("claude");
+    expect(loadSettings().provider.preferredMode).toBe("cx-gateway");
   });
 
-  it("moves a persisted dead CX Gateway choice to Claude", () => {
+  it("moves a persisted rate-limited Claude choice to CX Gateway", () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-      _version: 4,
+      _version: 6,
       appearance: {},
-      provider: { preferredMode: "cx-gateway", preferredModelByProvider: {} },
+      provider: { preferredMode: "claude", preferredModelByProvider: {} },
     }));
-    expect(loadSettings().provider.preferredMode).toBe("claude");
+    expect(loadSettings().provider.preferredMode).toBe("cx-gateway");
   });
 
   it("does not overwrite an explicit existing provider choice", () => {

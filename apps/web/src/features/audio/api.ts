@@ -64,11 +64,12 @@ export async function synthesizeSpeech(
   companionId: "hinaa" | "hiro",
   mode: ProviderMode,
   signal: AbortSignal,
+  language: "ne-NP" | "hi-IN" | "en-US" | "mixed" = "mixed",
 ): Promise<{ blob: Blob; provider: string; latencyMs: number }> {
   const response = await fetch("/api/v1/speech/synthesis", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, companionId, providerMode: mode }),
+    body: JSON.stringify({ text, companionId, providerMode: mode, language }),
     signal,
   });
   if (!response.ok) {
@@ -84,4 +85,29 @@ export async function synthesizeSpeech(
     provider: response.headers.get("X-HINAA-Provider") ?? mode,
     latencyMs: Number(response.headers.get("X-HINAA-Latency-Ms") ?? 0),
   };
+}
+
+export async function reprobeCxGateway(): Promise<{
+  providerId: string;
+  environment: string;
+  hostname: string | null;
+  configured: boolean;
+  reachable: boolean;
+  inference: boolean;
+  quota: boolean;
+  state: string;
+  circuitBreakerState: string;
+  model: string;
+  latencyMs: number;
+  userMessage: string;
+  timestamp: string;
+}> {
+  const response = await fetch("/api/v1/providers/cx/reprobe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`Reprobe failed (${response.status})`);
+  }
+  return response.json();
 }

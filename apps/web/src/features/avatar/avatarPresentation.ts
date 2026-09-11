@@ -14,8 +14,11 @@ export type AvatarPresentation = {
 export const AVATAR_PRESENTATION_STORAGE_KEY = "hinaa.avatar-presentation.v1";
 
 const KNOWN_PRESENTATIONS: Record<string, AvatarPresentation> = {
+  "/models/hinaa.vrm": { rotationY: Math.PI, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
+  "/models/AvatarSample_E.vrm": { rotationY: 0, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
   "/models/model_6164.vrm": { rotationY: Math.PI, offsetY: -0.24, scale: 0.90, poseMode: "relaxed" },
-  "/models/model_5447.vrm": { rotationY: 0, offsetY: 0, scale: 1, poseMode: "relaxed" },
+  "/models/model_5447.vrm": { rotationY: 0, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
+  "/models/5798998195377315936 (1).vrm": { rotationY: Math.PI, offsetY: -0.15, scale: 0.95, poseMode: "relaxed" },
 };
 
 export function defaultAvatarPresentation(modelUrl: string): AvatarPresentation {

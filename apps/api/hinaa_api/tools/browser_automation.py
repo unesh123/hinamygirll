@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shutil
 from typing import Optional, Dict, Any, List
@@ -6,6 +7,9 @@ from pydantic import BaseModel, Field
 from playwright.async_api import async_playwright, Browser, Page
 
 from hinaa_api.tools.registry import registry, ToolDefinition
+from hinaa_api.errors import HinaaError
+
+logger = logging.getLogger(__name__)
 
 # Global browser state
 _playwright = None
@@ -209,19 +213,32 @@ class FileReadParams(BaseModel):
     file_path: str = Field(..., description="Absolute path to the file to read.")
 
 
+FILE_TOOL_ROOT = Path(__file__).resolve().parents[2] / "data"
+
+
+def resolve_tool_file(file_path: str) -> Path:
+    root = FILE_TOOL_ROOT.resolve()
+    candidate = Path(file_path)
+    resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    if not resolved.is_relative_to(root) or resolved == root:
+        raise HinaaError("FILE_ACCESS_DENIED", "Choose a file inside HINAA's data folder.", 403)
+    return resolved
+
+
 async def file_read(params: FileReadParams) -> str:
     try:
         file_path = params.file_path
-        resolved = Path(file_path).resolve()
-        allowed_root = Path("apps/api/data").resolve()
-        if not str(resolved).startswith(str(allowed_root)):
-            return f"Access denied: '{file_path}' is outside allowed directory."
+        resolved = resolve_tool_file(file_path)
         if not resolved.is_file():
             return f"File not found: '{file_path}'"
+        if resolved.stat().st_size > 1_048_576:
+            raise HinaaError("FILE_TOO_LARGE", "Text file reads are limited to 1 MiB.", 413)
         content = resolved.read_text(encoding="utf-8", errors="replace")
         return f"=== File: {file_path} ===\n{content}"
-    except Exception as e:
-        return f"Failed to read file: {str(e)}"
+    except HinaaError:
+        raise
+    except OSError as error:
+        raise HinaaError("FILE_READ_FAILED", "The file could not be read.", 422) from error
 
 
 file_read_def = ToolDefinition(
@@ -247,15 +264,19 @@ class FileWriteParams(BaseModel):
 async def file_write(params: FileWriteParams) -> str:
     try:
         file_path = params.file_path
-        resolved = Path(file_path).resolve()
-        allowed_root = Path("apps/api/data").resolve()
-        if not str(resolved).startswith(str(allowed_root)):
-            return f"Access denied: '{file_path}' is outside allowed directory."
-        Path(file_path).parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(params.content, encoding="utf-8")
+        resolved = resolve_tool_file(file_path)
+        if len(params.content.encode("utf-8")) > 1_048_576:
+            raise HinaaError("FILE_TOO_LARGE", "Text file writes are limited to 1 MiB.", 413)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        with resolved.open("x", encoding="utf-8") as target:
+            target.write(params.content)
         return f"Successfully wrote to '{file_path}' ({len(params.content)} chars)."
-    except Exception as e:
-        return f"Failed to write file: {str(e)}"
+    except FileExistsError as error:
+        raise HinaaError("FILE_EXISTS", "That file already exists. Choose a new filename to preserve the original.", 409) from error
+    except HinaaError:
+        raise
+    except OSError as error:
+        raise HinaaError("FILE_WRITE_FAILED", "The file could not be created.", 422) from error
 
 
 file_write_def = ToolDefinition(
@@ -321,16 +342,21 @@ class AppLaunchParams(BaseModel):
 
 async def app_launch(params: AppLaunchParams) -> str:
     try:
-        app_name = params.app_name.lower()
+        app_name = params.app_name.strip().lower()
         if sys.platform.startswith("win"):
-            subprocess.Popen([app_name + ".exe"], shell=True)
-        elif sys.platform.startswith("darwin"):
-            subprocess.Popen(["open", "-a", app_name])
+            allowed = {"notepad": "notepad.exe", "calculator": "calc.exe", "calc": "calc.exe", "paint": "mspaint.exe"}
+            executable = allowed.get(app_name)
+            if executable is None:
+                raise HinaaError("APP_NOT_ALLOWED", "This local launcher supports Notepad, Calculator, and Paint.", 403)
+            system_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+            subprocess.Popen([str(system_dir / executable)], shell=False)
         else:
-            subprocess.Popen([app_name])
+            raise HinaaError("APP_PLATFORM_UNSUPPORTED", "Application launch is currently available on Windows only.", 422)
         return f"Launching '{params.app_name}'..."
-    except Exception as e:
-        return f"Failed to launch '{params.app_name}': {str(e)}"
+    except HinaaError:
+        raise
+    except OSError as error:
+        raise HinaaError("APP_LAUNCH_FAILED", "The application could not be launched.", 422) from error
 
 
 app_launch_def = ToolDefinition(

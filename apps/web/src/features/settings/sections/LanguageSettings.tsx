@@ -11,13 +11,17 @@ export function LanguageSettings({ language, onChange }: Props) {
     <SettingsSection label="HINAA language" divider>
       <SettingsRow
         label="Conversation language"
-        description="Hindi uses Devanagari with readable English technical terms. HINAA automatically follows Hindi or English without routing into Nepali."
+        description="Choose Nepali, Hindi, English, or a natural mix. Select a specific language before starting voice for more reliable recognition."
         htmlFor="settings-language-policy"
       >
         <SettingsSelect
           id="settings-language-policy"
           value={language.activePolicy}
           options={[
+            { value: "auto", label: "Auto · Nepali / Hindi / English" },
+            { value: "ne-NP", label: "नेपाली · Nepali" },
+            { value: "ne-en", label: "नेपाली + English" },
+            { value: "hi-en", label: "हिन्दी + English" },
             { value: "auto-hi-en", label: "Auto Hindi / English" },
             { value: "hi-IN", label: "Hindi (Devanagari)" },
             { value: "en-US", label: "English" },

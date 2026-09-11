@@ -17,6 +17,8 @@ export interface VoiceDiagnosticsData {
   audioContextState: "unknown" | "running" | "suspended" | "closed" | "interrupted";
   inputSampleRate: number;
   rmsLevel: number;
+  noiseFloor?: number;
+  vadThreshold?: number;
   chunksSentPerSecond: number;
   
   // STT
@@ -222,6 +224,8 @@ export function VoiceDiagnosticsDrawer({ isOpen, onClose, data, onManualCommit, 
             <DiagRow label="AudioContext" value={data.audioContextState} warn={data.audioContextState !== "running"} />
             <DiagRow label="Sample rate" value={`${data.inputSampleRate} Hz`} />
             <DiagRow label="RMS level" value={data.rmsLevel.toFixed(4)} />
+            <DiagRow label="Noise floor" value={data.noiseFloor !== undefined ? data.noiseFloor.toFixed(4) : "—"} />
+            <DiagRow label="VAD threshold" value={data.vadThreshold !== undefined ? data.vadThreshold.toFixed(4) : "—"} />
             <DiagRow label="Chunks/sec" value={`${data.chunksSentPerSecond}`} />
           </div>
 

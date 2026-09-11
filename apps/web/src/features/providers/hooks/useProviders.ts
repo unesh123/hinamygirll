@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchProviderStatuses, type ProviderStatus as ApiStatus } from "../../audio/api";
+import { fetchProviderStatuses, reprobeCxGateway, type ProviderStatus as ApiStatus } from "../../audio/api";
 import { buildProviderOptions, extractModelOptions } from "../utils/providerLabels";
 import type {
   ModelOption,
@@ -188,6 +188,13 @@ export function useProviders(): ProvidersState {
     [loaded, statuses],
   );
 
+  const reprobeCx = useCallback(async () => {
+    try {
+      await reprobeCxGateway();
+    } catch {}
+    await load();
+  }, [load]);
+
   return {
     statuses,
     loaded,
@@ -197,5 +204,6 @@ export function useProviders(): ProvidersState {
     getDefaultModel,
     getHealth,
     refresh,
+    reprobeCx,
   };
 }

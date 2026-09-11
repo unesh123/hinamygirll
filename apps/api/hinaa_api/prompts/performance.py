@@ -46,7 +46,7 @@ PERFORMANCE_SCHEMA_LAYER = f"""ASSISTANT TURN PLAN CONTRACT:
 - gazeTarget ∈ ["camera","away","down","user-content"]
 - headMotion ∈ ["none","subtle","nod","shake"]
 - blinkRate between 0.1 and 1.0
-- memoryCandidates: empty unless the product later supplies explicit remember flow (currently prefer [])
+- memoryCandidates: If the user reveals personal facts, preferences, name, location, interests, work context, or recurring patterns, emit them as memoryCandidates with {{"content": "...", "category": "fact|preference|workflow|task|conversation"}}. Keep entries concise (under 80 chars). Do NOT emit secrets, passwords, or API keys.
 - Never invent animation filenames, bone names, blendshapes, URLs, code, or tools.
 - Prefer restrained intensity. At most one major gesture cue per turn.
 - Serious, sensitive, uncertain, or error contexts: prefer neutral/thinking/concerned and avoid playful/celebrate.
@@ -148,14 +148,28 @@ def build_plan_from_text(
     language: Language,
     depth: ResponseDepth,
 ) -> AssistantTurnPlan:
-    spoken = text.strip()[:4000] or "I'm here. How can I help?"
+    valid_langs = {"en-US", "hi-IN", "ne-NP", "mixed"}
+    lang_map = {"en": "en-US", "hi": "hi-IN", "ne": "ne-NP", "english": "en-US", "hindi": "hi-IN", "nepali": "ne-NP"}
+    resolved_lang: Language = lang_map.get(str(language).lower(), language if language in valid_langs else "mixed")  # type: ignore[assignment]
+    cleaned = re.sub(
+        r"</?(?:spokenText|displayText|think|thought|content|message)[^>]*>",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\s*\([a-zA-Z_]+=[0-9.]+(?:,\s*[a-zA-Z_]+=[0-9.]+)*\)\s*$",
+        "",
+        cleaned,
+    )
+    spoken = cleaned.strip()[:4000] or "I'm here. How can I help?"
     emotion, performance = plan_performance(
-        text=spoken, companion_id=companion_id, depth=depth, language=language
+        text=spoken, companion_id=companion_id, depth=depth, language=resolved_lang
     )
     return AssistantTurnPlan(
         spokenText=spoken,
         displayText=spoken[:8000],
-        language=language,
+        language=resolved_lang,
         emotion=emotion,
         performance=performance,
         beats=[],

@@ -3,11 +3,12 @@ from __future__ import annotations
 from ..models import Language
 
 LANGUAGE_LAYER = """STRICT LANGUAGE RULES:
-1. ACTIVE LANGUAGES (HINDI AND ENGLISH ONLY):
-   Respond fluently in Hindi, English, or a natural Hindi-English mix. Do not route into Nepali.
+1. ACTIVE LANGUAGES (NEPALI, HINDI AND ENGLISH):
+   Respond fluently in Nepali, Hindi, English, or natural Nepali-English / Hindi-English mixing.
+   Nepali and Hindi are distinct languages despite sharing Devanagari. Preserve their grammar.
 
 2. HINDI SCRIPT:
-   Write Hindi in Devanagari. Do not use casual Romanized Hindi. Keep English technical terms in readable English letters when that improves clarity.
+   Write Nepali and Hindi in Devanagari unless romanization is requested. Understand romanized input. Keep English technical terms in readable English letters when that improves clarity.
 
 3. ENGLISH:
    Write English in standard English. Match the user’s language and level of detail without repeating the entire answer aloud.
@@ -20,8 +21,10 @@ LANGUAGE_LAYER = """STRICT LANGUAGE RULES:
 
 
 def language_hint(language: Language) -> str:
+    if language == "ne-NP":
+        return "Reply in natural Nepali (नेपाली), not Hindi. English technical terms and natural Nepali-English mixing are allowed."
     if language == "hi-IN":
-        return "STRICT RULE: Reply in fluent Devanagari Hindi. Keep English technical terms readable in English letters. Never use Romanized Hindi or Nepali."
+        return "Reply in fluent Devanagari Hindi. Keep English technical terms readable; natural Hindi-English mixing is allowed."
     if language == "en-US":
-        return "STRICT RULE: Reply in fluent English. Do not switch into Nepali."
-    return "STRICT RULE: Reply in fluent Hindi (Devanagari) and English only. Match the user’s language; keep technical terms readable in English and never use Romanized Hindi or Nepali."
+        return "Reply in fluent English unless the user explicitly asks for another language."
+    return "Follow the user's Nepali, Hindi, English, or mixed language. Use conversation context and ask briefly if ambiguous."

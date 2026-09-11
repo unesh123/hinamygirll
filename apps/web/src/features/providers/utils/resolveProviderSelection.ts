@@ -52,8 +52,9 @@ export function resolveVoiceRoute(
     : health("deepgram") === "healthy" ? "deepgram"
     : "browser";
   const brainProvider: VoiceRoute["brainProvider"] =
-    providers.getHealth("claude") === "healthy" ? "claude"
+    providers.getHealth("real") === "healthy" ? "gemini"
     : providers.getHealth("cx-gateway") === "healthy" ? "cx"
+    : providers.getHealth("claude") === "healthy" ? "claude"
     : providers.getHealth("qwen") === "healthy" ? "qwen"
     : providers.getHealth("openai") === "healthy" ? "openai"
     : "gemini";
@@ -71,9 +72,9 @@ export function resolveVoiceRoute(
 
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "cx-gateway",
+  "real",
   "claude",
   "qwen",
-  "real",
   "openai",
   "custom",
   "agent-router",
@@ -119,17 +120,22 @@ export function resolveProviderSelection(
     // no longer configured on this deployment, recover to deterministic mock
     // mode rather than surfacing a provider-configuration error in chat.
     if (providers.loaded && (health === "unavailable" || health === "disabled")) {
-      // Recover to a live real brain when one exists (Claude first) instead of
+      // Recover to a live real brain when one exists (CX Gateway first) instead of
       // the canned mock responder, so a persisted-but-now-unreachable provider
-      // (e.g. a CX gateway whose ephemeral tunnel has expired) still answers
-      // with a genuine model. Mock remains the last resort.
+      // still answers with a genuine model. Mock remains the last resort.
       const recoveryMode: ConcreteProviderMode =
-        providers.getHealth("claude") === "healthy" ? "claude" : "mock";
+        providers.getHealth("cx-gateway") === "healthy"
+          ? "cx-gateway"
+          : providers.getHealth("real") === "healthy"
+            ? "real"
+            : providers.getHealth("claude") === "healthy"
+              ? "claude"
+              : "mock";
       const recoveryModel =
-        recoveryMode === "claude"
+        recoveryMode !== "mock"
           ? resolveCurrentModel(
-              "claude",
-              models["claude" as keyof typeof models],
+              recoveryMode,
+              models[recoveryMode as keyof typeof models],
               providers,
             )
           : null;

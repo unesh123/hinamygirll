@@ -11,7 +11,7 @@ interface Props {
   providers: ProvidersState;
 }
 
-const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? "dev";
+const APP_VERSION = "HINAA V3.1 · 478dd8f · 2026-09-05";
 
 export function DiagnosticsSettings({ providers }: Props) {
   return (

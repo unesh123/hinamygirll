@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getActiveViseme, textToVisemeEvents } from "./textToViseme";
+import {
+  createLipSyncTimeline,
+  getActiveViseme,
+  normalizeProviderVisemeEvents,
+  textToVisemeEvents,
+} from "./textToViseme";
 
 describe("textToVisemeEvents", () => {
   it("returns no events for empty text or duration", () => {
@@ -61,5 +66,35 @@ describe("textToVisemeEvents", () => {
     expect(getActiveViseme(0, events)?.mouth).toBeTruthy();
     expect(getActiveViseme(299, events)?.mouth).toBeTruthy();
     expect(getActiveViseme(601, events)).toBeNull();
+  });
+
+  it("prioritizes provider-timed visemes over text fallback when available", () => {
+    const events = createLipSyncTimeline({
+      text: "namaste",
+      durationMs: 700,
+      providerEvents: [
+        { timeMs: 120, durationMs: 80, mouth: "oh", weight: 0.8 },
+        { timeMs: 0, durationMs: 100, mouth: "aa", weight: 1.2 },
+      ],
+    });
+
+    expect(events).toEqual([
+      { timeMs: 0, durationMs: 100, mouth: "aa", weight: 1 },
+      { timeMs: 120, durationMs: 80, mouth: "oh", weight: 0.8 },
+    ]);
+  });
+
+  it("normalizes provider visemes into the active audio chunk window", () => {
+    const events = normalizeProviderVisemeEvents(
+      [
+        { timeMs: -50, durationMs: 20, mouth: "ee", weight: -1 },
+        { timeMs: 2_000, durationMs: 500, mouth: "ou", weight: 0.7 },
+      ],
+      1_000,
+      250,
+    );
+
+    expect(events[0]).toEqual({ timeMs: 250, durationMs: 20, mouth: "ee", weight: 0 });
+    expect(events[1]).toEqual({ timeMs: 1250, durationMs: 16, mouth: "ou", weight: 0.7 });
   });
 });

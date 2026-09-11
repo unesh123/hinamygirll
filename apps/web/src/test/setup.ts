@@ -2,7 +2,14 @@ import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
 // Mock fetch globally
-global.fetch = vi.fn();
+global.fetch = vi.fn().mockImplementation(() =>
+  Promise.resolve({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({}),
+    text: () => Promise.resolve(""),
+  })
+);
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -23,18 +30,20 @@ Object.defineProperty(global, 'localStorage', {
 });
 
 // Mock IntersectionObserver
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
+class MockIntersectionObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+global.IntersectionObserver = MockIntersectionObserver as any;
 
 // Mock ResizeObserver
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+global.ResizeObserver = MockResizeObserver as any;
 
 // Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {
