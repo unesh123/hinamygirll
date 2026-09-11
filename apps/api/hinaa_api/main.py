@@ -1029,6 +1029,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             
         return FileResponse(resolved_path, media_type=content_type)
 
+    @app.get("/v1/generated-docs/{doc_id}")
+    @app.get("/api/v1/generated-docs/{doc_id}")
+    async def get_generated_document(doc_id: str):
+        from fastapi.responses import FileResponse
+        from pathlib import Path
+
+        allowed_roots = [
+            (Path(__file__).resolve().parent / "data" / "documents").resolve(),
+            (Path(__file__).resolve().parent.parent / "data" / "documents").resolve(),
+            Path("apps/api/data/documents").resolve(),
+            Path("apps/api/hinaa_api/data/documents").resolve(),
+        ]
+
+        clean_name = Path(doc_id).name
+        resolved_path = None
+
+        for root in allowed_roots:
+            if not root.exists():
+                continue
+            candidate = (root / clean_name).resolve()
+            if candidate.is_relative_to(root) and candidate.exists() and candidate.is_file():
+                resolved_path = candidate
+                break
+            candidate_pdf = (root / f"{clean_name}.pdf").resolve()
+            if candidate_pdf.is_relative_to(root) and candidate_pdf.exists() and candidate_pdf.is_file():
+                resolved_path = candidate_pdf
+                break
+            for f in root.glob(f"*{clean_name}*.pdf"):
+                if f.is_file():
+                    resolved_path = f
+                    break
+            if resolved_path:
+                break
+
+        if not resolved_path or not resolved_path.exists() or not resolved_path.is_file():
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        return FileResponse(
+            resolved_path,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{resolved_path.name}"'},
+        )
+
     @app.post("/v1/tools/execute")
     async def execute_tool(request: Request, body: ToolRequest) -> dict[str, Any]:
         tool_def = registry.get_tool(body.toolName)
@@ -1047,6 +1090,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "diagnostic_echo",
                 "image_generate",
                 "pdf_generate",
+                "create_gamma_presentation",
+                "gamma_create",
                 "magnific_image_generate",
                 "freepik_image_generate",
                 "magnific_upscale",

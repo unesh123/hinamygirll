@@ -70,7 +70,7 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
             warmth=0.75,
             energy=0.3,
         )
-    if _TECH.search(text) or depth in {"procedural", "explanatory"}:
+    if _TECH.search(text) or depth in {"procedural", "explanatory", "report"}:
         return VoicePerformancePlan(
             mode="professional",
             pace=0.98,

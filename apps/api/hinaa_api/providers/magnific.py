@@ -59,11 +59,15 @@ def _extract_urls(payload: Any) -> list[str]:
     def visit(node: Any) -> None:
         if isinstance(node, dict):
             for key, value in node.items():
-                if isinstance(value, str) and value.startswith(("http://", "https://", "data:image")):
-                    if re.search(r"\.(png|jpe?g|webp)(\?|$)", value, re.I) or value.startswith("data:image") or key in {
-                        "url", "image", "image_url", "output", "output_url", "result", "image_link", "signed_url",
-                    }:
-                        found.append(value)
+                if isinstance(value, str):
+                    if key == "base64" and not value.startswith("data:"):
+                        mime = "image/png" if value.startswith("iVBORw0KGgo") else "image/jpeg"
+                        found.append(f"data:{mime};base64,{value}")
+                    elif value.startswith(("http://", "https://", "data:image")):
+                        if re.search(r"\.(png|jpe?g|webp)(\?|$)", value, re.I) or value.startswith("data:image") or key in {
+                            "url", "image", "image_url", "output", "output_url", "result", "image_link", "signed_url",
+                        }:
+                            found.append(value)
                 else:
                     visit(value)
         elif isinstance(node, list):
@@ -183,25 +187,41 @@ class MagnificProvider:
         fast_model = getattr(self.settings, "magnific_model_fast", "flux-schnell")
         quality_model = getattr(self.settings, "magnific_model_quality", "flux-dev")
         flux_model = model or (fast_model if width <= 768 else quality_model)
-        t2i_template = getattr(self.settings, "magnific_t2i_path", "/v1/ai/text-to-image/{model}")
-        path = t2i_template.format(model=flux_model)
 
-        payload: dict[str, Any] = {
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
-            "num_images": 1,
-            "guidance_scale": guidance_scale,
-            "image": {"size": f"{width}x{height}", "width": width, "height": height},
-        }
-        if seed is not None:
-            payload["seed"] = int(seed)
-        ref_strength = float(getattr(self.settings, "magnific_reference_strength", 0.6) or 0.6)
-        if reference_image_url:
-            payload["reference_image_url"] = reference_image_url
-            payload["reference_strength"] = ref_strength
-        elif reference_image_b64:
-            payload["reference_image_base64"] = reference_image_b64
-            payload["reference_strength"] = ref_strength
+        if "freepik.com" in base:
+            path = "/v1/ai/text-to-image"
+            ratio_str = "square_1_1"
+            if width > height:
+                ratio_str = "landscape_4_3"
+            elif height > width:
+                ratio_str = "portrait_4_3"
+            payload: dict[str, Any] = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "num_images": 1,
+                "image": {"size": ratio_str},
+            }
+            if seed is not None:
+                payload["seed"] = int(seed)
+        else:
+            t2i_template = getattr(self.settings, "magnific_t2i_path", "/v1/ai/text-to-image/{model}")
+            path = t2i_template.format(model=flux_model) if "{model}" in t2i_template else t2i_template
+            payload = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "num_images": 1,
+                "guidance_scale": guidance_scale,
+                "image": {"size": f"{width}x{height}", "width": width, "height": height},
+            }
+            if seed is not None:
+                payload["seed"] = int(seed)
+            ref_strength = float(getattr(self.settings, "magnific_reference_strength", 0.6) or 0.6)
+            if reference_image_url:
+                payload["reference_image_url"] = reference_image_url
+                payload["reference_strength"] = ref_strength
+            elif reference_image_b64:
+                payload["reference_image_base64"] = reference_image_b64
+                payload["reference_strength"] = ref_strength
 
         async with httpx.AsyncClient(timeout=self._timeout()) as client:
             response = await self._post(client, f"{base}{path}", payload, key)
@@ -210,10 +230,20 @@ class MagnificProvider:
             if not urls:
                 raise MagnificError(
                     "MAGNIFIC_NO_OUTPUT",
-                    "Magnific accepted the job but returned no image URL.",
+                    "Magnific/Freepik accepted the job but returned no image URL.",
                     retryable=True,
                 )
-            return MagnificImageResult(image_urls=urls, provider=f"magnific:{flux_model}", seed=seed, raw=body)
+            return MagnificImageResult(image_urls=urls, provider=f"freepik:{flux_model}", seed=seed, raw=body)
+
+    async def download(self, url: str) -> bytes:
+        """Download image bytes from http(s) URL or decode data URL."""
+        if url.startswith("data:"):
+            header, _, b64_data = url.partition(",")
+            return base64.b64decode(b64_data.strip())
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.content
 
     # ── Upscale (Unified for URL strings and MediaResult) ─────────────────
     async def upscale(

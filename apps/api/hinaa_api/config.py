@@ -155,7 +155,7 @@ class Settings(BaseSettings):
     # Magnific / Freepik — FLUX.2 cloud image generation (HINAA's image brain)
     magnific_api_key: SecretStr | None = Field(None, alias="MAGNIFIC_API_KEY")
     freepik_api_key: SecretStr | None = Field(None, alias="FREEPIK_API_KEY")
-    magnific_base_url: str = Field("https://api.magnific.ai", alias="MAGNIFIC_BASE_URL")
+    magnific_base_url: str = Field("https://api.freepik.com", alias="MAGNIFIC_BASE_URL")
     magnific_timeout_seconds: float = Field(180.0, alias="MAGNIFIC_TIMEOUT_SECONDS")
     magnific_t2i_path: str = Field("/v1/ai/text-to-image/{model}", alias="MAGNIFIC_T2I_PATH")
     magnific_upscale_path: str = Field("/v1/upscale", alias="MAGNIFIC_UPSCALE_PATH")

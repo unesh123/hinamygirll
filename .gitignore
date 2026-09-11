@@ -52,6 +52,9 @@ crash.*.log
 *.pcm
 backups/
 data/private/
+apps/api/data/images/
+apps/api/data/documents/
+apps/api/hinaa_api/data/documents/
 .cert/
 .runtime/
 logs/

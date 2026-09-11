@@ -30,6 +30,11 @@ _EXPLAIN = re.compile(
     r"(क्यों|क्या है|समझा|detail)",
     re.IGNORECASE,
 )
+_REPORT = re.compile(
+    r"\b(report|status|overview|architecture|audit|document|breakdown|deep dive|comprehensive|analysis|comparison|full plan)\b|"
+    r"(रिपोर्ट|विवरण|विस्तार)",
+    re.IGNORECASE,
+)
 
 
 def infer_response_depth(user_text: str, mode: InteractionMode) -> ResponseDepth:
@@ -40,6 +45,8 @@ def infer_response_depth(user_text: str, mode: InteractionMode) -> ResponseDepth
         return "supportive"
     if len(text) <= 12 or _CLARIFY.match(text):
         return "clarification" if len(text) <= 8 else "minimal"
+    if _REPORT.search(text):
+        return "report"
     if _PROCEDURAL.search(text):
         return "procedural"
     if _EXPLAIN.search(text):
@@ -63,6 +70,14 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
         ),
         "explanatory": "Lead with the answer, then give a concise explanation. Avoid filler.",
         "procedural": "Give clear ordered steps. Keep each step short and actionable.",
+        "report": (
+            "Produce an exhaustive, highly structured, professional technical or analytical report. "
+            "Use clear Markdown hierarchy (### headings), precise bullet points, markdown data tables "
+            "where comparing options or status, and code blocks for technical context. "
+            "displayText MUST contain the comprehensive, documented report. "
+            "spokenText MUST remain strictly a concise, warm 1-sentence executive summary (under 120 characters) "
+            "highlighting that the full report is displayed below."
+        ),
         "supportive": (
             "Be calm, tender, and present. Validate their feelings first, hold their hand "
             "through the moment, then offer gentle reassurance and one small next step. "

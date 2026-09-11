@@ -86,7 +86,7 @@ def plan_performance(
     serious = bool(_SERIOUS.search(text)) or depth in {"supportive", "safety_redirect"}
     celebrate = bool(_CELEBRATE.search(text)) and not serious
     greet = bool(_GREET.search(text)) and not serious
-    explain = bool(_EXPLAIN.search(text)) or depth in {"explanatory", "procedural"}
+    explain = bool(_EXPLAIN.search(text)) or depth in {"explanatory", "procedural", "report"}
 
     if serious:
         emotion = Emotion(primary="concerned", intensity=0.4, valence=-0.1, arousal=-0.05)

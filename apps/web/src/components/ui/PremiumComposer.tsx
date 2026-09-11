@@ -126,7 +126,8 @@ export function PremiumComposer({
 
   const handleKey = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (showMentions && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape")) {
+      if (showMentions && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape" || e.key === "Tab")) {
+        e.preventDefault();
         return; // Let the active command menu handle it
       }
       if (e.key === "Enter" && !e.shiftKey) {

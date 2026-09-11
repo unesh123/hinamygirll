@@ -15,6 +15,7 @@ ResponseDepth = Literal[
     "supportive",
     "clarification",
     "safety_redirect",
+    "report",
 ]
 
 

@@ -300,7 +300,7 @@ export function PowerUpMentions({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const selected = container.children[selectedIndex] as HTMLElement;
+    const selected = container.querySelector("[data-selected='true']") as HTMLElement | null;
     if (selected) {
       selected.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
@@ -439,6 +439,8 @@ export function PowerUpMentions({
                     <motion.button
                       key={ctx.id}
                       type="button"
+                      data-selected={isSelected}
+                      onMouseEnter={() => setSelectedIndex(idx)}
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
@@ -509,6 +511,8 @@ export function PowerUpMentions({
                     <motion.button
                       key={`${cmd.name}-${idx}`}
                       type="button"
+                      data-selected={isSelected}
+                      onMouseEnter={() => setSelectedIndex(idx)}
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}

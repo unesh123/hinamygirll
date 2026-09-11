@@ -282,6 +282,17 @@ function VrmRig({
       input.state === "speaking" ||
       liveJaw > 0.03;
 
+    if (isSpeaking && liveJaw < 0.05) {
+      // Procedural syllable modulation when audio analyser data is absent or zero
+      // Natural human speech oscillates between 3Hz and 6Hz
+      const syllableOsc = (
+        Math.sin(time * 14.0) * 0.4 +
+        Math.sin(time * 8.5) * 0.35 +
+        0.25
+      ) * 0.65;
+      liveJaw = Math.min(0.8, Math.max(0.15, syllableOsc));
+    }
+
     let activeVisemeName: string | undefined;
     let activeVisemeWeight: number | undefined;
 
@@ -294,6 +305,11 @@ function VrmRig({
         activeVisemeName = active.mouth;
         activeVisemeWeight = active.weight;
       }
+    } else if (isSpeaking) {
+      const visemes = ["aa", "ih", "ou", "ee", "oh"] as const;
+      const idx = Math.floor((time * 4.5) % visemes.length);
+      activeVisemeName = visemes[idx];
+      activeVisemeWeight = Math.max(0.35, liveJaw);
     }
 
     const frameInput: VrmExpressionInput = {

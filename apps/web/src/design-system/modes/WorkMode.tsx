@@ -107,6 +107,7 @@ interface WorkModeProps {
   avatarPresentation?: any;
   onOpenAvatarLab?: () => void;
   onSelectModel?: (modelUrl: string) => void;
+  availableModels?: any;
   companionName?: string;
   jawEnergy?: number | React.MutableRefObject<number>;
   speakingRef?: React.MutableRefObject<boolean>;
@@ -423,13 +424,17 @@ export function WorkMode({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (showMentions && (e.key === "Escape")) {
-        setShowMentions(false);
-        setMentionFilter("");
-        return;
-      }
-      if (showMentions && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
-        return;
+      if (showMentions) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setShowMentions(false);
+          setMentionFilter("");
+          return;
+        }
+        if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          return;
+        }
       }
       if (e.key === "Escape") {
         if (isThinking || companionState === "thinking" || companionState === "speaking") {

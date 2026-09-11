@@ -1062,7 +1062,7 @@ class ConversationService:
 
         if image_search_command and not any(t.toolName == "image_search" for t in plan.toolRequests):
             query_candidate = re.sub(
-                r"(?i)^\s*(?:like|please|pls|can\s+you|could\s+you|hey|babe|no\s*,?\s*|i\s+(?:just\s+)?(?:want|ont)\s+to\s+(?:see|view)?)\s*",
+                r"(?i)^\s*(?:like|please|pls|can\s+you|could\s+you|hey|babe|no\s*,?\s*|i\s+(?:just\s+)?(?:want|ont)\s+to\s+(?:see|view)?|what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s*",
                 "",
                 plain_text,
             ).strip()
@@ -1085,6 +1085,10 @@ class ConversationService:
             ).strip()
             query_candidate = re.sub(r"(?i)^(?:some\s+|me\s+|them\s+|these\s+|those\s+|a\s+few\s+)", "", query_candidate).strip()
 
+            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                if re.search(rf"\b{re.escape(alias)}\b", query_candidate, re.IGNORECASE):
+                    query_candidate = re.sub(rf"\b{re.escape(alias)}\b", canonical, query_candidate, flags=re.IGNORECASE).strip()
+                    break
             if query_candidate.lower() in CHARACTER_ENTITY_MAP:
                 query_candidate = CHARACTER_ENTITY_MAP[query_candidate.lower()]
 
@@ -1140,6 +1144,11 @@ class ConversationService:
                         resolved_query = entities[0]
 
             final_query = resolved_query or query_candidate or plain_text or text
+            final_query = re.sub(r"(?i)^\s*(?:what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s+", "", final_query).strip()
+            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                if re.search(rf"\b{re.escape(alias)}\b", final_query, re.IGNORECASE):
+                    final_query = re.sub(rf"\b{re.escape(alias)}\b", canonical, final_query, flags=re.IGNORECASE).strip()
+                    break
             if final_query.lower() in CHARACTER_ENTITY_MAP:
                 final_query = CHARACTER_ENTITY_MAP[final_query.lower()]
 
@@ -1514,8 +1523,12 @@ class ConversationService:
             "document": ("document_generate", {"title": clean_args or "Generated Document", "content": "", "format": flags.get("format", "pdf")}),
             "create doc": ("document_generate", {"title": clean_args or "Generated Document", "content": "", "format": "docx"}),
             "pdf": ("pdf_generate", {"topic": clean_args or "Academic Assignment", "title": clean_args or "Academic Document", "content": ""}),
-            "presentation": ("presentation_generate", {"title": clean_args or "Presentation Slides", "content": "", "slides": flags.get("slides", 10)}),
-            "slides": ("presentation_generate", {"title": clean_args or "Presentation Slides", "content": "", "slides": flags.get("slides", 10)}),
+            "gamma": ("create_gamma_presentation", {"topic": clean_args or "Presentation", "format": "presentation"}),
+            "deck": ("create_gamma_presentation", {"topic": clean_args or "Pitch Deck", "format": "presentation"}),
+            "gamma doc": ("create_gamma_presentation", {"topic": clean_args or "Document", "format": "document"}),
+            "gamma webpage": ("create_gamma_presentation", {"topic": clean_args or "Webpage", "format": "webpage"}),
+            "presentation": ("create_gamma_presentation", {"topic": clean_args or "Presentation Slides", "format": "presentation"}),
+            "slides": ("create_gamma_presentation", {"topic": clean_args or "Presentation Slides", "format": "presentation"}),
             "analyze": ("analyze_text", {"target": clean_args, "focus": "summary"}),
             "summarize": ("summarize_text", {"target": clean_args, "length": "standard"}),
             "plan": ("create_plan", {"goal": clean_args, "horizon": "week"}),
