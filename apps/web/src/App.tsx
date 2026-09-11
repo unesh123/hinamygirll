@@ -110,8 +110,11 @@ const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize:
 const AVATAR_MODEL_STORAGE_KEY = "hinaa.avatar-model";
 const AVATAR_CAMERA_STORAGE_KEY = "hinaa.avatar-camera.v1";
 const HINAA_AVATAR_MODELS = [
-  { url: "/models/model_6164.vrm", label: "Hinaa" },
-  { url: "/models/model_5447.vrm", label: "Hinaa Classic" },
+  { url: "/models/hinaa.vrm",                          label: "Hinaa" },
+  { url: "/models/model_6164.vrm",                     label: "Kimono" },
+  { url: "/models/model_5447.vrm",                     label: "Casual" },
+  { url: "/models/AvatarSample_E.vrm",                 label: "School" },
+  { url: "/models/5798998195377315936 (1).vrm",         label: "Original" },
 ] as const;
 const DEFAULT_AVATAR_MODEL = HINAA_AVATAR_MODELS[0].url;
 const MANAGED_AVATAR_URL = /^\/api\/v1\/avatar-assets\/avatar-[0-9a-f-]+\/file$/i;
@@ -916,6 +919,8 @@ export default function App() {
                 diagnostics={live.diagnostics}
                 onManualCommit={live.manualCommit}
                 onToggleDiagnostics={() => setDiagnosticsOpen((v) => !v)}
+                onSelectModel={selectAvatarModel}
+                availableModels={HINAA_AVATAR_MODELS}
               />
             )}
 
@@ -967,6 +972,7 @@ export default function App() {
                 avatarPresentation={avatarPresentation}
                 onOpenAvatarLab={openAvatarLab}
                 onSelectModel={selectAvatarModel}
+                availableModels={HINAA_AVATAR_MODELS}
                 companionName={companionProfiles[controller.companionId]?.name || "Hinaa"}
                 jawEnergy={playback.jawEnergy}
                 speakingRef={playback.playingRef}
