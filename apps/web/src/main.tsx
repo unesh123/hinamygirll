@@ -2,6 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./app/styles/global.css";
 import App from "./App.tsx";
+// Aurora Veil must arrive after App.css (and its imports) so the elevation
+// layer refines every surface without fighting the base stylesheet.
+import "./app/styles/aurora.css";
 
 // NOTE: BrowserRouter removed — no routes are registered yet.
 // Reintroduce when /playground, /settings, or another genuine route exists.

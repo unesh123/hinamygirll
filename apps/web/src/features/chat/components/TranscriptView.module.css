@@ -47,3 +47,31 @@
 
 @media (max-width: 640px) { .container { padding-top: 20px; } .welcomeCards { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .welcomeCard, .jumpBtn { transition-duration: 1ms; } }
+
+/* ── AURORA VEIL — timeline seam + glass jump control ────────────────────── */
+.divider::before, .divider::after {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 206, 222, 0.24), transparent);
+}
+.divider time {
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 214, 228, 0.12);
+  border-radius: 999px;
+  background: rgba(22, 14, 24, 0.72);
+  backdrop-filter: blur(10px);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+}
+
+.jumpBtn {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(150deg, rgba(38, 24, 39, 0.95), rgba(24, 15, 27, 0.96)) padding-box,
+    linear-gradient(140deg, rgba(255, 206, 222, 0.4), rgba(177, 140, 255, 0.2) 55%, transparent) border-box;
+  box-shadow: 0 14px 34px rgba(3, 1, 6, 0.42), inset 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px) saturate(1.2);
+  transition: transform 180ms var(--ease-out-expo, ease), box-shadow 180ms var(--ease-out-expo, ease);
+}
+.jumpBtn:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgba(3, 1, 6, 0.5), 0 0 26px rgba(238, 145, 173, 0.16); }
+.jumpBtn:active { transform: translateY(0) scale(0.98); }

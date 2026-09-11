@@ -214,3 +214,104 @@
 
 .thinkingPulse { width:7px; height:7px; border-radius:999px; background:#f4a6bc; box-shadow:0 0 0 3px rgba(238,145,173,.12); }
 .thinkingLabel { color:#ead4dd; font-size:.75rem; font-weight:700; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AURORA VEIL — advanced conversation surface (append-only elevation)
+   Gradient hairlines, depth lighting and identity halo; semantics untouched.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.assistant .content {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 10px 20px 20px 20px;
+  background:
+    linear-gradient(152deg, rgba(54, 37, 53, 0.78), rgba(33, 23, 34, 0.86)) padding-box,
+    linear-gradient(150deg, rgba(255, 206, 222, 0.24), rgba(177, 140, 255, 0.1) 46%, rgba(255, 255, 255, 0.04)) border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 34px rgba(4, 2, 6, 0.28);
+  backdrop-filter: blur(12px) saturate(1.15);
+  transition: box-shadow 240ms var(--ease-out-expo, ease), transform 240ms var(--ease-out-expo, ease);
+}
+
+.bubble:hover .assistant .content,
+.assistant .content:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 40px rgba(4, 2, 6, 0.36), 0 0 0 1px rgba(255, 198, 214, 0.1), 0 0 30px rgba(238, 145, 173, 0.07);
+}
+
+.user .content {
+  border: 1px solid transparent;
+  border-radius: 20px 20px 7px 20px;
+  background:
+    linear-gradient(138deg, rgba(211, 113, 147, 0.9), rgba(142, 61, 98, 0.94) 62%, rgba(112, 48, 84, 0.96)) padding-box,
+    linear-gradient(138deg, rgba(255, 214, 228, 0.5), rgba(255, 183, 205, 0.22) 55%, rgba(177, 140, 255, 0.18)) border-box;
+  box-shadow: 0 12px 30px rgba(90, 27, 55, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 24px rgba(238, 145, 173, 0.1);
+  transition: box-shadow 240ms var(--ease-out-expo, ease), transform 240ms var(--ease-out-expo, ease);
+}
+
+.bubble:hover .user .content {
+  box-shadow: 0 16px 38px rgba(90, 27, 55, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 0 34px rgba(238, 145, 173, 0.16);
+}
+
+/* Hinaa identity chip — living halo ring around the mark */
+.chip {
+  position: relative;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(145deg, #ffe4ec, #f0a0b8) padding-box,
+    conic-gradient(from var(--hinaa-angle, 0deg), rgba(255, 183, 205, 0.9), rgba(177, 140, 255, 0.6) 45%, rgba(255, 236, 214, 0.85) 70%, rgba(255, 183, 205, 0.9)) border-box;
+  animation: chip-angle 6s linear infinite;
+}
+.chip::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 16px;
+  background: radial-gradient(closest-side, rgba(238, 145, 173, 0.32), transparent 72%);
+  opacity: 0;
+  transition: opacity 260ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.bubble:hover .chip::after { opacity: 1; }
+
+@keyframes chip-angle { to { --hinaa-angle: 360deg; } }
+@supports not (background: conic-gradient(from var(--hinaa-angle, 0deg), red, blue)) {
+  .chip { animation: none; }
+}
+
+/* code + quote chrome */
+.assistant .content pre {
+  border: 1px solid rgba(255, 214, 228, 0.1);
+  background:
+    linear-gradient(180deg, rgba(24, 15, 26, 0.98), rgba(15, 10, 18, 0.98)) padding-box,
+    linear-gradient(150deg, rgba(255, 206, 222, 0.16), transparent 40%) border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 32px rgba(3, 1, 6, 0.4);
+}
+.assistant .content blockquote {
+  border-left: 2px solid rgba(238, 145, 173, 0.55);
+  padding-left: 12px;
+  color: #e3cdd7;
+}
+
+/* thinking presence */
+.thinkingDots {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(150deg, rgba(47, 31, 47, 0.84), rgba(28, 18, 30, 0.9)) padding-box,
+    linear-gradient(140deg, rgba(255, 206, 222, 0.22), transparent 60%) border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 26px rgba(4, 2, 6, 0.3);
+}
+.thinkingPulse {
+  background: linear-gradient(135deg, #ffd0dd, #ee91ad);
+  box-shadow: 0 0 0 4px rgba(238, 145, 173, 0.12), 0 0 14px rgba(238, 145, 173, 0.5);
+}
+.thinkingLabel { color: #ecd7e0; letter-spacing: 0.02em; }
+
+/* streaming caret glows in room light */
+.cursor {
+  background: linear-gradient(180deg, #ffd0dd, #b18cff);
+  box-shadow: 0 0 8px rgba(238, 145, 173, 0.65);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip { animation: none; }
+}

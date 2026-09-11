@@ -9,6 +9,7 @@ import {
   persistAvatarPresentation,
 } from "./features/avatar/avatarPresentation";
 import { FullScreenAura } from "./components/ui/FullScreenAura";
+import { AuroraVeil } from "./components/ui/AuroraVeil";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
 import { PremiumComposer } from "./components/ui/PremiumComposer";
 import ParticleOrbitEffect from "./components/lightswind/ParticleOrbitEffect";
@@ -498,6 +499,7 @@ export default function App() {
   return (
     <SidebarProvider defaultExpanded={false}>
       <div className="hinaa-shell">
+        <AuroraVeil state={controller.state} />
         <ParticleOrbitEffect particleCount={12} radius={80} intensity={0.4} fadeOpacity={0.03} particleSize={1.5} colorRange={[140, 175]} autoColors={false} />
         <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />
         <FullScreenAura state={controller.state} />
