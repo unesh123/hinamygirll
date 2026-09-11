@@ -702,9 +702,13 @@ class ConversationService:
 
         # Explicit slash commands bypass keyword heuristics entirely: the user
         # already typed the verb the system would otherwise have to infer.
-        slash = re.match(r"^\s*/(research|deep|image|draw|generate|img|explore)\b\s*(.*)$", text, re.IGNORECASE | re.DOTALL)
+        slash = re.match(r"^\s*/(research|deep|image|draw|generate|img|explore|run)\b\s*(.*)$", text, re.IGNORECASE | re.DOTALL)
         if slash:
             command, rest = slash.group(1).casefold(), slash.group(2).strip(" :.!?")
+            if command == "run":
+                if rest and not any(t.toolName == "terminal_run" for t in plan.toolRequests):
+                    plan.toolRequests.append(ToolRequest(toolName="terminal_run", parameters={"command": rest}))
+                return
             if command == "explore":
                 if not any(t.toolName == "code_explore" for t in plan.toolRequests):
                     plan.toolRequests.append(ToolRequest(

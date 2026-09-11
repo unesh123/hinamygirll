@@ -74,6 +74,26 @@ The spec document from the previous session asked for `code_workspace.py`,
 
 Effort: 3–4 sessions. Risk: MEDIUM (security surface — hence the ordering after B).
 
+**Phase C v2 status (SHIPPED this branch):** `hinaa_api/tools/terminal_runner.py`
+registers `terminal_run` behind four walls — human approval of the exact
+argv, shell-free execution (operators outside quotes are refused outright),
+an escalation guard (`python -c`, shells, destructive binaries refused by
+name), and a scrubbed child environment (no API key ever reaches a child —
+asserted by test). Working directory is the same HINAA_CODE_ROOT jail; the
+project's own `.venv` is prepended to PATH so `python -m pytest` means the
+project's tools. Output tails at 64 KB, timeouts kill the tree and report
+`timedOut`, nonzero exits return as *data* (the model can read failures and
+self-correct) — and the auto-repair loop still needs a human per round.
+`/run <command>` routes straight to the approval card; the chat renders a
+terminal card (exit chip, ms, tailed marker, stderr block).
+**Tests: 12 terminal + 16 code-workspace, all green in-sandbox.**
+
+**Phase D partial:** micro-motion pack shipped — chest breath swell (scale
+channel, so it can never fight the pose lock) and a rare idle brow flicker
+through the expression manager, both runtime-probed per model. Remaining:
+`.vrma` walk/gesture clips, packaged PDF font for Devanagari, live-mode voice
+parity, staging checklist refresh.
+
 **Phase C v1 status (shipped now):** `hinaa_api/tools/code_workspace.py`
 registers `code_explore` (tree / find_files / grep / view_symbol),
 `code_read` (line-window, numbered), `code_patch` (exact-match, fail-closed on

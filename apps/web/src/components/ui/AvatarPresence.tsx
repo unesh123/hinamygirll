@@ -220,6 +220,7 @@ function Model({
   const poseTargetRef = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const headBoneRef = useRef<THREE.Object3D | null>(null);
   const jawBoneRef = useRef<THREE.Object3D | null>(null);
+  const chestBoneRef = useRef<THREE.Object3D | null>(null);
   const headRestQRef = useRef<THREE.Quaternion | null>(null);
   const headCurQRef = useRef<THREE.Quaternion | null>(null);
 
@@ -227,6 +228,8 @@ function Model({
   const t           = useRef(0);
   const blinkTimer  = useRef(2 + Math.random() * 3);
   const doubleBlink = useRef(false);
+  const browTimer   = useRef(7 + Math.random() * 6);
+  const browHold    = useRef(0);
   // Current mouth weights (smoothed)
   const mouthW      = useRef<Record<MouthKey, number>>({ aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 });
   const emo         = useRef<Record<string, number>>({});
@@ -320,6 +323,7 @@ function Model({
         const allNames = [
           ...Object.values(VRMExpressionPresetName),
           "a", "i", "u", "e", "o", "blink_l", "blink_r", "joy", "sorrow", "fun",
+          "browInnerUp", "BrowInnerUp",
         ];
         for (const name of allNames) {
           try { if (em.getExpression(name)) availRef.current.add(name); } catch {}
@@ -365,8 +369,10 @@ function Model({
       // once per model load (absent on rigs without a jaw mapping).
       try {
         jawBoneRef.current = v.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Jaw) ?? null;
+        chestBoneRef.current = v.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Chest) ?? null;
       } catch {
         jawBoneRef.current = null;
+        chestBoneRef.current = null;
       }
 
       vrmRef.current = v;
@@ -659,6 +665,32 @@ function Model({
       let mouthDrive = 0;
       for (const k of ALL_MOUTH_KEYS) mouthDrive = Math.max(mouthDrive, mouthW.current[k]);
       jawBone.rotation.x = THREE.MathUtils.damp(jawBone.rotation.x, -mouthDrive * 0.42, 16, dt);
+    }
+
+    /* Living presence — micro-motion that never fights the pose lock because
+       it writes channels the lock does not own: a breath swell on chest SCALE
+       (the lock slerps quaternions only) and a rare brow flicker through the
+       expression manager while idle. Tiny amplitudes — felt, not watched. */
+    const chestBone = chestBoneRef.current;
+    if (chestBone) {
+      const breath = Math.sin(t.current * 1.35) * 0.5 + 0.5;
+      chestBone.scale.set(1 + 0.008 * breath, 1 + 0.012 * breath, 1 + 0.006 * breath);
+    }
+    const emBrow = vrmRef.current?.expressionManager;
+    const browKey = availRef.current.has("browInnerUp")
+      ? "browInnerUp"
+      : availRef.current.has("BrowInnerUp") ? "BrowInnerUp" : null;
+    if (emBrow && browKey && !faceTrackingActive) {
+      browTimer.current -= dt;
+      if (browTimer.current <= 0) {
+        browHold.current = 0.34;
+        browTimer.current = 8 + Math.random() * 7;
+      }
+      if (browHold.current > 0.001) {
+        browHold.current = Math.max(0, browHold.current - dt);
+        const curve = Math.sin(Math.min(1, (0.34 - browHold.current) / 0.34) * Math.PI);
+        emBrow.setValue(browKey as never, curve * 0.14);
+      }
     }
 
     // The body lock intentionally runs after `vrm.update` above. VMC packets

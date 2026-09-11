@@ -170,6 +170,11 @@ class Settings(BaseSettings):
     code_workspace_root: Path = Field(
         Path.home() / ".hinaa" / "code-workspace", alias="HINAA_CODE_ROOT"
     )
+    # Approval-gated command execution (terminal_run). Kill switch first:
+    # set HINAA_TERMINAL_ENABLED=false to remove the tool entirely.
+    terminal_enabled: bool = Field(True, alias="HINAA_TERMINAL_ENABLED")
+    terminal_timeout_seconds: float = Field(120.0, alias="HINAA_TERMINAL_TIMEOUT_SECONDS")
+    terminal_max_output_bytes: int = Field(64_000, alias="HINAA_TERMINAL_MAX_OUTPUT_BYTES")
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

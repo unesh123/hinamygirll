@@ -266,6 +266,43 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
     );
   }
 
+  if (toolName === 'terminal_run') {
+    const mono: React.CSSProperties = {
+      margin: 0, padding: '10px 12px', borderRadius: 10, background: 'rgba(6,7,16,.72)',
+      border: '1px solid rgba(255,255,255,.09)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: 11, lineHeight: 1.5, color: '#cfe3d8', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+    };
+    const d = (result.data ?? result) as Record<string, unknown>;
+    const failed = result.status === 'error';
+    const exit = Number(d.exitCode ?? -1);
+    return (
+      <section style={{ marginTop: 10, display: 'grid', gap: 8, padding: 12, borderRadius: 14, border: '1px solid rgba(134,239,172,.18)', background: 'rgba(134,239,172,.04)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          <Terminal size={13} style={{ color: '#86efac' }} />
+          <span style={{ color: '#d7f2e2' }}>terminal</span>
+          {failed ? (
+            <span style={{ color: '#fca5a5', textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}>{String(result.error ?? 'refused')}</span>
+          ) : (
+            <>
+              <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, color: exit === 0 ? '#86efac' : '#fca5a5', background: exit === 0 ? 'rgba(134,239,172,.10)' : 'rgba(252,165,165,.10)', border: `1px solid ${exit === 0 ? 'rgba(134,239,172,.30)' : 'rgba(252,165,165,.30)'}` }}>
+                exit {exit}{d.timedOut ? ' · timed out' : ''}
+              </span>
+              <span style={{ color: '#7e768f', fontWeight: 600, fontSize: 10, textTransform: 'none', letterSpacing: 0 }}>{String(d.durationMs ?? 0)} ms{d.truncated ? ' · output tailed' : ''}</span>
+            </>
+          )}
+        </div>
+        {!failed && (
+          <>
+            <code style={{ fontSize: 10.5, color: '#9f96b8' }}>$ {String(d.command ?? '')}{d.cwd && d.cwd !== '.' ? `  (in ${String(d.cwd)}/)` : ''}</code>
+            {String(d.stdout ?? '').trim() ? <pre style={mono}>{String(d.stdout)}</pre> : null}
+            {String(d.stderr ?? '').trim() ? <pre style={{ ...mono, color: '#f3c1c1' }}>{String(d.stderr)}</pre> : null}
+            {!String(d.stdout ?? '').trim() && !String(d.stderr ?? '').trim() ? <small style={{ color: '#7e768f', fontSize: 10.5 }}>clean run, no output</small> : null}
+          </>
+        )}
+      </section>
+    );
+  }
+
   if (toolName === 'code_explore' || toolName === 'code_read' || toolName === 'code_patch' || toolName === 'code_write') {
     const mono: React.CSSProperties = {
       margin: 0, padding: '10px 12px', borderRadius: 10, background: 'rgba(10,9,20,.55)',

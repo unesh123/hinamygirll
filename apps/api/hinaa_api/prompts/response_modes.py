@@ -20,6 +20,8 @@ def infer_response_mode(user_text: str) -> ResponseMode:
         return "creative"
     if re.match(r"^\s*/(code|patch|fix|refactor|debug)\b", text):
         return "technical"
+    if re.match(r"^\s*/(run|terminal|shell)\b", text):
+        return "automation"
     
     # Priority 1: Technical
     if any(w in text for w in ["coding", "programming", "api", "debugging", "error", "stack trace", "integration", "setup", "architecture", "implementation", "repository", "build", "test"]):

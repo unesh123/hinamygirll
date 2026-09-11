@@ -82,6 +82,40 @@ describe("GenericResultRenderer", () => {
     expect(screen.getByText(/off-limits to HINAA/)).toBeInTheDocument();
   });
 
+  it("shows an approved command run with its exit chip and tailed output marker", () => {
+    render(
+      <GenericResultRenderer
+        toolName="terminal_run"
+        result={{
+          status: "success",
+          data: {
+            command: "python -m pytest tests -q",
+            cwd: ".",
+            exitCode: 1,
+            stdout: "2 failed, 26 passed",
+            stderr: "",
+            truncated: true,
+            timedOut: false,
+            durationMs: 4310,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/exit 1/)).toBeInTheDocument();
+    expect(screen.getByText("2 failed, 26 passed")).toBeInTheDocument();
+    expect(screen.getByText(/output tailed/)).toBeInTheDocument();
+  });
+
+  it("surfaces a refused command as its typed reason, never as a blank card", () => {
+    render(
+      <GenericResultRenderer
+        toolName="terminal_run"
+        result={{ status: "error", error: "'rm' is on the refused list — it can escape the workspace jail or wreck the machine.", code: "TERMINAL_COMMAND_REFUSED" }}
+      />,
+    );
+    expect(screen.getByText(/refused list/)).toBeInTheDocument();
+  });
+
 });
 
 
