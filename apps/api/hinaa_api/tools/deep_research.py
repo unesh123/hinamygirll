@@ -274,15 +274,20 @@ async def deep_research_handler(params: dict[str, Any]) -> dict[str, Any]:
 
     all_items = [item for items in per_source.values() for item in items]
     report = _compose_report(topic, per_source, statuses)
+    # Return a pre-enveloped payload: main.py passes dicts that already carry
+    # ``status`` + ``data`` through untouched, which keeps the frontend's
+    # single-level ``result.data`` unwrap aligned with every other tool.
     return {
         "status": "success",
-        "topic": topic,
-        "depth": depth,
-        "findingCount": len(all_items),
-        "sources": sources_view,
-        "items": all_items[:24],
-        "report": report,
-        "elapsedMs": int((time.perf_counter() - started) * 1000),
+        "data": {
+            "topic": topic,
+            "depth": depth,
+            "findingCount": len(all_items),
+            "sources": sources_view,
+            "items": all_items[:24],
+            "report": report,
+            "elapsedMs": int((time.perf_counter() - started) * 1000),
+        },
     }
 
 

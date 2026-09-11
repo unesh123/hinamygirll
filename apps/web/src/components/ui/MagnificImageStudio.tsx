@@ -90,6 +90,9 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
+    // jsdom never ticks rAF, so an autoAlpha entrance would strand the panel
+    // hidden and starve accessibility queries.
+    if (import.meta.env.MODE === "test") return;
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     if (reduce) return;
     const ctx = gsap.context(() => {

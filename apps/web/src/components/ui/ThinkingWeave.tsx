@@ -96,7 +96,7 @@ export function ThinkingWeave({ mode = "default" }: ThinkingWeaveProps) {
           duration: 0.22,
           ease: "power2.in",
           onComplete: () => {
-            label.textContent = `${PHRASES[next]}${next === "composing" ? "…" : "…"}`;
+            label.textContent = `${PHRASES[next]}…`;
             gsap.fromTo(label, { opacity: 0, y: 5 }, { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" });
           },
         });
