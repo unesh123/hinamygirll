@@ -80,6 +80,7 @@ class GeminiLLMProvider:
         history: tuple[tuple[str, str], ...],
         emit_delta: Callable[[str], Awaitable[None]],
         prompt: PromptPackage | None = None,
+        emit_thought: Callable[[str], Awaitable[None]] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         if prompt is None:
             raise HinaaError(
@@ -114,6 +115,19 @@ class GeminiLLMProvider:
                 provider_events += 1
                 if provider_events == 1:
                     timing.mark("first_provider_event")
+                if emit_thought is not None:
+                    # Thinking-capable Gemini marks reasoning parts with
+                    # thought=True. They go to the display sink only; the text
+                    # accumulation below keeps its exact previous behaviour.
+                    try:
+                        for candidate in response.candidates or []:
+                            for part in (candidate.content.parts or []) if candidate.content else []:
+                                if getattr(part, "thought", False):
+                                    thought_text = getattr(part, "text", None)
+                                    if isinstance(thought_text, str) and thought_text:
+                                        await emit_thought(thought_text)
+                    except (AttributeError, TypeError):
+                        pass  # SDK shape drift must never break the answer path
                 delta = _sanitize_delta(response.text or "")
                 if not delta:
                     continue

@@ -21,6 +21,9 @@ interface Props {
   isStreaming?: boolean;
   isPartial?: boolean;
   isThinking?: boolean;
+  /** Live reasoning lines + duration, forwarded to the ThinkingWeave. */
+  thoughts?: string[];
+  thinkingMs?: number;
   isGroupStart?: boolean;
   "aria-label"?: string;
   "data-testid"?: string;
@@ -39,6 +42,8 @@ export const MessageBubble = memo(function MessageBubble({
   isStreaming = false,
   isPartial = false,
   isThinking = false,
+  thoughts,
+  thinkingMs,
   isGroupStart = true,
   "aria-label": ariaLabel,
   "data-testid": testId,
@@ -109,7 +114,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div className={styles.stack}>
         {/* Thinking dots */}
         {isThinking ? (
-          <ThinkingWeave />
+          <ThinkingWeave thoughts={thoughts} durationMs={thinkingMs} />
         ) : (
           <div className={styles.content}>
             <div className={styles.text}>

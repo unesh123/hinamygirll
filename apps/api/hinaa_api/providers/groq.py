@@ -95,6 +95,7 @@ class GroqLLMProvider:
         history: tuple[tuple[str, str], ...],
         emit_delta: Callable[[str], Awaitable[None]],
         prompt: PromptPackage | None = None,
+        emit_thought: Callable[[str], Awaitable[None]] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         if prompt is None:
             raise HinaaError(
@@ -109,12 +110,16 @@ class GroqLLMProvider:
         provider_events = 0
         try:
             timing.mark("provider_client_ready")
-            async for delta in self._stream_text(prompt):
+            async for kind, piece in self._stream_text(prompt):
                 provider_events += 1
                 if provider_events == 1:
                     timing.mark("first_provider_event")
-                delta = _sanitize_delta(delta)
+                delta = _sanitize_delta(piece)
                 if not delta:
+                    continue
+                if kind == "reasoning":
+                    if emit_thought is not None:
+                        await emit_thought(delta)
                     continue
                 chunks.append(delta)
                 timing.mark("first_text_delta")
@@ -193,7 +198,7 @@ class GroqLLMProvider:
         content = data.get("choices", [{}])[0].get("message", {}).get("content")
         return content if isinstance(content, str) else ""
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
+    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[tuple[str, str]]:
         payload = {
             "model": self._model,
             "messages": _messages(prompt),
@@ -219,9 +224,18 @@ class GroqLLMProvider:
                         data = json.loads(event)
                     except json.JSONDecodeError:
                         continue
-                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                    choices = data.get("choices") or []
+                    if not choices:
+                        continue
+                    raw_delta = choices[0].get("delta", {}) or {}
+                    reasoning = raw_delta.get("reasoning")
+                    # Groq compound models stream reasoning separately — display
+                    # channel only, never the answer or the voice.
+                    if isinstance(reasoning, str) and reasoning:
+                        yield ("reasoning", reasoning)
+                    delta = raw_delta.get("content")
                     if isinstance(delta, str):
-                        yield delta
+                        yield ("content", delta)
 
     def _headers(self) -> dict[str, str]:
         return {

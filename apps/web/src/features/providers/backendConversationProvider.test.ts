@@ -38,6 +38,44 @@ describe("backend conversation provider", () => {
     ]);
   });
 
+  it("surfaces thought.delta frames as display-only reasoning events in stream order", async () => {
+    const plan = buildMockPlan("hello", "hinaa");
+    const body = [
+      JSON.stringify({ type: "thinking" }),
+      JSON.stringify({ type: "thought.delta", delta: "Checking the repo layout. " }),
+      JSON.stringify({ type: "thought.delta", delta: "The fix touches services.py." }),
+      JSON.stringify({ type: "text.delta", delta: "Namaste " }),
+      JSON.stringify({ type: "plan", plan }),
+      "",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      ),
+    );
+    const events = [];
+    for await (const event of new BackendConversationProvider(
+      "mock",
+    ).streamTurn({
+      text: "hello",
+      companionId: "hinaa",
+      signal: new AbortController().signal,
+    }))
+      events.push(event);
+    expect(events.map((event) => event.type)).toEqual([
+      "thinking",
+      "thought.delta",
+      "thought.delta",
+      "text.delta",
+      "plan",
+    ]);
+    expect(events[1]).toEqual({ type: "thought.delta", delta: "Checking the repo layout. " });
+  });
+
   it("rejects a backend error event without exposing a vendor body", async () => {
     vi.stubGlobal(
       "fetch",

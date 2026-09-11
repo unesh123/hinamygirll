@@ -159,6 +159,7 @@ class OpenAILLMProvider:
         history: tuple[tuple[str, str], ...],
         emit_delta: Callable[[str], Awaitable[None]],
         prompt: PromptPackage | None = None,
+        emit_thought: Callable[[str], Awaitable[None]] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         if prompt is None:
             raise HinaaError(
@@ -173,12 +174,18 @@ class OpenAILLMProvider:
         provider_events = 0
         try:
             timing.mark("provider_client_ready")
-            async for delta in self._stream_text(prompt):
+            async for kind, piece in self._stream_text(prompt):
                 provider_events += 1
                 if provider_events == 1:
                     timing.mark("first_provider_event")
-                delta = _sanitize_delta(delta)
+                delta = _sanitize_delta(piece)
                 if not delta:
+                    continue
+                if kind == "reasoning":
+                    # Reasoning is display-only: it never enters chunks (the
+                    # answer), the plan, memory, or the voice channel.
+                    if emit_thought is not None:
+                        await emit_thought(delta)
                     continue
                 chunks.append(delta)
                 timing.mark("first_text_delta")
@@ -279,7 +286,7 @@ class OpenAILLMProvider:
         content = choices[0].get("message", {}).get("content") if choices else None
         return content if isinstance(content, str) else ""
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
+    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[tuple[str, str]]:
         if self._provider_id in {"custom", "cx-gateway"}:
             # OpenAI-compatible gateways host reasoning models (e.g. Kimi,
             # cx/gpt-5.6-sol) that spend tokens on hidden "reasoning_content"
@@ -325,11 +332,17 @@ class OpenAILLMProvider:
                         # Usage/heartbeat events legally carry no choices;
                         # indexing [0] here used to crash the whole live turn.
                         continue
-                    delta = choices[0].get("delta", {}).get("content")
-                    # reasoning_content (private chain-of-thought) is
-                    # intentionally never yielded or spoken.
+                    raw_delta = choices[0].get("delta", {}) or {}
+                    reasoning = raw_delta.get("reasoning_content") or raw_delta.get("reasoning")
+                    # Reasoning tokens (DeepSeek/vLLM/Kimi style reasoning_content)
+                    # ride the stream as a separate kind: they reach the visible
+                    # ThinkingWeave only — never the answer, the plan, memory,
+                    # or the voice channel. "Never spoken" stays true.
+                    if isinstance(reasoning, str) and reasoning:
+                        yield ("reasoning", reasoning)
+                    delta = raw_delta.get("content")
                     if isinstance(delta, str):
-                        yield delta
+                        yield ("content", delta)
 
     def _headers(self) -> dict[str, str]:
         return {

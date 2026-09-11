@@ -5,6 +5,8 @@ import type { ProviderMode } from "./types/provider";
 
 export type ConversationProviderEvent =
   | { type: "thinking" }
+  /** Display-only model reasoning (ThinkingWeave); never spoken or stored. */
+  | { type: "thought.delta"; delta: string }
   | { type: "text.delta"; delta: string }
   | { type: "plan"; plan: AssistantTurnPlan }
   | { type: "usage"; latencyMs: number };

@@ -8,7 +8,7 @@ import type {
 type ProviderMode = "mock" | "local" | "groq" | "openai" | "custom" | "real" | "agent-router" | "cx-gateway" | "gemini-live";
 
 interface StreamEvent {
-  type: "thinking" | "text.delta" | "plan" | "usage" | "error";
+  type: "thinking" | "thought.delta" | "text.delta" | "plan" | "usage" | "error";
   delta?: string;
   plan?: unknown;
   code?: string;
@@ -66,6 +66,8 @@ export class BackendConversationProvider implements ConversationProvider {
           if (!line.trim()) continue;
           const event = JSON.parse(line) as StreamEvent;
           if (event.type === "thinking") yield { type: "thinking" };
+          if (event.type === "thought.delta" && event.delta)
+            yield { type: "thought.delta", delta: event.delta };
           if (event.type === "text.delta" && event.delta)
             yield { type: "text.delta", delta: event.delta };
           if (event.type === "plan" && event.plan)

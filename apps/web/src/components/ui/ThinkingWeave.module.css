@@ -32,3 +32,82 @@
   .weave { padding: 9px 13px 9px 10px; gap: 10px; }
   .label { font-size: 0.72rem; }
 }
+
+/* ── live reasoning stream ── */
+.thoughts {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.thoughtLatest {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  font-style: italic;
+  color: color-mix(in srgb, var(--text-secondary, #a7accd) 88%, #b18cff);
+  animation: thoughtRise 0.42s cubic-bezier(0.22, 0.8, 0.3, 1);
+  overflow-wrap: anywhere;
+}
+
+@keyframes thoughtRise {
+  from { opacity: 0; transform: translateY(4px); filter: blur(1.5px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.thoughtMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thoughtTime {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--text-secondary, #a7accd) 60%, transparent);
+}
+
+.thoughtToggle {
+  border: 1px solid color-mix(in srgb, #b18cff 32%, transparent);
+  background: color-mix(in srgb, #b18cff 10%, transparent);
+  color: color-mix(in srgb, var(--text-primary, #e8e6f5) 82%, #b18cff);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.thoughtToggle:hover {
+  background: color-mix(in srgb, #b18cff 18%, transparent);
+  border-color: color-mix(in srgb, #b18cff 55%, transparent);
+}
+
+.thoughtChain {
+  margin: 6px 0 0;
+  padding: 8px 10px 8px 26px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #b18cff 16%, transparent);
+  background: color-mix(in srgb, #12101f 55%, transparent);
+  display: grid;
+  gap: 4px;
+  max-height: 190px;
+  overflow-y: auto;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text-secondary, #a7accd) 92%, white);
+}
+
+.thoughtChain li::marker {
+  color: #b18cff;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thoughtLatest { animation: none; }
+}

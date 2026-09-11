@@ -37,6 +37,8 @@ interface Props {
   partialTranscript: string;
   companionName: string;
   isThinking: boolean;
+  streamingThoughts?: string[];
+  thinkingDurationMs?: number;
   onWelcomeAction?: (action: string) => void;
   onResolveTool?: (
     messageId: string,
@@ -51,6 +53,8 @@ export function TranscriptView({
   partialTranscript,
   companionName,
   isThinking,
+  streamingThoughts,
+  thinkingDurationMs,
   onWelcomeAction,
   onResolveTool,
 }: Props) {
@@ -59,6 +63,7 @@ export function TranscriptView({
     streamingText,
     partialTranscript,
     isThinking,
+    streamingThoughts?.length ?? 0,
   ]);
 
   // Display-side token stream: reveal the incoming text run-by-run so the
@@ -166,6 +171,8 @@ export function TranscriptView({
           companionName={companionName}
           isThinking
           isGroupStart
+          thoughts={streamingThoughts}
+          thinkingMs={thinkingDurationMs}
           aria-label="HINAA is thinking"
         />
       )}

@@ -1,6 +1,6 @@
 # 78 — HINAA Advancement Plan: Deep Thinking, Documents, and Autonomy
 
-Status: **Phase A shipped (this branch) · Phases B–D planned with acceptance gates**
+Status: **Phases A+B shipped (this branch) · Phases C–D planned with acceptance gates**
 Date: 2026-09-11 · Owner: Arena AI continuation sessions
 Supersedes the vibe-plan received from the previous agent session; every item
 below is anchored to real files and verifiable commands.
@@ -46,20 +46,19 @@ honest limit of sandbox verification):**
 
 ---
 
-## Phase B — Genuine reasoning stream (the "ThinkingWeave gets fed for real" phase)
+## Phase B — Genuine reasoning stream (SHIPPED this branch)
 
-Today `ThinkingWeave` narrates *phases*, and the SSE protocol emits a single
-`thinking` event per turn. This phase streams the model's actual chain-of-thought.
+The model's live reasoning now flows to the UI the moment it is produced —
+without ever touching the answer, memory, or the voice channel.
 
-1. **Provider extraction** (`hinaa_api/providers/*`):
-   - Anthropic: pass `thinking: {type:"enabled", budget_tokens}`; map `content_block_delta.thinking_delta` → callbacks.
-   - OpenAI reasoning models: `reasoning_summary_delta` chunks (where the key exposes summaries).
-   - Gemini: `parts[].thought = true` deltas are already reachable through `google-genai` streaming — surface them beside text deltas.
-2. **Wire protocol**: extend the turn stream with `{"type":"thought.delta","content":…,"step":n}` events between `thinking` and `text.delta` (versioned, additive — old clients ignore it). Emitter hook point already exists: `create_live_plan` receives `emit_delta`; add `emit_thought` alongside.
-3. **Frontend**: `ThinkingWeave` gains a collapsible "watch her think" drawer fed by the live thought buffer; per guidance in the anti-pattern list, **thoughts are display-only and never persisted into chat history** — persist at most a short `reasoningSummary` on turn metadata.
-4. **Gate**: unit tests per provider mapper (fake chunk streams); frontend test that thought deltas render + are not appended to `messages`; `docs` note in 05-realtime-event-protocol.
+| Piece | Implementation | Evidence |
+|-------|----------------|----------|
+| Provider extraction | `openai_llm._stream_text` yields `("content"|"reasoning", delta)` and captures `delta.reasoning_content`/`reasoning` (DeepSeek-R1, vLLM, Kimi, custom gateways). `agent_router` OpenAI wrapper passes tuples through; the **Anthropic** override parses `thinking`/`thinking_delta` events in every SDK shape (normalized or raw `content_block_delta`) — no new request params, so an unsupported gateway can't break. `groq` captures `delta.reasoning` (plus fixes an empty-`choices` IndexError that could kill a live turn). `gemini` walks `parts[].thought == True` via `getattr` guards, SDK-shape-drift safe. | py_compile + tuple-typed seams; `emit_thought=None` keeps every old call-site working (mock/local paths untouched). |
+| Wire protocol | `services.create_live_plan(..., emit_thought)` threads the sink; `stream_turn` runs one queue with two channels and emits `thought.delta` frames interleaved with `text.delta` — additive SSE/NDJSON, old clients ignore it. Thoughts never enter `emitted`, the remainder-sync, the plan, history, or TTS. The "reasoning_content is intentionally never spoken" guarantee is preserved and now annotated. | Extraction harness executing the real `stream_turn` source: sequence `thinking → thought.delta → text.delta → thought.delta → … → plan`, remainder sync intact, thoughtless-provider untouched event list, mid-stream failure propagation — all asserted. |
+| Frontend | `BackendConversationProvider` parses `thought.delta` (new test asserts stream order); `useCompanionController` groups deltas into **thought lines** at sentence boundaries (180-char monologue breaker for uncooperative models), runs a live thinking clock frozen at first text delta, keeps ≤40 lines, and clears on next turn — display-only, never persisted, exactly per the handoff spec's turn-end rule. `TranscriptView` → `MessageBubble` → `ThinkingWeave` now renders the latest thought with a rise animation, a duration readout, and a "watch the weave (N)" expandable numbered chain. | 4 new vitest cases (153/153 total), typecheck + build clean, oxlint zero on touched files; auto-scroll tracks thought growth. |
+| Deliberately deferred | Persisting a `reasoning_summary` into turn metadata (the handoff spec's suggestion): requires a schema migration for marginal value — display-only is strictly safer than storing chain-of-thought in SQLite. Revisit only if history playback of thinking is ever requested. | — |
 
-Effort: 2–3 focused sessions. Risk: LOW (additive stream event).
+**Manual gate:** with a thinking-capable brain configured (agent-router/DeepSeek/Gemini-flash-thinking), send a non-trivial question: the gyre bubble should show real reasoning lines appearing under the spinner; opening "watch the weave" shows the chain; TTS still speaks only the short summary; refreshing the page shows zero trace of thoughts in chat history (by design).
 
 ## Phase C — Autonomous coding tools (sandboxed, approval-first)
 

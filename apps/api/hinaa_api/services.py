@@ -1016,6 +1016,7 @@ class ConversationService:
         emit_delta: Callable[[str], Awaitable[None]],
         *,
         user_id: str | None = None,
+        emit_thought: Callable[[str], Awaitable[None]] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         from .providers.timing import ProviderTiming
 
@@ -1054,6 +1055,7 @@ class ConversationService:
                         history,
                         emit_delta,
                         prompt,
+                        emit_thought,
                     )
                     stages = {"prompt_built": timing.ms_since_start("prompt_built") or 0}
                     if result.stages:
@@ -1151,13 +1153,20 @@ class ConversationService:
         # True token-by-token streaming. Provider deltas are relayed onto the
         # wire the instant they are produced instead of waiting for the whole
         # plan, so the interface reveals text continuously like a live brain.
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        # One queue, two channels: ("text", …) streams the answer,
+        # ("thought", …) streams the model's live reasoning for the
+        # ThinkingWeave. Thoughts are display-only — they never reach the plan,
+        # history, memory, or the voice channel.
+        queue: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue()
 
         async def emit_delta(delta: str) -> None:
-            await queue.put(delta)
+            await queue.put(("text", delta))
+
+        async def emit_thought(delta: str) -> None:
+            await queue.put(("thought", delta))
 
         turn_task = asyncio.create_task(
-            self.create_live_plan(request, emit_delta, user_id=user_id)
+            self.create_live_plan(request, emit_delta, user_id=user_id, emit_thought=emit_thought)
         )
         emitted: list[str] = []
         try:
@@ -1169,16 +1178,25 @@ class ConversationService:
                 if getter in done:
                     item = getter.result()
                     if item is not None:
-                        emitted.append(item)
-                        yield self._event("text.delta", {"delta": item})
+                        kind, payload = item
+                        if kind == "thought":
+                            yield self._event("thought.delta", {"delta": payload})
+                        else:
+                            emitted.append(payload)
+                            yield self._event("text.delta", {"delta": payload})
                     continue
                 getter.cancel()
                 # The turn finished; drain any deltas queued a beat earlier.
                 while not queue.empty():
                     item = queue.get_nowait()
-                    if isinstance(item, str):
-                        emitted.append(item)
-                        yield self._event("text.delta", {"delta": item})
+                    if item is None:
+                        continue
+                    kind, payload = item
+                    if kind == "thought":
+                        yield self._event("thought.delta", {"delta": payload})
+                    else:
+                        emitted.append(payload)
+                        yield self._event("text.delta", {"delta": payload})
                 break
             result = await turn_task
             # Guarantee full display text even if a provider finished without

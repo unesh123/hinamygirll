@@ -57,6 +57,9 @@ export interface CompanionController {
   messages: TranscriptMessage[];
   partialTranscript: string;
   streamingText: string;
+  /** Live reasoning lines surfaced during thinking; never persisted. */
+  streamingThoughts: string[];
+  thinkingDurationMs: number;
   routing: ProviderRuntimeSelection;
   activePlan?: AssistantTurnPlan;
   sendText: (
@@ -111,11 +114,67 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
   }, [messages, companionId]);
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
+  // Live reasoning stream (display-only). Provider thought deltas accumulate in
+  // a ref buffer and surface as complete "lines" at sentence boundaries so the
+  // ThinkingWeave reads like thoughts, not tokens. They are never persisted.
+  const [streamingThoughts, setStreamingThoughts] = useState<string[]>([]);
+  const [thinkingDurationMs, setThinkingDurationMs] = useState(0);
+  const thoughtBufferRef = useRef("");
+  const thinkingClockRef = useRef<{ startedAt: number; running: boolean }>({ startedAt: 0, running: false });
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();
   const provider = useRef(new MockConversationProvider());
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
   const processedToolMessageIds = useRef<Set<string>>(new Set());
+  const resetThinking = useCallback(() => {
+    thoughtBufferRef.current = "";
+    setStreamingThoughts([]);
+    setThinkingDurationMs(0);
+  }, []);
+  const beginThinkingClock = useCallback(() => {
+    thinkingClockRef.current = { startedAt: Date.now(), running: true };
+  }, []);
+  const freezeThinkingClock = useCallback(() => {
+    if (thinkingClockRef.current.running) {
+      setThinkingDurationMs(Date.now() - thinkingClockRef.current.startedAt);
+      thinkingClockRef.current.running = false;
+    }
+  }, []);
+  const pushThoughtDelta = useCallback((delta: string) => {
+    const buffer = thoughtBufferRef.current + delta;
+    // Flush at sentence ends once a line has substance; keep the tail open.
+    const parts = buffer.split(/(?<=[.!?।])\s+|\n+/);
+    if (parts.length > 1) {
+      const settled = parts.slice(0, -1).map((line) => line.trim()).filter(Boolean);
+      thoughtBufferRef.current = parts[parts.length - 1] ?? "";
+      if (settled.length) {
+        setStreamingThoughts((current) => [...current, ...settled].slice(-40));
+      }
+    } else {
+      thoughtBufferRef.current = buffer;
+      if (buffer.length > 180) {
+        // Long unbroken reasoning monologue → break at the last space so the UI
+        // stays readable even for models that emit one endless sentence.
+        const cut = buffer.lastIndexOf(" ", 160);
+        setStreamingThoughts((current) => [...current, buffer.slice(0, cut > 40 ? cut : 160).trim()].slice(-40));
+        thoughtBufferRef.current = buffer.slice(cut > 40 ? cut + 1 : 160);
+      }
+    }
+  }, []);
+  const flushThoughtBuffer = useCallback(() => {
+    const tail = thoughtBufferRef.current.trim();
+    thoughtBufferRef.current = "";
+    if (tail) setStreamingThoughts((current) => [...current, tail].slice(-40));
+  }, []);
+  useEffect(() => {
+    if (state !== "thinking") return;
+    const id = window.setInterval(() => {
+      if (thinkingClockRef.current.running) {
+        setThinkingDurationMs(Date.now() - thinkingClockRef.current.startedAt);
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [state]);
   // Confirmation-gated actions must be idempotent at the interaction layer.
   // A double click, touch event replay, or a transient rerender may not submit
   // the same external request twice or append duplicate terminal result cards.
@@ -227,6 +286,8 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
       ]);
       setPartialTranscript("");
       setStreamingText("");
+      resetThinking();
+      beginThinkingClock();
       setActivePlan(undefined);
       setState("thinking");
 
@@ -254,11 +315,16 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {
             setState("thinking");
+          } else if (event.type === "thought.delta") {
+            pushThoughtDelta(event.delta);
           } else if (event.type === "text.delta") {
+            freezeThinkingClock();
+            flushThoughtBuffer();
             streamed += event.delta;
             setStreamingText(streamed);
             setState("speaking");
           } else if (event.type === "plan") {
+            freezeThinkingClock();
             completedPlan = event.plan;
             setActivePlan(event.plan);
             setMessages((current) => [
@@ -300,7 +366,7 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
         if (currentAbort.current === abortController) currentAbort.current = undefined;
       }
     },
-    [clearTimers, companionId, finalizeTurn, languagePolicy, routing],
+    [clearTimers, companionId, finalizeTurn, languagePolicy, routing, resetThinking, beginThinkingClock, pushThoughtDelta, freezeThinkingClock, flushThoughtBuffer],
   );
 
   const resolveToolRequest = useCallback(
@@ -509,6 +575,8 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
   }, [messages]);
 
   return {
+    streamingThoughts,
+    thinkingDurationMs,
     companionId,
     switchCompanion,
     resetConversation,

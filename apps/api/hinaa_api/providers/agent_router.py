@@ -39,7 +39,7 @@ class AgentRouterOpenAIProvider(OpenAILLMProvider):
     def _map_provider_error(self, error: Exception) -> HinaaError:
         return _map_httpx_error(error)
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
+    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[tuple[str, str]]:
         try:
             async for chunk in super()._stream_text(prompt):
                 yield chunk
@@ -91,10 +91,10 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             return HinaaError(code="PROVIDER_UNAVAILABLE", status_code=500, message=str(e))
         return HinaaError(code="PROVIDER_RESPONSE_INVALID", status_code=500, message=str(e))
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
+    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[tuple[str, str]]:
         system = prompt.system_instruction
         messages = [{"role": "user", "content": "\n\n".join(str(item) for item in prompt.user_contents)}]
-        
+
         try:
             async with self.anthropic_client.messages.stream(
                 model=self._model,
@@ -102,9 +102,32 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                 system=system,
                 messages=messages
             ) as stream:
+                # The SDK's async-for surface differs across versions (normalized
+                # text events vs raw content_block_delta frames). Accept both,
+                # and carry thinking deltas out as the "reasoning" kind — display
+                # only, exactly like the OpenAI-compatible path.
                 async for event in stream:
-                    if event.type == "text_delta":
-                        yield event.text
+                    event_type = getattr(event, "type", "")
+                    if event_type in {"text", "text_delta"}:
+                        text = getattr(event, "text", "")
+                        if isinstance(text, str) and text:
+                            yield ("content", text)
+                        continue
+                    if event_type in {"thinking", "thinking_delta"}:
+                        thinking = getattr(event, "thinking", None) or getattr(event, "text", None)
+                        if isinstance(thinking, str) and thinking:
+                            yield ("reasoning", thinking)
+                        continue
+                    delta = getattr(event, "delta", None)
+                    delta_type = getattr(delta, "type", "") if delta is not None else ""
+                    if delta_type == "text_delta":
+                        text = getattr(delta, "text", "")
+                        if isinstance(text, str) and text:
+                            yield ("content", text)
+                    elif delta_type == "thinking_delta":
+                        thinking = getattr(delta, "thinking", "")
+                        if isinstance(thinking, str) and thinking:
+                            yield ("reasoning", thinking)
         except Exception as e:
             raise self._map_anthropic_error(e)
 

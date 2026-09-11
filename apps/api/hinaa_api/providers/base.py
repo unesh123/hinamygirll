@@ -47,6 +47,7 @@ class LiveLLMProvider(Protocol):
         history: tuple[tuple[str, str], ...],
         emit_delta: Callable[[str], Awaitable[None]],
         prompt: PromptPackage | None = None,
+        emit_thought: Callable[[str], Awaitable[None]] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]: ...
 
 

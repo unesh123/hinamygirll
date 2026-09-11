@@ -682,6 +682,8 @@ export default function App() {
                   <TranscriptView messages={controller.messages} streamingText={controller.streamingText}
                     partialTranscript={controller.partialTranscript} companionName={companionProfiles[controller.companionId].name}
                     isThinking={controller.state === "thinking" && !controller.streamingText && !controller.partialTranscript}
+                    streamingThoughts={controller.streamingThoughts}
+                    thinkingDurationMs={controller.thinkingDurationMs}
                     onWelcomeAction={handleWelcome}
                     onResolveTool={controller.resolveToolRequest} />
                 )}

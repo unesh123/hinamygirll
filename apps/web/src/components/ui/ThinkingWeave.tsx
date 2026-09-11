@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import styles from "./ThinkingWeave.module.css";
 
@@ -22,9 +22,14 @@ const PHRASES: Record<Phase, string> = {
 interface ThinkingWeaveProps {
   /** research = the gyre accelerates into a search sweep */
   mode?: "default" | "research";
+  /** Live model-reasoning lines streamed by the backend this turn. */
+  thoughts?: string[];
+  /** Wall-clock thinking duration, ticking while live then frozen at first text. */
+  durationMs?: number;
 }
 
-export function ThinkingWeave({ mode = "default" }: ThinkingWeaveProps) {
+export function ThinkingWeave({ mode = "default", thoughts, durationMs }: ThinkingWeaveProps) {
+  const [expanded, setExpanded] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLSpanElement>(null);
   const phaseRef = useRef<Phase>("reading");
@@ -161,6 +166,35 @@ export function ThinkingWeave({ mode = "default" }: ThinkingWeaveProps) {
         </g>
       </svg>
       <span className={styles.label} ref={labelRef}>{PHRASES.reading}…</span>
+          {thoughts && thoughts.length > 0 && (
+        <div className={styles.thoughts}>
+          <p className={styles.thoughtLatest} key={thoughts.length}>
+            {thoughts[thoughts.length - 1]}
+          </p>
+          <div className={styles.thoughtMeta}>
+            {durationMs != null && durationMs > 0 && (
+              <span className={styles.thoughtTime}>{(durationMs / 1000).toFixed(1)}s</span>
+            )}
+            {thoughts.length > 1 && (
+              <button
+                type="button"
+                className={styles.thoughtToggle}
+                onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
+              >
+                {expanded ? "hide the weave" : `watch the weave (${thoughts.length})`}
+              </button>
+            )}
+          </div>
+          {expanded && (
+            <ol className={styles.thoughtChain}>
+              {thoughts.map((thought, index) => (
+                <li key={`${index}-${thought.slice(0, 24)}`}>{thought}</li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   );
 }
