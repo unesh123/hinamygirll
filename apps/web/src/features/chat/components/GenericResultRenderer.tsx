@@ -266,6 +266,46 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
     );
   }
 
+  if (toolName === 'code_explore' || toolName === 'code_read' || toolName === 'code_patch' || toolName === 'code_write') {
+    const mono: React.CSSProperties = {
+      margin: 0, padding: '10px 12px', borderRadius: 10, background: 'rgba(10,9,20,.55)',
+      border: '1px solid rgba(255,255,255,.09)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: 11, lineHeight: 1.5, color: '#d9d4ea', overflowX: 'auto', whiteSpace: 'pre',
+    };
+    const label = result.status === 'error' ? 'blocked'
+      : toolName === 'code_explore' ? String(data.action ?? 'tree')
+      : toolName === 'code_read' ? `read ${data.from ?? 1}–${data.to ?? '?'}`
+      : toolName === 'code_patch' ? 'patch applied' : data.created ? 'file created' : 'file overwritten';
+    return (
+      <section style={{ marginTop: 10, display: 'grid', gap: 8, padding: 12, borderRadius: 14, border: '1px solid rgba(177,140,255,.22)', background: 'rgba(177,140,255,.05)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#c9b6ff' }}>
+          <Terminal size={13} /> {toolName.replace('code_', '')} · {label}
+          {data.file ? <span style={{ color: '#9a8fb8', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>{'· '}{String(data.file)}</span> : null}
+        </div>
+        {result.status === 'error' ? (
+          <p style={{ margin: 0, fontSize: 12, color: '#f2b8c6', lineHeight: 1.5 }}>{String(result.error ?? 'The workspace refused that operation.')}</p>
+        ) : toolName === 'code_explore' && data.action === 'grep' ? (
+          <pre style={mono}>{(Array.isArray(data.matches) ? data.matches : []).slice(0, 40).map((m: { file?: string; line?: number; text?: string }) => `${m.file}:${m.line}: ${(m.text ?? '').slice(0, 160)}`).join('\n') || 'no matches'}{data.truncated ? '\n… truncated' : ''}</pre>
+        ) : toolName === 'code_explore' && data.action === 'view_symbol' ? (
+          <pre style={mono}>{(Array.isArray(data.definitions) ? data.definitions : []).map((d: { file?: string; line?: number; preview?: string }) => `${d.file}:${d.line}\n${d.preview ?? ''}`).join('\n\n') || 'no definitions found'}</pre>
+        ) : Array.isArray(data.entries) ? (
+          <pre style={mono}>{data.entries.slice(0, 60).join('\n')}{data.count > 60 ? `\n… ${data.count - 60} more` : ''}</pre>
+        ) : Array.isArray(data.matches) ? (
+          <pre style={mono}>{data.matches.slice(0, 60).join('\n') || 'no files matched'}</pre>
+        ) : toolName === 'code_read' ? (
+          <pre style={mono}>{String(data.content ?? '')}{data.truncated ? '\n… windowed view' : ''}</pre>
+        ) : data.diff ? (
+          <pre style={{ ...mono, whiteSpace: 'pre-wrap' }}>{String(data.diff).split('\n').map((line: string, idx: number) => (
+            <span key={idx} style={line.startsWith('+') ? { color: '#86efac' } : line.startsWith('-') ? { color: '#fca5a5' } : undefined}>{line + '\n'}</span>
+          ))}</pre>
+        ) : (
+          <p style={{ margin: 0, fontSize: 12, color: '#cfc7e6' }}>{data.created ? `Wrote ${data.file}` : String(data.note ?? 'Done.')}</p>
+        )}
+        {data.backup ? <small style={{ color: '#8f86ab', fontSize: 10.5 }}>original backed up → <code style={{ color: '#c9b6ff' }}>{String(data.backup).split(/[\\/]/).pop()}</code></small> : null}
+      </section>
+    );
+  }
+
   if (toolName === 'deep_research') {
     const sources: any[] = Array.isArray(data.sources) ? data.sources : [];
     const items: any[] = Array.isArray(data.items) ? data.items : [];

@@ -165,6 +165,11 @@ class Settings(BaseSettings):
     local_workspace_dir: Path = Field(
         Path.home() / ".hinaa" / "workspace", alias="HINAA_LOCAL_WORKSPACE_DIR"
     )
+    # Jail root for the code_* tools (explore/read/patch/write). Point it at a
+    # project directory; secrets (.env*, keys, .git internals) stay invisible.
+    code_workspace_root: Path = Field(
+        Path.home() / ".hinaa" / "code-workspace", alias="HINAA_CODE_ROOT"
+    )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

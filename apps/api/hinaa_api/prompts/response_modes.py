@@ -18,6 +18,8 @@ def infer_response_mode(user_text: str) -> ResponseMode:
         return "research"
     if re.match(r"^\s*/(image|draw|generate|img)\b", text):
         return "creative"
+    if re.match(r"^\s*/(code|patch|fix|refactor|debug)\b", text):
+        return "technical"
     
     # Priority 1: Technical
     if any(w in text for w in ["coding", "programming", "api", "debugging", "error", "stack trace", "integration", "setup", "architecture", "implementation", "repository", "build", "test"]):

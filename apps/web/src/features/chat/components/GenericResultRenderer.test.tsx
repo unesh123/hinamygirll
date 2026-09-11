@@ -44,6 +44,44 @@ describe("GenericResultRenderer", () => {
     expect(screen.getByText(/Try a narrower query or retry shortly/i)).toBeInTheDocument();
     expect(screen.queryByText("No attributable sources were returned for this query.")).not.toBeInTheDocument();
   });
+  it("renders an applied code patch with the unified diff and its backup trail", () => {
+    const diff = [
+      "--- a/services.py",
+      "+++ b/services.py",
+      "@@ -1,3 +1,3 @@",
+      "-    return 1",
+      "+    return 2",
+    ].join("\n");
+    render(
+      <GenericResultRenderer
+        toolName="code_patch"
+        result={{
+          status: "success",
+          data: {
+            file: "apps/api/hinaa_api/services.py",
+            diff,
+            bytesChanged: 1,
+            backup: "/home/u/.hinaa/workspace/code-backups/2026_services.py",
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/patch applied/i)).toBeInTheDocument();
+    expect(screen.getByText(/return 2/)).toHaveStyle({ color: "rgb(134, 239, 172)" });
+    expect(screen.getByText(/return 1/)).toHaveStyle({ color: "rgb(252, 165, 165)" });
+    expect(screen.getByText("2026_services.py")).toBeInTheDocument();
+  });
+
+  it("keeps a refused workspace path visible as a typed error, not a silent card", () => {
+    render(
+      <GenericResultRenderer
+        toolName="code_read"
+        result={{ status: "error", error: "That path is treated as secret and is off-limits to HINAA.", code: "CODE_PATH_REFUSED" }}
+      />,
+    );
+    expect(screen.getByText(/off-limits to HINAA/)).toBeInTheDocument();
+  });
+
 });
 
 

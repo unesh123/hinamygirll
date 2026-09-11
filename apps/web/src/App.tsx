@@ -396,6 +396,8 @@ export default function App() {
       "search-web": () => { setContextMode("research"); setSearching(true); },
       "image-search": () => setContextMode("images"),
       "deep-research": () => { setContextMode("research"); },
+      "explore-code": () => { setNavSection("files"); setSidebarExpanded("files"); },
+      "patch-code": () => { setNavSection("files"); setSidebarExpanded("files"); },
       "browser-navigate": () => setContextMode("browser"),
       "play-music": () => window.open("https://www.youtube.com/results?search_query=hindi+songs", "_blank", "noopener,noreferrer"),
       "remember-this": () => setMemoryOpen(true),

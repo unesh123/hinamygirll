@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Image, Globe, Code, Music, Mail, Calendar,
   FileText, Brain, Sparkles, Wrench, Cpu, Download,
-  ExternalLink, MessageSquare, Bot, Microscope, ScrollText, type LucideIcon,
+  ExternalLink, MessageSquare, Bot, Microscope, ScrollText, FolderSearch, FilePen, type LucideIcon,
 } from "lucide-react";
 
 export interface PowerUp {
@@ -33,6 +33,8 @@ export const POWER_UPS: PowerUp[] = [
   { id: "@generate", icon: Sparkles, label: "Generate Image", shortcut: "@generate", slash: "/generate", description: "Create AI artwork (Magnific FLUX)", color: "#d97706", group: "Create", action: "generate-image" },
   { id: "@research", icon: Microscope, label: "Deep Research", shortcut: "@research", slash: "/research", description: "Parallel multi-source cited dossier", color: "#0ea5e9", group: "Knowledge", action: "deep-research" },
   { id: "@report", icon: ScrollText, label: "Full Report", shortcut: "@report", slash: "/report", description: "Document-length structured answer", color: "#8b5cf6", group: "Create", action: "doc-mode" },
+  { id: "@explore", icon: FolderSearch, label: "Explore Project", shortcut: "@explore", slash: "/explore", description: "Map the code workspace (tree, grep, symbols)", color: "#0891b2", group: "Automate", action: "explore-code" },
+  { id: "@patch", icon: FilePen, label: "Patch a File", shortcut: "@patch", slash: "/patch", description: "Exact-match code edit with backup + diff", color: "#f97316", group: "Automate", action: "patch-code" },
   { id: "@browser", icon: Globe, label: "Open Browser", shortcut: "@browser", description: "Navigate to a website", color: "#059669", group: "Browse", action: "browser-navigate" },
   { id: "@read", icon: ExternalLink, label: "Read Page", shortcut: "@read", description: "Extract and summarize page content", color: "#14b8a6", group: "Browse", action: "browser-read" },
   { id: "@code", icon: Code, label: "Code Help", shortcut: "@code", description: "Write, explain, or debug code", color: "#dc2626", group: "Create", action: "write-code" },

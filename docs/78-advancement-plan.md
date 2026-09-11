@@ -60,7 +60,7 @@ without ever touching the answer, memory, or the voice channel.
 
 **Manual gate:** with a thinking-capable brain configured (agent-router/DeepSeek/Gemini-flash-thinking), send a non-trivial question: the gyre bubble should show real reasoning lines appearing under the spinner; opening "watch the weave" shows the chain; TTS still speaks only the short summary; refreshing the page shows zero trace of thoughts in chat history (by design).
 
-## Phase C — Autonomous coding tools (sandboxed, approval-first)
+## Phase C — Coding tools (sandboxed, approval-first) — v1 SHIPPED this branch
 
 The spec document from the previous session asked for `code_workspace.py`,
 `code_patch`, `terminal_runner`. Non-negotiable design constraints for HINAA
@@ -73,6 +73,25 @@ The spec document from the previous session asked for `code_workspace.py`,
 5. **Gate**: path-traversal test matrix, deny-list fuzz test, approval-flow integration test; docs: new `adr/` entry.
 
 Effort: 3–4 sessions. Risk: MEDIUM (security surface — hence the ordering after B).
+
+**Phase C v1 status (shipped now):** `hinaa_api/tools/code_workspace.py`
+registers `code_explore` (tree / find_files / grep / view_symbol),
+`code_read` (line-window, numbered), `code_patch` (exact-match, fail-closed on
+ambiguous/missing targets, backup-outside-repo, unified diff back to the UI)
+and `code_write` (create-or-explicit-overwrite). Jail = `HINAA_CODE_ROOT`
+(default `~/.hinaa/code-workspace`): absolute paths, `..` traversal, symlink
+escapes and home/drive roots are refused; `.env*`, key material, credential
+files and `.git` internals are **invisible to reads/greps** as well as refused
+for writes. Explore/read are read-only and auto-runnable; patch/write are
+`requires_confirmation=True` through the existing approval card. `/explore`
+slash command and `@explore` / `@patch` palette entries route in; the chat UI
+renders typed result cards (grep hits, numbered windows, +/- coloured diffs,
+backup trail). `tests/test_code_workspace.py` — **16 tests, all green**
+(traversal, symlink escape, secret blindness, ambiguity fail-closed, backup
+location, overwrite guard, grep/binary/symbol behaviour, regex errors).
+Terminal execution + the auto-repair loop remain deferred (unchanged rationale
+above); the `stdout.delta` streaming widget will ship with them.
+
 
 ## Phase D — Presence & launch polish
 
