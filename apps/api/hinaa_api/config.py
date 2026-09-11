@@ -18,7 +18,7 @@ OFFICIAL_CLAUDE_DEFAULT_MODELS = (
     "claude-sonnet-4-20250514,claude-opus-4-20250514,claude-3-5-haiku-20241022"
 )
 MWAPI_CLAUDE_DEFAULT_MODELS = (
-    "claude-sonnet-4-6,claude-opus-4-6,claude-haiku-4-5-20251001"
+    "claude-sonnet-4-6,claude-opus-4-6,claude-haiku-4-5-20251001,claude-opus-5,claude-sonnet-5,claude-opus-4-8,claude-opus-4-7"
 )
 MWAPI_CLAUDE_MODEL_ALIASES = {
     "claude-sonnet-4-20250514": "claude-sonnet-4-6",
@@ -28,6 +28,9 @@ MWAPI_CLAUDE_MODEL_ALIASES = {
     "claude-haiku-4-5": "claude-haiku-4-5-20251001",
     "claude-sonnet": "claude-sonnet-4-6",
     "claude-opus": "claude-opus-4-6",
+    "claude-3-5-sonnet": "claude-sonnet-4-6",
+    "claude-3-7-sonnet": "claude-sonnet-5",
+    "claude-3-opus": "claude-opus-4-6",
 }
 
 

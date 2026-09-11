@@ -98,9 +98,12 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             "Referer": "https://agent.tinyfish.ai/",
             "Accept": "application/json",
         }
+        clean_base = base_url.rstrip("/")
+        if clean_base.endswith("/v1"):
+            clean_base = clean_base[:-3]
         self.anthropic_client = AsyncAnthropic(
             api_key=api_key,
-            base_url=base_url.rstrip("/"),
+            base_url=clean_base,
             default_headers={**(self.gateway_auth_headers or {}), **browser_fp_headers},
         )
 
