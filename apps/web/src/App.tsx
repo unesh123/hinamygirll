@@ -17,6 +17,7 @@ import {
   persistAvatarPresentation,
 } from "./features/avatar/avatarPresentation";
 import { FullScreenAura } from "./components/ui/FullScreenAura";
+import { AuroraVeil } from "./components/ui/AuroraVeil";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
 import { PremiumComposer } from "./components/ui/PremiumComposer";
 import type { PresenceMode } from "./components/ui/AvatarPresence";
@@ -815,6 +816,12 @@ export default function App() {
   return (
     <SidebarProvider defaultExpanded={false}>
       <div className="hinaa-shell">
+
+      {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
+        <AuroraVeil state={controller.state} />
+        <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />
+        <FullScreenAura state={controller.state} />
+
       {/* ─── Sakura OS (Canonical) ──────────────────────────── */}
           <AppShell
             activeSection={navSection as any}
@@ -867,6 +874,7 @@ export default function App() {
                 </motion.button>
               ))}
             </div>
+
 
             {/* Mode content */}
             {sakuraView === "talk" && (

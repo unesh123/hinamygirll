@@ -4,6 +4,10 @@ import { createRoot } from "react-dom/client";
 import "./design-system/global.css";
 import App from "./App.tsx";
 import { ClerkSessionGate } from "./features/auth/ClerkSessionGate";
+// Aurora Veil must arrive after App.css (and its imports) so the elevation
+// layer refines every surface without fighting the base stylesheet.
+import "./app/styles/aurora.css";
+
 
 // NOTE: BrowserRouter removed — no routes are registered yet.
 // Reintroduce when /playground, /settings, or another genuine route exists.

@@ -16,6 +16,9 @@ const https =
 export default defineConfig({
   server: {
     host: "0.0.0.0",
+    // Allow sandboxed/tunneled preview hosts (e.g. Arena's *.e2b.app proxy)
+    // to reach the dev server. Dev-only; builds are static and unaffected.
+    allowedHosts: true,
     https,
     proxy: {
       "/api": {
