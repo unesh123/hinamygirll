@@ -13,9 +13,9 @@
 import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, Environment } from "@react-three/drei";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/three-vrm";
+import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMHumanBoneName, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 import { Expand, Maximize2, Minimize2, Radio } from "lucide-react";
 import { FullscreenCompanionOverlay, type FullscreenLiveStatus } from "./FullscreenCompanionOverlay";
@@ -219,6 +219,7 @@ function Model({
   const restQRef     = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const poseTargetRef = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const headBoneRef = useRef<THREE.Object3D | null>(null);
+  const jawBoneRef = useRef<THREE.Object3D | null>(null);
   const headRestQRef = useRef<THREE.Quaternion | null>(null);
   const headCurQRef = useRef<THREE.Quaternion | null>(null);
 
@@ -360,6 +361,14 @@ function Model({
         console.log(`🎭 VRM ${specVer} | url=${url} | bones: ${bones.join(", ")} | expressions: ${exprs}`);
       }
 
+      // The normalized Jaw bone is the lipsync safety net below; capture it
+      // once per model load (absent on rigs without a jaw mapping).
+      try {
+        jawBoneRef.current = v.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Jaw) ?? null;
+      } catch {
+        jawBoneRef.current = null;
+      }
+
       vrmRef.current = v;
       setLoaded(true);
     }, undefined, () => { if (mounted) setFailed(true); });
@@ -416,7 +425,13 @@ function Model({
       // them for visible but natural articulation instead of treating quiet
       // speech as silence.
       const rawEnergy = Math.min(1, Math.max(0, jawEnergy.current * 3.2));
-      const energy = speaking ? Math.max(0.16, Math.sqrt(rawEnergy) * 0.82) : rawEnergy;
+      // Amplitude floor while speaking: browser-speech playback produces no
+      // analyser signal (the audio never enters our graph), so energy-only
+      // scaling pinned the mouth at a barely-visible 0.16 and the lips looked
+      // frozen. The viseme timeline itself carries the articulation; a firm
+      // floor keeps it legible in every TTS path while loud audio still
+      // swings the jaw higher.
+      const energy = speaking ? Math.max(0.48, Math.sqrt(rawEnergy) * 0.95) : rawEnergy;
 
       if (speaking) {
         // ── Speaking: viseme-based mouth animation ──
@@ -533,6 +548,15 @@ function Model({
         set(VRMExpressionPresetName.Blink, bv);
         set(VRMExpressionPresetName.BlinkLeft, 0);
         set(VRMExpressionPresetName.BlinkRight, 0);
+
+        // Micro-brows: a soft rise rides the blink and a very slow idle
+        // wander keeps the upper face alive. Both stay under 0.12 so she
+        // never performs a permanent surprised face on rigs that map brows.
+        const browIdle = Math.max(0, Math.sin(t.current * 0.21 + 0.6)) * 0.05;
+        const brow = Math.min(0.12, bv * 0.08 + browIdle * (state === "listening" ? 1.35 : 1));
+        set("browRaise" as VRMExpressionPresetName, brow);
+        set("browUpLeft" as VRMExpressionPresetName, brow * 0.85);
+        set("browUpRight" as VRMExpressionPresetName, brow * 0.7);
       }
 
       /* ── LAYER 4: EMOTION (always low weight, never overrides mouth) */
@@ -626,6 +650,17 @@ function Model({
       bone.quaternion.copy(cur);
     }
 
+    // Physical jaw fallback — the last pose write of the frame. Models with
+    // broken or missing viseme blend shapes (common on auto-rigged VRMs) still
+    // visibly articulate, and healthy rigs get a complementary jaw drop driven
+    // by the exact same smoothed mouth weights the expressions use.
+    const jawBone = jawBoneRef.current;
+    if (jawBone) {
+      let mouthDrive = 0;
+      for (const k of ALL_MOUTH_KEYS) mouthDrive = Math.max(mouthDrive, mouthW.current[k]);
+      jawBone.rotation.x = THREE.MathUtils.damp(jawBone.rotation.x, -mouthDrive * 0.42, 16, dt);
+    }
+
     // The body lock intentionally runs after `vrm.update` above. VMC packets
     // never write shoulders, arms, hands, spine, hips, or root transforms.
     // Only the calibrated Head bone can receive a bounded live delta.
@@ -696,6 +731,49 @@ interface Props {
   onStopLive?: () => void;
   onPauseLive?: () => void;
   onResumeLive?: () => void;
+}
+
+
+/* ─── Live-voice veil: listening feedback + honest reconnect state ─── */
+function VoiceVeil({ live, onReconnect }: { live: FullscreenLiveStatus; onReconnect: () => void }) {
+  const status = live.status ?? "idle";
+  const show = live.active || status === "reconnecting" || status === "error";
+  const level = Math.max(0, Math.min(1, live.microphoneLevel));
+  const bars = [0.55, 0.85, 1, 0.8, 0.5];
+  const label = status === "reconnecting" ? "Reconnecting — Hinaa keeps listening soon"
+    : status === "error" ? "Voice link dropped"
+    : live.paused ? "Mic paused"
+    : "Listening";
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          className={`hinaa-voice-veil ${status === "error" ? "hinaa-voice-veil--error" : ""}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 6 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          aria-live="polite"
+        >
+          <span className="hinaa-voice-veil__dot" aria-hidden="true" />
+          <span className="hinaa-voice-veil__label">{label}</span>
+          <span className="hinaa-voice-veil__meter" aria-hidden="true">
+            {bars.map((m, i) => (
+              <i key={i} style={{ transform: `scaleY(${0.18 + (live.paused || status !== "listening" ? 0.12 : level * m) * 0.9})` }} />
+            ))}
+          </span>
+          {(status === "error" || status === "reconnecting") && (
+            <button type="button" className="hinaa-voice-veil__retry" onClick={onReconnect}>
+              {status === "error" ? "Reconnect now" : "Retry now"}
+            </button>
+          )}
+          {live.detail && (status === "error" || status === "reconnecting") && (
+            <small>{live.detail}</small>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 // Stable fallback refs so we never create new objects in render
@@ -829,6 +907,11 @@ export function AvatarPresence({
       )}
 
       {(!modelUrl || webglFailed) && <AvatarFallback state={state} />}
+
+      <VoiceVeil
+        live={liveStatus ?? { active: false, paused: false, detail: "", microphoneLevel: 0 }}
+        onReconnect={onStartLive ?? (() => undefined)}
+      />
 
       <FullscreenCompanionOverlay
         open={isFullscreen}

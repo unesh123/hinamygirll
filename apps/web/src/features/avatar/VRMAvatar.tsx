@@ -278,6 +278,11 @@ function VrmRig({
       } else if (input.emotion === "sad") {
         targetY = -0.15;
       }
+      // Clamp before applying: a pointer passing very close to the model (or
+      // stacked mode offsets) must never crank the eyes into an uncanny stare.
+      targetX = THREE.MathUtils.clamp(targetX, -0.65, 0.65);
+      targetY = THREE.MathUtils.clamp(targetY, -0.4, 0.35);
+      targetZ = Math.max(0.8, targetZ);
       lookTarget.position.set(targetX, targetY, targetZ);
       vrm.lookAt.target = lookTarget;
     }
@@ -302,6 +307,12 @@ function VrmRig({
       const idleY = quiet
         ? Math.sin(time * 0.8) * 0.005
         : Math.sin(time * 0.5) * 0.02;
+      // Micro-saccades: two incommensurate slow sines multiply into rare,
+      // short-lived drifts — living stillness rather than a metronome.
+      const saccade = quiet
+        ? 0
+        : Math.sin(time * 1.7) * Math.max(0, Math.sin(time * 0.23 + 1.1)) * 0.006;
+      const microRoll = Math.sin(time * 0.37 + 2) * 0.0028;
       const settled = quiet
         ? { x: 0.08, y: 0, z: 0.06 }
         : { x: headTarget.x, y: headTarget.y, z: headTarget.z };
@@ -314,13 +325,13 @@ function VrmRig({
         );
         head.rotation.y = THREE.MathUtils.damp(
           head.rotation.y,
-          settled.y + idleY,
+          settled.y + idleY + saccade,
           6,
           delta,
         );
         head.rotation.z = THREE.MathUtils.damp(
           head.rotation.z,
-          settled.z,
+          settled.z + microRoll,
           6,
           delta,
         );
@@ -350,10 +361,22 @@ function VrmRig({
           delta,
         );
       }
-      // Breathing — subtle chest/hips rise. Quieter while listening.
-      const breath = Math.sin(time * 1.4) * (quiet ? 0.0018 : 0.004);
-      if (chest) chest.position.y = breath;
-      if (hips) hips.position.y = -breath;
+      // Breathing — subtle chest/hips rise whose depth and pace drift on slow
+      // incommensurate cycles, so the rest state breathes like a person rather
+      // than a loop. Quieter while listening; a whisper of spinal pitch rides
+      // along with the inhale and a gentle lateral weight-shift breaks the pose.
+      const drift = 0.78 + 0.22 * Math.sin(time * 0.11) + 0.08 * Math.sin(time * 0.047 + 2.1);
+      const rate = 1.4 + Math.sin(time * 0.07) * 0.13;
+      const inhale = Math.sin(time * rate);
+      const breath = inhale * (quiet ? 0.0018 : 0.0042) * drift;
+      if (chest) {
+        chest.position.y = breath;
+        chest.rotation.x = Math.max(0, inhale) * (quiet ? 0.0012 : 0.0032) * drift;
+      }
+      if (hips) {
+        hips.position.y = -breath;
+        if (!quiet) hips.position.x = Math.sin(time * 0.21) * 0.0075;
+      }
     }
 
     vrm.update(delta);

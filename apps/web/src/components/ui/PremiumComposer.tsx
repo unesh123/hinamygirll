@@ -66,15 +66,21 @@ export function PremiumComposer({
   const setImagePreview = onImageAttach || setLocalPreview;
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionSigil, setMentionSigil] = useState<"@" | "/">("@");
 
-  /* ─── Detect @ for power-ups ────────────────────────── */
+  /* ─── Detect @ mentions and / slash commands ───────── */
   const detectMention = useCallback((text: string) => {
     const cursorPos = textRef.current?.selectionStart ?? text.length;
     const beforeCursor = text.slice(0, cursorPos);
-    const match = beforeCursor.match(/@(\S*)$/);
+    // The token must sit flush against the sigil: bare "/" opens the palette,
+    // "/research" filters it, and "/research " (the space inserted on select)
+    // closes it again — a completed command prefix must never hijack the next
+    // Enter keypress.
+    const match = beforeCursor.match(/(?:^|\s)([@/])(\S*)$/);
     if (match) {
       setShowMentions(true);
-      setMentionFilter(match[1]);
+      setMentionSigil(match[1] === "/" ? "/" : "@");
+      setMentionFilter(match[2]);
     } else {
       setShowMentions(false);
       setMentionFilter("");
@@ -115,9 +121,12 @@ export function PremiumComposer({
   const handleMentionSelect = useCallback(
     (powerUp: PowerUp) => {
       const cursorPos = textRef.current?.selectionStart ?? value.length;
-      const beforeAt = value.slice(0, cursorPos).replace(/@\S*$/, "");
+      const beforeAt = value.slice(0, cursorPos).replace(/[@/][\w-]*$/, "");
       const afterCursor = value.slice(cursorPos);
-      const newValue = `${beforeAt}${powerUp.shortcut} ${afterCursor}`;
+      const insertion = mentionSigil === "/"
+        ? (powerUp.slash ?? `/${powerUp.shortcut.slice(1)}`)
+        : powerUp.shortcut;
+      const newValue = `${beforeAt}${insertion} ${afterCursor}`;
       onChange(newValue);
       setShowMentions(false);
       setMentionFilter("");
@@ -125,11 +134,11 @@ export function PremiumComposer({
       // Focus back
       requestAnimationFrame(() => {
         textRef.current?.focus();
-        const newPos = beforeAt.length + powerUp.shortcut.length + 1;
+        const newPos = beforeAt.length + insertion.length + 1;
         textRef.current?.setSelectionRange(newPos, newPos);
       });
     },
-    [value, onChange, onPowerUp],
+    [value, onChange, onPowerUp, mentionSigil],
   );
 
   const handleSuggestionSelect = useCallback(
@@ -152,10 +161,11 @@ export function PremiumComposer({
 
   return (
     <div className="premium-composer-shell">
-      {/* @ Power-up mention popup */}
+      {/* @ mention / / slash-command palette */}
       <PowerUpMentions
         visible={showMentions}
         filter={mentionFilter}
+        sigil={mentionSigil}
         onSelect={handleMentionSelect}
         onClose={() => setShowMentions(false)}
       />

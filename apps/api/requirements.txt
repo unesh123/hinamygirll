@@ -9,3 +9,4 @@ httpx==0.28.1
 SQLAlchemy==2.0.43
 alembic==1.16.5
 anthropic==0.84.0
+fpdf2>=2.8.3

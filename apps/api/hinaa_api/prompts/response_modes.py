@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 # Using the type defined in models.py (or matching it as string)
@@ -8,6 +9,15 @@ ResponseMode = Literal["conversation", "professional", "technical", "research", 
 def infer_response_mode(user_text: str) -> ResponseMode:
     """If no mode is provided, infer it from the text using strict deterministic patterns."""
     text = user_text.lower()
+
+    # An explicit slash command is the strongest possible signal — it beats
+    # every keyword heuristic below.
+    if re.match(r"^\s*/(doc|report|brief|document)\b", text):
+        return "professional"
+    if re.match(r"^\s*/(research|deep)\b", text):
+        return "research"
+    if re.match(r"^\s*/(image|draw|generate|img)\b", text):
+        return "creative"
     
     # Priority 1: Technical
     if any(w in text for w in ["coding", "programming", "api", "debugging", "error", "stack trace", "integration", "setup", "architecture", "implementation", "repository", "build", "test"]):
@@ -39,11 +49,34 @@ def infer_response_mode(user_text: str) -> ResponseMode:
 def response_mode_layer(mode: ResponseMode) -> str:
     guidance = {
         "conversation": "Keep it warm and conversational. Standard depth.",
-        "professional": "Detailed, formal, and structured. exhaustive depth.",
-        "technical": "Provide step-by-step troubleshooting, code, and exact steps. Deep depth.",
-        "research": "Neutral, sourced, and structured with citations. Deep depth.",
+        "professional": (
+            "Write a complete structured brief, not a stub. Open with a 2-3 sentence TL;DR, then "
+            "organize the substance under '## ' section headings (context, findings/analysis, "
+            "recommendations, risks, next steps). Use compact tables for any comparison, fenced code "
+            "for anything executable, and a numbered checklist for action items. Length should match "
+            "the problem — for real work that means a genuinely thorough multi-section document, not "
+            "four shallow sentences. Never pad: every section must carry information."
+        ),
+        "technical": (
+            "Act like a senior engineer writing the definitive answer: root cause first, then the "
+            "exact fix with fully runnable code in fenced blocks, then verification steps (commands "
+            "and expected output), edge cases, and rollback notes. Use '## ' sections. Prefer a "
+            "complete solution over a sketch; annotate non-obvious lines with comments."
+        ),
+        "research": (
+            "Write a research dossier: TL;DR, Key findings (each with an inline source link), "
+            "Detailed analysis with '## ' sections per theme, a comparison table when multiple "
+            "options/claims exist, Open questions, and Sources (deduped, clickable). Cite every "
+            "non-obvious claim; where tool results supplied findings, incorporate them rather than "
+            "restating your own guess. Mark anything unsupported as speculation."
+        ),
         "automation": "Action-oriented and evidence-based. Focus on confirming tool execution.",
-        "academic": "Scholarly, structured, focused on learning. Deep depth.",
+        "academic": (
+            "Write like a model assignment submission: title, abstract-style summary, numbered "
+            "sections covering problem statement, methodology/derivation, worked steps or analysis, "
+            "conclusion, and references. Show intermediate reasoning in the body, define symbols "
+            "once, and keep equations in fenced blocks or inline code."
+        ),
         "creative": "Imaginative, descriptive, and vivid.",
         "concise_voice": "Brief spoken response only, no lengthy details.",
     }

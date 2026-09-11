@@ -129,8 +129,41 @@ async def search_web(params: dict[str, Any]) -> dict[str, Any]:
         return _provider_error(error, query=query)
 
 
+_IMAGE_QUERY_COMMAND = re.compile(
+    r"^\s*(?:(?:hey|hinaa|please|kindly|can|could|will|would|u|you)\b[ ,]*)*"
+    r"(?:fetch|find|search(?:\s+for)?|look(?:\s+up|\s+for)?|show|display|get|give|pull\s+up|grab)\b[ ,]*"
+    r"(?:me\b[ ,]*)?"
+    r"(?:(?:some|any|an?|the|public)\b[ ,]*)*"
+    r"(?:images?\b|pictures?\b|photos?\b|pics?\b)?[ ,]*"
+    r"(?:of\b|for\b|about\b)?[ ,]*",
+    re.IGNORECASE,
+)
+_IMAGE_QUERY_TAIL = re.compile(
+    r"(?:\s+(?:images?|pictures?|photos?|pics?)\b)+(?:\s+(?:for\s+me|online|here|now|please))?\s*[.?!]*\s*$"
+    r"|\s+(?:in|at)\s+(?:the\s+)?(?:hd|uhd|4k|8k|high[-\s]quality|ultra[-\s]hd)\b"
+    r"|\s+(?:for\s+me|online|please)\s*[.?!]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def clean_image_query(query: str) -> str:
+    """Strip command noise so the vendor query is the subject itself.
+
+    'fetch me some images of Mikasa Ackerman in HD' → 'Mikasa Ackerman'.
+    Relevance engines reward precise noun phrases; conversational filler was
+    measurably degrading results — this is why a search for one character
+    returned generic scenery. Only the *leading* verb phrase and provably
+    redundant trailing nouns are cut; subject-bearing words never are.
+    """
+    cleaned = _IMAGE_QUERY_COMMAND.sub("", query.strip(), count=1)
+    cleaned = _IMAGE_QUERY_TAIL.sub(" ", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" .,!?")
+    return cleaned or query.strip()
+
+
 async def search_images(params: dict[str, Any]) -> dict[str, Any]:
-    query = str(params.get("query", "")).strip()
+    raw_query = str(params.get("query", "")).strip()
+    query = clean_image_query(raw_query) or raw_query
     try:
         return await YouComClient(get_settings()).image_search(
             query,

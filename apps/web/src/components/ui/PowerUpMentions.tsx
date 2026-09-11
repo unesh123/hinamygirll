@@ -1,6 +1,8 @@
 /**
- * PowerUpMentions — @ mention system for accessing all HINAA power-ups.
- * Type @ to trigger the floating power-up palette.
+ * PowerUpMentions — power-up palette for both mention styles:
+ *   @ → inserts a chat power-up token (model + tools understand it)
+ *   / → slash command; entries with a `slash` alias insert the exact verb the
+ *       backend deterministic router speaks (e.g. /research, /image).
  * Keyboard navigation: ↑↓ to move, Enter to select, Esc to close.
  */
 
@@ -9,7 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Image, Globe, Code, Music, Mail, Calendar,
   FileText, Brain, Sparkles, Wrench, Cpu, Download,
-  ExternalLink, MessageSquare, Bot, type LucideIcon,
+  ExternalLink, MessageSquare, Bot, Microscope, ScrollText, type LucideIcon,
 } from "lucide-react";
 
 export interface PowerUp {
@@ -17,6 +19,8 @@ export interface PowerUp {
   icon: LucideIcon;
   label: string;
   shortcut: string;
+  /** Preferred insertion when the user opened the palette with "/" */
+  slash?: string;
   description: string;
   color: string;
   group: string;
@@ -26,7 +30,9 @@ export interface PowerUp {
 export const POWER_UPS: PowerUp[] = [
   { id: "@search", icon: Search, label: "Web Search", shortcut: "@search", description: "Search the web with sources", color: "#0891b2", group: "Knowledge", action: "search-web" },
   { id: "@image", icon: Image, label: "Find Images", shortcut: "@image", description: "Search for images online", color: "#7c3aed", group: "Knowledge", action: "image-search" },
-  { id: "@generate", icon: Sparkles, label: "Generate Image", shortcut: "@generate", description: "Create AI artwork", color: "#d97706", group: "Create", action: "generate-image" },
+  { id: "@generate", icon: Sparkles, label: "Generate Image", shortcut: "@generate", slash: "/generate", description: "Create AI artwork (Magnific FLUX)", color: "#d97706", group: "Create", action: "generate-image" },
+  { id: "@research", icon: Microscope, label: "Deep Research", shortcut: "@research", slash: "/research", description: "Parallel multi-source cited dossier", color: "#0ea5e9", group: "Knowledge", action: "deep-research" },
+  { id: "@report", icon: ScrollText, label: "Full Report", shortcut: "@report", slash: "/report", description: "Document-length structured answer", color: "#8b5cf6", group: "Create", action: "doc-mode" },
   { id: "@browser", icon: Globe, label: "Open Browser", shortcut: "@browser", description: "Navigate to a website", color: "#059669", group: "Browse", action: "browser-navigate" },
   { id: "@read", icon: ExternalLink, label: "Read Page", shortcut: "@read", description: "Extract and summarize page content", color: "#14b8a6", group: "Browse", action: "browser-read" },
   { id: "@code", icon: Code, label: "Code Help", shortcut: "@code", description: "Write, explain, or debug code", color: "#dc2626", group: "Create", action: "write-code" },
@@ -44,25 +50,41 @@ export const POWER_UPS: PowerUp[] = [
 interface PowerUpMentionsProps {
   visible: boolean;
   filter: string;
+  /** Which sigil opened the palette — slash mode prefers /-aliases. */
+  sigil?: "@" | "/";
   onSelect: (powerUp: PowerUp) => void;
   onClose: () => void;
 }
 
-export function PowerUpMentions({ visible, filter, onSelect, onClose }: PowerUpMentionsProps) {
+export function PowerUpMentions({ visible, filter, onSelect, onClose, sigil = "@" }: PowerUpMentionsProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
-    const q = filter.toLowerCase();
-    if (!q) return POWER_UPS;
-    return POWER_UPS.filter(
-      (p) =>
-        p.label.toLowerCase().includes(q) ||
-        p.shortcut.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.group.toLowerCase().includes(q),
-    );
-  }, [filter]);
+    const q = filter.toLowerCase().replace(/^[@/]/, "");
+    const matches = (p: PowerUp) =>
+      !q
+      || p.label.toLowerCase().includes(q)
+      || p.shortcut.toLowerCase().includes(q)
+      || (p.slash ?? "").toLowerCase().includes(q)
+      || p.description.toLowerCase().includes(q)
+      || p.group.toLowerCase().includes(q);
+    const list = POWER_UPS.filter(matches);
+    if (sigil === "/" && q) {
+      // Slash users typed a verb — put exact slash-alias matches on top.
+      list.sort((a, b) => {
+        const at = a.slash?.toLowerCase().slice(1) === q ? 0 : a.slash?.toLowerCase().includes(q) ? 1 : 2;
+        const bt = b.slash?.toLowerCase().slice(1) === q ? 0 : b.slash?.toLowerCase().includes(q) ? 1 : 2;
+        return at - bt;
+      });
+    }
+    return list;
+  }, [filter, sigil]);
+
+  // Nothing matches → hide the palette so Enter behaves as “send” again.
+  useEffect(() => {
+    if (visible && filtered.length === 0) onClose();
+  }, [visible, filtered.length, onClose]);
 
   // Reset selection when filter changes
   useEffect(() => { setSelectedIndex(0); }, [filter]);
