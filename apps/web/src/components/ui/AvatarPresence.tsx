@@ -13,7 +13,7 @@
 import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, Environment } from "@react-three/drei";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
@@ -581,6 +581,15 @@ function Model({
         set(VRMExpressionPresetName.Blink, bv);
         set(VRMExpressionPresetName.BlinkLeft, 0);
         set(VRMExpressionPresetName.BlinkRight, 0);
+
+        // Micro-brows: a soft rise rides the blink and a very slow idle
+        // wander keeps the upper face alive. Both stay under 0.12 so she
+        // never performs a permanent surprised face on rigs that map brows.
+        const browIdle = Math.max(0, Math.sin(t.current * 0.21 + 0.6)) * 0.05;
+        const brow = Math.min(0.12, bv * 0.08 + browIdle * (state === "listening" ? 1.35 : 1));
+        set("browRaise" as VRMExpressionPresetName, brow);
+        set("browUpLeft" as VRMExpressionPresetName, brow * 0.85);
+        set("browUpRight" as VRMExpressionPresetName, brow * 0.7);
       }
 
       /* ── LAYER 4: EMOTION (always low weight, never overrides mouth) */
@@ -774,6 +783,49 @@ interface Props {
   onResumeLive?: () => void;
 }
 
+
+/* ─── Live-voice veil: listening feedback + honest reconnect state ─── */
+function VoiceVeil({ live, onReconnect }: { live: FullscreenLiveStatus; onReconnect: () => void }) {
+  const status = live.status ?? "idle";
+  const show = live.active || status === "reconnecting" || status === "error";
+  const level = Math.max(0, Math.min(1, live.microphoneLevel));
+  const bars = [0.55, 0.85, 1, 0.8, 0.5];
+  const label = status === "reconnecting" ? "Reconnecting — Hinaa keeps listening soon"
+    : status === "error" ? "Voice link dropped"
+    : live.paused ? "Mic paused"
+    : "Listening";
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          className={`hinaa-voice-veil ${status === "error" ? "hinaa-voice-veil--error" : ""}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 6 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          aria-live="polite"
+        >
+          <span className="hinaa-voice-veil__dot" aria-hidden="true" />
+          <span className="hinaa-voice-veil__label">{label}</span>
+          <span className="hinaa-voice-veil__meter" aria-hidden="true">
+            {bars.map((m, i) => (
+              <i key={i} style={{ transform: `scaleY(${0.18 + (live.paused || status !== "listening" ? 0.12 : level * m) * 0.9})` }} />
+            ))}
+          </span>
+          {(status === "error" || status === "reconnecting") && (
+            <button type="button" className="hinaa-voice-veil__retry" onClick={onReconnect}>
+              {status === "error" ? "Reconnect now" : "Retry now"}
+            </button>
+          )}
+          {live.detail && (status === "error" || status === "reconnecting") && (
+            <small>{live.detail}</small>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 // Stable fallback refs so we never create new objects in render
 const _emptyVisemes: VisemeEvent[] = [];
 const _falseRef = { current: false };
@@ -927,6 +979,11 @@ export function AvatarPresence({
       )}
 
       {(!modelUrl || webglFailed) && <AvatarFallback state={state} />}
+
+      <VoiceVeil
+        live={liveStatus ?? { active: false, paused: false, detail: "", microphoneLevel: 0 }}
+        onReconnect={onStartLive ?? (() => undefined)}
+      />
 
       <FullscreenCompanionOverlay
         open={isFullscreen}

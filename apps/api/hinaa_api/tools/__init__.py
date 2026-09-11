@@ -11,4 +11,6 @@ from . import tinyfish
 from . import pdf_generate
 from . import freepik_suite
 from . import image_fabric
+from . import deep_research
+
 __all__ = ["registry"]

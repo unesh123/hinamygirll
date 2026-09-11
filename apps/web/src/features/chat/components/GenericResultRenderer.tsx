@@ -452,11 +452,10 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
     const hasImages = imageUrls.length > 0;
     
     // Determine workflow details
-    let workflow = "HINAA_ANIMA_FAST (768x768)";
-    if (data.mode === 'quality') workflow = "HINAA_ANIMA_QUALITY (1024x1024)";
-    else if (data.mode === 'ultra') workflow = "HINAA_NEWBIE_ULTRA (1024x1536)";
-    else if (toolName.includes('magnific')) workflow = "MAGNIFIC_AI_HIGH_RES (1024x1024)";
-    else if (toolName.includes('freepik')) workflow = "FREEPIK_FLUX_SCHNELL (1024x1024)";
+    const onMagnific = data.renderer === 'magnific-flux' || toolName.includes('magnific') || toolName.includes('freepik');
+    let workflow = onMagnific ? "MAGNIFIC FLUX · FAST (768x768)" : "HINAA_ANIMA_FAST (768x768)";
+    if (data.mode === 'quality') workflow = onMagnific ? "MAGNIFIC FLUX · QUALITY (1024x1024)" : "HINAA_ANIMA_QUALITY (1024x1024)";
+    else if (data.mode === 'ultra') workflow = onMagnific ? "MAGNIFIC FLUX · ULTRA + UPSCALE (1024x1536)" : "HINAA_NEWBIE_ULTRA (1024x1536)";
 
     // Use prompt from params if available
     const promptText = data.prompt || data.details?.[0]?.prompt || "Generating amazing artwork...";
@@ -470,9 +469,10 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
           : 'AI Image Generation';
 
     const nodes: WorkTreeNode[] = [
-      { id: '1', status: 'success', title: 'Connecting to AI Canvas', detail: `Workflow: ${workflow} | Mode: ${data.mode || data.tier || 'Fast'}` },
-      { id: '2', status: hasImages ? 'success' : 'active', title: 'Rendering Image(s)', detail: `Prompt: ${promptText}` }
+      { id: '1', status: 'success', title: onMagnific ? 'Magnific FLUX cloud ready' : 'Connecting to AI Canvas', detail: `Workflow: ${workflow} | Mode: ${data.mode || 'Quality'}${data.style && data.style !== 'custom' ? ` | Style: ${data.style}` : ''}${data.reference_applied ? (data.upscale ? ' | Reference-guided · upscaled' : ' | Reference-guided') : ''}` },
+      { id: '2', status: hasImages ? 'success' : 'active', title: 'Rendering Image(s)', detail: data.enhanced_prompt ? `Enhanced prompt: ${data.enhanced_prompt}` : `Prompt: ${promptText}` }
     ];
+
 
     return (
       <div style={{ marginTop: 12 }}>
@@ -507,6 +507,56 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
               </div>
             )}
           </div>
+        )}
+      </div>
+    );
+  }
+
+  if (toolName === 'deep_research') {
+    const sources: any[] = Array.isArray(data.sources) ? data.sources : [];
+    const items: any[] = Array.isArray(data.items) ? data.items : [];
+    const reportHtml: string = typeof data.report === 'string' ? data.report : '';
+    const isWorking = sources.length === 0 && !data.error && result.status !== 'error' && !reportHtml;
+    const nodes: WorkTreeNode[] = [
+      { id: 'fan', status: 'success', title: 'Fanning out research probes', detail: `${sources.length || 6} independent sources queried in parallel${data.depth ? ` · depth ${data.depth}` : ''}` },
+      ...(sources.length ? sources.map((source: any) => ({
+        id: `src-${source.id}`,
+        status: (source.status === 'ok' ? 'success' : source.status === 'failed' ? 'error' : undefined) as WorkTreeNode['status'],
+        title: `${source.label} — ${source.count} finding${source.count === 1 ? '' : 's'}`,
+        detail: source.error ? `Source did not answer: ${source.error}` : (source.count ? 'Merged into the cited brief.' : 'No relevant results returned.'),
+      })) : [{ id: 'wait', status: 'active' as const, title: 'Gathering cited findings', detail: isWorking ? 'Each source answers on its own timer; failures are never fatal.' : 'Sources reported back.' }]),
+      ...(items.length ? [{ id: 'merge', status: 'success' as const, title: `Brief ready · ${items.length} findings`, detail: `${Math.round((data.elapsedMs ?? 0) / 100) / 10}s across all sources.` }] : []),
+    ];
+
+    return (
+      <div style={{ marginTop: 12 }}>
+        <WorkTree title={data.topic ? `Deep research · ${data.topic}` : 'Deep research'} icon={<Network size={16} />} nodes={nodes} />
+        {items.length > 0 && (
+          <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '0 16px' }}>
+            {items.slice(0, 8).map((item: any, index: number) => (
+              <motion.a
+                key={item.url || index}
+                href={item.url || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.24, delay: index * 0.03 }}
+                whileHover={{ y: -1 }}
+                style={{ display: 'grid', gap: 3, padding: '9px 11px', borderRadius: 11, border: '1px solid rgba(255,255,255,.1)', background: 'rgba(255,255,255,.03)', color: '#f4e9df', textDecoration: 'none' }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.4 }}>{item.title || item.url || 'Untitled finding'}</span>
+                {item.snippet ? <span style={{ fontSize: 11.5, color: '#cbbca8', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.snippet}</span> : null}
+                <span style={{ fontSize: 10.5, color: '#a99a8b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{item.source}{item.stars ? ` · ${item.stars}★` : ''}{item.points ? ` · ${item.points} pts` : ''}{item.published ? ` · ${item.published}` : ''}</span>
+              </motion.a>
+            ))}
+          </div>
+        )}
+        {reportHtml && (
+          <details style={{ margin: '12px 16px 0' }}>
+            <summary style={{ cursor: 'pointer', fontSize: 11.5, fontWeight: 750, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#cbbca8' }}>Full cited brief</summary>
+            <div className="hinaa-markdown" style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.65, color: '#e5d8c5' }} dangerouslySetInnerHTML={{ __html: reportHtml }} />
+          </details>
         )}
       </div>
     );

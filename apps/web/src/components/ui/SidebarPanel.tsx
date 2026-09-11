@@ -67,8 +67,8 @@ function shortcutsFor(section: NavSection, props: SidebarPanelProps): { eyebrow:
         heading: "Choose an action, then stay in control",
         copy: "Availability depends on your local services and configured providers. HINAA shows a safe state rather than pretending an unavailable tool is ready.",
         items: [
-          { label: "Research with sources", detail: "Ask for attributable findings", icon: <Search size={16} />, action: () => props.onQuickPrompt?.("Research this with clear sources and practical next steps: ") },
-          { label: "Create an image", detail: "Open the local Image Studio", icon: <Image size={16} />, action: props.onOpenImageStudio },
+          { label: "Research with sources", detail: "Ask for attributable findings", icon: <Search size={16} />, action: () => props.onQuickPrompt?.("Deep research: ") },
+          { label: "Create an image", detail: "Open the Magnific FLUX Image Studio", icon: <Image size={16} />, action: props.onOpenImageStudio },
           { label: "Check local diagnostics", detail: "Review configured services", icon: <Settings size={16} />, action: props.onOpenSettings },
         ],
       };

@@ -30,6 +30,7 @@ import { useVSeeFace } from "./features/audio/useVSeeFace";
 import { companionProfiles, type CompanionId, type CompanionState } from "./features/companion/types";
 import { useCompanionController } from "./features/companion/useCompanionController";
 import { useProviders } from "./features/providers/hooks/useProviders";
+import { useEntranceStagger } from "./features/motion/useEntranceStagger";
 import { useProviderRouting } from "./features/providers/hooks/useProviderRouting";
 import { SettingsDialog, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
 import { AppearanceSettings } from "./features/settings/sections/AppearanceSettings";
@@ -51,7 +52,7 @@ const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then(
 const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
 const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((module) => ({ default: module.MemoryPanel })));
 const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
-const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").then((module) => ({ default: module.LocalImageStudio })));
+const MagnificImageStudio = lazy(() => import("./components/ui/MagnificImageStudio").then((module) => ({ default: module.MagnificImageStudio })));
 const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
 const HumanizerStudio = lazy(() => import("./features/tools/HumanizerStudio").then((module) => ({ default: module.HumanizerStudio })));
 const MusicMiniPlayer = lazy(() => import("./components/ui/MusicMiniPlayer").then((module) => ({ default: module.MusicMiniPlayer })));
@@ -447,7 +448,7 @@ export default function App() {
   useEffect(() => {
     const preload = () => {
       void import("./components/ui/LocalProjectWorkspace");
-      void import("./components/ui/LocalImageStudio");
+      void import("./components/ui/MagnificImageStudio");
     };
     const idleWindow = window as Window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -689,8 +690,8 @@ export default function App() {
 
   const openImageStudio = () => {
     setDrawerMode("image");
-    setDrawerTitle("Hinaa Image Studio");
-    setDrawerContent(<Suspense fallback={lazyPanelFallback}><LocalImageStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
+    setDrawerTitle("Hinaa Image Studio · Magnific FLUX");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><MagnificImageStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
     setDrawerOpen(true);
   };
 
@@ -717,7 +718,7 @@ export default function App() {
 
   const handleWelcome = (action: string) => {
     if (action === "voice") live.start();
-    else if (action === "research") setInput("Search for: ");
+    else if (action === "research") setInput("Deep research: ");
     else if (action === "create") openImageStudio();
     else if (action === "work") setInput("Help me plan my work: ");
   };
@@ -782,6 +783,10 @@ export default function App() {
     chips.push({ id: "cont", label: "Continue", icon: "default" });
     setActionChips(chips.slice(0, 4));
   }, [controller.messages, controller.state]);
+
+  // One-shot staged arrival for the shell regions (companion → transcript →
+  // composer). Reduced-motion users skip it entirely inside the hook.
+  useEntranceStagger(".hinaa-layout", [".workspace-nav-rail", ".avatar-pane", ".chat-pane", ".premium-composer-wrapper"], { delay: 0.08 });
 
   const showWelcome = controller.messages.length <= 1 && !controller.streamingText && !controller.partialTranscript && controller.state === "idle" && !live.active;
 
@@ -928,6 +933,7 @@ export default function App() {
               <WorkMode
                 companionId={controller.companionId}
                 companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+
                 messages={controller.messages}
                 streamingText={controller.streamingText}
                 partialTranscript={controller.partialTranscript}

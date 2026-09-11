@@ -149,6 +149,18 @@ class Settings(BaseSettings):
     youcom_base_url: str = Field("https://api.you.com", alias="YOUCOM_BASE_URL")
     youcom_contents_base_url: str = Field("https://ydc-index.io", alias="YOUCOM_CONTENTS_BASE_URL")
     youcom_timeout_seconds: float = Field(30.0, alias="YOUCOM_TIMEOUT_SECONDS")
+    # Magnific / Freepik — FLUX.2 cloud image generation (HINAA's image brain)
+    magnific_api_key: SecretStr | None = Field(None, alias="MAGNIFIC_API_KEY")
+    freepik_api_key: SecretStr | None = Field(None, alias="FREEPIK_API_KEY")
+    magnific_base_url: str = Field("https://api.magnific.ai", alias="MAGNIFIC_BASE_URL")
+    magnific_timeout_seconds: float = Field(180.0, alias="MAGNIFIC_TIMEOUT_SECONDS")
+    magnific_t2i_path: str = Field("/v1/ai/text-to-image/{model}", alias="MAGNIFIC_T2I_PATH")
+    magnific_upscale_path: str = Field("/v1/upscale", alias="MAGNIFIC_UPSCALE_PATH")
+    magnific_model_fast: str = Field("flux-schnell", alias="MAGNIFIC_MODEL_FAST")
+    magnific_model_quality: str = Field("flux-dev", alias="MAGNIFIC_MODEL_QUALITY")
+    magnific_reference_strength: float = Field(0.7, alias="MAGNIFIC_REFERENCE_STRENGTH")
+    magnific_upscale_default: bool = Field(False, alias="MAGNIFIC_UPSCALE_DEFAULT")
+
     azure_speech_female_voice: str = Field("hi-IN-SwaraNeural", alias="AZURE_SPEECH_FEMALE_VOICE")
     azure_speech_male_voice: str = Field("hi-IN-MadhurNeural", alias="AZURE_SPEECH_MALE_VOICE")
     elevenlabs_api_key: SecretStr | None = Field(None, alias="ELEVENLABS_API_KEY")
@@ -440,6 +452,12 @@ class Settings(BaseSettings):
     @property
     def youcom_configured(self) -> bool:
         return bool(self.youcom_api_key and self.youcom_api_key.get_secret_value())
+
+    @property
+    def magnific_configured(self) -> bool:
+        primary = self.magnific_api_key and self.magnific_api_key.get_secret_value().strip()
+        fallback = self.freepik_api_key and self.freepik_api_key.get_secret_value().strip()
+        return bool(primary or fallback)
 
     @property
     def cx_gateway_configured(self) -> bool:

@@ -24,7 +24,7 @@ describe("SidebarPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create an image/i }));
     expect(openImageStudio).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: /Research with sources/i }));
-    expect(prompt).toHaveBeenCalledWith("Research this with clear sources and practical next steps: ");
+    expect(prompt).toHaveBeenCalledWith("Deep research: ");
   });
 
   it("starts a real new chat from the conversation section", () => {

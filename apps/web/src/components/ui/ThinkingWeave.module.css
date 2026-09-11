@@ -1,0 +1,34 @@
+/* ThinkingWeave.module.css — the gyre that turns while Hinaa thinks */
+
+.weave {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: fit-content;
+  padding: 11px 16px 11px 12px;
+  border: 1px solid rgba(255, 214, 228, 0.14);
+  border-radius: 8px 20px 20px 20px;
+  background:
+    linear-gradient(150deg, rgba(50, 32, 50, 0.85), rgba(29, 18, 31, 0.9)) padding-box,
+    linear-gradient(140deg, rgba(255, 206, 222, 0.26), rgba(177, 140, 255, 0.12) 55%, transparent) border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 14px 34px rgba(4, 2, 6, 0.34);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+
+.gyre {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 10px rgba(238, 145, 173, 0.28));
+}
+
+.label {
+  color: #ecd7e0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .weave { padding: 9px 13px 9px 10px; gap: 10px; }
+  .label { font-size: 0.72rem; }
+}
