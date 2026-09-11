@@ -136,9 +136,8 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                 system=system,
                 messages=messages
             ) as stream:
-                async for event in stream:
-                    if event.type == "text_delta":
-                        yield event.text
+                async for text in stream.text_stream:
+                    yield text
         except Exception as e:
             raise self._map_anthropic_error(e)
 
@@ -190,6 +189,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         emitted_length = 0
 
         try:
+            is_prose_stream = False
             timing.mark("provider_client_ready")
             async for delta in self._stream_text(prompt):
                 provider_events += 1
@@ -198,35 +198,66 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                 chunks.append(delta)
                 current_text = "".join(chunks)
 
-                # Dynamically extract and stream the displayText value
-                if not in_display:
-                    match = re.search(r'"displayText"\s*:\s*"', current_text)
-                    if match:
+                # Detect if the model is replying in direct natural prose instead of JSON
+                stripped = current_text.lstrip()
+                if not is_prose_stream and len(stripped) >= 1:
+                    if not stripped.startswith(("{", "```json", "```")):
+                        is_prose_stream = True
+
+                if is_prose_stream:
+                    if not in_display:
                         in_display = True
                         timing.mark("first_text_delta")
-                if in_display:
-                    match = re.search(r'"displayText"\s*:\s*"', current_text)
-                    if match:
-                        raw_val = current_text[match.end():]
-                        end_match = re.search(r'(?<!\\)(?:\\\\)*"', raw_val)
-                        if end_match:
-                            raw_val = raw_val[:end_match.end() - 1]
+                    await emit_delta(delta)
+                    emitted_length += len(delta)
+                else:
+                    # Dynamically extract and stream the displayText value from JSON
+                    if not in_display:
+                        match = re.search(r'"displayText"\s*:\s*"', current_text)
+                        if match:
+                            in_display = True
+                            timing.mark("first_text_delta")
+                    if in_display:
+                        match = re.search(r'"displayText"\s*:\s*"', current_text)
+                        if match:
+                            raw_val = current_text[match.end():]
+                            end_match = re.search(r'(?<!\\)(?:\\\\)*"', raw_val)
+                            if end_match:
+                                raw_val = raw_val[:end_match.end() - 1]
 
-                        clean_val = raw_val.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\')
-                        new_chars = clean_val[emitted_length:]
-                        if new_chars:
-                            await emit_delta(new_chars)
-                            emitted_length += len(new_chars)
+                            clean_val = raw_val.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\')
+                            new_chars = clean_val[emitted_length:]
+                            if new_chars:
+                                await emit_delta(new_chars)
+                                emitted_length += len(new_chars)
 
             timing.mark("text_complete")
             answer = "".join(chunks).strip()
             
             from hinaa_api.prompts.fallback import validate_or_none, neutral_fallback_plan
             plan = validate_or_none(answer)
+            if plan is None and answer:
+                # Claude answered in natural conversational prose or non-standard shape.
+                # Recover the prose itself into an AssistantTurnPlan so Claude's real answer
+                # is delivered to the user and spoken aloud by TTS!
+                from hinaa_api.providers.openai_llm import _custom_text_from_raw
+                from hinaa_api.prompts.performance import build_plan_from_text
+                fallback_text = _custom_text_from_raw(answer)
+                if fallback_text:
+                    logger.info("Recovered conversational prose plan from Claude answer: %s", fallback_text[:100])
+                    plan = build_plan_from_text(
+                        text=fallback_text,
+                        companion_id=companion_id,
+                        language=language,
+                        depth=getattr(prompt, "response_depth", "conversational"),
+                    )
             if plan is None:
+                logger.warning("Claude live answer failed validation. Raw answer was: %r", answer)
                 repaired = await self._repair_json(answer)
+                logger.warning("Claude live repair result was: %r", repaired)
                 plan = validate_or_none(repaired)
             if plan is None:
+                logger.error("Claude live repair also failed validation. Engaging neutral fallback.")
                 plan = neutral_fallback_plan(
                     user_text=text, companion_id=companion_id, language=language
                 )

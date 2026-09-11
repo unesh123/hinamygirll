@@ -214,7 +214,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   color: var(--text-primary);
-  background: var(--bg-canvas, #fbfafc);
+  background: transparent;
 }
 
 /* ── 4. MAIN LAYOUT: Nav | Avatar (left) + Chat (right) ─ */

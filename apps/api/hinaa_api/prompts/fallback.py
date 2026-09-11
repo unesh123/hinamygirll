@@ -127,22 +127,58 @@ def normalize_gateway_turn_payload(payload: object) -> object:
     if isinstance(language, str):
         normalized["language"] = _LANGUAGE_ALIASES.get(language.strip().lower(), language)
     emotion = normalized.get("emotion")
+    valid_emotions = {"neutral", "happy", "excited", "playful", "shy", "concerned", "sad", "surprised", "thinking"}
+    emotion_aliases = {
+        "calm": "neutral",
+        "smile": "happy",
+        "smiling": "happy",
+        "joy": "happy",
+        "love": "playful",
+        "flirty": "playful",
+        "worried": "concerned",
+        "curious": "thinking",
+    }
     if isinstance(emotion, dict):
-        normalized_emotion = dict(emotion)
-        primary = normalized_emotion.get("primary")
-        defaults = _EMOTION_DEFAULTS.get(primary) if isinstance(primary, str) else (0.0, 0.0)
-        if defaults is None:
-            defaults = (0.0, 0.0)
-        normalized_emotion.setdefault("valence", defaults[0])
-        normalized_emotion.setdefault("arousal", defaults[1])
-        if had_laughter and primary in ("neutral", "calm", None):
-            normalized_emotion["primary"] = "happy"
-            normalized_emotion["intensity"] = max(float(normalized_emotion.get("intensity") or 0.5), 0.75)
-            normalized_emotion["valence"] = 0.8
-            normalized_emotion["arousal"] = 0.6
-        normalized["emotion"] = normalized_emotion
-    elif had_laughter:
-        normalized["emotion"] = {"primary": "happy", "intensity": 0.8, "valence": 0.8, "arousal": 0.6}
+        raw_primary = str(emotion.get("primary", "neutral")).strip().lower()
+        primary = emotion_aliases.get(raw_primary, raw_primary)
+        if primary not in valid_emotions:
+            primary = "happy" if had_laughter else "neutral"
+        defaults = _EMOTION_DEFAULTS.get(primary, (0.0, 0.0))
+        raw_intensity = emotion.get("intensity")
+        try:
+            intensity = max(0.0, min(1.0, float(raw_intensity))) if raw_intensity is not None else 0.6
+        except (TypeError, ValueError):
+            intensity = 0.6
+        raw_valence = emotion.get("valence")
+        try:
+            valence = max(-1.0, min(1.0, float(raw_valence))) if raw_valence is not None else defaults[0]
+        except (TypeError, ValueError):
+            valence = defaults[0]
+        raw_arousal = emotion.get("arousal")
+        try:
+            arousal = max(-1.0, min(1.0, float(raw_arousal))) if raw_arousal is not None else defaults[1]
+        except (TypeError, ValueError):
+            arousal = defaults[1]
+        if had_laughter:
+            primary = "happy"
+            intensity = max(intensity, 0.75)
+            valence = 0.8
+            arousal = 0.6
+        normalized["emotion"] = {
+            "primary": primary,
+            "intensity": intensity,
+            "valence": valence,
+            "arousal": arousal,
+        }
+    else:
+        primary = "happy" if had_laughter else "neutral"
+        defaults = _EMOTION_DEFAULTS.get(primary, (0.0, 0.0))
+        normalized["emotion"] = {
+            "primary": primary,
+            "intensity": 0.75 if had_laughter else 0.5,
+            "valence": 0.8 if had_laughter else defaults[0],
+            "arousal": 0.6 if had_laughter else defaults[1],
+        }
 
     # Sanitize performance metadata to strictly allowed keys and values
     perf = normalized.get("performance")
@@ -167,6 +203,14 @@ def normalize_gateway_turn_payload(payload: object) -> object:
         else:
             cleaned_perf["blinkRate"] = 0.3
         normalized["performance"] = cleaned_perf
+    else:
+        normalized["performance"] = {
+            "facePreset": "soft_smile",
+            "gesture": "none",
+            "gazeTarget": "camera",
+            "headMotion": "subtle",
+            "blinkRate": 0.3,
+        }
 
     # Sanitize and conform memory candidates
     mems = normalized.get("memoryCandidates")

@@ -95,9 +95,18 @@ export function ModelControlBar({
   }, [activeDropdown]);
 
   function formatModelLabel(id: string): string {
-    if (id.includes("haiku")) return "Claude 3.5 Haiku";
-    if (id.includes("sonnet")) return "Claude 3.7 Sonnet";
-    if (id.includes("opus")) return "Claude 3.7 Opus";
+    // Claude models — specific first, generic fallback
+    if (id === "claude-opus-5") return "Claude Opus 5";
+    if (id === "claude-sonnet-5") return "Claude Sonnet 5";
+    if (id === "claude-opus-4-8") return "Claude Opus 4.8";
+    if (id === "claude-opus-4-7") return "Claude Opus 4.7";
+    if (id === "claude-opus-4-6") return "Claude Opus 4.6";
+    if (id === "claude-sonnet-4-6") return "Claude Sonnet 4.6";
+    if (id.includes("haiku")) return "Claude Haiku";
+    if (id.includes("sonnet-5")) return "Claude Sonnet 5";
+    if (id.includes("opus-5")) return "Claude Opus 5";
+    if (id.includes("sonnet")) return "Claude Sonnet";
+    if (id.includes("opus")) return "Claude Opus";
     if (id.includes("gemini-3.5-flash-lite")) return "Gemini 3.5 Flash Lite";
     if (id.includes("gemini-3.1-flash-lite")) return "Gemini 3.1 Flash Lite";
     if (id.includes("gemini-3.6")) return "Gemini 3.6 Flash";
