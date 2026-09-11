@@ -1,20 +1,22 @@
 """Magnific / Freepik FLUX image generation & creative fabric provider.
 
 Unifies HINAA's cloud image brain:
-- High-level FLUX text-to-image generation via Magnific/Freepik
-- Micro-texture upscaling & relighting
-- Reference-guided generation
-- Stock image search
-- Asset resolver & store integration
-- Local ComfyUI fallback compatibility
+- High-level FLUX text-to-image generation via Magnific (docs.magnific.com) and Freepik APIs
+- Task-based asynchronous polling and synchronous fallback extraction
+- Creative upscaling & relighting
+- Reference-guided generation (flux-kontext-pro / image-to-image)
+- Stock image search & asset resolver integration
+- Typed MagnificError and MagnificProviderError handling
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 from dataclasses import dataclass, field
 import logging
+from pathlib import Path
 import re
 from typing import Any, Optional
 import uuid
@@ -41,38 +43,56 @@ class MagnificProviderError(HinaaError):
         super().__init__(code=code, message=message, status_code=status_code)
 
 
-DATA_URL_RE = re.compile(r"^data:(image/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=]+)$")
+DATA_URL_RE = re.compile(r"^data:(image/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=]+)$", re.I)
+
+_ASPECT_RATIOS: list[tuple[float, str]] = [
+    (1.0, "square_1_1"),
+    (4 / 3, "classic_4_3"),
+    (3 / 4, "traditional_3_4"),
+    (16 / 9, "widescreen_16_9"),
+    (9 / 16, "social_story_9_16"),
+    (3 / 2, "standard_3_2"),
+]
 
 
-@dataclass
-class MagnificImageResult:
-    image_urls: list[str] = field(default_factory=list)
-    provider: str = "magnific"
-    seed: int | None = None
-    raw: dict[str, Any] = field(default_factory=dict)
+def _aspect_for(width: int, height: int) -> str:
+    wanted = (width or 1) / (height or 1)
+    return min(_ASPECT_RATIOS, key=lambda pair: abs(pair[0] - wanted))[1]
+
+
+def _vendor_seed(seed: int | None) -> int | None:
+    """Magnific seeds are 1..4,294,967,295 - clamp any Comfy-style value."""
+    if seed is None:
+        return None
+    value = abs(int(seed)) % 4_294_967_295
+    return value or 1
 
 
 def _extract_urls(payload: Any) -> list[str]:
-    """Collect image URLs from the shapes these APIs are known to return."""
+    """Collect image URLs from the shapes these APIs return."""
     found: list[str] = []
 
-    def visit(node: Any) -> None:
+    def visit(node: Any, key_hint: str = "") -> None:
         if isinstance(node, dict):
             for key, value in node.items():
-                if isinstance(value, str):
-                    if key == "base64" and not value.startswith("data:"):
-                        mime = "image/png" if value.startswith("iVBORw0KGgo") else "image/jpeg"
-                        found.append(f"data:{mime};base64,{value}")
-                    elif value.startswith(("http://", "https://", "data:image")):
-                        if re.search(r"\.(png|jpe?g|webp)(\?|$)", value, re.I) or value.startswith("data:image") or key in {
-                            "url", "image", "image_url", "output", "output_url", "result", "image_link", "signed_url",
-                        }:
-                            found.append(value)
+                if key == "base64" and isinstance(value, str) and not value.startswith("data:"):
+                    mime = "image/png" if value.startswith("iVBORw0KGgo") else "image/jpeg"
+                    found.append(f"data:{mime};base64,{value}")
                 else:
-                    visit(value)
+                    visit(value, key)
         elif isinstance(node, list):
             for item in node:
-                visit(item)
+                visit(item, key_hint)
+        elif isinstance(node, str):
+            looks_like_image = node.startswith("data:image") or (
+                node.startswith(("http://", "https://"))
+                and (bool(re.search(r"\\.(png|jpe?g|webp)(\\?|$)", node, re.I)) or key_hint in {
+                    "url", "image", "image_url", "output", "output_url", "result",
+                    "image_link", "signed_url", "generated",
+                })
+            )
+            if looks_like_image:
+                found.append(node)
 
     visit(payload)
     seen: set[str] = set()
@@ -82,6 +102,15 @@ def _extract_urls(payload: Any) -> list[str]:
             seen.add(url)
             unique.append(url)
     return unique
+
+
+@dataclass
+class MagnificImageResult:
+    image_urls: list[str] = field(default_factory=list)
+    provider: str = "magnific"
+    task_id: str | None = None
+    seed: int | None = None
+    raw: dict[str, Any] = field(default_factory=dict)
 
 
 class MagnificProvider:
@@ -128,6 +157,7 @@ class MagnificProvider:
     def _headers(self) -> dict[str, str]:
         key = self.api_key or ""
         return {
+            "x-magnific-api-key": key,
             "x-freepik-api-key": key,
             "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -144,15 +174,15 @@ class MagnificProvider:
         return self._headers()
 
     def _timeout(self) -> httpx.Timeout:
-        seconds = float(getattr(self.settings, "magnific_timeout_seconds", 120) or 120)
+        seconds = float(getattr(self.settings, "magnific_timeout_seconds", 240) or 240)
         return httpx.Timeout(seconds, connect=15.0)
 
     def _base_url(self) -> str:
         if getattr(self.settings, "magnific_base_url", None):
             return self.settings.magnific_base_url.rstrip("/")
         if self.settings.magnific_api_key:
-            return "https://api.magnific.com/v1"
-        return "https://api.freepik.com/v1"
+            return "https://api.magnific.com"
+        return "https://api.freepik.com"
 
     async def health_check(self) -> bool:
         if not self.is_configured:
@@ -183,67 +213,114 @@ class MagnificProvider:
         if key is None:
             raise MagnificError("MAGNIFIC_NOT_CONFIGURED", "No Magnific/Freepik API key is configured.")
 
-        base = self.settings.magnific_base_url.rstrip("/") if getattr(self.settings, "magnific_base_url", None) else "https://api.freepik.com"
-        fast_model = getattr(self.settings, "magnific_model_fast", "flux-schnell")
-        quality_model = getattr(self.settings, "magnific_model_quality", "flux-dev")
-        flux_model = model or (fast_model if width <= 768 else quality_model)
+        final_prompt = prompt.strip()
+        if negative_prompt.strip():
+            final_prompt = f"{final_prompt}. Avoid: {negative_prompt.strip().rstrip('.')}."
 
+        base = self._base_url()
+        reference = reference_image_url or reference_image_b64 or ""
+
+        # Check if targeting Freepik direct synchronous text-to-image
         if "freepik.com" in base:
             path = "/v1/ai/text-to-image"
-            ratio_str = "square_1_1"
-            if width > height:
-                ratio_str = "landscape_4_3"
-            elif height > width:
-                ratio_str = "portrait_4_3"
+            aspect = _aspect_for(width, height)
             payload: dict[str, Any] = {
-                "prompt": prompt,
+                "prompt": final_prompt,
                 "negative_prompt": negative_prompt,
                 "num_images": 1,
-                "image": {"size": ratio_str},
+                "image": {"size": aspect},
             }
-            if seed is not None:
-                payload["seed"] = int(seed)
+            clamped_seed = _vendor_seed(seed)
+            if clamped_seed is not None:
+                payload["seed"] = clamped_seed
+
+            flux_model = model or getattr(self.settings, "magnific_model_quality", "flux-dev")
+            provider_name = f"freepik:{flux_model}"
+
+            async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=True) as client:
+                response = await self._post(client, f"{base}{path}", payload)
+                body = self._json(response)
+                urls = _extract_urls(body)
+                if not urls:
+                    raise MagnificError(
+                        "MAGNIFIC_NO_OUTPUT",
+                        "Freepik accepted the job but returned no image URL.",
+                        retryable=True,
+                    )
+                return MagnificImageResult(image_urls=urls, provider=provider_name, seed=seed, raw=body)
+
+        # Magnific contract (docs.magnific.com)
+        if reference:
+            path = getattr(self.settings, "magnific_reference_path", "/v1/ai/text-to-image/flux-kontext-pro")
+            payload = {
+                "prompt": final_prompt,
+                "input_image": reference,
+                "aspect_ratio": _aspect_for(width, height),
+                "guidance": max(1.0, min(10.0, guidance_scale + 1.0)),
+                "steps": 50,
+                "prompt_upsampling": False,
+            }
+            provider_name = "magnific:flux-kontext-pro"
         else:
+            flux_model = model or getattr(self.settings, "magnific_model_quality", "flux-dev")
             t2i_template = getattr(self.settings, "magnific_t2i_path", "/v1/ai/text-to-image/{model}")
             path = t2i_template.format(model=flux_model) if "{model}" in t2i_template else t2i_template
             payload = {
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "num_images": 1,
-                "guidance_scale": guidance_scale,
-                "image": {"size": f"{width}x{height}", "width": width, "height": height},
+                "prompt": final_prompt,
+                "aspect_ratio": _aspect_for(width, height),
             }
-            if seed is not None:
-                payload["seed"] = int(seed)
-            ref_strength = float(getattr(self.settings, "magnific_reference_strength", 0.6) or 0.6)
-            if reference_image_url:
-                payload["reference_image_url"] = reference_image_url
-                payload["reference_strength"] = ref_strength
-            elif reference_image_b64:
-                payload["reference_image_base64"] = reference_image_b64
-                payload["reference_strength"] = ref_strength
+            provider_name = f"magnific:{flux_model}"
 
-        async with httpx.AsyncClient(timeout=self._timeout()) as client:
-            response = await self._post(client, f"{base}{path}", payload, key)
+        clamped_seed = _vendor_seed(seed)
+        if clamped_seed is not None:
+            payload["seed"] = clamped_seed
+
+        async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=True) as client:
+            response = await self._post(client, f"{base}{path}", payload)
             body = self._json(response)
-            urls = _extract_urls(body)
+            task_id = str((body.get("data") or {}).get("task_id") or body.get("task_id") or "")
+            if not task_id:
+                urls = _extract_urls(body)
+                if not urls:
+                    raise MagnificError(
+                        "MAGNIFIC_NO_TASK",
+                        "Magnific accepted the request but returned neither a task nor an image.",
+                        retryable=True,
+                    )
+                return MagnificImageResult(image_urls=urls, provider=provider_name, seed=seed, raw=body)
+
+            detail = await self._await_task(client, base, path, task_id, final_prompt)
+            urls = _extract_urls(detail)
             if not urls:
                 raise MagnificError(
                     "MAGNIFIC_NO_OUTPUT",
-                    "Magnific/Freepik accepted the job but returned no image URL.",
+                    "Magnific completed the task but returned no image URL.",
                     retryable=True,
                 )
-            return MagnificImageResult(image_urls=urls, provider=f"freepik:{flux_model}", seed=seed, raw=body)
+            return MagnificImageResult(image_urls=urls, provider=provider_name, task_id=task_id, seed=seed, raw=detail)
 
-    async def download(self, url: str) -> bytes:
-        """Download image bytes from http(s) URL or decode data URL."""
-        if url.startswith("data:"):
-            header, _, b64_data = url.partition(",")
-            return base64.b64decode(b64_data.strip())
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            return resp.content
+    async def download(self, url_or_data: str, *, max_bytes: int = 32 * 1024 * 1024) -> bytes:
+        data_match = DATA_URL_RE.match(url_or_data)
+        if data_match:
+            try:
+                raw = base64.b64decode(data_match.group(2), validate=False)
+            except (binascii.Error, ValueError) as error:
+                raise MagnificError("MAGNIFIC_BAD_DATA_URL", "Could not decode the returned data URL.") from error
+            if len(raw) > max_bytes:
+                raise MagnificError("MAGNIFIC_IMAGE_TOO_LARGE", "The returned image exceeds the size limit.")
+            return raw
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            response = await client.get(url_or_data)
+            if response.status_code >= 400:
+                raise MagnificError(
+                    "MAGNIFIC_DOWNLOAD_FAILED",
+                    f"Could not download the generated image (HTTP {response.status_code}).",
+                    retryable=True,
+                )
+            body = response.content
+            if len(body) > max_bytes:
+                raise MagnificError("MAGNIFIC_IMAGE_TOO_LARGE", "The returned image exceeds the size limit.")
+            return body
 
     # ── Upscale (Unified for URL strings and MediaResult) ─────────────────
     async def upscale(
@@ -258,6 +335,7 @@ class MagnificProvider:
         relight: float = 0.2,
         flavor: str = "photo",
         prompt: str | None = None,
+        optimized_for: str = "standard",
     ) -> Any:
         # If image_ref is passed from image_fabric, return a MediaResult
         if image_ref is not None:
@@ -315,27 +393,39 @@ class MagnificProvider:
                     credits_used=result_json.get("costCredits", 10),
                 )
 
-        # Arena URL string upscale
         target_url = image_url or ""
-        key = self.api_key
-        if key is None:
+        if self.api_key is None:
             raise MagnificError("MAGNIFIC_NOT_CONFIGURED", "No Magnific/Freepik API key is configured.")
-        base = getattr(self.settings, "magnific_base_url", "https://api.freepik.com").rstrip("/")
-        upscale_path = getattr(self.settings, "magnific_upscale_path", "/v1/ai/upscale")
+
+        blob = await self.download(target_url)
+        scale_factor = "4x" if scale >= 3.5 else "2x"
         payload = {
-            "image_url": target_url,
-            "scale": scale,
-            "creativity": creativity,
-            "hdr": hdr,
-            "relight": relight,
-            "output_format": "png",
+            "image": base64.b64encode(blob).decode("ascii"),
+            "scale_factor": scale_factor,
+            "optimized_for": optimized_for,
+            "creativity": max(-10, min(10, round(creativity * 10))),
+            "hdr": 1,
+            "resemblance": 0,
+            "fractality": 0,
         }
-        async with httpx.AsyncClient(timeout=self._timeout()) as client:
-            response = await self._post(client, f"{base}{upscale_path}", payload, key)
+        if prompt and prompt.strip():
+            payload["prompt"] = prompt.strip()
+
+        base = self._base_url()
+        path = getattr(self.settings, "magnific_upscale_path", "/v1/ai/image-upscaler")
+        async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=True) as client:
+            response = await self._post(client, f"{base}{path}", payload)
             body = self._json(response)
+            task_id = str((body.get("data") or {}).get("task_id") or body.get("task_id") or "")
             urls = _extract_urls(body)
+            if not urls and not task_id:
+                raise MagnificError("MAGNIFIC_UPSCALE_NO_OUTPUT", "Magnific upscale returned no task or image.", retryable=True)
+            if urls:
+                return urls[0]
+            detail = await self._await_task(client, base, path, task_id, prompt or "")
+            urls = _extract_urls(detail)
             if not urls:
-                raise MagnificError("MAGNIFIC_UPSCALE_NO_OUTPUT", "Magnific upscale returned no image URL.", retryable=True)
+                raise MagnificError("MAGNIFIC_UPSCALE_NO_OUTPUT", "Magnific upscale completed with no image URL.", retryable=True)
             return urls[0]
 
     # ── Stock Search (Creative Fabric) ───────────────────────────────────
@@ -622,46 +712,68 @@ class MagnificProvider:
                 credits_used=result_json.get("costCredits", 8),
             )
 
-    # ── Download ─────────────────────────────────────────────────────────
-    async def download(self, url_or_data: str, *, max_bytes: int = 32 * 1024 * 1024) -> bytes:
-        data_match = DATA_URL_RE.match(url_or_data)
-        if data_match:
-            try:
-                raw = base64.b64decode(data_match.group(2), validate=False)
-            except (binascii.Error, ValueError) as error:
-                raise MagnificError("MAGNIFIC_BAD_DATA_URL", "Could not decode the returned data URL.") from error
-            if len(raw) > max_bytes:
-                raise MagnificError("MAGNIFIC_IMAGE_TOO_LARGE", "The returned image exceeds the size limit.")
-            return raw
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            response = await client.get(url_or_data)
-            if response.status_code >= 400:
-                raise MagnificError(
-                    "MAGNIFIC_DOWNLOAD_FAILED",
-                    f"Could not download the generated image (HTTP {response.status_code}).",
-                    retryable=True,
-                )
-            body = response.content
-            if len(body) > max_bytes:
-                raise MagnificError("MAGNIFIC_IMAGE_TOO_LARGE", "The returned image exceeds the size limit.")
-            return body
+    # ── Task Polling Internals ───────────────────────────────────────────
+    async def _await_task(
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        submit_path: str,
+        task_id: str,
+        prompt: str,
+    ) -> dict[str, Any]:
+        deadline = float(getattr(self.settings, "magnific_timeout_seconds", 240) or 240)
+        poll_interval = float(getattr(self.settings, "magnific_poll_seconds", 2.0) or 2.0)
+        waited = 0.0
+        last: dict[str, Any] = {}
+        while waited < deadline:
+            response = await self._get(client, f"{base}{submit_path}/{task_id}")
+            body = self._json(response)
+            data = body.get("data") if isinstance(body.get("data"), dict) else body
+            last = data if isinstance(data, dict) else {}
+            status = str(last.get("status") or "").upper()
+            if status == "COMPLETED" or _extract_urls(last):
+                return last
+            if status == "FAILED":
+                reason = str(last.get("message") or last.get("error") or "the task failed without a reason")
+                raise MagnificError("MAGNIFIC_TASK_FAILED", f"Magnific could not render the image: {reason[:240]}")
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+        raise MagnificError(
+            "MAGNIFIC_TIMEOUT",
+            f"Magnific is still working on the task after {int(deadline)}s"
+            + (f" — re-use seed for the same result if it lands later." if prompt else "."),
+            retryable=True,
+        )
 
-    # ── HTTP Internals ───────────────────────────────────────────────────
-    async def _post(self, client: httpx.AsyncClient, url: str, payload: dict[str, Any], key: str) -> httpx.Response:
+    async def _post(self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> httpx.Response:
+        return await self._send(client, "POST", url, payload)
+
+    async def _get(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
+        return await self._send(client, "GET", url, None)
+
+    async def _send(self, client: httpx.AsyncClient, method: str, url: str, payload: dict[str, Any] | None) -> httpx.Response:
         try:
-            response = await client.post(url, json=payload, headers=self._headers())
+            if payload is None:
+                response = await client.request(method, url, headers=self._headers())
+            else:
+                response = await client.request(method, url, json=payload, headers=self._headers())
         except httpx.TimeoutException as error:
             raise MagnificError("MAGNIFIC_TIMEOUT", "Magnific did not respond in time.", retryable=True) from error
         except httpx.HTTPError as error:
             raise MagnificError("MAGNIFIC_UNREACHABLE", "Magnific could not be reached.", retryable=True) from error
         if response.status_code in (401, 403):
-            raise MagnificError("MAGNIFIC_KEY_INVALID", "The Magnific/Freepik API key was rejected.")
+            raise MagnificError(
+                "MAGNIFIC_KEY_INVALID",
+                "Magnific rejected the API key. Copy a fresh key from your Freepik/Magnific "
+                "developer dashboard into MAGNIFIC_API_KEY.",
+            )
         if response.status_code == 429:
             raise MagnificError("MAGNIFIC_RATE_LIMIT", "Magnific is rate limiting this key.", retryable=True)
         if response.status_code >= 400:
             detail = ""
             try:
-                detail = str(response.json().get("detail") or response.json().get("message") or "")[:300]
+                error_body = response.json()
+                detail = str(error_body.get("message") or error_body.get("detail") or "")[:300]
             except Exception:
                 detail = response.text[:200]
             raise MagnificError(

@@ -143,6 +143,36 @@ async def search_web(params: dict[str, Any]) -> dict[str, Any]:
         return _provider_error(error, query=query)
 
 
+_IMAGE_QUERY_COMMAND = re.compile(
+    r"^\s*(?:(?:hey|hinaa|please|kindly|can|could|will|would|u|you)\b[ ,]*)*"
+    r"(?:fetch|find|search(?:\s+for)?|look(?:\s+up|\s+for)?|show|display|get|give|pull\s+up|grab)\b[ ,]*"
+    r"(?:me\b[ ,]*)?"
+    r"(?:(?:some|any|an?|the|public)\b[ ,]*)*"
+    r"(?:images?\b|pictures?\b|photos?\b|pics?\b)?[ ,]*"
+    r"(?:of\b|for\b|about\b)?[ ,]*",
+    re.IGNORECASE,
+)
+_IMAGE_QUERY_TAIL = re.compile(
+    r"(?:\s+(?:images?|pictures?|photos?|pics?)\b)+(?:\s+(?:for\s+me|online|here|now|please))?\s*[.?!]*\s*$"
+    r"|\s+(?:in|at)\s+(?:the\s+)?(?:hd|uhd|4k|8k|high[-\s]quality|ultra[-\s]hd)\b"
+    r"|\s+(?:for\s+me|online|please)\s*[.?!]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def clean_image_query(query: str) -> str:
+    """Strip command noise so the vendor query is the subject itself.
+
+    'fetch me some images of Mikasa Ackerman in HD' → 'Mikasa Ackerman'.
+    Relevance engines reward precise noun phrases; conversational filler was
+    measurably degrading results.
+    """
+    cleaned = _IMAGE_QUERY_COMMAND.sub("", query.strip(), count=1)
+    cleaned = _IMAGE_QUERY_TAIL.sub(" ", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" .,!?")
+    return cleaned or query.strip()
+
+
 async def search_wikimedia_images(query: str, count: int = 6) -> list[dict[str, Any]]:
     """Fetch public Creative Commons images via Wikimedia Commons API."""
     endpoint = "https://commons.wikimedia.org/w/api.php"
@@ -190,16 +220,7 @@ async def search_wikimedia_images(query: str, count: int = 6) -> list[dict[str, 
 
 def _clean_image_query(raw: str) -> tuple[str, bool]:
     is_pinterest = bool(re.search(r"\bpintre?s?t?\b", raw, re.I))
-    # Remove conversational chatter
-    cleaned = re.sub(
-        r"\b(hey|hinaa?|babe|can you|please|fetch|get|show me|find|search|give me|some|online|form|from|pictures?|photos?|images?|pintres\w*|pinterest)\b",
-        " ",
-        raw,
-        flags=re.I,
-    )
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if not cleaned:
-        cleaned = raw.strip()
+    cleaned = clean_image_query(raw)
     return cleaned, is_pinterest
 
 
@@ -279,7 +300,6 @@ async def search_multi_source_images(query: str, count: int = 8) -> dict[str, An
     except Exception as exc:
         logger.warning("Multi-source image search encountered error: %s", exc)
 
-    # Curated Pinterest boards matching ChatGPT's format
     boards: list[dict[str, str]] = []
     if is_pinterest or "anime" in cleaned_query.lower() or len(cleaned_query.split()) <= 3:
         topic = cleaned_query.title()
@@ -319,7 +339,8 @@ async def search_multi_source_images(query: str, count: int = 8) -> dict[str, An
 
 
 async def search_images(params: dict[str, Any]) -> dict[str, Any]:
-    query = str(params.get("query", "")).strip()
+    raw_query = str(params.get("query", "")).strip()
+    query = clean_image_query(raw_query) or raw_query
     try:
         count = int(params.get("count", 6) or 6)
     except (TypeError, ValueError):

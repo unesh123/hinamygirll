@@ -13,7 +13,7 @@ import {
   Search, Image, Sparkles, Globe, ExternalLink, Code, Music,
   Mail, Calendar, FileText, Brain, Bot, Wrench, Cpu, MessageSquare,
   LayoutDashboard, FileOutput, Presentation, Zap, BookOpen, Mic,
-  Settings, Monitor, GitBranch, Wand2, type LucideIcon,
+  Settings, Monitor, GitBranch, Wand2, Download, Microscope, ScrollText, type LucideIcon,
 } from "lucide-react";
 
 export type TriggerType = "@" | "/";
@@ -24,6 +24,8 @@ export interface PowerUp {
   icon: LucideIcon;
   label: string;
   shortcut: string;
+  /** Preferred insertion when the user opened the palette with "/" */
+  slash?: string;
   description: string;
   color: string;
   group: string;
@@ -196,15 +198,38 @@ const AVAILABILITY_COLORS: Record<string, string> = {
   verifying: "#0891b2",
 };
 
-interface PowerUpMentionsProps {
+export const POWER_UPS: PowerUp[] = [
+  { id: "@search", icon: Search, label: "Web Search", shortcut: "@search", description: "Search the web with sources", color: "#0891b2", group: "Knowledge", action: "search-web" },
+  { id: "@image", icon: Image, label: "Find Images", shortcut: "@image", description: "Search for images online", color: "#7c3aed", group: "Knowledge", action: "image-search" },
+  { id: "@generate", icon: Sparkles, label: "Generate Image", shortcut: "@generate", slash: "/generate", description: "Create AI artwork (Magnific FLUX)", color: "#d97706", group: "Create", action: "generate-image" },
+  { id: "@research", icon: Microscope, label: "Deep Research", shortcut: "@research", slash: "/research", description: "Parallel multi-source cited dossier", color: "#0ea5e9", group: "Knowledge", action: "deep-research" },
+  { id: "@report", icon: ScrollText, label: "Full Report", shortcut: "@report", slash: "/report", description: "Document-length structured answer", color: "#8b5cf6", group: "Create", action: "doc-mode" },
+  { id: "@browser", icon: Globe, label: "Open Browser", shortcut: "@browser", description: "Navigate to a website", color: "#059669", group: "Browse", action: "browser-navigate" },
+  { id: "@read", icon: ExternalLink, label: "Read Page", shortcut: "@read", description: "Extract and summarize page content", color: "#14b8a6", group: "Browse", action: "browser-read" },
+  { id: "@code", icon: Code, label: "Code Help", shortcut: "@code", description: "Write, explain, or debug code", color: "#dc2626", group: "Create", action: "write-code" },
+  { id: "@music", icon: Music, label: "Play Music", shortcut: "@music", description: "Find and play on YouTube", color: "#ef4444", group: "Media", action: "play-music" },
+  { id: "@email", icon: Mail, label: "Email", shortcut: "@email", description: "Check or send emails", color: "#3b82f6", group: "Connect", action: "check-email" },
+  { id: "@calendar", icon: Calendar, label: "Calendar", shortcut: "@calendar", description: "View your schedule", color: "#8b5cf6", group: "Connect", action: "show-calendar" },
+  { id: "@files", icon: FileText, label: "Files", shortcut: "@files", description: "Search and manage files", color: "#64748b", group: "Tools", action: "search-files" },
+  { id: "@memory", icon: Brain, label: "Memory", shortcut: "@memory", description: "Save or recall memories", color: "#ec4899", group: "Tools", action: "remember-this" },
+  { id: "@agent", icon: Bot, label: "Agent Mode", shortcut: "@agent", description: "Autonomous multi-step task", color: "#f97316", group: "Automate", action: "agent-mode" },
+  { id: "@automate", icon: Wrench, label: "Automation", shortcut: "@automate", description: "Chain tool pipelines", color: "#f59e0b", group: "Automate", action: "automation" },
+  { id: "@system", icon: Cpu, label: "System Tools", shortcut: "@system", description: "Open apps and system actions", color: "#6366f1", group: "Tools", action: "system-open" },
+  { id: "@export", icon: Download, label: "Export", shortcut: "@export", description: "Download or save results", color: "#84cc16", group: "Tools", action: "export" },
+];
+
+export interface PowerUpMentionsProps {
   visible: boolean;
   filter: string;
-  onSelectContext: (context: ContextItem) => void;
-  onSelectCommand: (command: CommandItem, args?: string) => void;
+  onSelectContext?: (context: ContextItem) => void;
+  onSelectCommand?: (command: CommandItem, args?: string) => void;
+  /** Which sigil opened the palette — slash mode prefers /-aliases. */
+  sigil?: "@" | "/";
+  onSelect?: (powerUp: PowerUp) => void;
   onClose: () => void;
-  trigger: TriggerType;
-  contexts: ContextItem[];
-  commands: CommandItem[];
+  trigger?: TriggerType;
+  contexts?: ContextItem[];
+  commands?: CommandItem[];
 }
 
 export function PowerUpMentions({
@@ -212,20 +237,51 @@ export function PowerUpMentions({
   filter,
   onSelectContext,
   onSelectCommand,
+  onSelect,
   onClose,
-  trigger,
-  contexts,
-  commands,
+  sigil,
+  trigger = sigil ?? "@",
+  contexts = [],
+  commands = [],
 }: PowerUpMentionsProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<"contexts" | "commands">(trigger === "@" ? "contexts" : "commands");
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const isLegacyMode = Boolean(onSelect);
 
   // Follow trigger changes: the palette stays mounted, so "@" must always
   // show contexts and "/" must always show commands.
   useEffect(() => {
     setActiveTab(trigger === "@" ? "contexts" : "commands");
   }, [trigger]);
+
+  const filteredLegacy = useMemo(() => {
+    const q = filter.toLowerCase().replace(/^[@/]/, "");
+    const matches = (p: PowerUp) =>
+      !q
+      || p.label.toLowerCase().includes(q)
+      || p.shortcut.toLowerCase().includes(q)
+      || (p.slash ?? "").toLowerCase().includes(q)
+      || p.description.toLowerCase().includes(q)
+      || p.group.toLowerCase().includes(q);
+    const list = POWER_UPS.filter(matches);
+    const currentSigil = sigil || (trigger === "/" ? "/" : "@");
+    if (currentSigil === "/" && q) {
+      // Slash users typed a verb — put exact slash-alias matches on top.
+      list.sort((a, b) => {
+        const at = a.slash?.toLowerCase().slice(1) === q ? 0 : a.slash?.toLowerCase().includes(q) ? 1 : 2;
+        const bt = b.slash?.toLowerCase().slice(1) === q ? 0 : b.slash?.toLowerCase().includes(q) ? 1 : 2;
+        return at - bt;
+      });
+    }
+    return list;
+  }, [filter, sigil, trigger]);
+
+  // Nothing matches in legacy mode → hide the palette so Enter behaves as "send" again.
+  useEffect(() => {
+    if (isLegacyMode && visible && filteredLegacy.length === 0) onClose();
+  }, [isLegacyMode, visible, filteredLegacy.length, onClose]);
 
   const filteredContexts = useMemo(() => {
     const q = filter.toLowerCase();
@@ -252,7 +308,7 @@ export function PowerUpMentions({
     );
   }, [filter, commands]);
 
-  const activeItems = activeTab === "contexts" ? filteredContexts : filteredCommands;
+  const activeItems = isLegacyMode ? (filteredLegacy as any as (ContextItem | CommandItem)[]) : (activeTab === "contexts" ? filteredContexts : filteredCommands);
 
   // Reset selection when filter or tab changes
   useEffect(() => { setSelectedIndex(0); }, [filter, activeTab]);
@@ -275,13 +331,21 @@ export function PowerUpMentions({
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setSelectedIndex((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter" && activeItems[selectedIndex]) {
+      } else if (e.key === "Enter") {
         e.preventDefault();
-        const item = activeItems[selectedIndex];
-        if (activeTab === "contexts") {
-          onSelectContext(item as ContextItem);
-        } else {
-          onSelectCommand(item as CommandItem);
+        if (isLegacyMode) {
+          if (filteredLegacy[selectedIndex]) {
+            onSelect?.(filteredLegacy[selectedIndex]);
+          }
+          return;
+        }
+        if (activeItems[selectedIndex]) {
+          const item = activeItems[selectedIndex];
+          if (activeTab === "contexts") {
+            onSelectContext?.(item as ContextItem);
+          } else {
+            onSelectCommand?.(item as CommandItem);
+          }
         }
       } else if (e.key === "Escape") {
         e.preventDefault();
@@ -301,13 +365,22 @@ export function PowerUpMentions({
     const container = containerRef.current;
     if (!container) return;
     const selected = container.querySelector("[data-selected='true']") as HTMLElement | null;
-    if (selected) {
+    if (selected && typeof selected.scrollIntoView === "function") {
       selected.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }, [selectedIndex]);
 
   // Group items
   const groups = useMemo(() => {
+    if (isLegacyMode) {
+      const map = new Map<string, (ContextItem | CommandItem)[]>();
+      for (const p of filteredLegacy) {
+        const list = map.get(p.group) || [];
+        list.push(p as any);
+        map.set(p.group, list);
+      }
+      return Array.from(map.entries());
+    }
     const map = new Map<string, (ContextItem | CommandItem)[]>();
     for (const item of activeItems) {
       const group = "group" in item && item.group ? item.group : ("name" in item ? (COMMAND_GROUPS[item.name] || "Commands") : (item.kind || "Context"));
@@ -316,7 +389,7 @@ export function PowerUpMentions({
       map.set(group, list);
     }
     return Array.from(map.entries());
-  }, [activeItems]);
+  }, [isLegacyMode, filteredLegacy, activeItems]);
 
   if (!visible) return null;
 
@@ -350,6 +423,7 @@ export function PowerUpMentions({
         }}
       >
         {/* Tab bar */}
+        {!isLegacyMode && (
         <div style={{ display: "flex", gap: 4, marginBottom: 8, padding: "0 4px" }}>
           <button
             type="button"
@@ -398,6 +472,7 @@ export function PowerUpMentions({
             <span>/ Commands ({commands.length})</span>
           </button>
         </div>
+        )}
 
         <div
           ref={containerRef}
@@ -432,6 +507,74 @@ export function PowerUpMentions({
                 const isContextItem = (item: ContextItem | CommandItem): item is ContextItem => 
                   "kind" in item && "sourceId" in item;
                 
+                if (isLegacyMode) {
+                  const powerUp = item as any as PowerUp;
+                  const Icon = powerUp.icon;
+                  return (
+                    <motion.button
+                      key={powerUp.id}
+                      type="button"
+                      data-selected={isSelected}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                      initial={{ opacity: 0, x: -4 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.02 }}
+                      onClick={() => onSelect?.(powerUp)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 10px",
+                        border: "none",
+                        borderRadius: 10,
+                        background: isSelected ? "rgba(238,145,173,.16)" : "transparent",
+                        cursor: "pointer",
+                        width: "100%",
+                        textAlign: "left",
+                        fontFamily: "inherit",
+                        transition: "background 0.12s ease",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 9,
+                          background: `${powerUp.color}16`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                          border: isSelected ? `1px solid ${powerUp.color}40` : "1px solid transparent",
+                        }}
+                      >
+                        <Icon size={15} color={powerUp.color} />
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "#fff4f8" }}>
+                          {powerUp.label}
+                        </div>
+                        <div style={{ fontSize: "0.67rem", color: "#c9aeba", marginTop: 1 }}>
+                          {powerUp.description}
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: "0.6rem",
+                          fontWeight: 700,
+                          color: isSelected ? "#ffd4e0" : "#c9aeba",
+                          background: isSelected ? `${powerUp.color}22` : "rgba(255,255,255,.055)",
+                          padding: "2px 8px",
+                          borderRadius: 6,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {powerUp.shortcut}
+                      </span>
+                    </motion.button>
+                  );
+                }
+
                 if (isContext && isContextItem(item)) {
                   const ctx = item;
                   const Icon = ctx.icon;
@@ -444,7 +587,7 @@ export function PowerUpMentions({
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      onClick={() => onSelectContext(ctx)}
+                      onClick={() => onSelectContext?.(ctx)}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -516,7 +659,7 @@ export function PowerUpMentions({
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      onClick={() => onSelectCommand(cmd)}
+                      onClick={() => onSelectCommand?.(cmd)}
                       style={{
                         display: "flex",
                         flexDirection: "column",

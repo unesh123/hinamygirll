@@ -1,0 +1,112 @@
+# 78 — HINAA Advancement Plan: Deep Thinking, Documents, and Autonomy
+
+Status: **Phase A shipped (this branch) · Phases B–D planned with acceptance gates**
+Date: 2026-09-11 · Owner: Arena AI continuation sessions
+Supersedes the vibe-plan received from the previous agent session; every item
+below is anchored to real files and verifiable commands.
+
+---
+
+## 0. Why this document exists
+
+The product ask, in one line: *HINAA should answer like a senior engineer
+writing a document, speak like a smart assistant (never re-reading the screen
+aloud), render images that match the exact subject, move her lips while she
+talks, and take commands the way power users type them (`/`).*
+
+Everything in **Phase A** is implemented and test-verified in this tree.
+Phases B–D are the sequenced path to the "autonomous workstation" tier, with
+honest effort estimates and hard acceptance gates — no 100%-guarantee
+language; anything not verifiable from this repo is marked as dependent on
+external keys/accounts.
+
+---
+
+## Phase A — Accuracy & polish (SHIPPED this branch)
+
+| ID | Deliverable | Where | Evidence |
+|----|-------------|-------|----------|
+| A1 | **Real Magnific FLUX API contract** (was a guessed sync endpoint — the root cause of "image generation not generating"). `api.magnific.com`, `x-magnific-api-key`, async task pattern: POST → `task_id` → poll `GET {path}/{task_id}` until `COMPLETED`/`FAILED`. `flux-dev` (quality), `flux-2-turbo` (fast), `flux-kontext-pro` for reference-guided (`input_image`), `/v1/ai/image-upscaler` creative upscale (base64 input, prompt-reuse trick, per-style `optimized_for` profiles). Negative prompts folded into the prompt (vendor has no negative field). Seeds clamped to the vendor's 1..4,294,967,295 window. | `apps/api/hinaa_api/providers/magnific.py`, `hinaa_api/tools/image_generate.py`, `hinaa_api/config.py` | Contract transcribed from docs.magnific.com OpenAPI (flux-dev, flux-kontext-pro, image-upscaler pages). py_compile + interface kept stable for `image_generate` batch/upscale/fallback flow. |
+| A2 | **Image pipeline self-diagnostic** — "not working" now says *why*: `GET /v1/image-studio/status` reports `{renderer, magnificConfigured, comfyAvailable, setup[]}`; the studio shows a green/amber/red strip with the exact `.env.local` lines to add. | `hinaa_api/main.py`, `components/ui/MagnificImageStudio.tsx` | Studio test updated to assert zero poll calls on a failed start. |
+| A3 | **"Exact image" relevance** — search queries are cleaned of command noise before hitting the vendor (`fetch me some images of X in HD` → `X`), and reference-image selection scores every candidate's title/alt/filename against the subject tokens instead of trusting popularity-rank #1 (the "I asked for Mikasa, got a bridge" bug). | `hinaa_api/tools/browser.py::clean_image_query`, `hinaa_api/tools/image_generate.py::reference_from_query_result` | 8/8 cleaner cases + relevance-assertion probes executed against extracted source. |
+| A4 | **Slash commands that actually work** — `/` opens the power-up palette (bare `/` lists, `/res` filters, selection inserts `/research `, completed prefix no longer hijacks Enter). ↑↓/Enter/Esc navigation verified; empty filter closes the palette so Enter returns to "send". Backend deterministic router turns `/research X`, `/image X`, `/generate …` into exact tool requests (style/ultra/count parsed from the subject line), while "can you /research" phrasing stays blocked. | `components/ui/PremiumComposer.tsx`, `PowerUpMentions.tsx(+test)`, `hinaa_api/services.py::_inject_deterministic_tool_intents` | 3 new vitest cases, 9-case regex table, live injection harness run on this tree. |
+| A5 | **Heavy, document-grade answers** — response modes now *enforce structure*: `professional`/`research`/`technical`/`academic` carry explicit section/table/citation/checklist requirements ("length must match the problem"), and `/report` or `/doc` forces professional mode deterministically. Research answers consume deep-research findings instead of guessing. | `hinaa_api/prompts/response_modes.py` (+ `infer_response_mode` slash awareness) | Prompt-layer only; behavioral ceiling is the 8,000-char `displayText` budget in `models.py`. |
+| A6 | **Smart voice, never an echo** — beyond the existing channel prompt, the quality guard now *deterministically distils*: when a model dumps a report into `spokenText` anyway (or echoes `displayText`), the voice line is rebuilt from the first plain sentences of the document + "full breakdown in chat". Long answers can no longer be read aloud verbatim. | `hinaa_api/services.py::_apply_response_quality_guard`, `_plain_first_sentences` | Harness: 900-char dump → <320-char distilled voice; short spoken line untouched; verbatim echo → complement line. |
+| A7 | **Lips that move** — viseme amplitude previously multiplied by analyser energy which the browser-speech path never produces (audio never enters our graph) → ~0.16 weights ≈ frozen face. Speaking now has a hard 0.48 floor and audio energy only *modulates* it. Plus a **jaw-bone fallback**: the smoothed mouth weights physically rotate `Jaw` every frame, so auto-rigged VRMs with broken `aa` blendshapes still articulate. | `components/ui/AvatarPresence.tsx` (Model frame loop) | Typecheck + suite green; visual confirmation requires a browser session (manual gate below). |
+| A8 | **Real PDF documents** — server-side renderer producing branded, paginated, multi-page PDFs from the *same markdown* the chat shows: section hierarchy, fpdf2 table API, shaded code blocks, blockquotes, numbered lists, link URLs preserved as `(url)`, page footers. Unicode-safe (embeds Nirmala/DejaVu when present, latin-1 sanitizes otherwise — never a crash). Endpoints: `POST /v1/documents/pdf` (any answer/dossier) and `?format=pdf` on project artifact export. Frontend: PDF action on long answers and on research cards (fixes "PDF incomplete / can't download"). | `hinaa_api/documents/pdf.py`, `hinaa_api/main.py`, `features/documents/exportPdf.ts`, `MessageBubble.tsx`, `GenericResultRenderer.tsx` | Renderer probed end-to-end: unicode font path, multi-page long document, fallback-without-fonts path, filename slugs. `fpdf2>=2.8.3` added to requirements. |
+
+**Phase A manual gate (needs your machine, keys, and a browser — this is the
+honest limit of sandbox verification):**
+1. Add `MAGNIFIC_API_KEY=…` to `apps/api/.env.local` (see `.env.example`), restart the API.
+2. Open the studio → strip must read "Magnific FLUX online".
+3. Chat: `/image Mikasa Ackerman on the wall at sunset, anime style` → approve → job polls → image lands (upscaler runs on ultra only).
+4. `/research transformer architecture` → approve → dossier card with per-source tree → "Download PDF" saves a multi-page branded document.
+5. Ask anything deep ("give me a full report on X") → structured multi-section answer; **voice speaks one short line, not the report**.
+6. Talk mode: lips visibly move on both cloud TTS and the browser-voice fallback.
+
+---
+
+## Phase B — Genuine reasoning stream (the "ThinkingWeave gets fed for real" phase)
+
+Today `ThinkingWeave` narrates *phases*, and the SSE protocol emits a single
+`thinking` event per turn. This phase streams the model's actual chain-of-thought.
+
+1. **Provider extraction** (`hinaa_api/providers/*`):
+   - Anthropic: pass `thinking: {type:"enabled", budget_tokens}`; map `content_block_delta.thinking_delta` → callbacks.
+   - OpenAI reasoning models: `reasoning_summary_delta` chunks (where the key exposes summaries).
+   - Gemini: `parts[].thought = true` deltas are already reachable through `google-genai` streaming — surface them beside text deltas.
+2. **Wire protocol**: extend the turn stream with `{"type":"thought.delta","content":…,"step":n}` events between `thinking` and `text.delta` (versioned, additive — old clients ignore it). Emitter hook point already exists: `create_live_plan` receives `emit_delta`; add `emit_thought` alongside.
+3. **Frontend**: `ThinkingWeave` gains a collapsible "watch her think" drawer fed by the live thought buffer; per guidance in the anti-pattern list, **thoughts are display-only and never persisted into chat history** — persist at most a short `reasoningSummary` on turn metadata.
+4. **Gate**: unit tests per provider mapper (fake chunk streams); frontend test that thought deltas render + are not appended to `messages`; `docs` note in 05-realtime-event-protocol.
+
+Effort: 2–3 focused sessions. Risk: LOW (additive stream event).
+
+## Phase C — Autonomous coding tools (sandboxed, approval-first)
+
+The spec document from the previous session asked for `code_workspace.py`,
+`code_patch`, `terminal_runner`. Non-negotiable design constraints for HINAA
+(a *companion* product, not a CI box):
+
+1. **Workspace jail**: `hinaa_api/tools/code_workspace.py` — all paths resolved with `Path.resolve().is_relative_to(WORKSPACE_ROOT)` (the same technique `/v1/generated-images` already uses for traversal defense). Read/grep/symbol-map only; default `max_depth`/byte caps; binary detection returns metadata, not content.
+2. **Patches are proposals**: `code_patch` returns a unified diff + hash of the exact target region; applying requires the existing tool-approval UI (`requires_confirmation=True`), and every successful patch writes a shadow backup under `data/patches/{id}.orig` so revert is one tool call.
+3. **Terminal**: `terminal_runner.py` with argv-level parsing (`shlex`), deny-list *and* allow-list tiers (git/test/lint auto-allowed; anything writing outside the workspace or networking needs approval), `asyncio.wait_for` timeout, streamed `stdout.delta` SSE events into the existing WorkTree renderer.
+4. **Self-heal loop** (the "run pytest, feed the traceback back" fantasy) is explicitly **deferred**: unattended edit-run-retry loops need sandbox isolation to be safe; v1 = HINAA proposes, human approves each execution round. Revisit when Phase D adds an OS-jail option (Windows Job Objects / bwrap).
+5. **Gate**: path-traversal test matrix, deny-list fuzz test, approval-flow integration test; docs: new `adr/` entry.
+
+Effort: 3–4 sessions. Risk: MEDIUM (security surface — hence the ordering after B).
+
+## Phase D — Presence & launch polish
+
+1. **Avatar motion pack**: idle weight-shift + gesture clips via `@pixiv/three-vrm-animation` (the `.vrma` asset pipeline already exists in `public/animations`); "walking" only if an actual clip ships — procedural locomotion on humanoid rigs looks broken, and we won't ship that.
+2. **Voice**: live-mode parity for the A6 distiller (gemini-live/azure realtime currently speak what the model says — apply the same concision contract at the TTS gate), barge-in ducking tests.
+3. **PDF**: package a real Unicode TTF into the repo (`assets/fonts/`) so Devanagari renders everywhere deterministically; add an "Export answer" menu entry for *all* assistant messages (A8 currently gates at >700 chars to keep bubbles calm).
+4. **Launch hardening**: the docker/compose + staging runbook already in docs 35–39 remain the source of truth; add the new env vars (MAGNIFIC, YOUCOM) to the staging checklist and the `pnpm check:mobile` + `playwright` suites to CI if they aren't wired yet.
+
+Effort: 2–3 sessions. Risk: LOW–MEDIUM.
+
+---
+
+## Verification playbook (run after any phase)
+
+```
+# frontend
+cd apps/web && pnpm typecheck && pnpm test && pnpm build
+
+# backend (needs Python ≥3.12; fpdf2/httpx/etc.)
+cd apps/api && python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests -q
+```
+
+Current tree at Phase A close: **149/149 frontend vitest**, tsc + build clean,
+every backend file compiles, and the new logic paths (slash router, voice
+distiller, query cleaner, reference scoring, PDF renderer incl. the
+no-unicode-font fallback) were executed and asserted against the real source
+via extraction harnesses. The backend pytest suite itself has not been run
+here (sandbox lacks Python 3.12) — run it before merging, as always.
+
+## Explicitly rejected items from the incoming spec
+
+- "Use Gamma AI for PDFs" — a presentation SaaS; our PDFs are documents. Rejected as a dependency; the fpdf2 renderer (A8) replaces it.
+- "100% everything perfect" — replaced with the gates above.
+- Fast (512²) image mode suppression — kept `fast` as *flux-2-turbo at 768²*; permanently suppressing a cheaper tier would silently raise every user's API bill.
+- Unsupervised auto-patch loops — see Phase C.4.

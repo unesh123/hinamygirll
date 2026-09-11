@@ -2149,12 +2149,11 @@ body {
 @media (max-width: 720px) { .hinaa-shortcuts-panel { left:52px; width:min(330px, calc(100vw - 52px)); } }
 
 /* ─── Single-canvas companion playground ─────────────────────────────── */
-.avatar-playground { overflow:hidden; position:relative; background: var(--bg-canvas, #fbfafc); }
+.avatar-playground { position:relative; overflow:hidden; background:radial-gradient(ellipse 78% 66% at 50% 28%, rgba(255,255,255,.18), transparent 68%); }
 .avatar-playground::after { display:none; }
-.avatar-playground--fullscreen { background: var(--bg-canvas, #fbfafc); }
+.avatar-playground--fullscreen { background:radial-gradient(ellipse 74% 70% at 50% 30%, rgba(230,255,249,.3), rgba(225,244,250,.2) 52%, rgba(239,233,255,.2)); }
 .avatar-playground--fullscreen::after { display:none; }
 .avatar-playground__controls button:focus-visible { outline:3px solid var(--accent, #dc5f8b); outline-offset:3px; }
-
 @media (max-width: 768px) { .avatar-playground__controls { bottom:8px !important; right:8px !important; } }
 
 

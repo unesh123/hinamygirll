@@ -67,7 +67,7 @@ export function AppShell({
         height: "100dvh",
         width: "100vw",
         overflow: "hidden",
-        background: "var(--bg-primary)",
+        background: "transparent",
         color: "var(--text-primary)",
       }}
     >

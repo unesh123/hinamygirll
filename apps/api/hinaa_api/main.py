@@ -79,6 +79,12 @@ class ProjectAgentRunBody(BaseModel):
     rootTaskId: str | None = None
 
 
+class DocumentPdfBody(BaseModel):
+    title: Annotated[str, Field(default="HINAA Report", max_length=240)]
+    markdown: Annotated[str, Field(min_length=1, max_length=120_000)]
+    subtitle: Annotated[str, Field(max_length=240)] | None = None
+
+
 class ProjectAgentRunStatusBody(BaseModel):
     status: Annotated[str, Field(pattern="^(queued|running|waiting_approval|completed|failed|cancelled)$")]
     summary: Annotated[str, Field(max_length=20_000)] | None = None
@@ -976,6 +982,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "error": " | ".join(failures) if failures else None,
             }
 
+    @app.get("/v1/image-studio/status")
+    async def image_studio_status() -> dict:
+        """Self-diagnostic for the image pipeline so a failing render explains
+        itself: cloud key present? local renderer alive? which one will run?"""
+        from hinaa_api.config import get_settings as _studio_settings
+        settings = _studio_settings()
+        cloud_ready = bool(getattr(settings, "magnific_configured", False))
+        comfy_ready = False
+        try:
+            from hinaa_api.tools.image_generate import comfyui_provider
+            comfy_ready = bool(await comfyui_provider.health_check())
+        except Exception:  # noqa: BLE001 - diagnostics must never 500
+            comfy_ready = False
+        if cloud_ready:
+            renderer, detail = "magnific-flux", "Magnific FLUX cloud generation is active."
+        elif comfy_ready:
+            renderer, detail = "comfyui-local", "Cloud key not found — generating through local ComfyUI."
+        else:
+            renderer, detail = "none", "No image renderer is reachable right now."
+        return {
+            "renderer": renderer,
+            "magnificConfigured": cloud_ready,
+            "comfyAvailable": comfy_ready,
+            "detail": detail,
+            "setup": [] if cloud_ready else [
+                "Add MAGNIFIC_API_KEY=<your Freepik/Magnific developer key> to apps/api/.env.local",
+                "Get a key at https://www.freepik.com/developers/dashboard/api-key",
+                "Or start ComfyUI on http://127.0.0.1:8188 for fully local generation",
+                "Restart the API afterwards (uvicorn reads .env.local at boot)",
+            ],
+        }
+
     @app.get("/v1/generated-images/{image_id}")
     @app.get("/api/v1/generated-images/{image_id}")
     async def get_generated_image(image_id: str):
@@ -1546,14 +1584,60 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Project not found")
         return artifact
 
+    @app.post("/v1/documents/pdf")
+    async def export_document_pdf(body: DocumentPdfBody) -> Response:
+        """Render any markdown document (chat answer, research brief, plan)
+        into a real multi-page PDF — branded, paginated, table-aware."""
+        from fastapi.responses import Response as _Response
+        from .documents.pdf import render_markdown_pdf, safe_filename
+        try:
+            data = render_markdown_pdf(
+                body.markdown,
+                title=body.title or "HINAA Report",
+                subtitle=body.subtitle,
+            )
+        except HTTPException:
+            raise
+        except Exception as error:  # noqa: BLE001 - the renderer must answer, not 500
+            logger.exception("PDF rendering failed")
+            raise HinaaError(
+                "DOCUMENT_PDF_FAILED",
+                f"The document could not be rendered ({type(error).__name__}).",
+                500,
+                True,
+                False,
+            ) from error
+        if not data or len(data) > 25_000_000:
+            raise HTTPException(status_code=413, detail="Document too large to render")
+        filename = safe_filename(body.title)
+        return _Response(
+            content=data,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+
     @app.get("/v1/projects/artifacts/{artifact_id}/export")
-    async def export_project_artifact(request: Request, artifact_id: str) -> Response:
+    async def export_project_artifact(request: Request, artifact_id: str, format: str = "md") -> Response:
         exported = workspace_service.export_artifact_markdown(
             _workspace_user_id(request), artifact_id
         )
         if exported is None:
             raise HTTPException(status_code=404, detail="Artifact not found")
         filename, content = exported
+        if format.lower() == "pdf":
+            from .documents.pdf import render_markdown_pdf, safe_filename
+            data = render_markdown_pdf(content, title=filename.removesuffix(".md") or "HINAA artifact")
+            return Response(
+                content=data,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_filename(filename)}"',
+                    "Cache-Control": "no-store",
+                },
+            )
         return Response(
             content=content,
             media_type="text/markdown; charset=utf-8",

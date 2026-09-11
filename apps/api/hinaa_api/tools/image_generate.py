@@ -112,19 +112,47 @@ def enhance_prompt(prompt: str, style: str, mode: str) -> tuple[str, str]:
     return enriched, negative
 
 
-def reference_from_query_result(search_result: Dict[str, Any]) -> Optional[str]:
+_REF_STOPWORDS = {
+    "image", "images", "picture", "pictures", "photo", "photos", "pic",
+    "find", "fetch", "search", "show", "give", "get", "me", "the", "a",
+    "an", "of", "for", "some", "any", "like", "reference", "based", "use",
+}
+
+
+def _subject_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9']+", text.lower())
+        if len(token) > 2 and token not in _REF_STOPWORDS
+    }
+
+
+def reference_from_query_result(search_result: Dict[str, Any], subject: str = "") -> Optional[str]:
+    """Pick the reference image whose metadata best matches the requested subject."""
     images = search_result.get("images") if isinstance(search_result, dict) else None
     if not isinstance(images, list):
         return None
-    for item in images:
+    wanted = _subject_tokens(subject)
+    best: tuple[float, int, str] | None = None
+    for position, item in enumerate(images):
         url = None
+        haystack = ""
         if isinstance(item, str):
             url = item
+            haystack = item
         elif isinstance(item, dict):
-            url = item.get("url") or item.get("image_url") or item.get("thumbnailUrl")
-        if isinstance(url, str) and url.startswith(("http://", "https://")):
-            return url
-    return None
+            url = item.get("url") or item.get("image_url") or item.get("thumbnailUrl") or item.get("imageUrl")
+            haystack = " ".join(
+                str(item.get(key) or "") for key in ("title", "alt", "name", "description", "source")
+            ) + " " + str(url or "")
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            continue
+        tokens = _subject_tokens(haystack)
+        score = (len(wanted & tokens) / len(wanted)) if wanted else 0.0
+        ranked = score * 10 - position * 0.01
+        if best is None or ranked > best[0]:
+            best = (ranked, position, url)
+    return best[2] if best else None
 
 
 # ─── tool contract ───────────────────────────────────────────────────────────
@@ -217,7 +245,7 @@ async def _resolve_reference(params: ImageGenerateParams) -> tuple[Optional[str]
             from ..providers.youcom import YouComClient
 
             result = await YouComClient(get_settings()).image_search(query, count=6)
-            found = reference_from_query_result(result)
+            found = reference_from_query_result(result, query)
             if found:
                 return found, None
         except Exception:
@@ -255,7 +283,11 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
     if params.enhance:
         final_prompt, auto_negative = enhance_prompt(params.prompt, params.style, params.mode)
     else:
-        final_prompt = params.prompt
+        final_prompt = (
+            NewBiePromptBuilder.build_xml_prompt(params.prompt)
+            if params.mode == "ultra"
+            else params.prompt.strip()
+        )
         auto_negative = DEFAULT_NEGATIVE
     negative = f"{user_negative}, {auto_negative}" if user_negative else auto_negative
 
@@ -276,7 +308,7 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
         session.commit()
 
     cloud = MagnificProvider(settings)
-    use_cloud = cloud_image_available()
+    use_cloud = cloud.available()
 
     try:
         reference_url, reference_b64 = (await _resolve_reference(params)) if use_cloud else (None, None)
@@ -298,13 +330,30 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                             width=job.width,
                             height=job.height,
                             seed=job.seed,
+                            model=(
+                                cloud.settings.magnific_model_fast
+                                if params.mode == "fast"
+                                else cloud.settings.magnific_model_quality
+                            ),
                             reference_image_url=reference_url,
                             reference_image_b64=reference_b64,
                         )
                         source = result.image_urls[0]
                         if should_upscale:
                             try:
-                                source = await cloud.upscale(source, scale=2.0)
+                                upscale_profile = {
+                                    "anime": "art_n_illustration",
+                                    "watercolor": "art_n_illustration",
+                                    "3d-art": "3d_renders",
+                                    "realistic": "films_n_photography",
+                                    "cinematic": "films_n_photography",
+                                }.get(params.style, "standard")
+                                source = await cloud.upscale(
+                                    source,
+                                    scale=2.0,
+                                    prompt=final_prompt,
+                                    optimized_for=upscale_profile,
+                                )
                             except Exception:
                                 pass
                         blob = await cloud.download(source)
@@ -380,12 +429,6 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
 
         await asyncio.gather(*(collect_one(job_id, prompt_id) for job_id, prompt_id in enqueued))
 
-        with session_factory() as session:
-            for job in session.query(ImageJob).filter_by(generation_set_id=generation_set_id).all():
-                if job.status in {"pending", "processing"}:
-                    job.status = "failed"
-            session.commit()
-
     except Exception:
         with session_factory() as session:
             for job in session.query(ImageJob).filter_by(generation_set_id=generation_set_id).all():
@@ -404,25 +447,25 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
             "error": "This image workflow supports one reference at a time. Remove additional references and retry.",
         }
 
-    comfy_ready = await comfyui_provider.health_check()
     cloud_ready = cloud_image_available()
+    comfy_ready = await comfyui_provider.health_check()
 
-    if not comfy_ready:
-        if params.reference_images:
-            return {
-                "status": "error",
-                "code": "REFERENCE_RENDERER_UNAVAILABLE",
-                "error": "Reference editing needs local ComfyUI running. Cloud text-to-image fallback cannot preserve your reference; no job was started.",
-            }
-        if not cloud_ready:
-            return {
-                "status": "error",
-                "code": "IMAGE_RENDERER_UNAVAILABLE",
-                "error": (
-                    "Local ComfyUI is unavailable and no cloud image gateway is configured. "
-                    "Start ComfyUI on http://127.0.0.1:8188 or configure Freepik/Codex keys."
-                ),
-            }
+    if not comfy_ready and params.reference_images:
+        return {
+            "status": "error",
+            "code": "REFERENCE_RENDERER_UNAVAILABLE",
+            "error": "Reference editing needs local ComfyUI running. Cloud text-to-image fallback cannot preserve your reference; no job was started.",
+        }
+
+    if not comfy_ready and not cloud_ready:
+        return {
+            "status": "error",
+            "code": "IMAGE_RENDERER_UNAVAILABLE",
+            "error": (
+                "Local ComfyUI is unavailable and no cloud image gateway is configured. "
+                "Start ComfyUI on http://127.0.0.1:8188 or configure Freepik/Codex keys."
+            ),
+        }
 
     generation_set_id = str(uuid.uuid4())
     session_factory = get_session_factory(settings)
@@ -455,7 +498,7 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
         "job_id": generation_set_id,
         "total": total_count,
         "strategy": strategy,
-        "renderer": "comfyui-local" if comfy_ready else "magnific-flux",
+        "renderer": "magnific-flux" if cloud_ready else "comfyui-local",
         "style": params.style,
         "mode": params.mode,
         "reference_applied": bool(params.reference_url or params.reference_image_b64 or params.reference_query or params.reference_images),
@@ -463,7 +506,6 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
         "prompt": params.prompt,
         "enhanced_prompt": final_prompt,
     }
-
 
 
 registry.register(image_generate_def, image_generate_handler)

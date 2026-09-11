@@ -223,6 +223,28 @@ def _spoken_summary_from_display(text: str, *, limit: int = 420) -> str:
     return res
 
 
+def _plain_first_sentences(text: str, limit: int = 210) -> str:
+    """First one or two plain-language sentences of a markdown document, used
+    when a model dumped the whole report into the voice channel anyway."""
+    stripped = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
+    stripped = re.sub(r"\[[^\]]*\]\(([^)]*)\)", r"\1", stripped)
+    stripped = re.sub(r"[#*_>`~|-]+", " ", stripped)
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    if not stripped:
+        return ""
+    sentences = re.split(r"(?<=[.!?।]) +", stripped)
+    out = ""
+    for sentence in sentences[:2]:
+        if out and len(out) + len(sentence) > limit:
+            break
+        out = f"{out} {sentence}".strip()
+        if len(out) >= limit * 0.55:
+            break
+    if len(out) > limit:
+        out = out[: limit - 1].rsplit(" ", 1)[0] + "…"
+    return out
+
+
 def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
     """Clean leaked XML, thinking blocks, and stage directions (*laughs*, *मुस्कुराते हुए*, etc.).
     Returns (cleaned_text, had_laughter_or_smile)."""
@@ -302,19 +324,23 @@ def _apply_response_quality_guard(plan: AssistantTurnPlan, is_live: bool = False
         has_forbidden_speech_structure = any(
             marker in raw_spoken for marker in ("```", "\n", "•", "|", "- ", "1. ")
         )
-        is_verbatim_echo = len(plan.displayText) > 160 and (
+        is_verbatim_echo = len(plan.displayText) > 280 and (
             _comparison_key(plan.displayText) == _comparison_key(raw_spoken)
         )
 
         if has_forbidden_speech_structure or is_verbatim_echo:
-            cleaned = _spoken_summary_from_display(raw_spoken or plan.displayText, limit=280)
-            if cleaned:
-                # Remove any stray newlines or bullet markers that slipped through
-                cleaned = " ".join(cleaned.split())
-                plan.spokenText = cleaned
-            elif plan.displayText:
-                plan.spokenText = " ".join(plan.displayText.split())[:280]
-
+            distilled = _plain_first_sentences(plan.displayText)
+            if distilled and _comparison_key(distilled) != _comparison_key(plan.spokenText):
+                plan.spokenText = f"{distilled} Full breakdown is in chat! ✨"
+            else:
+                cleaned = _spoken_summary_from_display(raw_spoken or plan.displayText, limit=260)
+                plan.spokenText = " ".join(cleaned.split())[:260] or "I've put the full breakdown in chat! ✨"
+        elif len(plan.spokenText) > 260 and len(plan.displayText) > len(plan.spokenText):
+            distilled = _plain_first_sentences(plan.displayText)
+            if distilled and _comparison_key(distilled) != _comparison_key(plan.spokenText):
+                plan.spokenText = f"{distilled} Full breakdown is in chat! ✨"
+            else:
+                plan.spokenText = "Key details are in chat! ✨"
 
 
 # ── Casual-chat fast path ──────────────────────────────────────────────────
@@ -997,6 +1023,41 @@ class ConversationService:
         if re.search(r"\b(?:not|don't|dont)\s+(?:use|take|include|fetch|search|display|show)\b", unquoted, re.I):
             return
 
+        # Explicit slash commands bypass keyword heuristics entirely: the user
+        # already typed the verb the system would otherwise have to infer.
+        slash = re.match(r"^\s*/(research|deep|image|draw|generate|img)\b\s*(.*)$", text, re.IGNORECASE | re.DOTALL)
+        if slash:
+            command, rest = slash.group(1).casefold(), slash.group(2).strip(" :.!?")
+            if command in {"research", "deep"}:
+                if rest and not any(t.toolName == "deep_research" for t in plan.toolRequests):
+                    plan.toolRequests.append(ToolRequest(
+                        toolName="deep_research",
+                        parameters={"topic": rest, "depth": 20},
+                    ))
+                return
+            if command in {"image", "draw", "generate", "img"} and rest and not any(
+                t.toolName == "image_generate" for t in plan.toolRequests
+            ):
+                image_parameters: dict[str, object] = {
+                    "prompt": rest,
+                    "count": 1,
+                    "mode": "quality",
+                    "strategy": "variations",
+                }
+                lower_rest = rest.casefold()
+                if re.search(r"\b(ultra|wallpaper|poster|print|8k)\b", lower_rest):
+                    image_parameters["mode"] = "ultra"
+                elif re.search(r"\b(fast|quick|draft|sketch)\b", lower_rest):
+                    image_parameters["mode"] = "fast"
+                for style_name in ("anime", "realistic", "cinematic", "watercolor"):
+                    if style_name in lower_rest:
+                        image_parameters["style"] = style_name
+                        break
+                if re.search(r"\b\d+\s+(?:images?|variants?|versions?)\b", lower_rest):
+                    image_parameters["count"] = min(int(re.search(r"\b(\d+)\s+(?:images?|variants?|versions?)", lower_rest).group(1)), 4)
+                plan.toolRequests.append(ToolRequest(toolName="image_generate", parameters=image_parameters))
+                return
+
         def is_command(patterns: list[str], *, target: str) -> bool:
             if not re.search(target, unquoted, re.IGNORECASE):
                 return False
@@ -1263,7 +1324,6 @@ class ConversationService:
                     toolName="deep_research",
                     parameters={"topic": topic, "depth": 20},
                 ))
-
 
         pdf_command = bool(
             re.search(r"\b(?:make|create|generate|give\s+me|build|write|download)\s+(?:me\s+)?(?:a\s+)?pdf\b", unquoted, re.I)
@@ -2216,7 +2276,6 @@ class ConversationService:
                 "toolName": tool_req.toolName,
                 "status": "ready",
             })
-
         plan_payload: dict[str, object] = {
             "plan": result.value.model_dump(),
             "provider": result.provider,

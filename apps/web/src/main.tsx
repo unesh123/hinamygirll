@@ -8,7 +8,6 @@ import { ClerkSessionGate } from "./features/auth/ClerkSessionGate";
 // layer refines every surface without fighting the base stylesheet.
 import "./app/styles/aurora.css";
 
-
 // NOTE: BrowserRouter removed — no routes are registered yet.
 // Reintroduce when /playground, /settings, or another genuine route exists.
 

@@ -15,7 +15,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, Environment } from "@react-three/drei";
 import { AnimatePresence, motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/three-vrm";
+import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMHumanBoneName, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 import { Expand, Maximize2, Minimize2, Radio } from "lucide-react";
 import { FullscreenCompanionOverlay, type FullscreenLiveStatus } from "./FullscreenCompanionOverlay";
@@ -220,6 +220,7 @@ function Model({
   const restQRef     = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const poseTargetRef = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const headBoneRef = useRef<THREE.Object3D | null>(null);
+  const jawBoneRef = useRef<THREE.Object3D | null>(null);
   const headRestQRef = useRef<THREE.Quaternion | null>(null);
   const headCurQRef = useRef<THREE.Quaternion | null>(null);
   // Idle liveliness: the chest/upperChest bone is NOT in POSE_BONES, so it is
@@ -397,6 +398,14 @@ function Model({
         console.log(`🎭 VRM ${specVer} | url=${url} | bones: ${bones.join(", ")} | expressions: ${exprs}`);
       }
 
+      // The normalized Jaw bone is the lipsync safety net below; capture it
+      // once per model load (absent on rigs without a jaw mapping).
+      try {
+        jawBoneRef.current = v.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Jaw) ?? null;
+      } catch {
+        jawBoneRef.current = null;
+      }
+
       vrmRef.current = v;
       setLoaded(true);
     }, undefined, () => { if (mounted) setFailed(true); });
@@ -456,9 +465,13 @@ function Model({
       // them for visible but natural articulation instead of treating quiet
       // speech as silence.
       const rawEnergy = Math.min(1, Math.max(0, jawEnergy.current * 3.2));
-      // Syllable-shaped envelope: sqrt opens the mouth on soft consonants,
-      // the 0.82 scale keeps quiet speech visible without full-open shouting.
-      const energy = speaking ? Math.max(0.14, Math.sqrt(rawEnergy) * 0.86) : rawEnergy;
+      // Amplitude floor while speaking: browser-speech playback produces no
+      // analyser signal (the audio never enters our graph), so energy-only
+      // scaling pinned the mouth at a barely-visible 0.16 and the lips looked
+      // frozen. The viseme timeline itself carries the articulation; a firm
+      // floor keeps it legible in every TTS path while loud audio still
+      // swings the jaw higher.
+      const energy = speaking ? Math.max(0.48, Math.sqrt(rawEnergy) * 0.95) : rawEnergy;
 
       if (speaking) {
         // ── Speaking: viseme-based mouth animation ──
@@ -690,6 +703,17 @@ function Model({
       cur.slerp(targetQ, alpha);
       
       bone.quaternion.copy(cur);
+    }
+
+    // Physical jaw fallback — the last pose write of the frame. Models with
+    // broken or missing viseme blend shapes (common on auto-rigged VRMs) still
+    // visibly articulate, and healthy rigs get a complementary jaw drop driven
+    // by the exact same smoothed mouth weights the expressions use.
+    const jawBone = jawBoneRef.current;
+    if (jawBone) {
+      let mouthDrive = 0;
+      for (const k of ALL_MOUTH_KEYS) mouthDrive = Math.max(mouthDrive, mouthW.current[k]);
+      jawBone.rotation.x = THREE.MathUtils.damp(jawBone.rotation.x, -mouthDrive * 0.42, 16, dt);
     }
 
     // The body lock intentionally runs after `vrm.update` above. VMC packets

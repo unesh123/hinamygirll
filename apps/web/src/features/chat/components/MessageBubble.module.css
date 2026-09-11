@@ -315,3 +315,30 @@
 @media (prefers-reduced-motion: reduce) {
   .chip { animation: none; }
 }
+
+.pdfAction {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(238, 145, 173, 0.35);
+  background: rgba(238, 145, 173, 0.08);
+  color: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.pdfAction:hover {
+  opacity: 1;
+  background: rgba(238, 145, 173, 0.16);
+  border-color: rgba(238, 145, 173, 0.6);
+}
+
+.pdfAction:disabled { cursor: progress; opacity: 0.5; }

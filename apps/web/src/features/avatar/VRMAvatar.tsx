@@ -409,7 +409,6 @@ function VrmRig({
         ? 0
         : Math.sin(time * 1.7) * Math.max(0, Math.sin(time * 0.23 + 1.1)) * 0.006;
       const microRoll = Math.sin(time * 0.37 + 2) * 0.0028;
-
       const settled = quiet
         ? { x: 0.08, y: 0, z: 0.06 }
         : { x: headTarget.x, y: headTarget.y, z: headTarget.z };
@@ -527,7 +526,7 @@ function VrmRig({
       }
       // Breathing — subtle chest/hips rise whose depth and pace drift on slow
       // incommensurate cycles, so the rest state breathes like a person rather
-      // than a loop. Clamped to prevent Y-drift.
+      // than a loop. Quieter while listening; clamped to prevent Y-drift.
       const drift = 0.78 + 0.22 * Math.sin(time * 0.11) + 0.08 * Math.sin(time * 0.047 + 2.1);
       const rate = 1.4 + Math.sin(time * 0.07) * 0.13;
       const inhale = Math.sin(time * rate);
@@ -541,7 +540,6 @@ function VrmRig({
         hips.position.y = THREE.MathUtils.clamp(-breath, -0.015, 0.015);
         if (!quiet) hips.position.x = Math.sin(time * 0.21) * 0.0075;
       }
-
     }
 
     vrm.update(delta);

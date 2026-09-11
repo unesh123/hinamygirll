@@ -4,7 +4,7 @@
  * Streaming reveals words with subtle upward blur-to-clear animation.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import type { TranscriptMessage } from "../../companion/types";
 import styles from "./MessageBubble.module.css";
@@ -12,6 +12,7 @@ import { GenericResultRenderer } from "./GenericResultRenderer";
 import { ToolApprovalPanel } from "./ToolApprovalPanel";
 import { ThinkingWeave } from "../../../components/ui/ThinkingWeave";
 import { renderMarkdownHtml } from "../../../lib/markdown";
+import { downloadMarkdownPdf } from "../../documents/exportPdf";
 import type { AssistantTurnPlan } from "../../../contracts/assistantTurnPlan";
 
 interface Props {
@@ -64,6 +65,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   const isLong = message.text.length > 120;
   const renderedHTML = useMemo(() => renderMarkdownHtml(message.text), [message.text]);
+  const [pdfState, setPdfState] = useState<"idle" | "working" | "done" | "error">("idle");
   // One tool request owns one current result. Keep the latest record when an
   // older persisted session or an earlier UI race contains duplicates.
   const visibleToolResults = (message.toolResults || []).filter(
@@ -148,6 +150,22 @@ export const MessageBubble = memo(function MessageBubble({
               <span className={styles.partialLabel}>speaking…</span>
             ) : isStreaming ? (
               <span className={styles.partialLabel}>writing…</span>
+            ) : !isUser && message.text.length > 700 ? (
+              <button
+                type="button"
+                className={styles.pdfAction}
+                title="Download this answer as a structured PDF"
+                disabled={pdfState === "working"}
+                onClick={() => {
+                  setPdfState("working");
+                  void downloadMarkdownPdf("HINAA — answer", message.text)
+                    .then(() => setPdfState("done"))
+                    .catch(() => setPdfState("error"))
+                    .finally(() => window.setTimeout(() => setPdfState("idle"), 2200));
+                }}
+              >
+                {pdfState === "done" ? "Saved ✓" : pdfState === "error" ? "Failed — retry" : pdfState === "working" ? "Rendering…" : "PDF"}
+              </button>
             ) : (
               <time
                 className={styles.time}

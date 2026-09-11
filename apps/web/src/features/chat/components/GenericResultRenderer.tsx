@@ -4,6 +4,7 @@ import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTr
 import { ImageGeneration } from '@/components/ui/image-generation';
 import { SourceCard, type SourceItem } from '@/components/ui/SourceCard';
 import { WorkTree } from './WorkTree';
+import { downloadMarkdownPdf } from '@/features/documents/exportPdf';
 import type { WorkTreeNode } from './WorkTree';
 
 interface GenericResultRendererProps {
@@ -555,6 +556,15 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
         {reportHtml && (
           <details style={{ margin: '12px 16px 0' }}>
             <summary style={{ cursor: 'pointer', fontSize: 11.5, fontWeight: 750, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#cbbca8' }}>Full cited brief</summary>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '6px 0 0' }}>
+            <button
+              type="button"
+              onClick={() => { void downloadMarkdownPdf(`HINAA research — ${data.topic || 'dossier'}`, reportHtml, 'Deep research dossier').catch(() => undefined); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,.18)', background: 'rgba(255,255,255,.05)', color: '#e9def1', fontSize: 10.5, fontWeight: 750, letterSpacing: '0.04em', cursor: 'pointer' }}
+            >
+              <Download size={11} /> Download PDF
+            </button>
+          </div>
             <div className="hinaa-markdown" style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.65, color: '#e5d8c5' }} dangerouslySetInnerHTML={{ __html: reportHtml }} />
           </details>
         )}

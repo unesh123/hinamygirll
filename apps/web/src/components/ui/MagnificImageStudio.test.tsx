@@ -63,6 +63,7 @@ describe("MagnificImageStudio", () => {
   it("surfaces a key failure verbatim and never polls a job that was not created", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === "/api/v1/image-studio/status") return jsonResponse({ renderer: "magnific-flux", detail: "", setup: [] });
       if (url === "/api/v1/tools/execute") {
         return jsonResponse({
           status: "error",
@@ -79,7 +80,10 @@ describe("MagnificImageStudio", () => {
     fireEvent.click(screen.getByRole("button", { name: /Generate with Magnific/ }));
 
     expect(await screen.findByText(/Magnific rejected the API key/)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // exactly one execute call — and crucially, zero poll calls for a job that was never created
+    const calls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(calls.filter((u) => u === "/api/v1/tools/execute")).toHaveLength(1);
+    expect(calls.some((u) => u.includes("/api/v1/tools/poll"))).toBe(false);
   });
 
   it("keeps generation gated until a prompt exists", () => {

@@ -98,16 +98,15 @@ export function PremiumComposer({
   const detectComposerTrigger = useCallback((text: string) => {
     const cursorPos = textRef.current?.selectionStart ?? text.length;
     const beforeCursor = text.slice(0, cursorPos);
-    const mention = beforeCursor.match(/@(\S*)$/);
-    const command = beforeCursor.match(/\/(\S*)$/);
-    if (mention) {
-      setTrigger("@");
+    // The token must sit flush against the sigil: bare "/" opens the palette,
+    // "/research" filters it, and "/research " (the space inserted on select)
+    // closes it again — a completed command prefix must never hijack the next
+    // Enter keypress.
+    const match = beforeCursor.match(/(?:^|\s)([@/])(\S*)$/);
+    if (match) {
+      setTrigger(match[1] === "/" ? "/" : "@");
       setShowMentions(true);
-      setMentionFilter(mention[1]);
-    } else if (command && (beforeCursor.length === command[0].length || /\s\/(\S*)$/.test(beforeCursor))) {
-      setTrigger("/");
-      setShowMentions(true);
-      setMentionFilter(command[1]);
+      setMentionFilter(match[2]);
     } else {
       setShowMentions(false);
       setMentionFilter("");
@@ -147,24 +146,26 @@ export function PremiumComposer({
   );
 
   const handlePowerUpSelect = useCallback(
-    (item: ContextItem | CommandItem) => {
+    (item: ContextItem | CommandItem | PowerUp) => {
       const cursorPos = textRef.current?.selectionStart ?? value.length;
-      const triggerPattern = trigger === "@" ? /@\S*$/ : /\/\S*$/;
-      const beforeTrigger = value.slice(0, cursorPos).replace(triggerPattern, "");
+      const beforeTrigger = value.slice(0, cursorPos).replace(/[@/][\w:-]*$/, "");
       const afterCursor = value.slice(cursorPos);
-      // @ tags are HINAA's durable intent syntax. Slash commands are a faster
-      // entry path but resolve to the same safe, visible operation tag.
-      const isContextItem = (item: ContextItem | CommandItem): item is ContextItem => 
-        "kind" in item && "sourceId" in item;
-      const shortcut = isContextItem(item) ? `@${item.kind}:${item.sourceId}` : `/${item.name}`;
-      const newValue = `${beforeTrigger}${shortcut} ${afterCursor}`;
+      let insertion = "";
+      if ("kind" in item && "sourceId" in item) {
+        insertion = `@${item.kind}:${item.sourceId}`;
+      } else if ("shortcut" in item) {
+        insertion = trigger === "/" ? (item.slash ?? `/${item.shortcut.replace(/^@/, "")}`) : item.shortcut;
+      } else if ("name" in item) {
+        insertion = `/${item.name}`;
+      }
+      const newValue = `${beforeTrigger}${insertion} ${afterCursor}`;
       onChange(newValue);
       setShowMentions(false);
       setMentionFilter("");
       onPowerUp?.(item as any);
       requestAnimationFrame(() => {
         textRef.current?.focus();
-        const newPos = beforeTrigger.length + shortcut.length + 1;
+        const newPos = beforeTrigger.length + insertion.length + 1;
         textRef.current?.setSelectionRange(newPos, newPos);
       });
     },
@@ -191,14 +192,15 @@ export function PremiumComposer({
 
   return (
     <div className="premium-composer-shell">
-      {/* @ Power-up mention popup */}
+      {/* @ mention / / slash-command palette */}
       <PowerUpMentions
         visible={showMentions}
         filter={mentionFilter}
+        sigil={trigger}
+        trigger={trigger}
         onSelectContext={handlePowerUpSelect}
         onSelectCommand={handlePowerUpSelect}
         onClose={() => setShowMentions(false)}
-        trigger={trigger}
         contexts={contexts}
         commands={commands}
       />

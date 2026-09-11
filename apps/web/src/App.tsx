@@ -643,6 +643,7 @@ export default function App() {
       "search-web": () => { setContextMode("research"); setSearching(true); },
       "image-search": openImageStudio,
       "generate-image": openImageStudio,
+      "deep-research": () => { setContextMode("research"); },
       "browser-navigate": () => setContextMode("browser"),
       "browser-read": () => setContextMode("browser"),
       "write-code": () => { setNavSection("tools"); setSidebarExpanded(null); },
@@ -824,8 +825,7 @@ export default function App() {
   return (
     <SidebarProvider defaultExpanded={false}>
       <div className="hinaa-shell">
-
-      {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
+        {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
         <AuroraVeil state={controller.state} />
         <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />
         <FullScreenAura state={controller.state} />
@@ -933,7 +933,6 @@ export default function App() {
               <WorkMode
                 companionId={controller.companionId}
                 companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
-
                 messages={controller.messages}
                 streamingText={controller.streamingText}
                 partialTranscript={controller.partialTranscript}

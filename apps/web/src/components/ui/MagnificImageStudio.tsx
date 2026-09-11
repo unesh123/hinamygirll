@@ -83,9 +83,23 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
   const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [pipeline, setPipeline] = useState<{ renderer: string; detail: string; setup: string[] } | null>(null);
   const abortRef = useRef(false);
   const seedRef = useRef("");
   const busy = status === "starting" || status === "processing";
+
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/v1/image-studio/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (alive && body) {
+          setPipeline({ renderer: String(body.renderer ?? "none"), detail: String(body.detail ?? ""), setup: Array.isArray(body.setup) ? body.setup.map(String) : [] });
+        }
+      })
+      .catch(() => undefined); // status is advisory — the studio still works offline
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -225,6 +239,19 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
           </button>
         )}
       </header>
+
+      {pipeline && (
+        <div className={`${styles.pipeline} ${pipeline.renderer === "magnific-flux" ? styles.pipelineCloud : pipeline.renderer === "comfyui-local" ? styles.pipelineLocal : styles.pipelineNone}`} role="status">
+          <span className={styles.pipelineDot} aria-hidden="true" />
+          <strong>{pipeline.renderer === "magnific-flux" ? "Magnific FLUX online" : pipeline.renderer === "comfyui-local" ? "Local ComfyUI active" : "No renderer available"}</strong>
+          <span>{pipeline.detail}</span>
+          {pipeline.setup.length > 0 && (
+            <ul>
+              {pipeline.setup.map((line) => <li key={line}><code>{line}</code></li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       <section className={styles.card} data-studio-section>
         <label className={styles.label} htmlFor="magnific-prompt">Prompt</label>
