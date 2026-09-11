@@ -109,7 +109,8 @@ function getGltfLoader(): GLTFLoader {
  * the render loop — keeps the first frame small enough to survive.
  */
 async function loadAndOptimizeVrm(url: string): Promise<VRM> {
-  const gltf = await getGltfLoader().loadAsync(url);
+  const safeUrl = url.includes("%") ? url : encodeURI(url);
+  const gltf = await getGltfLoader().loadAsync(safeUrl);
   const vrm = (gltf as unknown as { userData: { vrm?: VRM } }).userData.vrm;
   if (!vrm) throw new Error("No VRM data in loaded asset");
   try {
@@ -385,6 +386,7 @@ function VrmRig({
       const idleY = quiet
         ? Math.sin(time * 0.8) * 0.005
         : Math.sin(time * 0.5) * 0.02;
+      const idleSway = quiet ? 0 : Math.sin(time * 0.9) * 0.015;
       // Micro-saccades: two incommensurate slow sines multiply into rare,
       // short-lived drifts — living stillness rather than a metronome.
       const saccade = quiet
