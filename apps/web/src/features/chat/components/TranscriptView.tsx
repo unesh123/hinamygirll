@@ -5,8 +5,8 @@
 
 import { Fragment } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { GeneratingLoader } from "../../../components/ui/GeneratingLoader";
 import { useAutoScroll } from "../hooks/useAutoScroll";
+import { useTypewriterReveal } from "../hooks/useTypewriterReveal";
 import type { TranscriptMessage } from "../../companion/types";
 import { MessageBubble } from "./MessageBubble";
 import { WelcomeScene } from "../../../components/ui/WelcomeScene";
@@ -60,6 +60,10 @@ export function TranscriptView({
     partialTranscript,
     isThinking,
   ]);
+
+  // Display-side token stream: reveal the incoming text run-by-run so the
+  // answer walks itself onto the screen instead of popping in sentence-wise.
+  const revealedStream = useTypewriterReveal(streamingText);
 
   const isEmpty =
     messages.length === 0 &&
@@ -140,7 +144,7 @@ export function TranscriptView({
           message={{
             id: "streaming",
             role: "assistant",
-            text: streamingText,
+            text: revealedStream,
             createdAt: new Date().toISOString(),
           }}
           companionName={companionName}

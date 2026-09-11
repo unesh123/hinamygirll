@@ -7,5 +7,6 @@ from . import gamma
 from . import email
 from . import browser_agent
 from . import image_generate
+from . import deep_research
 
 __all__ = ["registry"]

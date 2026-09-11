@@ -8,6 +8,7 @@ export type FullscreenLiveStatus = {
   paused: boolean;
   detail: string;
   microphoneLevel: number;
+  status?: "idle" | "connecting" | "listening" | "paused" | "reconnecting" | "error";
 };
 
 interface FullscreenCompanionOverlayProps {

@@ -10,6 +10,8 @@ import type { TranscriptMessage } from "../../companion/types";
 import styles from "./MessageBubble.module.css";
 import { GenericResultRenderer } from "./GenericResultRenderer";
 import { ToolApprovalPanel } from "./ToolApprovalPanel";
+import { ThinkingWeave } from "../../../components/ui/ThinkingWeave";
+import { renderMarkdownHtml } from "../../../lib/markdown";
 import type { AssistantTurnPlan } from "../../../contracts/assistantTurnPlan";
 
 interface Props {
@@ -28,23 +30,7 @@ interface Props {
   ) => void | Promise<void>;
 }
 
-/** Simple markdown-to-HTML for inline formatting */
-function renderMarkdown(text: string): string {
-  let html = text
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    // Italic
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    // Inline code
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    // @ Power-up keywords
-    .replace(/(^|\s)(@[a-zA-Z0-9_]+)/g, '$1<span style="color:#ffc8d8;font-weight:700;padding:2px 7px;background:rgba(238,145,173,.15);border-radius:6px;margin:0 2px;border:1px solid rgba(255,193,211,.24);">$2</span>')
-    // Hashtags
-    .replace(/(^|\s)(#[a-zA-Z0-9_]+)/g, '$1<span style="color:#f2c6d4;font-weight:650;padding:2px 6px;background:rgba(255,255,255,.06);border-radius:5px;margin:0 2px;">$2</span>');
-  return html;
-}
+/** Structured document rendering (escaped-first markdown; see lib/markdown). */
 
 export const MessageBubble = memo(function MessageBubble({
   message,
@@ -74,7 +60,7 @@ export const MessageBubble = memo(function MessageBubble({
   }, [message.createdAt]);
 
   const isLong = message.text.length > 120;
-  const renderedHTML = useMemo(() => renderMarkdown(message.text), [message.text]);
+  const renderedHTML = useMemo(() => renderMarkdownHtml(message.text), [message.text]);
   // One tool request owns one current result. Keep the latest record when an
   // older persisted session or an earlier UI race contains duplicates.
   const visibleToolResults = (message.toolResults || []).filter(
@@ -121,22 +107,19 @@ export const MessageBubble = memo(function MessageBubble({
       <div className={styles.stack}>
         {/* Thinking dots */}
         {isThinking ? (
-          <div className={styles.thinkingDots} aria-live="polite">
-            <motion.span className={styles.thinkingPulse} animate={{ opacity: [0.45, 1, 0.45] }} transition={{ duration: 1.25, repeat: Infinity }} />
-            <span className={styles.thinkingLabel}>Preparing a focused response</span>
-          </div>
+          <ThinkingWeave />
         ) : (
           <div className={styles.content}>
             <div className={styles.text}>
               {isStreaming && message.text ? (
                 <>
-                  <span dangerouslySetInnerHTML={{ __html: renderedHTML }} />
+                  <span className="hinaa-markdown" dangerouslySetInnerHTML={{ __html: renderedHTML }} />
                   <span className={styles.cursor} aria-hidden="true" />
                 </>
               ) : isUser ? (
                 message.text
               ) : (
-                <span dangerouslySetInnerHTML={{ __html: renderedHTML }} />
+                <span className="hinaa-markdown" dangerouslySetInnerHTML={{ __html: renderedHTML }} />
               )}
             </div>
           </div>

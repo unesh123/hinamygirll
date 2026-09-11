@@ -707,15 +707,65 @@ class ConversationService:
                 "",
                 text,
             ).strip()
-            plan.toolRequests.append(ToolRequest(
-                toolName="image_generate",
-                parameters={
-                    "prompt": prompt_str if prompt_str else text,
-                    "count": 1,
-                    "mode": "fast",
-                    "strategy": "variations",
-                },
-            ))
+            image_parameters: dict[str, object] = {
+                "prompt": prompt_str if prompt_str else text,
+                "count": 1,
+                "mode": "fast",
+                "strategy": "variations",
+            }
+            lower_prompt = f"{prompt_str} {lower_text}"
+            if re.search(r"\b(ultra|hd|high quality|quality|poster|wallpaper|print)\b", lower_prompt):
+                image_parameters["mode"] = "ultra" if "ultra" in lower_prompt else "quality"
+            if re.search(r"\b(anime|manga|mangaka|mangal|एनिमे)\b|cel ?shad", lower_prompt, re.IGNORECASE):
+                image_parameters["style"] = "anime"
+            elif re.search(r"\b(photorealistic|realistic|photo real|dslr|portrait photo)\b", lower_prompt):
+                image_parameters["style"] = "realistic"
+            elif re.search(r"\b(cinematic|movie|film|trailer|poster)\b", lower_prompt):
+                image_parameters["style"] = "cinematic"
+            elif re.search(r"\b(3d|render|octane|cgi)\b", lower_prompt):
+                image_parameters["style"] = "3d-art"
+            elif re.search(r"\b(watercolor|painting|canvas art)\b", lower_prompt):
+                image_parameters["style"] = "watercolor"
+
+            # “Use that reference / like the images you found” → make the most
+            # recent named subject the visual reference for this generation.
+            reference_led = re.search(
+                r"(?i)\b(based on|using|like|from)\s+(?:the\s+|that\s+|this\s+)?(?:same\s+)?"
+                r"(?:earlier\s+|previous\s+|last\s+)?(?:reference(?:\s+image)?|image|picture|photo|result)\b",
+                lower_text,
+            ) or re.search(r"(?i)\bउसी\s+(?:तस्वीर|चित्र|रेफरेन्स)\b", lower_text)
+            if reference_led:
+                named = re.search(
+                    r"(?i)(?:of|for|about|बाबत|को|की)\s+([A-Z][\w .,'-]{1,48}?)(?:\s+(?:based|using|like|image|picture|photo)\b|[.!?]\s*$|$)",
+                    text,
+                )
+                subject = (named.group(1) if named else "").strip(" .,'")
+                if not subject:
+                    proper = re.search(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,3})\b", text)
+                    subject = proper.group(1) if proper else ""
+                if subject:
+                    image_parameters["reference_query"] = subject
+            plan.toolRequests.append(ToolRequest(toolName="image_generate", parameters=image_parameters))
+
+        deep_research_command = is_command(
+            [
+                r"^\s*(please\s+)?(deep\s*[- ]?research|research\b|investigate\b|dig\s+into\b|find\s+everything\s+about\b|fetch\s+(?:details|info)\s+about\b|tell\s+me\s+everything\s+about\b)",
+                r"\b(deep\s+research|full\s+report|detailed\s+research)\b",
+                r"(?i)^(?:बुझ|अध्यन|विस्तार(?:मा)?\s+बुझ)",
+            ],
+            target=r"\b(research|investigate|sources?|details?|everything|report|about)\b|अध्यन|बुझ",
+        )
+        if deep_research_command and not any(t.toolName == "deep_research" for t in plan.toolRequests):
+            topic = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:deep\s*[- ]?research|research\s+(?:on\s+|into\s+|me\s+)?|investigate\b|dig\s+into\b|fetch\s+(?:details|info)\s+about\s+|tell\s+me\s+|find\s+)?(?:everything|all\s+the\s+details|details|info)?\s*(?:about|on|of|for)?\s*",
+                "",
+                text,
+            ).strip(" :.!?，,")
+            if topic:
+                plan.toolRequests.append(ToolRequest(
+                    toolName="deep_research",
+                    parameters={"topic": topic, "depth": 20},
+                ))
 
         browser_command = is_command(
             [r"^\s*(please\s+)?(open|navigate to|go to|browse to|launch|खोलो|खोल्नुहोस्)\b"],
@@ -1031,13 +1081,50 @@ class ConversationService:
         self, request: TurnRequest, correlation_id: str, *, user_id: str | None = None
     ) -> AsyncIterator[bytes]:
         yield self._event("thinking", {"correlationId": correlation_id})
-        result = await self.create_plan(request, user_id=user_id)
-        words = result.value.displayText.split(" ")
-        for index, word in enumerate(words):
-            delta = word if index == len(words) - 1 else f"{word} "
-            yield self._event("text.delta", {"delta": delta})
-            if request.providerMode == "mock":
-                await asyncio.sleep(0.012)
+
+        # True token-by-token streaming. Provider deltas are relayed onto the
+        # wire the instant they are produced instead of waiting for the whole
+        # plan, so the interface reveals text continuously like a live brain.
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+        async def emit_delta(delta: str) -> None:
+            await queue.put(delta)
+
+        turn_task = asyncio.create_task(
+            self.create_live_plan(request, emit_delta, user_id=user_id)
+        )
+        emitted: list[str] = []
+        try:
+            while True:
+                getter = asyncio.create_task(queue.get())
+                done, _ = await asyncio.wait(
+                    {getter, turn_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if getter in done:
+                    item = getter.result()
+                    if item is not None:
+                        emitted.append(item)
+                        yield self._event("text.delta", {"delta": item})
+                    continue
+                getter.cancel()
+                # The turn finished; drain any deltas queued a beat earlier.
+                while not queue.empty():
+                    item = queue.get_nowait()
+                    if isinstance(item, str):
+                        emitted.append(item)
+                        yield self._event("text.delta", {"delta": item})
+                break
+            result = await turn_task
+            # Guarantee full display text even if a provider finished without
+            # streaming (or emitted a different final polish than its deltas).
+            full_text = result.value.displayText or ""
+            streamed_so_far = "".join(emitted)
+            if full_text.startswith(streamed_so_far) and len(full_text) > len(streamed_so_far):
+                remainder = full_text[len(streamed_so_far):]
+                yield self._event("text.delta", {"delta": remainder})
+        finally:
+            if not turn_task.done():
+                turn_task.cancel()
         plan_payload: dict[str, object] = {
             "plan": result.value.model_dump(),
             "provider": result.provider,
