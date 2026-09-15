@@ -20,6 +20,7 @@ export interface ModelSelectorV7Props {
   onSelectAuto: () => void;
   onSelectModel: (model: DiscoveredModel) => void;
   backendConnected?: boolean;
+  placement?: "top" | "bottom";
 }
 
 export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
@@ -31,6 +32,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   onSelectAuto,
   onSelectModel,
   backendConnected = true,
+  placement = "bottom",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -138,8 +140,10 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
           data-testid="composer-model-dropdown"
           style={{
             position: "absolute",
-            bottom: "calc(100% + 8px)",
-            left: 0,
+            top: placement === "bottom" ? "calc(100% + 8px)" : undefined,
+            bottom: placement === "top" ? "calc(100% + 8px)" : undefined,
+            right: placement === "bottom" ? 0 : undefined,
+            left: placement === "top" ? 0 : undefined,
             width: 280,
             maxHeight: 420,
             overflowY: "auto",

@@ -235,7 +235,7 @@ export function WorkMode({
         return saved as DockMode;
       }
     } catch {}
-    return "right";
+    return "hidden";
   });
 
   const handleDockModeChange = (mode: DockMode) => {
@@ -705,15 +705,16 @@ export function WorkMode({
         background: "var(--bg-canvas)",
       }}
     >
-      {/* ── Header ─────────────────────────────────── */}
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 var(--space-4)",
-          borderBottom: "1px solid var(--border-subtle)",
-          background: "var(--bg-surface)",
+      {/* ── Mobile Header Only ─────────────────────────────────── */}
+      {isMobile && (
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 var(--space-4)",
+            borderBottom: "1px solid var(--border-subtle)",
+            background: "var(--bg-surface)",
           flexShrink: 0,
           height: 48,
           gap: 8,
@@ -840,6 +841,7 @@ export function WorkMode({
           <StatusDot state={companionState} />
         </div>
       </header>
+      )}
 
       {/* ── Voice Active Banner ───────────────────────── */}
       {isVoiceActive && (
