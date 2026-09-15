@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, type KeyboardEvent, type ChangeEvent } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
+  ArrowUp,
   Mic,
   Plus,
   Globe,
@@ -11,7 +11,6 @@ import {
   X,
   Target,
   MessageSquare,
-  Brain,
   ChevronDown,
   User,
   Palette,
@@ -22,9 +21,15 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   Tv,
-  HelpCircle,
   Terminal,
   Zap,
+  Users,
+  Music,
+  Video,
+  Camera,
+  Link,
+  Layout,
+  Network,
 } from "lucide-react";
 
 export type ActionMode = "chat" | "research" | "create" | "code" | "goal";
@@ -42,7 +47,13 @@ export interface ContextChip {
 export interface ComposerV6Props {
   value: string;
   onChange: (value: string) => void;
-  onSend: (options?: { mode?: ActionMode; intelligence?: IntelligenceLevel; attachmentRole?: AttachmentRole }) => void;
+  onSend: (options?: {
+    mode?: ActionMode;
+    intelligence?: IntelligenceLevel;
+    attachmentRole?: AttachmentRole;
+    isGoalMode?: boolean;
+    isAgentCluster?: boolean;
+  }) => void;
   onStop?: () => void;
   isGenerating?: boolean;
   disabled?: boolean;
@@ -51,6 +62,7 @@ export interface ComposerV6Props {
   // Context Chips V2
   contextChips?: ContextChip[];
   onRemoveChip?: (id: string) => void;
+  onAddChip?: (chip: ContextChip) => void;
   // Legacy aliases
   activeTopic?: string | null;
   onClearTopic?: () => void;
@@ -63,12 +75,18 @@ export interface ComposerV6Props {
   // Action Mode
   actionMode?: ActionMode;
   onChangeActionMode?: (mode: ActionMode) => void;
+  // Goal Mode & Agent Cluster
+  isGoalMode?: boolean;
+  onToggleGoalMode?: () => void;
+  isAgentCluster?: boolean;
+  onToggleAgentCluster?: () => void;
   // Attachments
   attachedImage?: string | null;
   onImageAttach?: (dataUrl: string | null, role?: AttachmentRole) => void;
   // Smart + menu triggers
-  onUploadFile?: () => void;
+  onUploadFile?: (type?: string) => void;
   onSelectArtifact?: (type: string) => void;
+  onAttachContext?: (type: string) => void;
 }
 
 export const ComposerV6: React.FC<ComposerV6Props> = ({
@@ -82,6 +100,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onVoiceToggle,
   contextChips = [],
   onRemoveChip,
+  onAddChip,
   activeTopic,
   onClearTopic,
   activeModel,
@@ -91,17 +110,24 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onChangeIntelligence,
   actionMode = "chat",
   onChangeActionMode,
+  isGoalMode = false,
+  onToggleGoalMode,
+  isAgentCluster = false,
+  onToggleAgentCluster,
   attachedImage,
   onImageAttach,
   onUploadFile,
   onSelectArtifact,
+  onAttachContext,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedRole, setSelectedRole] = useState<AttachmentRole>("style_reference");
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showIntelMenu, setShowIntelMenu] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [previewChip, setPreviewChip] = useState<ContextChip | null>(null);
 
   // Auto-grow textarea
@@ -116,13 +142,33 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     adjustHeight();
   }, [value, adjustHeight]);
 
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowPlusMenu(false);
+        setShowIntelMenu(false);
+        setShowCreateMenu(false);
+        setShowRoleMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (isGenerating) {
         onStop?.();
       } else if (value.trim() || attachedImage) {
-        onSend({ mode: actionMode, intelligence: intelligenceLevel, attachmentRole: selectedRole });
+        onSend({
+          mode: isGoalMode ? "goal" : actionMode,
+          intelligence: intelligenceLevel,
+          attachmentRole: selectedRole,
+          isGoalMode,
+          isAgentCluster,
+        });
       }
     }
   };
@@ -175,6 +221,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     switch (type) {
       case "project":
         return <FolderGit2 size={12} />;
+      case "repo":
+        return <Globe size={12} />;
       case "file":
         return <FileText size={12} />;
       case "image":
@@ -189,25 +237,25 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     }
   };
 
-  const placeholderText =
-    actionMode === "research"
-      ? "Ask a question to research with live web sources & citations..."
-      : actionMode === "create"
-      ? "Describe the image, presentation, or document to create..."
-      : actionMode === "code"
-      ? "Describe code to write, test, or repair autonomously..."
-      : actionMode === "goal"
-      ? "Define an end goal with acceptance criteria and constraints..."
-      : "Ask HINAA anything...";
+  const placeholderText = isGoalMode
+    ? "Define your goal, constraints, and success criteria for Hina..."
+    : isAgentCluster
+    ? "Describe a task for the 4-worker Agent Cluster [Architect, Coder, QA, Critic]..."
+    : actionMode === "research"
+    ? "Ask a question to research with live web sources & citations..."
+    : actionMode === "create"
+    ? "Describe the website, document, presentation, or code to create..."
+    : "Ask Hina anything...";
 
   return (
     <div
+      ref={containerRef}
       className="composer-v6"
       style={{
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        padding: "10px 14px",
+        padding: "12px 14px",
         background: "var(--surface-card, #ffffff)",
         border: "1px solid var(--border-default, rgba(0, 0, 0, 0.1))",
         borderRadius: "var(--radius-lg, 16px)",
@@ -216,13 +264,13 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
         position: "relative",
       }}
     >
-      {/* ── Top Bar: Context Chips V2 & Mode Badges ─────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-        {/* Chips list */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      {/* ── Top Bar: Context Chips V2 [Project: HINAA x] [Repo: frontend x] [IMG_24 x] ─────────────────────── */}
+      {allChips.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingBottom: 2 }}>
           {allChips.map((chip) => (
             <div
               key={chip.id}
+              data-testid={`context-chip-${chip.id}`}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -235,12 +283,13 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 fontWeight: 500,
                 color: "var(--text-secondary, #5e545d)",
                 cursor: "pointer",
+                transition: "all 0.15s ease",
               }}
               onClick={() => setPreviewChip(previewChip?.id === chip.id ? null : chip)}
               title={chip.metadata || "Click to preview context"}
             >
               <span style={{ color: "var(--accent-primary, #dc5f8b)" }}>{getChipIcon(chip.type)}</span>
-              <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {chip.label}
               </span>
               <button
@@ -250,6 +299,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   if (chip.id === "active-topic") onClearTopic?.();
                   else onRemoveChip?.(chip.id);
                 }}
+                aria-label={`Remove ${chip.label}`}
                 style={{
                   background: "none",
                   border: "none",
@@ -257,138 +307,15 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   display: "flex",
                   alignItems: "center",
                   cursor: "pointer",
-                  color: "var(--text-tertiary)",
+                  color: "var(--text-tertiary, #847a83)",
                 }}
               >
                 <X size={11} />
               </button>
             </div>
           ))}
-
-          {/* Action Modes Selector */}
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 2,
-              padding: 2,
-              borderRadius: "var(--radius-full, 9999px)",
-              background: "var(--surface-subtle, #f6f3f7)",
-              border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-            }}
-          >
-            {(
-              [
-                { mode: "chat", label: "Chat", icon: MessageSquare },
-                { mode: "research", label: "Research", icon: Globe },
-                { mode: "create", label: "Create", icon: Sparkles },
-                { mode: "code", label: "Code", icon: Code },
-                { mode: "goal", label: "Goal", icon: Target },
-              ] as const
-            ).map((item) => {
-              const active = actionMode === item.mode;
-              const IconComp = item.icon;
-              return (
-                <button
-                  key={item.mode}
-                  type="button"
-                  onClick={() => onChangeActionMode?.(item.mode)}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    padding: "3px 8px",
-                    borderRadius: "var(--radius-full, 9999px)",
-                    border: "none",
-                    background: active ? "var(--surface-card, #ffffff)" : "transparent",
-                    color: active ? "var(--accent-primary, #dc5f8b)" : "var(--text-tertiary, #847a83)",
-                    boxShadow: active ? "var(--shadow-sm)" : "none",
-                    fontSize: 11,
-                    fontWeight: active ? 600 : 500,
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <IconComp size={11} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
         </div>
-
-        {/* Right side: Intelligence level badge */}
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            onClick={() => setShowIntelMenu(!showIntelMenu)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "3px 9px",
-              borderRadius: "var(--radius-full, 9999px)",
-              background: "var(--surface-subtle, #f6f3f7)",
-              border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-              fontSize: 11,
-              fontWeight: 600,
-              color: intelligenceLevel === "auto" ? "var(--text-secondary)" : "var(--accent-primary)",
-              cursor: "pointer",
-            }}
-            title="Intelligence Level Selector"
-          >
-            <Zap size={11} />
-            <span style={{ textTransform: "capitalize" }}>{intelligenceLevel}</span>
-            <ChevronDown size={10} style={{ opacity: 0.6 }} />
-          </button>
-
-          {showIntelMenu && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 4px)",
-                right: 0,
-                width: 160,
-                padding: 4,
-                background: "var(--surface-overlay, #ffffff)",
-                borderRadius: "var(--radius-md, 12px)",
-                boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
-                border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
-                zIndex: 50,
-              }}
-            >
-              {(["auto", "fast", "deep", "max"] as const).map((lvl) => (
-                <button
-                  key={lvl}
-                  type="button"
-                  onClick={() => {
-                    onChangeIntelligence?.(lvl);
-                    setShowIntelMenu(false);
-                  }}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "6px 10px",
-                    borderRadius: "var(--radius-sm, 8px)",
-                    border: "none",
-                    background: intelligenceLevel === lvl ? "var(--surface-subtle)" : "transparent",
-                    color: intelligenceLevel === lvl ? "var(--accent-primary)" : "var(--text-primary)",
-                    fontSize: 12,
-                    fontWeight: intelligenceLevel === lvl ? 600 : 400,
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                >
-                  <span style={{ textTransform: "capitalize" }}>{lvl}</span>
-                  {intelligenceLevel === lvl && <CheckCircle2 size={12} />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Chip Preview Popover */}
       {previewChip && (
@@ -480,7 +407,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   padding: 4,
                   background: "var(--surface-overlay, #ffffff)",
                   borderRadius: "var(--radius-md, 12px)",
-                  boxShadow: "var(--shadow-dropdown)",
+                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
                   border: "1px solid var(--border-default)",
                   zIndex: 50,
                 }}
@@ -524,6 +451,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
       {/* ── Main Textarea ─────────────────────────────────────────────────── */}
       <textarea
         ref={textareaRef}
+        data-testid="composer-input"
         aria-label="Message HINAA"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -541,158 +469,527 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           fontSize: 14,
           lineHeight: "1.5",
           color: "var(--text-primary, #1e191d)",
-          minHeight: 36,
+          minHeight: 38,
           maxHeight: 200,
           padding: "2px 0",
         }}
       />
 
-      {/* ── Bottom Controls: Smart Plus Menu, Voice, Send ───────────────── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
-        {/* Left: Smart `+` Menu */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
+      {/* ── Bottom Controls: + | Auto ▾ | Goal Mode | Create ▾ | Agent Cluster ... 🎙 | ↑ ───────────────── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          flexWrap: "wrap",
+          paddingTop: 4,
+          borderTop: "1px solid var(--border-subtle, rgba(0,0,0,0.05))",
+        }}
+      >
+        {/* Left cluster of controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {/* 1. `+` Menu Button */}
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              data-testid="composer-plus-btn"
+              onClick={() => {
+                setShowPlusMenu(!showPlusMenu);
+                setShowIntelMenu(false);
+                setShowCreateMenu(false);
+              }}
+              title="Attach, Upload, or Integrate"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: showPlusMenu ? "var(--surface-active, #ece7ed)" : "var(--surface-subtle, #f6f3f7)",
+                border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                color: "var(--text-secondary, #5e545d)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Plus size={15} />
+            </button>
+
+            {/* Smart Plus Menu Dropdown (4 Categories: Files & Media, Attach Context, Create, Integrations) */}
+            {showPlusMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 8px)",
+                  left: 0,
+                  width: 240,
+                  maxHeight: 360,
+                  overflowY: "auto",
+                  padding: 6,
+                  background: "var(--surface-overlay, #ffffff)",
+                  borderRadius: "var(--radius-md, 12px)",
+                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
+                  border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
+                  zIndex: 60,
+                }}
+              >
+                {/* 1. Files & Media */}
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
+                  FILES & MEDIA
+                </div>
+                {[
+                  { label: "Upload Image", icon: ImageIcon, action: () => fileInputRef.current?.click() },
+                  { label: "Upload Audio", icon: Music, action: () => onUploadFile?.("audio") },
+                  { label: "Upload Document", icon: FileText, action: () => onUploadFile?.("document") },
+                  { label: "Upload Video", icon: Video, action: () => onUploadFile?.("video") },
+                  { label: "Take Photo", icon: Camera, action: () => onUploadFile?.("camera") },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      item.action();
+                      setShowPlusMenu(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: 12,
+                      color: "var(--text-primary, #1e191d)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+
+                {/* 2. Attach Context */}
+                <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
+                  ATTACH CONTEXT
+                </div>
+                {[
+                  {
+                    label: "Active Project",
+                    icon: FolderGit2,
+                    action: () =>
+                      onAddChip?.({
+                        id: `proj-${Date.now()}`,
+                        type: "project",
+                        label: "Project: HINAA",
+                        metadata: "HINAA Autonomous Operating System",
+                      }),
+                  },
+                  {
+                    label: "GitHub Repo",
+                    icon: Globe,
+                    action: () =>
+                      onAddChip?.({
+                        id: `repo-${Date.now()}`,
+                        type: "repo",
+                        label: "Repo: frontend",
+                        metadata: "apps/web codebase",
+                      }),
+                  },
+                  {
+                    label: "Paste URL",
+                    icon: Link,
+                    action: () => {
+                      const url = window.prompt("Enter Context URL:");
+                      if (url) {
+                        onAddChip?.({
+                          id: `url-${Date.now()}`,
+                          type: "topic",
+                          label: url.replace(/^https?:\/\//, "").slice(0, 20),
+                          metadata: url,
+                        });
+                      }
+                    },
+                  },
+                  {
+                    label: "Live Canvas",
+                    icon: Layout,
+                    action: () =>
+                      onAddChip?.({
+                        id: `canvas-${Date.now()}`,
+                        type: "artifact",
+                        label: "Canvas: Active Locus",
+                        metadata: "Real-time canvas context",
+                      }),
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      item.action();
+                      setShowPlusMenu(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: 12,
+                      color: "var(--text-primary, #1e191d)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <item.icon size={13} style={{ color: "#0ea5e9" }} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+
+                {/* 3. Create */}
+                <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
+                  CREATE
+                </div>
+                {[
+                  { type: "website", label: "Website", icon: Globe },
+                  { type: "document", label: "Document", icon: FileText },
+                  { type: "presentation", label: "Presentation", icon: Tv },
+                  { type: "spreadsheet", label: "Spreadsheet", icon: FileSpreadsheet },
+                  { type: "image", label: "Image", icon: ImageIcon },
+                  { type: "video", label: "Video", icon: Video },
+                  { type: "code", label: "Code", icon: Code },
+                  { type: "diagram", label: "Diagram", icon: Network },
+                  { type: "analysis", label: "Analysis", icon: Terminal },
+                ].map((item) => (
+                  <button
+                    key={item.type}
+                    type="button"
+                    onClick={() => {
+                      onSelectArtifact?.(item.type);
+                      setShowPlusMenu(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: 12,
+                      color: "var(--text-primary, #1e191d)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+
+                {/* 4. Integrations */}
+                <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
+                  INTEGRATIONS
+                </div>
+                {[
+                  { label: "Google Drive", icon: FolderGit2 },
+                  { label: "Notion", icon: FileText },
+                  { label: "GitHub", icon: Globe },
+                  { label: "Slack", icon: MessageSquare },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      onAddChip?.({
+                        id: `integ-${Date.now()}`,
+                        type: "artifact",
+                        label: item.label,
+                        metadata: `${item.label} integration sync`,
+                      });
+                      setShowPlusMenu(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: 12,
+                      color: "var(--text-primary, #1e191d)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <item.icon size={13} style={{ color: "#10b981" }} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleFileChange}
+            />
+          </div>
+
+          {/* 2. `Auto ▾` Model / Intelligence Selector */}
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              data-testid="composer-model-btn"
+              onClick={() => {
+                setShowIntelMenu(!showIntelMenu);
+                setShowPlusMenu(false);
+                setShowCreateMenu(false);
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "4px 8px",
+                borderRadius: "var(--radius-full, 9999px)",
+                background: "var(--surface-subtle, #f6f3f7)",
+                border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                fontSize: 11,
+                fontWeight: 600,
+                color: intelligenceLevel === "auto" ? "var(--text-secondary, #5e545d)" : "var(--accent-primary, #dc5f8b)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              title="Intelligence & Model Tier"
+            >
+              <Zap size={11} />
+              <span style={{ textTransform: "capitalize" }}>{intelligenceLevel}</span>
+              <ChevronDown size={10} style={{ opacity: 0.6 }} />
+            </button>
+
+            {showIntelMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 8px)",
+                  left: 0,
+                  width: 200,
+                  padding: 4,
+                  background: "var(--surface-overlay, #ffffff)",
+                  borderRadius: "var(--radius-md, 12px)",
+                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
+                  border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
+                  zIndex: 60,
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", padding: "4px 8px" }}>
+                  INTELLIGENCE TIER
+                </div>
+                {[
+                  { lvl: "auto" as const, label: "Auto (Adaptive)", desc: "Infers depth dynamically" },
+                  { lvl: "fast" as const, label: "Fast (Turn)", desc: "Low latency quick replies" },
+                  { lvl: "deep" as const, label: "Deep (Reasoning)", desc: "Architecture & deep analysis" },
+                  { lvl: "max" as const, label: "Max (Exhaustive)", desc: "Full artifact generation" },
+                ].map((item) => (
+                  <button
+                    key={item.lvl}
+                    type="button"
+                    onClick={() => {
+                      onChangeIntelligence?.(item.lvl);
+                      setShowIntelMenu(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "6px 8px",
+                      borderRadius: "var(--radius-sm, 8px)",
+                      border: "none",
+                      background: intelligenceLevel === item.lvl ? "var(--surface-subtle)" : "transparent",
+                      color: intelligenceLevel === item.lvl ? "var(--accent-primary)" : "var(--text-primary)",
+                      fontSize: 12,
+                      fontWeight: intelligenceLevel === item.lvl ? 600 : 400,
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <div>
+                      <div>{item.label}</div>
+                      <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{item.desc}</div>
+                    </div>
+                    {intelligenceLevel === item.lvl && <CheckCircle2 size={12} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 3. `Goal Mode` Toggle Button */}
           <button
             type="button"
-            onClick={() => setShowPlusMenu(!showPlusMenu)}
-            title="Attach, Upload, or Create"
+            data-testid="composer-goal-btn"
+            aria-pressed={isGoalMode}
+            onClick={onToggleGoalMode}
             style={{
-              display: "flex",
+              display: "inline-flex",
               alignItems: "center",
-              justifyContent: "center",
-              width: 30,
-              height: 30,
-              borderRadius: "50%",
-              background: showPlusMenu ? "var(--surface-active)" : "var(--surface-subtle)",
-              border: "1px solid var(--border-subtle)",
-              color: "var(--text-secondary)",
+              gap: 4,
+              padding: "4px 9px",
+              borderRadius: "var(--radius-full, 9999px)",
+              background: isGoalMode ? "rgba(220, 95, 139, 0.15)" : "var(--surface-subtle, #f6f3f7)",
+              border: isGoalMode ? "1px solid var(--accent-primary, #dc5f8b)" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+              color: isGoalMode ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
+              fontSize: 11,
+              fontWeight: isGoalMode ? 700 : 500,
               cursor: "pointer",
               transition: "all 0.15s ease",
             }}
+            title="Toggle Autonomous Goal Mode"
           >
-            <Plus size={15} />
+            <Target size={12} />
+            <span>Goal Mode</span>
           </button>
 
-          {/* Smart Plus Menu Dropdown */}
-          {showPlusMenu && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: "calc(100% + 8px)",
-                left: 0,
-                width: 220,
-                padding: 6,
-                background: "var(--surface-overlay, #ffffff)",
-                borderRadius: "var(--radius-md, 12px)",
-                boxShadow: "var(--shadow-dropdown)",
-                border: "1px solid var(--border-default)",
-                zIndex: 50,
+          {/* 4. `Create ▾` Dropdown */}
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              data-testid="composer-create-btn"
+              onClick={() => {
+                setShowCreateMenu(!showCreateMenu);
+                setShowPlusMenu(false);
+                setShowIntelMenu(false);
               }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "4px 8px",
+                borderRadius: "var(--radius-full, 9999px)",
+                background: "var(--surface-subtle, #f6f3f7)",
+                border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                fontSize: 11,
+                fontWeight: 500,
+                color: "var(--text-secondary, #5e545d)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              title="Create Artifacts & Deliverables"
             >
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", padding: "4px 8px" }}>
-                UPLOAD & ATTACH
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  fileInputRef.current?.click();
-                  setShowPlusMenu(false);
-                }}
+              <Sparkles size={11} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+              <span>Create</span>
+              <ChevronDown size={10} style={{ opacity: 0.6 }} />
+            </button>
+
+            {showCreateMenu && (
+              <div
                 style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "6px 8px",
-                  borderRadius: 6,
-                  border: "none",
-                  background: "transparent",
-                  fontSize: 12,
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                  textAlign: "left",
+                  position: "absolute",
+                  bottom: "calc(100% + 8px)",
+                  left: 0,
+                  width: 180,
+                  padding: 4,
+                  background: "var(--surface-overlay, #ffffff)",
+                  borderRadius: "var(--radius-md, 12px)",
+                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
+                  border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
+                  zIndex: 60,
                 }}
               >
-                <ImageIcon size={14} style={{ color: "var(--accent-primary)" }} />
-                <span>Upload Image</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onUploadFile?.();
-                  setShowPlusMenu(false);
-                }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "6px 8px",
-                  borderRadius: 6,
-                  border: "none",
-                  background: "transparent",
-                  fontSize: 12,
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <FileText size={14} style={{ color: "var(--accent-primary)" }} />
-                <span>Upload Document / Code</span>
-              </button>
-
-              <div style={{ height: 1, background: "var(--border-subtle)", margin: "4px 0" }} />
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", padding: "4px 8px" }}>
-                CREATE
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", padding: "4px 8px" }}>
+                  CREATE ARTIFACT
+                </div>
+                {[
+                  { type: "website", label: "Website", icon: Globe },
+                  { type: "document", label: "Document", icon: FileText },
+                  { type: "presentation", label: "Presentation", icon: Tv },
+                  { type: "spreadsheet", label: "Spreadsheet", icon: FileSpreadsheet },
+                  { type: "image", label: "Image", icon: ImageIcon },
+                  { type: "video", label: "Video", icon: Video },
+                  { type: "code", label: "Code", icon: Code },
+                  { type: "diagram", label: "Diagram", icon: Network },
+                  { type: "analysis", label: "Analysis", icon: Terminal },
+                ].map((item) => (
+                  <button
+                    key={item.type}
+                    type="button"
+                    onClick={() => {
+                      onSelectArtifact?.(item.type);
+                      setShowCreateMenu(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: 12,
+                      color: "var(--text-primary)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
               </div>
-              {[
-                { type: "image", label: "Image Studio", icon: ImageIcon },
-                { type: "document", label: "Document / Report", icon: FileText },
-                { type: "presentation", label: "Presentation Deck", icon: Tv },
-                { type: "code", label: "Autorepair Coding Run", icon: Terminal },
-              ].map((item) => (
-                <button
-                  key={item.type}
-                  type="button"
-                  onClick={() => {
-                    onSelectArtifact?.(item.type);
-                    setShowPlusMenu(false);
-                  }}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "6px 8px",
-                    borderRadius: 6,
-                    border: "none",
-                    background: "transparent",
-                    fontSize: 12,
-                    color: "var(--text-primary)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                >
-                  <item.icon size={14} style={{ color: "var(--accent-primary)" }} />
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
+            )}
+          </div>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={handleFileChange}
-          />
+          {/* 5. `Agent Cluster` Toggle Button */}
+          <button
+            type="button"
+            data-testid="composer-cluster-btn"
+            aria-pressed={isAgentCluster}
+            onClick={onToggleAgentCluster}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 9px",
+              borderRadius: "var(--radius-full, 9999px)",
+              background: isAgentCluster ? "rgba(147, 51, 234, 0.15)" : "var(--surface-subtle, #f6f3f7)",
+              border: isAgentCluster ? "1px solid #9333ea" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+              color: isAgentCluster ? "#9333ea" : "var(--text-secondary, #5e545d)",
+              fontSize: 11,
+              fontWeight: isAgentCluster ? 700 : 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title="Toggle 4-Worker Parallel Agent Cluster"
+          >
+            <Users size={12} />
+            <span>Agent Cluster</span>
+          </button>
         </div>
 
-        {/* Right: Voice Toggle & Send Button */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Right cluster of controls: 🎙 Voice & ↑ Send */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {onVoiceToggle && (
             <button
               type="button"
+              data-testid="composer-voice-btn"
               onClick={onVoiceToggle}
               title={isVoiceActive ? "Mute Voice" : "Enable Real-time Voice"}
               style={{
@@ -702,9 +999,9 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 width: 32,
                 height: 32,
                 borderRadius: "50%",
-                background: isVoiceActive ? "var(--accent-subtle)" : "var(--surface-subtle)",
-                border: isVoiceActive ? "1px solid var(--accent-primary)" : "1px solid var(--border-subtle)",
-                color: isVoiceActive ? "var(--accent-primary)" : "var(--text-secondary)",
+                background: isVoiceActive ? "var(--accent-subtle, rgba(220, 95, 139, 0.15))" : "var(--surface-subtle, #f6f3f7)",
+                border: isVoiceActive ? "1px solid var(--accent-primary, #dc5f8b)" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                color: isVoiceActive ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
@@ -736,7 +1033,16 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           ) : (
             <button
               type="button"
-              onClick={() => onSend({ mode: actionMode, intelligence: intelligenceLevel, attachmentRole: selectedRole })}
+              data-testid="composer-send-btn"
+              onClick={() =>
+                onSend({
+                  mode: isGoalMode ? "goal" : actionMode,
+                  intelligence: intelligenceLevel,
+                  attachmentRole: selectedRole,
+                  isGoalMode,
+                  isAgentCluster,
+                })
+              }
               disabled={disabled || (!value.trim() && !attachedImage)}
               title="Send Message (Enter)"
               style={{
@@ -748,16 +1054,16 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 borderRadius: "50%",
                 background:
                   !value.trim() && !attachedImage
-                    ? "var(--surface-subtle)"
+                    ? "var(--surface-subtle, #f6f3f7)"
                     : "var(--accent-primary, #dc5f8b)",
-                color: !value.trim() && !attachedImage ? "var(--text-muted)" : "#ffffff",
+                color: !value.trim() && !attachedImage ? "var(--text-muted, #a198a0)" : "#ffffff",
                 border: "none",
                 cursor: !value.trim() && !attachedImage ? "not-allowed" : "pointer",
-                boxShadow: !value.trim() && !attachedImage ? "none" : "var(--shadow-sm)",
+                boxShadow: !value.trim() && !attachedImage ? "none" : "var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
                 transition: "all 0.15s ease",
               }}
             >
-              <Send size={14} />
+              <ArrowUp size={15} />
             </button>
           )}
         </div>

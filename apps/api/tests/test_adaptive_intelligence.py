@@ -8,23 +8,31 @@ from hinaa_api.intelligence.research_detector import ResearchNeedDetector
 def test_answer_depth_inference():
     # Quick queries
     assert AnswerDepthController.infer_depth("hi") == AnswerDepth.QUICK
+    assert AnswerDepthController.infer_depth("hi hina") == AnswerDepth.QUICK
     assert AnswerDepthController.infer_depth("what is 4+4?") == AnswerDepth.QUICK
     assert AnswerDepthController.infer_depth("capital of France") == AnswerDepth.QUICK
     assert AnswerDepthController.infer_depth("give me a quick answer on Python GIL") == AnswerDepth.QUICK
 
     # Standard query
+    assert AnswerDepthController.infer_depth("what is Next.js?") == AnswerDepth.STANDARD
     assert AnswerDepthController.infer_depth("What are some good anime to watch this weekend?") == AnswerDepth.STANDARD
 
     # Detailed query
+    assert AnswerDepthController.infer_depth("how does Next.js routing work?") == AnswerDepth.DETAILED
     assert AnswerDepthController.infer_depth("Explain how vector embeddings work in RAG") == AnswerDepth.DETAILED
     assert AnswerDepthController.infer_depth("What are the pros and cons of SQLite vs Postgres?") == AnswerDepth.DETAILED
 
     # Deep query
+    assert AnswerDepthController.infer_depth("design the ideal Next.js architecture for my Hina app") == AnswerDepth.DEEP
+    assert AnswerDepthController.infer_depth("research the best production design and compare options") == AnswerDepth.DEEP
     assert AnswerDepthController.infer_depth("Deep dive into the architecture of distributed consensus algorithms") == AnswerDepth.DEEP
     assert AnswerDepthController.infer_depth("System design for high-throughput WebSocket message broker with trade-offs") == AnswerDepth.DEEP
 
-    # Exhaustive query
+    # Exhaustive / Artifact query
+    assert AnswerDepthController.infer_depth("give me the complete implementation specification") == AnswerDepth.EXHAUSTIVE
+    assert AnswerDepthController.infer_depth("make it 10,000 lines") == AnswerDepth.EXHAUSTIVE
     assert AnswerDepthController.infer_depth("Provide a complete specification covering all edge cases and failure modes") == AnswerDepth.EXHAUSTIVE
+
 
 
 def test_research_need_detection():

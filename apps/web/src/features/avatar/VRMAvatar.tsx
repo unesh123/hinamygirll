@@ -67,8 +67,19 @@ const LOCAL_VRM_URL = "/models/hinaa.vrm";
 const SAMPLE_VRM_URL =
   "https://raw.githubusercontent.com/pixiv/three-vrm/dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm";
 
+// In production (Vercel), VRM files are served from GitHub raw CDN via
+// VITE_VRM_CDN_BASE env var to stay under Vercel's 100 MB file size limit.
+// Set this in Vercel dashboard: VITE_VRM_CDN_BASE=https://raw.githubusercontent.com/unesh123/hinamygirll/feat/hinaa-ui-polish/apps/web/public/models
+const CDN_BASE = import.meta.env.VITE_VRM_CDN_BASE as string | undefined;
+const CDN_VRM_URL = CDN_BASE ? `${CDN_BASE.replace(/\/$/, "")}/hinaa.vrm` : null;
+
 async function resolveVrmModelUrl(): Promise<string | null> {
-  for (const url of [LOCAL_VRM_URL, SAMPLE_VRM_URL]) {
+  const candidates = [
+    ...(CDN_VRM_URL ? [CDN_VRM_URL] : []),
+    LOCAL_VRM_URL,
+    SAMPLE_VRM_URL,
+  ];
+  for (const url of candidates) {
     try {
       const response = await fetch(url, {
         method: "HEAD",
@@ -84,6 +95,7 @@ async function resolveVrmModelUrl(): Promise<string | null> {
   }
   return null;
 }
+
 
 let cachedModelUrl: string | null | undefined;
 async function resolveCachedModelUrl(): Promise<string | null> {

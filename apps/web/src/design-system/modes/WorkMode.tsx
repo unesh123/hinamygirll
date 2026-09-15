@@ -19,11 +19,13 @@ import {
   AtSign,
   ArrowDown,
   Target,
+  Users,
+  X,
 } from "lucide-react";
 import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
 import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
-import { ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel } from "../chat/ComposerV6";
+import { ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel, type ContextChip } from "../chat/ComposerV6";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
 import { MediaGalleryV6, type MediaGalleryItem } from "../components/media/MediaGalleryV6";
 import { CodingTaskCard } from "../components/task/CodingTaskCard";
@@ -306,7 +308,76 @@ export function WorkMode({
     } catch { return "auto"; }
   });
 
-  const [goalModeEnabled, setGoalModeEnabled] = useState<boolean>(false);
+  const [goalModeEnabled, setGoalModeEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("hinaa_goal_mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleGoalMode = useCallback(() => {
+    setGoalModeEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("hinaa_goal_mode", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const [agentClusterEnabled, setAgentClusterEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("hinaa_agent_cluster") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleAgentCluster = useCallback(() => {
+    setAgentClusterEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("hinaa_agent_cluster", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const [contextChips, setContextChips] = useState<ContextChip[]>(() => {
+    try {
+      const saved = localStorage.getItem("hinaa_context_chips");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [
+      { id: "p1", type: "project", label: "Project: HINAA", metadata: "HINAA Autonomous Operating System" },
+      { id: "r1", type: "repo", label: "Repo: frontend", metadata: "apps/web React codebase" },
+      { id: "i1", type: "image", label: "IMG_24", metadata: "Active Visual Context" },
+    ];
+  });
+
+  const handleRemoveChip = useCallback((id: string) => {
+    setContextChips((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      try {
+        localStorage.setItem("hinaa_context_chips", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleAddChip = useCallback((chip: ContextChip) => {
+    setContextChips((prev) => {
+      if (prev.some((c) => c.id === chip.id)) return prev;
+      const next = [...prev, chip];
+      try {
+        localStorage.setItem("hinaa_context_chips", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   const [actionMode, setActionMode] = useState<ActionMode>("chat");
   const [intelligenceLevel, setIntelligenceLevel] = useState<IntelligenceLevel>("auto");
   const [localTopic, setLocalTopic] = useState<string | null>(null);
@@ -314,14 +385,18 @@ export function WorkMode({
   const activeTopic = localTopic !== null ? (localTopic || null) : (searchQuery || (plan as any)?.topic || null);
 
   const handleComposerSend = useCallback(
-    (options?: { mode?: ActionMode; intelligence?: IntelligenceLevel; attachmentRole?: AttachmentRole } | ActionMode, role?: AttachmentRole) => {
+    (options?: { mode?: ActionMode; intelligence?: IntelligenceLevel; attachmentRole?: AttachmentRole; isGoalMode?: boolean; isAgentCluster?: boolean } | ActionMode, role?: AttachmentRole) => {
       let text = input.trim();
       if (!text && !attachedImage) return;
 
       const mode = typeof options === "object" ? options?.mode : options;
+      const isGoal = typeof options === "object" ? options?.isGoalMode : goalModeEnabled;
+      const isCluster = typeof options === "object" ? options?.isAgentCluster : agentClusterEnabled;
 
-      if ((goalModeEnabled || mode === "goal") && !text.startsWith("/goal")) {
+      if ((isGoal || mode === "goal") && !text.startsWith("/goal")) {
         text = `/goal ${text}`;
+      } else if (isCluster && !text.includes("[Agent Cluster")) {
+        text = `[Agent Cluster: 4-Worker Swarm Active] ${text}`;
       } else if (mode === "research" && !text.startsWith("/search") && !text.startsWith("/research")) {
         text = `/search ${text}`;
       } else if (mode === "create" && !text.startsWith("/image") && !text.startsWith("/draw")) {
@@ -332,7 +407,7 @@ export function WorkMode({
 
       onSend(text);
     },
-    [input, attachedImage, goalModeEnabled, onSend]
+    [input, attachedImage, goalModeEnabled, agentClusterEnabled, onSend]
   );
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
@@ -1316,6 +1391,70 @@ export function WorkMode({
           </div>
         )}
 
+        {/* Goal Mode Status Banner */}
+        {goalModeEnabled && (
+          <div
+            data-testid="goal-mode-banner"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 12px",
+              marginBottom: 8,
+              background: "rgba(220, 95, 139, 0.08)",
+              border: "1px solid rgba(220, 95, 139, 0.25)",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "var(--accent-primary, #dc5f8b)",
+              fontWeight: 500,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Target size={14} />
+              <span><strong>Goal Mode Active:</strong> Autonomous plan breakdown, verification criteria, and milestone execution enabled.</span>
+            </div>
+            <button
+              onClick={toggleGoalMode}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 2 }}
+              title="Exit Goal Mode"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        {/* Agent Cluster Status Banner */}
+        {agentClusterEnabled && (
+          <div
+            data-testid="agent-cluster-banner"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 12px",
+              marginBottom: 8,
+              background: "rgba(147, 51, 234, 0.08)",
+              border: "1px solid rgba(147, 51, 234, 0.25)",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "#9333ea",
+              fontWeight: 500,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Users size={14} />
+              <span><strong>Agent Cluster Active:</strong> 4 Parallel Workers [Architect, Coder, QA, Critic] running consensus.</span>
+            </div>
+            <button
+              onClick={toggleAgentCluster}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 2 }}
+              title="Deactivate Agent Cluster"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
         {/* Frontier V6 Composer */}
         <ComposerV6
           value={input}
@@ -1348,6 +1487,9 @@ export function WorkMode({
           disabled={disabled}
           isVoiceActive={isVoiceActive}
           onVoiceToggle={isVoiceActive ? onStopVoice : onStartVoice}
+          contextChips={contextChips}
+          onRemoveChip={handleRemoveChip}
+          onAddChip={handleAddChip}
           activeTopic={activeTopic}
           onClearTopic={() => setLocalTopic("")}
           activeModel={activeProviderModel || "gemini-2.5-flash"}
@@ -1357,10 +1499,23 @@ export function WorkMode({
           onChangeIntelligence={setIntelligenceLevel}
           actionMode={actionMode}
           onChangeActionMode={setActionMode}
+          isGoalMode={goalModeEnabled}
+          onToggleGoalMode={toggleGoalMode}
+          isAgentCluster={agentClusterEnabled}
+          onToggleAgentCluster={toggleAgentCluster}
           attachedImage={attachedImage}
           onImageAttach={(dataUrl, role) => {
             onImageAttach(dataUrl);
             if (onUpdateAttachmentRole && role) onUpdateAttachmentRole(role);
+          }}
+          onSelectArtifact={(type) => {
+            if (type === "image") {
+              onInputChange("/image ");
+            } else if (type === "code") {
+              onInputChange("/code ");
+            } else {
+              onInputChange(`Create a comprehensive ${type} for: `);
+            }
           }}
         />
       </div>

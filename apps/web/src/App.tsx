@@ -746,10 +746,7 @@ export default function App() {
   };
 
   const openMemoryPanel = () => {
-    setDrawerMode("info");
-    setDrawerTitle("Memory System");
-    setDrawerContent(<Suspense fallback={lazyPanelFallback}><MemoryPanel isOpen={true} onClose={() => setDrawerOpen(false)} /></Suspense>);
-    setDrawerOpen(true);
+    setMemoryOpen(true);
   };
 
   const handleWelcome = (action: string) => {

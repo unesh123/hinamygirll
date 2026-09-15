@@ -1,0 +1,12 @@
+apps/web/public/models/*.vrm
+apps/web/public/models/*.bak
+dist/models/
+apps/api/
+apps/api
+**/.venv
+**/.venv/**
+**/node_modules
+**/node_modules/**
+.agents/
+.gemini/
+.git

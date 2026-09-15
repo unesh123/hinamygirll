@@ -6,8 +6,21 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/api/:path*",
+      "destination": "https://hinamygirl-api.onrender.com/:path*"
+    },
+    {
+      "source": "/v1/:path*",
+      "destination": "https://hinamygirl-api.onrender.com/v1/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://hinamygirl-api.onrender.com/health"
+    },
+    {
+      "source": "/((?!api/|v1/|health).*)",
       "destination": "/index.html"
     }
   ]
 }
+

@@ -27,8 +27,9 @@ import type {
 } from "../types/provider";
 
 // ── Polling constants ──────────────────────────────────────────────────────────
-const HEALTHY_POLL_INTERVAL_MS = 45_000;
-const BACKOFF_SEQUENCE_MS = [2_000, 4_000, 8_000, 16_000, 30_000];
+const HEALTHY_POLL_INTERVAL_MS = 60_000;
+const BACKOFF_SEQUENCE_MS = [2_000, 5_000, 15_000, 45_000, 120_000, 300_000];
+const MAX_CONSECUTIVE_FAILURES = 6;
 const JITTER_FACTOR = 0.2; // ±20%
 
 function withJitter(ms: number): number {
@@ -112,6 +113,11 @@ export function useProviders(): ProvidersState {
 
         failureCount.current += 1;
         if (!loaded) setLoaded(true); // stop indefinite spinner
+
+        if (failureCount.current > MAX_CONSECUTIVE_FAILURES) {
+          setError("Backend offline — click to refresh");
+          return; // Pause continuous background polling until user acts or visibility changes
+        }
 
         const delay = getBackoffMs(failureCount.current);
         setError(`Backend unreachable — retrying in ${Math.round(delay / 1000)}s`);

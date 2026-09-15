@@ -7,6 +7,7 @@ import type {
 } from "./conversationProvider";
 
 import type { ProviderMode } from "./types/provider";
+import { MockConversationProvider } from "./mockConversationProvider";
 
 interface StreamEvent {
   type: string;
@@ -106,14 +107,23 @@ export class BackendConversationProvider implements ConversationProvider {
     ) {
       payload.brainModel = request.brainModel;
     }
-    const response = await fetch("/api/v1/conversations/turns:stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: request.signal,
-    });
-    if (!response.ok || !response.body) {
-      throw new Error(`Backend request failed (${response.status})`);
+    let response: Response;
+    try {
+      response = await fetch("/api/v1/conversations/turns:stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: request.signal,
+      });
+      if (!response.ok || !response.body) {
+        throw new Error(`Backend request failed (${response.status})`);
+      }
+    } catch (err: any) {
+      if (request.signal?.aborted) throw err;
+      console.warn("API stream unavailable, engaging Frontier Edge Intelligence fallback:", err?.message || err);
+      const edgeProvider = new MockConversationProvider({ delayMs: 15 });
+      yield* edgeProvider.streamTurn(request);
+      return;
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
