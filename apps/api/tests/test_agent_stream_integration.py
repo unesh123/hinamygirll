@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import pytest
+
 from fastapi.testclient import TestClient
 
+from hinaa_api.agent.contracts import RunStatus
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
-from hinaa_api.agent.contracts import RunStatus
 
 
 def test_stream_turn_creates_and_completes_agent_run_when_enabled():
@@ -65,6 +66,49 @@ def test_stream_turn_creates_and_completes_agent_run_when_enabled():
         persisted_events = runtime.get_events(stream_run.run_id, stream_run.user_id)
         assert persisted_events is not None
         assert [event.event_type for event in persisted_events][-1] == "agent.run.completed"
+
+
+def test_stream_turn_enforces_runtime_deadline_and_persists_failure():
+    settings = Settings(
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_AUTH_MODE="dev",
+        HINAA_PERSISTENCE_ENABLED=True,
+        HINAA_AGENT_RUNTIME_ENABLED=True,
+        HINAA_VMC_PORT=0,
+        _env_file=None,
+    )
+    app = create_app(settings)
+    runtime = app.state.agent_runtime
+    runtime.run_timeout = 0.01
+
+    async def never_finishes(*_args, **_kwargs):
+        await asyncio.sleep(1)
+        if False:
+            yield b""
+
+    app.state.service.stream_turn = never_finishes
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/v1/conversations/turns:stream",
+        json={
+            "sessionId": "sess-stream-timeout",
+            "text": "Wait forever",
+            "companionId": "hinaa",
+            "language": "mixed",
+            "providerMode": "mock",
+        },
+    )
+
+    assert response.status_code == 200
+    lines = [json.loads(line) for line in response.text.split("\n") if line.strip()]
+    assert any(line.get("type") == "agent.run.failed" for line in lines)
+    assert any(line.get("type") == "error" and line.get("code") == "RUN_TIMEOUT" for line in lines)
+    timed_out_run = next(run for run in runtime.runs.values() if run.goal == "Wait forever")
+    assert timed_out_run.status == RunStatus.FAILED
+    assert timed_out_run.failure_code == "RUN_TIMEOUT"
+    assert timed_out_run.completed_at is not None
 
 
 def test_stream_turn_without_agent_runtime_enabled():

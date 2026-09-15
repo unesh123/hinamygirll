@@ -12,6 +12,12 @@ from pydantic import ValidationError
 
 from ..circuit_breaker import get_circuit_breaker
 from ..errors import HinaaError, safe_error_text
+from ..generation.orchestrator import GenerationOrchestrator
+from ..generation.continuation_contract import (
+    ContinuationRequest,
+    render_continuation_prompt,
+    PromptInvariantVerifier,
+)
 from ..models import AssistantTurnPlan, CompanionId, Language
 from ..prompts import (
     PromptPackage,
@@ -21,18 +27,39 @@ from ..prompts import (
 )
 from .base import ProviderResult
 from .timing import ProviderTiming
+from .display_stream_decoder import AdaptiveStreamDecoder
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
 
 def _sanitize_delta(value: str) -> str:
-    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
-    return value.replace("<", "").replace(">", "").replace("{", "").replace("}", "")
+    """Strip only control characters — preserve Markdown/JSON structure."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
+
+
+def _orchestrator_continuations() -> int:
+    try:
+        from ..config import get_settings
+
+        return max(0, int(get_settings().llm_max_continuations))
+    except Exception:  # pragma: no cover
+        return 4
+
+
+def _llm_budget_tokens() -> int:
+    try:
+        from ..config import get_settings
+
+        return int(get_settings().llm_max_output_tokens)
+    except Exception:  # pragma: no cover
+        return 16_384
 
 
 def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
-    user_text = "\n\n".join(str(item) for item in prompt.user_contents)
+    from hinaa_api.models import safe_extract_display_text
+
     system_msg = {"role": "system", "content": prompt.system_instruction}
+    messages: list[dict[str, Any]] = [system_msg]
 
     attachments = getattr(prompt, "attachments", None) or []
     image_parts: list[dict[str, Any]] = []
@@ -48,18 +75,46 @@ def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
                 },
             })
 
-    if not image_parts:
-        return [
-            system_msg,
-            {"role": "user", "content": user_text},
-        ]
+    recent_turns = getattr(prompt, "recent_turns", None)
+    raw_user_text = getattr(prompt, "raw_user_text", None)
 
-    user_content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
-    user_content.extend(image_parts)
-    return [
-        system_msg,
-        {"role": "user", "content": user_content},
-    ]
+    # Use native multi-turn messages if raw_user_text is available
+    if raw_user_text:
+        if recent_turns:
+            # B2.1 §5: prompt.recent_turns is ALREADY selected and budgeted by
+            # the canonical ContextCompiler. Providers serialize; they never
+            # re-select context (no independent slicing).
+            for role, content in recent_turns:
+                if role not in ("user", "assistant"):
+                    continue
+                clean_content = safe_extract_display_text(content).strip()
+                if clean_content:
+                    messages.append({"role": role, "content": clean_content})
+
+        final_text = raw_user_text.strip()
+        if not image_parts:
+            messages.append({"role": "user", "content": final_text})
+        else:
+            user_content: list[dict[str, Any]] = [{"type": "text", "text": final_text}]
+            user_content.extend(image_parts)
+            messages.append({"role": "user", "content": user_content})
+        return messages
+
+    # Fallback to contiguous user_contents
+    if isinstance(prompt.user_contents, str):
+        user_text = prompt.user_contents
+    elif isinstance(prompt.user_contents, (list, tuple)):
+        user_text = "\n\n".join(str(item) for item in prompt.user_contents)
+    else:
+        user_text = str(prompt.user_contents)
+
+    if not image_parts:
+        messages.append({"role": "user", "content": user_text})
+    else:
+        user_content = [{"type": "text", "text": user_text}]
+        user_content.extend(image_parts)
+        messages.append({"role": "user", "content": user_content})
+    return messages
 
 
 def _extract_xml_metadata(raw: str) -> tuple[str, dict[str, Any]]:
@@ -184,12 +239,12 @@ class OpenAILLMProvider:
             plan = validate_or_none(raw)
             if (
                 plan is None
-                and self._provider_id in {"custom", "cx-gateway", "claude"}
+                and self._provider_id in {"custom", "cx-gateway", "claude", "ollama"}
                 and raw.strip()
             ):
-                # Reasoning/gateway models often answer in plain prose even when
-                # asked for JSON. Turn the prose itself into a valid plan so the
-                # CX brain (gpt-5.6-sol) never degrades to the canned fallback.
+                # Reasoning/gateway/local models often answer in plain prose even when
+                # asked for JSON. Turn the prose itself into a valid plan so local
+                # models (dolphin-mistral) and CX brain never degrade to canned fallback.
                 fallback_text = _custom_text_from_raw(raw)
                 plan = build_plan_from_text(
                     text=fallback_text,
@@ -214,7 +269,7 @@ class OpenAILLMProvider:
                                     plan.memoryCandidates.append(MemoryCandidate(**mc))
                 except Exception:
                     pass
-            if plan is None and self._provider_id in {"custom", "cx-gateway", "claude"}:
+            if plan is None and self._provider_id in {"custom", "cx-gateway", "claude", "ollama"}:
                 # Prose-recovery is the real path for gateway models; a schema
                 # repair round trip would send response_format these gateways
                 # may reject. Fail typed instead of burning a second call.
@@ -260,6 +315,7 @@ class OpenAILLMProvider:
                 500,
                 True,
             )
+        prompt = PromptInvariantVerifier.verify_or_sync(prompt)
         can_exec, reason, remaining = self._circuit_breaker.can_execute()
         if not can_exec:
             code = "PROVIDER_RATE_LIMIT" if "rate_limited" in (reason or "") else "PROVIDER_UNAVAILABLE"
@@ -280,18 +336,79 @@ class OpenAILLMProvider:
         provider_events = 0
         try:
             timing.mark("provider_client_ready")
-            async for delta in self._stream_text(prompt):
-                provider_events += 1
-                if provider_events == 1:
-                    timing.mark("first_provider_event")
-                delta = _sanitize_delta(delta)
-                if not delta:
-                    continue
-                chunks.append(delta)
-                timing.mark("first_text_delta")
-                await emit_delta(delta)
+            holder: dict[str, str | None] = {"value": None}
+
+            async def _first_stream() -> AsyncIterator[str]:
+                decoder = AdaptiveStreamDecoder()
+                try:
+                    stream_iter = self._stream_text(prompt, holder)
+                except TypeError:
+                    stream_iter = self._stream_text(prompt)
+                async for d in stream_iter:
+                    clean = decoder.feed(d)
+                    if clean:
+                        yield clean
+                rest = decoder.finish()
+                if rest:
+                    yield rest
+
+            def _continuation_contents(prior: str) -> PromptPackage:
+                base_text = prompt.raw_user_text or (
+                    prompt.user_contents
+                    if isinstance(prompt.user_contents, str)
+                    else "\n\n".join(str(item) for item in prompt.user_contents)
+                )
+                continuation_req = ContinuationRequest(
+                    generation_id=f"{self._provider_id}:{started:.0f}",
+                    segment_number=len(orchestrator.segment_results) + 2,
+                    original_goal=base_text,
+                    previous_tail=prior[-6_000:],
+                )
+                continued_text = render_continuation_prompt(continuation_req)
+                cont_prompt = prompt.model_copy(
+                    update={
+                        "user_contents": continued_text,
+                        "raw_user_text": continued_text,
+                    }
+                )
+                return PromptInvariantVerifier.verify_or_sync(cont_prompt)
+
+            def _continuation_factory(prior: str):
+                cont_holder: dict[str, str | None] = {"value": None}
+
+                async def gen() -> AsyncIterator[str]:
+                    decoder = AdaptiveStreamDecoder()
+                    try:
+                        stream_iter = self._stream_text(_continuation_contents(prior), cont_holder)
+                    except TypeError:
+                        stream_iter = self._stream_text(_continuation_contents(prior))
+                    async for d in stream_iter:
+                        clean = decoder.feed(d)
+                        if clean:
+                            yield clean
+                    rest = decoder.finish()
+                    if rest:
+                        yield rest
+
+                return gen(), cont_holder
+
+            orchestrator = GenerationOrchestrator(
+                max_continuations=_orchestrator_continuations(),
+                char_budget=_llm_budget_tokens() * 4,  # chars ≈ 4× token budget
+                generation_id=f"{self._provider_id}:{started:.0f}",
+            )
+            outcome = await orchestrator.run(
+                first_segment_stream=_first_stream(),
+                first_finish_reason_holder=holder,
+                continuation_stream_factory=_continuation_factory,
+                emit_delta=emit_delta,
+                sanitize=_sanitize_delta,
+            )
+            provider_events = sum(r.events for r in orchestrator.segment_results)
+            timing.mark("first_provider_event")
+            timing.mark("first_text_delta")
             timing.mark("text_complete")
-            answer = "".join(chunks).strip()
+            answer = outcome.text.strip()
             if not answer:
                 raise HinaaError(
                     "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
@@ -325,7 +442,7 @@ class OpenAILLMProvider:
         return self._model
 
     async def _chat_json(self, prompt: PromptPackage) -> str:
-        if self._provider_id in {"custom", "cx-gateway", "claude"}:
+        if self._provider_id in {"custom", "cx-gateway", "claude", "ollama"}:
             return await self._chat_text(prompt)
         payload: dict[str, object] = {
             "model": self._model_for_payload(),
@@ -333,10 +450,10 @@ class OpenAILLMProvider:
             "temperature": 0.45,
             "response_format": {"type": "json_object"},
         }
-        # QwenCloud's compatible endpoint documents `max_tokens`; its
-        # OpenAI `max_completion_tokens` alias is ignored.
-        payload["max_tokens" if self._provider_id == "qwen" else "max_completion_tokens"] = 1800
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # QwenCloud & custom gateways document `max_tokens`; standard
+        # OpenAI uses `max_completion_tokens`. Both get the full budget.
+        payload["max_tokens" if self._provider_id in {"qwen", "custom", "agent-router", "codecraft"} else "max_completion_tokens"] = _llm_budget_tokens()
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 self._chat_url(),
                 headers=self._headers(),
@@ -353,11 +470,11 @@ class OpenAILLMProvider:
             "model": self._model_for_payload(),
             "messages": _messages(prompt),
             "temperature": 0.35,
-            # Reasoning models spend hidden tokens before the answer; a small
-            # cap starves the visible reply entirely.
-            "max_tokens": 2200,
+            # Generous token budget so high-level reasoning and rich technical/creative
+            # responses are never truncated prematurely.
+            "max_tokens": _llm_budget_tokens(),
         }
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 self._chat_url(),
                 headers=self._headers(),
@@ -380,10 +497,10 @@ class OpenAILLMProvider:
                 {"role": "user", "content": "\n\n".join(schema_repair_contents(invalid_raw))},
             ],
             "temperature": 0.0,
-            "max_completion_tokens": 1800,
+            "max_completion_tokens": _llm_budget_tokens(),
             "response_format": {"type": "json_object"},
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 self._chat_url(),
                 headers=self._headers(),
@@ -395,29 +512,35 @@ class OpenAILLMProvider:
         content = choices[0].get("message", {}).get("content") if choices else None
         return content if isinstance(content, str) else ""
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
-        if self._provider_id in {"custom", "cx-gateway", "claude", "qwen"}:
-            # OpenAI-compatible gateways host reasoning models (e.g. Kimi,
-            # cx/gpt-5.6-sol) that spend tokens on hidden "reasoning_content"
-            # before any spoken "content". A small cap starves the actual
-            # answer, so allow more headroom and a longer gateway timeout.
+    async def _stream_text(
+        self, prompt: PromptPackage, finish_reason_holder: dict[str, str | None] | None = None
+    ) -> AsyncIterator[str]:
+        """Stream one completion; optionally record the raw finish reason.
+
+        Metadata only — continuation POLICY lives in the shared
+        GenerationOrchestrator (Phase B1.1).
+        """
+        if self._provider_id in {"custom", "cx-gateway", "claude", "qwen", "codecraft", "agent-router", "ollama"}:
+            # Gateways host reasoning models (e.g. Kimi, Claude Fable, cx/gpt-5.6-sol)
+            # that spend tokens on hidden reasoning_content before any visible content.
+            # A generous token budget guarantees comprehensive, unclipped output.
             payload: dict[str, object] = {
                 "model": self._model_for_payload(),
                 "messages": _messages(prompt),
                 "temperature": 0.45,
-                "max_tokens": 2200,
+                "max_tokens": _llm_budget_tokens(),
                 "stream": True,
             }
-            timeout = 90.0
+            timeout = 300.0
         else:
             payload = {
                 "model": self._model,
                 "messages": _messages(prompt),
                 "temperature": 0.45,
-                "max_completion_tokens": 600,
+                "max_completion_tokens": _llm_budget_tokens(),
                 "stream": True,
             }
-            timeout = 30.0
+            timeout = 300.0
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
                 "POST",
@@ -441,6 +564,10 @@ class OpenAILLMProvider:
                         # Usage/heartbeat events legally carry no choices;
                         # indexing [0] here used to crash the whole live turn.
                         continue
+                    if finish_reason_holder is not None:
+                        raw_fr = choices[0].get("finish_reason")
+                        if raw_fr:
+                            finish_reason_holder["value"] = str(raw_fr)
                     delta = choices[0].get("delta", {}).get("content")
                     # reasoning_content (private chain-of-thought) is
                     # intentionally never yielded or spoken.
@@ -448,10 +575,17 @@ class OpenAILLMProvider:
                         yield delta
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self._key}",
+        headers: dict[str, str] = {
             "Content-Type": "application/json",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/event-stream, */*",
         }
+        if self._key and self._key.strip() and self._provider_id != "ollama":
+            headers["Authorization"] = f"Bearer {self._key.strip()}"
+        return headers
 
     def _chat_url(self) -> str:
         if self._base_url.endswith("/chat/completions"):
@@ -498,6 +632,11 @@ class OpenAILLMProvider:
                 True,
             )
         provider_text = safe_error_text(response.text, [self._key]).lower()
+        if response.status_code == 400 and any(
+            m in provider_text for m in ("content_filter", "safety", "refusal", "policy")
+        ):
+            msg = f"{self._provider_label()} declined to generate content due to safety policy."
+            raise HinaaError("SAFETY_REFUSAL", msg, 400, False)
         if response.status_code == 503 and any(
             marker in provider_text
             for marker in ("no available accounts", "no available account", "upstream account unavailable")
@@ -529,6 +668,9 @@ class OpenAILLMProvider:
                 True,
             )
         redacted = safe_error_text(error, [self._key]).lower()
+        if any(m in redacted for m in ("content_filter", "safety", "refusal")):
+            msg = f"{self._provider_label()} declined to generate content due to safety policy."
+            return HinaaError("SAFETY_REFUSAL", msg, 400, False)
         if "api key" in redacted or "401" in redacted or "403" in redacted:
             msg = f"{self._provider_label()} needs its backend connection fixed."
             self._circuit_breaker.record_failure("PROVIDER_KEY_INVALID", msg)
@@ -578,6 +720,8 @@ class OpenAILLMProvider:
             return "Claude gateway"
         if self._provider_id == "qwen":
             return "Qwen"
+        if self._provider_id == "ollama":
+            return "Ollama local engine"
         return "OpenAI"
 
 

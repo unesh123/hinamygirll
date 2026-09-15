@@ -56,6 +56,10 @@ def test_context_builder_excludes_unrelated_user_data_and_preserves_attachments(
             {"id": "m1", "content": "u1 preference", "userId": "u1"},
             {"id": "m2", "content": "u2 secret", "userId": "u2"},
         ],
+        tool_results=[
+            {"id": "t1", "content": "u1 verified result", "user_id": "u1"},
+            {"id": "t2", "content": "u2 private tool result", "user_id": "u2"},
+        ],
         attachments=["asset-photo-1", "asset-photo-2"],
         user_id="u1",
     )
@@ -64,7 +68,23 @@ def test_context_builder_excludes_unrelated_user_data_and_preserves_attachments(
     assert "user2 private message" not in contents
     assert "u1 preference" in contents
     assert "u2 secret" not in contents
+    assert "u1 verified result" in contents
+    assert "u2 private tool result" not in contents
     assert ctx.attachments == ["asset-photo-1", "asset-photo-2"]
+
+
+def test_context_builder_accounts_for_and_bounds_oversized_current_message():
+    cb = ContextBuilder(max_tokens=64)
+    current_message = "begin " + ("important context " * 100) + "final requirement"
+
+    ctx = cb.build(current_message)
+
+    assert ctx.current_message == current_message
+    assert ctx.items[0].token_size > 0
+    assert ctx.token_estimate <= 64
+    assert "...[truncated]..." in ctx.items[0].content
+    assert ctx.items[0].content.startswith("begin ")
+    assert ctx.items[0].content.endswith("final requirement")
 
 
 # ==============================================================================
@@ -411,6 +431,84 @@ def test_cancellation_manager_ownership_enforcement():
     assert runtime.cancel(run.run_id, "attacker-user") is None
     assert run.status == RunStatus.QUEUED
     assert request_cancellation(run, "attacker-user") is None
+
+
+@pytest.mark.asyncio
+async def test_cancellation_stops_registered_active_task_and_marks_steps():
+    runtime = AgentRuntime()
+    run = runtime.create_run("cancel active stream", "u1")
+    plan, step, _ = runtime.begin_stream_turn(run)
+    started = asyncio.Event()
+
+    async def active_stream():
+        task = runtime.register_active_task(run.run_id)
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            runtime.unregister_active_task(run.run_id, task)
+
+    task = asyncio.create_task(active_stream())
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    cancelled = runtime.cancel(run.run_id, "u1")
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cancelled is run
+    assert run.status == RunStatus.CANCELLED
+    assert run.completed_at is not None
+    assert step.status == StepState.CANCELLED
+    assert runtime.complete_stream_turn(run, plan, step, result={"late": True}) == []
+    event_types = [event.event_type for event in runtime.get_events(run.run_id, "u1") or []]
+    assert event_types.count("agent.run.cancelled") == 1
+    assert "agent.run.completed" not in event_types
+    assert "agent.run.failed" not in event_types
+
+
+@pytest.mark.asyncio
+async def test_run_timeout_is_failed_not_misreported_as_cancelled():
+    async def slow_executor(_step):
+        await asyncio.sleep(1)
+        return {"late": True}
+
+    runtime = AgentRuntime(executor=slow_executor, run_timeout=0.01, step_attempts=1)
+    run = runtime.create_run("bounded run", "u1")
+
+    result = await runtime.execute(run)
+
+    assert result.status == RunStatus.FAILED
+    assert result.failure_code == "run_timeout"
+    assert result.completed_at is not None
+    steps = runtime.get_steps(run.run_id, "u1") or []
+    assert steps[0].status == StepState.INTERRUPTED
+    event_types = [event.event_type for event in runtime.get_events(run.run_id, "u1") or []]
+    assert "agent.run.failed" in event_types
+    assert "agent.run.cancelled" not in event_types
+
+
+def test_stream_failure_redacts_secrets_and_terminalizes_once():
+    runtime = AgentRuntime()
+    run = runtime.create_run("secret failure", "u1")
+    _, step, _ = runtime.begin_stream_turn(run)
+    credential_value = "sk-live-1234567890abcdef"
+
+    events = runtime.fail_stream_turn(
+        run,
+        step=step,
+        code="PROVIDER_ERROR",
+        message=f"provider api_key={credential_value}",
+    )
+    event_count = len(runtime.get_events(run.run_id, "u1") or [])
+
+    assert run.status == RunStatus.FAILED
+    assert run.completed_at is not None
+    assert credential_value not in (run.failure_message or "")
+    assert "[REDACTED]" in (run.failure_message or "")
+    assert credential_value not in (step.error_message or "")
+    assert credential_value not in str([event.payload for event in events])
+    assert runtime.fail_stream_turn(run, step=step, message=credential_value) == []
+    assert len(runtime.get_events(run.run_id, "u1") or []) == event_count
 
 
 # ==============================================================================

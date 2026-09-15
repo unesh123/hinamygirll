@@ -259,6 +259,100 @@ class AssetStore:
         path = self.get_file_path(asset_id)
         return path.read_bytes() if path else None
 
+    def register_asset_metadata(
+        self,
+        asset_id: str,
+        *,
+        filename: str | None = None,
+        owner_id: str | None = None,
+        project_id: str | None = None,
+        conversation_id: str | None = None,
+        entity_ids: list[str] | None = None,
+        approval_state: str | None = None,
+        tags: list[str] | None = None,
+        semantic_metadata: dict[str, Any] | None = None,
+    ) -> AssetRef | None:
+        """Enrich an asset with ownership, project, entity, and approval metadata."""
+        ref = self.get_asset(asset_id)
+        if not ref:
+            ref = AssetRef(
+                id=asset_id,
+                kind=AssetKind.IMAGE,
+                mime_type="image/png",
+                source=AssetSource.LOCAL,
+                filename=filename,
+                sha256="",
+                size_bytes=0,
+                owner_id=owner_id,
+                project_id=project_id,
+                conversation_id=conversation_id,
+                entity_ids=entity_ids or [],
+                approval_state=approval_state or "pending",
+                tags=tags or [],
+                semantic_metadata=semantic_metadata or {},
+            )
+            self._index[asset_id] = ref
+            return ref
+        if filename is not None:
+            ref.filename = filename
+        if owner_id is not None:
+            ref.owner_id = owner_id
+        if project_id is not None:
+            ref.project_id = project_id
+        if conversation_id is not None:
+            ref.conversation_id = conversation_id
+        if entity_ids is not None:
+            for eid in entity_ids:
+                if eid not in ref.entity_ids:
+                    ref.entity_ids.append(eid)
+        if approval_state is not None:
+            ref.approval_state = approval_state
+        if tags is not None:
+            for tag in tags:
+                if tag not in ref.tags:
+                    ref.tags.append(tag)
+        if semantic_metadata is not None:
+            ref.semantic_metadata.update(semantic_metadata)
+        self._index[ref.id] = ref
+        return ref
+
+    def query_assets(
+        self,
+        *,
+        owner_id: str | None = None,
+        project_id: str | None = None,
+        entity_id: str | None = None,
+        approval_state: str | None = None,
+        tags: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[AssetRef]:
+        """Search assets across conversations by owner, project, entity, and approval state."""
+        results: list[AssetRef] = []
+        for ref in self._index.values():
+            if owner_id and ref.owner_id and ref.owner_id != owner_id:
+                continue
+            if project_id and ref.project_id and ref.project_id != project_id:
+                continue
+            if entity_id:
+                eid_lower = entity_id.lower()
+                matches_entity = any(e.lower() == eid_lower for e in ref.entity_ids) or (
+                    ref.filename and eid_lower in ref.filename.lower()
+                ) or any(eid_lower in t.lower() for t in ref.tags)
+                if not matches_entity:
+                    continue
+            if approval_state and ref.approval_state != approval_state:
+                continue
+            if tags:
+                if not any(t in ref.tags for t in tags):
+                    continue
+            results.append(ref)
+        # Sort approved first, then newest
+        results.sort(
+            key=lambda r: (1 if r.approval_state == "approved" else 0, r.created_at),
+            reverse=True,
+        )
+        return results[:limit]
+
 
 _default_asset_store: AssetStore | None = None
 

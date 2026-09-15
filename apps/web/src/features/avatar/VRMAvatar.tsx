@@ -1,6 +1,7 @@
 import {
   Component,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -17,13 +18,15 @@ import {
   VRMHumanBoneName,
 } from "@pixiv/three-vrm";
 import { ProceduralAvatar } from "./ProceduralAvatar";
+import { SpeechPlaybackContext, sampleSpeechPlayback } from "../audio/speechPlaybackBridge";
 import { usePerformanceClock } from "./usePerformanceClock";
+import { PerformanceDirector, type PerformanceState } from "./performanceSubstrate";
 import {
   buildVrmExpressionWeights,
   VRM_EXPRESSION_KEYS,
   type VrmExpressionInput,
 } from "./vrmExpressionMap";
-import { optimizeVrm } from "./vrmOptimizer";
+import { optimizeVrm, DEFAULT_KEEP_EXPRESSIONS } from "./vrmOptimizer";
 import { normalizeVrmAvatar } from "./normalization";
 import { getDefaultAvatarForCompanion } from "./avatarRegistry";
 import { disposeVrmModel } from "./avatarDisposal";
@@ -42,6 +45,7 @@ export interface VRMAvatarProps {
   speakingRef?: React.MutableRefObject<boolean>;
   visemeEvents?: React.MutableRefObject<any[]>;
   audioStartTimeRef?: React.MutableRefObject<number>;
+  speechBridge?: React.MutableRefObject<any>;
   theme?: AvatarThemeId;
   lowPerformance?: boolean;
   /** Code-explanation mode: camera pulls wider and she steps to the left. */
@@ -124,7 +128,7 @@ async function loadAndOptimizeVrm(url: string): Promise<VRM> {
     // Non-fatal.
   }
   try {
-    optimizeVrm(vrm, { keepExpressionNames: VRM_EXPRESSION_KEYS });
+    optimizeVrm(vrm, { keepExpressionNames: DEFAULT_KEEP_EXPRESSIONS });
   } catch {
     // Non-fatal: model keeps its original resources.
   }
@@ -242,6 +246,7 @@ function VrmRig({
   speakingRef,
   visemeEventsRef,
   audioStartTimeRef,
+  speechBridgeRef,
 }: {
   vrm: VRM;
   input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean; closeUp?: boolean };
@@ -249,10 +254,14 @@ function VrmRig({
   speakingRef?: React.MutableRefObject<boolean>;
   visemeEventsRef?: React.MutableRefObject<any[]>;
   audioStartTimeRef?: React.MutableRefObject<number>;
+  speechBridgeRef?: React.MutableRefObject<any>;
 }) {
+  const speechBridgeContext = useContext(SpeechPlaybackContext);
+  const speechBridge = speechBridgeRef ?? speechBridgeContext;
   const camera = useThree((state) => state.camera);
   const lookTarget = useMemo(() => new THREE.Object3D(), []);
   const metrics = useMemo(() => normalizeVrmAvatar(vrm), [vrm]);
+  const performanceDirector = useMemo(() => new PerformanceDirector(), []);
   if (typeof window !== "undefined") {
     (window as any).__HINAA_DEBUG_VRM = { vrm, metrics, camera };
   }
@@ -276,40 +285,84 @@ function VrmRig({
         liveJaw = jawEnergyRef.current;
       }
     }
-    const isSpeaking =
-      (speakingRef && "current" in speakingRef ? speakingRef.current : false) ||
-      input.speaking ||
-      input.state === "speaking" ||
-      liveJaw > 0.03;
+    const speechSample = speechBridge?.current ? sampleSpeechPlayback(speechBridge) : null;
+    const isSpeaking = speechSample
+      ? speechSample.speaking
+      : (speakingRef && "current" in speakingRef ? speakingRef.current : false) ||
+        input.speaking ||
+        input.state === "speaking" ||
+        liveJaw > 0.03;
 
-    if (isSpeaking && liveJaw < 0.05) {
-      // Procedural syllable modulation when audio analyser data is absent or zero
-      // Natural human speech oscillates between 3Hz and 6Hz
-      const syllableOsc = (
-        Math.sin(time * 14.0) * 0.4 +
-        Math.sin(time * 8.5) * 0.35 +
-        0.25
-      ) * 0.65;
-      liveJaw = Math.min(0.8, Math.max(0.15, syllableOsc));
+    if (!isSpeaking) {
+      liveJaw = 0;
     }
+    // NOTE: no synthetic flapping. Real lip sync comes from the audio
+    // analyser (jawEnergyRef) and the viseme timeline. Fake syllable
+    // oscillation made the mouth move during natural pauses between words,
+    // which read as broken lip-sync. When jaw energy is low the mouth should
+    // simply be more closed — that is what real speech looks like.
+
+    let perfState: PerformanceState = "IDLE";
+    if (isSpeaking) {
+      perfState = "SPEAKING";
+    } else if (input.state === "listening") {
+      perfState = "LISTENING";
+    } else if (input.state === "thinking") {
+      perfState = "THINKING";
+    } else if (input.state === "working") {
+      perfState = "WORKING";
+    } else if (input.state === "interrupted") {
+      perfState = "INTERRUPTED";
+    }
+    performanceDirector.setState(perfState);
+    performanceDirector.emotionRuntime.setEmotion(input.emotion, input.intensity);
+
+    const isVrm1 = Boolean(vrm.meta?.metaVersion?.startsWith("1"));
+    const perf = performanceDirector.update(delta, time, {
+      gesture: input.gesture,
+      codeMode: input.codeMode,
+      timingSource: speechBridge?.current?.timing,
+      fallbackVisemes: speechSample?.events,
+      jawEnergy: liveJaw,
+      isVrm1,
+    });
 
     let activeVisemeName: string | undefined;
     let activeVisemeWeight: number | undefined;
 
-    if (isSpeaking && visemeEventsRef?.current && visemeEventsRef.current.length > 0) {
-      const audioCtx = (window as any).__hinaaAudioCtx;
-      const startTime = audioStartTimeRef?.current ?? 0;
-      const playTimeMs = audioCtx ? Math.max(0, (audioCtx.currentTime - startTime) * 1000) : (time * 1000) % 2000;
-      const active = getActiveViseme(playTimeMs, visemeEventsRef.current);
+    if (isSpeaking && speechSample) {
+      const active = speechSample.viseme;
       if (active && active.mouth !== "closed") {
         activeVisemeName = active.mouth;
         activeVisemeWeight = active.weight;
       }
-    } else if (isSpeaking) {
-      const visemes = ["aa", "ih", "ou", "ee", "oh"] as const;
-      const idx = Math.floor((time * 4.5) % visemes.length);
+    } else if (isSpeaking && visemeEventsRef?.current && visemeEventsRef.current.length > 0) {
+      const audioCtx = (window as any).__hinaaAudioCtx;
+      const startTime = audioStartTimeRef?.current ?? (window as any).__hinaaAudioStartTime ?? 0;
+      const playTimeMs = audioCtx && startTime > 0 ? Math.max(0, (audioCtx.currentTime - startTime) * 1000) : 0;
+      if (playTimeMs > 0) {
+        const active = getActiveViseme(playTimeMs, visemeEventsRef.current);
+        if (active && active.mouth !== "closed") {
+          activeVisemeName = active.mouth;
+          activeVisemeWeight = active.weight;
+        }
+      }
+    }
+
+    // Last-resort fallback ONLY when the model produced no viseme timeline at
+    // all (no spoken text, no provider visemes). When a timeline exists and
+    // says "closed" — a natural pause between words — the mouth must stay
+    // closed. The old unconditional fallback flapped lips during silence,
+    // which read as broken lip-sync.
+    const hasVisemeTimeline =
+      (speechSample?.events?.length ?? 0) > 0 ||
+      (visemeEventsRef?.current?.length ?? 0) > 0 ||
+      Boolean(speechBridge?.current?.timing);
+    if (isSpeaking && !hasVisemeTimeline && (!activeVisemeName || activeVisemeName === "closed")) {
+      const visemes = ["aa", "oh", "aa", "ih", "ou", "ee"] as const;
+      const idx = Math.floor((time * 6.5) % visemes.length);
       activeVisemeName = visemes[idx];
-      activeVisemeWeight = Math.max(0.35, liveJaw);
+      activeVisemeWeight = Math.max(0.4, liveJaw);
     }
 
     const frameInput: VrmExpressionInput = {
@@ -318,15 +371,58 @@ function VrmRig({
       speaking: isSpeaking,
       viseme: activeVisemeName,
       visemeWeight: activeVisemeWeight,
+      blinking: perf.blinking,
     };
 
     // Expressions — face presets + jaw lip-sync + blink.
     const weights = buildVrmExpressionWeights(frameInput);
+    if (perf.lipSync.aa > 0) weights.aa = Math.max(weights.aa, perf.lipSync.aa);
+    if (perf.lipSync.ih > 0) weights.ih = Math.max(weights.ih, perf.lipSync.ih);
+    if (perf.lipSync.ou > 0) weights.ou = Math.max(weights.ou, perf.lipSync.ou);
+    if (perf.lipSync.ee > 0) weights.ee = Math.max(weights.ee, perf.lipSync.ee);
+    if (perf.lipSync.oh > 0) weights.oh = Math.max(weights.oh, perf.lipSync.oh);
+    if (perf.blinking) weights.blink = 1;
+
     const manager = vrm.expressionManager;
     if (manager) {
       try {
         for (const key of VRM_EXPRESSION_KEYS) {
           manager.setValue(key, weights[key]);
+        }
+        if (perf.lipSync.jawOpen > 0) {
+          try {
+            manager.setValue("jawOpen", perf.lipSync.jawOpen);
+          } catch {}
+        }
+        // Map to VRM 0.0 uppercase vowel presets if present on the model
+        if (weights.aa > 0) {
+          try { manager.setValue("A" as any, weights.aa); } catch {}
+        }
+        if (weights.ih > 0) {
+          try { manager.setValue("I" as any, weights.ih); } catch {}
+        }
+        if (weights.ou > 0) {
+          try { manager.setValue("U" as any, weights.ou); } catch {}
+        }
+        if (weights.ee > 0) {
+          try { manager.setValue("E" as any, weights.ee); } catch {}
+        }
+        if (weights.oh > 0) {
+          try { manager.setValue("O" as any, weights.oh); } catch {}
+        }
+        // Map to VRM 0.0 emotion presets if present
+        if (weights.happy > 0) {
+          try { manager.setValue("Joy" as any, weights.happy); } catch {}
+          try { manager.setValue("Fun" as any, weights.happy); } catch {}
+        }
+        if (weights.angry > 0) {
+          try { manager.setValue("Angry" as any, weights.angry); } catch {}
+        }
+        if (weights.sad > 0) {
+          try { manager.setValue("Sorrow" as any, weights.sad); } catch {}
+        }
+        if (weights.blink > 0) {
+          try { manager.setValue("Blink" as any, weights.blink); } catch {}
         }
         manager.update();
       } catch {
@@ -334,39 +430,9 @@ function VrmRig({
       }
     }
 
-    // Gaze — emotion-aware look target with gentle drift.
+    // Gaze — emotion-aware look target with gentle drift driven by performance director
     if (vrm.lookAt) {
-      let targetX = Math.sin(time * 0.4) * 0.18;
-      let targetY = 0.05;
-      let targetZ = 1;
-      if (input.state === "listening") {
-        // Listening: eyes settle and focus on you, only micro-drift.
-        targetX = Math.sin(time * 0.9) * 0.06;
-        targetY = 0.08;
-        targetZ = 1.4;
-      } else if (input.codeMode) {
-        // Code mode: she looks toward the editor panel on her right.
-        targetX = 0.55 + Math.sin(time * 0.6) * 0.12;
-        targetY = 0.05;
-        targetZ = 1;
-      } else if (input.emotion === "shy") {
-        targetX = 0;
-        targetY = -0.25;
-      } else if (input.emotion === "thinking") {
-        targetX = Math.sin(time * 0.7) * 0.5;
-        targetY = -0.08;
-      } else if (input.emotion === "surprised") {
-        targetX = 0;
-        targetY = 0.12;
-      } else if (input.emotion === "sad") {
-        targetY = -0.15;
-      }
-      // Clamp before applying: a pointer passing very close to the model (or
-      // stacked mode offsets) must never crank the eyes into an uncanny stare.
-      targetX = THREE.MathUtils.clamp(targetX, -0.65, 0.65);
-      targetY = THREE.MathUtils.clamp(targetY, -0.4, 0.35);
-      targetZ = Math.max(0.8, targetZ);
-      lookTarget.position.set(targetX, targetY, targetZ);
+      lookTarget.position.set(perf.gaze.x, perf.gaze.y, perf.gaze.z);
       vrm.lookAt.target = lookTarget;
     }
 
@@ -410,8 +476,8 @@ function VrmRig({
         : Math.sin(time * 1.7) * Math.max(0, Math.sin(time * 0.23 + 1.1)) * 0.006;
       const microRoll = Math.sin(time * 0.37 + 2) * 0.0028;
       const settled = quiet
-        ? { x: 0.08, y: 0, z: 0.06 }
-        : { x: headTarget.x, y: headTarget.y, z: headTarget.z };
+        ? { x: 0.08 + perf.head.x, y: perf.head.y, z: 0.06 + perf.head.z }
+        : { x: headTarget.x + perf.head.x, y: headTarget.y + perf.head.y, z: headTarget.z + perf.head.z };
       if (head) {
         head.rotation.x = THREE.MathUtils.damp(
           head.rotation.x,
@@ -537,8 +603,8 @@ function VrmRig({
       }
       if (hips) {
         hips.position.z = 0;
-        hips.position.y = THREE.MathUtils.clamp(-breath, -0.015, 0.015);
-        if (!quiet) hips.position.x = Math.sin(time * 0.21) * 0.0075;
+        hips.position.y = 0;
+        hips.position.x = 0;
       }
     }
 
@@ -626,6 +692,7 @@ function VrmModel({
   speakingRef,
   visemeEventsRef,
   audioStartTimeRef,
+  speechBridgeRef,
   onReady,
   onError,
 }: {
@@ -635,6 +702,7 @@ function VrmModel({
   speakingRef?: React.MutableRefObject<boolean>;
   visemeEventsRef?: React.MutableRefObject<any[]>;
   audioStartTimeRef?: React.MutableRefObject<number>;
+  speechBridgeRef?: React.MutableRefObject<any>;
   onReady: () => void;
   onError: () => void;
 }) {
@@ -677,6 +745,7 @@ function VrmModel({
       speakingRef={speakingRef}
       visemeEventsRef={visemeEventsRef}
       audioStartTimeRef={audioStartTimeRef}
+      speechBridgeRef={speechBridgeRef}
     />
   );
 }
@@ -686,9 +755,22 @@ export function VRMAvatar(props: VRMAvatarProps) {
   const [failed, setFailed] = useState(false);
   const [glContextLost, setGlContextLost] = useState(false);
   const [modelLoading, setModelLoading] = useState(true);
+  const previousReadyModel = useRef<string | null>(null);
+  const [modelNotice, setModelNotice] = useState("");
   const [webglAvailable] = useState<boolean>(() => isWebGLAvailable());
-  const handleModelReady = useCallback(() => setModelLoading(false), []);
-  const handleModelError = useCallback(() => setFailed(true), []);
+  const handleModelReady = useCallback(() => {
+    previousReadyModel.current = modelUrl ?? null;
+    setModelLoading(false);
+  }, [modelUrl]);
+  const handleModelError = useCallback(() => {
+    setModelLoading(false);
+    if (previousReadyModel.current && previousReadyModel.current !== modelUrl) {
+      setModelNotice("Model could not load. Showing the previous avatar; choose another model to retry.");
+      setModelUrl(previousReadyModel.current);
+    } else {
+      setFailed(true);
+    }
+  }, [modelUrl]);
   // First context loss remounts the canvas with conservative GPU settings
   // (dpr 1, no antialias, low-power). A second loss means the GPU truly
   // cannot drive the model, so the procedural girl takes over.
@@ -706,6 +788,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
   useEffect(() => {
     // When the parent explicitly passes a modelUrl, use it directly (no HEAD probe needed).
     if (props.modelUrl !== undefined) {
+      setModelNotice("");
       setModelUrl(props.modelUrl ?? null);
       setFailed(false);
       setModelLoading(true);
@@ -787,8 +870,9 @@ export function VRMAvatar(props: VRMAvatarProps) {
       data-state={props.state}
       data-emotion={emotion}
       data-gesture={gesture}
-      aria-hidden="true"
+      aria-label="HINAA companion avatar"
     >
+      {modelNotice && <small role="status">{modelNotice}</small>}
       {modelUrl === undefined ? (
         <div className="vrm-loading">
           <span className="vrm-loading-spinner" aria-hidden="true" />
@@ -814,7 +898,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
             <directionalLight position={[1.5, 2.5, 2]} intensity={1.1} />
             <directionalLight position={[-2, 1, -1]} intensity={0.25} />
             <ContextLossGuard onLost={handleContextLost} />
-            <ModelErrorBoundary onError={handleModelError}>
+            <ModelErrorBoundary key={modelUrl} onError={handleModelError}>
               <VrmModel
                 url={modelUrl}
                 input={input}
@@ -822,6 +906,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
                 speakingRef={props.speakingRef}
                 visemeEventsRef={props.visemeEvents}
                 audioStartTimeRef={props.audioStartTimeRef}
+                speechBridgeRef={props.speechBridge}
                 onReady={handleModelReady}
                 onError={handleModelError}
               />

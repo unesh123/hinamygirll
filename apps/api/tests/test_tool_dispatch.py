@@ -44,7 +44,8 @@ def test_execute_tool_resolves_postponed_pydantic_annotation(client, monkeypatch
     )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "success", "data": {"received": "Heavenly Phonk"}}
+    assert response.json()["data"] == {"received": "Heavenly Phonk"}
+    assert response.json()["runtimeRunId"].startswith("run_")
 
 
 def test_execute_tool_preserves_terminal_provider_error(client, monkeypatch) -> None:
@@ -61,7 +62,7 @@ def test_execute_tool_preserves_terminal_provider_error(client, monkeypatch) -> 
     )
 
     assert response.status_code == 200
-    assert response.json() == {
+    assert {key: value for key, value in response.json().items() if key != "runtimeRunId"} == {
         "status": "error",
         "code": "COMFYUI_UNAVAILABLE",
         "error": "Local renderer unavailable for a local portrait",

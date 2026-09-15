@@ -57,6 +57,7 @@ export interface MessageAttachment {
 export interface TranscriptMessage {
   id: string;
   role: "user" | "assistant";
+  conversationId?: string;
   text: string;
   /** ISO-8601 string set when the message is created. Never at render time. */
   createdAt: string;

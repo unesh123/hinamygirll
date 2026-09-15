@@ -589,6 +589,15 @@ user_preferences_list_def = ToolDefinition(
 )
 registry.register(user_preferences_list_def, user_preferences_list)
 
+# These operations inspect private local/browser data or change external state.
+# The HTTP dispatcher and canonical runtime both consume these same definitions.
+for _gated_definition in (
+    browser_navigate_def, browser_extract_def, file_read_def, file_write_def,
+    app_launch_def, clipboard_get_def, clipboard_set_def, screenshot_def,
+    user_preference_update_def,
+):
+    _gated_definition.requires_confirmation = True
+
 
 # Keep existing registry registrations at the bottom
 # (they're already registered above, but ensuring they're included)

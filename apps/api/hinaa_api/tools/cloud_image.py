@@ -194,12 +194,14 @@ async def generate_cloud_images(
     store = _image_store_dir()
     entries: list[dict] = []
 
-    # Guard: Video operations (like Seedance 5.0) are strictly forbidden
-    if model and any(marker in model.lower() for marker in ("video", "seedance", "animate", "motion", "clip")):
+    # Map Seedance image requests to FLUX rather than raising an error
+    if model and "seedance" in model.lower():
+        model = "flux"
+    elif model and any(marker in model.lower() for marker in ("video", "animate", "motion", "clip")):
         from ..errors import HinaaError
         raise HinaaError(
             "VIDEO_GENERATION_FORBIDDEN",
-            "Video generation (including Seedance) is strictly forbidden in this environment.",
+            "Video generation is strictly forbidden in this environment.",
             status_code=403,
         )
 

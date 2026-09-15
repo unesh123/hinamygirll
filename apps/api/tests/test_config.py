@@ -43,7 +43,9 @@ def test_llm_timeout_is_independent_of_media_timeout() -> None:
         HINAA_PROVIDER_MODE="mock",
     )
     assert settings.provider_timeout_seconds == 8.0
-    assert settings.llm_timeout_seconds == 60.0
+    # Long-form generation: a multi-minute streamed document must not be
+    # killed by the old 60s cap.
+    assert settings.llm_timeout_seconds == 300.0
     assert settings.llm_timeout_seconds > settings.provider_timeout_seconds
 
     overridden = Settings(

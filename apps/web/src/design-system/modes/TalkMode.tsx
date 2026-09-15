@@ -1,4 +1,5 @@
 import { Suspense, lazy, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { PushToTalkButton } from "../../features/audio/PushToTalkButton";
 import type { PresenceMode } from "../../components/ui/AvatarPresence";
 import type { ActiveLanguagePolicy } from "../../features/settings/types/settings";
@@ -14,6 +15,7 @@ import {
   Activity,
   Languages,
   Subtitles,
+  Send,
 } from "lucide-react";
 import type { CompanionState, TranscriptMessage } from "../../features/companion/types";
 
@@ -65,6 +67,7 @@ interface TalkModeProps {
   onOpenAvatarLab: () => void;
   onToggleFullscreen: () => void;
   onTypeInstead: () => void;
+  onSendText?: (text: string) => void;
   isMuted: boolean;
   onToggleMute: () => void;
   onReplay: () => void;
@@ -138,6 +141,7 @@ export function TalkMode({
   messages,
   onToggleFullscreen,
   onTypeInstead,
+  onSendText,
   isMuted,
   onToggleMute,
   onReplay,
@@ -155,6 +159,8 @@ export function TalkMode({
 }: TalkModeProps) {
   const [showCaptions, setShowCaptions] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showAmbientInput, setShowAmbientInput] = useState(false);
+  const [ambientText, setAmbientText] = useState("");
 
   // Get last assistant message for captions
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
@@ -589,9 +595,10 @@ export function TalkMode({
 
         {/* Keyboard input */}
         <DockButton
-          onClick={onTypeInstead}
-          title="Type instead"
-          ariaLabel="Type instead"
+          onClick={() => setShowAmbientInput(!showAmbientInput)}
+          active={showAmbientInput}
+          title={showAmbientInput ? "Close input" : "Type to Hinaa"}
+          ariaLabel={showAmbientInput ? "Close input" : "Type to Hinaa"}
         >
           <Keyboard size={18} />
         </DockButton>

@@ -102,6 +102,15 @@ def normalize_gateway_turn_payload(payload: object) -> object:
             val,
             flags=re.IGNORECASE,
         )
+        # P0: Strip prose-embedded JSON tool envelopes that models sometimes emit
+        # as plain text instead of structured toolRequests fields.
+        # Matches: toolRequests [...], "toolRequests": [...], toolRequests[{...}]
+        val = re.sub(
+            r'"?toolRequests"?\s*:?\s*\[[\s\S]*?\]',
+            "",
+            val,
+            flags=re.IGNORECASE,
+        )
         # Strip stage directions like *laughs*, *मुस्कुराते हुए*, *smiles*
         val = re.sub(r"\*[^*]+\*", "", val)
         val = re.sub(

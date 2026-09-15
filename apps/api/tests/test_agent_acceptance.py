@@ -248,6 +248,17 @@ def test_14_existing_generated_image_routes(client_and_runtime, tmp_path, monkey
     created = not fixture.exists()
     if created:
         fixture.write_bytes(MINIMAL_JPEG)
+    # Persistent media requires an owning generation record; a guessed filename
+    # alone must no longer grant access.
+    from hinaa_api.persistence.orm import GenerationSet, ImageJob
+    from hinaa_api.persistence.db import get_session_factory
+    owner = client.get("/v1/workspace/identity").json()["userId"]
+    with get_session_factory(client.app.state.settings)() as session:
+        generation = GenerationSet(id="acceptance-owned-image", user_id=owner, prompt="test", workflow_mode="quality")
+        session.add(generation)
+        session.flush()
+        session.add(ImageJob(id=image_id, generation_set_id=generation.id, seed=1, status="completed", file_path=str(fixture)))
+        session.commit()
     try:
         r = client.get(f"/v1/generated-images/{image_id}")
         assert r.status_code == 200, f"Expected 200 got {r.status_code}. CWD: {Path.cwd()}, Store: {store}"

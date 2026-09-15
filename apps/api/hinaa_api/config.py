@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
@@ -43,7 +44,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live"] = Field(
+    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft"] = Field(
         "claude", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -139,12 +140,92 @@ class Settings(BaseSettings):
         "cx/gpt-5.6-sol",
         alias="CX_GATEWAY_ALLOWED_MODELS",
     )
-    agent_router_api_key: SecretStr | None = Field(None, alias="AGENT_ROUTER_API_KEY")
-    agent_router_model: str = Field("gpt-5.6-sol", alias="AGENT_ROUTER_MODEL")
-    agent_router_base_url: str | None = Field(None, alias="AGENT_ROUTER_BASE_URL")
+    agent_router_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "AGENT_ROUTER_API_KEY",
+            "ROUTER_BYNARA_API_KEY",
+            "ROUTER_BYNARA_AOI_kEY",
+            "BYNARA_API_KEY",
+        ),
+    )
+    agent_router_model: str = Field(
+        "agnes-2.5-flash",
+        validation_alias=AliasChoices("AGENT_ROUTER_MODEL", "ROUTER_BYNARA_MODEL", "BYNARA_MODEL"),
+    )
+    agent_router_base_url: str | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "AGENT_ROUTER_BASE_URL",
+            "ROUTER_BYNARA_BASE_URL",
+            "BYNARA_BASE_URL",
+        ),
+    )
     agent_router_allowed_models_raw: str = Field(
-        "gpt-5.6-sol,claude-opus-4.8,opus-5",
-        alias="AGENT_ROUTER_ALLOWED_MODELS",
+        (
+            "agnes-2.5-flash,nemotron-3.5-lightning-free,laguna-s-2.1,ling-3.0-flash-fin-free,stepfun-3.7-flash,"
+            "deepseek-v4-flash,deepseek-v4-pro,deepseek-v4.1-flash,deepseek-v4-flash-alibaba,deepseek-v4-pro-alibaba,deepseek-v4-flash-vision-exp,"
+            "claude-sonnet-5,claude-opus-4.7,claude-opus-4.7-promo,claude-opus-4.8,claude-opus-5,claude-opus-5-promo,claude-fable-5,claude-fable-5.1,"
+            "gpt-5.5,gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra,gpt-6-astra,grok-4.6,kimi-k2.7-code,kimi-k3,minimax-m3,"
+            "qwen3.7-flash,qwen3.8-flash,qwen3.8-max,qwen3.8-27b,qwen3.8-2.4t,qwen3.8-max-alibaba,"
+            "glm-5.2,glm-5.3,glm-5.3-flash,gemini-3.8-flash-high,mimo-v2.5,mimo-v2.5-pro,muse-spark-1.2,muse-spark-1.3,tencent-hy4-preview"
+        ),
+        validation_alias=AliasChoices(
+            "AGENT_ROUTER_ALLOWED_MODELS",
+            "ROUTER_BYNARA_ALLOWED_MODELS",
+            "BYNARA_ALLOWED_MODELS",
+        ),
+    )
+    # CodeCraft API — 100M+ tokens, Claude Fable 5, and frontier models via codecraftapi.com
+    codecraft_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "CODE_CRAFT_API_KEY",
+            "CODE_CRAFTAI_API_KEY",
+            "CODECRAFT_API_KEY",
+        ),
+    )
+    codecraft_base_url: str | None = Field(
+        "https://codecraftapi.com/v1",
+        validation_alias=AliasChoices(
+            "CODE_CRAFT_BASE_URL",
+            "CODE_CRAFTAI_BASE_URL",
+            "CODECRAFT_BASE_URL",
+        ),
+    )
+    codecraft_model: str = Field(
+        "claude-fable-5",
+        validation_alias=AliasChoices("CODE_CRAFT_MODEL", "CODE_CRAFTAI_MODEL", "CODECRAFT_MODEL"),
+    )
+    codecraft_allowed_models_raw: str = Field(
+        (
+            "claude-fable-5,claude-fable-5.1,claude-sonnet-5,claude-opus-5,"
+            "claude-3-7-sonnet,claude-3-5-sonnet,gpt-5.6-sol,gpt-6-astra,"
+            "gpt-5.5,gpt-4o,deepseek-chat,deepseek-v4-pro,deepseek-v4-flash,"
+            "kimi-k3,qwen3.8-max,glm-5.3"
+        ),
+        validation_alias=AliasChoices(
+            "CODE_CRAFT_ALLOWED_MODELS",
+            "CODE_CRAFTAI_ALLOWED_MODELS",
+            "CODECRAFT_ALLOWED_MODELS",
+        ),
+    )
+    # Ollama Local Engine — fast, uncensored, zero-credit offline brain
+    ollama_base_url: str = Field(
+        "http://localhost:11434",
+        validation_alias=AliasChoices("OLLAMA_BASE_URL", "HINAA_OLLAMA_BASE_URL"),
+    )
+    ollama_model: str = Field(
+        "dolphin-mistral:7b",
+        validation_alias=AliasChoices("OLLAMA_MODEL", "HINAA_OLLAMA_MODEL"),
+    )
+    ollama_allowed_models_raw: str = Field(
+        "*",
+        validation_alias=AliasChoices("OLLAMA_ALLOWED_MODELS", "HINAA_OLLAMA_ALLOWED_MODELS"),
+    )
+    ollama_timeout_seconds: float = Field(
+        120.0,
+        validation_alias=AliasChoices("OLLAMA_TIMEOUT_SECONDS", "HINAA_OLLAMA_TIMEOUT_SECONDS"),
     )
     # You.com — private, server-side real-time web intelligence. Keep the key
     # in apps/api/.env.local as YDC_API_KEY; never expose it to Vite/browser code.
@@ -217,13 +298,25 @@ class Settings(BaseSettings):
     # cx/gpt-5.6-sol burn hidden ``reasoning_content`` tokens before the first
     # visible token, so the old 8s media timeout killed the whole turn mid-
     # thought ("stuck in the middle" then a canned fallback reply).
-    llm_timeout_seconds: float = Field(60.0, alias="HINAA_LLM_TIMEOUT_SECONDS")
+    # Long-form documents need a generous ceiling: a 10k-word report takes
+    # 3-4 minutes even on fast models.
+    llm_timeout_seconds: float = Field(300.0, alias="HINAA_LLM_TIMEOUT_SECONDS")
+    llm_stream_idle_timeout_seconds: float = Field(120.0, alias="HINAA_LLM_STREAM_IDLE_TIMEOUT_SECONDS")
     local_command_timeout_seconds: float = Field(12.0, alias="HINAA_LOCAL_COMMAND_TIMEOUT_SECONDS")
     local_stt_command: str | None = Field(None, alias="HINAA_LOCAL_STT_COMMAND")
     local_tts_command: str | None = Field(None, alias="HINAA_LOCAL_TTS_COMMAND")
-    session_turn_limit: int = 8
+    session_turn_limit: int = 24
     session_limit: int = 64
-    session_history_char_limit: int = Field(4_000, alias="HINAA_SESSION_HISTORY_CHAR_LIMIT")
+    session_history_char_limit: int = Field(32_000, alias="HINAA_SESSION_HISTORY_CHAR_LIMIT")
+    # Long-form generation budget (ChatGPT-style documents/reports).
+    # Brain output cap per LLM call — 16k tokens ≈ 10–12k words; the
+    # continuation loop in the providers extends this further when the
+    # model stops at the cap mid-document.
+    llm_max_output_tokens: int = Field(16_384, alias="HINAA_LLM_MAX_OUTPUT_TOKENS")
+    # Hard ceiling on streamed display text per turn (characters).
+    llm_stream_char_budget: int = Field(200_000, alias="HINAA_LLM_STREAM_CHAR_BUDGET")
+    # Max automatic continuations when the model stops at the token cap.
+    llm_max_continuations: int = Field(8, alias="HINAA_LLM_MAX_CONTINUATIONS")
     default_companion: Literal["hinaa", "hiro"] = Field("hinaa", alias="HINAA_DEFAULT_COMPANION")
     prompt_debug_metadata: bool = Field(False, alias="HINAA_PROMPT_DEBUG_METADATA")
     personality_affection: float = Field(0.7, alias="HINAA_PERSONALITY_AFFECTION")
@@ -247,6 +340,8 @@ class Settings(BaseSettings):
         alias="CLERK_AUTHORIZED_PARTIES",
     )
     tinyfish_api_key: str | None = Field(None, alias="TINYFISH_API_KEY")
+    github_token: SecretStr | None = Field(None, alias="GITHUB_TOKEN")
+    github_default_repo: str | None = Field(None, alias="HINAA_GITHUB_DEFAULT_REPO")
     tinyfish_search_timeout_seconds: float = Field(10.0, alias="HINAA_TINYFISH_SEARCH_TIMEOUT_SECONDS")
     tinyfish_fetch_timeout_seconds: float = Field(150.0, alias="HINAA_TINYFISH_FETCH_TIMEOUT_SECONDS")
     gamma_ai_api_key: SecretStr | None = Field(None, alias="GAMMA_AI_API_KEY")
@@ -276,6 +371,51 @@ class Settings(BaseSettings):
     agent_run_timeout_seconds: float = Field(300.0, gt=0, le=3600, alias="HINAA_AGENT_RUN_TIMEOUT_SECONDS")
     agent_default_tool_timeout_seconds: float = Field(60.0, gt=0, le=600, alias="HINAA_AGENT_DEFAULT_TOOL_TIMEOUT_SECONDS")
     agent_recovery_enabled: bool = Field(True, alias="HINAA_AGENT_RECOVERY_ENABLED")
+
+    @model_validator(mode="after")
+    def validate_generation_budgets(self) -> "Settings":
+        """Clamp contradictory generation budgets at startup (directive §43).
+
+        Dangerous combinations are *corrected* (never silently honored) and
+        the corrections are recorded for the provider layer to log.
+        """
+        corrections: list[str] = []
+        if self.llm_max_output_tokens < 256:
+            corrections.append(
+                f"HINAA_LLM_MAX_OUTPUT_TOKENS={self.llm_max_output_tokens} below sane minimum; clamped to 256"
+            )
+            object.__setattr__(self, "llm_max_output_tokens", 256)
+        if self.llm_stream_char_budget < 1_000:
+            corrections.append(
+                f"HINAA_LLM_STREAM_CHAR_BUDGET={self.llm_stream_char_budget} below sane minimum; clamped to 1,000"
+            )
+            object.__setattr__(self, "llm_stream_char_budget", 1_000)
+        if self.llm_max_continuations < 0:
+            corrections.append("HINAA_LLM_MAX_CONTINUATIONS negative; clamped to 0")
+            object.__setattr__(self, "llm_max_continuations", 0)
+        if self.llm_max_continuations > 8:
+            corrections.append(
+                f"HINAA_LLM_MAX_CONTINUATIONS={self.llm_max_continuations} exceeds safe ceiling 8; clamped"
+            )
+            object.__setattr__(self, "llm_max_continuations", 8)
+        if self.session_turn_limit < 2:
+            corrections.append("session_turn_limit below 2; clamped")
+            object.__setattr__(self, "session_turn_limit", 2)
+        if self.session_history_char_limit < 1_000:
+            corrections.append("session_history_char_limit below 1,000; clamped")
+            object.__setattr__(self, "session_history_char_limit", 1_000)
+        if self.llm_timeout_seconds < 30:
+            corrections.append(
+                f"HINAA_LLM_TIMEOUT_SECONDS={self.llm_timeout_seconds}s too low for long-form generation; clamped to 30s"
+            )
+            object.__setattr__(self, "llm_timeout_seconds", 30.0)
+        if self.llm_stream_idle_timeout_seconds < 15:
+            corrections.append("llm_stream_idle_timeout below 15s; clamped")
+            object.__setattr__(self, "llm_stream_idle_timeout_seconds", 15.0)
+        self.generation_config_corrections = corrections
+        return self
+
+    generation_config_corrections: list[str] = []
 
     @model_validator(mode="after")
     def validate_production_security(self) -> Settings:
@@ -443,9 +583,8 @@ class Settings(BaseSettings):
     @property
     def custom_configured(self) -> bool:
         return bool(
-            self.openai_codex_api_key
-            and self.openai_codex_api_key.get_secret_value()
-            and self.openai_codex_base_url
+            (self.openai_codex_api_key and self.openai_codex_api_key.get_secret_value() and self.openai_codex_base_url)
+            or (self.codecraft_api_key and self.codecraft_api_key.get_secret_value() and self.active_codecraft_base_url)
         )
 
     @property
@@ -454,6 +593,14 @@ class Settings(BaseSettings):
             self.agent_router_api_key
             and self.agent_router_api_key.get_secret_value()
             and self.active_agent_router_base_url
+        )
+
+    @property
+    def codecraft_configured(self) -> bool:
+        return bool(
+            self.codecraft_api_key
+            and self.codecraft_api_key.get_secret_value()
+            and self.active_codecraft_base_url
         )
 
     @property
@@ -551,10 +698,16 @@ class Settings(BaseSettings):
     def active_custom_key(self) -> SecretStr | None:
         if self.openai_codex_api_key and self.openai_codex_api_key.get_secret_value():
             return self.openai_codex_api_key
+        if self.codecraft_api_key and self.codecraft_api_key.get_secret_value():
+            return self.codecraft_api_key
         return None
 
     @property
     def active_custom_model(self) -> str:
+        if self.openai_codex_api_key and self.openai_codex_api_key.get_secret_value():
+            return self.openai_codex_model
+        if self.codecraft_api_key and self.codecraft_api_key.get_secret_value():
+            return self.codecraft_model
         return self.openai_codex_model
 
     @property
@@ -564,14 +717,16 @@ class Settings(BaseSettings):
             for model in self.openai_codex_allowed_models_raw.split(",")
             if model.strip()
         ]
-        models = configured or [self.openai_codex_model]
-        if self.openai_codex_model and self.openai_codex_model not in models:
-            models.insert(0, self.openai_codex_model)
+        if self.codecraft_configured:
+            configured.extend(self.codecraft_allowed_models)
+        models = list(dict.fromkeys(configured)) or [self.active_custom_model]
+        if self.active_custom_model and self.active_custom_model not in models:
+            models.insert(0, self.active_custom_model)
         return models
 
     def resolve_custom_model(self, requested: str | None = None) -> str:
         model = (requested or "").strip() or self.active_custom_model
-        if model not in self.custom_allowed_models:
+        if "*" not in self.custom_allowed_models and model not in self.custom_allowed_models:
             allowed = ", ".join(self.custom_allowed_models)
             raise ValueError(
                 f"Custom gateway model is not in OPENAI_CODEX_ALLOWED_MODELS: {allowed}"
@@ -581,6 +736,8 @@ class Settings(BaseSettings):
     @property
     def active_custom_base_url(self) -> str | None:
         value = (self.openai_codex_base_url or "").strip().rstrip("/")
+        if not value and self.codecraft_configured:
+            return self.active_codecraft_base_url
         if not value:
             return None
         return value if value.endswith("/v1") else f"{value}/v1"
@@ -617,6 +774,8 @@ class Settings(BaseSettings):
         value = (self.agent_router_base_url or "").strip().rstrip("/")
         if not value:
             return None
+        if value.endswith("/dashboard"):
+            value = value[:-10].rstrip("/")
         return value if value.endswith("/v1") else f"{value}/v1"
 
     @property
@@ -633,11 +792,80 @@ class Settings(BaseSettings):
 
     def resolve_agent_router_model(self, requested: str | None = None) -> str:
         model = (requested or "").strip() or self.active_agent_router_model
-        if model not in self.agent_router_allowed_models:
+        if "*" not in self.agent_router_allowed_models and model not in self.agent_router_allowed_models:
             allowed = ", ".join(self.agent_router_allowed_models)
             raise ValueError(
                 f"Agent router model is not in AGENT_ROUTER_ALLOWED_MODELS: {allowed}"
             )
+        return model
+
+    @property
+    def active_codecraft_key(self) -> SecretStr | None:
+        if self.codecraft_api_key and self.codecraft_api_key.get_secret_value():
+            return self.codecraft_api_key
+        return None
+
+    @property
+    def active_codecraft_model(self) -> str:
+        return self.codecraft_model
+
+    @property
+    def active_codecraft_base_url(self) -> str | None:
+        value = (self.codecraft_base_url or "").strip().rstrip("/")
+        if not value:
+            return None
+        if value.endswith("/dashboard"):
+            value = value[:-10].rstrip("/")
+        return value if value.endswith("/v1") else f"{value}/v1"
+
+    @property
+    def codecraft_allowed_models(self) -> list[str]:
+        configured = [
+            model.strip()
+            for model in self.codecraft_allowed_models_raw.split(",")
+            if model.strip()
+        ]
+        models = configured or [self.codecraft_model]
+        if self.codecraft_model and self.codecraft_model not in models:
+            models.insert(0, self.codecraft_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_codecraft_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_codecraft_model
+        if "*" not in self.codecraft_allowed_models and model not in self.codecraft_allowed_models:
+            allowed = ", ".join(self.codecraft_allowed_models)
+            raise ValueError(
+                f"CodeCraft model is not in CODE_CRAFT_ALLOWED_MODELS: {allowed}"
+            )
+        return model
+
+    @property
+    def ollama_configured(self) -> bool:
+        return bool(self.ollama_base_url and self.ollama_base_url.strip())
+
+    @property
+    def active_ollama_base_url(self) -> str:
+        value = (self.ollama_base_url or "http://localhost:11434").strip().rstrip("/")
+        return value
+
+    @property
+    def active_ollama_model(self) -> str:
+        return self.ollama_model or "dolphin-mistral:7b"
+
+    @property
+    def ollama_allowed_models(self) -> list[str]:
+        configured = [
+            m.strip()
+            for m in self.ollama_allowed_models_raw.split(",")
+            if m.strip()
+        ]
+        return configured or ["*"]
+
+    def resolve_ollama_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_ollama_model
+        if "*" not in self.ollama_allowed_models and model not in self.ollama_allowed_models:
+            allowed = ", ".join(self.ollama_allowed_models)
+            raise ValueError(f"Ollama model is not in OLLAMA_ALLOWED_MODELS: {allowed}")
         return model
 
     @property
@@ -699,3 +927,96 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# Config profiles (directive §44) — sane bundles instead of 100 env knobs.
+# Explicit env vars always override profile values.
+# ---------------------------------------------------------------------------
+
+def apply_config_profile(profile: str | None) -> dict[str, object]:
+    """Apply a named profile by setting env defaults for any unset vars.
+
+    Returns the env-var overrides applied (or {} when the profile is
+    unknown). Called before :func:`get_settings` builds the Settings
+    object, so real environment variables still win.
+    """
+    profiles: dict[str, dict[str, str]] = {
+        # Low-end machines / cheap quotas: short outputs, few continuations.
+        "LOW_RESOURCE": {
+            "HINAA_LLM_MAX_OUTPUT_TOKENS": "4096",
+            "HINAA_LLM_MAX_CONTINUATIONS": "1",
+            "HINAA_LLM_STREAM_CHAR_BUDGET": "32_000",
+            "HINAA_LLM_TIMEOUT_SECONDS": "120",
+            "HINAA_SESSION_TURN_LIMIT": "12",
+            "HINAA_SESSION_HISTORY_CHAR_LIMIT": "8_000",
+        },
+        # The default experience.
+        "BALANCED": {
+            "HINAA_LLM_MAX_OUTPUT_TOKENS": "16_384",
+            "HINAA_LLM_MAX_CONTINUATIONS": "4",
+            "HINAA_LLM_STREAM_CHAR_BUDGET": "200_000",
+            "HINAA_LLM_TIMEOUT_SECONDS": "300",
+            "HINAA_SESSION_TURN_LIMIT": "24",
+            "HINAA_SESSION_HISTORY_CHAR_LIMIT": "32_000",
+        },
+        # Maximum long-form quality: more continuation rounds, larger memory.
+        "MAX_QUALITY": {
+            "HINAA_LLM_MAX_OUTPUT_TOKENS": "32_768",
+            "HINAA_LLM_MAX_CONTINUATIONS": "6",
+            "HINAA_LLM_STREAM_CHAR_BUDGET": "400_000",
+            "HINAA_LLM_TIMEOUT_SECONDS": "600",
+            "HINAA_SESSION_TURN_LIMIT": "32",
+            "HINAA_SESSION_HISTORY_CHAR_LIMIT": "64_000",
+        },
+        # Coding/agent work: tighter latency, fewer continuations.
+        "DEVELOPER": {
+            "HINAA_LLM_MAX_OUTPUT_TOKENS": "16_384",
+            "HINAA_LLM_MAX_CONTINUATIONS": "2",
+            "HINAA_LLM_STREAM_CHAR_BUDGET": "150_000",
+            "HINAA_LLM_TIMEOUT_SECONDS": "240",
+            "HINAA_SESSION_TURN_LIMIT": "24",
+            "HINAA_SESSION_HISTORY_CHAR_LIMIT": "32_000",
+        },
+    }
+    name = (profile or "").strip().upper()
+    if not name or name not in profiles:
+        return {}
+    applied: dict[str, object] = {}
+    for key, value in profiles[name].items():
+        if not os.environ.get(key):
+            os.environ[key] = value
+            applied[key] = value
+    return applied
+
+
+def validate_generation_settings() -> list[str]:
+    """Return startup warnings for generation budgets.
+
+    Contradictions are already clamped by the model validator; this surfaces
+    the corrections plus remaining advisory warnings for the provider layer
+    to log once per process.
+    """
+    try:
+        settings = get_settings()
+    except Exception:  # pragma: no cover
+        return []
+    warnings: list[str] = []
+    warnings.extend(settings.generation_config_corrections)
+    if settings.llm_max_output_tokens > 32_768:
+        warnings.append(
+            "HINAA_LLM_MAX_OUTPUT_TOKENS above 32,768 — most models cap lower; the provider will reject the value"
+        )
+    if (
+        settings.llm_max_continuations >= 6
+        and settings.llm_max_output_tokens >= 32_768
+        and settings.llm_timeout_seconds < 300
+    ):
+        warnings.append(
+            "continuations>=6 with 32k tokens and <300s timeout will truncate long documents on timeout"
+        )
+    if settings.llm_stream_char_budget > 400_000:
+        warnings.append(
+            "HINAA_LLM_STREAM_CHAR_BUDGET above 400k chars — turn payloads may exceed client limits"
+        )
+    return warnings

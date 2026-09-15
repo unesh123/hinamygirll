@@ -24,7 +24,11 @@ export function useAutoScroll(deps: unknown[]) {
   }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    endRef.current?.scrollIntoView({ behavior, block: "end" });
+    if (typeof endRef.current?.scrollIntoView === "function") {
+      endRef.current.scrollIntoView({ behavior, block: "end" });
+    } else if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
     setShowJump(false);
   }, []);
 
@@ -43,7 +47,11 @@ export function useAutoScroll(deps: unknown[]) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (isAtBottom()) {
-      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      if (typeof endRef.current?.scrollIntoView === "function") {
+        endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+      } else if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
     } else {
       // User is reading — just show the jump indicator.
       setShowJump(true);

@@ -9,7 +9,9 @@ export type ProviderMode =
   | "qwen"
   | "agent-router"
   | "cx-gateway"
-  | "gemini-live";
+  | "gemini-live"
+  | "codecraft"
+  | "ollama";
 
 export interface ProviderStatus {
   id: string;

@@ -72,12 +72,14 @@ export function resolveVoiceRoute(
 
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "cx-gateway",
-  "real",
   "claude",
+  "codecraft",
+  "real",
   "qwen",
   "openai",
   "custom",
   "agent-router",
+  "ollama",
   "local",
   "mock",
 ];
@@ -124,12 +126,12 @@ export function resolveProviderSelection(
       // the canned mock responder, so a persisted-but-now-unreachable provider
       // still answers with a genuine model. Mock remains the last resort.
       const recoveryMode: ConcreteProviderMode =
-        providers.getHealth("cx-gateway") === "healthy"
-          ? "cx-gateway"
-          : providers.getHealth("real") === "healthy"
-            ? "real"
-            : providers.getHealth("claude") === "healthy"
-              ? "claude"
+        providers.getHealth("claude") === "healthy"
+          ? "claude"
+          : providers.getHealth("cx-gateway") === "healthy"
+            ? "cx-gateway"
+            : providers.getHealth("real") === "healthy"
+              ? "real"
               : "mock";
       const recoveryModel =
         recoveryMode !== "mock"

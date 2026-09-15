@@ -12,6 +12,9 @@ from google.genai import types
 from pydantic import ValidationError
 
 from ..errors import HinaaError, safe_error_text
+from ..generation.orchestrator import (
+    GenerationOrchestrator,
+)
 
 logger = logging.getLogger(__name__)
 from ..models import AssistantTurnPlan, CompanionId, Language
@@ -26,9 +29,90 @@ from .timing import ProviderTiming
 
 
 def _sanitize_delta(value: str) -> str:
-    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
-    return value.replace("<", "").replace(">", "").replace("{", "").replace("}", "")
+    """Strip only control characters — NEVER angle brackets or braces.
 
+    The old sanitizer stripped `<`, `>`, `{`, `}`, which silently deleted
+    Markdown headings, code fences, tables, and JSON braces from every
+    streamed token. Structured document output must survive streaming.
+    """
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
+
+
+def _llm_budgets() -> tuple[int, int]:
+    """(max_output_tokens, stream_char_budget) from settings with safe defaults."""
+    try:
+        from ..config import get_settings
+
+        settings = get_settings()
+        return settings.llm_max_output_tokens, settings.llm_stream_char_budget
+    except Exception:  # pragma: no cover - settings unavailable in some tests
+        return 16_384, 200_000
+
+
+def _max_continuations() -> int:
+    try:
+        from ..config import get_settings
+
+        return max(0, int(get_settings().llm_max_continuations))
+    except Exception:  # pragma: no cover - settings unavailable in some tests
+        return 4
+
+
+def _validate_generation_budgets() -> list[str]:
+    """Validate generation budgets and warn on dangerous combinations (§43)."""
+    try:
+        from ..config import validate_generation_settings
+
+        return validate_generation_settings()
+    except Exception:  # pragma: no cover
+        return []
+
+
+def _extract_finish_reason(response: Any) -> str | None:
+    """Pull the provider finish reason off a streaming chunk (best effort)."""
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            return None
+        fr = getattr(candidates[0], "finish_reason", None)
+        if fr is None:
+            return None
+        name = getattr(fr, "name", None)
+        if name:
+            return name
+        return str(fr).rsplit(".", 1)[-1]
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _build_continuation_contents(prompt: PromptPackage, generated: str) -> Any:
+    """Resume generation: replay the original ask plus what was already
+    written, and instruct the model to continue seamlessly (no preamble,
+    no restating)."""
+    tail = generated[-6_000:]
+    instruction = (
+        "CONTINUE the response EXACTLY from where it stopped. "
+        "Do not repeat any previous text, do not add a new heading or preamble, "
+        "do not apologize, and do not summarize what you already wrote. "
+        "Resume mid-sentence if that is where it stopped, and finish the complete response."
+    )
+    parts: list[Any] = []
+    if getattr(prompt, "attachments", None):
+        for att in prompt.attachments:
+            bytes_data = getattr(att, "bytes_data", None)
+            mime_type = getattr(att, "mime_type", "image/png")
+            if bytes_data:
+                parts.append(types.Part.from_bytes(data=bytes_data, mime_type=mime_type))
+    parts.append(
+        types.Part.from_text(
+            text=(
+                f"{prompt.user_contents}\n\n"
+                f"--- YOUR PARTIAL OUTPUT SO FAR (verbatim tail) ---\n{tail}\n"
+                f"--- END PARTIAL OUTPUT ---\n\n{instruction}"
+            )
+        )
+    )
+    return parts
 
 def _build_gemini_contents(prompt: PromptPackage) -> Any:
     parts: list[Any] = []
@@ -109,59 +193,93 @@ class GeminiLLMProvider:
             )
         started = perf_counter()
         timing = ProviderTiming()
+        max_output_tokens, char_budget = _llm_budgets()
+        for warning in _validate_generation_budgets():
+            logger.warning("generation config: %s", warning)
         # Fresh client per call today — no shared HTTP session across turns.
         client = genai.Client(api_key=self._key)
         timing.mark("provider_client_ready")
         chunks: list[str] = []
         provider_events = 0
         try:
-            # thinking_config is intentionally unset here; model defaults may still
-            # apply server-side for gemini-*-flash variants (observe via stages).
-            for attempt in range(2):
-                try:
-                    stream = await client.aio.models.generate_content_stream(
-                        model=self._model,
-                        contents=_build_gemini_contents(prompt),
-                        config=types.GenerateContentConfig(
-                            system_instruction=prompt.system_instruction,
-                            temperature=0.4,
-                            max_output_tokens=500,
-                            response_mime_type="text/plain",
-                        ),
-                    )
-                    timing.mark("request_sent")
-                    size = 0
-                    async for response in stream:
-                        provider_events += 1
-                        if provider_events == 1:
-                            timing.mark("first_provider_event")
-                        delta = _sanitize_delta(response.text or "")
-                        if not delta:
+            # Phase B1.1: continuation policy lives in the SHARED
+            # GenerationOrchestrator — this provider only supplies streaming
+            # segments and finish-reason metadata. Policy no longer lives here.
+            max_continuations = _max_continuations()
+            holder: dict[str, str | None] = {"value": None}
+
+            async def _gemini_segment_stream(contents: Any) -> AsyncIterator[str]:
+                """One round: yield raw text deltas, record finish reason."""
+                for attempt in range(2):
+                    try:
+                        stream = await client.aio.models.generate_content_stream(
+                            model=self._model,
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                system_instruction=prompt.system_instruction,
+                                temperature=0.4,
+                                max_output_tokens=max_output_tokens,
+                                response_mime_type="text/plain",
+                            ),
+                        )
+                        break
+                    except Exception as e:
+                        msg = str(e).lower()
+                        if attempt == 0 and not chunks and (
+                            "503" in msg or "high demand" in msg or "unavailable" in msg or "overloaded" in msg
+                        ):
+                            logger.warning("Gemini 503/high demand transient error, retrying in 1s: %s", e)
+                            await asyncio.sleep(1.0)
                             continue
-                        remaining = 4_000 - size
-                        if remaining <= 0:
-                            break
-                        delta = delta[:remaining]
-                        size += len(delta)
-                        chunks.append(delta)
-                        timing.mark("first_text_delta")
-                        await emit_delta(delta)
-                    timing.mark("text_complete")
-                    break
-                except Exception as e:
-                    msg = str(e).lower()
-                    if attempt == 0 and not chunks and (
-                        "503" in msg or "high demand" in msg or "unavailable" in msg or "overloaded" in msg
-                    ):
-                        logger.warning("Gemini 503/high demand transient error, retrying in 1s: %s", e)
-                        await asyncio.sleep(1.0)
+                        raise
+                if not chunks:
+                    timing.mark("request_sent")
+                events = 0
+                async for response in stream:
+                    events += 1
+                    if events == 1 and not chunks:
+                        timing.mark("first_provider_event")
+                    fr = _extract_finish_reason(response)
+                    if fr:
+                        holder["value"] = fr
+                    delta = _sanitize_delta(response.text or "")
+                    if not delta:
                         continue
-                    raise
-            answer = "".join(chunks).strip()
-            if not answer:
+                    remaining = char_budget - len("".join(chunks))
+                    if remaining <= 0:
+                        break
+                    yield delta[:remaining]
+
+            async def _first_stream() -> AsyncIterator[str]:
+                async for d in _gemini_segment_stream(_build_gemini_contents(prompt)):
+                    yield d
+
+            async def _continuation_factory(prior: str):
+                async def gen() -> AsyncIterator[str]:
+                    async for d in _gemini_segment_stream(_build_continuation_contents(prompt, prior)):
+                        yield d
+                return gen(), holder
+
+            orchestrator = GenerationOrchestrator(
+                max_continuations=max_continuations,
+                char_budget=char_budget,
+                generation_id=f"gemini:{started:.0f}",
+            )
+            outcome = await orchestrator.run(
+                first_segment_stream=_first_stream(),
+                first_finish_reason_holder=holder,
+                continuation_stream_factory=_continuation_factory,
+                emit_delta=emit_delta,
+                sanitize=lambda s: s,  # provider already sanitizes
+                gemini_family=True,
+            )
+            provider_events += sum(r.events for r in orchestrator.segment_results)
+            chunks = [outcome.text]
+            if not chunks[0]:
                 raise HinaaError(
                     "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
                 )
+            answer = chunks[0]
             plan = build_plan_from_text(
                 text=answer,
                 companion_id=companion_id,
@@ -186,6 +304,7 @@ class GeminiLLMProvider:
         )
 
     async def _stream_json(self, client: genai.Client, prompt: PromptPackage) -> str:
+        max_output_tokens, _ = _llm_budgets()
         for attempt in range(2):
             try:
                 chunks: list[str] = []
@@ -195,7 +314,7 @@ class GeminiLLMProvider:
                     config=types.GenerateContentConfig(
                         system_instruction=prompt.system_instruction,
                         temperature=0.45,
-                        max_output_tokens=1800,
+                        max_output_tokens=max_output_tokens,
                         response_mime_type="application/json",
                     ),
                 )
@@ -216,6 +335,7 @@ class GeminiLLMProvider:
     async def _repair_json(
         self, client: genai.Client, prompt: PromptPackage, invalid_raw: str
     ) -> str:
+        max_output_tokens, _ = _llm_budgets()
         chunks: list[str] = []
         stream = await client.aio.models.generate_content_stream(
             model=self._model,
@@ -226,7 +346,7 @@ class GeminiLLMProvider:
                     + "\n\nSCHEMA REPAIR MODE: output valid AssistantTurnPlan JSON only."
                 ),
                 temperature=0.0,
-                max_output_tokens=1800,
+                max_output_tokens=max_output_tokens,
                 response_mime_type="application/json",
             ),
         )
@@ -244,6 +364,8 @@ class GeminiLLMProvider:
                 True,
             )
         redacted = safe_error_text(error, [self._key]).lower()
+        if any(m in redacted for m in ("safety", "blocked", "content_filter", "harm_category", "finish_reason: safety")):
+            return HinaaError("SAFETY_REFUSAL", "Gemini declined to generate content due to safety policies.", 400, False)
         if "api key" in redacted or "401" in redacted or "403" in redacted:
             return HinaaError(
                 "PROVIDER_KEY_INVALID",

@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from ..config import get_settings
 from ..persistence.db import get_session_factory
 from ..persistence.orm import Conversation, GenerationSet, ImageJob
+from ..errors import HinaaError
 from ..providers.local_comfyui import ComfyUIConfig, LocalComfyUIProvider
 from ..providers.magnific import MagnificError, MagnificProvider
 from .newbie_prompt_planner import NewBiePromptBuilder
@@ -228,6 +229,9 @@ async def _resolve_reference(params: ImageGenerateParams) -> tuple[Optional[str]
             factory = get_session_factory(get_settings())
             with factory() as lookup:
                 source_job = lookup.get(ImageJob, local.group("job_id"))
+                owner = lookup.get(GenerationSet, source_job.generation_set_id) if source_job else None
+                if owner is None or owner.user_id != params.userId:
+                    raise HinaaError("IMAGE_NOT_FOUND", "Reference image not found.", 404)
                 if source_job and source_job.file_path and Path(source_job.file_path).exists():
                     import base64 as _b64
 

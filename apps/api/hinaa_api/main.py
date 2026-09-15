@@ -1,9 +1,11 @@
-from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+import time
+import httpx
 from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any
@@ -23,10 +25,11 @@ from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse
 from .creative import CreativeJobStore, CreativeModelRegistry, MagnificBudgetManager
 from .media import AssetSource, get_asset_store
-from .persistence import MemoryService, init_db
+from .persistence import MemoryService, TaskService, init_db
 from .persistence.auth import AuthContext, auth_dependency_factory, resolve_auth
 from .persistence.db import get_session_factory, reset_session_factory
 from .persistence.project_service import LocalProjectService
+from .dialogue_state import AssetReferenceResolver, AssetSelectionSource, ConversationTurnState
 from .prompts import PROMPT_VERSION
 from .reachability import is_ephemeral_tunnel, probe_gateway
 from .realtime import RealtimeGateway
@@ -34,6 +37,7 @@ from .services import ConversationService
 from .tools import registry
 from .vmc_bridge import vmc_bridge
 from .voice_profiles import public_profiles
+from .artifacts import ArtifactFormat, ArtifactService
 
 
 logger = logging.getLogger(__name__)
@@ -128,6 +132,116 @@ class ProjectArtifactBody(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SelectionRequestBody(BaseModel):
+    resultSetId: Annotated[str, Field(min_length=1, max_length=120)]
+    assetId: Annotated[str, Field(min_length=1, max_length=160)]
+    index: Annotated[int, Field(ge=0)]
+    projectId: str | None = None
+    source: str = "UI_CLICK"
+
+
+class CreateDocumentArtifactBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=240)]
+    content: Annotated[str, Field(max_length=500_000)]
+    format: str = "md"
+    projectId: str | None = None
+    conversationId: str | None = None
+    taskId: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class CreatePresentationArtifactBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=240)]
+    subtitle: str = ""
+    slides: list[dict[str, Any]]
+    projectId: str | None = None
+    conversationId: str | None = None
+    taskId: str | None = None
+
+
+class CreateSpreadsheetArtifactBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=240)]
+    sheets: list[dict[str, Any]]
+    projectId: str | None = None
+    conversationId: str | None = None
+    taskId: str | None = None
+
+
+class PackageArtifactsBody(BaseModel):
+    artifactIds: list[str]
+    bundleTitle: Annotated[str, Field(min_length=1, max_length=120)]
+    description: str = ""
+
+
+class ConversationResolveBody(BaseModel):
+    text: Annotated[str, Field(min_length=1, max_length=4000)]
+    projectState: dict[str, Any] | None = None
+
+
+class CreateTaskBody(BaseModel):
+    goal: Annotated[str, Field(min_length=3, max_length=4000)]
+    conversationId: str | None = None
+    projectId: str | None = None
+    taskType: str = "general"
+    priority: int = 0
+    reasoningMode: str = "balanced"
+    steps: list[dict[str, Any]] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class ResolveTaskBody(BaseModel):
+    text: Annotated[str, Field(min_length=1, max_length=4000)]
+    conversationId: str | None = None
+    projectId: str | None = None
+
+
+class CompleteStepBody(BaseModel):
+    outputArtifactIds: list[str] | None = None
+
+
+class ClaimTaskBody(BaseModel):
+    workerId: Annotated[str, Field(min_length=1, max_length=120)]
+    leaseSeconds: Annotated[int, Field(default=60, ge=5, le=3600)] = 60
+    conversationId: str | None = None
+    projectId: str | None = None
+
+
+class CompleteStepWithLeaseBody(BaseModel):
+    leaseId: Annotated[str, Field(min_length=1, max_length=80)]
+    fencingToken: int = Field(ge=0)
+    outputArtifactIds: list[str] | None = None
+
+
+class FailStepBody(BaseModel):
+    reason: Annotated[str, Field(min_length=1, max_length=1000)]
+    retryLimit: int = 2
+
+
+class SteerTaskBody(BaseModel):
+    instruction: Annotated[str, Field(min_length=1, max_length=4000)]
+
+
+class CancelTaskBody(BaseModel):
+    reason: str | None = None
+
+
+class RollbackTaskBody(BaseModel):
+    version: int = Field(ge=1)
+
+
+class SideEffectPlannedBody(BaseModel):
+    stepId: str | None = None
+    idempotencyKey: Annotated[str, Field(min_length=1, max_length=160)]
+    provider: Annotated[str, Field(min_length=1, max_length=80)]
+    operationType: Annotated[str, Field(min_length=1, max_length=80)]
+    requestPayload: dict[str, Any] = Field(default_factory=dict)
+
+
+class SideEffectAcceptedBody(BaseModel):
+    providerOperationId: Annotated[str, Field(min_length=1, max_length=160)]
+    responsePayload: dict[str, Any] = Field(default_factory=dict)
+
+
 def _correlation_id(value: str | None) -> str:
     try:
         return str(UUID(value)) if value else str(uuid4())
@@ -148,12 +262,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     active_settings = settings or get_settings()
     reset_session_factory()
+    session_factory = init_db(active_settings) if active_settings.persistence_enabled else None
     memory_service = (
-        MemoryService(init_db(active_settings)) if active_settings.persistence_enabled else None
+        MemoryService(session_factory) if session_factory is not None else None
     )
-    service = ConversationService(active_settings, memory_service=memory_service)
+    task_service = (
+        TaskService(session_factory) if session_factory is not None else None
+    )
+    service = ConversationService(active_settings, memory_service=memory_service, task_service=task_service, session_factory=session_factory)
     workspace_service = LocalProjectService(
         get_session_factory(active_settings), active_settings.local_workspace_dir
+    )
+    artifact_service = ArtifactService(
+        storage_dir=active_settings.local_workspace_dir / "artifacts"
     )
     creative_budget = MagnificBudgetManager(settings=active_settings)
     creative_jobs = CreativeJobStore()
@@ -169,7 +290,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else None
     )
     from .agent import AgentRuntime
-    from .agent.contracts import AgentEvent, OperationType, PlanStep, RunStatus
+    from .agent.contracts import AgentEvent, OperationType, PlanStep, RunStatus, AgentPlan, AgentRun
     from .agent.persistence import AgentPersistenceService
 
     async def _agent_executor(step: PlanStep) -> Any:
@@ -221,6 +342,366 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         persistence=agent_persistence,
     )
 
+    from .agent.bridge import DurableTaskBridge
+    durable_task_bridge = (
+        DurableTaskBridge(task_service, agent_runtime)
+        if task_service is not None and agent_runtime is not None
+        else None
+    )
+
+    project_tasks: dict[str, asyncio.Task] = {}
+    tool_tasks: set[asyncio.Task] = set()
+
+
+    async def _wait_image_job(job_id: str, owner: str) -> dict[str, Any]:
+        from .persistence.orm import GenerationSet, ImageJob
+        while True:
+            with get_session_factory(active_settings)() as session:
+                generation = session.query(GenerationSet).filter_by(id=job_id, user_id=owner).first()
+                if generation is None:
+                    raise HinaaError("IMAGE_JOB_NOT_FOUND", "Image job not found for this user.", 404)
+                jobs = session.query(ImageJob).filter_by(generation_set_id=job_id).all()
+                if jobs and all(job.status not in {"pending", "queued", "processing"} for job in jobs):
+                    if any(job.status != "completed" or not job.file_path for job in jobs):
+                        raise HinaaError("IMAGE_JOB_FAILED", "One or more image outputs failed; inspect the image job.", 502)
+                    img_urls = [f"/api/v1/generated-images/{job.id}" for job in jobs]
+                    cid = generation.conversation_id
+                    try:
+                        from hinaa_api.media.resolver import MediaResolver
+                        from hinaa_api.dialogue_state import EntityReferenceResolver
+                        resolver = MediaResolver()
+                        new_asset_ids = []
+                        for img_url in img_urls:
+                            res = await resolver.resolve(img_url)
+                            if res and res.asset_id:
+                                new_asset_ids.append(res.asset_id)
+                        if cid and service.dialogue_state_service:
+                            d_state = service.dialogue_state_service.load(cid, owner)
+                            for aid in new_asset_ids:
+                                if aid not in d_state.last_generated_asset_ids:
+                                    d_state.last_generated_asset_ids.append(aid)
+                                if not any(a.get("asset_id") == aid for a in d_state.active_assets):
+                                    d_state.active_assets.append({
+                                        "asset_id": aid,
+                                        "url": f"/api/v1/assets/{aid}",
+                                        "type": "image",
+                                        "created_at": datetime.now(timezone.utc).isoformat(),
+                                    })
+                            active_char = EntityReferenceResolver.get_active_character(d_state)
+                            d_state.last_assistant_action = {
+                                "action": "image_generate",
+                                "prompt": generation.prompt,
+                                "subject": active_char,
+                                "asset_ids": new_asset_ids,
+                                "completed": True,
+                            }
+                            d_state.tool_result_sets.append({
+                                "result_set_id": job_id,
+                                "tool": "image_generate",
+                                "ordered_asset_ids": new_asset_ids,
+                            })
+                            service.dialogue_state_service.save(d_state)
+                    except Exception:
+                        logger.warning("Failed to record generated assets in dialogue state during _wait_image_job", exc_info=True)
+
+                    return {
+                        "status": "success",
+                        "job_id": job_id,
+                        "images": img_urls,
+                    }
+            await asyncio.sleep(1)
+
+    async def _execute_registered_tool(tool_def, handler, parameters, body, owner):
+        import hashlib
+        agent_runtime.validator.allowed_tools = {tool.name for tool in registry.get_all_tools()}
+        key = body.idempotencyKey or body.id
+        run_id = ("run_" + hashlib.sha256(f"{owner}:{key}".encode()).hexdigest()[:24]) if key else f"run_{uuid4().hex[:24]}"
+        existing = agent_runtime.get_run(run_id, owner) if (key and run_id) else None
+        if not existing and durable_task_bridge and key and run_id:
+            try:
+                task_data = durable_task_bridge.task_service.get_task(owner, run_id)
+                if task_data:
+                    existing, _ = durable_task_bridge.resume_from_checkpoint(owner, run_id)
+            except Exception:
+                pass
+        if existing:
+            previous = agent_runtime.get_plan(existing.run_id)
+            prior = previous.steps[0] if previous and previous.steps else None
+            normalized = parameters.model_dump(mode="json") if isinstance(parameters, BaseModel) else parameters
+            normalized = {k: v for k, v in normalized.items() if k not in {"userId", "user_id"}}
+            if prior is None or prior.tool_name != tool_def.name or prior.tool_parameters != normalized:
+                raise HinaaError("IDEMPOTENCY_CONFLICT", "This request key was used for a different action.", 409)
+            if prior.result is not None:
+                value = prior.result
+                return {**value, "runtimeRunId": existing.run_id} if isinstance(value, dict) else value
+            raise HinaaError("RUN_ALREADY_STARTED", "This action already started. Inspect the existing run before retrying.", 409)
+
+        normalized = parameters.model_dump(mode="json") if isinstance(parameters, BaseModel) else parameters
+        stored_params = {k: v for k, v in normalized.items() if k not in {"userId", "user_id"}}
+
+        durable_task_id = None
+        durable_step_id = None
+        if durable_task_bridge is not None:
+            task_dict, run, plan = durable_task_bridge.create_durable_agent_run(
+                owner_id=owner,
+                goal=f"Execute {tool_def.display_name}",
+                run_id=run_id,
+                conversation_id=body.conversationId,
+                task_type="agent_action",
+                steps=[
+                    {
+                        "title": tool_def.display_name,
+                        "description": f"Execute {tool_def.name}",
+                        "toolCallIds": [tool_def.name],
+                    }
+                ],
+                metadata={"toolName": tool_def.name, "parameters": stored_params, "idempotencyKey": key},
+            )
+            durable_task_id = task_dict["id"]
+            durable_step_id = task_dict["steps"][0]["id"] if task_dict.get("steps") else None
+            step = plan.steps[0]
+            step.tool_parameters = stored_params
+            step.tool_name = tool_def.name
+            step.maximum_attempts = 1
+            step.timeout_seconds = min(600, (tool_def.timeout_seconds or 60) + 1)
+            if agent_runtime.persistence:
+                agent_runtime.persistence.save_step(step)
+        else:
+            run = agent_runtime.create_run(
+                f"Execute {tool_def.display_name}",
+                owner,
+                conversation_id=body.conversationId,
+                run_id=run_id,
+            )
+            step = PlanStep(
+                plan_id="pending",
+                sequence=0,
+                title=tool_def.display_name,
+                operation_type=OperationType.TOOL,
+                tool_name=tool_def.name,
+                tool_parameters=stored_params,
+                maximum_attempts=1,
+                timeout_seconds=min(600, (tool_def.timeout_seconds or 60) + 1),
+            )
+            plan = AgentPlan(run_id=run.run_id, goal=run.goal, steps=[step])
+            step.plan_id = plan.plan_id
+
+        first_result = asyncio.get_running_loop().create_future()
+
+        async def invoke(_step):
+            try:
+                try:
+                    value = await asyncio.wait_for(handler(parameters), timeout=tool_def.timeout_seconds or 60.0)
+                except TimeoutError as error:
+                    raise HinaaError("TOOL_TIMEOUT", "The tool exceeded its execution deadline.", 504) from error
+                if isinstance(value, dict) and value.get("status") in {"error", "failed"}:
+                    if not first_result.done():
+                        first_result.set_result(value)
+                    raise HinaaError(str(value.get("code") or "TOOL_FAILED"), str(value.get("error") or "Tool failed."), 502)
+                step.result = value
+                if agent_runtime.persistence:
+                    agent_runtime.persistence.save_step(step)
+                if durable_task_bridge and durable_task_id and durable_step_id:
+                    try:
+                        durable_task_bridge.task_service.complete_step(
+                            owner_id=owner,
+                            task_id=durable_task_id,
+                            step_id=durable_step_id,
+                            output_artifact_ids=[],
+                        )
+                    except Exception:
+                        logger.warning("Failed to record durable step completion", exc_info=True)
+                agent_runtime._emit(
+                    run.run_id,
+                    "agent.step.progress",
+                    step_id=step.step_id,
+                    payload={"toolName": tool_def.name, "jobId": value.get("job_id") if isinstance(value, dict) else None},
+                )
+                if tool_def.name != "image_search" and not first_result.done():
+                    first_result.set_result(value)
+                if isinstance(value, dict) and value.get("job_id"):
+                    return await _wait_image_job(value["job_id"], owner)
+
+                effective_convo_id = body.conversationId or (parameters.get("conversationId") if isinstance(parameters, dict) else getattr(parameters, "conversationId", None))
+                if tool_def.name == "image_search" and isinstance(value, dict) and value.get("images") and effective_convo_id:
+                    try:
+                        from hinaa_api.media.resolver import MediaResolver
+                        resolver = MediaResolver()
+                        search_asset_ids = []
+                        result_set = value.get("resultSet") if isinstance(value.get("resultSet"), dict) else {}
+                        result_set_id = result_set.get("resultSetId") or f"rs_{uuid4().hex[:12]}"
+                        canonical_subject = (
+                            value.get("canonicalSubject")
+                            or result_set.get("canonicalSubject")
+                            or (parameters.get("canonicalSubject") if isinstance(parameters, dict) else None)
+                        )
+                        source_uris: list[str | None] = []
+                        thumbnail_uris: list[str | None] = []
+                        for idx, itm in enumerate(value["images"]):
+                            u = itm.get("url") if isinstance(itm, dict) else str(itm)
+                            asset_id = None
+                            if u:
+                                r = await resolver.resolve(u)
+                                if r and r.asset_id:
+                                    asset_id = r.asset_id
+                            if isinstance(itm, dict):
+                                asset_id = asset_id or str(itm.get("assetId") or itm.get("asset_id") or itm.get("id") or f"{result_set_id}:{idx}")
+                                itm["assetId"] = asset_id
+                                itm["asset_id"] = asset_id
+                                itm["resultSetId"] = result_set_id
+                                itm["result_set_id"] = result_set_id
+                                itm["ordinalIndex"] = idx
+                                itm["ordinal_index"] = idx
+                                itm["canonicalSubject"] = canonical_subject
+                                itm["entityIds"] = (parameters.get("entityIds") if isinstance(parameters, dict) else []) or []
+                                source_uris.append(itm.get("pageUrl") or itm.get("sourceUrl") or itm.get("url"))
+                                thumbnail_uris.append(itm.get("thumbnailUrl") or itm.get("imageUrl") or itm.get("url"))
+                            if asset_id:
+                                search_asset_ids.append(asset_id)
+                        value["galleryItems"] = [
+                            {
+                                "assetId": img.get("assetId"),
+                                "resultSetId": img.get("resultSetId"),
+                                "index": img.get("ordinalIndex"),
+                                "thumbnailUrl": img.get("thumbnailUrl") or img.get("imageUrl") or img.get("url"),
+                                "sourceUrl": img.get("pageUrl") or img.get("url"),
+                                "title": img.get("title") or "Image result",
+                                "sourceDomain": img.get("source") or img.get("domain") or "Web",
+                            }
+                            for img in value["images"]
+                            if isinstance(img, dict)
+                        ]
+                        value["resultSet"] = {
+                            **result_set,
+                            "resultSetId": result_set_id,
+                            "canonicalSubject": canonical_subject,
+                            "orderedAssetIds": search_asset_ids,
+                        }
+                        if service.dialogue_state_service:
+                            d_state = service.dialogue_state_service.load(effective_convo_id, owner)
+                            d_state.tool_result_sets.append({
+                                "result_set_id": result_set_id,
+                                "tool": "image_search",
+                                "query": (parameters.get("query") if isinstance(parameters, dict) else getattr(parameters, "query", "")),
+                                "canonical_subject": canonical_subject,
+                                "entity_ids": (parameters.get("entityIds") if isinstance(parameters, dict) else []) or [],
+                                "provider": value.get("provider"),
+                                "relevance_scores": result_set.get("relevanceScores") or [],
+                                "ordered_asset_ids": search_asset_ids,
+                                "source_uris": source_uris,
+                                "thumbnail_uris": thumbnail_uris,
+                            })
+                            if canonical_subject:
+                                d_state.last_assistant_action = {
+                                    "action": "image_search",
+                                    "subject": canonical_subject,
+                                    "prompt": (parameters.get("query") if isinstance(parameters, dict) else getattr(parameters, "query", "")),
+                                    "result_set_id": result_set_id,
+                                }
+                            service.dialogue_state_service.save(d_state)
+                    except Exception:
+                        logger.warning("Failed to record image_search result set into dialogue state", exc_info=True)
+                elif tool_def.name in ("web_search", "web_research", "web_answer", "web_extract") and isinstance(value, dict) and effective_convo_id:
+                    try:
+                        if service.dialogue_state_service:
+                            d_state = service.dialogue_state_service.load(effective_convo_id, owner)
+                            results_list = value.get("results") or value.get("sources") or value.get("pages") or []
+                            extracted_snippets = []
+                            for itm in results_list[:8]:
+                                if isinstance(itm, dict):
+                                    t = itm.get("title") or ""
+                                    s = itm.get("snippet") or itm.get("description") or itm.get("content") or itm.get("text") or ""
+                                    u = itm.get("url") or ""
+                                    if t or s:
+                                        extracted_snippets.append({"title": t[:120], "snippet": s[:300], "url": u})
+                            d_query = (parameters.get("query") if isinstance(parameters, dict) else getattr(parameters, "query", "")) or (parameters.get("topic") if isinstance(parameters, dict) else getattr(parameters, "topic", "")) or d_state.active_topic or ""
+                            answer_text = value.get("answer") if isinstance(value.get("answer"), str) else None
+                            d_state.tool_result_sets.append({
+                                "result_set_id": str(uuid4()),
+                                "tool": tool_def.name,
+                                "query": d_query,
+                                "items": extracted_snippets,
+                                "answer": answer_text[:500] if answer_text else None,
+                            })
+                            if not d_state.active_topic and d_query:
+                                d_state.active_topic = d_query
+                            service.dialogue_state_service.save(d_state)
+                    except Exception:
+                        logger.warning("Failed to record web_search result set into dialogue state", exc_info=True)
+                if not first_result.done():
+                    first_result.set_result(value)
+                return value
+            except Exception as exc:
+                if durable_task_bridge and durable_task_id and durable_step_id:
+                    try:
+                        durable_task_bridge.task_service.fail_step(
+                            owner_id=owner,
+                            task_id=durable_task_id,
+                            step_id=durable_step_id,
+                            reason=str(exc),
+                        )
+                    except Exception:
+                        pass
+                if not first_result.done():
+                    first_result.set_exception(exc)
+                raise
+
+
+        async def work():
+            try:
+                await agent_runtime.execute(run, plan=plan, executor=invoke)
+            except Exception as exc:
+                if not first_result.done():
+                    first_result.set_exception(exc)
+            finally:
+                tool_tasks.discard(asyncio.current_task())
+
+        task = asyncio.create_task(work(), name=f"hinaa-tool-{run.run_id}")
+        tool_tasks.add(task)
+        result = await first_result
+        if isinstance(result, str) and result.startswith("REQUIRES_APPROVAL:"):
+            parts = result.split(":", 2)
+            if len(parts) == 3:
+                return {
+                    "status": "RequiresApproval",
+                    "data": {"action": parts[1], "args": parts[2]},
+                    "runtimeRunId": run.run_id,
+                }
+        if isinstance(result, dict):
+            if "status" in result and ("data" in result or "images" in result or "job_id" in result or "error" in result or "code" in result):
+                return {**result, "runtimeRunId": run.run_id}
+            envelope = {
+                "id": str(uuid4()),
+                "toolId": tool_def.name,
+                "status": "success",
+                "startedAt": int(time.time() * 1000),
+                "completedAt": int(time.time() * 1000),
+                "data": result,
+            }
+            return {"status": "success", "data": envelope, "runtimeRunId": run.run_id}
+        return {"result": result, "runtimeRunId": run.run_id}
+
+    def _schedule_project_run(run: AgentRun) -> None:
+        async def work() -> None:
+            try:
+                await agent_runtime.execute(run)
+            finally:
+                project_tasks.pop(run.run_id, None)
+                if run.project_id:
+                    status = (
+                        "completed"
+                        if run.status == RunStatus.COMPLETED
+                        else ("failed" if run.status == RunStatus.FAILED else run.status.value)
+                    )
+                    if status in {"completed", "failed", "cancelled"}:
+                        workspace_service.update_agent_run(
+                            run.user_id, run.run_id, status, run.failure_message or run.goal
+                        )
+
+        project_tasks[run.run_id] = asyncio.create_task(work(), name=f"hinaa-project-{run.run_id}")
+
+
+
     def _runtime_event_payload(event: AgentEvent) -> bytes:
         return service._event(
             event.event_type,
@@ -268,7 +749,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_app: FastAPI):  # type: ignore[no-untyped-def]
         # Start VMC UDP listener for VSeeFace face tracking
         await vmc_bridge.start_udp(port=active_settings.vmc_port)
+        if agent_persistence:
+            for saved_run in agent_persistence.list_active_runs():
+                agent_runtime.recover(saved_run.run_id, saved_run.user_id)
+        if task_service:
+            task_service.recover_interrupted_tasks()
         yield
+        tasks = [*project_tasks.values(), *tool_tasks]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         vmc_bridge.stop()
 
     app = FastAPI(
@@ -287,6 +778,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.creative_jobs = creative_jobs
     app.state.asset_store = asset_store
     app.state.agent_runtime = agent_runtime
+    app.state.task_service = task_service
+    app.state.durable_task_bridge = durable_task_bridge
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -346,6 +839,56 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if path is None or reference is None or not path.is_file():
             raise HTTPException(status_code=404, detail="Asset not found")
         return FileResponse(path, media_type=reference.mime_type, filename=reference.filename or path.name)
+
+    @app.post("/v1/conversations/{conversation_id}/assets/select")
+    async def select_conversation_asset(
+        conversation_id: str,
+        body: SelectionRequestBody,
+        request: Request,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        """Persist exact UI-selected gallery asset for later deictic references."""
+        if service.dialogue_state_service is None:
+            raise HTTPException(status_code=503, detail="Dialogue state is not available")
+        owner = auth.user_id if auth else _workspace_user_id(request)
+        state = service.dialogue_state_service.load(conversation_id, owner)
+        try:
+            source = AssetSelectionSource(body.source)
+        except ValueError:
+            source = AssetSelectionSource.UI_CLICK
+        try:
+            selection = AssetReferenceResolver.select_asset(
+                state,
+                result_set_id=body.resultSetId,
+                asset_id=body.assetId,
+                ordinal_index=body.index,
+                source=source,
+                project_id=body.projectId,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        service.dialogue_state_service.save(state)
+        return {
+            "status": "selected",
+            "conversationId": conversation_id,
+            "selection": selection,
+            "message": f"Selected image {body.index + 1}.",
+        }
+
+    @app.get("/v1/conversations/{conversation_id}/assets/selection")
+    async def get_conversation_asset_selection(
+        conversation_id: str,
+        request: Request,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if service.dialogue_state_service is None:
+            raise HTTPException(status_code=503, detail="Dialogue state is not available")
+        owner = auth.user_id if auth else _workspace_user_id(request)
+        state = service.dialogue_state_service.load(conversation_id, owner)
+        return {
+            "conversationId": conversation_id,
+            "selection": state.selected_asset,
+        }
 
     @app.get("/v1/creative/budget")
     async def creative_budget_status() -> dict[str, Any]:
@@ -495,6 +1038,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             vmc_bridge.remove_client(ws)
 
+    @app.get("/health")
+    async def health_alias() -> JSONResponse:
+        return await readiness()
+
     @app.get("/health/ready")
     async def readiness() -> JSONResponse:
         if active_settings.provider_mode == "openai":
@@ -519,6 +1066,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "promptVersion": PROMPT_VERSION,
             },
         )
+
+    @app.get("/v1/diagnostics/context")
+    async def context_diagnostics() -> dict[str, object]:
+        """Phase B2/B2.1 developer inspector (directive §37/§38).
+
+        Exposes the recent per-turn context manifests (profile, includes,
+        excludes, why) so a developer can answer why-did-Hina-forget questions.
+        Diagnostics-shaped: metadata only, no prompt content, no secrets.
+        """
+        manifests = list(getattr(service, "_context_manifests", []) or [])
+        return {
+            "recentTurns": manifests[-20:],
+            "compilerConfigured": hasattr(service, "context_compiler"),
+            "canonicalSelectionEnabled": True,
+            "episodeSummarizerConfigured": service.episode_summarizer is not None,
+        }
 
     @app.get("/v1/diagnostics/voice")
     async def voice_diagnostics() -> dict[str, object]:
@@ -573,6 +1136,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 cx_message = (
                     f"CX Gateway ({active_settings.cx_gateway_model}) is configured and ready."
                 )
+
+        # Probe local Ollama if configured
+        ollama_state = "unavailable"
+        ollama_message = "Ollama is not running. Start Ollama on http://localhost:11434."
+        ollama_models: list[str] = []
+        is_server_remote = (
+            active_settings.environment in ("production", "preview", "staging")
+            or (active_settings.auth_mode != "dev" and any(not o.startswith("http://localhost") and not o.startswith("http://127.0.0.1") for o in active_settings.allowed_origins))
+        )
+        base = active_settings.active_ollama_base_url.rstrip("/")
+        is_loopback = "127.0.0.1" in base or "localhost" in base or "0.0.0.0" in base
+        if active_settings.ollama_configured:
+            if is_server_remote and is_loopback:
+                ollama_state = "desktop_bridge"
+                ollama_message = (
+                    "Ollama is configured as a Desktop Bridge (127.0.0.1:11434). "
+                    "Desktop models require client bridge when connecting to remote server."
+                )
+            else:
+                try:
+                    if base.endswith("/v1"):
+                        base = base[:-3].rstrip("/")
+                    async with httpx.AsyncClient(timeout=1.5) as probe_client:
+                        tags_resp = await probe_client.get(f"{base}/api/tags")
+                        if tags_resp.status_code == 200:
+                            tags_data = tags_resp.json()
+                            models_list = tags_data.get("models") or []
+                            for m in models_list:
+                                name = m.get("name") or m.get("model")
+                                if name and name not in ollama_models:
+                                    ollama_models.append(name)
+                            ollama_state = "healthy"
+                            def_model = active_settings.active_ollama_model
+                            if def_model not in ollama_models and ollama_models:
+                                def_model = ollama_models[0]
+                            ollama_message = (
+                                f"Ollama local engine is online ({len(ollama_models)} model{'s' if len(ollama_models) != 1 else ''} available: {', '.join(ollama_models[:3])})."
+                            )
+                except Exception as exc:
+                    logger.warning("Ollama probe error: %s (%s)", type(exc), exc)
+                    ollama_state = "unavailable"
+                    ollama_message = (
+                        f"Ollama is configured at {active_settings.active_ollama_base_url} but unreachable. "
+                        "Ensure Ollama is running (`ollama serve`)."
+                    )
 
         return [
             ProviderStatus(
@@ -729,6 +1337,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 userMessage=cx_message,
             ),
             ProviderStatus(
+                id="codecraft",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_codecraft_model}",
+                    *[f"model:{model}" for model in active_settings.codecraft_allowed_models],
+                ],
+                state="healthy" if active_settings.codecraft_configured else "unavailable",
+                userMessage=(
+                    f"CodeCraft AI is configured with default model {active_settings.active_codecraft_model}."
+                    if active_settings.codecraft_configured
+                    else "CodeCraft AI needs CODECRAFT_API_KEY and CODECRAFT_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="ollama",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "local",
+                    "offline",
+                    "zero-credit",
+                    f"default-model:{active_settings.active_ollama_model if active_settings.active_ollama_model in ollama_models else (ollama_models[0] if ollama_models else active_settings.active_ollama_model)}",
+                    *[f"model:{model}" for model in (ollama_models or [active_settings.active_ollama_model])],
+                ],
+                state=ollama_state,
+                userMessage=ollama_message,
+            ),
+            ProviderStatus(
                 id="gemini-live",
                 capabilities=[
                     "llm",
@@ -846,7 +1486,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 availability = CapabilityStatus.AVAILABLE if youcom_client.configured else CapabilityStatus.UNCONFIGURED
             elif cmd.capability in {"image_generation", "pdf_generation", "document_generation", "presentation_generation"}:
                 availability = CapabilityStatus.AVAILABLE if comfyui_ready else CapabilityStatus.DEGRADED
-            elif cmd.capability in {"memory", "file_search", "planning", "summarization", "analysis", "model_selection", "voice_config", "avatar_config", "settings"}:
+            elif cmd.capability in {"memory", "file_search", "planning", "summarization", "analysis", "model_selection", "voice_config", "avatar_config", "settings", "agent_goal"}:
                 availability = CapabilityStatus.AVAILABLE
             elif cmd.capability == "automation":
                 availability = CapabilityStatus.CONFIGURED  # Requires worker setup
@@ -922,65 +1562,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             approval_events[approval_id]["event"].set()
             return {"status": "success"}
         return {"status": "error", "error": "Approval ID not found"}
-
-    @app.get("/v1/tools/poll")
-    async def poll_tool(job_id: str) -> dict[str, Any]:
-        from hinaa_api.persistence.db import get_session_factory
-        from hinaa_api.persistence.orm import GenerationSet, ImageJob
-        from hinaa_api.config import get_settings
-        settings = get_settings()
-        
-        session_factory = get_session_factory(settings)
-        with session_factory() as session:
-            gen_set = session.query(GenerationSet).filter_by(id=job_id).first()
-            if not gen_set:
-                raise HTTPException(status_code=404, detail="Job not found")
-                
-            jobs = session.query(ImageJob).filter_by(generation_set_id=job_id).order_by(ImageJob.created_at.asc()).all()
-            if not jobs:
-                return {"id": job_id, "status": "processing", "images": [], "total": 0}
-                
-            images: list[str] = []
-            slots: list[dict[str, Any]] = []
-            failures: list[str] = []
-            active = False
-            for index, job in enumerate(jobs, start=1):
-                source = f"http://127.0.0.1:8000/v1/generated-images/{job.id}" if job.status == "completed" and job.file_path else None
-                if source:
-                    images.append(source)
-                if job.status in {"pending", "queued", "processing"}:
-                    active = True
-                if job.status in {"failed", "cancelled"}:
-                    failures.append(f"Image {index} {job.status}")
-                slots.append({
-                    "id": job.id,
-                    "index": index,
-                    "status": job.status,
-                    "seed": job.seed,
-                    "width": job.width,
-                    "height": job.height,
-                    "promptId": job.comfy_prompt_id,
-                    "url": source,
-                })
-
-            if active:
-                status = "processing"
-            elif failures and images:
-                status = "partial"
-            elif failures:
-                status = "error"
-            else:
-                status = "success"
-
-            return {
-                "id": job_id,
-                "status": status,
-                "images": images,
-                "slots": slots,
-                "completed": len(images),
-                "total": len(jobs),
-                "error": " | ".join(failures) if failures else None,
-            }
 
     @app.get("/v1/image-studio/status")
     async def image_studio_status() -> dict:
@@ -1094,8 +1675,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if candidate_pdf.is_relative_to(root) and candidate_pdf.exists() and candidate_pdf.is_file():
                 resolved_path = candidate_pdf
                 break
-            for f in root.glob(f"*{clean_name}*.pdf"):
-                if f.is_file():
+            candidate_docx = (root / f"{clean_name}.docx").resolve()
+            if candidate_docx.is_relative_to(root) and candidate_docx.exists() and candidate_docx.is_file():
+                resolved_path = candidate_docx
+                break
+            for f in root.glob(f"*{clean_name}*"):
+                if f.is_file() and not f.name.endswith(".json"):
                     resolved_path = f
                     break
             if resolved_path:
@@ -1104,11 +1689,143 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not resolved_path or not resolved_path.exists() or not resolved_path.is_file():
             raise HTTPException(status_code=404, detail="Document not found")
 
+        media_type = "application/octet-stream"
+        suffix = resolved_path.suffix.lower()
+        if suffix == ".pdf":
+            media_type = "application/pdf"
+        elif suffix == ".docx":
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif suffix == ".pptx":
+            media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        elif suffix == ".html":
+            media_type = "text/html"
+        elif suffix == ".md":
+            media_type = "text/markdown"
+
         return FileResponse(
             resolved_path,
-            media_type="application/pdf",
+            media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{resolved_path.name}"'},
         )
+
+
+    @app.get("/v1/workspace/identity")
+    async def workspace_identity(
+        request: Request,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        user_id = auth.user_id if auth else _workspace_user_id(request)
+        return {"userId": user_id}
+
+    @app.get("/v1/tools/poll")
+    async def poll_tool(request: Request, job_id: str) -> dict[str, Any]:
+        from hinaa_api.persistence.db import get_session_factory
+        from hinaa_api.persistence.orm import GenerationSet, ImageJob
+        settings = active_settings
+        
+        session_factory = get_session_factory(settings)
+        with session_factory() as session:
+            gen_set = session.query(GenerationSet).filter_by(id=job_id, user_id=_workspace_user_id(request)).first()
+            if not gen_set:
+                raise HTTPException(status_code=404, detail="Job not found")
+                
+            jobs = session.query(ImageJob).filter_by(generation_set_id=job_id).order_by(ImageJob.created_at.asc()).all()
+            if not jobs:
+                return {"id": job_id, "status": "processing", "images": [], "total": 0}
+                
+            images: list[str] = []
+            slots: list[dict[str, Any]] = []
+            failures: list[str] = []
+            active = False
+            for index, job in enumerate(jobs, start=1):
+                source = f"/api/v1/generated-images/{job.id}" if job.status == "completed" and job.file_path else None
+                if source:
+                    images.append(source)
+                if job.status in {"pending", "queued", "processing"}:
+                    active = True
+                if job.status in {"failed", "cancelled"}:
+                    failures.append(f"Image {index} {job.status}")
+                slots.append({
+                    "id": job.id,
+                    "index": index,
+                    "status": job.status,
+                    "seed": job.seed,
+                    "width": job.width,
+                    "height": job.height,
+                    "promptId": job.comfy_prompt_id,
+                    "url": source,
+                })
+            if not active and images:
+                cid = (
+                    request.query_params.get("conversation_id")
+                    or request.headers.get("x-conversation-id")
+                    or gen_set.conversation_id
+                )
+                try:
+                    from hinaa_api.media.resolver import MediaResolver
+                    from hinaa_api.dialogue_state import EntityReferenceResolver
+                    resolver = MediaResolver()
+                    new_asset_ids = []
+                    for img_url in images:
+                        res = await resolver.resolve(img_url)
+                        if res and res.asset_id:
+                            new_asset_ids.append(res.asset_id)
+                    if cid and service.dialogue_state_service:
+                        uid = _workspace_user_id(request)
+                        d_state = service.dialogue_state_service.load(cid, uid)
+                        for aid in new_asset_ids:
+                            if aid not in d_state.last_generated_asset_ids:
+                                d_state.last_generated_asset_ids.append(aid)
+                            if not any(a.get("asset_id") == aid for a in d_state.active_assets):
+                                d_state.active_assets.append({
+                                    "asset_id": aid,
+                                    "url": f"/api/v1/assets/{aid}",
+                                    "type": "image",
+                                    "created_at": datetime.now(timezone.utc).isoformat(),
+                                })
+                        active_char = EntityReferenceResolver.get_active_character(d_state)
+                        d_state.last_assistant_action = {
+                            "action": "image_generate",
+                            "prompt": gen_set.prompt,
+                            "subject": active_char,
+                            "asset_ids": new_asset_ids,
+                            "completed": True,
+                        }
+                        d_state.tool_result_sets.append({
+                            "result_set_id": job_id,
+                            "tool": "image_generate",
+                            "ordered_asset_ids": new_asset_ids,
+                        })
+                        service.dialogue_state_service.save(d_state)
+                except Exception:
+                    logger.warning("Failed to record generated assets in dialogue state during poll_tool", exc_info=True)
+
+            return {
+                "id": job_id,
+                "status": "processing" if active else ("completed" if images else "failed"),
+                "images": images,
+                "slots": slots,
+                "total": len(jobs),
+                "error": " | ".join(failures) if failures else None,
+            }
+
+    @app.get("/v1/tools")
+    async def list_tools() -> list[dict[str, Any]]:
+        tools = registry.get_all_tools()
+        return [
+            {
+                "name": t.name,
+                "displayName": t.display_name,
+                "description": t.description,
+                "riskLevel": t.risk_level,
+                "requiresConfirmation": t.requires_confirmation,
+                "parameters": t.parameters,
+                "requiredParameters": t.required_parameters,
+                "permissionLevel": t.permission_level,
+                "cancellable": t.cancellable,
+            }
+            for t in tools
+        ]
 
     @app.post("/v1/tools/execute")
     async def execute_tool(request: Request, body: ToolRequest) -> dict[str, Any]:
@@ -1128,6 +1845,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "diagnostic_echo",
                 "image_generate",
                 "pdf_generate",
+                "document_generate",
                 "create_gamma_presentation",
                 "gamma_create",
                 "magnific_image_generate",
@@ -1194,6 +1912,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if conv_id:
                     parsed_params["conversationId"] = conv_id
 
+            # P0 FIX — 422 prevention: if web_search is missing its required
+            # "query" param, auto-populate from dialogue state active_topic + slots
+            # rather than raising 422 and destroying the conversation context.
+            if tool_def.name == "web_search" and (
+                "query" not in parsed_params or not parsed_params.get("query")
+            ):
+                try:
+                    _conv_id = body.conversationId or request.headers.get("X-Conversation-ID")
+                    if _conv_id and getattr(service, "dialogue_state_service", None) is not None:
+                        _ds = service.dialogue_state_service.load(_conv_id)
+                        _fallback_query = _ds.get_query_for_active_topic()
+                        if _fallback_query:
+                            parsed_params["query"] = _fallback_query
+                            logger.info(
+                                "P0: auto-populated web_search query from dialogue state: %r",
+                                _fallback_query,
+                            )
+                except Exception:
+                    pass  # Never block a tool call over state-recovery failure
+
             # Validate required parameters before invoking handler
             missing = [name for name in tool_def.required_parameters if name not in parsed_params or parsed_params[name] is None]
             if missing:
@@ -1204,69 +1942,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     False,
                     True,
                 )
-                    
+
             if sig.parameters:
                 first_param = list(sig.parameters.values())[0]
-                # Some tools use ``from __future__ import annotations``. In that
-                # case inspect exposes the parameter model as a string, so the
-                # former dispatcher passed a raw dict into a Pydantic handler and
-                # caused a 502 before the tool could run. Resolve hints first.
                 try:
                     param_type = get_type_hints(handler).get(first_param.name, first_param.annotation)
                 except (NameError, TypeError):
                     param_type = first_param.annotation
                 if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
                     parsed_params = param_type(**parsed_params)
-                    
-            import time
-            import uuid
-            
-            started_at = int(time.time() * 1000)
-            timeout = getattr(tool_def, "timeout_seconds", None) or 60.0
-            try:
-                result = await asyncio.wait_for(handler(parsed_params), timeout=timeout)
-            except asyncio.TimeoutError:
-                raise HinaaError(
-                    "TOOL_TIMEOUT",
-                    f"Tool {tool_def.display_name} timed out after {timeout} seconds.",
-                    504,
-                    False,
-                    False,
-                )
-            completed_at = int(time.time() * 1000)
-            
-            # If the handler returned a REQUIRES_APPROVAL string
-            if isinstance(result, str) and result.startswith("REQUIRES_APPROVAL:"):
-                parts = result.split(":", 2)
-                if len(parts) == 3:
-                    action, args = parts[1], parts[2]
-                    return {
-                        "status": "RequiresApproval",
-                        "data": {
-                            "action": action,
-                            "args": args
-                        }
-                    }
 
-            # If the handler already returned a StandardToolResultEnvelope-like dict, use it directly.
-            # Error payloads are also terminal tool results: wrapping them in a
-            # generic success envelope hid actionable codes such as
-            # COMFYUI_UNAVAILABLE from the local Image Studio.
-            if isinstance(result, dict) and "status" in result and (
-                "data" in result or "images" in result or "job_id" in result
-                or "error" in result or "code" in result
-            ):
-                return result
-
-            envelope = {
-                "id": str(uuid.uuid4()),
-                "toolId": body.toolName,
-                "status": "success",
-                "startedAt": started_at,
-                "completedAt": completed_at,
-                "data": result,
-            }
-            return {"status": "success", "data": envelope}
+            owner = server_user_id or active_settings.dev_auth_subject
+            return await _execute_registered_tool(tool_def, handler, parsed_params, body, owner)
         except HinaaError:
             raise
         except Exception:
@@ -1418,10 +2105,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 agent_runtime.cancel(runtime_run.run_id, {user_id})
             raise HTTPException(status_code=404, detail="Project or selected task not found")
         if runtime_run:
-            runtime_events = agent_runtime.get_events(runtime_run.run_id, {user_id}) or []
             if run.get("status") == "running":
-                _, _, started_events = agent_runtime.begin_stream_turn(runtime_run)
-                runtime_events = [*runtime_events, *started_events]
+                _schedule_project_run(runtime_run)
+                await asyncio.sleep(0)
+            runtime_events = agent_runtime.get_events(runtime_run.run_id, {user_id}) or []
             for runtime_event in runtime_events:
                 workspace_service.append_agent_run_event(
                     user_id,
@@ -1442,22 +2129,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request, run_id: str, body: ProjectAgentRunStatusBody
     ) -> dict[str, Any]:
         user_id = _workspace_user_id(request)
-        run = workspace_service.update_agent_run(user_id, run_id, body.status, body.summary)
-        if run is None:
+        existing = workspace_service.get_agent_run(user_id, run_id)
+        if existing is None:
             raise HTTPException(status_code=404, detail="Agent run not found")
+
         runtime_run = (
             agent_runtime.get_run(run_id, {user_id})
             if active_settings.agent_runtime_enabled and agent_runtime is not None
             else None
         )
+        if body.status == "completed" and runtime_run:
+            raise HTTPException(status_code=409, detail="Runtime run cannot be completed directly by client while executing.")
+
+        run = workspace_service.update_agent_run(user_id, run_id, body.status, body.summary)
+        if run is None:
+            raise HTTPException(status_code=409, detail="Illegal agent run transition")
         runtime_events: list[AgentEvent] = []
         if runtime_run:
             if body.status == "cancelled":
                 before = len(agent_runtime.get_events(run_id, {user_id}) or [])
                 agent_runtime.cancel(run_id, {user_id})
                 runtime_events = (agent_runtime.get_events(run_id, {user_id}) or [])[before:]
-            elif body.status == "running" and runtime_run.status == RunStatus.QUEUED:
-                _, _, runtime_events = agent_runtime.begin_stream_turn(runtime_run)
+            elif body.status == "running" and runtime_run.status in {RunStatus.QUEUED, RunStatus.AWAITING_CONFIRMATION}:
+                _schedule_project_run(runtime_run)
             elif body.status == "completed":
                 plan = agent_runtime.get_plan(run_id)
                 step = next((s for s in plan.steps if s.status.value == "running"), None) if plan else None
@@ -1522,12 +2216,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"runId": run_id, "steps": [s.model_dump(mode="json") for s in steps]}
 
     @app.get("/v1/agent/runs/{run_id}/events")
-    async def list_agent_run_events(request: Request, run_id: str) -> dict[str, Any]:
+    async def list_agent_run_events(request: Request, run_id: str, after: int = 0) -> dict[str, Any]:
         user_id = _agent_user_ids(request)
         events = agent_runtime.get_events(run_id, user_id)
         if events is None:
             raise HTTPException(status_code=404, detail="Run not found")
-        return {"runId": run_id, "events": [e.model_dump(mode="json") for e in events]}
+        return {
+            "runId": run_id,
+            "cursor": max((event.sequence for event in events), default=0),
+            "events": [e.model_dump(mode="json") for e in events if e.sequence > max(0, after)],
+        }
 
     @app.post("/v1/agent/runs/{run_id}/cancel")
     async def cancel_agent_run(request: Request, run_id: str) -> dict[str, Any]:
@@ -1543,6 +2241,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         run = agent_runtime.resume(run_id, user_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Run not found")
+        if run.project_id:
+            workspace_service.update_agent_run(run.user_id, run_id, "running")
+            if agent_runtime.get_plan(run.run_id):
+                _schedule_project_run(run)
+        if not run.project_id and agent_runtime.get_plan(run.run_id) and run.status == RunStatus.EXECUTING:
+            task = asyncio.create_task(agent_runtime.execute(run), name=f"hinaa-resume-{run.run_id}")
+            tool_tasks.add(task)
+            task.add_done_callback(tool_tasks.discard)
         return run.model_dump(mode="json")
 
     @app.post("/v1/agent/runs/{run_id}/recover")
@@ -1744,6 +2450,144 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "downloadUrl": f"/api/v1/projects/artifacts/{artifact.id}/export",
             }
 
+    # -----------------------------------------------------------------------
+    # Phase 14: Artifact OS REST Surface
+    # -----------------------------------------------------------------------
+
+    @app.post("/v1/artifacts/documents", status_code=201)
+    async def create_document_artifact(
+        request: Request, body: CreateDocumentArtifactBody
+    ) -> dict[str, Any]:
+        user_id = _workspace_user_id(request)
+        try:
+            fmt = ArtifactFormat(body.format.lower())
+        except ValueError:
+            fmt = ArtifactFormat.MD
+        record, doc_ast = artifact_service.create_document(
+            user_id=user_id,
+            title=body.title,
+            content=body.content,
+            project_id=body.projectId,
+            conversation_id=body.conversationId,
+            task_id=body.taskId,
+            format=fmt,
+            tags=body.tags,
+        )
+        inspection = artifact_service.inspector.inspect_document(doc_ast)
+        return {
+            "artifact": record.model_dump(mode="json"),
+            "inspection": {
+                "wordCount": inspection.word_count,
+                "readingTimeMinutes": inspection.reading_time_minutes,
+                "estimatedTokens": inspection.estimated_tokens,
+                "qualityScore": inspection.quality_score,
+                "passed": inspection.passed,
+                "tocEntries": [
+                    {"level": e.level, "title": e.title, "anchorId": e.anchor_id}
+                    for e in inspection.table_of_contents
+                ],
+            },
+            "downloadUrl": f"/v1/artifacts/{record.id}/export",
+        }
+
+    @app.post("/v1/artifacts/presentations", status_code=201)
+    async def create_presentation_artifact(
+        request: Request, body: CreatePresentationArtifactBody
+    ) -> dict[str, Any]:
+        user_id = _workspace_user_id(request)
+        record, _ = artifact_service.create_presentation(
+            user_id=user_id,
+            title=body.title,
+            slides_data=body.slides,
+            subtitle=body.subtitle,
+            project_id=body.projectId,
+            conversation_id=body.conversationId,
+            task_id=body.taskId,
+        )
+        return {
+            "artifact": record.model_dump(mode="json"),
+            "downloadUrl": f"/v1/artifacts/{record.id}/export?format=pptx",
+        }
+
+    @app.post("/v1/artifacts/spreadsheets", status_code=201)
+    async def create_spreadsheet_artifact(
+        request: Request, body: CreateSpreadsheetArtifactBody
+    ) -> dict[str, Any]:
+        user_id = _workspace_user_id(request)
+        record, _ = artifact_service.create_spreadsheet(
+            user_id=user_id,
+            title=body.title,
+            sheets_data=body.sheets,
+            project_id=body.projectId,
+            conversation_id=body.conversationId,
+            task_id=body.taskId,
+        )
+        return {
+            "artifact": record.model_dump(mode="json"),
+            "downloadUrl": f"/v1/artifacts/{record.id}/export?format=xlsx",
+        }
+
+    @app.get("/v1/artifacts/{artifact_id}")
+    async def get_artifact_endpoint(artifact_id: str) -> dict[str, Any]:
+        art = artifact_service.get_artifact(artifact_id)
+        if not art:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        return {"artifact": art.model_dump(mode="json")}
+
+    @app.get("/v1/artifacts/{artifact_id}/inspect")
+    async def inspect_artifact_endpoint(artifact_id: str) -> dict[str, Any]:
+        try:
+            report = artifact_service.inspect_artifact(artifact_id)
+            return {"report": report}
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+
+    @app.get("/v1/artifacts/{artifact_id}/export")
+    async def export_artifact_endpoint(artifact_id: str, format: str | None = None) -> Response:
+        art = artifact_service.get_artifact(artifact_id)
+        if not art:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+
+        target_fmt_str = format or art.format.value
+        try:
+            target_fmt = ArtifactFormat(target_fmt_str.lower())
+        except ValueError:
+            target_fmt = art.format
+
+        try:
+            exported = artifact_service.export_artifact(artifact_id, target_fmt)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Export failed: {exc}") from exc
+
+        from .artifacts.models import MIME_TYPE_MAP
+        media_type = MIME_TYPE_MAP.get(target_fmt, "application/octet-stream")
+        filename = f"{art.title.lower().replace(' ', '_')[:40]}.{target_fmt.value}"
+        content_bytes = exported if isinstance(exported, bytes) else exported.encode("utf-8")
+
+        return Response(
+            content=content_bytes,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+
+    @app.post("/v1/artifacts/package")
+    async def package_artifacts_endpoint(body: PackageArtifactsBody) -> Response:
+        zip_bytes = artifact_service.package_artifacts(
+            body.artifactIds, body.bundleTitle, body.description
+        )
+        filename = f"{body.bundleTitle.lower().replace(' ', '_')[:40]}_package.zip"
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+
     @app.get("/v1/conversations")
     async def list_conversations(
         auth: AuthContext | None = Depends(conversation_auth),
@@ -1786,6 +2630,283 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversations = memory_service.list_conversations(auth.user_id, limit=100)
         return next((item for item in conversations if item["id"] == conversation_id), {"id": conversation_id, "title": title})
 
+    @app.get("/v1/conversations/{conversation_id}/working-context")
+    async def conversation_working_context(
+        conversation_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        if memory_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for conversation context", 401, True)
+        return memory_service.recent_working_context(
+            auth.user_id,
+            conversation_id,
+            limit=max(1, min(limit, 50)),
+        )
+
+    @app.post("/v1/conversations/{conversation_id}/resolve-reference")
+    async def resolve_conversation_reference(
+        conversation_id: str,
+        body: ConversationResolveBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if memory_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for reference resolution", 401, True)
+        return memory_service.resolve_reference_intent(
+            auth.user_id,
+            conversation_id,
+            body.text,
+            project_state=body.projectState,
+        )
+
+    @app.get("/v1/training/candidates")
+    async def list_training_candidates(
+        auth: AuthContext | None = Depends(conversation_auth),
+        status: str = "pending_review",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        if memory_service is None or auth is None:
+            return {"onlineTraining": False, "candidates": []}
+        candidates = memory_service.list_training_candidates(
+            auth.user_id, status=status, limit=max(1, min(limit, 100))
+        )
+        return {"onlineTraining": False, "candidates": candidates}
+
+    @app.post("/v1/tasks")
+    async def create_durable_task(
+        body: CreateTaskBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for task management", 401, True)
+        return task_service.create_task(
+            owner_id=auth.user_id,
+            goal=body.goal,
+            conversation_id=body.conversationId,
+            project_id=body.projectId,
+            task_type=body.taskType,
+            priority=body.priority,
+            reasoning_mode=body.reasoningMode,
+            steps=body.steps,
+            metadata=body.metadata,
+        )
+
+    @app.get("/v1/tasks")
+    async def list_durable_tasks(
+        conversation_id: str | None = None,
+        project_id: str | None = None,
+        include_completed: bool = False,
+        limit: int = 50,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> list[dict[str, Any]]:
+        if task_service is None or auth is None:
+            return []
+        return task_service.list_tasks(
+            owner_id=auth.user_id,
+            conversation_id=conversation_id,
+            project_id=project_id,
+            include_completed=include_completed,
+            limit=limit,
+        )
+
+    @app.get("/v1/tasks/{task_id}")
+    async def get_durable_task(
+        task_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for task retrieval", 401, True)
+        return task_service.get_task(auth.user_id, task_id)
+
+    @app.get("/v1/tasks/{task_id}/events")
+    async def task_events(
+        task_id: str,
+        after: int = 0,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for task events", 401, True)
+        return task_service.events(auth.user_id, task_id, after=after)
+
+    @app.get("/v1/tasks/{task_id}/checkpoints")
+    async def task_checkpoints(
+        task_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> list[dict[str, Any]]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for task checkpoints", 401, True)
+        return task_service.list_checkpoints(auth.user_id, task_id)
+
+    @app.post("/v1/tasks/resolve")
+    async def resolve_durable_task(
+        body: ResolveTaskBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for task resolution", 401, True)
+        return task_service.resolve_active_task(
+            auth.user_id,
+            text=body.text,
+            conversation_id=body.conversationId,
+            project_id=body.projectId,
+        )
+
+    @app.post("/v1/tasks/{task_id}/continue")
+    async def continue_durable_task(
+        task_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to continue task", 401, True)
+        return task_service.continue_task(auth.user_id, task_id)
+
+    @app.post("/v1/tasks/claim")
+    async def claim_durable_task(
+        body: ClaimTaskBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any] | None:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to claim task", 401, True)
+        return task_service.claim_next(
+            auth.user_id,
+            worker_id=body.workerId,
+            lease_seconds=body.leaseSeconds,
+            conversation_id=body.conversationId,
+            project_id=body.projectId,
+        )
+
+    @app.post("/v1/tasks/{task_id}/steps/{step_id}/complete")
+    async def complete_task_step(
+        task_id: str,
+        step_id: str,
+        body: CompleteStepBody | None = None,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to complete step", 401, True)
+        output_ids = body.outputArtifactIds if body else None
+        return task_service.complete_step(auth.user_id, task_id, step_id, output_artifact_ids=output_ids)
+
+    @app.post("/v1/tasks/{task_id}/steps/{step_id}/complete-with-lease")
+    async def complete_task_step_with_lease(
+        task_id: str,
+        step_id: str,
+        body: CompleteStepWithLeaseBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to complete leased step", 401, True)
+        return task_service.complete_step_with_lease(
+            auth.user_id,
+            task_id,
+            step_id,
+            lease_id=body.leaseId,
+            fencing_token=body.fencingToken,
+            output_artifact_ids=body.outputArtifactIds,
+        )
+
+    @app.post("/v1/tasks/{task_id}/steps/{step_id}/fail")
+    async def fail_task_step(
+        task_id: str,
+        step_id: str,
+        body: FailStepBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to report step failure", 401, True)
+        return task_service.fail_step(auth.user_id, task_id, step_id, body.reason, retry_limit=body.retryLimit)
+
+    @app.post("/v1/tasks/{task_id}/steer")
+    async def steer_durable_task(
+        task_id: str,
+        body: SteerTaskBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to steer task", 401, True)
+        return task_service.steer_task(auth.user_id, task_id, body.instruction)
+
+    @app.post("/v1/tasks/{task_id}/cancel")
+    async def cancel_durable_task(
+        task_id: str,
+        body: CancelTaskBody | None = None,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to cancel task", 401, True)
+        reason = body.reason if body else None
+        return task_service.cancel_task(auth.user_id, task_id, reason=reason)
+
+    @app.post("/v1/tasks/{task_id}/pause")
+    async def pause_durable_task(
+        task_id: str,
+        body: CancelTaskBody | None = None,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to pause task", 401, True)
+        return task_service.pause_task(auth.user_id, task_id, reason=body.reason if body else None)
+
+    @app.post("/v1/tasks/{task_id}/resume")
+    async def resume_durable_task(
+        task_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to resume task", 401, True)
+        return task_service.resume_task(auth.user_id, task_id)
+
+    @app.post("/v1/tasks/{task_id}/side-effects")
+    async def plan_side_effect(
+        task_id: str,
+        body: SideEffectPlannedBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to journal side effects", 401, True)
+        return task_service.record_side_effect_planned(
+            auth.user_id,
+            task_id,
+            step_id=body.stepId,
+            idempotency_key=body.idempotencyKey,
+            provider=body.provider,
+            operation_type=body.operationType,
+            request_payload=body.requestPayload,
+        )
+
+    @app.post("/v1/tasks/side-effects/{operation_id}/provider-accepted")
+    async def accept_side_effect(
+        operation_id: str,
+        body: SideEffectAcceptedBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to update side effects", 401, True)
+        return task_service.mark_side_effect_provider_accepted(
+            auth.user_id,
+            operation_id,
+            provider_operation_id=body.providerOperationId,
+            response_payload=body.responsePayload,
+        )
+
+    @app.post("/v1/tasks/{task_id}/rollback")
+    async def rollback_durable_task(
+        task_id: str,
+        body: RollbackTaskBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to rollback task", 401, True)
+        return task_service.rollback_to_checkpoint(auth.user_id, task_id, version=body.version)
+
+    @app.post("/v1/tasks/recover")
+    async def recover_durable_tasks(
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> list[dict[str, Any]]:
+        if task_service is None or auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to recover tasks", 401, True)
+        return task_service.recover_interrupted_tasks(owner_id=auth.user_id)
+
     @app.post("/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:
         # The web client normally sends its resolved provider explicitly. For
@@ -1823,9 +2944,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     pending_runtime_events.extend(started_events)
 
                 final_plan_payload: dict[str, Any] | None = None
-                async for event in service.stream_turn(
+                stream_iter = service.stream_turn(
                     body, request.state.correlation_id, user_id=user_id
-                ):
+                ).__aiter__()
+                deadline = (
+                    time.time() + agent_runtime.run_timeout
+                    if (agent_run and agent_runtime and getattr(agent_runtime, "run_timeout", None))
+                    else None
+                )
+                while True:
+                    try:
+                        if deadline is not None:
+                            remaining = deadline - time.time()
+                            if remaining <= 0:
+                                raise TimeoutError()
+                            event = await asyncio.wait_for(stream_iter.__anext__(), timeout=max(0.001, remaining))
+                        else:
+                            event = await stream_iter.__anext__()
+                    except StopAsyncIteration:
+                        break
+                    except (TimeoutError, asyncio.TimeoutError):
+                        raise HinaaError("RUN_TIMEOUT", "Agent run exceeded configured execution deadline.", 408, False)
                     try:
                         decoded = json.loads(event.decode("utf-8"))
                         if decoded.get("type") == "plan" and isinstance(decoded.get("plan"), dict):
@@ -2096,6 +3235,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return memory_service.update_memory(
                 auth.user_id, memory_id, body.content, body.expiresAt
             )
+
+        @app.post("/v1/privacy/memories/{memory_id}/supersede")
+        async def supersede_memory(
+            memory_id: str, body: RememberBody, auth: AuthContext = Depends(require_auth)
+        ) -> dict[str, object]:
+            old_mem, new_mem = memory_service.supersede_memory(
+                auth.user_id,
+                memory_id,
+                body.content,
+                category=body.category,
+                source_turn_ref=body.sourceTurnRef,
+            )
+            return {"superseded": old_mem, "new": new_mem}
 
         @app.delete("/v1/privacy/memories")
         async def clear_all_memories(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:

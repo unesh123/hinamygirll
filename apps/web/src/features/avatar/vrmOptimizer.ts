@@ -31,7 +31,8 @@ export interface VrmOptimizeOptions {
 
 const DEFAULT_MAX_TEXTURE_SIZE = 1024;
 
-const DEFAULT_KEEP_EXPRESSIONS: readonly string[] = [
+export const DEFAULT_KEEP_EXPRESSIONS: readonly string[] = [
+  // VRM 1.0 presets (lowercase)
   "happy",
   "angry",
   "sad",
@@ -46,6 +47,29 @@ const DEFAULT_KEEP_EXPRESSIONS: readonly string[] = [
   "ou",
   "ee",
   "oh",
+  // VRM 0.0 presets (uppercase / titlecase)
+  "joy",
+  "sorrow",
+  "fun",
+  "lookup",
+  "lookdown",
+  "lookleft",
+  "lookright",
+  "a",
+  "i",
+  "u",
+  "e",
+  "o",
+  "blink_l",
+  "blink_r",
+  // Common mouth / ARKit blendshapes
+  "jawopen",
+  "mouthsmileleft",
+  "mouthsmileright",
+  "mouthfunnel",
+  "mouthpucker",
+  "eyeblinkleft",
+  "eyeblinkright",
 ];
 
 type MorphAttribute =
@@ -184,14 +208,14 @@ export function pruneVrmMorphTargets(
   const manager = vrm.expressionManager;
   if (!manager) return 0;
 
-  const keepNames = new Set(keepExpressionNames);
+  const keepNames = new Set(keepExpressionNames.map((name) => name.toLowerCase()));
 
   // 1. Collect every (mesh, index) pair referenced by a kept expression.
   const usedIndices = new Map<string, Set<number>>();
   const binds: MorphBind[] = [];
 
   for (const expression of manager.expressions) {
-    if (!expression || !keepNames.has(expression.name)) continue;
+    if (!expression || !keepNames.has(expression.name.toLowerCase())) continue;
     const expressionBinds = expression.binds as unknown as MorphBind[] | undefined;
     if (!Array.isArray(expressionBinds)) continue;
     for (const bind of expressionBinds) {

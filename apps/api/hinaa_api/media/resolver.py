@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from pathlib import Path
 from typing import Any
 import httpx
 from .asset_store import AssetStore, get_asset_store
@@ -126,14 +127,71 @@ class MediaResolver:
                 extracted_text=extracted,
             )
 
-        # 3. Check if it's an HTTP URL
+        # 3. Check for local asset or generated-image routes (both relative & absolute URLs)
+        # 3a. /v1/assets/{id} or /api/v1/assets/{id}
+        asset_route_match = re.search(r"/(?:api/)?v1/assets/([a-zA-Z0-9_-]+)", ref_str)
+        if asset_route_match:
+            return await self.resolve(asset_route_match.group(1), role=role)
+
+        # 3b. /v1/generated-images/{id} or /api/v1/generated-images/{id}
+        gen_route_match = re.search(r"/(?:api/)?v1/generated-images/([a-zA-Z0-9_.-]+)", ref_str)
+        if gen_route_match:
+            image_id = gen_route_match.group(1)
+            raw_bytes, mime_type, filename = self._resolve_generated_image_bytes(image_id)
+            if raw_bytes:
+                stored = self.asset_store.store_bytes(
+                    raw_bytes,
+                    filename=filename,
+                    mime_type=mime_type,
+                    source=AssetSource.GENERATED,
+                )
+                extracted = _extract_media_text(raw_bytes, stored.mime_type, stored.filename)
+                return ResolvedMedia(
+                    asset_id=stored.id,
+                    bytes_data=raw_bytes,
+                    mime_type=stored.mime_type,
+                    sha256=stored.sha256,
+                    width=stored.width,
+                    height=stored.height,
+                    source_ref=stored,
+                    kind=stored.kind,
+                    role=role,
+                    filename=stored.filename,
+                    extracted_text=extracted,
+                )
+
+        # 4. Check if it's a valid local file path on disk
+        try:
+            local_path = Path(ref_str)
+            if local_path.is_file() and local_path.exists():
+                raw_bytes = local_path.read_bytes()
+                mime = "image/png"
+                if local_path.suffix.lower() in (".jpg", ".jpeg"):
+                    mime = "image/jpeg"
+                elif local_path.suffix.lower() == ".webp":
+                    mime = "image/webp"
+                stored = self.asset_store.store_bytes(raw_bytes, filename=local_path.name, mime_type=mime, source=AssetSource.LOCAL_FILE)
+                extracted = _extract_media_text(raw_bytes, stored.mime_type, stored.filename)
+                return ResolvedMedia(
+                    asset_id=stored.id,
+                    bytes_data=raw_bytes,
+                    mime_type=stored.mime_type,
+                    sha256=stored.sha256,
+                    width=stored.width,
+                    height=stored.height,
+                    source_ref=stored,
+                    kind=stored.kind,
+                    role=role,
+                    filename=stored.filename,
+                    extracted_text=extracted,
+                )
+        except Exception:
+            pass
+
+        # 5. Check if it's an HTTP URL (remote)
         if ref_str.startswith("http://") or ref_str.startswith("https://"):
             # SSRF check: prevent localhost / local network loops
             if any(h in ref_str.lower() for h in ("127.0.0.1", "localhost", "192.168.", "10.0.", "169.254.")):
-                # If it's our own local asset endpoint, extract asset ID directly!
-                local_asset_match = re.search(r"/v1/assets/([a-zA-Z0-9_-]+)", ref_str)
-                if local_asset_match:
-                    return await self.resolve(local_asset_match.group(1), role=role)
                 raise ValueError("Restricted local network address rejected for security.")
 
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -157,3 +215,41 @@ class MediaResolver:
                 )
 
         raise ValueError(f"Unable to resolve media reference: '{ref_str[:50]}...'")
+
+    def _resolve_generated_image_bytes(self, image_id: str) -> tuple[bytes | None, str, str]:
+        """Resolves generated image file from disk or database ImageJob."""
+        from pathlib import Path
+        clean_name = Path(image_id).name
+        search_dirs = [
+            Path("apps/api/data/images").resolve(),
+            Path.home() / ".hinaa" / "data" / "images",
+            Path.home() / ".hinaa" / "assets",
+        ]
+        for sdir in search_dirs:
+            if not sdir.exists():
+                continue
+            direct = sdir / clean_name
+            if direct.is_file():
+                return direct.read_bytes(), "image/png", direct.name
+            for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                cand = sdir / f"{clean_name}{ext}"
+                if cand.is_file():
+                    mime = "image/png" if ext == ".png" else ("image/jpeg" if "jp" in ext else "image/webp")
+                    return cand.read_bytes(), mime, cand.name
+
+        # Check database ImageJob
+        try:
+            from ..persistence.db import get_session_factory
+            from ..persistence.orm import ImageJob
+            from ..config import get_settings
+            session_factory = get_session_factory(get_settings())
+            with session_factory() as session:
+                job = session.query(ImageJob).filter_by(id=clean_name).first()
+                if job and job.file_path:
+                    p = Path(job.file_path)
+                    if p.is_file():
+                        return p.read_bytes(), "image/png", p.name
+        except Exception:
+            pass
+
+        return None, "image/png", clean_name

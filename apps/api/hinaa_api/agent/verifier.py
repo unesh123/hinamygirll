@@ -2,15 +2,48 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from .state import AgentGoal, PlanStep, StepResult, VerificationReport
+
 from .contracts import (
-    AgentRun,
     AgentPlan,
+    AgentRun,
+    OperationType,
     RunStatus,
     StepState,
-    OperationType,
     VerificationResult,
 )
+from .state import AgentGoal, PlanStep, StepResult, VerificationReport
+
+_PROMPT_INJECTION_PATTERN = re.compile(
+    r"(?i)\b(?:"
+    r"ignore\s+(?:all\s+)?(?:previous|prior|system|developer)\s+instructions|"
+    r"system\s+override|"
+    r"reveal\s+(?:the\s+)?(?:system\s+prompt|secrets?|credentials?)|"
+    r"delete\s+(?:all\s+)?files"
+    r")\b"
+)
+
+
+def _collect_text(value: Any, *, depth: int = 0) -> list[str]:
+    """Extract bounded textual content from untrusted tool envelopes."""
+    if depth > 5:
+        return []
+    if isinstance(value, str):
+        return [value[:20_000]]
+    if isinstance(value, dict):
+        fragments: list[str] = []
+        for nested in value.values():
+            fragments.extend(_collect_text(nested, depth=depth + 1))
+            if sum(len(item) for item in fragments) >= 50_000:
+                break
+        return fragments
+    if isinstance(value, (list, tuple, set)):
+        fragments = []
+        for nested in value:
+            fragments.extend(_collect_text(nested, depth=depth + 1))
+            if sum(len(item) for item in fragments) >= 50_000:
+                break
+        return fragments
+    return []
 
 
 class AgentVerifier:
@@ -44,7 +77,22 @@ class AgentVerifier:
                 needs_replan=True,
             )
 
-        # 2. Skill-specific sanity checks
+        # 2. Treat every external result as untrusted. Scan the actual output,
+        # not only a human-readable observation, before it can become input to
+        # a dependent planning or synthesis step.
+        external_text = "\n".join([str(result.observations), *_collect_text(result.output)])[:50_000]
+        if _PROMPT_INJECTION_PATTERN.search(external_text):
+            result.is_untrusted_content = True
+            return VerificationReport(
+                passed=False,
+                confidence=0.0,
+                evidence=["Quarantined external malicious command tokens from agent execution context."],
+                unresolved_issues=["Potential indirect prompt injection detected in external content."],
+                needs_replan=False,
+                replan_guidance="Do not forward or automatically retry content from this source.",
+            )
+
+        # 3. Skill-specific sanity checks
         if step.skill_id == "image_search":
             images = []
             if isinstance(result.output, dict):
@@ -127,13 +175,6 @@ class AgentVerifier:
                 )
             evidence.append("PDF artifact envelope contains a downloadable document.")
 
-        # 3. Security check: Untrusted external prompt injection detection
-        obs_text = str(result.observations)
-        if re.search(r"(?i)\b(?:ignore\s+(?:all\s+)?previous\s+instructions|system\s+override|delete\s+(?:all\s+)?files)\b", obs_text):
-            issues.append("Potential indirect prompt injection detected in external content. Marked untrusted.")
-            result.is_untrusted_content = True
-            # We don't fail the step, but we flag it so the planner ignores embedded commands!
-            evidence.append("Quarantined external malicious command tokens from agent execution context.")
 
         return VerificationReport(
             passed=len(issues) == 0,

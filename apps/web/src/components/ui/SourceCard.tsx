@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ExternalLink, BookmarkPlus } from 'lucide-react';
+import { ExternalLink, BookmarkPlus, Globe } from 'lucide-react';
 
 export interface SourceItem {
   id: string;
@@ -19,72 +19,212 @@ interface SourceCardProps {
 }
 
 export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
-  // Use a media query hook or just CSS for prefers-reduced-motion. We'll rely on framer-motion's default reduced motion handling or CSS.
-  // Actually, framer-motion handles it automatically if we don't override too heavily, but we can also use CSS.
+  const [imgError, setImgError] = useState(false);
+
+  const parsedDomain = React.useMemo(() => {
+    if (source.domain) return source.domain.replace(/^https?:\/\//, '').split('/')[0];
+    if (source.url) {
+      try {
+        return new URL(source.url).hostname;
+      } catch {
+        return 'web';
+      }
+    }
+    return 'web';
+  }, [source.domain, source.url]);
+
+  const faviconUrl = source.favicon || `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsedDomain)}&sz=64`;
+
+  const handleCardClick = () => {
+    if (source.url) {
+      window.open(source.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleCardClick();
+    }
+  };
+
   return (
     <motion.div
-      className="source-card"
-      initial={{ opacity: 0, y: 12, filter: 'blur(3px)' }}
+      role="link"
+      tabIndex={0}
+      onClick={handleCardClick}
+      onKeyDown={handleKeyDown}
+      className="source-card group"
+      initial={{ opacity: 0, y: 8, filter: 'blur(2px)' }}
       animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      transition={{ delay: index * 0.05, duration: 0.3, ease: 'easeOut' }}
+      whileHover={{ y: -2 }}
+      transition={{ delay: index * 0.04, duration: 0.25, ease: 'easeOut' }}
       style={{
-        background: 'rgba(255, 255, 255, 0.03)',
-        border: '1px solid rgba(255, 255, 255, 0.08)',
-        borderRadius: 12,
-        padding: 14,
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(10px)',
+        background: 'linear-gradient(145deg, rgba(28, 22, 34, 0.75), rgba(18, 16, 24, 0.85))',
+        border: '1px solid rgba(244, 114, 182, 0.16)',
+        borderRadius: 14,
+        padding: '12px 14px',
+        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
+        backdropFilter: 'blur(12px)',
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
+        cursor: 'pointer',
+        transition: 'border-color 0.2s, box-shadow 0.2s',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = 'rgba(244, 114, 182, 0.45)';
+        e.currentTarget.style.boxShadow = '0 8px 24px -4px rgba(0, 0, 0, 0.4), 0 0 16px -2px rgba(244, 114, 182, 0.18)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = 'rgba(244, 114, 182, 0.16)';
+        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.25)';
       }}
     >
       <div className="source-card-header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {source.favicon ? (
-          <img src={source.favicon} alt="" className="source-favicon" style={{ width: 16, height: 16, borderRadius: 4 }} onError={e => (e.currentTarget.style.display = 'none')} />
-        ) : (
-          <div className="source-favicon" style={{ width: 16, height: 16, background: 'linear-gradient(135deg, #a7f3d0, #67e8f9)', borderRadius: 4 }} />
-        )}
-        <span className="source-domain" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#e2e8f0' }}>{source.domain}</span>
-        {source.id.startsWith('tinyfish') && (
-          <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: 'rgba(14, 165, 233, 0.15)', color: '#38bdf8', borderRadius: 4, fontWeight: 700 }}>TinyFish</span>
-        )}
-        <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>#{(index + 1).toString().padStart(2, '0')}</span>
-      </div>
-      
-      <div className="source-title" style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', lineHeight: 1.3 }}>{source.title}</div>
-      <div className="source-snippet" style={{ fontSize: '0.8rem', color: '#cbd5e1', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{source.snippet}</div>
-      
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-        <button
-          type="button"
-          aria-label={`Open external source: ${source.title}`}
-          onClick={() => window.open(source.url, '_blank', 'noopener,noreferrer')}
-          className="source-action-btn"
-          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: '#0ea5e9', background: 'rgba(14, 165, 233, 0.1)', border: '1px solid rgba(14, 165, 233, 0.2)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', transition: 'background 0.2s, outline 0.2s' }}
-          onFocus={(e) => (e.currentTarget.style.outline = '2px solid #0ea5e9')}
-          onBlur={(e) => (e.currentTarget.style.outline = 'none')}
+        <div
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 6,
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}
         >
-          <ExternalLink size={13} />
-          Open
-        </button>
-        {onSave && (
+          {!imgError ? (
+            <img
+              src={faviconUrl}
+              alt=""
+              className="source-favicon"
+              style={{ width: 14, height: 14, objectFit: 'contain' }}
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <Globe size={12} color="#f472b6" />
+          )}
+        </div>
+
+        <span
+          className="source-domain"
+          style={{
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: '#cbd5e1',
+            letterSpacing: '0.02em',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {parsedDomain}
+        </span>
+
+        {source.id.startsWith('tinyfish') && (
+          <span
+            style={{
+              fontSize: '0.65rem',
+              padding: '2px 6px',
+              background: 'rgba(244, 114, 182, 0.15)',
+              color: '#f472b6',
+              borderRadius: 4,
+              fontWeight: 700,
+            }}
+          >
+            TinyFish
+          </span>
+        )}
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            style={{
+              fontSize: '0.68rem',
+              color: '#f472b6',
+              fontWeight: 700,
+              background: 'rgba(244, 114, 182, 0.1)',
+              padding: '1px 6px',
+              borderRadius: 6,
+            }}
+          >
+            #{(index + 1).toString().padStart(2, '0')}
+          </span>
+          <ExternalLink
+            size={13}
+            style={{ color: '#94a3b8', transition: 'color 0.2s, transform 0.2s' }}
+            className="group-hover:text-pink-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+          />
+        </div>
+      </div>
+
+      <div
+        className="source-title"
+        style={{
+          fontSize: '0.88rem',
+          fontWeight: 700,
+          color: '#f8fafc',
+          lineHeight: 1.35,
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}
+      >
+        {source.title}
+      </div>
+
+      <div
+        className="source-snippet"
+        style={{
+          fontSize: '0.78rem',
+          color: '#94a3b8',
+          lineHeight: 1.45,
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}
+      >
+        {source.snippet}
+      </div>
+
+      {onSave && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
           <button
             type="button"
-            aria-label={`Save source to local project: ${source.title}`}
-            onClick={() => onSave(source)}
-            className="source-action-btn"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', transition: 'background 0.2s, outline 0.2s' }}
-            onFocus={(e) => (e.currentTarget.style.outline = '2px solid #94a3b8')}
-            onBlur={(e) => (e.currentTarget.style.outline = 'none')}
+            aria-label={`Save source: ${source.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSave(source);
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              color: '#f472b6',
+              background: 'rgba(244, 114, 182, 0.08)',
+              border: '1px solid rgba(244, 114, 182, 0.2)',
+              borderRadius: 6,
+              padding: '4px 9px',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(244, 114, 182, 0.18)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(244, 114, 182, 0.08)')}
           >
-            <BookmarkPlus size={13} />
-            Save locally
+            <BookmarkPlus size={12} />
+            Save source
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </motion.div>
   );
 }
 
 export default SourceCard;
+

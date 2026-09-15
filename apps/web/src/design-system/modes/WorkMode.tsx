@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Search,
   Wand2,
@@ -17,11 +17,23 @@ import {
   Bot,
   Slash,
   AtSign,
+  ArrowDown,
+  Target,
 } from "lucide-react";
+import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
 import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
+import { ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel } from "../chat/ComposerV6";
+import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
+import { MediaGalleryV6, type MediaGalleryItem } from "../components/media/MediaGalleryV6";
+import { CodingTaskCard } from "../components/task/CodingTaskCard";
+import { ArtifactCardV6 } from "../components/artifact/ArtifactCardV6";
+import { ResponseEnvelopeRenderer } from "../components/response/ResponseEnvelopeRenderer";
+import { CompanionDock, type DockMode } from "./CompanionDock";
 import { PowerUpMentions, type ContextItem, type CommandItem } from "../../components/ui/PowerUpMentions";
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
+import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+
 
 const ActivityPanel = lazy(() =>
   import("../../components/ui/ActivityPanel").then((m) => ({
@@ -33,17 +45,17 @@ const ActivityPanel = lazy(() =>
 /* Local command registry fallback - used when /api/v1/commands is unavailable.
  * The capability field carries the frontend action routed through onCommand. */
 const DEFAULT_COMMANDS: CommandItem[] = [
+  { name: "goal", aliases: ["task", "objective"], label: "Goal Mode", description: "Autonomous multi-step goal execution with verification", descriptionShort: "Autonomous goal runner", icon: Target, color: "#e06c75", group: "agent", inputSchema: {}, capability: "agent-mode", riskLevel: "low-mutation", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/goal build a modern hero section"] },
   { name: "search", aliases: ["web", "research"], label: "Web Search", description: "Research a question with attributed sources", descriptionShort: "Research with sources", icon: Search, color: "#4FB989", group: "research", inputSchema: {}, capability: "search-web", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/search best coffee in Kathmandu"] },
   { name: "image", aliases: ["draw", "generate"], label: "Generate Image", description: "Open Image Studio to create an image locally", descriptionShort: "Create an image", icon: Sparkles, color: "#F36F9C", group: "creative", inputSchema: {}, capability: "generate-image", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/image a sakura sunset"] },
   { name: "humanize", aliases: ["rewrite", "tone"], label: "Humanizer", description: "Open Humanizer Studio to rewrite text naturally", descriptionShort: "Rewrite text naturally", icon: Wand2, color: "#5B9DCF", group: "writing", inputSchema: {}, capability: "open-humanizer", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/humanize"] },
   { name: "memory", aliases: ["remember"], label: "Memory", description: "Open your saved memories", descriptionShort: "Open memories", icon: Brain, color: "#B8A7F2", group: "personal", inputSchema: {}, capability: "remember-this", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/memory"] },
-
-
-
 ];
 
 import { GenericResultRenderer } from "../../features/chat/components/GenericResultRenderer";
+import { ResponseRenderer } from "../../components/ui/ResponseRenderer";
 import { AgentActivityCard, type ActivityStep } from "../../features/chat/components/AgentActivityCard";
+import { SearchingLoader, WebSearchLoader } from "../../components/ui/SearchingLoader";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY, DEFAULT_AVATAR_FILE } from "../../features/avatar/avatarRegistry";
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
@@ -58,7 +70,8 @@ function getProviderDisplayName(mode?: string): string {
     case "groq": return "Groq";
     case "real": return "Gemini";
     case "custom": return "Custom Gateway";
-    case "agent-router": return "Agent Router";
+    case "agent-router": return "Bynara Router";
+    case "codecraft": return "CodeCraft AI";
     default:
       return mode.charAt(0).toUpperCase() + mode.slice(1);
   }
@@ -67,13 +80,16 @@ function getProviderDisplayName(mode?: string): string {
 interface WorkModeProps {
   companionId?: CompanionId;
   companionState: CompanionState;
+  plan?: AssistantTurnPlan;
   messages: TranscriptMessage[];
   streamingText: string;
   partialTranscript: string;
   isThinking: boolean;
+  isSearching?: boolean;
+  searchQuery?: string;
   input: string;
   onInputChange: (value: string) => void;
-  onSend: () => void;
+  onSend: (customText?: string) => void;
   onStop: () => void;
   disabled: boolean;
   isVoiceActive: boolean;
@@ -113,6 +129,7 @@ interface WorkModeProps {
   speakingRef?: React.MutableRefObject<boolean>;
   visemeEvents?: React.MutableRefObject<any[]>;
   audioStartTimeRef?: React.MutableRefObject<number>;
+  speechBridge?: React.MutableRefObject<any>;
   // Provider micro-status & fallback props
   activeProviderMode?: string;
   activeProviderModel?: string | null;
@@ -139,10 +156,13 @@ interface WorkModeProps {
 export function WorkMode({
   companionId = "hinaa",
   companionState,
+  plan,
   messages,
   streamingText,
   partialTranscript,
   isThinking,
+  isSearching = false,
+  searchQuery,
   input,
   onInputChange,
   onSend,
@@ -176,6 +196,7 @@ export function WorkMode({
   speakingRef,
   visemeEvents,
   audioStartTimeRef,
+  speechBridge,
   activeProviderMode,
   activeProviderModel,
   providerHealth = "healthy",
@@ -189,8 +210,9 @@ export function WorkMode({
   voiceEngine,
   onSelectVoiceEngine,
   onOpenSettings,
+  onUpdateAttachmentRole,
 }: WorkModeProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputHeight, setInputHeight] = useState(44);
   const [showMentions, setShowMentions] = useState(false);
@@ -198,9 +220,23 @@ export function WorkMode({
   const [mentionCursorPos, setMentionCursorPos] = useState(0);
   const [trigger, setTrigger] = useState<"@" | "/">("@");
   const [commands, setCommands] = useState<CommandItem[]>([]);
-  const [contexts, setContexts] = useState<ContextItem[]>([]);
-  const [dockPosition, setDockPosition] = useState<"right" | "left" | "floating">("right");
-  const [companionVisible, setCompanionVisible] = useState<boolean>(true);
+  const [dockMode, setDockMode] = useState<DockMode>(() => {
+    try {
+      const saved = localStorage.getItem("hinaa_companion_dock_mode");
+      if (saved && ["right", "left", "floating", "compact", "hidden"].includes(saved)) {
+        return saved as DockMode;
+      }
+    } catch {}
+    return "right";
+  });
+
+  const handleDockModeChange = (mode: DockMode) => {
+    setDockMode(mode);
+    try {
+      localStorage.setItem("hinaa_companion_dock_mode", mode);
+    } catch {}
+  };
+
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -269,6 +305,35 @@ export function WorkMode({
       return prefs ? JSON.parse(prefs).voiceEngine || "auto" : "auto";
     } catch { return "auto"; }
   });
+
+  const [goalModeEnabled, setGoalModeEnabled] = useState<boolean>(false);
+  const [actionMode, setActionMode] = useState<ActionMode>("chat");
+  const [intelligenceLevel, setIntelligenceLevel] = useState<IntelligenceLevel>("auto");
+  const [localTopic, setLocalTopic] = useState<string | null>(null);
+
+  const activeTopic = localTopic !== null ? (localTopic || null) : (searchQuery || (plan as any)?.topic || null);
+
+  const handleComposerSend = useCallback(
+    (options?: { mode?: ActionMode; intelligence?: IntelligenceLevel; attachmentRole?: AttachmentRole } | ActionMode, role?: AttachmentRole) => {
+      let text = input.trim();
+      if (!text && !attachedImage) return;
+
+      const mode = typeof options === "object" ? options?.mode : options;
+
+      if ((goalModeEnabled || mode === "goal") && !text.startsWith("/goal")) {
+        text = `/goal ${text}`;
+      } else if (mode === "research" && !text.startsWith("/search") && !text.startsWith("/research")) {
+        text = `/search ${text}`;
+      } else if (mode === "create" && !text.startsWith("/image") && !text.startsWith("/draw")) {
+        text = `/image ${text}`;
+      } else if (mode === "code" && !text.startsWith("/code")) {
+        text = `/code ${text}`;
+      }
+
+      onSend(text);
+    },
+    [input, attachedImage, goalModeEnabled, onSend]
+  );
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
   const currentModelName = currentAvatarDef?.name || "Hinaa (Original)";
@@ -368,13 +433,6 @@ export function WorkMode({
   }, [messages]);
 
   // contexts are driven by the useMemo above; no separate state copy needed
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, streamingText]);
 
   // Auto-resize textarea
   const handleInputChange = useCallback(
@@ -526,206 +584,42 @@ export function WorkMode({
   }
 
   const renderCompanionPanel = () => {
-    const isFloating = dockPosition === "floating";
-    const isLeft = dockPosition === "left";
-
-    let panelStyle: React.CSSProperties = {
-      display: "flex",
-      flexDirection: "column",
-      background: "var(--bg-surface)",
-      borderLeft: dockPosition === "right" ? "1px solid var(--border-subtle)" : undefined,
-      borderRight: dockPosition === "left" ? "1px solid var(--border-subtle)" : undefined,
-      zIndex: isFloating ? 50 : 10,
-      flexShrink: 0,
-      overflow: "hidden",
-    };
-
-    if (isFloating) {
-      panelStyle = {
-        ...panelStyle,
-        position: "absolute",
-        top: 16,
-        right: 16,
-        width: "320px",
-        height: "440px",
-        borderRadius: "var(--radius-xl, 16px)",
-        border: "1px solid var(--border-default)",
-        boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
-      };
-    } else if (isLeft) {
-      panelStyle = {
-        ...panelStyle,
-        position: "relative",
-        width: 320,
-        left: "0px",
-        order: -1,
-        height: "100%",
-      };
-    } else {
-      panelStyle = {
-        ...panelStyle,
-        position: "relative",
-        width: 320,
-        right: "0px",
-        order: 1,
-        height: "100%",
-      };
-    }
-
+    if (dockMode === "hidden") return null;
     return (
-      <aside
-        data-testid="work-companion-panel"
-        style={panelStyle}
-        aria-label="Companion avatar panel"
-      >
-        {/* Companion Panel Header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "8px 12px",
-            borderBottom: "1px solid var(--border-subtle)",
-            background: "var(--bg-surface-raised)",
-            flexShrink: 0,
-          }}
-        >
-          {/* Model Switcher Button */}
-          <div style={{ position: "relative" }}>
-            <button
-              ref={modelPickerTriggerRef}
-              type="button"
-              aria-label="Switch 3D Avatar Model"
-              onClick={() => setShowModelPicker((prev) => !prev)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 8px",
-                borderRadius: "var(--radius-sm, 6px)",
-                border: "1px solid var(--border-default)",
-                background: "var(--bg-surface)",
-                color: "var(--text-primary)",
-                fontSize: "var(--text-xs)",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              <Sparkles size={12} color="var(--accent)" />
-              <span>{currentModelName}</span>
-            </button>
-            <AvatarModelPicker
-              isOpen={showModelPicker}
-              onClose={() => setShowModelPicker(false)}
-              triggerRef={modelPickerTriggerRef}
-              currentModel={avatarModel}
-              onSelectModel={(url) => {
-                onSelectModel?.(url);
-                setShowModelPicker(false);
-              }}
-              onOpenAvatarLab={onOpenAvatarLab}
-            />
-          </div>
-
-          {/* Dock and Close controls */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <button
-              type="button"
-              aria-label="Dock Left"
-              title="Dock Left"
-              onClick={() => setDockPosition("left")}
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "none",
-                background: dockPosition === "left" ? "var(--accent-pale)" : "transparent",
-                color: dockPosition === "left" ? "var(--accent)" : "var(--text-tertiary)",
-                cursor: "pointer",
-                fontSize: "0.7rem",
-              }}
-            >
-              Dock Left
-            </button>
-            <button
-              type="button"
-              aria-label="Float Companion"
-              title="Float Companion"
-              onClick={() => setDockPosition("floating")}
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "none",
-                background: dockPosition === "floating" ? "var(--accent-pale)" : "transparent",
-                color: dockPosition === "floating" ? "var(--accent)" : "var(--text-tertiary)",
-                cursor: "pointer",
-                fontSize: "0.7rem",
-              }}
-            >
-              Float Companion
-            </button>
-            <button
-              type="button"
-              aria-label="Dock Right"
-              title="Dock Right"
-              onClick={() => setDockPosition("right")}
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "none",
-                background: dockPosition === "right" ? "var(--accent-pale)" : "transparent",
-                color: dockPosition === "right" ? "var(--accent)" : "var(--text-tertiary)",
-                cursor: "pointer",
-                fontSize: "0.7rem",
-              }}
-            >
-              Dock Right
-            </button>
-            <button
-              type="button"
-              aria-label="Hide Companion"
-              title="Hide Companion"
-              onClick={() => setCompanionVisible(false)}
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "none",
-                background: "transparent",
-                color: "var(--text-tertiary)",
-                cursor: "pointer",
-                fontSize: "0.7rem",
-              }}
-            >
-              Hide Companion
-            </button>
-          </div>
-        </div>
-
-        {/* Companion Avatar View Container */}
-        <div style={{ flex: 1, position: "relative", minHeight: 240, overflow: "hidden" }}>
-          <VRMAvatar
-            companionId={companionId}
-            state={companionState}
-            reducedMotion={false}
-            textOnly={false}
-            jawEnergy={jawEnergy}
-            speakingRef={speakingRef}
-            visemeEvents={visemeEvents}
-            audioStartTimeRef={audioStartTimeRef}
-            modelUrl={avatarModel ?? null}
-            closeUp={avatarMode !== "full"}
-          />
-        </div>
-      </aside>
+      <CompanionDock
+        dockMode={dockMode}
+        onChangeDockMode={handleDockModeChange}
+        companionId={companionId}
+        companionState={companionState}
+        plan={plan}
+        avatarModel={avatarModel}
+        avatarMode={avatarMode}
+        companionName={companionName}
+        jawEnergy={jawEnergy}
+        speakingRef={speakingRef}
+        visemeEvents={visemeEvents}
+        audioStartTimeRef={audioStartTimeRef}
+        speechBridge={speechBridge}
+        onSelectModel={onSelectModel}
+        onOpenAvatarLab={onOpenAvatarLab}
+        isVoiceActive={isVoiceActive}
+        onToggleVoice={isVoiceActive ? onStopVoice : onStartVoice}
+        streamingText={streamingText}
+        partialTranscript={partialTranscript}
+        lastAssistantText={messages.filter((m) => m.role === "assistant").slice(-1)[0]?.text}
+      />
     );
   };
 
   return (
     <div
       data-testid="work-mode"
+      className="hinaa-work-surface"
       style={{
         display: "flex",
         flexDirection: "column",
         height: "100%",
+        minHeight: 0,
         overflow: "hidden",
         background: "var(--bg-canvas)",
       }}
@@ -839,11 +733,12 @@ export function WorkMode({
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {!isMobile && avatarModel && !companionVisible && (
+          <SearchingLoader visible={Boolean(isSearching)} query={searchQuery} />
+          {!isMobile && avatarModel && dockMode === "hidden" && (
             <button
               type="button"
               aria-label="Show companion panel"
-              onClick={() => setCompanionVisible(true)}
+              onClick={() => handleDockModeChange("right")}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -997,12 +892,14 @@ export function WorkMode({
             <VRMAvatar
               companionId={companionId}
               state={companionState}
+              plan={plan}
               reducedMotion={false}
               textOnly={false}
               jawEnergy={jawEnergy}
               speakingRef={speakingRef}
               visemeEvents={visemeEvents}
               audioStartTimeRef={audioStartTimeRef}
+              speechBridge={speechBridge}
               modelUrl={avatarModel ?? null}
               closeUp={avatarMode !== "full"}
             />
@@ -1073,20 +970,24 @@ export function WorkMode({
         </div>
       ) : (
         <>
-          <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
-        {/* Transcript column — centered, readable width */}
+          <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden", position: "relative" }}>
+        {/* Transcript column — full screen width with generous responsive padding */}
         <div
           ref={scrollRef}
+          className="hinaa-work-transcript"
           style={{
             flex: 1,
+            minHeight: 0,
             overflowY: "auto",
             overflowX: "hidden",
-            padding: "var(--space-4) var(--space-6) var(--space-2)",
+            overscrollBehaviorY: "contain",
+            WebkitOverflowScrolling: "touch",
+            padding: "var(--space-4) clamp(20px, 4vw, 56px) var(--space-2)",
             display: "flex",
             flexDirection: "column",
-            maxWidth: 860,
+            maxWidth: "100%",
             width: "100%",
-            margin: "0 auto",
+            margin: "0",
           }}
         >
           {/* Rate limit recovery card if message contains rate limit error */}
@@ -1167,91 +1068,86 @@ export function WorkMode({
               <WorkMessage key={msg.id} message={msg} />
             ))}
 
-          {/* Streaming */}
-          {streamingText && (
-            <WorkMessage
-              message={
-                {
-                  id: "streaming",
-                  role: "assistant",
-                  text: streamingText,
-                  createdAt: new Date().toISOString(),
-                } as TranscriptMessage
-              }
-              isStreaming
-            />
+          {/* Web Search Live Research Animation Card */}
+          {isSearching && (
+            <WebSearchLoader visible={true} query={searchQuery} />
           )}
+
+          {/* Streaming */}
+          {streamingText && (() => {
+            const lastMsg = messages[messages.length - 1];
+            if (
+              lastMsg &&
+              lastMsg.role === "assistant" &&
+              (lastMsg.text.trim() === streamingText.trim() ||
+                lastMsg.text.trim().startsWith(streamingText.trim()))
+            ) {
+              return null;
+            }
+            return (
+              <WorkMessage
+                message={
+                  {
+                    id: "streaming",
+                    role: "assistant",
+                    text: streamingText,
+                    createdAt: new Date().toISOString(),
+                  } as TranscriptMessage
+                }
+                isStreaming
+              />
+            );
+          })()}
 
           {/* Tool approvals */}
           {toolApprovals.map((ta) => (
-            <div
-              key={`${ta.messageId}-${ta.request.id}`}
-              data-testid="tool-approval"
-              style={{
-                padding: "var(--space-3) var(--space-4)",
-                background: "var(--warning-bg)",
-                border: "1px solid var(--warning-border)",
-                borderRadius: "var(--radius-md)",
-                marginBottom: "var(--space-3)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "var(--text-sm)",
-                  fontWeight: 600,
-                  color: "var(--warning-text)",
-                  marginBottom: "var(--space-1)",
-                }}
-              >
-                Tool approval: {ta.request.toolName}
-              </div>
-              <div
-                style={{
-                  fontSize: "var(--text-xs)",
-                  color: "var(--text-secondary)",
-                  marginBottom: "var(--space-2)",
-                }}
-              >
-                {ta.request.description}
-              </div>
-              <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                <button
-                  onClick={() => onResolveTool(ta.messageId, ta.request, true)}
-                  style={{
-                    padding: "var(--space-1) var(--space-3)",
-                    borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--success-border)",
-                    background: "var(--success-bg)",
-                    color: "var(--success-text)",
-                    fontSize: "var(--text-xs)",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={() => onResolveTool(ta.messageId, ta.request, false)}
-                  style={{
-                    padding: "var(--space-1) var(--space-3)",
-                    borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--border-default)",
-                    background: "var(--bg-surface)",
-                    color: "var(--text-secondary)",
-                    fontSize: "var(--text-xs)",
-                    fontWeight: 500,
-                    cursor: "pointer",
-                  }}
-                >
-                  Reject
-                </button>
-              </div>
+            <div key={`${ta.messageId}-${ta.request.id}`} data-testid="tool-approval" style={{ marginBottom: "var(--space-3)" }}>
+              <ApprovalCard
+                id={ta.request.id}
+                action={ta.request.toolName}
+                target={ta.request.parameters ? JSON.stringify(ta.request.parameters).slice(0, 80) : undefined}
+                riskLevel={(ta.request.riskLevel as ApprovalRiskLevel) || "medium"}
+                reason={ta.request.description}
+                onApprove={() => onResolveTool(ta.messageId, ta.request, true)}
+                onReject={() => onResolveTool(ta.messageId, ta.request, false)}
+              />
             </div>
           ))}
 
           {/* Spacer for composer */}
           <div style={{ height: "var(--space-2)", flexShrink: 0 }} />
+          <div ref={endRef} />
         </div>
+
+        {/* Floating jump-to-bottom button when user scrolled up */}
+        {showJump && (
+          <button
+            type="button"
+            data-testid="jump-to-bottom-button"
+            onClick={() => scrollToBottom("smooth")}
+            style={{
+              position: "absolute",
+              bottom: 16,
+              right: isMobile ? 16 : 340,
+              zIndex: 35,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              borderRadius: 20,
+              background: "var(--bg-surface-raised, #ffffff)",
+              color: "var(--accent, #eb6f92)",
+              border: "1px solid var(--border-default)",
+              boxShadow: "0 4px 14px rgba(0,0,0,0.15)",
+              fontSize: "0.75rem",
+              fontWeight: 650,
+              cursor: "pointer",
+            }}
+          >
+            <ArrowDown size={14} />
+            <span>Latest</span>
+          </button>
+        )}
 
         {/* Mobile floating 3D avatar jump button */}
         {isMobile && avatarModel && (
@@ -1287,17 +1183,18 @@ export function WorkMode({
         )}
 
         {/* Desktop Companion Panel */}
-        {!isMobile && avatarModel && companionVisible && renderCompanionPanel()}
+        {!isMobile && avatarModel && dockMode !== "hidden" && renderCompanionPanel()}
       </div>
 
       {/* ── Composer (attached to bottom) ─────────── */}
       <div
         data-testid="work-composer"
+        className="hinaa-work-composer"
         style={{
-          padding: "var(--space-2) var(--space-4) var(--space-3)",
-          maxWidth: 860,
+          padding: "var(--space-2) clamp(20px, 4vw, 56px) var(--space-3)",
+          maxWidth: "100%",
           width: "100%",
-          margin: "0 auto",
+          margin: "0",
           flexShrink: 0,
           borderTop: "1px solid var(--border-subtle)",
           background: "var(--bg-surface)",
@@ -1403,39 +1300,6 @@ export function WorkMode({
           </div>
         )}
 
-        {/* Image preview */}
-        {attachedImage && (
-          <div
-            style={{
-              marginBottom: "var(--space-2)",
-              padding: "var(--space-2)",
-              background: "var(--bg-subtle)",
-              borderRadius: "var(--radius-md)",
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-            }}
-          >
-            <img
-              src={attachedImage}
-              alt="Attached"
-              style={{ height: 48, borderRadius: "var(--radius-sm)" }}
-            />
-            <button
-              onClick={() => onImageAttach(null)}
-              style={{
-                fontSize: "var(--text-xs)",
-                color: "var(--danger-text)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              Remove
-            </button>
-          </div>
-        )}
-
         {/* @-mention dropdown / command palette */}
         {showMentions && (
           <div style={{ position: "relative", marginBottom: "var(--space-1)" }}>
@@ -1452,158 +1316,53 @@ export function WorkMode({
           </div>
         )}
 
-        {/* Input area */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            gap: "var(--space-2)",
-            padding: "var(--space-2) var(--space-3)",
-            background: "var(--bg-surface-raised)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "var(--radius-xl)",
-            boxShadow: "var(--shadow-sm)",
-            transition: "border-color 150ms ease, box-shadow 150ms ease",
+        {/* Frontier V6 Composer */}
+        <ComposerV6
+          value={input}
+          onChange={(val) => {
+            onInputChange(val);
+            const cursorPos = val.length;
+            const beforeCursor = val.slice(0, cursorPos);
+            const mentionMatch = beforeCursor.match(/@(\S*)$/);
+            const commandMatch = /^\/(\S*)$/.test(beforeCursor.trim()) || /\s\/(\S*)$/.test(beforeCursor)
+              ? beforeCursor.match(/\/(\S*)$/)
+              : null;
+            if (mentionMatch) {
+              setTrigger("@");
+              setShowMentions(true);
+              setMentionFilter(mentionMatch[1]);
+              setMentionCursorPos(cursorPos - mentionMatch[1].length - 1);
+            } else if (commandMatch) {
+              setTrigger("/");
+              setShowMentions(true);
+              setMentionFilter(commandMatch[1]);
+              setMentionCursorPos(cursorPos - commandMatch[1].length - 1);
+            } else {
+              setShowMentions(false);
+              setMentionFilter("");
+            }
           }}
-        >
-          {/* Hidden file input */}
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={handleImageFile}
-            data-testid="image-file-input"
-          />
-
-          {/* Attach */}
-          <button
-            type="button"
-            title="Attach image"
-            aria-label="Attach image"
-            data-testid="attach-image-button"
-            onClick={() => imageInputRef.current?.click()}
-            style={{
-              flexShrink: 0,
-              width: 32,
-              height: 32,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: "var(--radius-sm)",
-              border: "none",
-              background: attachedImage ? "var(--accent-pale, rgba(244,114,182,0.15))" : "transparent",
-              color: attachedImage ? "var(--accent, #f472b6)" : "var(--text-tertiary)",
-              cursor: "pointer",
-              transition: "all 150ms ease",
-            }}
-          >
-            <Paperclip size={16} />
-          </button>
-
-          {/* Textarea */}
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder="Ask HINAA anything..."
-            rows={1}
-            data-testid="chat-input"
-            style={{
-              flex: 1,
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              color: "var(--text-primary)",
-              fontSize: "var(--text-sm)",
-              fontFamily: "var(--font-body)",
-              lineHeight: "var(--leading-normal)",
-              resize: "none",
-              height: inputHeight,
-              maxHeight: 160,
-              padding: "var(--space-1) 0",
-            }}
-          />
-
-          {/* Voice */}
-          <button
-            onClick={isVoiceActive ? onStopVoice : onStartVoice}
-            title={isVoiceActive ? "Stop voice" : "Start voice"}
-            aria-label={isVoiceActive ? "Stop voice" : "Start voice"}
-            style={{
-              flexShrink: 0,
-              width: 32,
-              height: 32,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: "var(--radius-sm)",
-              border: "none",
-              background: isVoiceActive ? "var(--danger-bg)" : "transparent",
-              color: isVoiceActive ? "var(--danger-text)" : "var(--text-tertiary)",
-              cursor: "pointer",
-            }}
-          >
-            <Mic size={16} />
-          </button>
-
-          {/* Send / Stop */}
-          {isThinking || companionState === "thinking" || companionState === "speaking" ? (
-            <button
-              onClick={onStop}
-              title="Stop generation & playback"
-              aria-label="Stop generation & playback"
-              style={{
-                flexShrink: 0,
-                width: 32,
-                height: 32,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: "var(--radius-sm)",
-                border: "none",
-                background: "var(--danger-bg)",
-                color: "var(--danger-text)",
-                cursor: "pointer",
-              }}
-            >
-              <Square size={14} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={!input.trim() && !attachedImage}
-              title="Send message"
-              aria-label="Send message"
-              data-testid="send-button"
-              style={{
-                flexShrink: 0,
-                width: 32,
-                height: 32,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: "var(--radius-sm)",
-                border: "none",
-                background:
-                  input.trim() || attachedImage
-                    ? "var(--accent)"
-                    : "var(--bg-subtle)",
-                color:
-                  input.trim() || attachedImage
-                    ? "var(--text-on-accent)"
-                    : "var(--text-disabled)",
-                cursor:
-                  input.trim() || attachedImage ? "pointer" : "default",
-                transition: "background 150ms ease",
-              }}
-            >
-              <Send size={14} />
-            </button>
-          )}
-        </div>
+          onSend={handleComposerSend}
+          onStop={onStop}
+          isGenerating={isThinking || companionState === "thinking" || companionState === "speaking"}
+          disabled={disabled}
+          isVoiceActive={isVoiceActive}
+          onVoiceToggle={isVoiceActive ? onStopVoice : onStartVoice}
+          activeTopic={activeTopic}
+          onClearTopic={() => setLocalTopic("")}
+          activeModel={activeProviderModel || "gemini-2.5-flash"}
+          activeProvider={getProviderDisplayName(activeProviderMode)}
+          onOpenModelSelector={onOpenSettings}
+          intelligenceLevel={intelligenceLevel}
+          onChangeIntelligence={setIntelligenceLevel}
+          actionMode={actionMode}
+          onChangeActionMode={setActionMode}
+          attachedImage={attachedImage}
+          onImageAttach={(dataUrl, role) => {
+            onImageAttach(dataUrl);
+            if (onUpdateAttachmentRole && role) onUpdateAttachmentRole(role);
+          }}
+        />
       </div>
         </>
       )}
@@ -1637,21 +1396,23 @@ function WorkMessage({
   return (
     <div
       style={{
-        marginBottom: "var(--space-3)",
+        marginBottom: "var(--space-4, 16px)",
         display: "flex",
         flexDirection: "column",
         alignItems: isUser ? "flex-end" : "flex-start",
+        width: "100%",
       }}
     >
       {/* Role label */}
       {!isUser && (
         <div
           style={{
-            fontSize: "var(--text-xs)",
-            fontWeight: 600,
-            color: "var(--accent)",
-            marginBottom: "var(--space-1)",
-            paddingLeft: "var(--space-1)",
+            fontSize: "0.8rem",
+            fontWeight: 700,
+            color: "var(--accent, #f472b6)",
+            marginBottom: "6px",
+            paddingLeft: "4px",
+            letterSpacing: "0.03em",
           }}
         >
           HINAA
@@ -1660,14 +1421,14 @@ function WorkMessage({
 
       {/* Attached image preview if user or assistant sent an image */}
       {message.imageUrl && (
-        <div style={{ marginBottom: "var(--space-2)", maxWidth: "85%" }}>
+        <div style={{ marginBottom: "var(--space-2)", maxWidth: isUser ? "min(850px, 85%)" : "100%" }}>
           <img
             src={message.imageUrl}
             alt="Message attachment"
             style={{
-              maxHeight: 240,
+              maxHeight: 320,
               maxWidth: "100%",
-              borderRadius: "var(--radius-md, 8px)",
+              borderRadius: "var(--radius-md, 10px)",
               objectFit: "contain",
               border: "1px solid var(--border-subtle)",
               display: "block",
@@ -1678,32 +1439,37 @@ function WorkMessage({
 
       {/* Message bubble */}
       <div
+        className="hinaa-work-bubble"
         style={{
-          maxWidth: "85%",
-          padding: "var(--space-3) var(--space-4)",
+          width: isUser ? "auto" : "100%",
+          maxWidth: isUser ? "min(850px, 85%)" : "100%",
+          padding: isUser ? "12px 18px" : "18px 24px",
           borderRadius: isUser
-            ? "18px 18px 6px 18px"
-            : "6px 18px 18px 18px",
-          background: isUser ? "var(--accent-pale)" : "var(--bg-surface)",
+            ? "20px 20px 6px 20px"
+            : "8px 22px 22px 22px",
+          background: isUser ? "var(--accent-pale, rgba(244, 114, 182, 0.12))" : "var(--bg-surface, rgba(28, 22, 34, 0.65))",
           border: isUser
-            ? "1px solid var(--accent-soft)"
-            : "1px solid var(--border-subtle)",
-          color: "var(--text-primary)",
-          fontSize: "var(--text-sm)",
-          lineHeight: "var(--leading-relaxed)",
-          whiteSpace: "pre-wrap",
+            ? "1px solid var(--accent-soft, rgba(244, 114, 182, 0.25))"
+            : "1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))",
+          boxShadow: isUser ? "0 2px 8px rgba(0,0,0,0.06)" : "0 4px 20px rgba(0,0,0,0.12)",
+          color: "var(--text-primary, #f8fafc)",
+          fontSize: "1rem",
+          lineHeight: 1.65,
+          letterSpacing: "0.01em",
+          whiteSpace: isUser ? "pre-wrap" : "normal",
           wordBreak: "break-word",
         }}
       >
-        {message.text}
+        {isUser ? message.text : <ResponseEnvelopeRenderer rawText={message.text} />}
         {isStreaming && (
           <span
             style={{
               display: "inline-block",
               width: 2,
-              height: "1em",
-              background: "var(--accent)",
-              marginLeft: 2,
+              height: "1.1em",
+              background: "var(--accent, #f472b6)",
+              marginLeft: 4,
+              verticalAlign: "middle",
               animation: "blink 1s step-end infinite",
             }}
           />
@@ -1743,6 +1509,7 @@ function WorkWelcome({
 }: {
   onAction: (action: string) => void;
 }) {
+  const reducedMotion = useReducedMotion();
   const items = [
     {
       icon: <Search size={18} />,
@@ -1783,7 +1550,7 @@ function WorkWelcome({
       }}
     >
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
+        initial={reducedMotion ? false : { opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         style={{ textAlign: "center" }}
@@ -1811,7 +1578,7 @@ function WorkWelcome({
       </motion.div>
 
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
+        initial={reducedMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
         style={{
@@ -1825,11 +1592,11 @@ function WorkWelcome({
         {items.map((item, i) => (
           <motion.button
             key={item.action}
-            initial={{ opacity: 0, y: 8 }}
+            initial={reducedMotion ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 + i * 0.08 }}
-            whileHover={{ y: -2, boxShadow: "var(--shadow-md)" }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={reducedMotion ? undefined : { y: -2, boxShadow: "var(--shadow-md)" }}
+            whileTap={reducedMotion ? undefined : { scale: 0.98 }}
             onClick={() => onAction(item.action)}
             style={{
               padding: "var(--space-4)",

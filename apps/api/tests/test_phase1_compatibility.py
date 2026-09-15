@@ -32,7 +32,7 @@ def test_run_events_and_code_file_listing_are_scoped_routes(tmp_path):
         run = client.post(f"/v1/projects/{project['id']}/runs", json={"goal": "Write code"}).json()
         created = client.post(
             f"/v1/projects/{project['id']}/code/files",
-            json={"path": "src/app.py", "content": "print('ok')", "runId": run["id"]},
+            json={"path": "src/app.py", "content": "print('ok')"},
         )
         assert created.status_code == 201
         files = client.get(f"/v1/projects/{project['id']}/code/files")
@@ -41,4 +41,4 @@ def test_run_events_and_code_file_listing_are_scoped_routes(tmp_path):
     assert files.status_code == 200
     assert files.json()[0]["path"] == "src/app.py"
     assert events.status_code == 200
-    assert events.json()["events"][-1]["kind"] == "code"
+    assert any(event["kind"] == "runtime" for event in events.json()["events"])

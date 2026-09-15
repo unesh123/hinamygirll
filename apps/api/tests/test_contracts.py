@@ -23,7 +23,10 @@ async def test_mock_provider_contracts_are_deterministic() -> None:
 
 
 def test_live_text_delta_sanitizer_handles_arbitrary_chunks() -> None:
-    assert _sanitize_delta("safe\x00 <tag>{json}") == "safe tagjson"
+    # Control characters are stripped; Markdown/JSON structure is preserved so
+    # streamed documents (headings, fences, tables, JSON braces) stay intact.
+    assert _sanitize_delta("safe\x00 <tag>{json}") == "safe <tag>{json}"
+    assert _sanitize_delta("# Heading\n```py\ncode\n```") == "# Heading\n```py\ncode\n```"
 
 
 def test_malformed_turn_plan_is_rejected() -> None:

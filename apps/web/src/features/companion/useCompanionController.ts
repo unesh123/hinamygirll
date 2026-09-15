@@ -143,7 +143,7 @@ function runtimeEventToSteps(
 export interface CompanionController {
   companionId: CompanionId;
   switchCompanion: (id: CompanionId) => void;
-  resetConversation: () => void;
+  resetConversation: (newId?: string) => void;
   state: CompanionState;
   messages: TranscriptMessage[];
   setMessages: React.Dispatch<React.SetStateAction<TranscriptMessage[]>>;
@@ -152,6 +152,8 @@ export interface CompanionController {
   routing: ProviderRuntimeSelection;
   activePlan?: AssistantTurnPlan;
   agentSteps: LiveAgentStep[];
+  isSearching: boolean;
+  searchQuery: string;
   currentAgentRunId?: string;
   currentAgentConfirmationStepId?: string;
   cancelCurrentAgentRun: () => Promise<void>;
@@ -209,6 +211,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
   const [agentSteps, setAgentSteps] = useState<LiveAgentStep[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentAgentRunId, setCurrentAgentRunId] = useState<string>();
   const [currentAgentConfirmationStepId, setCurrentAgentConfirmationStepId] = useState<string>();
   const effectiveKey = conversationId ? `hinaa-messages-${conversationId}` : `hinaa-messages-${companionId}`;
@@ -332,7 +336,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     [clearTimers, companionId, conversationId, finalizeTurn],
   );
 
-  const resetConversation = useCallback(() => {
+  const resetConversation = useCallback((newId?: string) => {
     const previousTurn = activeTurnId.current;
     currentAbort.current?.abort();
     if (previousTurn) finalizeTurn(previousTurn);
@@ -341,6 +345,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     setStreamingText("");
     setActivePlan(undefined);
     setAgentSteps([]);
+    setIsSearching(false);
+    setSearchQuery("");
     setCurrentAgentRunId(undefined);
     setCurrentAgentConfirmationStepId(undefined);
     setMessages([createMessage("assistant", companionProfiles[companionId].greeting)]);
@@ -473,6 +479,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       setCurrentAgentConfirmationStepId(undefined);
       setState("thinking");
 
+      let streamRafId: any = null;
       try {
         let rawStreamed = "";
         let streamed = "";
@@ -504,12 +511,39 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {
             setState("thinking");
+          } else if (event.type === "search.started") {
+            setIsSearching(true);
+            setSearchQuery(event.query);
+          } else if (event.type === "search.completed") {
+            setIsSearching(false);
           } else if (event.type === "text.delta") {
+            setIsSearching(false);
             rawStreamed += event.delta;
-            streamed = getSafeAssistantStreamingText(rawStreamed);
-            setStreamingText(streamed);
-            setState(streamed ? "speaking" : "thinking");
+            // Batch streaming deltas via requestAnimationFrame to avoid React thrashing during 50K/100K streams
+            if (!streamRafId) {
+              const scheduleFrame =
+                typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+                  ? window.requestAnimationFrame
+                  : (cb: () => void) => setTimeout(cb, 16);
+              streamRafId = scheduleFrame(() => {
+                streamRafId = null;
+                streamed = getSafeAssistantStreamingText(rawStreamed);
+                setStreamingText(streamed);
+                setState(streamed ? "speaking" : "thinking");
+              });
+            }
           } else if (event.type === "plan") {
+            if (streamRafId) {
+              const cancelFrame =
+                typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+                  ? window.cancelAnimationFrame
+                  : clearTimeout;
+              cancelFrame(streamRafId);
+              streamRafId = null;
+            }
+            setIsSearching(false);
+            setSearchQuery("");
+            setStreamingText("");
             completedPlan = event.plan;
             setActivePlan(event.plan);
             setMessages((current) => [
@@ -581,6 +615,14 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         finalizeTurn(turnId, { errorText: friendly });
         return undefined;
       } finally {
+        if (streamRafId) {
+          const cancelFrame =
+            typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+              ? window.cancelAnimationFrame
+              : clearTimeout;
+          cancelFrame(streamRafId);
+          streamRafId = null;
+        }
         if (currentAbort.current === abortController) currentAbort.current = undefined;
       }
     },
@@ -816,6 +858,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     routing,
     activePlan,
     agentSteps,
+    isSearching,
+    searchQuery,
     currentAgentRunId,
     currentAgentConfirmationStepId,
     cancelCurrentAgentRun,

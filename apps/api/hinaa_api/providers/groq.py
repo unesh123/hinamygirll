@@ -9,6 +9,12 @@ import httpx
 from pydantic import ValidationError
 
 from ..errors import HinaaError, safe_error_text
+from ..generation.orchestrator import GenerationOrchestrator
+from ..generation.continuation_contract import (
+    ContinuationRequest,
+    render_continuation_prompt,
+    PromptInvariantVerifier,
+)
 from ..models import AssistantTurnPlan, CompanionId, Language
 from ..prompts import (
     PromptPackage,
@@ -18,23 +24,74 @@ from ..prompts import (
 )
 from .base import ProviderResult
 from .timing import ProviderTiming
+from .display_stream_decoder import AdaptiveStreamDecoder
 
 GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
+def _llm_budget_tokens() -> int:
+    try:
+        from ..config import get_settings
+
+        return int(get_settings().llm_max_output_tokens)
+    except Exception:  # pragma: no cover
+        return 16_384
+
+
+def _llm_stream_char_budget() -> int:
+    try:
+        from ..config import get_settings
+
+        return int(get_settings().llm_stream_char_budget)
+    except Exception:  # pragma: no cover
+        return 200_000
+
+
+def _max_continuations() -> int:
+    try:
+        from ..config import get_settings
+
+        return max(0, int(get_settings().llm_max_continuations))
+    except Exception:  # pragma: no cover
+        return 4
+
+
 def _sanitize_delta(value: str) -> str:
-    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
-    return value.replace("<", "").replace(">", "").replace("{", "").replace("}", "")
+    """Strip only control characters — preserve Markdown/JSON structure."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
 
 
 def _messages(prompt: PromptPackage) -> list[dict[str, str]]:
-    return [
+    from hinaa_api.models import safe_extract_display_text
+
+    messages: list[dict[str, str]] = [
         {"role": "system", "content": prompt.system_instruction},
-        {
-            "role": "user",
-            "content": "\n\n".join(str(item) for item in prompt.user_contents),
-        },
     ]
+
+    recent_turns = getattr(prompt, "recent_turns", None)
+    raw_user_text = getattr(prompt, "raw_user_text", None)
+
+    if raw_user_text:
+        if recent_turns:
+            # B2.1 §5: prompt.recent_turns is ALREADY selected and budgeted by
+            # the canonical ContextCompiler. Providers serialize; they never
+            # re-select context (no independent slicing).
+            for role, content in recent_turns:
+                if role not in ("user", "assistant"):
+                    continue
+                clean_content = safe_extract_display_text(content).strip()
+                if clean_content:
+                    messages.append({"role": role, "content": clean_content})
+        messages.append({"role": "user", "content": raw_user_text.strip()})
+        return messages
+
+    user_text = (
+        prompt.user_contents
+        if isinstance(prompt.user_contents, str)
+        else "\n\n".join(str(item) for item in prompt.user_contents)
+    )
+    messages.append({"role": "user", "content": user_text})
+    return messages
 
 
 class GroqLLMProvider:
@@ -103,24 +160,79 @@ class GroqLLMProvider:
                 500,
                 True,
             )
+        prompt = PromptInvariantVerifier.verify_or_sync(prompt)
         started = perf_counter()
         timing = ProviderTiming()
         chunks: list[str] = []
         provider_events = 0
         try:
             timing.mark("provider_client_ready")
-            async for delta in self._stream_text(prompt):
-                provider_events += 1
-                if provider_events == 1:
-                    timing.mark("first_provider_event")
-                delta = _sanitize_delta(delta)
-                if not delta:
-                    continue
-                chunks.append(delta)
-                timing.mark("first_text_delta")
-                await emit_delta(delta)
+            holder: dict[str, str | None] = {"value": None}
+
+            async def _first_stream() -> AsyncIterator[str]:
+                decoder = AdaptiveStreamDecoder()
+                async for d in self._stream_text(prompt, holder):
+                    clean = decoder.feed(d)
+                    if clean:
+                        yield clean
+                rest = decoder.finish()
+                if rest:
+                    yield rest
+
+            def _continuation_contents(prior: str) -> PromptPackage:
+                """Rebuild the prompt with a seamless-resume instruction using canonical contract."""
+                base_text = prompt.raw_user_text or (
+                    prompt.user_contents
+                    if isinstance(prompt.user_contents, str)
+                    else "\n\n".join(str(item) for item in prompt.user_contents)
+                )
+                continuation_req = ContinuationRequest(
+                    generation_id=f"groq:{started:.0f}",
+                    segment_number=len(orchestrator.segment_results) + 2,
+                    original_goal=base_text,
+                    previous_tail=prior[-6_000:],
+                )
+                continued_text = render_continuation_prompt(continuation_req)
+                cont_prompt = prompt.model_copy(
+                    update={
+                        "user_contents": continued_text,
+                        "raw_user_text": continued_text,
+                    }
+                )
+                return PromptInvariantVerifier.verify_or_sync(cont_prompt)
+
+            def _continuation_factory(prior: str):
+                cont_holder: dict[str, str | None] = {"value": None}
+
+                async def gen() -> AsyncIterator[str]:
+                    decoder = AdaptiveStreamDecoder()
+                    async for d in self._stream_text(_continuation_contents(prior), cont_holder):
+                        clean = decoder.feed(d)
+                        if clean:
+                            yield clean
+                    rest = decoder.finish()
+                    if rest:
+                        yield rest
+
+                return gen(), cont_holder
+
+            orchestrator = GenerationOrchestrator(
+                max_continuations=_max_continuations(),
+                char_budget=_llm_stream_char_budget(),
+                generation_id=f"groq:{started:.0f}",
+            )
+            outcome = await orchestrator.run(
+                first_segment_stream=_first_stream(),
+                first_finish_reason_holder=holder,
+                continuation_stream_factory=_continuation_factory,
+                emit_delta=emit_delta,
+                sanitize=_sanitize_delta,
+            )
+            provider_events = sum(r.events for r in orchestrator.segment_results)
+            timing.mark("first_provider_event")
+            timing.mark("first_text_delta")
             timing.mark("text_complete")
-            answer = "".join(chunks).strip()
+            answer = outcome.text.strip()
             if not answer:
                 raise HinaaError(
                     "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
@@ -151,10 +263,10 @@ class GroqLLMProvider:
             "model": self._model,
             "messages": _messages(prompt),
             "temperature": 0.35,
-            "max_tokens": 1800,
+            "max_tokens": _llm_budget_tokens(),
             "response_format": {"type": "json_object"},
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 GROQ_CHAT_COMPLETIONS_URL,
                 headers=self._headers(),
@@ -179,10 +291,10 @@ class GroqLLMProvider:
                 },
             ],
             "temperature": 0.0,
-            "max_tokens": 1800,
+            "max_tokens": _llm_budget_tokens(),
             "response_format": {"type": "json_object"},
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 GROQ_CHAT_COMPLETIONS_URL,
                 headers=self._headers(),
@@ -193,15 +305,22 @@ class GroqLLMProvider:
         content = data.get("choices", [{}])[0].get("message", {}).get("content")
         return content if isinstance(content, str) else ""
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
+    async def _stream_text(
+        self, prompt: PromptPackage, finish_reason_holder: dict[str, str | None] | None = None
+    ) -> AsyncIterator[str]:
+        """Stream one completion; optionally record the raw finish reason.
+
+        The finish reason is metadata only — continuation POLICY lives in
+        the shared GenerationOrchestrator (Phase B1.1).
+        """
         payload = {
             "model": self._model,
             "messages": _messages(prompt),
             "temperature": 0.4,
-            "max_tokens": 500,
+            "max_tokens": _llm_budget_tokens(),
             "stream": True,
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
                 "POST",
                 GROQ_CHAT_COMPLETIONS_URL,
@@ -219,7 +338,14 @@ class GroqLLMProvider:
                         data = json.loads(event)
                     except json.JSONDecodeError:
                         continue
-                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                    choices = data.get("choices") or []
+                    if not choices:
+                        continue
+                    if finish_reason_holder is not None:
+                        raw_fr = choices[0].get("finish_reason")
+                        if raw_fr:
+                            finish_reason_holder["value"] = str(raw_fr)
+                    delta = choices[0].get("delta", {}).get("content")
                     if isinstance(delta, str):
                         yield delta
 
@@ -232,6 +358,10 @@ class GroqLLMProvider:
     def _raise_for_status(self, response: httpx.Response) -> None:
         if response.status_code < 400:
             return
+        if response.status_code == 400:
+            provider_text = safe_error_text(response.text, [self._key]).lower()
+            if any(m in provider_text for m in ("content_filter", "safety", "refusal", "policy")):
+                raise HinaaError("SAFETY_REFUSAL", "Groq declined to generate content due to safety policy.", 400, False)
         if response.status_code in {401, 403}:
             raise HinaaError(
                 "PROVIDER_KEY_INVALID",
@@ -252,6 +382,8 @@ class GroqLLMProvider:
                 True,
             )
         redacted = safe_error_text(error, [self._key]).lower()
+        if any(m in redacted for m in ("content_filter", "safety", "refusal")):
+            return HinaaError("SAFETY_REFUSAL", "Groq declined to generate content due to safety policy.", 400, False)
         if "api key" in redacted or "401" in redacted or "403" in redacted:
             return HinaaError(
                 "PROVIDER_KEY_INVALID",

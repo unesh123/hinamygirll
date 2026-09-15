@@ -10,9 +10,9 @@
  *   Layer 6: Pose → relaxed idle via normalized rig bones
  */
 
-import { Suspense, useState, useRef, useEffect, useCallback } from "react";
+import { Suspense, useState, useRef, useEffect, useCallback, useContext } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { ContactShadows, Environment } from "@react-three/drei";
+import { ContactShadows } from "@react-three/drei";
 import { AnimatePresence, motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMHumanBoneName, VRMUtils } from "@pixiv/three-vrm";
@@ -25,6 +25,7 @@ import type { FaceExpressions } from "../../features/audio/useVSeeFace";
 import { expressionIntentFor, type CompanionExpressionIntent } from "../../features/avatar/companionExpression";
 import type { VisemeEvent } from "../../features/audio/textToViseme";
 import { getActiveViseme } from "../../features/audio/textToViseme";
+import { SpeechPlaybackContext, sampleSpeechPlayback } from "../../features/audio/speechPlaybackBridge";
 import { optimizeVrm } from "../../features/avatar/vrmOptimizer";
 
 export type PresenceMode = "portrait" | "closeup" | "upperbody" | "full" | "hidden";
@@ -241,7 +242,7 @@ function Model({
   // retaining immediate conversational expression changes.
   const smoothFace  = useRef<FaceExpressions>({ mouthOpen: 0, mouthA: 0, mouthI: 0, mouthU: 0, mouthE: 0, mouthO: 0, mouthSmile: 0, eyeBlinkL: 0, eyeBlinkR: 0, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0, cheekPuff: 0, angry: 0, sad: 0, relaxed: 0 });
   // AudioContext ref — populated lazily from global on first frame
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const speechBridge = useContext(SpeechPlaybackContext);
 
   useEffect(() => {
     let mounted = true;
@@ -460,7 +461,8 @@ function Model({
      *   - Mirror VSeeFace mouth open value
      */
     if (em) {
-      const speaking = speakingRef.current;
+      const speechSample = speechBridge ? sampleSpeechPlayback(speechBridge) : null;
+      const speaking = speechSample ? speechSample.speaking : speakingRef.current;
       // RMS values vary greatly across local voice engines and browsers. Shape
       // them for visible but natural articulation instead of treating quiet
       // speech as silence.
@@ -475,28 +477,20 @@ function Model({
 
       if (speaking) {
         // ── Speaking: viseme-based mouth animation ──
-        // Lazily populate audioCtxRef from global (avoids prop drilling through Canvas)
-        if (!audioCtxRef.current) {
-          audioCtxRef.current = (window as any).__hinaaAudioCtx ?? null;
-        }
-        const events = visemeEvents.current;
+        const events = speechSample?.events ?? visemeEvents.current;
         let targetMouth: MouthKey | null = null;
         let targetWeight = 0;
 
         if (events.length > 0) {
           // Use AudioContext time if available, else fallback to energy cycling
-          const ctx = audioCtxRef.current;
-          if (ctx) {
-            const playTimeMs = (ctx.currentTime - audioStartTimeRef.current) * 1000;
-            const active = getActiveViseme(Math.max(0, playTimeMs), events);
+          if (speechSample) {
+            const active = speechSample.viseme;
             if (active && active.mouth !== "closed") {
               targetMouth = VISEME_TO_VRM[active.mouth] as MouthKey ?? "aa";
               targetWeight = Math.max(0.10, active.weight * energy);
             } else {
-              // Preserve a soft open-mouth bridge between phoneme windows.
-              // This avoids a distracting open/close flicker on streamed TTS.
-              targetMouth = "aa";
-              targetWeight = energy * 0.36;
+              targetMouth = null;
+              targetWeight = 0;
             }
           } else {
             // Fallback when the AudioContext clock is unavailable: blend mouth
@@ -982,22 +976,7 @@ export function AvatarPresence({
                 network at runtime every session (PMREM + download stall).
                 Replaced with a cheap procedural environment baked once; the
                 four lights above carry the cinematic look. */}
-            <Environment resolution={64} frames={1}>
-              <group>
-                <mesh position={[0, 2.5, 3]}>
-                  <planeGeometry args={[2, 1]} />
-                  <meshBasicMaterial color="#fff0e8" toneMapped={false} />
-                </mesh>
-                <mesh position={[-3, 1, 1]} rotation-y={Math.PI / 2}>
-                  <planeGeometry args={[2, 2]} />
-                  <meshBasicMaterial color="#ffd4df" toneMapped={false} />
-                </mesh>
-                <mesh position={[3, 1, -1]} rotation-y={-Math.PI / 2}>
-                  <planeGeometry args={[2, 2]} />
-                  <meshBasicMaterial color="#d8b8e4" toneMapped={false} />
-                </mesh>
-              </group>
-            </Environment>
+            <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.3]} />
           </Suspense>
         </Canvas>
       )}

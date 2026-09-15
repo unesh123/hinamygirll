@@ -44,6 +44,16 @@ function renderWorkMode(overrides: Partial<Parameters<typeof WorkMode>[0]> = {})
 }
 
 describe("WorkMode voice controls", () => {
+  it("renders assistant markdown as a document and leaves user text literal", () => {
+    renderWorkMode({ messages: [
+      { id: "user", role: "user", text: "## keep this literal", createdAt: new Date().toISOString() },
+      { id: "answer", role: "assistant", text: "## Haan bro 🌸\n\n- **Done**\n- Next step", createdAt: new Date().toISOString() },
+    ] });
+    expect(screen.getByRole("heading", { name: "Haan bro 🌸" })).toBeInTheDocument();
+    expect(screen.getByText("Done").tagName).toBe("STRONG");
+    expect(screen.getByText("## keep this literal")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message HINAA" })).toBeInTheDocument();
+  });
   it("uses singular message grammar in the work header", () => {
     renderWorkMode();
     expect(screen.getByText(/1 message$/)).toBeInTheDocument();
@@ -233,4 +243,3 @@ describe("WorkMode voice controls", () => {
     }
   });
 });
-

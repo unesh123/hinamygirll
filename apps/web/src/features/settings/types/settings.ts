@@ -52,7 +52,9 @@ export type ProviderPreferenceMode =
   | "qwen"
   | "agent-router"
   | "cx-gateway"
-  | "gemini-live";
+  | "gemini-live"
+  | "codecraft"
+  | "ollama";
 
 /** Saved model selection per provider. Null = automatic. */
 export type ModelByProvider = Partial<

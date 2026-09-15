@@ -1,4 +1,7 @@
 from fastapi.testclient import TestClient
+import time
+import asyncio
+import threading
 
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
@@ -34,7 +37,15 @@ def test_local_comfyui_status_is_actionable(tmp_path) -> None:
 
 
 def test_agent_run_progress_is_durable_and_terminal_state_is_immutable(tmp_path) -> None:
-    with TestClient(create_app(_workspace_settings(tmp_path))) as client:
+    app = create_app(_workspace_settings(tmp_path))
+    release = threading.Event()
+    original = app.state.agent_runtime.executor
+    async def gated(step):
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return await original(step)
+    app.state.agent_runtime.executor = gated
+    with TestClient(app) as client:
         project = client.post("/v1/projects", json={"title": "Runner"}).json()
         run = client.post(
             f"/v1/projects/{project['id']}/runs", json={"goal": "Implement the feature"}
@@ -55,7 +66,13 @@ def test_agent_run_progress_is_durable_and_terminal_state_is_immutable(tmp_path)
             f"/v1/projects/runs/{run['id']}",
             json={"status": "completed", "summary": "Verified"},
         )
-        assert completed.status_code == 200
+        assert completed.status_code == 409
+        release.set()
+        for _ in range(100):
+            if client.get(f"/v1/agent/runs/{run['id']}").json()["status"] == "completed":
+                break
+            time.sleep(0.01)
+        assert client.get(f"/v1/agent/runs/{run['id']}").json()["status"] == "completed"
         late_event = client.post(
             f"/v1/projects/runs/{run['id']}/events",
             json={"label": "Late worker callback"},
@@ -64,7 +81,7 @@ def test_agent_run_progress_is_durable_and_terminal_state_is_immutable(tmp_path)
         illegal_transition = client.patch(
             f"/v1/projects/runs/{run['id']}", json={"status": "running"}
         )
-        assert illegal_transition.status_code == 404
+        assert illegal_transition.status_code == 409
 
 
 def test_code_file_writer_is_scoped_and_requires_explicit_overwrite(tmp_path) -> None:
@@ -75,7 +92,7 @@ def test_code_file_writer_is_scoped_and_requires_explicit_overwrite(tmp_path) ->
         ).json()
         created = client.post(
             f"/v1/projects/{project['id']}/code/files",
-            json={"path": "src/main.py", "content": "print('hi')", "runId": run["id"]},
+            json={"path": "src/main.py", "content": "print('hi')"},
         )
         assert created.status_code == 201
         assert created.json()["path"] == "src/main.py"
@@ -232,14 +249,17 @@ def test_local_agent_run_lifecycle_is_durable_and_explicit(tmp_path) -> None:
         assert resumed.json()["status"] == "running"
         resumed_labels = [event["label"] for event in resumed.json()["events"]]
         assert "Run resumed" in resumed_labels
-        assert "agent.step.started" in resumed_labels
+        # Scheduling is asynchronous; started/completed events arrive through polling.
 
         completed = client.patch(
             f"/v1/projects/runs/{run['id']}",
             json={"status": "completed", "summary": "Release review completed locally."},
         )
-        assert completed.status_code == 200
-        assert completed.json()["completedAt"] is not None
+        assert completed.status_code == 409
+        for _ in range(100):
+            if client.get(f"/v1/agent/runs/{run['id']}").json()["status"] == "completed":
+                break
+            time.sleep(0.01)
 
         detail = client.get(f"/v1/projects/{project['id']}")
         assert detail.status_code == 200

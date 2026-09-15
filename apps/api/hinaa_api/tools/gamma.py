@@ -13,6 +13,7 @@ logger = logging.getLogger("hinaa.tools.gamma")
 
 class CreateGammaPresentationParams(BaseModel):
     model_config = {"extra": "ignore"}
+    userId: str | None = None
     topic: str = Field("", description="The topic, prompt, or outline for the presentation or document.")
     query: str | None = Field(None, description="Alias for topic.")
     prompt: str | None = Field(None, description="Alias for topic.")
@@ -30,7 +31,7 @@ class CreateGammaPresentationParams(BaseModel):
     )
 
 
-async def create_gamma_presentation(params: CreateGammaPresentationParams) -> str:
+async def create_gamma_presentation(params: CreateGammaPresentationParams) -> str | dict:
     """Generate a high-quality presentation or document via Gamma AI."""
     settings = get_settings()
     api_key: str | None = None
@@ -50,20 +51,19 @@ async def create_gamma_presentation(params: CreateGammaPresentationParams) -> st
     )
 
     if not api_key:
-        logger.info("Gamma AI unconfigured; falling back to publication-grade native PDF generator.")
+        logger.info("Gamma AI unconfigured; creating a labelled local slide outline PDF.")
         from .pdf_generate import pdf_generate_handler, GeneratePDFParams
         pdf_res = await pdf_generate_handler(GeneratePDFParams(
             topic=effective_topic,
             title=params.title or f"{effective_topic.title()} Document",
             category=params.format.capitalize(),
+            userId=params.userId,
+            content=(params.outline or effective_topic) + "\n\nLocal slide outline. Gamma is not configured; this PDF is not a generated PowerPoint presentation.",
         ))
         if isinstance(pdf_res, dict) and pdf_res.get("downloadUrl"):
-            return (
-                f"✨ **Created your {params.format.capitalize()} via Native Document Studio!**\n\n"
-                f"📌 **Topic:** {effective_topic}\n"
-                f"📥 **Download:** [{pdf_res.get('filename', 'document.pdf')}]({pdf_res['downloadUrl']})\n"
-                f"📄 **Pages:** {pdf_res.get('pageCount', 1)} pages rendered."
-            )
+            return {**pdf_res, "format": "pdf", "requestedFormat": params.export_as,
+                    "fallback": True, "fallbackReason": "GAMMA_NOT_CONFIGURED",
+                    "summary": "Created a local slide outline PDF. Gamma is not configured; no PPTX was generated."}
         return "Gamma AI is not configured. Please add `GAMMA_AI_API_KEY` to your `apps/api/.env.local` file."
 
     base_url = (settings.gamma_ai_base_url or "https://public-api.gamma.app/v1.0").rstrip("/")
@@ -167,7 +167,7 @@ create_gamma_presentation_def = ToolDefinition(
         "gamma presentation",
         "create a document",
     ],
-    requires_confirmation=False,
+    requires_confirmation=True,
 )
 
 registry.register(create_gamma_presentation_def, create_gamma_presentation)

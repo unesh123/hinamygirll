@@ -87,12 +87,94 @@ async def _search_arxiv(query: str) -> list[dict[str, Any]]:
         return items
 
 
+async def _search_nepal_news(query: str) -> list[dict[str, Any]]:
+    """Live Nepali news headlines via public RSS (Kathmandu Post, Setopati, Onlinekhabar).
+
+    RSS ordering is recency, so results are inherently "latest" — query terms
+    filter relevance per outlet.
+    """
+    feeds = [
+        ("Kathmandu Post", "https://kathmandupost.com/rss"),
+        ("Setopati", "https://en.setopati.com/feed"),
+        ("Onlinekhabar (EN)", "https://english.onlinekhabar.com/feed"),
+    ]
+    terms = [t for t in re.split(r"\W+", query.casefold()) if len(t) > 3]
+    items: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=SOURCE_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        for label, url in feeds:
+            try:
+                response = await client.get(url, headers={"User-Agent": "HINAA-companion/1.0"})
+                if response.status_code != 200:
+                    continue
+                root = ET.fromstring(response.content)
+                for entry in list(root.iter("item"))[:8]:
+                    title = (entry.findtext("title") or "").strip()
+                    link = (entry.findtext("link") or "").strip()
+                    pub = (entry.findtext("pubDate") or "")[:16]
+                    if not title:
+                        continue
+                    hay = title.casefold()
+                    if terms and not any(t in hay for t in terms):
+                        continue
+                    items.append({
+                        "title": _clean(title, 180),
+                        "snippet": _clean(re.sub(r"<[^>]+>", "", entry.findtext("description") or ""), 220),
+                        "url": link,
+                        "source": f"Nepal — {label}",
+                        "published": pub,
+                    })
+                    if len(items) >= 5:
+                        break
+            except Exception:  # noqa: BLE001 — per-feed failure must not sink the source
+                continue
+            if len(items) >= 5:
+                break
+    return items
+
+
+async def _search_world_news(query: str) -> list[dict[str, Any]]:
+    """Current world headlines via Google News RSS — recency-ordered, live."""
+    items: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=SOURCE_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        try:
+            response = await client.get(
+                "https://news.google.com/rss/search",
+                params={"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"},
+                headers={"User-Agent": "HINAA-companion/1.0"},
+            )
+            if response.status_code == 200:
+                root = ET.fromstring(response.content)
+                for entry in list(root.iter("item"))[:6]:
+                    title = (entry.findtext("title") or "").strip()
+                    if not title:
+                        continue
+                    items.append({
+                        "title": _clean(title, 180),
+                        "snippet": _clean(re.sub(r"<[^>]+>", "", entry.findtext("description") or ""), 220),
+                        "url": (entry.findtext("link") or "").strip(),
+                        "source": "Google News",
+                        "published": (entry.findtext("pubDate") or "")[:16],
+                    })
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
+    return items
+
+
 async def _search_github(query: str) -> list[dict[str, Any]]:
+    from ..config import get_settings
+
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "HINAA-companion"}
+    try:
+        token = get_settings().github_token
+        if token:
+            headers["Authorization"] = f"Bearer {token.get_secret_value()}"
+    except Exception:  # pragma: no cover — settings unavailable
+        pass
     async with httpx.AsyncClient(timeout=SOURCE_TIMEOUT_SECONDS) as client:
         response = await client.get(
             "https://api.github.com/search/repositories",
             params={"q": query, "sort": "stars", "per_page": 3},
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "HINAA-companion"},
+            headers=headers,
         )
         if response.status_code != 200:
             return []
@@ -187,6 +269,8 @@ SOURCE_RUNNERS = {
     "github": _search_github,
     "hackernews": _search_hackernews,
     "stackoverflow": _search_stackexchange,
+    "nepalnews": _search_nepal_news,
+    "worldnews": _search_world_news,
 }
 
 
@@ -211,7 +295,7 @@ def _compose_report(topic: str, per_source: dict[str, list[dict[str, Any]]], sta
     # Round-robin merge keeps every represented source near the top.
     while True:
         progressed = False
-        for source in ["youcombined", "wikipedia", "arxiv", "github", "hackernews", "stackoverflow"]:
+        for source in ["youcombined", "worldnews", "nepalnews", "wikipedia", "arxiv", "github", "hackernews", "stackoverflow"]:
             items = per_source.get(source) or []
             if round_no < len(items):
                 progressed = True
@@ -266,7 +350,7 @@ async def deep_research_handler(params: dict[str, Any]) -> dict[str, Any]:
         statuses[name] = error
         sources_view.append({
             "id": name,
-            "label": {"youcombined": "You.com", "stackoverflow": "Stack Overflow"}.get(name, name.title()),
+            "label": {"youcombined": "You.com", "stackoverflow": "Stack Overflow", "nepalnews": "Nepal News", "worldnews": "World News"}.get(name, name.title()),
             "count": len(items),
             "status": "failed" if error else ("ok" if items else "empty"),
             "error": error,

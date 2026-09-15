@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Download, FileSearch, FolderPlus, FileText, ListTodo, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck, Sparkles, Upload, XCircle } from "lucide-react";
+import { Download, FileSearch, FolderPlus, FileText, ListTodo, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Upload, XCircle } from "lucide-react";
 
 type TaskStatus = "pending" | "active" | "success" | "error" | "cancelled" | "waiting_approval";
 
@@ -95,6 +95,7 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fileBusy, setFileBusy] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<{ runId: string; stepId: string; title: string } | null>(null);
 
   const loadProjects = async (selectId?: string) => {
     setLoading(true);
@@ -224,10 +225,25 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
     if (!selected || run.status === status) return;
     setRunBusy(true);
     try {
-      await request(`/projects/runs/${run.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
+      if (status === "cancelled") {
+        await request(`/agent/runs/${run.id}/cancel`, { method: "POST" });
+      } else if (status === "queued") {
+        await request(`/projects/${selected.id}/runs`, { method: "POST", body: JSON.stringify({ goal: run.goal }) });
+      } else {
+        const detail = await request<{ status: string }>(`/agent/runs/${run.id}`);
+        const plan = await request<{ steps: Array<{ step_id: string; title: string; status: string }> }>(`/agent/runs/${run.id}/steps`);
+        const pending = plan.steps.find((step) => step.status === "awaiting_confirmation");
+        if (pending) {
+          setPendingApproval({ runId: run.id, stepId: pending.step_id, title: pending.title });
+          return;
+        }
+        if (detail.status === "queued") {
+          await request(`/projects/runs/${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "running" }) });
+        } else {
+          await request(`/agent/runs/${run.id}/recover`, { method: "POST" });
+          await request(`/agent/runs/${run.id}/resume`, { method: "POST" });
+        }
+      }
       await loadProjects(selected.id);
     } catch {
       setError("Could not update the local agent run.");
@@ -387,7 +403,22 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
                 const color = run.status === "completed" ? "#34d399" : run.status === "waiting_approval" ? "#fbbf24" : run.status === "failed" ? "#fb7185" : run.status === "running" ? "#38bdf8" : "#94a3b8";
                 return <div key={run.id} style={{ ...rowStyle, display: "grid", gap: 6, borderLeft: `2px solid ${color}` }}>
                   <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}><span style={{ width: 8, height: 8, marginTop: 4, borderRadius: 99, background: color }} /><div style={{ minWidth: 0, flex: 1 }}><strong>{run.goal}</strong><small>{latest?.label || "Run created"}{latest?.detail ? ` · ${latest.detail}` : ""}</small></div></div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, paddingLeft: 15 }}><span style={{ color, fontSize: 10, fontWeight: 800, letterSpacing: ".05em" }}>{run.status.replace("_", " ").toUpperCase()}</span><span style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>{run.status === "waiting_approval" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><Play size={11} /> Resume</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{run.status === "running" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "waiting_approval")} style={miniButtonStyle}><Pause size={11} /> Pause</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "completed")} style={miniButtonStyle}><CheckCircle2 size={11} /> Finish</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{run.status === "failed" && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "queued")} style={miniButtonStyle}><RotateCcw size={11} /> Retry run</button>}</span></div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ color }}>{run.status.replace("_", " ")}</span>
+                    {run.status === "waiting_approval" && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}>Review / resume</button>}
+                    {["running", "queued", "waiting_approval"].includes(run.status) && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}>Cancel run</button>}
+                    {run.status === "failed" && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "queued")} style={miniButtonStyle}>Retry as new run</button>}
+                  </div>
+                  {pendingApproval?.runId === run.id && <div role="group" aria-label="Approve agent action">
+                    <p>{pendingApproval.title}</p>
+                    {[true, false].map((approved) => <button key={String(approved)} type="button" disabled={runBusy} style={miniButtonStyle} onClick={() => {
+                      setRunBusy(true);
+                      void request(`/agent/runs/${run.id}/confirm`, { method: "POST", body: JSON.stringify({ step_id: pendingApproval.stepId, approved }) })
+                        .then(async () => { setPendingApproval(null); await loadProjects(selected.id); })
+                        .catch(() => setError("The approval could not be saved. Please retry."))
+                        .finally(() => setRunBusy(false));
+                    }}>{approved ? "Approve action" : "Reject action"}</button>)}
+                  </div>}
                 </div>;
               })}
               {selected.runs.length === 0 && <small style={{ color: "#94a3b8" }}>Start a run to preserve a focused execution context and inspect its event history later.</small>}

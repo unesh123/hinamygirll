@@ -112,8 +112,8 @@ const toolRequestSchema = z
 export const assistantTurnPlanSchema = z
   .object({
     schemaVersion: z.number().optional(),
-    spokenText: z.string().min(1).max(4000),
-    displayText: z.string().min(1).max(8000),
+    spokenText: z.string().min(1).max(8000),
+    displayText: z.string().min(1).max(150000),
     language: z.enum(["en-US", "hi-IN", "mixed"]),
     emotion: emotionSchema,
     performance: performanceSchema,
@@ -178,13 +178,12 @@ export function parseAssistantTurnPlan(input: unknown): AssistantTurnPlan {
 
     // Providers occasionally omit optional fields or use the older aliases.
     // Normalize those fields before the final schema parse so one malformed
-    // metadata field never turns an otherwise useful answer into a formatting
-    // error.
-    return assistantTurnPlanSchema.parse({
+    // metadata field never turns an otherwise useful answer into a formatting error.
+    const salvaged = {
       schemaVersion: typeof raw.schemaVersion === "number" ? raw.schemaVersion : 1,
-      spokenText,
-      displayText,
-      language: validLang,
+      spokenText: spokenText.slice(0, 8000),
+      displayText: displayText.slice(0, 150000),
+      language: validLang as "en-US" | "hi-IN" | "mixed",
       emotion: {
         primary: emotionNames.includes(emotion.primary as typeof emotionNames[number]) ? emotion.primary : "happy",
         intensity: typeof emotion.intensity === "number" ? Math.max(0, Math.min(1, emotion.intensity)) : 0.5,
@@ -194,8 +193,8 @@ export function parseAssistantTurnPlan(input: unknown): AssistantTurnPlan {
       performance: {
         facePreset: facePresets.includes(performance.facePreset as typeof facePresets[number]) ? performance.facePreset : "soft_smile",
         gesture: gestures.includes(performance.gesture as typeof gestures[number]) ? performance.gesture : "none",
-        gazeTarget: ["camera", "away", "down", "user-content"].includes(String(performance.gazeTarget)) ? performance.gazeTarget : "camera",
-        headMotion: ["none", "subtle", "nod", "shake"].includes(String(performance.headMotion)) ? performance.headMotion : "subtle",
+        gazeTarget: (["camera", "away", "down", "user-content"].includes(String(performance.gazeTarget)) ? performance.gazeTarget : "camera") as "camera" | "away" | "down" | "user-content",
+        headMotion: (["none", "subtle", "nod", "shake"].includes(String(performance.headMotion)) ? performance.headMotion : "subtle") as "none" | "subtle" | "nod" | "shake",
         blinkRate: typeof performance.blinkRate === "number" ? Math.max(0.1, Math.min(1, performance.blinkRate)) : 0.45,
       },
       beats: Array.isArray(raw.beats) ? raw.beats : [],
@@ -212,7 +211,9 @@ export function parseAssistantTurnPlan(input: unknown): AssistantTurnPlan {
       thinking: typeof raw.thinking === "string" ? raw.thinking : null,
       userId: typeof raw.userId === "string" ? raw.userId : null,
       conversationId: typeof raw.conversationId === "string" ? raw.conversationId : null,
-    });
+    };
+
+    return assistantTurnPlanSchema.parse(salvaged);
   }
 
   return assistantTurnPlanSchema.parse(input);

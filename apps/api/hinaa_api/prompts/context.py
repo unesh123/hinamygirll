@@ -6,22 +6,34 @@ def build_history_block(
     *,
     max_turns: int,
     max_chars: int,
+    pre_selected: bool = False,
 ) -> str:
-    """Build delimited untrusted history, preferring recent coherent exchanges."""
+    """Build delimited untrusted history, preferring recent coherent exchanges.
+
+    B2.1: when ``pre_selected`` is True the turns were already selected and
+    budgeted by the canonical ContextCompiler — this function is FORMAT_ONLY
+    and renders them verbatim (no independent truncation/selection, directive
+    §1/§2).
+    """
     if max_turns <= 0 or not recent_turns:
         return '<conversation_history trusted="false">\n(new session)\n</conversation_history>'
 
-    # recent_turns is a flat role/content sequence; keep last N messages.
-    selected = list(recent_turns[-max_turns:])
+    # recent_turns is a flat role/content sequence; when pre_selected, ContextCompiler
+    # already selected and budgeted the turns.
+    selected = list(recent_turns) if pre_selected else list(recent_turns[-max_turns:])
     lines: list[str] = []
     used = 0
-    # Prefer newest: walk reverse, then restore order.
     kept: list[tuple[str, str]] = []
     from hinaa_api.models import safe_extract_display_text
     
-    for role, content in reversed(selected):
+    for role, content in (selected if pre_selected else reversed(selected)):
         piece = safe_extract_display_text(content).strip()
         if not piece:
+            continue
+        if pre_selected:
+            # Compiler already bounded this content — render verbatim (§1/§2).
+            kept.append((role, piece))
+            used += len(piece) + len(role) + 2
             continue
         # Reserve room for role prefix and newline.
         budget = max_chars - used
@@ -31,7 +43,8 @@ def build_history_block(
             piece = piece[: max(0, budget - 1)] + "…"
         kept.append((role, piece))
         used += len(piece) + len(role) + 2
-    kept.reverse()
+    if not pre_selected:
+        kept.reverse()
     if not kept:
         lines.append("(new session)")
     else:
@@ -60,8 +73,8 @@ def build_memory_block(blocks: tuple[str, ...]) -> str:
             "</approved_memory>"
         )
     lines = []
-    for index, block in enumerate(blocks[:8], start=1):
-        lines.append(f"[{index}] {block.strip()[:500]}")
+    for index, block in enumerate(blocks, start=1):
+        lines.append(f"[{index}] {block.strip()}")
     return '<approved_memory trusted="application">\n' + "\n".join(lines) + "\n</approved_memory>"
 
 
@@ -74,7 +87,7 @@ def build_session_memory_block(memories: tuple[str, ...]) -> str:
             "</session_memory>"
         )
     lines = [
-        f"- {memory.strip()[:500]}" for memory in memories[:8] if memory.strip()
+        f"- {memory.strip()}" for memory in memories if memory.strip()
     ]
     body = "\n".join(lines) or "(no self-learned facts yet)"
     return (

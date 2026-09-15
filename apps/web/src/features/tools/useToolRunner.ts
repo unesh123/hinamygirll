@@ -50,7 +50,7 @@ export function useToolRunner(
           };
         });
 
-        const res = await fetch("http://localhost:8000/v1/tools/execute", {
+        const res = await fetch("/api/v1/tools/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(req),
@@ -90,7 +90,7 @@ export function useToolRunner(
             while (true) {
               await new Promise(r => setTimeout(r, 2000));
               try {
-                const pRes = await fetch(`http://localhost:8000/v1/tools/poll?job_id=${data.job_id}`);
+                const pRes = await fetch(`/api/v1/tools/poll?job_id=${data.job_id}`);
                 if (!pRes.ok) continue;
 
                 const pData = await pRes.json();

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createLipSyncTimeline, textToVisemeEvents, getActiveViseme, type VisemeEvent } from "./textToViseme";
+import { idleSpeechPlayback, type SpeechPlaybackBridge } from "./speechPlaybackBridge";
+import { WebAudioSpeechTimingSource, BrowserSpeechTimingSource } from "./speechTimingSource";
 
 export interface PlaybackController {
   playing: boolean;
@@ -13,6 +15,9 @@ export interface PlaybackController {
   visemeEvents: React.MutableRefObject<VisemeEvent[]>;
   /** AudioContext time when current audio started (for playback clock sync) */
   audioStartTimeRef: React.MutableRefObject<number>;
+  speech: SpeechPlaybackBridge;
+  isAudioBlocked: () => boolean;
+  unlockAudio: () => Promise<void>;
   play: (
     blob: Blob,
     spokenText?: string,
@@ -39,6 +44,7 @@ export function useAudioPlayback(): PlaybackController {
   const jawEnergy = useRef(0);
   const visemeEvents = useRef<VisemeEvent[]>([]);
   const audioStartTimeRef = useRef(0);
+  const speech = useRef(idleSpeechPlayback());
 
   const contextRef = useRef<AudioContext | null>(null);
   const masterRef = useRef<GainNode | null>(null);
@@ -47,6 +53,7 @@ export function useAudioPlayback(): PlaybackController {
   const endedAtRef = useRef(0);
   const lastBlobRef = useRef<Blob | null>(null);
   const lastTextRef = useRef<string>("");
+  const lastProviderVisemesRef = useRef<VisemeEvent[] | undefined>(undefined);
   const sessionRef = useRef(0);
   const frameRef = useRef<number | undefined>(undefined);
   const mutedRef = useRef(false);
@@ -68,15 +75,14 @@ export function useAudioPlayback(): PlaybackController {
     contextRef.current = context;
     masterRef.current = master;
     analyserRef.current = analyser;
-    // Expose globally so AvatarPresence Model can read the playback clock
-    // across the React Three Fiber Canvas boundary (refs can't cross Canvas)
-    (window as any).__hinaaAudioCtx = context;
+    if (typeof window !== "undefined") {
+      (window as any).__hinaaAudioCtx = context;
+    }
     return context;
   }, []);
 
   const syncPlaying = useCallback(() => {
     const next = sourcesRef.current.size > 0 || browserSpeechActiveRef.current;
-    if (next === playingRef.current) return;
     playingRef.current = next;
     if (!next) {
       // Playback stopped/ended: immediately close the mouth.
@@ -86,6 +92,7 @@ export function useAudioPlayback(): PlaybackController {
       }
       jawEnergy.current = 0;
       visemeEvents.current = [];
+      speech.current = idleSpeechPlayback(speech.current.utteranceId);
     }
     setPlaying(next);
   }, []);
@@ -173,7 +180,9 @@ export function useAudioPlayback(): PlaybackController {
       }
 
       lastBlobRef.current = blob;
-      if (spokenText) lastTextRef.current = spokenText;
+      lastTextRef.current = spokenText ?? "";
+      lastProviderVisemesRef.current = providerVisemes;
+      lastBrowserSpeechRef.current = null;
       setHasReplay(true);
 
       const source = context.createBufferSource();
@@ -219,6 +228,25 @@ export function useAudioPlayback(): PlaybackController {
           audioStartTimeRef.current = startAt;
         }
       }
+      if (!isContinuation) audioStartTimeRef.current = startAt;
+      const calibrationMs = speech.current.calibrationMs;
+      const totalDurationSec = isContinuation
+        ? Math.max(buffer.duration, endedAtRef.current - audioStartTimeRef.current)
+        : buffer.duration;
+      const webAudioTiming = new WebAudioSpeechTimingSource({
+        context,
+        startTime: audioStartTimeRef.current,
+        durationSeconds: totalDurationSec,
+        visemes: visemeEvents.current,
+        isPlaying: () => playingRef.current,
+      });
+      speech.current = {
+        utteranceId: isContinuation ? speech.current.utteranceId : speech.current.utteranceId + 1,
+        state: "playing", source: "audio", timingSource: providerVisemes?.length ? "provider" : "text",
+        calibrationMs, events: visemeEvents.current,
+        elapsedMs: () => context.state === "running" ? (context.currentTime - audioStartTimeRef.current) * 1000 : -1,
+        timing: webAudioTiming,
+      };
 
       let endedDispatched = false;
       const dispatchEnded = () => {
@@ -240,7 +268,7 @@ export function useAudioPlayback(): PlaybackController {
           syncPlaying();
           dispatchEnded();
         }
-      }, Math.ceil((buffer.duration + 2) * 1000));
+      }, Math.ceil((endedAtRef.current - context.currentTime + 2) * 1000));
 
       try {
         source.start(startAt);
@@ -293,6 +321,7 @@ export function useAudioPlayback(): PlaybackController {
       const engine = window.speechSynthesis;
       if (!engine) return false;
       stop();
+      const session = sessionRef.current;
 
       const utterance = new SpeechSynthesisUtterance(text);
       const normalizedLanguage = language === "mixed" ? "hi-IN" : language;
@@ -306,27 +335,33 @@ export function useAudioPlayback(): PlaybackController {
         .find((voice) => voice.lang.toLowerCase().startsWith(normalizedLanguage.slice(0, 2).toLowerCase()));
       if (matchingVoice) utterance.voice = matchingVoice;
 
-      let context: AudioContext | null = null;
-      try {
-        context = ensureGraph();
-        if (context.state === "suspended") await context.resume();
-      } catch {
-        // Browser speech remains usable without an AudioContext; the avatar uses
-        // the text-derived viseme timeline below.
-      }
-
       const estimatedDurationMs = Math.min(
-        22_000,
+        180_000,
         Math.max(700, text.trim().split(/\s+/).length * 310),
       );
       lastBrowserSpeechRef.current = { text, language: normalizedLanguage };
-      browserSpeechActiveRef.current = true;
+      lastBlobRef.current = null;
+      setHasReplay(true);
       visemeEvents.current = textToVisemeEvents(text, estimatedDurationMs);
-      audioStartTimeRef.current = context?.currentTime ?? 0;
-      syncPlaying();
+      let startedAt: number | null = null;
+      let pausedAt = 0;
+      let boundaryOffset = 0;
+      let finished = false;
+      const browserTiming = new BrowserSpeechTimingSource({
+        durationMs: estimatedDurationMs,
+        visemes: visemeEvents.current,
+      });
+      speech.current = {
+        utteranceId: session, state: "queued", source: "browser", timingSource: "text",
+        calibrationMs: 0, events: visemeEvents.current,
+        elapsedMs: () => startedAt !== null ? (pausedAt || performance.now()) - startedAt + boundaryOffset : -1,
+        timing: browserTiming,
+      };
 
       const finish = () => {
-        if (!browserSpeechActiveRef.current) return; // idempotent — onend/onerror/watchdog race
+        if (session !== sessionRef.current || finished) return;
+        finished = true;
+        browserTiming.onUtteranceEnd();
         browserSpeechActiveRef.current = false;
         if (browserWatchdogRef.current !== undefined) {
           window.clearTimeout(browserWatchdogRef.current);
@@ -341,64 +376,87 @@ export function useAudioPlayback(): PlaybackController {
       };
       utterance.onend = finish;
       utterance.onerror = finish;
-
-      try {
-        engine.speak(utterance);
-        // Real-time syllable modulation & viseme sync for browser speech
+      utterance.onstart = () => {
+        if (session !== sessionRef.current || finished) return;
+        startedAt = performance.now();
+        browserTiming.onUtteranceStart();
+        browserSpeechActiveRef.current = true;
+        speech.current.state = "playing";
+        syncPlaying();
         if (frameRef.current !== undefined) {
           window.cancelAnimationFrame(frameRef.current);
           frameRef.current = undefined;
         }
-        const speechStartTime = performance.now();
         const tick = () => {
-          if (!browserSpeechActiveRef.current) {
+          if (session !== sessionRef.current || !browserSpeechActiveRef.current || finished) {
             jawEnergy.current = 0;
             return;
           }
-          const elapsedMs = performance.now() - speechStartTime;
+          const elapsedMs = speech.current.elapsedMs();
           const currentViseme = getActiveViseme(elapsedMs, visemeEvents.current);
-          if (currentViseme && currentViseme.mouth !== "closed") {
-            // Modulate active phoneme weight with natural acoustic vibration
-            const pulse = 0.72 + 0.28 * Math.sin(elapsedMs * 0.024);
-            const targetEnergy = Math.min(1.0, Math.max(0.18, (currentViseme.weight || 0.8) * pulse));
-            jawEnergy.current += (targetEnergy - jawEnergy.current) * 0.45;
-          } else {
-            // Natural syllable cadence (~5 Hz) between words and during phrase transitions
-            const tSec = elapsedMs / 1000;
-            const syllableOsc = 0.42 + 0.34 * Math.sin(tSec * 2 * Math.PI * 4.9) + 0.14 * Math.sin(tSec * 2 * Math.PI * 8.4);
-            const targetEnergy = Math.min(0.88, Math.max(0.08, syllableOsc));
-            jawEnergy.current += (targetEnergy - jawEnergy.current) * 0.35;
-          }
+          const targetEnergy = !pausedAt && currentViseme?.mouth !== "closed" ? currentViseme?.weight ?? 0 : 0;
+          jawEnergy.current += (targetEnergy - jawEnergy.current) * (targetEnergy > jawEnergy.current ? 0.55 : 0.25);
           frameRef.current = window.requestAnimationFrame(tick);
         };
         frameRef.current = window.requestAnimationFrame(tick);
+      };
+      utterance.onboundary = (event) => {
+        if (session !== sessionRef.current || finished || !browserSpeechActiveRef.current) return;
+        if (event.name && event.name !== "word") return;
+        // Re-anchor the remaining timeline at the actual spoken word. Browser
+        // boundaries have no phoneme data, so only this word timing is measured.
+        const index = Math.max(0, Math.min(text.length, event.charIndex));
+        const remaining = text.slice(index);
+        const elapsed = speech.current.elapsedMs();
+        const duration = Math.max(200, remaining.trim().split(/\s+/).length * 310);
+        visemeEvents.current = textToVisemeEvents(remaining, duration, elapsed);
+        speech.current.events = visemeEvents.current;
+        speech.current.timingSource = "browser-boundary";
+        browserTiming.onBoundaryWord(event.charIndex);
+      };
+      utterance.onpause = () => {
+        if (session !== sessionRef.current || finished) return;
+        pausedAt = performance.now();
+        browserTiming.onUtterancePause();
+        speech.current.state = "paused";
+        jawEnergy.current = 0;
+      };
+      utterance.onresume = () => {
+        if (session !== sessionRef.current || finished) return;
+        if (pausedAt) boundaryOffset -= performance.now() - pausedAt;
+        pausedAt = 0;
+        browserTiming.onUtteranceResume();
+        speech.current.state = "playing";
+      };
 
-        // Chrome has a long-standing bug where speechSynthesis silently stops
+      try {
+        engine.speak(utterance);
         // producing audio (or never fires onend after a pause) — the avatar
         // would then pose "playing" forever and the conversation would hang.
         // A generous watchdog guarantees the UI always recovers.
         browserWatchdogRef.current = window.setTimeout(() => {
           browserWatchdogRef.current = undefined;
-          if (!browserSpeechActiveRef.current) return;
+          if (session !== sessionRef.current || finished) return;
           try {
             engine.cancel();
           } catch {
             // best-effort
           }
           finish();
-        }, estimatedDurationMs + 5_000);
+        }, estimatedDurationMs * 2 + 10_000);
         return true;
       } catch {
         finish();
         return false;
       }
     },
-    [ensureGraph, stop, syncPlaying],
+    [stop, syncPlaying],
   );
 
   const replay = useCallback(async () => {
     if (lastBlobRef.current) {
-      await play(lastBlobRef.current, lastTextRef.current);
+      stop();
+      await play(lastBlobRef.current, lastTextRef.current, undefined, undefined, lastProviderVisemesRef.current);
       return;
     }
     if (lastBrowserSpeechRef.current) {
@@ -407,7 +465,7 @@ export function useAudioPlayback(): PlaybackController {
         lastBrowserSpeechRef.current.language,
       );
     }
-  }, [play, speakBrowser]);
+  }, [play, speakBrowser, stop]);
 
   const toggleMute = useCallback(() => {
     mutedRef.current = !mutedRef.current;
@@ -416,7 +474,8 @@ export function useAudioPlayback(): PlaybackController {
       masterRef.current.gain.value = mutedRef.current ? 0 : 1;
     // The browser speech engine bypasses the AudioContext gain graph
     // entirely, so muting must hard-stop any in-flight utterance.
-    if (mutedRef.current && browserSpeechActiveRef.current) {
+    if (mutedRef.current && speech.current.source === "browser") {
+      sessionRef.current += 1;
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         try {
           window.speechSynthesis.cancel();
@@ -433,6 +492,11 @@ export function useAudioPlayback(): PlaybackController {
     }
   }, [syncPlaying]);
 
+  const isAudioBlocked = useCallback(() => contextRef.current?.state === "suspended", []);
+  const unlockAudio = useCallback(async () => {
+    if (contextRef.current?.state === "suspended") await contextRef.current.resume();
+  }, []);
+
   useEffect(
     () => () => {
       sessionRef.current += 1;
@@ -443,6 +507,10 @@ export function useAudioPlayback(): PlaybackController {
         } catch {}
       }
       sourcesRef.current.clear();
+      speech.current = idleSpeechPlayback(sessionRef.current);
+      playingRef.current = false;
+      jawEnergy.current = 0;
+      visemeEvents.current = [];
       if (frameRef.current !== undefined)
         window.cancelAnimationFrame(frameRef.current);
       if (contextRef.current?.state !== "closed")
@@ -474,6 +542,9 @@ export function useAudioPlayback(): PlaybackController {
     playingRef,
     visemeEvents,
     audioStartTimeRef,
+    speech,
+    isAudioBlocked,
+    unlockAudio,
     play,
     speakBrowser,
     replay,

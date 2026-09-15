@@ -22,6 +22,8 @@ ProviderMode = Literal[
     "agent-router",
     "cx-gateway",
     "gemini-live",
+    "codecraft",
+    "ollama",
 ]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal[
@@ -126,6 +128,7 @@ class ToolRequest(BaseModel):
     reason: str | None = None
     confirmed: bool = False
     approvalSource: Literal["none", "standing-consent", "user", "policy-engine"] = "none"
+    idempotencyKey: str | None = Field(default=None, max_length=160)
     userId: str | None = None
     conversationId: str | None = None
     attachment_ids: list[str] = Field(default_factory=list, validation_alias=AliasChoices("attachment_ids", "attachmentIds"))
@@ -158,8 +161,8 @@ class ToolExecutionRequest(BaseModel):
 
 class AssistantTurnPlan(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    spokenText: Annotated[str, Field(min_length=1, max_length=4000)]
-    displayText: Annotated[str, Field(min_length=1, max_length=8000)]
+    spokenText: Annotated[str, Field(min_length=1, max_length=8000)]
+    displayText: Annotated[str, Field(min_length=1, max_length=150000)]
     language: Language
     emotion: Emotion
     performance: Performance
@@ -198,7 +201,8 @@ class PersonalityRequest(StrictModel):
     proactivity: Annotated[float, Field(ge=0, le=0.6)] | None = None
 
 
-class TurnRequest(StrictModel):
+class TurnRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     sessionId: Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")]
     text: Annotated[str, Field(min_length=1, max_length=8000)]
     companionId: CompanionId = "hinaa"

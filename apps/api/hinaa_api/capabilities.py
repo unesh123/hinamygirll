@@ -43,6 +43,7 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     has_qwen = bool(settings.qwen_api_key and settings.qwen_api_key.get_secret_value())
     has_cx = settings.cx_gateway_configured
     has_agent_router = settings.agent_router_configured
+    has_codecraft = settings.codecraft_configured
 
     models: list[ModelCapabilityRecord] = [
         # Brain Models
@@ -138,6 +139,42 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
             document=True,
             availability="healthy" if has_agent_router else "unavailable",
             description="Fallback router for multi-provider conversations.",
+        ),
+        ModelCapabilityRecord(
+            id="claude-fable-5",
+            display_name="Claude Fable 5 (CodeCraft)",
+            provider="codecraft",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_codecraft else "unavailable",
+            description="Frontier Claude Fable 5 model via CodeCraft with massive token budget.",
+        ),
+        ModelCapabilityRecord(
+            id="claude-3-7-sonnet",
+            display_name="Claude 3.7 Sonnet (CodeCraft)",
+            provider="codecraft",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_codecraft else "unavailable",
+            description="Flagship hybrid reasoning model via CodeCraft.",
+        ),
+        ModelCapabilityRecord(
+            id=settings.active_codecraft_model,
+            display_name=f"CodeCraft Brain ({settings.active_codecraft_model})",
+            provider="codecraft",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_codecraft else "unavailable",
+            description="CodeCraft API endpoint with multi-million token high-level reasoning.",
         ),
         ModelCapabilityRecord(
             id="gpt-4o",

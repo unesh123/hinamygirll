@@ -1,9 +1,10 @@
 from __future__ import annotations
-from .contracts import AgentRun, AgentPlan, StepState, RunStatus
+
+from .contracts import AgentPlan, AgentRun, PlanStep, RunStatus, StepState
 
 
 class StepScheduler:
-    def next_ready(self, run: AgentRun, plan: AgentPlan) -> object | None:
+    def next_ready(self, run: AgentRun, plan: AgentPlan) -> PlanStep | None:
         if run.cancellation_requested or run.status in {
             RunStatus.CANCELLED, RunStatus.FAILED, RunStatus.COMPLETED, RunStatus.INTERRUPTED
         }:

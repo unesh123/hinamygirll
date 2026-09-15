@@ -92,3 +92,29 @@ export function resolveValidAvatarModel(savedModelUrl?: string | null): string {
   return DEFAULT_AVATAR_FILE;
 }
 
+export const AVATAR_SELECTION_KEY = "hinaa.avatar-selection.v1";
+export const LEGACY_AVATAR_SELECTION_KEY = "hinaa.avatar-model";
+const managedAvatar = /^\/api\/v1\/avatar-assets\/avatar-[0-9a-f-]+\/file$/i;
+
+export function isSelectableAvatarUrl(value: string | null): value is string {
+  return Boolean(value && (AVATAR_REGISTRY.some((avatar) => avatar.fileUrl === value) || managedAvatar.test(value) || value.startsWith("blob:")));
+}
+
+export function persistAvatarSelection(storage: Pick<Storage, "setItem">, url: string): void {
+  if (!isSelectableAvatarUrl(url) || url.startsWith("blob:")) return;
+  const avatar = AVATAR_REGISTRY.find((entry) => entry.fileUrl === url);
+  storage.setItem(AVATAR_SELECTION_KEY, JSON.stringify(avatar ? { id: avatar.id } : { customAssetUrl: url }));
+  storage.setItem(LEGACY_AVATAR_SELECTION_KEY, url);
+}
+
+export function readAvatarSelection(storage: Pick<Storage, "getItem" | "setItem">): string {
+  try {
+    const saved = JSON.parse(storage.getItem(AVATAR_SELECTION_KEY) ?? "null");
+    const avatar = AVATAR_REGISTRY.find((entry) => entry.id === saved?.id);
+    if (avatar) return avatar.fileUrl;
+    if (typeof saved?.customAssetUrl === "string" && managedAvatar.test(saved.customAssetUrl)) return saved.customAssetUrl;
+  } catch { /* An old or invalid record can still have a valid legacy URL. */ }
+  const url = resolveValidAvatarModel(storage.getItem(LEGACY_AVATAR_SELECTION_KEY));
+  try { persistAvatarSelection(storage, url); } catch { /* Storage may be read-only. */ }
+  return url;
+}

@@ -150,7 +150,7 @@ class AgentPersistenceService:
                     title=step.title,
                     operation_type=step.operation_type.value if hasattr(step.operation_type, "value") else str(step.operation_type),
                     tool_name=step.tool_name,
-                    parameters_json=json.dumps(step.tool_parameters or {}),
+                    parameters_json=json.dumps({"__hinaa_step_v2": step.model_dump(mode="json")}),
                     state=step.status.value if hasattr(step.status, "value") else str(step.status),
                     requires_confirmation=step.requires_confirmation,
                     confirmed_by_user=False,
@@ -167,7 +167,7 @@ class AgentPersistenceService:
                 rec.attempt_count = step.attempt_count
                 rec.error_message = step.error_message
                 rec.completed_at = step.completed_at
-                rec.parameters_json = json.dumps(step.tool_parameters or {})
+                rec.parameters_json = json.dumps({"__hinaa_step_v2": step.model_dump(mode="json")})
             session.commit()
 
     def get_steps_for_plan(self, plan_id: str) -> list[PlanStep]:
@@ -186,6 +186,11 @@ class AgentPersistenceService:
                     params = json.loads(r.parameters_json or "{}")
                 except Exception:
                     pass
+                if isinstance(params, dict) and isinstance(params.get("__hinaa_step_v2"), dict):
+                    saved = params["__hinaa_step_v2"]
+                    saved.update(status=r.state, attempt_count=r.attempt_count, error_message=r.error_message)
+                    steps.append(PlanStep.model_validate(saved))
+                    continue
                 try:
                     deps = json.loads(r.dependencies_json or "[]")
                 except Exception:
@@ -211,9 +216,10 @@ class AgentPersistenceService:
                 )
             return steps
 
-    def save_event(self, run_id: str, sequence: int, event_type: str, step_id: str | None = None, payload: dict | None = None) -> None:
+    def save_event(self, run_id: str, sequence: int, event_type: str, step_id: str | None = None, payload: dict | None = None, event_id: str | None = None) -> None:
         with self._factory() as session:
             rec = AgentEventRecord(
+                **({"id": event_id} if event_id else {}),
                 run_id=run_id,
                 sequence=sequence,
                 event_type=event_type,

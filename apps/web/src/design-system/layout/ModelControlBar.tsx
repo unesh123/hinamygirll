@@ -80,6 +80,7 @@ export function ModelControlBar({
   onOpenSettings,
 }: ModelControlBarProps) {
   const [activeDropdown, setActiveDropdown] = useState<"brain" | "image" | "voice" | null>(null);
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
   const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -95,6 +96,9 @@ export function ModelControlBar({
   }, [activeDropdown]);
 
   function formatModelLabel(id: string): string {
+    // Ollama models
+    if (id.includes("dolphin")) return "Dolphin Mistral 7B";
+    if (id.includes("llama2-uncensored")) return "Llama 2 Uncensored 7B";
     // Claude models — specific first, generic fallback
     if (id === "claude-opus-5") return "Claude Opus 5";
     if (id === "claude-sonnet-5") return "Claude Sonnet 5";
@@ -192,35 +196,61 @@ export function ModelControlBar({
             <div style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: "var(--text-muted, #6b7280)", textTransform: "uppercase" }}>
               Reasoning Brain & Model
             </div>
-            {/* Auto option */}
-            <button
-              type="button"
-              data-testid="brain-option-auto"
-              onClick={() => {
-                onSelectProvider("auto", null);
-                saveModelPrefs({ brainMode: "auto", brainModel: null });
-                setActiveDropdown(null);
-              }}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "8px 10px",
-                marginBottom: 4,
-                background: currentMode === "auto" ? "rgba(99, 102, 241, 0.08)" : "transparent",
-                border: "none",
-                borderRadius: 8,
-                cursor: "pointer",
-                textAlign: "left",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary, #111827)" }}>✨ Auto (Smart Router)</div>
-                <div style={{ fontSize: 10, color: "var(--text-muted, #6b7280)" }}>Fastest healthy model automatically</div>
-              </div>
-              {currentMode === "auto" && <Check size={14} style={{ color: "#6366f1" }} />}
-            </button>
+
+            {/* Find model... search input matching the user's interface */}
+            <div style={{ padding: "4px 6px", marginBottom: 6 }}>
+              <input
+                type="text"
+                data-testid="find-model-input"
+                value={modelSearchQuery}
+                onChange={(e) => setModelSearchQuery(e.target.value)}
+                placeholder="Find model..."
+                style={{
+                  width: "100%",
+                  padding: "6px 10px",
+                  fontSize: 12,
+                  borderRadius: 6,
+                  border: "1px solid var(--border-default, #e5e7eb)",
+                  background: "var(--bg-surface-secondary, #f9fafb)",
+                  color: "var(--text-primary, #111827)",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+
+            {/* Auto option (shown when no search or when search matches auto) */}
+            {(!modelSearchQuery.trim() || "auto smart router".includes(modelSearchQuery.toLowerCase())) && (
+              <button
+                type="button"
+                data-testid="brain-option-auto"
+                onClick={() => {
+                  onSelectProvider("auto", null);
+                  saveModelPrefs({ brainMode: "auto", brainModel: null });
+                  setActiveDropdown(null);
+                }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 10px",
+                  marginBottom: 4,
+                  background: currentMode === "auto" ? "rgba(99, 102, 241, 0.08)" : "transparent",
+                  border: "none",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary, #111827)" }}>✨ Auto (Smart Router)</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted, #6b7280)" }}>Fastest healthy model automatically</div>
+                </div>
+                {currentMode === "auto" && <Check size={14} style={{ color: "#6366f1" }} />}
+              </button>
+            )}
 
             {/* Provider options with models */}
             {providerOptions
@@ -229,6 +259,10 @@ export function ModelControlBar({
                 const isSelectedProvider = currentMode === p.mode;
                 const rawModels = getModelOptions(p.mode);
                 const fallbackModels: Record<string, Array<{ id: string; label: string; isDefault: boolean }>> = {
+                  ollama: [
+                    { id: "dolphin-mistral:7b", label: "Dolphin Mistral 7B", isDefault: true },
+                    { id: "llama2-uncensored:7b", label: "Llama 2 Uncensored 7B", isDefault: false },
+                  ],
                   claude: [
                     { id: "claude-haiku-4-5-20251001", label: "Claude 3.5 Haiku", isDefault: true },
                     { id: "claude-3-7-sonnet-20250219", label: "Claude 3.7 Sonnet", isDefault: false },
@@ -241,15 +275,21 @@ export function ModelControlBar({
                     { id: "gemini-flash-latest", label: "Gemini Flash Latest", isDefault: false },
                   ],
                 };
-                const models = rawModels.length > 0 ? rawModels : (fallbackModels[p.mode] ?? [{ id: p.mode, label: p.label, isDefault: true }]);
+                const allModels = rawModels.length > 0 ? rawModels : (fallbackModels[p.mode] ?? [{ id: p.mode, label: p.label, isDefault: true }]);
+                const query = modelSearchQuery.trim().toLowerCase();
+                const models = query
+                  ? allModels.filter((m) => m.id.toLowerCase().includes(query) || m.label.toLowerCase().includes(query) || formatModelLabel(m.id).toLowerCase().includes(query))
+                  : allModels;
                 const providerTitle =
                   p.mode === "claude" ? "🧠 Claude" :
                   p.mode === "real" ? "🌐 Gemini" :
                   p.mode === "openai" ? "🤖 OpenAI" :
                   p.mode === "cx-gateway" ? "⚡ CX Gateway" :
-                  p.mode === "qwen" ? "🇨🇳 Qwen" : p.label;
+                  p.mode === "qwen" ? "🇨🇳 Qwen" :
+                  p.mode === "ollama" ? "🦙 Ollama (Local)" :
+                  p.mode === "codecraft" ? "⚡ CodeCraft AI" : p.label;
 
-                if (!p.available) return null;
+                if (!p.available || models.length === 0) return null;
 
                 return (
                   <div key={p.mode} style={{ marginBottom: 6 }}>

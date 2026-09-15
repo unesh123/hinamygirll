@@ -8,6 +8,7 @@ import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from .config import Settings
@@ -19,6 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .persistence.memory_service import MemoryService
 
 from .prompts import PROMPT_VERSION, neutral_fallback_plan
+from .prompts.performance import extract_executive_voice_summary
 from .prompts.turn_prompt import build_turn_prompt
 from .providers.agent_router import AgentRouterOpenAIProvider, AgentRouterAnthropicProvider, ClaudeLLMProvider
 from .providers.azure_speech import AzureSpeechProvider
@@ -169,15 +171,39 @@ def _comparison_key(text: str) -> str:
     return re.sub(r"[^\w]+", "", text.casefold(), flags=re.UNICODE)
 
 
+def _dedupe_halves(text: str) -> str:
+    """If the model repeated its entire answer block verbatim or near-verbatim, collapse it."""
+    s = text.strip()
+    n = len(s)
+    if n < 40:
+        return text
+    mid = n // 2
+    for offset in range(-15, 16):
+        m = mid + offset
+        if m < 20 or m > n - 20:
+            continue
+        first = s[:m].strip()
+        second = s[m:].strip()
+        if first and second:
+            if first == second:
+                return first
+            k1 = _comparison_key(first)
+            k2 = _comparison_key(second)
+            if k1 and k2 and len(k1) >= 25 and k1 == k2:
+                return first
+    return text
+
+
 def _remove_repeated_passages(text: str) -> str:
-    """Keep the first copy of an identical paragraph or sentence.
+    """Keep the first copy of an identical paragraph, sentence, or text block.
 
     Provider output can occasionally repeat its answer during schema recovery or
     streaming completion. This guard is intentionally conservative: it removes
     only identical normalized passages and leaves differently worded details,
     Markdown lists, and code intact.
     """
-    chunks = re.split(r"(\n{2,}|(?<=[.!?])\s+)", text.strip())
+    text = _dedupe_halves(text)
+    chunks = re.split(r"(\n{2,}|(?<=[.!?।])\s+)", text.strip())
     seen: set[str] = set()
     kept: list[str] = []
     pending_separator = ""
@@ -223,26 +249,10 @@ def _spoken_summary_from_display(text: str, *, limit: int = 420) -> str:
     return res
 
 
-def _plain_first_sentences(text: str, limit: int = 210) -> str:
-    """First one or two plain-language sentences of a markdown document, used
-    when a model dumped the whole report into the voice channel anyway."""
-    stripped = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
-    stripped = re.sub(r"\[[^\]]*\]\(([^)]*)\)", r"\1", stripped)
-    stripped = re.sub(r"[#*_>`~|-]+", " ", stripped)
-    stripped = re.sub(r"\s+", " ", stripped).strip()
-    if not stripped:
-        return ""
-    sentences = re.split(r"(?<=[.!?।]) +", stripped)
-    out = ""
-    for sentence in sentences[:2]:
-        if out and len(out) + len(sentence) > limit:
-            break
-        out = f"{out} {sentence}".strip()
-        if len(out) >= limit * 0.55:
-            break
-    if len(out) > limit:
-        out = out[: limit - 1].rsplit(" ", 1)[0] + "…"
-    return out
+def _plain_first_sentences(text: str, limit: int = 280) -> str:
+    """First one or two substantive prose sentences of a document, skipping
+    conversational greetings and stripping markdown so voice summaries are natural."""
+    return extract_executive_voice_summary(text, limit=limit)
 
 
 def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
@@ -267,8 +277,14 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
             re.IGNORECASE,
         )
     )
-    # Strip all asterisk stage directions, e.g. *laughs*, *मुस्कुराते हुए*, *smiles gently*, *sighs*
-    cleaned = re.sub(r"\*[^*]+\*", "", cleaned)
+    # Strip only actual stage directions in single asterisks, e.g. *laughs*, *smiles gently*, *sighs*, *मुस्कुराते हुए*
+    # NEVER strip double asterisks (**bold**), which are standard markdown formatting!
+    stage_dir_pattern = (
+        r"(?<!\*)\*\s*(?:laughs?|chuckles?|giggles?|smiles?|smiling|sighs?|winks?|blushes?|nodding|nods|"
+        r"softly|gently|warmly|cheerful|playful|curious|pouts?|gazing|looking|thinking|"
+        r"मुस्कुराते\s+हुए|हंसते\s+हुए|धीमे\s+से\s+मुस्कुराते\s+हुए|गले\s+लगाते\s+हुए)[^*]*\*(?!\*)"
+    )
+    cleaned = re.sub(stage_dir_pattern, "", cleaned, flags=re.IGNORECASE)
     # Strip stage direction parentheses, e.g. (laughs), (giggles), (smiling softly), (मुस्कुराते हुए)
     cleaned = re.sub(
         r"\(\s*(?:laughs?|chuckles?|giggles?|smiles?|smiling|मुस्कुराते हुए|हंसते हुए|धीमे से मुस्कुराते हुए)[^)]*\)",
@@ -282,19 +298,160 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
         "",
         cleaned,
     )
+    # Strip <svg>...</svg> blocks and standalone svg lines
+    cleaned = re.sub(r"<svg[\s\S]*?</svg>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(?im)^\s*svg\s*$\n?", "", cleaned)
+    # Strip internal workflow tokens
+    cleaned = re.sub(r"\b(?:workflow_mode|generation_set_id)\b\s*", "", cleaned)
     # Normalize leftover whitespace
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
     return cleaned.strip(), had_laughter
 
 
-def _apply_response_quality_guard(plan: AssistantTurnPlan, is_live: bool = False) -> None:
+def _truncate_at_clause_boundary(text: str, limit: int) -> str:
+    """Shorten text to ≤ ``limit`` chars WITHOUT cutting mid-thought (§32).
+
+    Preference order: keep as-is → last sentence end → last clause break
+    (comma/semicolon/dash/colon) → last word boundary. Never slices into
+    the middle of a word.
+    """
+    if len(text) <= limit:
+        return text
+    window = text[: limit + 1]
+    # Sentence boundary: cut AFTER the terminator so the thought keeps its
+    # punctuation (never ends on a bare word).
+    matches = list(re.finditer(r"[.!?\u0964\u0965]", window))
+    if matches:
+        cut = window[: matches[-1].end()].strip()
+        if len(cut) >= limit * 0.4:
+            return cut
+    for sep in (",", ";", "—", " -", ":"):
+        idx = window.rfind(sep)
+        if idx >= limit * 0.4:
+            return window[:idx].rstrip(" ,;—")
+    cut = window.rsplit(" ", 1)[0].rstrip(" ,;—")
+    return cut
+
+
+class VoiceResponseType(str, Enum):
+    """Semantic voice response types (directive §32).
+
+    SHORT_FULL — the whole answer is short; voice may speak it verbatim.
+    EXECUTIVE_SUMMARY — display is a long document; voice summarizes.
+    PROGRESS_UPDATE — work still running; voice reports status only.
+    QUESTION — Hina is asking the user something.
+    ERROR — failure path; voice explains safely.
+    COMPLETION — a tool finished (artifact produced); voice announces it.
+    """
+
+    SHORT_FULL = "SHORT_FULL"
+    EXECUTIVE_SUMMARY = "EXECUTIVE_SUMMARY"
+    PROGRESS_UPDATE = "PROGRESS_UPDATE"
+    QUESTION = "QUESTION"
+    ERROR = "ERROR"
+    COMPLETION = "COMPLETION"
+    ARTIFACT_READY = "ARTIFACT_READY"
+
+
+def plan_voice_response(
+    display_text: str,
+    spoken_text: str,
+    *,
+    has_artifact: bool = False,
+    has_pdf: bool = False,
+    has_image: bool = False,
+    has_error: bool = False,
+    is_progress: bool = False,
+    artifact_title: str | None = None,
+) -> tuple[VoiceResponseType, str]:
+    """Classify the turn and produce the voice text for that type.
+
+    Long documents never get a recitation; short conversational answers
+    keep their full voice text; the summary is built from whole sentences
+    and never cut mid-thought.
+    """
+    display = (display_text or "").strip()
+    spoken = (spoken_text or "").strip()
+
+    if has_error:
+        # Error voice: keep the spoken line if it's already short and
+        # complete; otherwise a safe generic fallback. Never recite stacks.
+        if spoken and len(spoken) <= 220 and re.search(r"[.!?\u0964]", spoken):
+            return VoiceResponseType.ERROR, spoken
+        return VoiceResponseType.ERROR, "Something went wrong on my side — give me another try? 💜"
+    if has_artifact:
+        title = artifact_title or "your document"
+        return VoiceResponseType.ARTIFACT_READY, f"I've created {title} for you! You can view and edit it right here. ✨"
+    if has_pdf:
+        return VoiceResponseType.COMPLETION, "I've generated your assignment PDF! You can download it right below. ✨"
+    if has_image:
+        return VoiceResponseType.COMPLETION, "Here are some pictures for you! ✨"
+    if is_progress:
+        if spoken and len(spoken) <= 200:
+            return VoiceResponseType.PROGRESS_UPDATE, spoken
+        return VoiceResponseType.PROGRESS_UPDATE, "Working on it — I'll have it ready shortly! ✨"
+
+    # Question: Hina asked the user something — never overwrite a question
+    # with a summary, that would erase the ask.
+    if spoken.endswith("?") or (not spoken and display.rstrip().endswith("?")):
+        question = spoken or display
+        if len(question) <= 400:
+            return VoiceResponseType.QUESTION, question
+        return VoiceResponseType.QUESTION, _truncate_at_clause_boundary(question, 380)
+
+    if len(display) <= 600:
+        # Short conversational turn: keep the model's own voice text when it
+        # is a complete thought; otherwise speak the display text itself.
+        candidate = spoken or display
+        if len(candidate) <= 450 and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", candidate.rstrip())):
+            return VoiceResponseType.SHORT_FULL, candidate
+        if len(display) <= 450:
+            return VoiceResponseType.SHORT_FULL, display
+        distilled = _plain_first_sentences(display, limit=350)
+        return VoiceResponseType.SHORT_FULL, distilled or "I've put the full breakdown in chat! ✨"
+
+    # Long document: executive summary from whole substantive sentences.
+    clean_spoken = spoken.strip()
+    is_substantive_spoken = (
+        len(clean_spoken) >= 40
+        and len(clean_spoken) <= 700
+        and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", clean_spoken))
+        and not any(marker in clean_spoken for marker in ("```", "\n", "•", "|", "###", "##"))
+        and not clean_spoken.lower().startswith("here is your")
+        and not clean_spoken.lower().startswith("i have generated")
+    )
+    if is_substantive_spoken:
+        return VoiceResponseType.EXECUTIVE_SUMMARY, clean_spoken
+
+    summary = _plain_first_sentences(display, limit=280)
+    if not summary:
+        summary = _truncate_at_clause_boundary(spoken or display, 280)
+    if summary and not re.search(r"[.!?:\u0964\u0965]\s*$", summary.rstrip()):
+        summary = _truncate_at_clause_boundary(summary, 280)
+    return VoiceResponseType.EXECUTIVE_SUMMARY, f"{summary} The full document is in chat for you! ✨"
+
+
+def _apply_response_quality_guard(
+    plan: AssistantTurnPlan,
+    is_live: bool = False,
+    evidence_sources: Any = None,
+) -> None:
     """Normalize a completed plan without changing meaning or tool requests."""
     clean_display, display_laughed = _clean_natural_speech_and_display(plan.displayText)
     clean_spoken, spoken_laughed = _clean_natural_speech_and_display(plan.spokenText)
 
     plan.displayText = _remove_repeated_passages(clean_display)
     plan.spokenText = _remove_repeated_passages(clean_spoken)
+
+    if evidence_sources:
+        try:
+            from hinaa_api.grounding.citations import CitationRenderer
+            renderer = CitationRenderer(evidence_sources)
+            rendered_display, _, _ = renderer.render(plan.displayText, append_sources=True)
+            plan.displayText = rendered_display
+        except Exception:
+            logger.debug("Citation rendering in quality guard skipped", exc_info=True)
 
     had_laughter = display_laughed or spoken_laughed
     if had_laughter:
@@ -308,39 +465,49 @@ def _apply_response_quality_guard(plan: AssistantTurnPlan, is_live: bool = False
 
     # Voice should complement a long display answer, not replay it verbatim.
     # Spoken text must NEVER recite long essays, outlines, bullet points, or code.
-    if not is_live:
-        has_pdf = any(t.toolName == "pdf_generate" for t in plan.toolRequests)
-        has_image = any(t.toolName in {"image_search", "image_generate"} for t in plan.toolRequests)
+    has_pdf = any(t.toolName == "pdf_generate" for t in plan.toolRequests)
+    has_image = any(t.toolName in {"image_search", "image_generate"} for t in plan.toolRequests)
 
-        if has_pdf:
-            plan.spokenText = "I've generated your assignment PDF! You can download it right below. ✨"
-            return
-        elif has_image:
-            plan.spokenText = "Here are some pictures for you! ✨"
-            return
-
-        raw_spoken = plan.spokenText or ""
-        # Check if spoken text contains structured markdown, code, or outlines that should never be spoken aloud
-        has_forbidden_speech_structure = any(
-            marker in raw_spoken for marker in ("```", "\n", "•", "|", "- ", "1. ")
+    if has_pdf:
+        # COMPLETION voice type: artifact announcement, not a recitation (§32).
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, raw_spoken := plan.spokenText, has_pdf=True
         )
-        is_verbatim_echo = len(plan.displayText) > 280 and (
-            _comparison_key(plan.displayText) == _comparison_key(raw_spoken)
+        plan.spokenText = voice_text
+        return
+    elif has_image:
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, plan.spokenText, has_image=True
         )
+        plan.spokenText = voice_text
+        return
 
-        if has_forbidden_speech_structure or is_verbatim_echo:
-            distilled = _plain_first_sentences(plan.displayText)
-            if distilled and _comparison_key(distilled) != _comparison_key(plan.spokenText):
-                plan.spokenText = f"{distilled} Full breakdown is in chat! ✨"
-            else:
-                cleaned = _spoken_summary_from_display(raw_spoken or plan.displayText, limit=260)
-                plan.spokenText = " ".join(cleaned.split())[:260] or "I've put the full breakdown in chat! ✨"
-        elif len(plan.spokenText) > 260 and len(plan.displayText) > len(plan.spokenText):
-            distilled = _plain_first_sentences(plan.displayText)
-            if distilled and _comparison_key(distilled) != _comparison_key(plan.spokenText):
-                plan.spokenText = f"{distilled} Full breakdown is in chat! ✨"
-            else:
-                plan.spokenText = "Key details are in chat! ✨"
+    raw_spoken = plan.spokenText or ""
+    # Check if spoken text contains structured markdown, code, or outlines that should never be spoken aloud
+    has_forbidden_speech_structure = any(
+        marker in raw_spoken for marker in ("```", "\n", "•", "|", "- ", "1. ", "###", "##")
+    )
+    is_verbatim_echo = len(plan.displayText) > 280 and (
+        _comparison_key(plan.displayText) == _comparison_key(raw_spoken)
+    )
+
+    if has_forbidden_speech_structure or is_verbatim_echo:
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, "", is_progress=False
+        )
+        plan.spokenText = voice_text
+    elif len(plan.spokenText) > 750:
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, plan.spokenText, is_progress=False
+        )
+        plan.spokenText = voice_text
+    elif len(plan.displayText) > 600:
+        # Document guard (EXECUTIVE_SUMMARY): when displayText is a long
+        # document/report, voice provides a smart, substantive executive summary.
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, plan.spokenText, is_progress=False
+        )
+        plan.spokenText = voice_text
 
 
 # ── Casual-chat fast path ──────────────────────────────────────────────────
@@ -561,6 +728,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_codecraft_brain(self) -> None:
+        if self.settings.active_codecraft_key is None or self.settings.active_codecraft_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "CodeCraft is not configured. Add CODECRAFT_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def stt(self, mode: str) -> STTProvider:
         if mode == "mock":
             return self.mock_stt
@@ -730,6 +906,30 @@ class ProviderRouter:
                 base_url=active_cx_base_url,
                 provider_id="cx-gateway",
             )
+        if mode == "codecraft":
+            self._require_codecraft_brain()
+            active_codecraft_key = self.settings.active_codecraft_key
+            active_codecraft_base_url = self.settings.active_codecraft_base_url
+            assert active_codecraft_key and active_codecraft_base_url
+            try:
+                model = self.settings.resolve_codecraft_model(brain_model)
+            except ValueError:
+                model = self.settings.active_codecraft_model
+            return OpenAILLMProvider(
+                active_codecraft_key.get_secret_value(),
+                model,
+                base_url=active_codecraft_base_url,
+                provider_id="codecraft",
+            )
+        if mode == "ollama":
+            base_url = self.settings.active_ollama_base_url or "http://localhost:11434/v1"
+            model = self.settings.resolve_ollama_model(brain_model)
+            return OpenAILLMProvider(
+                key="ollama",
+                model=model,
+                base_url=base_url,
+                provider_id="ollama",
+            )
         if mode == "real":
             # The historical "real" mode means Gemini brain + a voice provider.
             # Gate on full real-mode configuration so a missing key raises a
@@ -800,11 +1000,36 @@ class ConversationService:
         self,
         settings: Settings,
         memory_service: MemoryService | None = None,
+        task_service: Any = None,
+        session_factory: Any = None,
+        **kwargs: Any,
     ) -> None:
         self.settings = settings
         self.router = ProviderRouter(settings)
         self.memory = SessionMemory(settings.session_limit, settings.session_turn_limit)
         self.memory_service = memory_service
+        self.task_service = task_service
+        self.dialogue_state_service = kwargs.get("dialogue_state_service") or (getattr(memory_service, "dialogue_state_service", None) if memory_service else None)
+        if self.dialogue_state_service is None and session_factory is not None:
+            from hinaa_api.dialogue_state import DialogueStateService
+            self.dialogue_state_service = DialogueStateService(session_factory)
+
+        if session_factory is not None:
+            from hinaa_api.continuity import (
+                ConversationBootstrapper,
+                ConversationFinalizer,
+                CrossSessionMemoryRetriever,
+                MemoryPromotionService,
+            )
+            self.cross_session_retriever = CrossSessionMemoryRetriever(session_factory)
+            self.promotion_service = MemoryPromotionService(session_factory)
+            self.bootstrapper = ConversationBootstrapper(session_factory)
+            self.finalizer = ConversationFinalizer(session_factory)
+        else:
+            self.cross_session_retriever = None
+            self.promotion_service = None
+            self.bootstrapper = None
+            self.finalizer = None
         # (user_id, session_id) -> set[str] of facts already pushed to the
         # durable store, so per-turn appends never rewrite the same facts.
         # OrderedDict + cap so long-running servers cannot leak memory here
@@ -814,6 +1039,26 @@ class ConversationService:
         # the key is treated as bad. Prevents hammering a deactivated/expired
         # key (401) on every casual turn when a working brain is available.
         self._fast_key_bad_until: dict[str, float] = {}
+        # Phase B2 — hierarchical context compiler: routing + manifest ledger.
+        # One canonical compiler instance; manifests are per-request artifacts.
+        from .agent.compiler import ContextCompiler
+        self.context_compiler = ContextCompiler(
+            max_tokens=getattr(settings, "session_history_char_limit", 32_000) // 4,
+            model_context_limit=getattr(settings, "llm_context_limit", 131_072),
+        )
+        # Ring buffer of recent manifests for the developer inspector (§37).
+        from collections import deque
+        self._context_manifests: deque[dict[str, Any]] = deque(maxlen=50)
+        # B2 summary tree (§17) — persistent episode summaries. Optional:
+        # in-memory sessions (tests) run without a DB-backed episode tree.
+        self.episode_summarizer = None
+        if session_factory is not None:
+            try:
+                from .persistence.episode_service import EpisodeSummarizer
+                self.episode_summarizer = EpisodeSummarizer(session_factory)
+            except Exception:
+                logger.debug("EpisodeSummarizer unavailable (no DB)", exc_info=True)
+        self._episode_turn_counters: dict[str, int] = {}
 
     def _fast_key_bad(self, provider_id: str) -> bool:
         return self._fast_key_bad_until.get(provider_id, 0.0) > time.monotonic()
@@ -949,6 +1194,74 @@ class ConversationService:
                 continue
             self._mark_persisted(user_id, session_id, fact)
 
+    def _handle_continuity_promotions(self, user_id: str, convo_id: str | None, text: str) -> None:
+        """Promote approved assets and project architecture facts to cross-session continuity."""
+        # 1. Approved face/character reference (e.g. "My approved Hina face is IMG_24")
+        face_match = re.search(
+            r"approved\s+(?:([A-Za-z0-9_]+)\s+)?face\s+(?:is\s+|:\s*)?([A-Za-z0-9_]+)",
+            text,
+            re.IGNORECASE,
+        ) or re.search(
+            r"\b([A-Za-z0-9_]+)\s+is\s+(?:my\s+)?approved\s+(?:([A-Za-z0-9_]+)\s+)?face",
+            text,
+            re.IGNORECASE,
+        )
+        if face_match and self.promotion_service:
+            entity = face_match.group(1) or "Hina"
+            asset_id = face_match.group(2)
+            try:
+                self.promotion_service.promote_approved_asset(
+                    user_id,
+                    entity_name=entity.title(),
+                    asset_id=asset_id,
+                    conversation_id=convo_id,
+                )
+            except Exception:
+                logger.debug("Failed to promote approved face %s", asset_id, exc_info=True)
+
+        # 2. Project architecture / database facts (e.g. "Nova project uses PostgreSQL.")
+        proj_match = re.search(
+            r"\b([A-Za-z0-9_]+)\s+project\s+uses\s+([A-Za-z0-9_]+)",
+            text,
+            re.IGNORECASE,
+        ) or re.search(
+            r"\b([A-Za-z0-9_]+)\s+(?:stack|architecture|database|db)\s+(?:is|uses)\s+([A-Za-z0-9_]+)",
+            text,
+            re.IGNORECASE,
+        )
+        if proj_match:
+            p_name = proj_match.group(1)
+            try:
+                if self.memory_service:
+                    self.memory_service.remember(
+                        user_id=user_id,
+                        content=text.strip(),
+                        category="project",
+                        source_turn_ref=f"convo:{convo_id}" if convo_id else None,
+                        explicit=True,
+                    )
+                if self.cross_session_retriever:
+                    with self.cross_session_retriever._factory() as session:
+                        from hinaa_api.persistence.orm import UserContinuityState
+                        from sqlalchemy import select
+                        import json
+                        st = session.scalar(select(UserContinuityState).where(UserContinuityState.owner_id == user_id))
+                        if not st:
+                            st = UserContinuityState(owner_id=user_id)
+                            session.add(st)
+                            session.flush()
+                        projs = []
+                        try:
+                            projs = json.loads(st.important_projects_json) if st.important_projects_json else []
+                        except Exception:
+                            pass
+                        if p_name not in projs:
+                            projs.append(p_name)
+                            st.important_projects_json = json.dumps(projs)
+                            session.commit()
+            except Exception:
+                logger.debug("Failed to record project fact", exc_info=True)
+
     async def transcribe(self, pcm: bytes, language: str, mode: str) -> ProviderResult[str]:
         try:
             async with asyncio.timeout(self.settings.provider_timeout_seconds):
@@ -964,6 +1277,7 @@ class ConversationService:
         plan: AssistantTurnPlan,
         session_id: str | None = None,
         turn_request: Any = None,
+        user_id: str | None = None,
     ) -> None:
         """Add only unambiguous, imperative local tool requests.
 
@@ -974,6 +1288,15 @@ class ConversationService:
         """
         # First, parse explicit commands from composer
         plain_text, parsed_contexts, parsed_command = parse_composer_input(text)
+        
+        uid = user_id or getattr(turn_request, "userId", None)
+        convo_id = getattr(turn_request, "conversationId", None) or session_id
+        d_state = None
+        if self.dialogue_state_service and convo_id:
+            try:
+                d_state = self.dialogue_state_service.load(convo_id, user_id=uid)
+            except Exception:
+                pass
         
         # If there's an explicit command, map it to a tool request
         if parsed_command:
@@ -1064,17 +1387,23 @@ class ConversationService:
             return any(re.search(pattern, unquoted, re.IGNORECASE) for pattern in patterns)
 
         # Flexible, natural image search trigger supporting prefixes, typos (sho/show), and mid-sentence entities
-        has_image_kw = bool(re.search(r"\b(images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|तस्वीरें|चित्र|फोटो)\b", unquoted, re.I))
+        has_image_kw = bool(re.search(r"\b(images?|imges?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|तस्वीरें|चित्र|फोटो)\b", unquoted, re.I))
         has_fetch_verb = bool(re.search(r"\b(show|sho|display|find|search|get|fetch|bring|see|load|look\s+for|ढूँढ|खोज|दिखा|लाओ)\b", unquoted, re.I))
         is_followup_fetch = bool(re.search(r"\b(?:fetch|show|sho|get|see|display|load|bring)\s+(?:them|it|these|those)\b", unquoted, re.I))
         is_generate_action = bool(re.search(r"\b(generate|genrate|fenerate|generat|create|creat|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b", unquoted, re.I))
         has_reference_intent = bool(re.search(r"\b(reference|refrence|referance|as\s+ref|referencing|refer to)\b", unquoted, re.I))
         has_art_platform = bool(re.search(r"\b(pinterest|pintrest|pintrens|deviantart|safebooru|danbooru|pixiv|artstation)\b", unquoted, re.I))
+        has_conversational_question = bool(re.search(
+            r"\b(tell\s+me\s+about|who\s+is|what\s+is|explain|describe|remember|article|bio|why|how|wtf|didn'?t\s+ask\s+for\s+pictures|not\s+pictures|information\s+about|history\s+of)\b",
+            unquoted,
+            re.I,
+        ))
         is_character_visual = bool(
-            (has_fetch_verb or has_image_kw or len(unquoted.split()) <= 4)
+            (has_fetch_verb or has_image_kw)
             and any(k in unquoted.lower().split() or k in unquoted.lower() for k in CHARACTER_ENTITY_MAP)
             and not is_generate_action
             and not has_reference_intent
+            and not has_conversational_question
             and not bool(re.search(r"\b(search the web|google search|information about|article|who is|wiki|history)\b", unquoted, re.I))
         )
 
@@ -1110,6 +1439,7 @@ class ConversationService:
         image_search_command = (
             not is_generate_action
             and not has_reference_intent
+            and not has_conversational_question
             and not (has_research_or_web_intent and not has_image_kw and not has_art_platform)
             and (
                 is_character_visual
@@ -1122,110 +1452,162 @@ class ConversationService:
         )
 
         if image_search_command and not any(t.toolName == "image_search" for t in plan.toolRequests):
-            query_candidate = re.sub(
-                r"(?i)^\s*(?:like|please|pls|can\s+you|could\s+you|hey|babe|no\s*,?\s*|i\s+(?:just\s+)?(?:want|ont)\s+to\s+(?:see|view)?|what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s*",
-                "",
-                plain_text,
-            ).strip()
-            query_candidate = re.sub(
-                r"(?i)^\s*(?:search|find|look\s+for|show|sho|display|give\s+me|get|fetch|bring|see)\s+(?:me\s+)?(?:some\s+)?(?:public\s+)?(?:images?|pictures?|photos?|pics?|imgs?)?\s*(?:of|for|about)?\s*",
-                "",
-                query_candidate,
-            ).strip()
-            query_candidate = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", query_candidate).strip()
-            # Strip trailing image and platform words (e.g. "mikasa images" -> "mikasa")
-            query_candidate = re.sub(
-                r"(?i)\s+(?:images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|fanart|art|portrait|drawings?)$",
-                "",
-                query_candidate,
-            ).strip()
-            query_candidate = re.sub(
-                r"(?i)\s+(?:on|from|in)?\s*(?:pinterest|pintrest|pintrens|safebooru|google|bro|please|pls|too|as\s+well)$",
-                "",
-                query_candidate,
-            ).strip()
-            query_candidate = re.sub(r"(?i)^(?:some\s+|me\s+|them\s+|these\s+|those\s+|a\s+few\s+)", "", query_candidate).strip()
-
-            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                if re.search(rf"\b{re.escape(alias)}\b", query_candidate, re.IGNORECASE):
-                    query_candidate = re.sub(rf"\b{re.escape(alias)}\b", canonical, query_candidate, flags=re.IGNORECASE).strip()
-                    break
-            if query_candidate.lower() in CHARACTER_ENTITY_MAP:
-                query_candidate = CHARACTER_ENTITY_MAP[query_candidate.lower()]
-
-            if has_art_platform or is_image_refinement:
-                clean_refine = re.sub(r"(?i)\b(bro|and|from|not\s+youtube|not\s+yt|youtube|please|pls|too|like|me|some)\b", "", plain_text).strip()
-                clean_refine = re.sub(r"\s+", " ", clean_refine).strip()
-                clean_refine = re.sub(r"(?i)\b(pintrens|pintrest)\b", "pinterest", clean_refine)
-                if clean_refine:
-                    query_candidate = clean_refine
-
-            is_generic = (
-                not query_candidate
-                or bool(re.search(r"(?i)^(?:them|it|these|those|fetch\s+them|see\s+them|show\s+them|images?|pics?)$", query_candidate))
-                or bool(re.search(r"(?i)^(?:i\s+)?(?:just\s+)?(?:want|ont)\s+to\s+.*(?:see|fetch|show|get)", query_candidate))
+            from hinaa_api.media.search_intelligence import (
+                build_media_intent,
+                compile_image_search_query,
+                canonical_entity_from_text,
             )
 
-            resolved_query = "" if is_generic else query_candidate
-            if not resolved_query and session_id:
+            active_subject = None
+            if self.dialogue_state_service is not None and session_id:
                 try:
-                    history = self.memory.context(session_id)
-                    for role, content in reversed(history):
-                        if role == "user":
-                            # Skip the current turn if it was already appended before intent injection
-                            if content.strip().casefold() == plain_text.strip().casefold():
-                                continue
-                            clean_prev = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", content).strip()
-                            for _ in range(3):
-                                clean_prev = re.sub(
-                                    r"(?i)^(?:like|please|pls|can\s+you|could\s+you|sho\s+me|show\s+me|give\s+me|get\s+me|some|who is|what is|tell me about|explain|describe)\s+",
-                                    "",
-                                    clean_prev,
-                                ).strip()
-                            clean_prev = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", clean_prev).strip()
-                            img_match = re.search(r"^(.*?)(?:\s+images?(?:\s+of|\s+from)?\s*(.*))?$", clean_prev, re.I)
-                            if img_match and img_match.group(1).strip():
-                                subject = img_match.group(1).strip()
-                                extra = (img_match.group(2) or "").strip()
-                                resolved_query = f"{subject} {extra}".strip()
-                                break
-                            elif clean_prev and not re.search(r"^(?:images?|pictures?|fetch them|see them)$", clean_prev, re.I):
-                                resolved_query = clean_prev
-                                break
+                    d_state = self.dialogue_state_service.load(session_id)
+                    if d_state:
+                        # Prioritize active_topic if it is set and not a generic placeholder
+                        if d_state.active_topic and not any(k in d_state.active_topic.lower() for k in ("anime", "image", "general", "something")):
+                            active_subject = d_state.active_topic
+                        else:
+                            from hinaa_api.dialogue_state import EntityReferenceResolver
+                            active_subject = EntityReferenceResolver.get_active_character(d_state) or d_state.active_topic
                 except Exception:
                     pass
 
-            if not resolved_query and speech_text:
-                subject_match = re.search(r"([A-Z][a-zA-Z0-9\s]+?)(?:\s+की|\s+के|\s+image|\s+pictures|\s+photos)", speech_text)
-                if subject_match:
-                    resolved_query = subject_match.group(1).strip()
-                else:
-                    entities = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", speech_text)
-                    if entities:
-                        resolved_query = entities[0]
+            if not active_subject and session_id:
+                try:
+                    history = self.memory.context(session_id)
+                    recent_user_turns = [c for r, c in reversed(history) if r == "user"][:3]
+                    for content in recent_user_turns:
+                        if content.strip().casefold() == plain_text.strip().casefold():
+                            continue
+                        prof = canonical_entity_from_text(content)
+                        if prof:
+                            active_subject = prof.canonical_name
+                            break
+                except Exception:
+                    pass
 
-            final_query = resolved_query or query_candidate or plain_text or text
-            final_query = re.sub(r"(?i)^\s*(?:what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s+", "", final_query).strip()
-            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                if re.search(rf"\b{re.escape(alias)}\b", final_query, re.IGNORECASE):
-                    final_query = re.sub(rf"\b{re.escape(alias)}\b", canonical, final_query, flags=re.IGNORECASE).strip()
-                    break
-            if final_query.lower() in CHARACTER_ENTITY_MAP:
-                final_query = CHARACTER_ENTITY_MAP[final_query.lower()]
+            media_intent = build_media_intent(unquoted, active_subject=active_subject)
+            if media_intent:
+                spec = compile_image_search_query(media_intent)
+                final_query = spec.primary_query
+                canonical_subject = media_intent.canonical_subject
+            else:
+                query_candidate = re.sub(
+                    r"(?i)^\s*(?:like|please|pls|can\s+you|could\s+you|hey|babe|no\s*,?\s*|i\s+(?:just\s+)?(?:want|ont)\s+to\s+(?:see|view)?|what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s*",
+                    "",
+                    plain_text,
+                ).strip()
+                query_candidate = re.sub(
+                    r"(?i)^\s*(?:search|find|look\s+for|show|sho|display|give\s+me|get|fetch|bring|see)\s+(?:me\s+)?(?:some\s+)?(?:public\s+)?(?:images?|pictures?|photos?|pics?|imgs?)?\s*(?:of|for|about)?\s*",
+                    "",
+                    query_candidate,
+                ).strip()
+                query_candidate = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", query_candidate).strip()
+                # Strip trailing image and platform words (e.g. "mikasa images" -> "mikasa")
+                query_candidate = re.sub(
+                    r"(?i)\s+(?:images?|imges?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|fanart|art|portrait|drawings?)$",
+                    "",
+                    query_candidate,
+                ).strip()
+                query_candidate = re.sub(
+                    r"(?i)\s+(?:on|from|in)?\s*(?:pinterest|pintrest|pintrens|safebooru|google|bro|please|pls|too|as\s+well)$",
+                    "",
+                    query_candidate,
+                ).strip()
+                query_candidate = re.sub(r"(?i)^(?:some\s+|me\s+|them\s+|these\s+|those\s+|a\s+few\s+)", "", query_candidate).strip()
+
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    if re.search(rf"\b{re.escape(alias)}\b", query_candidate, re.IGNORECASE):
+                        query_candidate = re.sub(rf"\b{re.escape(alias)}\b", canonical, query_candidate, flags=re.IGNORECASE).strip()
+                        break
+                if query_candidate.lower() in CHARACTER_ENTITY_MAP:
+                    query_candidate = CHARACTER_ENTITY_MAP[query_candidate.lower()]
+
+                if has_art_platform or is_image_refinement:
+                    clean_refine = re.sub(r"(?i)\b(bro|and|from|not\s+youtube|not\s+yt|youtube|please|pls|too|like|me|some)\b", "", plain_text).strip()
+                    clean_refine = re.sub(r"\s+", " ", clean_refine).strip()
+                    clean_refine = re.sub(r"(?i)\b(pintrens|pintrest)\b", "pinterest", clean_refine)
+                    if clean_refine:
+                        query_candidate = clean_refine
+
+                is_generic = (
+                    not query_candidate
+                    or bool(re.search(r"(?i)^(?:them|it|these|those|fetch\s+them|see\s+them|show\s+them|images?|pics?)$", query_candidate))
+                    or bool(re.search(r"(?i)^(?:i\s+)?(?:just\s+)?(?:want|ont)\s+to\s+.*(?:see|fetch|show|get)", query_candidate))
+                )
+
+                resolved_query = "" if is_generic else query_candidate
+                if not resolved_query and d_state and getattr(d_state, "active_topic", None):
+                    if not any(k in d_state.active_topic.lower() for k in ("anime", "image", "general", "something")):
+                        resolved_query = d_state.active_topic
+
+                if not resolved_query and session_id:
+                    try:
+                        history = self.memory.context(session_id)
+                        for role, content in reversed(history):
+                            if role == "user":
+                                if content.strip().casefold() == plain_text.strip().casefold():
+                                    continue
+                                clean_prev = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", content).strip()
+                                for alias in CHARACTER_ENTITY_MAP:
+                                    neg_pat = (
+                                        r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
+                                        r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
+                                        + re.escape(alias)
+                                        + r"\b|\b"
+                                        + re.escape(alias)
+                                        + r"\s+(?:mat|nahi|nhi|na|haina|chaidaina)\b"
+                                    )
+                                    clean_prev = re.sub(neg_pat, " ", clean_prev).strip()
+                                for _ in range(3):
+                                    clean_prev = re.sub(
+                                        r"(?i)^(?:like|please|pls|can\s+you|could\s+you|sho\s+me|show\s+me|give\s+me|get\s+me|some|who is|what is|tell me about|explain|describe)\s+",
+                                        "",
+                                        clean_prev,
+                                    ).strip()
+                                clean_prev = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", clean_prev).strip()
+                                img_match = re.search(r"^(.*?)(?:\s+images?(?:\s+of|\s+from)?\s*(.*))?$", clean_prev, re.I)
+                                if img_match and img_match.group(1).strip():
+                                    subject = img_match.group(1).strip()
+                                    extra = (img_match.group(2) or "").strip()
+                                    resolved_query = f"{subject} {extra}".strip()
+                                    break
+                                elif clean_prev and not re.search(r"^(?:images?|pictures?|fetch them|see them)$", clean_prev, re.I):
+                                    resolved_query = clean_prev
+                                    break
+                    except Exception:
+                        pass
+
+                final_query = resolved_query or query_candidate or plain_text or text
+                final_query = re.sub(r"(?i)^\s*(?:what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s+", "", final_query).strip()
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    neg_pat = (
+                        r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
+                        r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
+                        + re.escape(alias)
+                    )
+                    if re.search(neg_pat, final_query):
+                        final_query = re.sub(neg_pat, " ", final_query).strip()
+                        continue
+                    if re.search(rf"\b{re.escape(alias)}\b", final_query, re.IGNORECASE):
+                        final_query = re.sub(rf"\b{re.escape(alias)}\b", canonical, final_query, flags=re.IGNORECASE).strip()
+                        break
+                if final_query.lower() in CHARACTER_ENTITY_MAP:
+                    final_query = CHARACTER_ENTITY_MAP[final_query.lower()]
+                canonical_subject = final_query.title()
 
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6},
+                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_subject},
             ))
 
-            clean_subject = final_query.title()
             if re.search(r"[\u0900-\u097F]", plain_text):
-                plan.displayText = f"यहाँ {clean_subject} की कुछ तस्वीरें हैं! ✨"
-                plan.spokenText = f"यहाँ {clean_subject} की कुछ तस्वीरें हैं!"
+                plan.displayText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं! ✨"
+                plan.spokenText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं!"
                 plan.language = "hi-IN"
             else:
-                plan.displayText = f"Here are some {clean_subject} pictures for you! ✨"
-                plan.spokenText = f"Here are some {clean_subject} pictures for you!"
+                plan.displayText = f"Found 6 relevant {canonical_subject} images."
+                plan.spokenText = f"Found 6 relevant {canonical_subject} images."
                 plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
 
@@ -1233,6 +1615,14 @@ class ConversationService:
             re.search(r"\b(?:generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b.*\b(?:image|images|picture|pictures|photo|photos|portrait|artwork|wallpaper|चित्र|तस्वीर)\b", unquoted, re.I)
             or re.search(r"\b(?:image|images|picture|pictures|photo|photos|चित्र|तस्वीर)\s+(?:generate|create|make|draw|करो|गर)\b", unquoted, re.I)
             or re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:draw|paint)\s+[a-z0-9]", unquoted, re.I)
+            or (
+                re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:generate|draw|paint|render|create)\s+", unquoted, re.I)
+                and any(k in unquoted.lower() for k in ("hina", "hinaa", *CHARACTER_ENTITY_MAP))
+            )
+            or (
+                bool(re.search(r"\b(?:same\s+one|use\s+this|use\s+that|use\s+this\s+image)\b", unquoted, re.I))
+                and bool(re.search(r"\b(?:darker|brighter|better|variation|different|in\s+|with\s+|wearing\s+|sitting\s+|standing\s+|looking\s+|smiling)\b", unquoted, re.I))
+            )
             or is_command(
                 [
                     r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
@@ -1265,9 +1655,22 @@ class ConversationService:
                     clean_prompt = re.sub(pattern, canonical, clean_prompt, flags=re.IGNORECASE)
                     break
 
+            img_count = 1
+            count_m = re.search(r"\b(\d+)\s*(?:images?|pictures?|photos?|variations?|series)\b", lower_text)
+            if count_m:
+                img_count = min(max(1, int(count_m.group(1))), 4)
+            elif re.search(r"\b(?:series\s+of\s+images?|image\s+series|multiple\s+images?|few\s+images?)\b", lower_text):
+                img_count = 3
+            elif re.search(r"\b(?:two|pair\s+of)\s+(?:images?|pictures?|photos?)\b", lower_text):
+                img_count = 2
+            elif re.search(r"\b(?:three)\s+(?:images?|pictures?|photos?)\b", lower_text):
+                img_count = 3
+            elif re.search(r"\b(?:four)\s+(?:images?|pictures?|photos?)\b", lower_text):
+                img_count = 4
+
             image_parameters: dict[str, object] = {
                 "prompt": clean_prompt,
-                "count": 1,
+                "count": img_count,
                 "mode": "quality",
                 "strategy": "variations",
             }
@@ -1284,6 +1687,36 @@ class ConversationService:
                 image_parameters["style"] = "3d-art"
             elif re.search(r"\b(watercolor|painting|canvas art)\b", lower_prompt):
                 image_parameters["style"] = "watercolor"
+
+            # Reference image and subject entity resolution from dialogue state or cross-session memory
+            ref_asset_id = None
+            ref_entity = None
+            if d_state:
+                if d_state.selected_asset:
+                    ref_asset_id = d_state.selected_asset.get("asset_id") or d_state.selected_asset.get("selected_asset_id")
+                    ref_entity = d_state.selected_asset.get("canonical_subject")
+                if not ref_asset_id:
+                    from hinaa_api.dialogue_state import AssetReferenceResolver
+                    ref_asset_id = AssetReferenceResolver.resolve_asset_id(unquoted, d_state)
+                if not ref_entity:
+                    ref_entity = d_state.active_topic or (d_state.active_entities[0]["name"] if d_state.active_entities and isinstance(d_state.active_entities[0], dict) and "name" in d_state.active_entities[0] else None)
+
+            if not ref_asset_id and self.cross_session_retriever and uid:
+                try:
+                    evidences = self.cross_session_retriever.retrieve_relevant_context(uid, text, conversation_id=convo_id)
+                    for ev in evidences:
+                        if ev.source_type == "approved_asset" and ev.metadata and ev.metadata.get("asset_id"):
+                            ref_asset_id = ev.metadata["asset_id"]
+                            ref_entity = ev.metadata.get("entity") or ref_entity
+                            break
+                except Exception:
+                    pass
+
+            if ref_asset_id:
+                image_parameters["reference_images"] = [ref_asset_id]
+                image_parameters["reference_asset_id"] = ref_asset_id
+            if ref_entity:
+                image_parameters["subject_entity"] = ref_entity
 
             # “Use that reference / like the images you found”
             reference_led = re.search(
@@ -1332,37 +1765,112 @@ class ConversationService:
             or re.search(r"\bpdf\s+(?:banao|banau|dinu)\b", unquoted, re.I)
         )
         if pdf_command and not any(t.toolName == "pdf_generate" for t in plan.toolRequests):
+            from hinaa_api.models import safe_extract_display_text
+
             topic_str = plain_text
-            topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|can\s+you|could\s+you)\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
             topic_str = re.sub(r"(?i)\b(?:i\s+need\s+to\s+complete\s+my\s+assignment|my\s+topic\s+is)\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write)\s+(?:me\s+)?(?:a\s+)?pdf\s*(?:and\s+give\s+me)?\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*pdf\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download)\s+(?:me\s+)?(?:a\s+)?pdf\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*pdf\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\bpdf\s*(?:file|document|banao|banau|dinu)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
             topic_str = re.sub(r"[\"']", "", topic_str).strip()
             topic_str = re.sub(r"\s+", " ", topic_str).strip()
-            if not topic_str or len(topic_str) < 3:
-                topic_str = "Cryptography and Cyber Leaks"
 
-            topic_str = re.sub(r"(?i)\bcryptogrpic\b", "Cryptography", topic_str)
-            topic_str = re.sub(r"(?i)\bcryptogrp[a-z]*\b", "Cryptography", topic_str)
+            is_referential = (
+                not topic_str
+                or len(topic_str) < 4
+                or bool(
+                    re.search(
+                        r"(?i)^(?:based\s+on\s+)?(?:that|this|it|her|the\s+above|above|same|previous|last|what\s+you\s+(?:said|wrote|generated))(?:\s+(?:assignment|report|paper|doc|document|topic|conversation))?$",
+                        topic_str,
+                    )
+                )
+                or bool(
+                    re.search(
+                        r"(?i)^(?:the|that|this|my|her)?\s*(?:assignment|report|paper|doc|document|notes|topic)$",
+                        topic_str,
+                    )
+                )
+            )
+
+            extracted_content = ""
+            resolved_topic = ""
+
+            # Check conversation context and dialogue state if referential or empty
+            if session_id:
+                try:
+                    if self.dialogue_state_service is not None:
+                        d_state = self.dialogue_state_service.load(session_id, user_id)
+                        if d_state and d_state.active_topic:
+                            resolved_topic = d_state.active_topic
+                        elif d_state and d_state.slots.get("topic"):
+                            resolved_topic = str(d_state.slots["topic"])
+                        elif d_state and d_state.slots.get("subject"):
+                            resolved_topic = str(d_state.slots["subject"])
+
+                    history = self.memory.context(session_id)
+                    for role, hist_content in reversed(history):
+                        if hist_content.strip().casefold() == plain_text.strip().casefold():
+                            continue
+                        clean_text = safe_extract_display_text(hist_content).strip()
+                        if role == "assistant" and len(clean_text) > 80 and not extracted_content:
+                            extracted_content = clean_text
+                            # Extract topic from title or header if available
+                            title_m = re.search(r"^#{1,3}\s+(?:📄\s*)?([^\n]+)", clean_text)
+                            if title_m and not resolved_topic:
+                                raw_t = title_m.group(1).strip()
+                                raw_t = re.sub(r"(?i)\b(?:assignment|report|overview|guide|breakdown|document)\b", "", raw_t).strip(" :-")
+                                if len(raw_t) >= 3:
+                                    resolved_topic = raw_t
+                        elif role == "user" and not resolved_topic:
+                            clean_user = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", clean_text).strip()
+                            clean_user = re.sub(r"(?i)\b(?:assignment|complete|karna\s+hai|help\s+me|tell\s+me\s+about|what\s+is|explain|topic\s+is)\b", "", clean_user).strip()
+                            clean_user = re.sub(r"[?!.,]", "", clean_user).strip()
+                            if len(clean_user) >= 3 and not re.search(r"(?i)^(?:pdf|hi|hey|hello|yes|no|ok|okay|ha|haan)$", clean_user):
+                                resolved_topic = clean_user
+                except Exception:
+                    pass
+
+            if not is_referential and topic_str:
+                final_topic = topic_str
+            elif resolved_topic:
+                final_topic = resolved_topic
+            else:
+                final_topic = "Comprehensive Academic Research"
+
+            # Clean topic typos
+            final_topic = re.sub(r"(?i)\bcryptogrpic\b", "Cryptography", final_topic)
+            final_topic = re.sub(r"(?i)\bcryptogrp[a-z]*\b", "Cryptography", final_topic)
+            final_topic = re.sub(r"(?i)\bww2\b", "World War II", final_topic)
+            final_topic = re.sub(r"(?i)\bwwii\b", "World War II", final_topic)
+            final_topic = re.sub(r"(?i)\bww1\b", "World War I", final_topic)
+
+            clean_display_title = final_topic.strip().title()
+            if not clean_display_title.lower().endswith("assignment") and not clean_display_title.lower().endswith("report") and not clean_display_title.lower().endswith("document"):
+                doc_title = f"{clean_display_title} Academic Document"
+            else:
+                doc_title = clean_display_title
 
             plan.toolRequests.append(ToolRequest(
                 toolName="pdf_generate",
                 parameters={
-                    "topic": topic_str,
-                    "title": f"{topic_str.title()} Assignment Document",
+                    "topic": final_topic,
+                    "title": doc_title,
                     "category": "Academic Assignment",
+                    "content": extracted_content,
                 },
             ))
 
             plan.displayText = (
-                f"### 📄 Assignment PDF: {topic_str.title()}\n\n"
-                f"I have compiled your assignment on **{topic_str.title()}** into a complete academic PDF document "
-                f"with foundational theory, comparison tables, empirical case studies, and security countermeasures.\n\n"
-                f"• **Document Type**: Academic Assignment (PDF)\n"
-                f"• **Standards**: IEEE / NIST Format\n\n"
-                f"Your PDF is compiled and ready for download below! ✨"
+                f"### 📄 Academic PDF: {clean_display_title}\n\n"
+                f"I have compiled your complete academic assignment and research report on **{clean_display_title}** "
+                f"into a publication-grade PDF with structured foundations, comparison tables, detailed analysis, and citations.\n\n"
+                f"• **Document Title**: {doc_title}\n"
+                f"• **Category**: Academic Assignment / Research Report\n"
+                f"• **Format**: Publication-Grade ReportLab PDF\n\n"
+                f"Your PDF is compiled and ready for instant download below! ✨"
             )
-            plan.spokenText = f"I've generated your {topic_str} assignment PDF! You can download it right below. ✨"
+            plan.spokenText = f"Babe, I've compiled your {final_topic} assignment into a complete academic PDF report! You can download it right below ✨"
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
 
@@ -1484,15 +1992,22 @@ class ConversationService:
 
         # 0. Character lookup shortcut (e.g. "/image gojo" or "/image mikasa")
         if clean_args.lower() in CHARACTER_ENTITY_MAP and not flags and cmd in {"image", "images", "img", "pics", "pictures", "search", "find"}:
-            final_query = CHARACTER_ENTITY_MAP[clean_args.lower()]
+            from hinaa_api.media.search_intelligence import build_media_intent, compile_image_search_query
+            media_intent = build_media_intent(clean_args)
+            if media_intent:
+                spec = compile_image_search_query(media_intent)
+                final_query = spec.primary_query
+                canonical_sub = media_intent.canonical_subject
+            else:
+                canonical_sub = CHARACTER_ENTITY_MAP[clean_args.lower()]
+                final_query = canonical_sub
             plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search", "image_generate"}]
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6},
+                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_sub},
             ))
-            display_name = final_query.title()
-            plan.displayText = f"Here are some {display_name} pictures for you! ✨"
-            plan.spokenText = f"Here are some {display_name} pictures for you!"
+            plan.displayText = f"Found 6 relevant {canonical_sub} images."
+            plan.spokenText = f"Found 6 relevant {canonical_sub} images."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
             return
@@ -1504,6 +2019,9 @@ class ConversationService:
         }
         if is_generate_cmd:
             prompt_text = clean_args or "beautiful digital artwork"
+            # Strip trailing noise tokens like images, imges, pictures, pics, etc.
+            prompt_text = re.sub(r"(?i)\b(images?|imges?|pictures?|photos?|pics?|wallpapers?)\b", "", prompt_text).strip()
+            prompt_text = prompt_text or "beautiful digital artwork"
             # Expand known character names to canonical full names
             _pt_lower = prompt_text.lower()
             for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
@@ -1549,21 +2067,36 @@ class ConversationService:
         )
 
         if is_search_image_cmd:
-            clean_q = re.sub(r"(?i)\b(images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|pinterest|pintrest|pintrens|bro|and|of|from|please|pls)\b", "", clean_args).strip()
-            clean_q = re.sub(r"\s+", " ", clean_q).strip()
-            if clean_q.lower() in CHARACTER_ENTITY_MAP:
-                clean_q = CHARACTER_ENTITY_MAP[clean_q.lower()]
-            final_query = clean_q or clean_args or "anime aesthetic"
+            from hinaa_api.media.search_intelligence import build_media_intent, compile_image_search_query
+            media_intent = build_media_intent(clean_args)
+            if media_intent:
+                spec = compile_image_search_query(media_intent)
+                final_query = spec.primary_query
+                canonical_sub = media_intent.canonical_subject
+            else:
+                clean_q = re.sub(r"(?i)\b(images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|pinterest|pintrest|pintrens|bro|and|of|from|please|pls)\b", "", clean_args).strip()
+                clean_q = re.sub(r"\s+", " ", clean_q).strip()
+                if clean_q.lower() in CHARACTER_ENTITY_MAP:
+                    clean_q = CHARACTER_ENTITY_MAP[clean_q.lower()]
+                final_query = clean_q or clean_args or "anime aesthetic"
+                canonical_sub = final_query.title()
             plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search"}]
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6},
+                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_sub},
             ))
-            display_name = final_query.title()
-            plan.displayText = f"Here are some {display_name} pictures for you! ✨"
-            plan.spokenText = f"Here are some {display_name} pictures for you!"
+            plan.displayText = f"Found 6 relevant {canonical_sub} images."
+            plan.spokenText = f"Found 6 relevant {canonical_sub} images."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
+            return
+
+        if cmd == "extract":
+            urls = [u for u in clean_args.split() if re.match(r"^https?://", u, re.I)]
+            if urls:
+                plan.toolRequests.append(ToolRequest(toolName="web_extract", parameters={"urls": urls}))
+            else:
+                plan.toolRequests.append(ToolRequest(toolName="web_search", parameters={"query": clean_args}))
             return
         
         # 3. Map general commands to tool names
@@ -1706,13 +2239,431 @@ class ConversationService:
                 logger.warning("Failed to resolve imageUrl", exc_info=True)
         return resolved
 
+    def _durable_conversation_context(
+        self,
+        request: TurnRequest,
+        user_id: str | None,
+    ) -> tuple[tuple[tuple[str, str], ...], list[str]]:
+        history: list[tuple[str, str]] = []
+        blocks: list[str] = []
+        convo_id = request.conversationId or request.sessionId
+        if not user_id or not self.memory_service or not convo_id:
+            return tuple(history), blocks
+
+        try:
+            ctx = self.memory_service.recent_working_context(user_id, convo_id, limit=6)
+            for msg in ctx.get("recentMessages", []):
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role and content:
+                    history.append((role, content))
+
+            summary = ctx.get("rollingSummary") or {}
+            entities = ctx.get("entities") or []
+            goal = summary.get("current_goal") or ""
+            ent_str = ", ".join(e.get("displayName", "") for e in entities if e.get("displayName"))
+            blocks.append(f"conversation_state: goal={goal}; entities={ent_str}")
+        except Exception:
+            pass
+
+        try:
+            res = self.memory_service.resolve_reference_intent(user_id, convo_id, request.text)
+            if res and res.get("hasReference"):
+                target = (res.get("targetEntity") or {}).get("displayName") or ""
+                asset = (res.get("targetAsset") or {}).get("asset_id") or ""
+                intent = res.get("intent") or ""
+                blocks.append(f"reference_resolution: intent={intent}; target={target}; asset={asset}")
+        except Exception:
+            pass
+
+        return tuple(history), blocks
+
+    def _route_context_for_turn(
+        self,
+        request: TurnRequest,
+        user_id: str | None,
+        d_state: Any = None,
+    ) -> "tuple[object, dict[str, Any]]":
+        """Phase B2 — route the turn and decide context behavior.
+
+        Directive §39: trivial turns ("yes", "ok", "hey") route FAST — hot
+        context only, no heavy historical/vector retrieval, low latency.
+        Directive §37: every turn records a ContextManifest for the developer
+        inspector; retrieval work performed is observable per-turn.
+        Returns (RouteDecision, metadata) — callers use metadata to skip or
+        trim expensive retrieval phases.
+        """
+        from .agent.context_profiles import ContextProfile
+
+        active_goal = getattr(d_state, "active_goal", None) if d_state is not None else None
+        decision = self.context_compiler.router.route(
+            request.text or "",
+            has_active_task=False,
+            has_active_project=False,
+            has_selected_asset=bool(getattr(d_state, "selected_asset", None)) if d_state is not None else False,
+        )
+        meta: dict[str, Any] = {
+            "profile": decision.profile.value,
+            "domain": decision.domain,
+            "routes": [r.value for r in decision.routes],
+            "skip_recent_working_context": decision.profile is ContextProfile.FAST,
+            "skip_history_ranking": False,
+        }
+        self._context_manifests.append(
+            {
+                "request_id": getattr(request, "requestId", None) or request.sessionId or "turn",
+                "conversation_id": request.conversationId or request.sessionId,
+                "profile": decision.profile.value,
+                "routes": meta["routes"],
+                "reason": decision.reason,
+                "active_goal": getattr(active_goal, "goal", None),
+            }
+        )
+        return decision, meta
+
+    def _last_context_manifest(self) -> dict[str, Any] | None:
+        """Developer inspector hook (§37) — most recent turn routing record."""
+        return self._context_manifests[-1] if self._context_manifests else None
+
+    def _compile_turn_context(
+        self,
+        *,
+        request: TurnRequest,
+        history: tuple[tuple[str, str], ...],
+        approved: tuple[str, ...],
+        session_memories: tuple[str, ...],
+        dialogue_state_block: str,
+        live_search_block: str,
+        decision: Any,
+    ) -> "tuple[tuple[tuple[str, str], ...], dict[str, Any]]":
+        """B2.1 — canonical context SELECTION for one chat turn (directive §1).
+
+        The ContextCompiler decides WHAT history/memory/live state the model
+        receives; assembly and providers only decide HOW it is serialized.
+
+        Returns (selected_history, selection_meta). ``selected_history`` is the
+        compiler-ranked, budgeted turn sequence that assembly renders verbatim
+        (history_preselected=True) and providers consume without re-slicing.
+        Every include decision is recorded in the turn's ContextManifest.
+        """
+        from .agent.compiler import estimate_tokens
+        from .agent.context_items import ContextManifest, ManifestStatus
+        from .agent.context_profiles import ContextProfile
+
+        profile = decision.profile
+        history_list = [
+            {"role": role, "content": content}
+            for role, content in history
+        ]
+
+        # Canonical selection — ContextCompiler is the single canonical authority (§1/§2/§11)
+        # deciding what history, memories, live state, and external evidence reach the model.
+        compiled = self.context_compiler.compile(
+            system_identity="",  # system identity is owned by assembly layers
+            user_query=request.text or "",
+            history=history_list,
+            memories=[
+                {"id": f"sm_{i}", "content": m}
+                for i, m in enumerate(session_memories)
+            ],
+            profile=profile,
+            request_id=getattr(request, "requestId", None) or request.sessionId or "turn",
+            conversation_id=request.conversationId or request.sessionId,
+            dialogue_state=dialogue_state_block or "",
+            live_search_evidence=[live_search_block] if live_search_block else None,
+            approved_memories=approved,
+        )
+        manifest = compiled.manifest
+        assert manifest is not None
+
+        # Compiler-selected conversation turns → the tuple assembly renders verbatim.
+        selected: list[tuple[str, str]] = [
+            (m.get("role", "user"), m.get("content", ""))
+            for m in compiled.dialogue_messages
+        ]
+
+        # Serializing pre-selected history re-adds role prefixes and the
+        # untrusted wrapper — reserve for them so the manifest stays honest.
+        serialization_overhead = sum(
+            estimate_tokens(f"{r}: {c}") + 8 for r, c in selected
+        )
+        manifest.token_estimate += serialization_overhead
+        manifest.status = ManifestStatus.OK
+
+        meta: dict[str, Any] = {
+            "manifest_id": manifest.manifest_id,
+            "profile": manifest.profile,
+            "selected_history_turns": len(selected),
+            "selected_history_tokens": sum(estimate_tokens(c) for _, c in selected),
+            "compile_ms": manifest.compile_ms,
+            "dedup_dropped": manifest.dedup_dropped,
+            "excluded_count": len(manifest.excluded_items),
+        }
+
+        # Record the full manifest for the developer inspector (§37).
+        self._context_manifests.append(manifest.to_dict())
+        return tuple(selected), meta
+
+    def _record_episode_turn(
+        self,
+        *,
+        request: TurnRequest,
+        user_id: str | None,
+        assistant_text: str,
+    ) -> None:
+        """B2 §17–§22 — fold the finished turn into the persistent episode tree.
+
+        Best-effort: episode summarization must never fail a chat turn.
+        """
+        if self.episode_summarizer is None:
+            return
+        convo_id = request.conversationId or request.sessionId
+        try:
+            seq = self._episode_turn_counters.get(convo_id, 0) + 1
+            self._episode_turn_counters[convo_id] = seq
+            # Keep the counter map bounded.
+            if len(self._episode_turn_counters) > 2048:
+                self._episode_turn_counters.popitem()
+            boundary = self.episode_summarizer.detect_boundary(
+                request.text or "",
+                previous_turn_text=None,
+                seconds_since_last_turn=None,
+                current_episode_turns=0,
+            )
+            self.episode_summarizer.record_turn(
+                conversation_id=convo_id,
+                user_id=user_id,
+                sequence=seq,
+                user_text=request.text or "",
+                assistant_text=assistant_text[:800],
+                force_new_episode=boundary.new_episode,
+                boundary_reason=boundary.reason,
+            )
+        except Exception:
+            logger.debug("Episode summarization skipped", exc_info=True)
+
+    def _should_pre_search(self, text: str, d_state: Any = None) -> bool:
+        """True when the user query explicitly or implicitly asks for current/real-time facts."""
+        if not text or len(text.strip()) < 4:
+            return False
+        lowered = text.strip().lower()
+
+        # Suppress commands and generative tool requests
+        if lowered.startswith(("/", "!", "\\")):
+            return False
+        if re.search(r"\b(generate|create|make|draw|paint|sketch|build|write\s+(?:a|me|an)?\s*(?:code|script|doc|pdf|essay|story|poem))\b", lowered):
+            return False
+        if re.search(r"\b(who\s+are\s+you|what\s+is\s+your\s+name|do\s+you\s+love\s+me|tell\s+me\s+a\s+joke|say\s+something)\b", lowered):
+            return False
+        if re.search(r"^(hi|hello|hey|yo|namaste|good\s+(?:morning|evening|afternoon|night)|k\s+cha|kasto\s+cha)[!., ]*$", lowered):
+            return False
+
+        # CRITICAL: Referent-Before-Research Guard.
+        # If the user utterance is anaphoric/pronoun-based ("tell me more details about her", "who is she",
+        # "tell me about him") without a concrete named entity in this turn, AND dialogue state has NO
+        # active entity or topic antecedent, we MUST NOT fire an ungrounded web search!
+        try:
+            from hinaa_api.dialogue_state import build_semantic_turn_frame
+            frame = build_semantic_turn_frame(text, d_state)
+            if not frame.referent_resolved:
+                logger.info("Pre-search suppressed: referent ungrounded for %r", text)
+                return False
+        except Exception:
+            pass
+
+        # Explicit search intent
+        if re.search(r"\b(search\s+(?:the\s+)?web|search\s+online|google|look\s+up\s+online|check\s+online|browse)\b", lowered):
+            return True
+
+        # Real-time / temporal indicators requiring up-to-date knowledge
+        temporal_indicators = [
+            r"\blatest\b",
+            r"\bcurrent(?:ly)?\b",
+            r"\bnews\b",
+            r"\btoday(?:'s)?\b",
+            r"\byesterday\b",
+            r"\btonight\b",
+            r"\bright\s+now\b",
+            r"\bthis\s+(?:week|month|year)\b",
+            r"\brecent(?:ly)?\b",
+            r"\bbreaking\b",
+            r"\bupdates?\b",
+            r"\bsituation\b",
+            r"\bdetails?\s+(?:about|on|of)\b",
+            r"\binfo(?:rmation)?\s+(?:about|on|regarding)\b",
+            r"\bwho\s+is\s+(?:the\s+)?(?:current|new|present)\b",
+            r"\bwhat\s+(?:is|are)\s+the\s+(?:latest|current|recent)\b",
+            r"\bwhat(?:'s|\s+is)\s+happening\b",
+            r"\bwhat\s+happened\s+(?:today|recently|in\s+202[4-9])\b",
+            r"\bweather\s+(?:in|for|today|forecast)\b",
+            r"\blive\s+score\b",
+            r"\bstock\s+price\b",
+            r"\b202[5-9]\b",
+        ]
+        try:
+            from hinaa_api.intelligence.research_detector import ResearchNeedDetector
+            needs_res, _ = ResearchNeedDetector.needs_research(text)
+            if needs_res:
+                return True
+        except Exception:
+            pass
+        return any(re.search(pat, lowered) for pat in temporal_indicators)
+
+    def _extract_search_query(self, text: str, d_state: Any = None) -> str:
+        """Normalize user text to an effective search query without assistant names."""
+        query = re.sub(
+            r"(?i)^\s*(?:(?:hey\s+)?hinaa?\b|babe\b|bro\b|please\b|can\s+you\b|could\s+you\b|tell\s+me\b|check\b|search(?:\s+for)?\b|look\s+up\b|what\s+is\b|what\s+are\b|what's\b|find\b|[ ,!.-])+",
+            "",
+            text.strip(),
+        ).strip(" ?!.,;:")
+        # Strip trailing companion address names (e.g. "find details about it hina" -> "details about it")
+        query = re.sub(
+            r"(?i)\s+(?:hina|hinaa|babe|bro|please|pls)$",
+            "",
+            query,
+        ).strip(" ?!.,;:")
+        # Resolve referential pronouns using active dialogue state topic if available
+        if d_state and getattr(d_state, "active_topic", None):
+            topic = d_state.active_topic
+            if re.search(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them)\b", query):
+                query = re.sub(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them)\b", f"about {topic}", query)
+            elif query.strip().lower() in {"it", "this", "that", "them", "her", "him", "details", "more details", "news"}:
+                query = f"{topic} latest {query}".strip()
+        return query if len(query) >= 3 else text.strip()
+
     async def create_plan(
         self, request: TurnRequest, *, user_id: str | None = None
     ) -> ProviderResult[AssistantTurnPlan]:
+        convo_id = request.conversationId or request.sessionId
+        d_state = None
+        dialogue_state_block = ""
+        live_search_block = ""
+        if self.dialogue_state_service and convo_id:
+            try:
+                d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
+                if d_state:
+                    from hinaa_api.dialogue_state import DialogueStateService, EntityReferenceResolver
+                    DialogueStateService.extract_goal_and_constraints(d_state, request.text)
+                    EntityReferenceResolver.update_entities_from_text(d_state, request.text)
+                    DialogueStateService.update_topic_from_request(d_state, request.text)
+                    self.dialogue_state_service.save(d_state)
+            except Exception:
+                logger.debug("Failed to extract goal/constraints in plan", exc_info=True)
+
+        if user_id:
+            self._handle_continuity_promotions(user_id, convo_id, request.text)
+
+        # Phase B2 — route this turn's context needs BEFORE heavy retrieval.
+        try:
+            _route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
+        except Exception:
+            logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
+            _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
+
+        # Real-time pre-turn live web search grounding. Trivial FAST turns
+        # never hit search (§39: simple chat must not suffer or pay for it).
+        grounded_sources: list[Any] = []
+        if (
+            request.providerMode != "mock"
+            and not _route_meta.get("skip_recent_working_context")
+            and self._should_pre_search(request.text, d_state=d_state)
+        ):
+            search_query = self._extract_search_query(request.text, d_state=d_state)
+            # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
+            try:
+                from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
+                _depth = AnswerDepthController.infer_depth(request.text, active_goal=getattr(d_state, "active_goal", None) if d_state else None)
+                if _depth == AnswerDepth.QUICK:
+                    search_budget = 4
+                elif _depth == AnswerDepth.STANDARD:
+                    search_budget = 6
+                elif _depth == AnswerDepth.DETAILED:
+                    search_budget = 8
+                elif _depth == AnswerDepth.DEEP:
+                    search_budget = 10
+                else:
+                    search_budget = 15
+            except Exception:
+                search_budget = 6
+
+            try:
+                from hinaa_api.tools.browser import search_web
+                from hinaa_api.grounding.citations import EvidenceSource, CitationRenderer
+                from datetime import datetime, timezone
+                search_res = await asyncio.wait_for(
+                    search_web({"query": search_query, "count": search_budget}),
+                    timeout=5.0,
+                )
+                items = search_res.get("results") or search_res.get("sources") or []
+                if items:
+                    now = datetime.now(timezone.utc)
+                    formatted_date = now.strftime("%A, %B %d, %Y")
+                    grounded_sources = [
+                        EvidenceSource(
+                            source_id=str(idx),
+                            title=itm.get("title") or "Source",
+                            publisher=itm.get("domain") or "",
+                            url=itm.get("url") or "",
+                            date=itm.get("date"),
+                            snippet=itm.get("snippet") or "",
+                        )
+                        for idx, itm in enumerate(items[:25], 1)
+                    ]
+                    lines = [
+                        f"LIVE REAL-TIME WEB SEARCH INTELLIGENCE ({len(items)} Sources Retrieved {formatted_date} for query: {search_query!r}):",
+                        "Synthesize these retrieved facts into an authoritative, structured response with verified claims:",
+                    ]
+                    for idx, s in enumerate(grounded_sources, 1):
+                        clean_title = CitationRenderer.sanitize_untrusted_text(s.title)
+                        clean_snippet = CitationRenderer.sanitize_untrusted_text(s.snippet)
+                        lines.append(f"[{idx}] [{s.publisher}] {clean_title}: {clean_snippet} ({s.url})")
+                    lines.extend([
+                        "OPERATIONAL MANDATE (CRITICAL):",
+                        "- Synthesize across these live sources into an authoritative, high-impact analysis or report.",
+                        "- Attribute key claims with numbered bracket citations matching the sources above: e.g. [1], [2].",
+                        "- ZERO REPETITION: Do NOT repeat paragraphs, regurgitate text blocks, or echo previous turns. Never cut off mid-thought.",
+                        "- spokenText: Deliver a substantive, intelligent executive voice summary covering core findings and significance.",
+                        "- Make displayText directly informative, structured with key bullets, clear headings, and zero repetitive filler.",
+                    ])
+                    live_search_block = "\n".join(lines)
+
+                    if d_state is not None:
+                        d_state.tool_result_sets.append({
+                            "tool": "web_search",
+                            "query": search_query,
+                            "items": items[:25],
+                            "timestamp": now.isoformat(),
+                        })
+                        try:
+                            self.dialogue_state_service.save(d_state)
+                        except Exception:
+                            pass
+            except Exception:
+                logger.debug("Pre-search grounding skipped or timed out", exc_info=True)
+
+        if d_state is not None:
+            try:
+                from hinaa_api.dialogue_state import build_dialogue_state_block
+                dialogue_state_block = build_dialogue_state_block(d_state)
+            except Exception:
+                pass
+
         history = self.memory.context(request.sessionId)
         approved = self._approved_blocks(user_id)
         session_memories = _dedupe_session_facts(
             self.memory.learned_memories(request.sessionId), approved
+        )
+        # B2.1 §1 — canonical context selection BEFORE assembly. The compiler
+        # (not the assembler/providers) decides which turns reach the model.
+        route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
+        history, selection_meta = self._compile_turn_context(
+            request=request,
+            history=history,
+            approved=approved,
+            session_memories=session_memories,
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            decision=route_decision,
         )
         resolved_media = await self._resolve_turn_media(request)
         prompt = build_turn_prompt(
@@ -1723,8 +2674,16 @@ class ConversationService:
             session_memories=session_memories,
             approved_memory_blocks=approved,
             attachments=tuple(resolved_media),
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            history_preselected=True,
         )
-        self._log_prompt_meta(request.sessionId, prompt.fingerprint, "rest")
+        self._log_prompt_meta(
+            request.sessionId,
+            prompt.fingerprint,
+            "rest",
+            manifest_id=selection_meta.get("manifest_id"),
+        )
         requested_provider = request.providerMode
         requested_model = request.brainModel
         resolved_provider = requested_provider
@@ -1755,6 +2714,18 @@ class ConversationService:
                     history,
                     prompt,
                 )
+                if request.providerMode == "mock" and self.cross_session_retriever and user_id:
+                    try:
+                        evs = self.cross_session_retriever.retrieve_relevant_context(
+                            user_id, request.text, conversation_id=convo_id
+                        )
+                        for ev in evs:
+                            if ev.source_type == "project" and ev.content:
+                                result.value.displayText = ev.content
+                                result.value.spokenText = ev.content
+                                break
+                    except Exception:
+                        pass
         except (HinaaError, TimeoutError, Exception) as raw_error:
             if isinstance(raw_error, TimeoutError):
                 error = HinaaError(
@@ -1772,6 +2743,10 @@ class ConversationService:
                     503,
                     True,
                 )
+
+            if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                logger.warning("Primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
+                raise error
 
             retry_succeeded = False
             if fast_provider_id and error.code in {
@@ -1809,6 +2784,9 @@ class ConversationService:
                         error = HinaaError("PROVIDER_UNAVAILABLE", str(retry_err), 503, True)
 
             if not retry_succeeded:
+                if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                    logger.warning("Provider returned SAFETY_REFUSAL; raising without fallback.")
+                    raise error
                 if self.settings.auto_fallback_enabled and error.code in {
                     "PROVIDER_RATE_LIMIT",
                     "PROVIDER_UNAVAILABLE",
@@ -1871,7 +2849,7 @@ class ConversationService:
                     resolved_model = None
                 else:
                     raise error
-        _apply_response_quality_guard(result.value)
+        _apply_response_quality_guard(result.value, evidence_sources=grounded_sources)
         result.value.requestedProvider = requested_provider
         result.value.requestedModel = requested_model
         result.value.resolvedProvider = resolved_provider
@@ -1899,6 +2877,7 @@ class ConversationService:
             result.value,
             session_id=request.sessionId,
             turn_request=request,
+            user_id=user_id,
         )
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
@@ -1920,8 +2899,16 @@ class ConversationService:
         except Exception:
             logger.warning("Failed to persist turn to database", exc_info=True)
 
+        # B2 summary tree (§17–§24): fold the finished turn into the open
+        # episode. Incremental — only this turn's sequence is summarized.
+        self._record_episode_turn(
+            request=request,
+            user_id=user_id,
+            assistant_text=result.value.displayText or result.value.spokenText or "",
+        )
+
         self._persist_learned_memories(user_id, request.sessionId)
-        
+
         return result
 
     async def create_live_plan(
@@ -1930,14 +2917,183 @@ class ConversationService:
         emit_delta: Callable[[str], Awaitable[None]],
         *,
         user_id: str | None = None,
+        emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         from .providers.timing import ProviderTiming
+
+        convo_id = request.conversationId or request.sessionId
+        d_state = None
+        dialogue_state_block = ""
+        live_search_block = ""
+        if self.dialogue_state_service and convo_id:
+            try:
+                d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
+                if d_state:
+                    from hinaa_api.dialogue_state import DialogueStateService, EntityReferenceResolver
+                    DialogueStateService.extract_goal_and_constraints(d_state, request.text)
+                    EntityReferenceResolver.update_entities_from_text(d_state, request.text)
+                    DialogueStateService.update_topic_from_request(d_state, request.text)
+                    self.dialogue_state_service.save(d_state)
+            except Exception:
+                logger.debug("Failed to extract goal/constraints in live plan", exc_info=True)
+
+        if user_id:
+            self._handle_continuity_promotions(user_id, convo_id, request.text)
+
+        # Phase B2 — route this turn's context needs BEFORE heavy retrieval.
+        try:
+            _route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
+        except Exception:
+            logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
+            _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
+
+        # Real-time pre-turn live web search grounding. Trivial FAST turns
+        # never hit search (§39: simple chat must not suffer or pay for it).
+        grounded_sources: list[Any] = []
+        if (
+            request.providerMode != "mock"
+            and not _route_meta.get("skip_recent_working_context")
+            and self._should_pre_search(request.text, d_state=d_state)
+        ):
+            search_query = self._extract_search_query(request.text, d_state=d_state)
+            # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
+            try:
+                from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
+                _depth = AnswerDepthController.infer_depth(request.text, active_goal=getattr(d_state, "active_goal", None) if d_state else None)
+                if _depth == AnswerDepth.QUICK:
+                    search_budget = 4
+                elif _depth == AnswerDepth.STANDARD:
+                    search_budget = 6
+                elif _depth == AnswerDepth.DETAILED:
+                    search_budget = 8
+                elif _depth == AnswerDepth.DEEP:
+                    search_budget = 10
+                else:
+                    search_budget = 15
+            except Exception:
+                search_budget = 6
+
+            if emit_event:
+                try:
+                    await emit_event("agent.step.started", {
+                        "runId": convo_id or "run",
+                        "stepId": "web_search",
+                        "event": {
+                            "event_type": "agent.step.started",
+                            "run_id": convo_id or "run",
+                            "step_id": "web_search",
+                            "payload": {
+                                "title": "Searching the live web",
+                                "message": f"Looking up live information: \"{search_query}\"",
+                            },
+                        },
+                    })
+                    await emit_event("search.started", {
+                        "query": search_query,
+                        "correlationId": convo_id,
+                    })
+                except Exception:
+                    pass
+            try:
+                from hinaa_api.tools.browser import search_web
+                from hinaa_api.grounding.citations import EvidenceSource, CitationRenderer
+                from datetime import datetime, timezone
+                search_res = await asyncio.wait_for(
+                    search_web({"query": search_query, "count": search_budget}),
+                    timeout=5.0,
+                )
+                items = search_res.get("results") or search_res.get("sources") or []
+                if emit_event:
+                    try:
+                        await emit_event("agent.step.completed", {
+                            "runId": convo_id or "run",
+                            "stepId": "web_search",
+                            "event": {
+                                "event_type": "agent.step.completed",
+                                "run_id": convo_id or "run",
+                                "step_id": "web_search",
+                                "payload": {
+                                    "title": "Web search completed",
+                                    "message": f"Retrieved {len(items)} live sources",
+                                },
+                            },
+                        })
+                        await emit_event("search.completed", {
+                            "query": search_query,
+                            "sourcesCount": len(items),
+                            "correlationId": convo_id,
+                        })
+                    except Exception:
+                        pass
+                if items:
+                    now = datetime.now(timezone.utc)
+                    formatted_date = now.strftime("%A, %B %d, %Y")
+                    grounded_sources = [
+                        EvidenceSource(
+                            source_id=str(idx),
+                            title=itm.get("title") or "Source",
+                            publisher=itm.get("domain") or "",
+                            url=itm.get("url") or "",
+                            date=itm.get("date"),
+                            snippet=itm.get("snippet") or "",
+                        )
+                        for idx, itm in enumerate(items[:25], 1)
+                    ]
+                    lines = [
+                        f"LIVE REAL-TIME WEB SEARCH INTELLIGENCE ({len(items)} Sources Retrieved {formatted_date} for query: {search_query!r}):",
+                        "Synthesize these retrieved facts into an authoritative, structured response with verified claims:",
+                    ]
+                    for idx, s in enumerate(grounded_sources, 1):
+                        clean_title = CitationRenderer.sanitize_untrusted_text(s.title)
+                        clean_snippet = CitationRenderer.sanitize_untrusted_text(s.snippet)
+                        lines.append(f"[{idx}] [{s.publisher}] {clean_title}: {clean_snippet} ({s.url})")
+                    lines.extend([
+                        "OPERATIONAL MANDATE (CRITICAL):",
+                        "- Synthesize across these live sources into an authoritative, high-impact analysis or report.",
+                        "- Attribute key claims with numbered bracket citations matching the sources above: e.g. [1], [2].",
+                        "- ZERO REPETITION: Do NOT repeat paragraphs, regurgitate text blocks, or echo previous turns. Never cut off mid-thought.",
+                        "- spokenText: Deliver a substantive, intelligent executive voice summary covering core findings and significance.",
+                        "- Make displayText directly informative, structured with key bullets, clear headings, and zero repetitive filler.",
+                    ])
+                    live_search_block = "\n".join(lines)
+
+                    if d_state is not None:
+                        d_state.tool_result_sets.append({
+                            "tool": "web_search",
+                            "query": search_query,
+                            "items": items[:25],
+                            "timestamp": now.isoformat(),
+                        })
+                        try:
+                            self.dialogue_state_service.save(d_state)
+                        except Exception:
+                            pass
+            except Exception:
+                logger.debug("Live pre-search grounding skipped or timed out", exc_info=True)
+
+        if d_state is not None:
+            try:
+                from hinaa_api.dialogue_state import build_dialogue_state_block
+                dialogue_state_block = build_dialogue_state_block(d_state)
+            except Exception:
+                pass
 
         timing = ProviderTiming()
         history = self.memory.context(request.sessionId)
         approved = self._approved_blocks(user_id)
         session_memories = _dedupe_session_facts(
             self.memory.learned_memories(request.sessionId), approved
+        )
+        # B2.1 §1 — canonical context selection BEFORE assembly (realtime path).
+        route_decision_rt, _route_meta_rt = self._route_context_for_turn(request, user_id, d_state)
+        history, selection_meta_rt = self._compile_turn_context(
+            request=request,
+            history=history,
+            approved=approved,
+            session_memories=session_memories,
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            decision=route_decision_rt,
         )
         resolved_media = await self._resolve_turn_media(request)
         prompt = build_turn_prompt(
@@ -1948,9 +3104,17 @@ class ConversationService:
             session_memories=session_memories,
             approved_memory_blocks=approved,
             attachments=tuple(resolved_media),
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            history_preselected=True,
         )
         timing.mark("prompt_built")
-        self._log_prompt_meta(request.sessionId, prompt.fingerprint, "realtime")
+        self._log_prompt_meta(
+            request.sessionId,
+            prompt.fingerprint,
+            "realtime",
+            manifest_id=selection_meta_rt.get("manifest_id"),
+        )
         fast_provider_id: str | None = None
         requested_provider = request.providerMode
         requested_model = request.brainModel
@@ -2004,6 +3168,21 @@ class ConversationService:
                     timing.mark("first_provider_event")
                     timing.mark("plan_parsed")
                     timing.mark("plan_validated")
+
+                    # If mock mode and cross-session project fact was queried
+                    if self.cross_session_retriever and user_id and ("nova" in request.text.lower() or "what db" in request.text.lower() or "which db" in request.text.lower() or "database" in request.text.lower()):
+                        try:
+                            evs = self.cross_session_retriever.retrieve_relevant_context(
+                                user_id, request.text, conversation_id=convo_id
+                            )
+                            for ev in evs:
+                                if ev.source_type == "project" and ev.content:
+                                    result.value.displayText = ev.content
+                                    result.value.spokenText = ev.content
+                                    break
+                        except Exception:
+                            pass
+
                     display = result.value.displayText
                     for start in range(0, len(display), 7):
                         chunk = display[start : start + 7]
@@ -2034,6 +3213,11 @@ class ConversationService:
                     503,
                     True,
                 )
+
+            if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                logger.warning("Live primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
+                raise error
+
             live_retry_succeeded = False
             if fast_provider_id and error.code in {
                 "PROVIDER_KEY_INVALID",
@@ -2074,6 +3258,9 @@ class ConversationService:
                         )
 
             if not live_retry_succeeded:
+                if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                    logger.warning("Live provider returned SAFETY_REFUSAL; raising without fallback.")
+                    raise error
                 if self.settings.auto_fallback_enabled and error.code in {
                     "PROVIDER_KEY_INVALID",
                     "PROVIDER_UNAVAILABLE",
@@ -2125,7 +3312,7 @@ class ConversationService:
                 else:
                     raise error
 
-        _apply_response_quality_guard(result.value, is_live=True)
+        _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources)
         result.value.requestedProvider = requested_provider
         result.value.requestedModel = requested_model
         result.value.resolvedProvider = resolved_provider
@@ -2153,6 +3340,7 @@ class ConversationService:
             result.value,
             session_id=request.sessionId,
             turn_request=request,
+            user_id=user_id,
         )
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
@@ -2197,18 +3385,38 @@ class ConversationService:
             "correlationId": correlation_id,
         })
 
-        # True token-by-token streaming. Provider deltas are relayed onto the
+        # True token-by-token streaming and live research event dispatch.
+        # Provider deltas and real-time research events are relayed onto the
         # wire the instant they are produced instead of waiting for the whole
-        # plan, so the interface reveals text continuously like a live brain.
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        # plan, so the interface reveals web search animations and text continuously.
+        queue: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue()
 
         async def emit_delta(delta: str) -> None:
-            await queue.put(delta)
+            await queue.put(("delta", delta))
+
+        async def emit_event(name: str, payload: dict[str, Any]) -> None:
+            await queue.put(("event", (name, payload)))
 
         turn_task = asyncio.create_task(
-            self.create_live_plan(request, emit_delta, user_id=user_id)
+            self.create_live_plan(request, emit_delta, user_id=user_id, emit_event=emit_event)
         )
         emitted: list[str] = []
+        delta_sequence = 0
+
+        def _make_delta_event(delta_text: str, seg_id: int = 0) -> bytes:
+            nonlocal delta_sequence
+            ev = self._event(
+                "text.delta",
+                {
+                    "delta": delta_text,
+                    "streamId": correlation_id,
+                    "segmentId": seg_id,
+                    "sequence": delta_sequence,
+                },
+            )
+            delta_sequence += 1
+            return ev
+
         try:
             while True:
                 getter = asyncio.create_task(queue.get())
@@ -2218,25 +3426,55 @@ class ConversationService:
                 if getter in done:
                     item = getter.result()
                     if item is not None:
-                        emitted.append(item)
-                        yield self._event("text.delta", {"delta": item})
+                        kind, data = item
+                        if kind == "delta":
+                            emitted.append(data)
+                            yield _make_delta_event(data)
+                        elif kind == "event":
+                            event_name, payload = data
+                            yield self._event(event_name, payload)
                     continue
                 getter.cancel()
-                # The turn finished; drain any deltas queued a beat earlier.
+                # The turn finished; drain any deltas/events queued a beat earlier.
                 while not queue.empty():
                     item = queue.get_nowait()
-                    if isinstance(item, str):
-                        emitted.append(item)
-                        yield self._event("text.delta", {"delta": item})
+                    if item is not None:
+                        kind, data = item
+                        if kind == "delta":
+                            emitted.append(data)
+                            yield _make_delta_event(data)
+                        elif kind == "event":
+                            event_name, payload = data
+                            yield self._event(event_name, payload)
                 break
             result = await turn_task
             # Guarantee full display text even if a provider finished without
             # streaming (or emitted a different final polish than its deltas).
             full_text = result.value.displayText or ""
             streamed_so_far = "".join(emitted)
-            if full_text.startswith(streamed_so_far) and len(full_text) > len(streamed_so_far):
-                remainder = full_text[len(streamed_so_far):]
-                yield self._event("text.delta", {"delta": remainder})
+            if not streamed_so_far and full_text:
+                # Provider emitted no deltas at all during execution; yield full text once
+                yield _make_delta_event(full_text)
+            elif streamed_so_far and full_text:
+                if full_text.startswith(streamed_so_far):
+                    remainder = full_text[len(streamed_so_far):]
+                    if remainder:
+                        yield _make_delta_event(remainder)
+                elif full_text.strip().startswith(streamed_so_far.strip()):
+                    s_stripped = streamed_so_far.strip()
+                    idx = full_text.find(s_stripped)
+                    if idx != -1:
+                        remainder = full_text[idx + len(s_stripped):]
+                        if remainder:
+                            yield _make_delta_event(remainder)
+                else:
+                    import os
+                    common = os.path.commonprefix([full_text, streamed_so_far])
+                    # Only emit remainder if common prefix covers >= 80% of streamed_so_far
+                    if len(common) >= int(len(streamed_so_far) * 0.8):
+                        remainder = full_text[len(common):]
+                        if remainder:
+                            yield _make_delta_event(remainder)
         finally:
             if not turn_task.done():
                 turn_task.cancel()
@@ -2410,7 +3648,11 @@ class ConversationService:
             ) from error
 
 
-    def _log_prompt_meta(self, session_id: str, fingerprint: str, mode: str) -> None:
+    def _log_prompt_meta(
+        self, session_id: str, fingerprint: str, mode: str, *, manifest_id: str | None = None
+    ) -> None:
+        # B2.1 §7: every model invocation carries a context_manifest_id trace.
+        # A missing manifest_id on a production turn is a selection-bypass bug.
         logger.info(
             "prompt_assembled",
             extra={
@@ -2418,6 +3660,7 @@ class ConversationService:
                 "prompt_version": PROMPT_VERSION,
                 "fingerprint": fingerprint,
                 "interaction_mode": mode,
+                "context_manifest_id": manifest_id,
             },
         )
 

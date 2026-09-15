@@ -8,7 +8,9 @@ export type ConversationProviderEvent =
   | { type: "text.delta"; delta: string }
   | { type: "plan"; plan: AssistantTurnPlan }
   | { type: "usage"; latencyMs: number }
-  | { type: "agent.event"; event: AgentRuntimeEvent };
+  | { type: "agent.event"; event: AgentRuntimeEvent }
+  | { type: "search.started"; query: string }
+  | { type: "search.completed"; query: string; sourcesCount?: number };
 
 export interface AgentRuntimeEvent {
   event_id?: string;

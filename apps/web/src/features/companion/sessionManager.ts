@@ -39,6 +39,28 @@ export function loadActiveSession(): Partial<ActiveSessionState> {
   }
 }
 
+export function getOrCreateActiveConversationId(): string {
+  const existing = loadActiveSession();
+  if (existing.conversationId && existing.conversationId.trim()) {
+    return existing.conversationId.trim();
+  }
+  const nextId =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `convo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  saveActiveSession({ conversationId: nextId });
+  return nextId;
+}
+
+export function createNextConversationId(): string {
+  const nextId =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `convo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  saveActiveSession({ conversationId: nextId });
+  return nextId;
+}
+
 export function getConversationStorageKey(conversationId: string): string {
   return `hinaa-messages-${conversationId}`;
 }

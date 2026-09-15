@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { gsap } from "gsap";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Check, Copy, Dice5, Download, Eraser, ImagePlus, Loader2, RefreshCw,
   Sparkles, Upload, Wand2, X,
@@ -62,9 +62,11 @@ function normalizeSlots(raw: Array<Partial<Slot> & Record<string, unknown>>): Sl
 
 interface MagnificImageStudioProps {
   onClose?: () => void;
+  /** Stable account scope from auth; absent disables cross-mount persistence. */
+  storageScope?: string;
 }
 
-export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
+export function MagnificImageStudio({ onClose, storageScope }: MagnificImageStudioProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [prompt, setPrompt] = useState("");
@@ -76,17 +78,83 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
   const [seed, setSeed] = useState("");
   const [enhance, setEnhance] = useState(true);
   const [reference, setReference] = useState<{ kind: "data" | "query"; value: string; name?: string } | null>(null);
-  const [status, setStatus] = useState<"idle" | "starting" | "processing" | "done" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "starting" | "processing" | "paused" | "done" | "error">("idle");
   const [message, setMessage] = useState("Describe anything. Hinaa sharpens the prompt, then Magnific FLUX renders it.");
   const [slots, setSlots] = useState<Slot[]>([]);
   const [renderer, setRenderer] = useState<string | null>(null);
   const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
-  const [pipeline, setPipeline] = useState<{ renderer: string; detail: string; setup: string[] } | null>(null);
-  const abortRef = useRef(false);
+  const [pipeline, setPipeline] = useState<{ renderer: string; state: string; detail: string; setup: string[]; latencyMs: number | null } | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [watching, setWatching] = useState(false);
+  const [resolvedScope, setResolvedScope] = useState<string | undefined>(storageScope);
+  const [identityReady, setIdentityReady] = useState(Boolean(storageScope));
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const imageUrlsRef = useRef<Record<string, string>>({});
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const startingRef = useRef(false);
+  const storageKey = resolvedScope ? `hinaa.image-studio.job:${encodeURIComponent(resolvedScope)}` : null;
+  const scopeRef = useRef(storageKey);
+  scopeRef.current = storageKey;
+  const reducedMotion = useReducedMotion();
   const seedRef = useRef("");
   const busy = status === "starting" || status === "processing";
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (storageScope) { setResolvedScope(storageScope); setIdentityReady(true); return; }
+    const controller = new AbortController();
+    void fetch("/api/v1/workspace/identity", { signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((body) => { if (!controller.signal.aborted && typeof body?.userId === "string") setResolvedScope(body.userId); })
+      .catch(() => undefined)
+      .finally(() => { if (!controller.signal.aborted) setIdentityReady(true); });
+    return () => controller.abort();
+  }, [storageScope]);
+
+  useEffect(() => () => {
+    Object.values(imageUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    imageUrlsRef.current = {};
+  }, [storageKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    for (const slot of slots) {
+      if (!slot.url?.startsWith("/api/v1/generated-images/") || imageUrlsRef.current[slot.url]) continue;
+      const source = slot.url;
+      void fetch(source, { signal: controller.signal })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Image download needs the job owner's active session.");
+          const blob = await response.blob();
+          if (controller.signal.aborted) return;
+          const url = URL.createObjectURL(blob);
+          imageUrlsRef.current[source] = url;
+          setImageUrls({ ...imageUrlsRef.current });
+        })
+        .catch(() => { if (!controller.signal.aborted) setPreviewError("An image preview could not be downloaded. Reopen the studio in the job owner's session to retry."); });
+    }
+    return () => controller.abort();
+  }, [slots]);
+
+  useEffect(() => {
+    let saved: string | null = null;
+    try { saved = storageKey ? window.localStorage.getItem(storageKey) : null; } catch { /* private browsing */ }
+    setJobId(saved);
+    setWatching(Boolean(saved));
+    setSlots([]);
+    setImageUrls({});
+    setPreviewError(null);
+    setRenderer(null);
+    setEnhancedPrompt(null);
+    setStatus(saved ? "processing" : "idle");
+    if (saved) setMessage("Restoring your image job…");
+  }, [storageKey]);
 
   useEffect(() => {
     let alive = true;
@@ -94,10 +162,10 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
         if (alive && body) {
-          setPipeline({ renderer: String(body.renderer ?? "none"), detail: String(body.detail ?? ""), setup: Array.isArray(body.setup) ? body.setup.map(String) : [] });
+          setPipeline({ renderer: String(body.renderer ?? "none"), state: String(body.state ?? "unverified"), detail: String(body.detail ?? ""), setup: Array.isArray(body.setup) ? body.setup.map(String) : [], latencyMs: typeof body.latencyMs === "number" ? body.latencyMs : null });
         }
       })
-      .catch(() => undefined); // status is advisory — the studio still works offline
+      .catch(() => { if (alive) setPipeline({ renderer: "unknown", state: "offline", detail: "Provider status could not be checked. Retry when the API is reachable.", setup: [], latencyMs: null }); });
     return () => { alive = false; };
   }, []);
 
@@ -122,7 +190,10 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
   }, []);
 
   const previewReference = useCallback(async (file: File) => {
-    if (!file.type.startsWith("image/")) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 10 * 1024 * 1024) {
+      setMessage("Choose a PNG, JPEG, or WebP reference under 10 MB.");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === "string") {
@@ -134,15 +205,82 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
   }, []);
 
   const stop = useCallback(() => {
-    abortRef.current = true;
-    setStatus("idle");
-    setMessage("Watching was paused. The durable job keeps running server-side; re-open later to see results.");
+    setWatching(false);
+    setStatus("paused");
+    setMessage("Watching paused. This does not cancel provider generation or charges. Resume watching to check the result.");
   }, []);
+
+  useEffect(() => {
+    if (!jobId || !watching) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    let failures = 0;
+    const pause = (message: string) => {
+      setWatching(false);
+      setStatus("paused");
+      setMessage(message);
+    };
+    const poll = async () => {
+      if (controller.signal.aborted) return;
+      attempts += 1;
+      try {
+        const response = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(jobId)}`, { signal: controller.signal });
+        const result = await response.json();
+        if (controller.signal.aborted) return;
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403 || response.status === 404) {
+            pause("This image job is unavailable for the current session. Sign in to its account, then resume watching.");
+            return;
+          }
+          throw new Error(typeof result.detail === "string" ? result.detail : "Progress is temporarily unavailable.");
+        }
+        failures = 0;
+        if (Array.isArray(result.slots)) setSlots(normalizeSlots(result.slots));
+        if (typeof result.renderer === "string") setRenderer(result.renderer);
+        if (result.status === "success" || result.status === "partial") {
+          const done = Number(result.completed ?? result.images?.length ?? 0);
+          setWatching(false);
+          setStatus(done > 0 ? "done" : "error");
+          setMessage(done === 0 ? "The job ended without a downloadable image." : result.status === "partial"
+            ? `${done} of ${result.total ?? done} images are ready — some slots failed.`
+            : `${done} image${done === 1 ? "" : "s"} ready in your studio.`);
+          return;
+        }
+        if (["error", "failed", "cancelled"].includes(result.status)) {
+          setWatching(false);
+          setStatus("error");
+          setMessage(result.error || (result.status === "cancelled" ? "The server reports this image job was cancelled." : "The generation workflow failed."));
+          return;
+        }
+        const active = (result.slots as Slot[] | undefined)?.find((s) => s.status === "processing");
+        setMessage(active ? `Rendering image ${active.index} of ${result.total ?? "?"}…` : `Generating ${result.completed ?? 0}/${result.total ?? "?"}…`);
+      } catch {
+        if (controller.signal.aborted) return;
+        failures += 1;
+        if (failures >= 5) {
+          pause("Connection lost. Your job may still be running. Resume watching when the API is reachable.");
+          return;
+        }
+        setMessage("Progress connection interrupted. Reconnecting…");
+      }
+      if (attempts >= 240) {
+        pause("The watch window ended. Generation has not been confirmed complete; resume watching to check again.");
+        return;
+      }
+      timer = setTimeout(() => void poll(), failures ? Math.min(1500 * 2 ** failures, 15000) : 1500);
+    };
+    setStatus("processing");
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [jobId, watching]);
 
   const generate = useCallback(async () => {
     const clean = prompt.trim();
-    if (!clean || busy) return;
-    abortRef.current = false;
+    if (!clean || busy || !identityReady || startingRef.current) return;
+    startingRef.current = true;
+    const requestScope = storageKey;
+    setWatching(false);
     setStatus("starting");
     setMessage(enhance ? "Hinaa is sharpening the prompt…" : "Queuing the job…");
     setSlots(Array.from({ length: count }, (_, i) => ({ id: `pre-${i}`, index: i + 1, status: "pending" as const })));
@@ -164,56 +302,36 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
       const start = await fetch("/api/v1/tools/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toolName: "image_generate", confirmed: true, parameters }),
+        body: JSON.stringify({ toolName: "image_generate", confirmed: true, approvalSource: "user", parameters }),
       });
       const body = await start.json();
       const tool = body?.data?.data ?? body?.data ?? body;
       const newJobId: string | null = tool?.job_id ?? body?.job_id ?? null;
       if (!start.ok || tool?.status === "error" || !newJobId) {
-        throw new Error(tool?.error || body?.error || body?.message || "The image job could not start.");
+        throw new Error(tool?.error || body?.error || (typeof body?.detail === "string" ? body.detail : body?.message) || "The image job could not start.");
       }
+      // Only an opaque job reference is persisted; results are fetched under current auth.
+      try { if (requestScope) window.localStorage.setItem(requestScope, newJobId); } catch { /* storage unavailable */ }
+      if (!mountedRef.current || scopeRef.current !== requestScope) return;
+      setJobId(newJobId);
       setRenderer(tool?.renderer ?? null);
       if (Array.isArray(tool?.slots)) setSlots(normalizeSlots(tool.slots));
       if (tool?.enhanced_prompt) setEnhancedPrompt(String(tool.enhanced_prompt));
-      setStatus("processing");
-      setMessage(tool?.renderer === "magnific-flux" ? "Magnific FLUX is rendering." : "Local renderer is working — the cloud key was not found.");
-
-      for (let attempt = 0; attempt < 240 && !abortRef.current; attempt += 1) {
-        await new Promise((r) => setTimeout(r, 1500));
-        let poll: Response;
-        try {
-          poll = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(newJobId)}`);
-        } catch {
-          continue; // transient network blips must not kill the watch
-        }
-        const result = await poll.json();
-        if (!poll.ok) throw new Error(result?.message || "Progress could not be read.");
-        if (Array.isArray(result.slots)) setSlots(normalizeSlots(result.slots));
-        if (result.status === "success" || result.status === "partial") {
-          const done = Number(result.completed ?? result.images?.length ?? 0);
-          setStatus("done");
-          setMessage(result.status === "partial"
-            ? `${done} of ${result.total ?? done} images are ready — some slots failed.`
-            : `${done} image${done === 1 ? "" : "s"} ready in your studio.`);
-          return;
-        }
-        if (result.status === "error") throw new Error(result.error || "The generation workflow failed.");
-        const active = (result.slots as Slot[] | undefined)?.find((s) => s.status === "processing");
-        setMessage(active
-          ? `Rendering image ${active.index} of ${result.total ?? count}${active.seed ? ` · seed ${active.seed}` : ""}…`
-          : `Generating ${result.completed ?? 0}/${result.total ?? count}…`);
-      }
-      if (!abortRef.current) setStatus("done");
+      setWatching(true);
+      setMessage(tool?.renderer === "magnific-flux" ? "Magnific FLUX is rendering." : tool?.renderer === "comfyui-local" ? "Local ComfyUI is rendering." : "Your image job was accepted. Waiting for provider progress…");
     } catch (error) {
+      if (!mountedRef.current || scopeRef.current !== requestScope) return;
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Generation failed. Check the API key and retry.");
+    } finally {
+      startingRef.current = false;
     }
-  }, [busy, count, enhance, negative, prompt, quality, reference, style]);
+  }, [busy, count, enhance, negative, prompt, quality, reference, style, storageKey, identityReady]);
 
   const results = useMemo(() => slots.filter((s) => s.status === "completed" && s.url), [slots]);
 
   const exploreVariations = useCallback(async (fromSeed?: number) => {
-    if (fromSeed && Number.isFinite(fromSeed)) {
+    if (fromSeed != null && Number.isFinite(fromSeed)) {
       seedRef.current = String(fromSeed);
       setSeed(String(fromSeed));
       setMessage(`Seed ${fromSeed} locked. Generating a variation family from it…`);
@@ -241,10 +359,11 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
       </header>
 
       {pipeline && (
-        <div className={`${styles.pipeline} ${pipeline.renderer === "magnific-flux" ? styles.pipelineCloud : pipeline.renderer === "comfyui-local" ? styles.pipelineLocal : styles.pipelineNone}`} role="status">
+        <div className={`${styles.pipeline} ${pipeline.state === "available" ? styles.pipelineCloud : pipeline.state === "unverified" ? styles.pipelineLocal : styles.pipelineNone}`} role="status">
           <span className={styles.pipelineDot} aria-hidden="true" />
-          <strong>{pipeline.renderer === "magnific-flux" ? "Magnific FLUX online" : pipeline.renderer === "comfyui-local" ? "Local ComfyUI active" : "No renderer available"}</strong>
+          <strong>{pipeline.renderer === "magnific-flux" ? "Magnific FLUX" : pipeline.renderer === "comfyui-local" ? "Local ComfyUI" : "Image provider"}: {pipeline.state === "unverified" ? "configured · unverified" : pipeline.state.replaceAll("_", " ")}</strong>
           <span>{pipeline.detail}</span>
+          {pipeline.latencyMs != null && <span>Measured latency: {pipeline.latencyMs} ms</span>}
           {pipeline.setup.length > 0 && (
             <ul>
               {pipeline.setup.map((line) => <li key={line}><code>{line}</code></li>)}
@@ -279,10 +398,10 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
         <AnimatePresence initial={false}>
           {showNegative && (
             <motion.div
-              initial={{ height: 0, opacity: 0 }}
+              initial={reducedMotion ? false : { height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: reducedMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
               style={{ overflow: "hidden" }}
             >
               <input
@@ -318,8 +437,8 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
               key={s.id}
               type="button"
               className={`${styles.chip} ${style === s.id ? styles.chipActive : ""}`}
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.97 }}
+              whileHover={reducedMotion ? undefined : { y: -1 }}
+              whileTap={reducedMotion ? undefined : { scale: 0.97 }}
               onClick={() => setStyle(s.id)}
               aria-pressed={style === s.id}
             >
@@ -412,23 +531,29 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
           type="button"
           className={styles.generate}
           onClick={() => void generate()}
-          disabled={!prompt.trim() || busy}
+          disabled={!prompt.trim() || busy || !identityReady}
           whileTap={{ scale: 0.98 }}
         >
           {busy ? <Loader2 size={15} className={styles.spin} /> : <Sparkles size={15} />}
           {status === "processing" ? "Generating…" : "✨ Generate with Magnific"}
         </motion.button>
-        {busy && (
+        {watching && (
           <button type="button" className={styles.stopBtn} onClick={stop}>
             <RefreshCw size={12} /> Stop watching
+          </button>
+        )}
+        {jobId && status === "paused" && (
+          <button type="button" className={styles.stopBtn} onClick={() => setWatching(true)}>
+            <RefreshCw size={12} /> Resume watching
           </button>
         )}
       </div>
 
       <p className={styles.status} role="status">
-        {renderer && <span className={styles.badge}>{renderer === "magnific-flux" ? "MAGNIFIC FLUX" : "LOCAL RENDER"}</span>}
+        {renderer && <span className={styles.badge}>{renderer === "magnific-flux" ? "MAGNIFIC FLUX" : renderer === "comfyui-local" ? "LOCAL COMFYUI" : renderer}</span>}
         {message}
       </p>
+      {previewError && <p className={styles.hint} role="alert">{previewError}</p>}
 
       {(slots.length > 0 || busy) && (
         <section className={styles.results} data-studio-section>
@@ -437,30 +562,31 @@ export function MagnificImageStudio({ onClose }: MagnificImageStudioProps) {
             {Array.from({ length: Math.max(count, slots.length) }).map((_, i) => {
               const slot = slots[i];
               const completed = slot?.status === "completed" && slot.url;
+              const displayUrl = slot?.url?.startsWith("/api/v1/generated-images/") ? imageUrls[slot.url] : slot?.url;
               const failed = slot?.status === "failed";
               return (
                 <motion.div
                   key={slot?.id ?? `slot-${i}`}
                   className={`${styles.slot} ${completed ? styles.slotDone : ""} ${failed ? styles.slotFailed : ""}`}
                   layout
-                  initial={{ opacity: 0, scale: 0.96 }}
+                  initial={reducedMotion ? false : { opacity: 0, scale: 0.96 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ duration: 0.32, delay: i * 0.05, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  {completed ? (
-                    <button type="button" className={styles.thumbBtn} onClick={() => setLightbox(slot.url!)} aria-label={`Open image ${i + 1}`}>
-                      <img src={slot.url!} alt={`Generated ${slot.index ?? i + 1}`} loading="lazy" />
+                  {completed && displayUrl ? (
+                    <button type="button" className={styles.thumbBtn} onClick={() => setLightbox(displayUrl)} aria-label={`Open image ${i + 1}`}>
+                      <img src={displayUrl} alt={`Generated ${slot.index ?? i + 1}`} loading="lazy" />
                     </button>
                   ) : (
                     <div className={styles.slotBusy}>
-                      {failed ? <X size={16} /> : <div className={styles.shimmer} />}
-                      <span>{failed ? "Slot failed" : slot?.status === "processing" ? "Rendering…" : "Queued"}</span>
+                      {failed ? <X size={16} /> : busy ? <div className={styles.shimmer} /> : null}
+                      <span>{failed ? "Slot failed" : completed ? "Loading protected preview…" : status === "paused" ? "Progress paused" : slot?.status === "processing" ? "Rendering…" : "Queued"}</span>
                       {slot?.seed ? <small>seed {slot.seed}</small> : null}
                     </div>
                   )}
-                  {completed && (
+                  {completed && displayUrl && (
                     <div className={styles.slotActions}>
-                      <a href={slot.url!} download={`hinaa-${slot.seed ?? i}.png`} aria-label="Download image"><Download size={12} /></a>
+                      <a href={displayUrl} download={`hinaa-${slot.seed ?? i}.png`} aria-label="Download image"><Download size={12} /></a>
                       <button type="button" onClick={() => void exploreVariations(slot.seed)} aria-label="Explore variations from this seed"><Dice5 size={12} /></button>
                     </div>
                   )}

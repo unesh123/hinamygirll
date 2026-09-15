@@ -55,6 +55,29 @@ class CommandDefinition:
 
 # Initial registered commands
 COMMAND_REGISTRY: dict[str, CommandDefinition] = {
+    "goal": CommandDefinition(
+        name="goal",
+        aliases=["goal", "task", "objective", "autonomous"],
+        description="Autonomous goal execution mode with iterative planning and verification",
+        examples=[
+            "/goal build a responsive dashboard with charts",
+            "/goal research top 5 competitors and synthesize findings",
+            "/goal refactor auth pipeline with zero regression",
+        ],
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "objective": {"type": "string", "description": "The goal or task to accomplish"},
+                "maxSteps": {"type": "integer", "description": "Maximum autonomous steps", "default": 5},
+            },
+            "required": ["objective"],
+        },
+        capability="agent_goal",
+        riskLevel=RiskLevel.LOW_MUTATION,
+        approvalPolicy=ApprovalPolicy.AUTOMATIC,
+        executionLocation=ExecutionLocation.API,
+        descriptionShort="Autonomous goal runner",
+    ),
     "search": CommandDefinition(
         name="search",
         aliases=["search", "find", "lookup"],

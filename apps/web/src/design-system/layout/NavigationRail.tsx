@@ -23,6 +23,10 @@ import {
 export type NavSection =
   | "talk"
   | "chat"
+  | "voice"
+  | "tasks"
+  | "files"
+  | "tools"
   | "images"
   | "library"
   | "projects"
@@ -30,6 +34,7 @@ export type NavSection =
   | "memory"
   | "studio"
   | "settings";
+
 
 interface NavItem {
   id: NavSection;

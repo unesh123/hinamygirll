@@ -22,20 +22,49 @@ export default defineConfig({
     https,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8000",
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
         changeOrigin: false,
         ws: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
+      "/v1": {
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
+        changeOrigin: false,
+        ws: true,
+      },
+      "/ws": {
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
+        changeOrigin: false,
+        ws: true,
+      },
+      "/health": {
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
+        changeOrigin: false,
+      },
     },
   },
   preview: {
+    host: "0.0.0.0",
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8000",
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
         changeOrigin: false,
         ws: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+      "/v1": {
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
+        changeOrigin: false,
+        ws: true,
+      },
+      "/ws": {
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
+        changeOrigin: false,
+        ws: true,
+      },
+      "/health": {
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
+        changeOrigin: false,
       },
     },
   },

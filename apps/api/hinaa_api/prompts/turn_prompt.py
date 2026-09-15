@@ -30,6 +30,9 @@ def build_turn_prompt(
     session_memories: tuple[str, ...] = (),
     approved_memory_blocks: tuple[str, ...] = (),
     attachments: tuple[Any, ...] = (),
+    dialogue_state_block: str = "",
+    live_search_block: str = "",
+    history_preselected: bool = False,
 ) -> PromptPackage:
     inp = PromptInput(
         companion_id=request.companionId,
@@ -45,5 +48,8 @@ def build_turn_prompt(
         approved_memory_blocks=approved_memory_blocks,
         visible_actions=request.visibleActions,
         attachments=attachments,
+        dialogue_state_block=dialogue_state_block,
+        live_search_block=live_search_block,
+        history_preselected=history_preselected,
     )
     return assemble_prompt(inp)

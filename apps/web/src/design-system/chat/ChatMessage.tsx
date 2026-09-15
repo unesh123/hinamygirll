@@ -1,7 +1,8 @@
 import { memo } from "react";
-import { motion } from "framer-motion";
-import { Copy, Check, RotateCcw, ExternalLink } from "lucide-react";
-import { useState, useCallback } from "react";
+import { motion, useReducedMotion } from "framer-motion";
+import { Copy, Check, RotateCcw } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { ResponseRenderer } from "../../components/ui/ResponseRenderer";
 
 export interface Message {
   id: string;
@@ -22,19 +23,29 @@ export const ChatMessage = memo(function ChatMessage({
   onRetry,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+  const reducedMotion = useReducedMotion();
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(message.text).then(() => {
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(message.text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+      setCopyFailed(false);
+    } catch {
+      setCopied(false);
+      setCopyFailed(true);
+    }
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => { setCopied(false); setCopyFailed(false); }, 2000);
   }, [message.text]);
 
   const isUser = message.role === "user";
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={reducedMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
       className={`sakura-message ${isUser ? "sakura-message--user" : "sakura-message--assistant"}`}
@@ -96,7 +107,7 @@ export const ChatMessage = memo(function ChatMessage({
 
         {/* Rendered content */}
         <div className="sakura-msg-content">
-          {renderMarkdownContent(message.text)}
+          {isUser ? <div style={{ whiteSpace: "pre-wrap" }}>{message.text}</div> : <ResponseRenderer content={message.text} />}
         </div>
 
         {/* Streaming cursor */}
@@ -116,6 +127,7 @@ export const ChatMessage = memo(function ChatMessage({
           <MsgActionBtn onClick={handleCopy} title="Copy">
             {copied ? <Check size={13} /> : <Copy size={13} />}
           </MsgActionBtn>
+          <span role="status" className="response-sr-only">{copied ? "Message copied" : copyFailed ? "Unable to copy message" : ""}</span>
           {onRetry && (
             <MsgActionBtn onClick={onRetry} title="Retry">
               <RotateCcw size={13} />
@@ -223,112 +235,4 @@ function MsgActionBtn({
       {children}
     </button>
   );
-}
-
-/**
- * Basic markdown-like rendering. In production, use a proper markdown renderer.
- * This handles the most common cases for HINAA's response format.
- */
-function renderMarkdownContent(text: string): React.ReactNode {
-  // Split by double newlines for paragraphs
-  const blocks = text.split(/\n\n+/);
-  return blocks.map((block, i) => {
-    const trimmed = block.trim();
-    if (!trimmed) return null;
-
-    // Heading
-    if (trimmed.startsWith("### ")) return <h3 key={i}>{trimmed.slice(4)}</h3>;
-    if (trimmed.startsWith("## ")) return <h2 key={i}>{trimmed.slice(3)}</h2>;
-    if (trimmed.startsWith("# ")) return <h1 key={i}>{trimmed.slice(2)}</h1>;
-
-    // Code block
-    if (trimmed.startsWith("```")) {
-      const lines = trimmed.split("\n");
-      const lang = lines[0].replace("```", "").trim();
-      const code = lines.slice(1, -1).join("\n");
-      return (
-        <pre key={i}>
-          {lang && <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginBottom: "var(--space-2)" }}>{lang}</div>}
-          <code>{code}</code>
-        </pre>
-      );
-    }
-
-    // Table
-    if (trimmed.includes("|") && trimmed.includes("---")) {
-      const rows = trimmed.split("\n").filter((r) => !r.match(/^\|[\s-|]+\|$/));
-      if (rows.length > 0) {
-        const headerCells = rows[0].split("|").filter(Boolean).map((c) => c.trim());
-        const dataRows = rows.slice(1).map((r) => r.split("|").filter(Boolean).map((c) => c.trim()));
-        return (
-          <table key={i}>
-            <thead>
-              <tr>{headerCells.map((cell, j) => <th key={j}>{cell}</th>)}</tr>
-            </thead>
-            <tbody>
-              {dataRows.map((cells, j) => (
-                <tr key={j}>{cells.map((cell, k) => <td key={k}>{cell}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
-        );
-      }
-    }
-
-    // Blockquote
-    if (trimmed.startsWith("> ")) {
-      return <blockquote key={i}>{trimmed.slice(2)}</blockquote>;
-    }
-
-    // List
-    if (trimmed.match(/^[-*]\s/m)) {
-      const items = trimmed.split("\n").map((l) => l.replace(/^[-*]\s/, "").trim());
-      return <ul key={i}>{items.map((item, j) => <li key={j}>{item}</li>)}</ul>;
-    }
-    if (trimmed.match(/^\d+\.\s/m)) {
-      const items = trimmed.split("\n").map((l) => l.replace(/^\d+\.\s/, "").trim());
-      return <ol key={i}>{items.map((item, j) => <li key={j}>{item}</li>)}</ol>;
-    }
-
-    // Regular paragraph with inline formatting
-    return <p key={i}>{renderInlineFormatting(trimmed)}</p>;
-  });
-}
-
-function renderInlineFormatting(text: string): React.ReactNode {
-  // Bold
-  const parts: React.ReactNode[] = [];
-  const regex = /\*\*(.+?)\*\*|`(.+?)`|\[(.+?)\]\((.+?)\)/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    if (match[1]) {
-      parts.push(<strong key={match.index} style={{ fontWeight: 600 }}>{match[1]}</strong>);
-    } else if (match[2]) {
-      parts.push(<code key={match.index} style={{
-        background: "var(--bg-muted)",
-        padding: "1px 5px",
-        borderRadius: "var(--radius-xs)",
-        fontSize: "0.875em",
-        color: "var(--accent-hover)",
-      }}>{match[2]}</code>);
-    } else if (match[3] && match[4]) {
-      parts.push(
-        <a key={match.index} href={match[4]} target="_blank" rel="noopener noreferrer">
-          {match[3]} <ExternalLink size={11} style={{ verticalAlign: -1 }} />
-        </a>
-      );
-    }
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts.length > 0 ? parts : text;
 }

@@ -289,6 +289,34 @@ def test_typed_tool_unavailable_error_persistence(temp_db):
     assert reloaded.failure_code == "TOOL_UNAVAILABLE"
 
 
+def test_provider_failure_secrets_are_redacted_before_persistence(temp_db):
+    persistence = AgentPersistenceService(temp_db)
+    credential_value = "sk-live-1234567890abcdef"
+
+    async def throwing_executor(_step: PlanStep):
+        raise HinaaError(
+            "PROVIDER_ERROR",
+            f"provider authorization=Bearer {credential_value}",
+            status_code=502,
+        )
+
+    runtime = AgentRuntime(executor=throwing_executor, persistence=persistence, step_attempts=1)
+    run = runtime.create_run("persist safe failure", "user_alpha")
+    asyncio.run(runtime.execute(run))
+
+    reloaded_runtime = AgentRuntime(persistence=persistence)
+    reloaded_run = reloaded_runtime.get_run(run.run_id, "user_alpha")
+    reloaded_steps = reloaded_runtime.get_steps(run.run_id, "user_alpha") or []
+    reloaded_events = reloaded_runtime.get_events(run.run_id, "user_alpha") or []
+
+    assert reloaded_run is not None
+    assert reloaded_run.status == RunStatus.FAILED
+    assert credential_value not in (reloaded_run.failure_message or "")
+    assert "[REDACTED]" in (reloaded_run.failure_message or "")
+    assert credential_value not in (reloaded_steps[0].error_message or "")
+    assert credential_value not in str([event.payload for event in reloaded_events])
+
+
 def test_active_runs_listing(temp_db):
     persistence = AgentPersistenceService(temp_db)
     rt = AgentRuntime(persistence=persistence)

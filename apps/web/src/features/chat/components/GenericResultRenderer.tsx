@@ -10,11 +10,14 @@ import type { WorkTreeNode } from './WorkTree';
 interface GenericResultRendererProps {
   toolName: string;
   result: any;
+  conversationId?: string;
 }
 
-export function GenericResultRenderer({ toolName, result }: GenericResultRendererProps) {
+export function GenericResultRenderer({ toolName, result, conversationId }: GenericResultRendererProps) {
   const [expanded, setExpanded] = useState(false);
   const [sourceSaveState, setSourceSaveState] = useState<Record<string, string>>({});
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+  const [selectionStatus, setSelectionStatus] = useState<string | null>(null);
 
   const saveSourceToProject = async (source: SourceItem) => {
     const projectId = localStorage.getItem("hinaa-active-project-id");
@@ -106,7 +109,28 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
             <span>{data.notice}</span>
           </div>
         ) : null}
-        {sources.length ? sources.map((source, index) => <div key={source.id} style={{ display: 'grid', gap: 4 }}><SourceCard source={source} index={index} onSave={saveSourceToProject} />{sourceSaveState[source.id] && <small style={{ color: sourceSaveState[source.id].startsWith('Saved') ? '#86efac' : '#cbbca8', fontSize: 11 }}>{sourceSaveState[source.id]}</small>}</div>) : <div style={{ color: '#cbbca8', fontSize: 12 }}>No attributable sources were returned for this query.</div>}
+        {sources.length ? (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {sources.map((source, index) => (
+              <div key={source.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <SourceCard source={source} index={index} onSave={saveSourceToProject} />
+                {sourceSaveState[source.id] && (
+                  <small style={{ color: sourceSaveState[source.id].startsWith('Saved') ? '#86efac' : '#cbbca8', fontSize: 11 }}>
+                    {sourceSaveState[source.id]}
+                  </small>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ color: '#cbbca8', fontSize: 12 }}>No attributable sources were returned for this query.</div>
+        )}
       </section>
     );
   }
@@ -133,14 +157,93 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--text-primary)', fontSize: 12, fontWeight: 750 }}>
           <span>Public image results</span><span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{images.length} result{images.length === 1 ? '' : 's'}</span>
         </div>
+        {selectionStatus && (
+          <div role="status" style={{ fontSize: 11, color: 'var(--success, #10b981)', fontWeight: 600 }}>
+            {selectionStatus}
+          </div>
+        )}
         {images.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 9 }}>
           {images.map((image: any, index: number) => (
-            <motion.a key={image.id || image.imageUrl || index} href={image.pageUrl || image.imageUrl} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: index * 0.025 }} whileHover={{ y: -2 }} style={{ overflow: 'hidden', border: '1px solid var(--border-subtle)', borderRadius: 12, background: 'var(--bg-surface-raised)', color: 'var(--text-primary)', textDecoration: 'none', boxShadow: 'var(--shadow-xs)' }}>
-              <img src={image.imageUrl} alt={image.title || 'Public image result'} loading="lazy" referrerPolicy="no-referrer" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: 'var(--bg-secondary)' }} />
-              <span style={{ display: 'block', padding: '7px 8px 8px', fontSize: 11, fontWeight: 650, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{image.title || 'Open source page'}</span>
-            </motion.a>
+            <div key={image.id || image.imageUrl || index} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border-subtle)', borderRadius: 12, background: 'var(--bg-surface-raised)', boxShadow: 'var(--shadow-xs)' }}>
+              <motion.a href={image.pageUrl || image.imageUrl} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: index * 0.025 }} whileHover={{ y: -2 }} style={{ overflow: 'hidden', color: 'var(--text-primary)', textDecoration: 'none' }}>
+                <img src={image.imageUrl} alt={image.title || 'Public image result'} loading="lazy" referrerPolicy="no-referrer" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: 'var(--bg-secondary)' }} />
+                <span style={{ display: 'block', padding: '7px 8px 4px', fontSize: 11, fontWeight: 650, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{image.title || 'Open source page'}</span>
+              </motion.a>
+              <div style={{ padding: '0 8px 8px' }}>
+                <button
+                  type="button"
+                  aria-label={`Select image ${index + 1}`}
+                  aria-pressed={selectedImageIndex === index}
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedImageIndex(index);
+                    setSelectionStatus(`Selected image ${index + 1}.`);
+                    if (conversationId) {
+                      try {
+                        await fetch(`/api/v1/conversations/${encodeURIComponent(conversationId)}/assets/select`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            assetId: image.id || image.imageUrl,
+                            resultSetId: data.resultSet?.resultSetId,
+                            canonicalSubject: data.canonicalSubject,
+                          }),
+                        });
+                      } catch {}
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    border: selectedImageIndex === index ? '1px solid var(--accent, #f472b6)' : '1px solid var(--border-default)',
+                    background: selectedImageIndex === index ? 'var(--accent-pale, rgba(244, 114, 182, 0.15))' : 'var(--bg-surface)',
+                    color: selectedImageIndex === index ? 'var(--accent, #f472b6)' : 'var(--text-secondary)',
+                    fontSize: 10,
+                    fontWeight: 650,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {selectedImageIndex === index ? '✓ Selected' : `Select image ${index + 1}`}
+                </button>
+              </div>
+            </div>
           ))}
         </div> : <p style={{ color: 'var(--text-tertiary)', fontSize: 12, margin: 0 }}>No public image links were returned for this query. Try a more specific search.</p>}
+        {Array.isArray(data.boards) && data.boards.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 750, color: 'var(--text-secondary)' }}>📌 Pinterest Inspiration Boards:</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {data.boards.map((board: any, bIdx: number) => (
+                <a
+                  key={bIdx}
+                  href={board.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '5px 12px',
+                    borderRadius: 999,
+                    background: 'rgba(244, 114, 182, 0.08)',
+                    border: '1px solid rgba(244, 114, 182, 0.28)',
+                    color: '#fbcfe8',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span style={{ color: '#e11d48', fontWeight: 800 }}>📌</span>
+                  <span>{board.title}</span>
+                  {board.count ? <span style={{ opacity: 0.75, fontSize: 10 }}>({board.count})</span> : null}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
         <small style={{ color: 'var(--text-tertiary)', fontSize: 11, lineHeight: 1.45 }}>Public web image links may have licensing restrictions. Open the source page before saving or reusing an image.</small>
       </section>
     );
@@ -264,14 +367,14 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
     return <WorkTree title="Autonomous Browser Task" icon={<Globe size={16} />} nodes={nodes} />;
   }
 
-  // Render PDF Generation Result (ChatGPT Style with Download & Python Code Block)
-  if (toolName === 'pdf_generate') {
+  // Render Document / PDF / DOCX Generation Result (ChatGPT Style with Download & Python Code Block)
+  if (toolName === 'pdf_generate' || toolName === 'document_generate' || (data && (data.downloadUrl || data.format === 'docx' || data.format === 'pptx'))) {
     const isError = Boolean(data?.error || result?.status === 'error');
     if (isError) {
       return (
         <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
           <div style={{ color: '#ef4444', fontWeight: 650, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <AlertTriangle size={14} /> PDF Compilation Failed
+            <AlertTriangle size={14} /> Document Compilation Failed
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '6px 0 0' }}>
             {data.error || 'Could not compile document.'}
@@ -282,11 +385,25 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
 
     const title = data.title || 'Academic Document';
     const filename = data.filename || 'document.pdf';
+    const docFormat = (data.format || (filename.endsWith('.docx') ? 'docx' : filename.endsWith('.pptx') ? 'pptx' : 'pdf')).toUpperCase();
+    const isDocx = docFormat === 'DOCX';
+    const isPptx = docFormat === 'PPTX';
+    const badgeColor = isDocx
+      ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)'
+      : isPptx
+      ? 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)'
+      : 'linear-gradient(135deg, #ef4444 0%, #be123c 100%)';
+    const badgeShadow = isDocx
+      ? '0 4px 12px rgba(37, 99, 235, 0.35)'
+      : isPptx
+      ? '0 4px 12px rgba(234, 88, 12, 0.35)'
+      : '0 4px 12px rgba(239, 68, 68, 0.35)';
+
     const baseDownloadUrl = data.downloadUrl || (data.docId ? `/api/v1/generated-docs/${data.docId}` : '');
     const downloadUrl = baseDownloadUrl
       ? `${baseDownloadUrl}${baseDownloadUrl.includes('?') ? '&' : '?'}filename=${encodeURIComponent(filename)}`
       : '#';
-    const pageCount = data.pageCount || 2;
+    const pageCount = data.pageCount;
     const fileSizeKb = data.fileSizeKb || 12;
     const pythonSnippet = data.pythonSnippet;
 
@@ -311,16 +428,16 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
               width: 42,
               height: 42,
               borderRadius: 10,
-              background: 'linear-gradient(135deg, #ef4444 0%, #be123c 100%)',
+              background: badgeColor,
               color: '#ffffff',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.35)',
+              boxShadow: badgeShadow,
               flexShrink: 0,
             }}>
-              <span style={{ fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.05em' }}>PDF</span>
+              <span style={{ fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.05em' }}>{docFormat}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
               <span style={{
@@ -335,8 +452,12 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
                 <span style={{ fontFamily: 'monospace', color: 'var(--accent, #f472b6)' }}>{filename}</span>
-                <span>•</span>
-                <span>{pageCount} Pages</span>
+                {typeof pageCount === 'number' && (
+                  <>
+                    <span>•</span>
+                    <span>{pageCount} Pages</span>
+                  </>
+                )}
                 <span>•</span>
                 <span>{fileSizeKb} KB</span>
               </div>
@@ -366,7 +487,7 @@ export function GenericResultRenderer({ toolName, result }: GenericResultRendere
                 transition: 'transform 0.15s ease',
               }}
             >
-              <Download size={14} /> Download PDF
+              <Download size={14} /> Download {docFormat}
             </a>
           </div>
         </div>

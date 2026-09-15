@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-import re
 from typing import TYPE_CHECKING, Any
 
+from .context import ContextBuilder
 from .contracts import (
     AgentPlan,
     AgentRun,
@@ -14,16 +15,14 @@ from .contracts import (
     PlanStep,
     RunStatus,
     StepState,
-    VerificationResult,
     validate_run_transition,
     validate_step_transition,
 )
-from .context import ContextBuilder
 from .events import EventLog
 from .intent import IntentInterpreter
-from .validation import PlanValidator
-from .retry import is_retryable, FailureCategory
+from .retry import is_retryable
 from .scheduler import StepScheduler
+from .validation import PlanValidator
 from .verifier import AgentVerifier
 
 if TYPE_CHECKING:
@@ -51,6 +50,22 @@ def _sanitize_value(val: Any, key: str | None = None) -> Any:
 
 def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {k: _sanitize_value(v, k) for k, v in payload.items()}
+
+
+def _safe_text(value: Any, limit: int = 500) -> str:
+    sanitized = _sanitize_value(str(value))
+    return str(sanitized)[:limit]
+
+
+_TERMINAL_RUN_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+_CANCELLABLE_STEP_STATES = {
+    StepState.PENDING,
+    StepState.READY,
+    StepState.AWAITING_CONFIRMATION,
+    StepState.RUNNING,
+    StepState.BLOCKED,
+    StepState.INTERRUPTED,
+}
 
 
 class AgentRuntime:
@@ -83,6 +98,30 @@ class AgentRuntime:
         self.runs: dict[str, AgentRun] = {}
         self.plans: dict[str, AgentPlan] = {}
         self.events: dict[str, EventLog] = {}
+        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+
+    def register_active_task(
+        self,
+        run_id: str,
+        task: asyncio.Task[Any] | None = None,
+    ) -> asyncio.Task[Any]:
+        active_task = task or asyncio.current_task()
+        if active_task is None:
+            raise RuntimeError("An active asyncio task is required")
+        existing = self._active_tasks.get(run_id)
+        if existing is not None and existing is not active_task and not existing.done():
+            raise RuntimeError(f"Run {run_id} already has an active task")
+        self._active_tasks[run_id] = active_task
+        return active_task
+
+    def unregister_active_task(
+        self,
+        run_id: str,
+        task: asyncio.Task[Any] | None = None,
+    ) -> None:
+        existing = self._active_tasks.get(run_id)
+        if existing is not None and (task is None or existing is task):
+            self._active_tasks.pop(run_id, None)
 
     def create_run(
         self,
@@ -92,16 +131,18 @@ class AgentRuntime:
         project_id: str | None = None,
         run_id: str | None = None,
     ) -> AgentRun:
-        run_data = {"run_id": run_id} if run_id else {}
-        run = AgentRun(
-            **run_data,
-            user_id=user_id,
-            goal=goal,
-            conversation_id=conversation_id,
-            project_id=project_id,
-            maximum_steps=self.max_steps,
-            maximum_replans=self.max_replans,
-        )
+        run_kwargs = {
+            "user_id": user_id,
+            "goal": goal,
+            "conversation_id": conversation_id,
+            "project_id": project_id,
+            "maximum_steps": self.max_steps,
+            "maximum_replans": self.max_replans,
+        }
+        if run_id is not None:
+            run = AgentRun(run_id=run_id, **run_kwargs)
+        else:
+            run = AgentRun(**run_kwargs)
         self.runs[run.run_id] = run
         self.events[run.run_id] = EventLog(run.run_id, conversation_id)
         if self.persistence:
@@ -125,6 +166,7 @@ class AgentRuntime:
                 event_type=event_type,
                 step_id=step_id,
                 payload=safe,
+                event_id=event.event_id,
             )
         return event
 
@@ -202,6 +244,12 @@ class AgentRuntime:
         *,
         result: Any = None,
     ) -> list[Any]:
+        if run.cancellation_requested or run.status == RunStatus.CANCELLED:
+            self.cancel(run.run_id, run.user_id)
+            return []
+        if run.status in _TERMINAL_RUN_STATUSES or run.status == RunStatus.INTERRUPTED:
+            return []
+
         events: list[Any] = []
         if step.status == StepState.RUNNING:
             validate_step_transition(step.status, StepState.COMPLETED)
@@ -251,14 +299,30 @@ class AgentRuntime:
         run.updated_at = datetime.now(timezone.utc)
         if self.persistence:
             self.persistence.save_run(run)
-        terminal_type = "agent.run.completed" if run.status == RunStatus.COMPLETED else "agent.run.failed"
-        events.append(
-            self._emit(
-                run.run_id,
-                terminal_type,
-                payload={"status": run.status.value, "failureCode": run.failure_code},
+        if run.status == RunStatus.COMPLETED:
+            events.append(
+                self._emit(
+                    run.run_id,
+                    "agent.run.completed",
+                    payload={"status": run.status.value},
+                )
             )
-        )
+        elif run.status == RunStatus.FAILED:
+            events.append(
+                self._emit(
+                    run.run_id,
+                    "agent.run.failed",
+                    payload={"status": run.status.value, "failureCode": run.failure_code},
+                )
+            )
+        elif run.status == RunStatus.CANCELLED:
+            events.append(
+                self._emit(
+                    run.run_id,
+                    "agent.run.cancelled",
+                    payload={"status": run.status.value},
+                )
+            )
         return events
 
     def fail_stream_turn(
@@ -269,12 +333,18 @@ class AgentRuntime:
         code: str = "STREAM_ERROR",
         message: str = "Agent stream failed.",
     ) -> list[Any]:
+        if run.status in _TERMINAL_RUN_STATUSES:
+            return []
+
+        safe_code = _safe_text(code, 100)
+        safe_message = _safe_text(message)
         events: list[Any] = []
         if step is not None and step.status == StepState.RUNNING:
             validate_step_transition(step.status, StepState.FAILED)
             step.status = StepState.FAILED
-            step.error_code = code
-            step.error_message = message[:500]
+            step.error_code = safe_code
+            step.error_message = safe_message
+            step.completed_at = datetime.now(timezone.utc)
             if self.persistence:
                 self.persistence.save_step(step)
             events.append(
@@ -282,14 +352,14 @@ class AgentRuntime:
                     run.run_id,
                     "agent.step.failed",
                     step_id=step.step_id,
-                    payload={"code": code, "message": step.error_message},
+                    payload={"code": safe_code, "message": step.error_message},
                 )
             )
         if run.status not in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
             validate_run_transition(run.status, RunStatus.FAILED)
             run.status = RunStatus.FAILED
-        run.failure_code = code
-        run.failure_message = message[:500]
+        run.failure_code = safe_code
+        run.failure_message = safe_message
         run.completed_at = datetime.now(timezone.utc)
         run.updated_at = datetime.now(timezone.utc)
         if self.persistence:
@@ -298,7 +368,53 @@ class AgentRuntime:
             self._emit(
                 run.run_id,
                 "agent.run.failed",
-                payload={"code": code, "message": run.failure_message},
+                payload={"code": safe_code, "message": run.failure_message},
+            )
+        )
+        return events
+
+    def interrupt_stream_turn(
+        self,
+        run: AgentRun,
+        *,
+        step: PlanStep | None = None,
+        code: str = "STREAM_INTERRUPTED",
+        message: str = "Agent stream was interrupted before completion.",
+    ) -> list[Any]:
+        if run.status in _TERMINAL_RUN_STATUSES or run.status == RunStatus.INTERRUPTED:
+            return []
+
+        safe_code = _safe_text(code, 100)
+        safe_message = _safe_text(message)
+        events: list[Any] = []
+        if step is not None and step.status == StepState.RUNNING:
+            validate_step_transition(step.status, StepState.INTERRUPTED)
+            step.status = StepState.INTERRUPTED
+            step.error_code = safe_code
+            step.error_message = safe_message
+            if self.persistence:
+                self.persistence.save_step(step)
+            events.append(
+                self._emit(
+                    run.run_id,
+                    "agent.step.interrupted",
+                    step_id=step.step_id,
+                    payload={"code": safe_code, "message": safe_message},
+                )
+            )
+
+        validate_run_transition(run.status, RunStatus.INTERRUPTED)
+        run.status = RunStatus.INTERRUPTED
+        run.failure_code = safe_code
+        run.failure_message = safe_message
+        run.updated_at = datetime.now(timezone.utc)
+        if self.persistence:
+            self.persistence.save_run(run)
+        events.append(
+            self._emit(
+                run.run_id,
+                "agent.run.interrupted",
+                payload={"code": safe_code, "message": safe_message},
             )
         )
         return events
@@ -352,15 +468,35 @@ class AgentRuntime:
         run = self.get_run(run_id, user_id)
         if run is None:
             return None
-        if run.status not in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+        if run.status not in _TERMINAL_RUN_STATUSES:
+            now = datetime.now(timezone.utc)
             run.cancellation_requested = True
             validate_run_transition(run.status, RunStatus.CANCELLED)
             run.status = RunStatus.CANCELLED
-            run.updated_at = datetime.now(timezone.utc)
-            self._emit(run_id, "agent.run.cancelled", payload={"reason": "user"})
-            self._emit(run_id, "turn.cancelled", payload={"reason": "user"})
+            run.updated_at = now
+            run.completed_at = now
+
+            plan = self.get_plan(run_id)
+            if plan is not None:
+                for step in plan.steps:
+                    if step.status in _CANCELLABLE_STEP_STATES:
+                        validate_step_transition(step.status, StepState.CANCELLED)
+                        step.status = StepState.CANCELLED
+                        step.completed_at = now
+                        if self.persistence:
+                            self.persistence.save_step(step)
             if self.persistence:
                 self.persistence.save_run(run)
+            self._emit(run_id, "agent.run.cancelled", payload={"reason": "user"})
+            self._emit(run_id, "turn.cancelled", payload={"reason": "user"})
+
+            active_task = self._active_tasks.get(run_id)
+            try:
+                current_task = asyncio.current_task()
+            except RuntimeError:
+                current_task = None
+            if active_task is not None and active_task is not current_task and not active_task.done():
+                active_task.cancel(f"Agent run {run_id} was cancelled")
         return run
 
     def resume(self, run_id: str, user_id: str | set[str] | list[str]) -> AgentRun | None:
@@ -399,15 +535,10 @@ class AgentRuntime:
         step = next((s for s in plan.steps if s.step_id == step_id), None)
         if step is None:
             return None
-        if not approved:
-            step.status = StepState.CANCELLED
-            run.status = RunStatus.CANCELLED
-            self._emit(run_id, "agent.run.cancelled", step_id=step_id, payload={"reason": "rejected"})
-            self._emit(run_id, "turn.cancelled", step_id=step_id, payload={"reason": "rejected"})
-            if self.persistence:
-                self.persistence.save_step(step)
-                self.persistence.save_run(run)
+        if run.status in _TERMINAL_RUN_STATUSES or step.status != StepState.AWAITING_CONFIRMATION:
             return run
+        if not approved:
+            return self.cancel(run_id, user_id)
         if step.status == StepState.AWAITING_CONFIRMATION:
             step.status = StepState.READY
             run.status = RunStatus.EXECUTING
@@ -440,6 +571,7 @@ class AgentRuntime:
         plan: AgentPlan | None = None,
         recent_messages: list[dict[str, Any]] | None = None,
         attachments: list[str] | None = None,
+        executor: Callable[[PlanStep], Awaitable[Any]] | None = None,
     ) -> AgentRun:
         if not self.enabled:
             return run
@@ -526,6 +658,12 @@ class AgentRuntime:
                         run.status = RunStatus.AWAITING_CONFIRMATION
                         if self.persistence:
                             self.persistence.save_run(run)
+                        for pending in exec_plan.steps:
+                            if pending.status == StepState.AWAITING_CONFIRMATION:
+                                if self.persistence:
+                                    self.persistence.save_step(pending)
+                                self._emit(run.run_id, "confirmation.required", step_id=pending.step_id,
+                                           payload={"title": pending.title, "toolName": pending.tool_name})
                         break
                     if any(s.status == StepState.BLOCKED for s in exec_plan.steps):
                         validate_run_transition(run.status, RunStatus.FAILED)
@@ -554,10 +692,11 @@ class AgentRuntime:
                         if self.persistence:
                             self.persistence.save_step(step)
                     try:
-                        if self.executor is None:
+                        active_executor = executor or self.executor
+                        if active_executor is None:
                             raise RuntimeError("No runtime executor configured")
                         step.result = await asyncio.wait_for(
-                            self.executor(step), timeout=step.timeout_seconds
+                            active_executor(step), timeout=step.timeout_seconds
                         )
                         validate_step_transition(step.status, StepState.COMPLETED)
                         step.status = StepState.COMPLETED
@@ -580,16 +719,22 @@ class AgentRuntime:
                         )
                         break
                     except asyncio.CancelledError:
-                        validate_step_transition(step.status, StepState.CANCELLED)
-                        step.status = StepState.CANCELLED
-                        validate_run_transition(run.status, RunStatus.CANCELLED)
-                        run.status = RunStatus.CANCELLED
+                        explicitly_cancelled = run.cancellation_requested or run.status == RunStatus.CANCELLED
+                        step_target = StepState.CANCELLED if explicitly_cancelled else StepState.INTERRUPTED
+                        run_target = RunStatus.CANCELLED if explicitly_cancelled else RunStatus.INTERRUPTED
+                        if step.status not in {StepState.CANCELLED, StepState.INTERRUPTED}:
+                            validate_step_transition(step.status, step_target)
+                            step.status = step_target
+                        if run.status not in {RunStatus.CANCELLED, RunStatus.INTERRUPTED}:
+                            validate_run_transition(run.status, run_target)
+                            run.status = run_target
+                        run.updated_at = datetime.now(timezone.utc)
                         if self.persistence:
                             self.persistence.save_step(step)
                             self.persistence.save_run(run)
                         raise
                     except Exception as error:
-                        err_str = str(error)
+                        err_str = _safe_text(error)
                         transient = is_retryable(error) or "transient" in err_str.lower() or "timeout" in err_str.lower()
                         if transient and step.attempt_count < step.maximum_attempts:
                             step.attempt_count += 1
@@ -604,9 +749,10 @@ class AgentRuntime:
                             continue
                         validate_step_transition(step.status, StepState.FAILED)
                         step.status = StepState.FAILED
-                        step.error_message = err_str[:500]
-                        if hasattr(error, "code"):
-                            step.error_code = str(error.code)
+                        step.error_message = err_str
+                        error_code = getattr(error, "code", None)
+                        if error_code is not None:
+                            step.error_code = _safe_text(error_code, 100)
                         if self.persistence:
                             self.persistence.save_step(step)
                         self._emit(
@@ -623,7 +769,7 @@ class AgentRuntime:
                         )
                         validate_run_transition(run.status, RunStatus.FAILED)
                         run.status = RunStatus.FAILED
-                        run.failure_code = getattr(error, "code", None) or "step_failed"
+                        run.failure_code = step.error_code or "step_failed"
                         run.failure_message = step.error_message
                         if self.persistence:
                             self.persistence.save_run(run)
@@ -670,16 +816,34 @@ class AgentRuntime:
             elif run.status == RunStatus.CANCELLED:
                 self._emit(run.run_id, "agent.run.cancelled", payload={"reason": "cancelled"})
 
+        active_task = asyncio.current_task()
+        if active_task is not None:
+            self.register_active_task(run.run_id, active_task)
         try:
             await asyncio.wait_for(_run(), timeout=self.run_timeout)
-        except asyncio.TimeoutError:
-            run.status = RunStatus.FAILED
+        except TimeoutError:
+            if run.status not in _TERMINAL_RUN_STATUSES:
+                validate_run_transition(run.status, RunStatus.FAILED)
+                run.status = RunStatus.FAILED
             run.failure_code = "run_timeout"
             run.failure_message = "Agent run timed out."
+            run.completed_at = datetime.now(timezone.utc)
+            run.updated_at = datetime.now(timezone.utc)
             if self.persistence:
                 self.persistence.save_run(run)
             self._emit(run.run_id, "agent.run.failed", payload={"code": run.failure_code})
             self._emit(run.run_id, "turn.failed", payload={"code": run.failure_code})
+        except asyncio.CancelledError:
+            if run.status == RunStatus.INTERRUPTED:
+                self._emit(
+                    run.run_id,
+                    "agent.run.interrupted",
+                    payload={"code": "execution_cancelled"},
+                )
+            raise
+        finally:
+            if active_task is not None:
+                self.unregister_active_task(run.run_id, active_task)
 
         return run
 

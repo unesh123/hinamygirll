@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SpeechDiagnostics } from "../audio/SpeechDiagnostics";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, AlertTriangle, CheckCircle, Clock, Mic, Radio, Brain, Volume2, Activity } from "lucide-react";
 
@@ -189,6 +190,7 @@ export function VoiceDiagnosticsDrawer({ isOpen, onClose, data, onManualCommit, 
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--space-3) var(--space-4)", borderBottom: "1px solid var(--border-subtle)" }}>
             <h3 style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>Voice Diagnostics</h3>
+            <SpeechDiagnostics />
             <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", padding: 4 }}>
               <X size={16} />
             </button>

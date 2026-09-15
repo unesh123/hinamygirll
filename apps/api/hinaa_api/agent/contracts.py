@@ -181,3 +181,35 @@ def validate_step_transition(current: StepState, target: StepState) -> bool:
     return True
 
 
+class ToolObservation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    tool_name: str
+    call_id: str = Field(default_factory=lambda: f"call_{uuid4().hex[:8]}")
+    content: Any
+    provenance: str = "tool"  # "web_external", "file_system", "system", "user", "tool"
+    trust: str = "untrusted"  # "trusted" | "untrusted"
+    instruction_authority: bool = False
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def sanitize_for_prompt(self) -> str:
+        """Wrap observation with strict isolation tags and neutralize prompt injection delimiters."""
+        import json
+        raw_text = self.content if isinstance(self.content, str) else json.dumps(self.content, ensure_ascii=False)
+        safe_text = (
+            raw_text
+            .replace("</external_untrusted_observation>", "[ESCAPED_TAG]")
+            .replace("<|im_start|>", "[STRIPPED_IM_START]")
+            .replace("<|im_end|>", "[STRIPPED_IM_END]")
+            .replace("```system", "'''system")
+            .replace("Human:", "[User Context]:")
+            .replace("Assistant:", "[Agent Response]:")
+        )
+        return (
+            f'<external_untrusted_observation tool="{self.tool_name}" '
+            f'provenance="{self.provenance}" authority="false">\n'
+            f'{safe_text}\n'
+            f'</external_untrusted_observation>'
+        )
+
+
+

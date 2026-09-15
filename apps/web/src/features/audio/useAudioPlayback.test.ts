@@ -10,6 +10,7 @@ class FakeUtterance {
   voice: SpeechSynthesisVoice | null = null;
   onend: (() => void) | null = null;
   onerror: (() => void) | null = null;
+  onstart: (() => void) | null = null;
 
   constructor(readonly text: string) {}
 }
@@ -37,10 +38,15 @@ describe("useAudioPlayback browser fallback", () => {
     const utterance = speak.mock.calls[0][0] as FakeUtterance;
     expect(utterance.text).toBe("Hello Unesh, I am here.");
     expect(utterance.lang).toBe("en-US");
+    expect(result.current.playing).toBe(false);
+    expect(result.current.speech.current.state).toBe("queued");
+    await act(async () => utterance.onstart?.());
     expect(result.current.playing).toBe(true);
     expect(result.current.visemeEvents.current.length).toBeGreaterThan(0);
 
     await act(async () => utterance.onend?.());
     expect(result.current.playing).toBe(false);
+    expect(result.current.speech.current.state).toBe("idle");
+    expect(result.current.visemeEvents.current).toEqual([]);
   });
 });

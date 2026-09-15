@@ -199,7 +199,7 @@ class TestFastPathFallThrough:
         settings = _settings(OPENAI_API_KEY="sk-dead")
         service = ConversationService(settings)
         service._fast_casual_provider = (
-            lambda mode, text, history=(): _FailingFastProvider()
+            lambda mode, text, history=(), **kwargs: _FailingFastProvider()
         )
         service.router.llm = lambda mode, brain_model=None: _GoodReasoningBrain()
         request = TurnRequest(
@@ -225,7 +225,7 @@ class TestFastPathFallThrough:
                 raise HinaaError("MODEL_RESPONSE_INVALID", "bad json", 502, True)
 
         service._fast_casual_provider = (
-            lambda mode, text, history=(): _BrokenProvider()
+            lambda mode, text, history=(), **kwargs: _BrokenProvider()
         )
         request = TurnRequest(
             text="hi bro",

@@ -1,8 +1,44 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GenericResultRenderer } from "./GenericResultRenderer";
 
 describe("GenericResultRenderer", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("persists exact gallery-card selection with result-set identity", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "selected" }), { status: 200 }),
+    );
+    render(
+      <GenericResultRenderer
+        toolName="image_search"
+        conversationId="conv-mikasa"
+        result={{
+          canonicalSubject: "Mikasa Ackerman",
+          resultSet: { resultSetId: "RS_MIKASA" },
+          images: [
+            { id: "IMG_A", imageUrl: "https://example.test/a.jpg", title: "Mikasa one", pageUrl: "https://example.test/a" },
+            { id: "IMG_B", imageUrl: "https://example.test/b.jpg", title: "Mikasa two", pageUrl: "https://example.test/b" },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select image 2/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/conversations/conv-mikasa/assets/select",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"assetId":"IMG_B"'),
+      }),
+    ));
+    expect(screen.getByRole("button", { name: /select image 2/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Selected image 2.");
+  });
+
   it("discloses the actual public search fallback while preserving attributed sources", () => {
     render(
       <GenericResultRenderer

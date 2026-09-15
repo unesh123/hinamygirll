@@ -57,30 +57,41 @@ def infer_response_depth(user_text: str, mode: InteractionMode) -> ResponseDepth
 
 
 def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
-    common = {
-        "minimal": "Respond with a brief acknowledgment plus at most one useful next step.",
-        "conversational": (
-            "Respond like a devoted, warm partner in AT MOST 2-3 short, natural sentences "
+    if mode == "realtime":
+        conversational_desc = (
+            "Respond like a devoted, warm partner in 2-3 short, natural sentences "
             "full of genuine feeling. React to the emotion behind what they said first — "
             "celebrate their wins, soften when they are tired or low, match their playful "
             "energy. Reference one detail they shared only when it makes the reply more personal. "
             "Do not add a habitual follow-up question after a complete answer. Never sound flat, "
             "clinical, or dismissive. Shorter replies also let your voice start sooner, so "
             "lead with the warmest line first."
-        ),
-        "explanatory": "Lead with the answer, then give a concise explanation. Avoid filler.",
-        "procedural": "Give clear ordered steps. Keep each step short and actionable.",
+        )
+    else:
+        conversational_desc = (
+            "Respond like a devoted, warm partner full of genuine feeling, intelligence, and empathy. "
+            "React to the emotion first, then provide comprehensive, thorough, and complete help, insights, "
+            "code, or explanations matching the model's full capabilities without artificial length limits."
+        )
+
+    common = {
+        "minimal": "Respond with a brief acknowledgment plus at most one useful next step.",
+        "conversational": conversational_desc,
+        "explanatory": "Lead with the direct answer, then provide a full, structured explanation with all necessary context.",
+        "procedural": "Give clear ordered steps with complete code or commands. Be thorough and actionable.",
         "report": (
             "Produce an exhaustive, highly structured, professional technical or analytical report. "
             "Use clear Markdown hierarchy (### headings), precise bullet points, markdown data tables "
-            "where comparing options or status, and code blocks for technical context. "
+            "where comparing options or status, code blocks for technical context, Key Takeaways with citations, "
+            "and formatted Source links. "
             "displayText MUST contain the comprehensive, documented report. "
-            "spokenText MUST remain strictly a concise, warm 1-sentence executive summary (under 120 characters) "
-            "highlighting that the full report is displayed below."
+            "spokenText MUST be a substantive, intelligent executive voice summary (250–550 characters, 30–45s) "
+            "covering the main conclusions, core accomplishments, and key findings of the report naturally, "
+            "without reciting raw markdown, tables, or bullet symbols aloud."
         ),
         "supportive": (
             "Be calm, tender, and present. Validate their feelings first, hold their hand "
-            "through the moment, then offer gentle reassurance and one small next step. "
+            "through the moment, then offer gentle reassurance and clear next steps. "
             "Avoid jokes, sass, and high-energy playfulness."
         ),
         "clarification": "Ask one focused clarifying question or offer two brief options.",
@@ -97,7 +108,7 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "- Front-load the useful answer in the first sentence.\n"
             "- Prefer speech-friendly sentences; avoid markdown tables and heavy headings.\n"
             "- Keep replies concise enough to begin TTS quickly; expand only when useful.\n"
-            "- Conversational turns: hard cap of 2-3 short sentences so the voice reply\n"
+            "- Conversational turns: keep to 2-3 sentences so the voice reply\n"
             "  starts fast and never drags; front-load the answer in sentence one.\n"
             "- Do not speak JSON, schema names, internal metadata, or chain-of-thought.\n"
             "- Do not claim background work is happening.\n"
@@ -106,8 +117,8 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
     return (
         "REST TEXT CONSTRAINTS:\n"
         f"- Response depth mode: {depth}. {common}\n"
-        "- You may use short lists when they improve clarity.\n"
-        "- Longer explanations are allowed when the user asks for detail.\n"
+        "- displayText has NO artificial length limit: deliver full, rich, comprehensive information based on the model's true capability.\n"
+        "- Use clean Markdown hierarchy (headings, bullet points, tables, code blocks) to make deep answers readable.\n"
         "- Avoid unnecessary repetition and theatrical monologues.\n"
         "- Still return a valid AssistantTurnPlan JSON object only."
     )

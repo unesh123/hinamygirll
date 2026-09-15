@@ -156,13 +156,15 @@ class MagnificProvider:
 
     def _headers(self) -> dict[str, str]:
         key = self.api_key or ""
-        return {
-            "x-magnific-api-key": key,
-            "x-freepik-api-key": key,
-            "Authorization": f"Bearer {key}",
+        headers: dict[str, str] = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
+        if self.settings.freepik_api_key and not self.settings.magnific_api_key:
+            headers["x-freepik-api-key"] = key
+        else:
+            headers["x-magnific-api-key"] = key
+        return headers
 
     def _get_headers(self) -> dict[str, str]:
         if not self.available():
@@ -178,6 +180,8 @@ class MagnificProvider:
         return httpx.Timeout(seconds, connect=15.0)
 
     def _base_url(self) -> str:
+        if self.settings.freepik_api_key and not self.settings.magnific_api_key:
+            return "https://api.freepik.com"
         if getattr(self.settings, "magnific_base_url", None):
             return self.settings.magnific_base_url.rstrip("/")
         if self.settings.magnific_api_key:
@@ -191,7 +195,7 @@ class MagnificProvider:
             headers = self._get_headers()
             async with httpx.AsyncClient(timeout=5.0) as client:
                 res = await client.get(f"{self._base_url()}/me", headers=headers)
-                return res.status_code in (200, 401, 403)
+                return res.status_code == 200
         except Exception:
             return False
 
@@ -511,10 +515,13 @@ class MagnificProvider:
             raise MagnificProviderError("VALIDATION_ERROR", "Prompt is required for still image generation.")
 
         lowered_model = model.lower()
-        if any(marker in lowered_model for marker in ("video", "seedance", "animate", "motion", "clip")):
+        if "seedance" in lowered_model:
+            model = "flux-2-flex"
+            lowered_model = "flux-2-flex"
+        elif any(marker in lowered_model for marker in ("video", "animate", "motion", "clip")):
             raise MagnificProviderError(
                 "VIDEO_GENERATION_FORBIDDEN",
-                "Video generation (including Seedance) is strictly forbidden in this environment.",
+                "Video generation is strictly forbidden in this environment.",
                 status_code=403,
             )
 
@@ -534,7 +541,8 @@ class MagnificProvider:
             )
 
         headers = self._get_headers()
-        url = f"{self._base_url()}/ai/text-to-image"
+        submit_path = f"/v1/ai/text-to-image/{model}"
+        url = f"{self._base_url()}{submit_path}"
         payload: dict[str, Any] = {
             "prompt": prompt,
             "num_images": 1,
@@ -554,14 +562,19 @@ class MagnificProvider:
                     status_code=resp.status_code,
                 )
             result_json = resp.json()
-            items = result_json.get("data", [])
+            task_id = str((result_json.get("data") or {}).get("task_id") or result_json.get("task_id") or "")
             out_url = None
             out_b64 = None
-            if items:
-                out_url = items[0].get("url")
-                out_b64 = items[0].get("base64")
-            if not out_url and not out_b64:
-                out_url = result_json.get("url")
+            if task_id:
+                detail = await self._await_task(client, self._base_url(), submit_path, task_id, prompt)
+                out_url = detail.get("image_url") or detail.get("url") or (_extract_urls(detail)[0] if _extract_urls(detail) else None)
+            else:
+                items = result_json.get("data", [])
+                if isinstance(items, list) and items:
+                    out_url = items[0].get("url")
+                    out_b64 = items[0].get("base64")
+                if not out_url and not out_b64:
+                    out_url = result_json.get("url")
 
             if out_b64:
                 img_bytes = base64.b64decode(out_b64)
@@ -584,6 +597,7 @@ class MagnificProvider:
             return MediaResult(
                 asset_ref=stored,
                 provider=f"magnific:{model}",
+                task_id=task_id or None,
                 credits_used=result_json.get("costCredits", 8),
             )
 
@@ -652,6 +666,71 @@ class MagnificProvider:
                 credits_used=result_json.get("costCredits", 8),
             )
 
+    # ── Upscale (Creative Fabric) ────────────────────────────────────────
+    async def upscale(
+        self,
+        image_ref: str,
+        scale: float = 2.0,
+        factor: int | None = None,
+        flavor: str = "photo",
+        prompt: str = "",
+        **kwargs: Any,
+    ) -> MediaResult:
+        eff_scale = factor if factor is not None else scale
+        resolved = await self.resolver.resolve(image_ref, role="upscale_source")
+        if not self.is_configured:
+            stored = self.asset_store.store_bytes(
+                raw_bytes=resolved.bytes_data,
+                filename=f"upscaled_{resolved.asset_id[:8]}.png",
+                mime_type=resolved.mime_type or "image/png",
+                source=AssetSource.GENERATED,
+            )
+            return MediaResult(
+                asset_ref=stored,
+                provider="magnific:mock-upscale",
+                credits_used=8,
+            )
+        headers = self._get_headers()
+        b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")
+        submit_path = "/v1/ai/image-upscaler"
+        scale_val = f"{int(eff_scale)}x" if isinstance(eff_scale, (int, float)) else str(eff_scale)
+        payload: dict[str, Any] = {
+            "image": f"data:{resolved.mime_type};base64,{b64_image}",
+            "scale_factor": scale_val,
+        }
+        if prompt.strip():
+            payload["prompt"] = prompt.strip()
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{self._base_url()}{submit_path}", headers=headers, json=payload)
+            if resp.status_code not in (200, 201):
+                raise MagnificProviderError(
+                    "IMAGE_PROVIDER_ERROR",
+                    f"Magnific upscale failed with HTTP {resp.status_code}: {resp.text[:200]}",
+                    status_code=resp.status_code,
+                )
+            result_json = resp.json()
+            task_id = str((result_json.get("data") or {}).get("task_id") or result_json.get("task_id") or "")
+            if task_id:
+                detail = await self._await_task(client, self._base_url(), submit_path, task_id, prompt)
+                out_url = detail.get("image_url") or detail.get("url") or (_extract_urls(detail)[0] if _extract_urls(detail) else None)
+            else:
+                out_url = result_json.get("url") or (result_json.get("data") or {}).get("url")
+            if not out_url:
+                raise MagnificProviderError("IMAGE_PROVIDER_ERROR", "Provider did not return an upscaled image URL.")
+            out_media = await self.resolver.resolve(out_url, role="output")
+            stored = self.asset_store.store_bytes(
+                raw_bytes=out_media.bytes_data,
+                mime_type=out_media.mime_type,
+                source=AssetSource.GENERATED,
+            )
+            return MediaResult(
+                asset_ref=stored,
+                provider="magnific:upscale",
+                task_id=task_id or None,
+                credits_used=result_json.get("costCredits", 8),
+            )
+
     # ── Relight (Creative Fabric) ────────────────────────────────────────
     async def relight(
         self,
@@ -678,14 +757,15 @@ class MagnificProvider:
 
         headers = self._get_headers()
         b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")
+        submit_path = "/v1/ai/image-relight"
         payload = {
             "image": f"data:{resolved.mime_type};base64,{b64_image}",
-            "lighting_prompt": lighting_prompt,
+            "prompt": lighting_prompt,
         }
 
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
-                f"{self._base_url()}/relight",
+                f"{self._base_url()}{submit_path}",
                 headers=headers,
                 json=payload,
             )
@@ -696,7 +776,12 @@ class MagnificProvider:
                     status_code=resp.status_code,
                 )
             result_json = resp.json()
-            out_url = result_json.get("url") or result_json.get("data", {}).get("url")
+            task_id = str((result_json.get("data") or {}).get("task_id") or result_json.get("task_id") or "")
+            if task_id:
+                detail = await self._await_task(client, self._base_url(), submit_path, task_id, lighting_prompt)
+                out_url = detail.get("image_url") or detail.get("url") or (_extract_urls(detail)[0] if _extract_urls(detail) else None)
+            else:
+                out_url = result_json.get("url") or result_json.get("data", {}).get("url")
             if not out_url:
                 raise MagnificProviderError("IMAGE_PROVIDER_ERROR", "Provider did not return a relit image URL.")
 
@@ -709,6 +794,7 @@ class MagnificProvider:
             return MediaResult(
                 asset_ref=stored,
                 provider="magnific:relight",
+                task_id=task_id or None,
                 credits_used=result_json.get("costCredits", 8),
             )
 
@@ -726,12 +812,12 @@ class MagnificProvider:
         waited = 0.0
         last: dict[str, Any] = {}
         while waited < deadline:
-            response = await self._get(client, f"{base}{submit_path}/{task_id}")
+            response = await client.get(f"{base}{submit_path}/{task_id}", headers=self._headers())
             body = self._json(response)
             data = body.get("data") if isinstance(body.get("data"), dict) else body
             last = data if isinstance(data, dict) else {}
             status = str(last.get("status") or "").upper()
-            if status == "COMPLETED" or _extract_urls(last):
+            if status == "COMPLETED":
                 return last
             if status == "FAILED":
                 reason = str(last.get("message") or last.get("error") or "the task failed without a reason")

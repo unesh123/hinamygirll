@@ -4,10 +4,17 @@ from collections.abc import Awaitable, Callable
 from typing import AsyncIterator, Any
 from urllib.parse import urlparse
 from anthropic import AsyncAnthropic, APIError, APIConnectionError, APITimeoutError, RateLimitError, AuthenticationError
-from hinaa_api.providers.openai_llm import OpenAILLMProvider
+from hinaa_api.providers.openai_llm import OpenAILLMProvider, _sanitize_delta, _orchestrator_continuations, _custom_text_from_raw
 from hinaa_api.errors import HinaaError
 from hinaa_api.prompts import PromptPackage
 from hinaa_api.providers.blocks import normalize_anthropic_response, extract_text_from_canonical_blocks
+from hinaa_api.generation.orchestrator import GenerationOrchestrator
+from hinaa_api.generation.continuation_contract import (
+    ContinuationRequest,
+    render_continuation_prompt,
+    PromptInvariantVerifier,
+)
+from hinaa_api.providers.display_stream_decoder import DisplayTextChain, AdaptiveStreamDecoder
 
 logger = logging.getLogger("hinaa.providers.agent_router")
 
@@ -17,6 +24,13 @@ def _map_httpx_error(e: Exception) -> HinaaError:
         status = e.response.status_code
         if status in (401, 403):
             code = "PROVIDER_AUTH_FAILED" if status == 401 else "PROVIDER_ACCESS_DENIED"
+        elif status == 400 and any(m in e.response.text.lower() for m in ("content_filter", "safety", "refusal", "policy")):
+            return HinaaError(
+                code="SAFETY_REFUSAL",
+                status_code=400,
+                message="Refusal due to safety policy",
+                developer_message=e.response.text[:200]
+            )
         elif status == 404:
             if "model" in e.response.text.lower():
                 code = "PROVIDER_MODEL_NOT_FOUND"
@@ -46,9 +60,11 @@ class AgentRouterOpenAIProvider(OpenAILLMProvider):
     def _map_provider_error(self, error: Exception) -> HinaaError:
         return _map_httpx_error(error)
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
+    async def _stream_text(
+        self, prompt: PromptPackage, finish_reason_holder: dict[str, str | None] | None = None
+    ) -> AsyncIterator[str]:
         try:
-            async for chunk in super()._stream_text(prompt):
+            async for chunk in super()._stream_text(prompt, finish_reason_holder):
                 yield chunk
         except Exception as e:
             if isinstance(e, HinaaError):
@@ -70,6 +86,74 @@ class AgentRouterOpenAIProvider(OpenAILLMProvider):
             if isinstance(e, HinaaError):
                 raise e
             raise self._map_provider_error(e)
+
+
+def _llm_budget_tokens() -> int:
+    try:
+        from ..config import get_settings
+
+        return int(get_settings().llm_max_output_tokens)
+    except Exception:  # pragma: no cover
+        return 16_384
+
+
+def _anthropic_messages(prompt: PromptPackage) -> list[dict[str, Any]]:
+    from hinaa_api.models import safe_extract_display_text
+    from .anthropic_direct import build_anthropic_content
+
+    recent_turns = getattr(prompt, "recent_turns", None)
+    raw_user_text = getattr(prompt, "raw_user_text", None)
+    attachments = getattr(prompt, "attachments", None)
+
+    if raw_user_text:
+        messages: list[dict[str, Any]] = []
+        if recent_turns:
+            # B2.1 §5: prompt.recent_turns is ALREADY selected and budgeted by
+            # the canonical ContextCompiler. Providers serialize; they never
+            # re-select context (no independent slicing).
+            for role, content in recent_turns:
+                if role not in ("user", "assistant"):
+                    continue
+                clean_content = safe_extract_display_text(content).strip()
+                if not clean_content:
+                    continue
+                if messages and messages[-1]["role"] == role:
+                    prev = messages[-1]["content"]
+                    if isinstance(prev, str):
+                        messages[-1]["content"] = f"{prev}\n\n{clean_content}"
+                    elif isinstance(prev, list):
+                        messages[-1]["content"].append({"type": "text", "text": f"\n\n{clean_content}"})
+                else:
+                    messages.append({"role": role, "content": clean_content})
+
+        final_content = build_anthropic_content(raw_user_text.strip(), attachments)
+
+        if messages and messages[-1]["role"] == "user":
+            prev = messages[-1]["content"]
+            if isinstance(prev, str) and isinstance(final_content, str):
+                messages[-1]["content"] = f"{prev}\n\n{final_content}"
+            elif isinstance(prev, list) and isinstance(final_content, list):
+                messages[-1]["content"].extend(final_content)
+            else:
+                messages.append({"role": "assistant", "content": "Got it."})
+                messages.append({"role": "user", "content": final_content})
+        else:
+            messages.append({"role": "user", "content": final_content})
+
+        if messages and messages[0]["role"] != "user":
+            messages.insert(0, {"role": "user", "content": "Hello"})
+        return messages
+
+    # Fallback to contiguous user_contents
+    if isinstance(prompt.user_contents, str):
+        user_text = prompt.user_contents
+    elif isinstance(prompt.user_contents, (list, tuple)):
+        user_text = "\n\n".join(str(item) for item in prompt.user_contents)
+    else:
+        user_text = str(prompt.user_contents)
+
+    content = build_anthropic_content(user_text, attachments)
+    return [{"role": "user", "content": content}]
 
 
 class AgentRouterAnthropicProvider(OpenAILLMProvider):
@@ -108,6 +192,8 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         )
 
     def _map_anthropic_error(self, e: Exception) -> HinaaError:
+        if any(m in str(e).lower() for m in ("content_filter", "safety", "refusal", "policy")):
+            return HinaaError(code="SAFETY_REFUSAL", status_code=400, message="Refusal due to safety policy")
         if isinstance(e, AuthenticationError):
             return HinaaError(code="PROVIDER_AUTH_FAILED", status_code=500, message="Authentication Failed")
         elif isinstance(e, RateLimitError):
@@ -123,34 +209,39 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             return HinaaError(code="PROVIDER_UNAVAILABLE", status_code=500, message=str(e))
         return HinaaError(code="PROVIDER_RESPONSE_INVALID", status_code=500, message=str(e))
 
-    async def _stream_text(self, prompt: PromptPackage) -> AsyncIterator[str]:
-        from .anthropic_direct import build_anthropic_content
+    async def _stream_text(
+        self, prompt: PromptPackage, finish_reason_holder: dict[str, str | None] | None = None
+    ) -> AsyncIterator[str]:
         system = prompt.system_instruction
-        content = build_anthropic_content(prompt.user_contents, getattr(prompt, "attachments", None))
-        messages = [{"role": "user", "content": content}]
-        
+        messages = _anthropic_messages(prompt)
+
         try:
             async with self.anthropic_client.messages.stream(
                 model=self._model,
-                max_tokens=4096,
+                max_tokens=_llm_budget_tokens(),
                 system=system,
                 messages=messages
             ) as stream:
                 async for text in stream.text_stream:
                     yield text
+                if finish_reason_holder is not None:
+                    final = await stream.get_final_message()
+                    stop = getattr(final, "stop_reason", None)
+                    if stop:
+                        # Anthropic stop reasons normalize onto the OpenAI map.
+                        table = {"max_tokens": "max_tokens", "end_turn": "stop", "stop_sequence": "stop", "refusal": "content_filter"}
+                        finish_reason_holder["value"] = table.get(str(stop), str(stop))
         except Exception as e:
             raise self._map_anthropic_error(e)
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
-        from .anthropic_direct import build_anthropic_content
         system = prompt.system_instruction
-        content = build_anthropic_content(prompt.user_contents, getattr(prompt, "attachments", None))
-        messages = [{"role": "user", "content": content}]
+        messages = _anthropic_messages(prompt)
         
         try:
             response = await self.anthropic_client.messages.create(
                 model=self._model,
-                max_tokens=4096,
+                max_tokens=_llm_budget_tokens(),
                 system=system,
                 messages=messages
             )
@@ -172,99 +263,109 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         prompt: PromptPackage | None = None,
     ):
         if prompt is None:
-            from hinaa_api.errors import HinaaError
             raise HinaaError("MODEL_RESPONSE_INVALID", "Prompt package is required.", 500, True)
 
+        prompt = PromptInvariantVerifier.verify_or_sync(prompt)
         from hinaa_api.providers.base import ProviderResult
         from .timing import ProviderTiming
         from time import perf_counter
-        import re
 
         started = perf_counter()
         timing = ProviderTiming()
-        chunks: list[str] = []
-        provider_events = 0
-        
-        in_display = False
-        emitted_length = 0
 
         try:
-            is_prose_stream = False
             timing.mark("provider_client_ready")
-            async for delta in self._stream_text(prompt):
-                provider_events += 1
-                if provider_events == 1:
-                    timing.mark("first_provider_event")
-                chunks.append(delta)
-                current_text = "".join(chunks)
+            holder: dict[str, str | None] = {"value": None}
 
-                # Detect if the model is replying in direct natural prose instead of JSON
-                stripped = current_text.lstrip()
-                if not is_prose_stream and len(stripped) >= 1:
-                    if not stripped.startswith(("{", "```json", "```")):
-                        is_prose_stream = True
+            async def _first_stream() -> AsyncIterator[str]:
+                decoder = AdaptiveStreamDecoder()
+                try:
+                    stream_iter = self._stream_text(prompt, holder)
+                except TypeError:
+                    stream_iter = self._stream_text(prompt)
+                async for d in stream_iter:
+                    clean = decoder.feed(d)
+                    if clean:
+                        yield clean
+                rest = decoder.finish()
+                if rest:
+                    yield rest
 
-                if is_prose_stream:
-                    if not in_display:
-                        in_display = True
-                        timing.mark("first_text_delta")
-                    await emit_delta(delta)
-                    emitted_length += len(delta)
-                else:
-                    # Dynamically extract and stream the displayText value from JSON
-                    if not in_display:
-                        match = re.search(r'"displayText"\s*:\s*"', current_text)
-                        if match:
-                            in_display = True
-                            timing.mark("first_text_delta")
-                    if in_display:
-                        match = re.search(r'"displayText"\s*:\s*"', current_text)
-                        if match:
-                            raw_val = current_text[match.end():]
-                            end_match = re.search(r'(?<!\\)(?:\\\\)*"', raw_val)
-                            if end_match:
-                                raw_val = raw_val[:end_match.end() - 1]
-
-                            clean_val = raw_val.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\')
-                            new_chars = clean_val[emitted_length:]
-                            if new_chars:
-                                await emit_delta(new_chars)
-                                emitted_length += len(new_chars)
-
-            timing.mark("text_complete")
-            answer = "".join(chunks).strip()
-            
-            from hinaa_api.prompts.fallback import validate_or_none, neutral_fallback_plan
-            plan = validate_or_none(answer)
-            if plan is None and answer:
-                # Claude answered in natural conversational prose or non-standard shape.
-                # Recover the prose itself into an AssistantTurnPlan so Claude's real answer
-                # is delivered to the user and spoken aloud by TTS!
-                from hinaa_api.providers.openai_llm import _custom_text_from_raw
-                from hinaa_api.prompts.performance import build_plan_from_text
-                fallback_text = _custom_text_from_raw(answer)
-                if fallback_text:
-                    logger.info("Recovered conversational prose plan from Claude answer: %s", fallback_text[:100])
-                    plan = build_plan_from_text(
-                        text=fallback_text,
-                        companion_id=companion_id,
-                        language=language,
-                        depth=getattr(prompt, "response_depth", "conversational"),
-                    )
-            if plan is None:
-                logger.warning("Claude live answer failed validation. Raw answer was: %r", answer)
-                repaired = await self._repair_json(answer)
-                logger.warning("Claude live repair result was: %r", repaired)
-                plan = validate_or_none(repaired)
-            if plan is None:
-                logger.error("Claude live repair also failed validation. Engaging neutral fallback.")
-                plan = neutral_fallback_plan(
-                    user_text=text, companion_id=companion_id, language=language
+            def _continuation_contents(prior: str) -> PromptPackage:
+                base_text = prompt.raw_user_text or (
+                    prompt.user_contents
+                    if isinstance(prompt.user_contents, str)
+                    else "\n\n".join(str(item) for item in prompt.user_contents)
                 )
-            
+                continuation_req = ContinuationRequest(
+                    generation_id=f"{self._provider_id}:{started:.0f}",
+                    segment_number=len(orchestrator.segment_results) + 2,
+                    original_goal=base_text,
+                    previous_tail=prior[-6_000:],
+                )
+                continued_text = render_continuation_prompt(continuation_req)
+                cont_prompt = prompt.model_copy(
+                    update={
+                        "user_contents": continued_text,
+                        "raw_user_text": continued_text,
+                    }
+                )
+                return PromptInvariantVerifier.verify_or_sync(cont_prompt)
+
+            def _continuation_factory(prior: str):
+                cont_holder: dict[str, str | None] = {"value": None}
+
+                async def gen() -> AsyncIterator[str]:
+                    decoder = AdaptiveStreamDecoder()
+                    try:
+                        stream_iter = self._stream_text(_continuation_contents(prior), cont_holder)
+                    except TypeError:
+                        stream_iter = self._stream_text(_continuation_contents(prior))
+                    async for d in stream_iter:
+                        clean = decoder.feed(d)
+                        if clean:
+                            yield clean
+                    rest = decoder.finish()
+                    if rest:
+                        yield rest
+
+                return gen(), cont_holder
+
+            orchestrator = GenerationOrchestrator(
+                max_continuations=_orchestrator_continuations(),
+                char_budget=_llm_budget_tokens() * 4,
+                generation_id=f"{self._provider_id}:{started:.0f}",
+            )
+            outcome = await orchestrator.run(
+                first_segment_stream=_first_stream(),
+                first_finish_reason_holder=holder,
+                continuation_stream_factory=_continuation_factory,
+                emit_delta=emit_delta,
+                sanitize=_sanitize_delta,
+            )
+
+            provider_events = sum(r.events for r in orchestrator.segment_results)
+            timing.mark("first_provider_event")
+            timing.mark("first_text_delta")
+            timing.mark("text_complete")
+            answer = outcome.text.strip()
+            if not answer:
+                raise HinaaError(
+                    "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
+                )
+
+            from hinaa_api.prompts.performance import build_plan_from_text
+            extracted = _custom_text_from_raw(answer) or answer
+            plan = build_plan_from_text(
+                text=extracted,
+                companion_id=companion_id,
+                language=language,
+                depth=getattr(prompt, "response_depth", "conversational"),
+            )
+
             timing.mark("plan_parsed")
             timing.mark("plan_validated")
-            
+
         except HinaaError:
             raise
         except Exception as error:

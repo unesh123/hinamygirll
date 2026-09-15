@@ -72,12 +72,19 @@ class AnthropicDirectProvider:
         prompt: str | list[dict[str, Any]],
         system: str | None = None,
         model: str | None = None,
-        max_tokens: int = 2048,
+        max_tokens: int | None = None,
         attachments: list[Any] | None = None,
     ) -> ProviderResult[str]:
         api_key = self._get_api_key()
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY is not configured.")
+        if max_tokens is None:
+            try:
+                from ..config import get_settings
+
+                max_tokens = int(get_settings().llm_max_output_tokens)
+            except Exception:  # pragma: no cover
+                max_tokens = 16_384
 
         selected_model = model or self.default_model
         start_time = time.time()

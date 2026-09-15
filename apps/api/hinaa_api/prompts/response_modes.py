@@ -19,36 +19,38 @@ def infer_response_mode(user_text: str) -> ResponseMode:
     if re.match(r"^\s*/(image|draw|generate|img)\b", text):
         return "creative"
     
-    # Priority 1: Technical
-    if any(w in text for w in ["coding", "programming", "api", "debugging", "error", "stack trace", "integration", "setup", "architecture", "implementation", "repository", "build", "test"]):
+    def contains(terms: list[str]) -> bool:
+        return any(re.search(r"\b" + re.escape(term) + r"\b", text) for term in terms)
+
+    # Match words: 'latest' must not be mistaken for 'test'.
+    if contains(["coding", "programming", "api", "debugging", "error", "stack trace", "integration", "setup", "architecture", "implementation", "repository", "build", "test"]):
         return "technical"
         
     # Priority 2: Research
-    if any(w in text for w in ["research", "latest", "compare sources", "find evidence", "investigate", "citations", "current information"]):
+    if contains(["research", "latest", "compare sources", "find evidence", "investigate", "citations", "current information"]):
         return "research"
         
-    # Priority 3: Automation
-    if any(w in text for w in ["open", "click", "fill", "send", "create", "generate", "download", "upload", "schedule", "run", "execute"]):
-        return "automation"
-        
     # Priority 4: Academic
-    if any(w in text for w in ["assignment", "report", "abstract", "problem statement", "methodology", "exam", "explain chapter", "references"]):
+    if contains(["assignment", "report", "abstract", "problem statement", "methodology", "exam", "explain chapter", "references"]):
         return "academic"
         
     # Priority 5: Creative
-    if any(w in text for w in ["design", "image", "poster", "advertisement", "story", "concept", "visual"]):
+    if contains(["design", "image", "poster", "advertisement", "story", "concept", "visual"]):
         return "creative"
         
     # Priority 6: Professional
-    if any(w in text for w in ["complete", "comprehensive", "detailed", "step-by-step", "full guide", "implementation plan", "document everything"]):
+    if contains(["complete", "comprehensive", "detailed", "step-by-step", "full guide", "implementation plan", "document", "pdf", "presentation"]):
         return "professional"
+
+    if contains(["open", "click", "fill", "send", "create", "generate", "download", "upload", "schedule", "run", "execute"]):
+        return "automation"
         
     # Fallback: Conversation
     return "conversation"
 
 def response_mode_layer(mode: ResponseMode) -> str:
     guidance = {
-        "conversation": "Keep it warm and conversational. Standard depth.",
+        "conversation": "Keep it warm, natural and concise. A greeting needs a friendly reply, not a report or mandatory heading. Use at most one or two light emojis where appropriate.",
         "professional": (
             "Write a complete structured brief, not a stub. Open with a 2-3 sentence TL;DR, then "
             "organize the substance under '## ' section headings (context, findings/analysis, "
@@ -85,4 +87,8 @@ def response_mode_layer(mode: ResponseMode) -> str:
 {guidance.get(mode, guidance["conversation"])}
 - Adapt your tone and depth in the `displayText` based on this mode.
 - Even in technical/professional modes, maintain your Companion persona warmth lightly, especially in `spokenText`.
+- Follow explicit language and script requests. When the user writes Romanized Hinglish, reply naturally in Romanized Hinglish with clear English technical terms. Do not switch to Devanagari unless requested or matching the user's script.
+- Keep serious and work tasks professional; avoid romantic promises. Use clean Markdown only when structure helps, and never add decorative broken bullet markers.
+- Preserve complete code in displayText; spokenText should summarize the result without reading code or Markdown punctuation.
+- Eliminate redundancy: State every point and insight once. Never repeat whole text blocks, mirror the user prompt, or regurgitate previously stated points.
 """

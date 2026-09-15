@@ -32,15 +32,14 @@ describe("HINAA assistant workspace", () => {
 
   it("renders the Sakura OS navigation rail", () => {
     render(<App />);
-    // NavigationRail should be present with aria-label
     expect(screen.getByLabelText("HINAA navigation")).toBeInTheDocument();
   });
 
   it("renders Talk, Chat, and Projects navigation destinations", () => {
     render(<App />);
-    expect(screen.getByRole("button", { name: "Talk" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Talk" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Chat" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Projects" })[0]).toBeInTheDocument();
   });
 
   it("shows the Work mode text composer", () => {

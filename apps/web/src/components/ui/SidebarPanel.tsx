@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight, Brain, CheckSquare, FolderOpen, Image, MessageSquare, Mic, Plus, Search, Settings, Sparkles, Wrench, X,
 } from "lucide-react";
-import type { NavSection } from "./NavRail";
+import type { NavSection } from "../../design-system/layout/NavigationRail";
 
 interface SidebarPanelProps {
   section: NavSection | null;
@@ -25,8 +25,24 @@ type Shortcut = {
 };
 
 function panelTitle(section: NavSection): string {
-  return ({ chat: "Conversation", voice: "Voice", tasks: "Projects", files: "Projects", memory: "Memory", tools: "Local tools", settings: "Settings" } as const)[section];
+  const titles: Record<string, string> = {
+    chat: "Conversation",
+    talk: "Talk Mode",
+    voice: "Voice",
+    tasks: "Projects",
+    files: "Projects",
+    memory: "Memory",
+    tools: "Local tools",
+    settings: "Settings",
+    images: "Images",
+    library: "Library",
+    projects: "Projects",
+    creations: "Creations",
+    studio: "Studio",
+  };
+  return titles[section] || "Menu";
 }
+
 
 function shortcutsFor(section: NavSection, props: SidebarPanelProps): { eyebrow: string; heading: string; copy: string; items: Shortcut[] } {
   const openProjects = props.onOpenProjects;
@@ -92,8 +108,18 @@ function shortcutsFor(section: NavSection, props: SidebarPanelProps): { eyebrow:
           { label: "Open settings", detail: "Language, appearance, providers, and diagnostics", icon: <Settings size={16} />, action: props.onOpenSettings },
         ],
       };
+    default:
+      return {
+        eyebrow: "EXPLORE",
+        heading: "HINAA Workspace",
+        copy: "Multimodal workspace ready for creative and cognitive tasks.",
+        items: [
+          { label: "New conversation", detail: "Start a clean private chat", icon: <Plus size={16} />, action: props.onNewChat },
+        ],
+      };
   }
 }
+
 
 export function SidebarPanel(props: SidebarPanelProps) {
   const { section, onClose } = props;

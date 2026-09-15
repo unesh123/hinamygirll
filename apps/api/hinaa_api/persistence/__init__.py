@@ -1,9 +1,11 @@
 from .db import get_session_factory, init_db
 from .memory_service import MemoryService
 from .migrations import get_migration_status, run_migrations
+from .task_service import TaskService
 
 __all__ = [
     "MemoryService",
+    "TaskService",
     "get_migration_status",
     "get_session_factory",
     "init_db",

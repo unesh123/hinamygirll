@@ -5,13 +5,13 @@
  */
 
 import { memo, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import type { TranscriptMessage } from "../../companion/types";
 import styles from "./MessageBubble.module.css";
 import { GenericResultRenderer } from "./GenericResultRenderer";
 import { ToolApprovalPanel } from "./ToolApprovalPanel";
 import { ThinkingWeave } from "../../../components/ui/ThinkingWeave";
-import { renderMarkdownHtml } from "../../../lib/markdown";
+import { ResponseMarkdown } from "../../../components/ui/ResponseMarkdown";
 import { downloadMarkdownPdf } from "../../documents/exportPdf";
 import type { AssistantTurnPlan } from "../../../contracts/assistantTurnPlan";
 
@@ -48,6 +48,7 @@ export const MessageBubble = memo(function MessageBubble({
   autoRunTools = false,
 }: Props) {
   const isUser = message.role === "user";
+  const reducedMotion = useReducedMotion();
   const isError =
     message.text.startsWith("Response failed safely.") ||
     message.text.includes("rate limited");
@@ -64,7 +65,6 @@ export const MessageBubble = memo(function MessageBubble({
   }, [message.createdAt]);
 
   const isLong = message.text.length > 120;
-  const renderedHTML = useMemo(() => renderMarkdownHtml(message.text), [message.text]);
   const [pdfState, setPdfState] = useState<"idle" | "working" | "done" | "error">("idle");
   // One tool request owns one current result. Keep the latest record when an
   // older persisted session or an earlier UI race contains duplicates.
@@ -89,17 +89,17 @@ export const MessageBubble = memo(function MessageBubble({
       data-group-start={isGroupStart ? "true" : "false"}
       data-testid={testId}
       aria-label={ariaLabel}
-      initial={{ opacity: 0, y: 12, x: isUser ? 16 : -16 }}
+      initial={reducedMotion ? false : { opacity: 0, y: 12, x: isUser ? 16 : -16 }}
       animate={{ opacity: 1, y: 0, x: 0 }}
       transition={{ duration: 0.4, ease: [0.22, 0.61, 0.36, 1] }}
-      layout="position"
+      layout={reducedMotion ? false : "position"}
     >
       {/* HINAA identity chip */}
       {!isUser && isGroupStart && !isThinking && (
         <motion.span
           className={styles.chip}
           aria-hidden="true"
-          initial={{ scale: 0 }}
+          initial={reducedMotion ? false : { scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.08, duration: 0.35, ease: [0.34, 1.56, 0.64, 1] }}
         >
@@ -118,13 +118,13 @@ export const MessageBubble = memo(function MessageBubble({
             <div className={styles.text}>
               {isStreaming && message.text ? (
                 <>
-                  <span className="hinaa-markdown" dangerouslySetInnerHTML={{ __html: renderedHTML }} />
+                  <ResponseMarkdown text={message.text} streaming />
                   <span className={styles.cursor} aria-hidden="true" />
                 </>
               ) : isUser ? (
                 message.text
               ) : (
-                <span className="hinaa-markdown" dangerouslySetInnerHTML={{ __html: renderedHTML }} />
+                <ResponseMarkdown text={message.text} />
               )}
             </div>
           </div>
@@ -138,7 +138,7 @@ export const MessageBubble = memo(function MessageBubble({
         {visibleToolResults.length > 0 && (
           <div className={styles.toolResultsContainer} style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {visibleToolResults.map((tr, i) => (
-              <GenericResultRenderer key={`${tr.toolName}-${i}`} toolName={tr.toolName} result={tr.result} />
+              <GenericResultRenderer key={`${tr.toolName}-${i}`} toolName={tr.toolName} result={tr.result} conversationId={message.conversationId} />
             ))}
           </div>
         )}

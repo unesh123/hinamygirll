@@ -4,6 +4,8 @@ import "./App.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { AudioLines, ListChecks, ScanFace, Search, Wand2, Sparkles } from "lucide-react";
 import { AppShell } from "./design-system/layout/AppShell";
+import { TopBarV6, type WorkspaceMode } from "./design-system/layout/TopBarV6";
+
 import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
@@ -19,26 +21,27 @@ import {
 import { FullScreenAura } from "./components/ui/FullScreenAura";
 import { AuroraVeil } from "./components/ui/AuroraVeil";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
-import { PremiumComposer } from "./components/ui/PremiumComposer";
 import type { PresenceMode } from "./components/ui/AvatarPresence";
 import { HinaDrawer } from "./components/lightswind/Drawer";
 import { SidebarProvider } from "./components/lightswind/Sidebar";
 import { synthesizeSpeech } from "./features/audio/api";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
+import { SpeechPlaybackContext } from "./features/audio/speechPlaybackBridge";
 import { useLiveConversation } from "./features/audio/useLiveConversation";
 import { useVSeeFace } from "./features/audio/useVSeeFace";
 import { companionProfiles, type CompanionId, type CompanionState } from "./features/companion/types";
 import { useCompanionController } from "./features/companion/useCompanionController";
+import {
+  getOrCreateActiveConversationId,
+  createNextConversationId,
+  saveActiveSession,
+} from "./features/companion/sessionManager";
 import { useProviders } from "./features/providers/hooks/useProviders";
 import { useEntranceStagger } from "./features/motion/useEntranceStagger";
 import { useProviderRouting } from "./features/providers/hooks/useProviderRouting";
-import { SettingsDialog, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
-import { AppearanceSettings } from "./features/settings/sections/AppearanceSettings";
-import { LanguageSettings } from "./features/settings/sections/LanguageSettings";
-import { ProviderSettings } from "./features/settings/sections/ProviderSettings";
-import { AutomationSettings } from "./features/settings/sections/AutomationSettings";
-import { DiagnosticsSettings } from "./features/settings/sections/DiagnosticsSettings";
-import { NavRail, type NavSection } from "./components/ui/NavRail";
+import { SettingsV6, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
+import type { NavSection } from "./design-system/layout/NavigationRail";
+
 import { ActivityPanel, type AgentStep } from "./components/ui/ActivityPanel";
 import { ActionChips, type ActionChip } from "./components/ui/ActionChips";
 import type { ContextMode } from "./components/ui/ContextWorkspace";
@@ -121,7 +124,14 @@ const DEFAULT_AVATAR_MODEL = HINAA_AVATAR_MODELS[0].url;
 const MANAGED_AVATAR_URL = /^\/api\/v1\/avatar-assets\/avatar-[0-9a-f-]+\/file$/i;
 
 function isSelectableAvatarUrl(value: string | null): value is string {
-  return Boolean(value && (HINAA_AVATAR_MODELS.some((model) => model.url === value) || MANAGED_AVATAR_URL.test(value)));
+  return Boolean(
+    value && (
+      HINAA_AVATAR_MODELS.some((model) => model.url === value) ||
+      MANAGED_AVATAR_URL.test(value) ||
+      value.startsWith("blob:") ||
+      value.startsWith("/models/")
+    )
+  );
 }
 
 function getPersistedAvatarModel(): string {
@@ -328,6 +338,7 @@ export default function App() {
   const [drawerContent, setDrawerContent] = useState<React.ReactNode>(null);
   const [input, setInput] = useState("");
   const [searching, setSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [voiceReply, setVoiceReply] = useState<VoiceReplyState>({
     kind: "idle",
@@ -353,6 +364,7 @@ export default function App() {
   }, []);
   const unlockAudio = useCallback(async () => {
     try {
+      await playback.unlockAudio();
       const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
       if (ctx && ctx.state === "suspended") {
         await ctx.resume();
@@ -362,7 +374,7 @@ export default function App() {
     } catch {
       // AudioContext unlock failed — browser may require a different gesture
     }
-  }, []);
+  }, [playback]);
 
   // ─── Sakura OS mode state ──────────────────────────────
   const [sakuraView, setSakuraView] = useState<"talk" | "work" | "operate">("work");
@@ -405,10 +417,12 @@ export default function App() {
     setAvatarModel(modelUrl);
     setAvatarMode(getPersistedAvatarCamera(modelUrl));
     setAvatarPresentation(getPersistedAvatarPresentation(modelUrl));
-    try {
-      window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
-    } catch {
-      // The renderer still works when browser storage is unavailable.
+    if (!modelUrl.startsWith("blob:")) {
+      try {
+        window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
+      } catch {
+        // The renderer still works when browser storage is unavailable.
+      }
     }
   };
   const importAndSelectAvatar = async (file: File) => {
@@ -433,11 +447,27 @@ export default function App() {
   const facialSignalActive = faceActive && faceTrack.hasFacialSignal;
 
   const routing = useProviderRouting(settings.provider, providers);
+  const [activeConversationId, setActiveConversationId] = useState<string>(() => getOrCreateActiveConversationId());
+
   const controller = useCompanionController({
+    conversationId: activeConversationId,
     routing,
     languagePolicy: settings.language.activePolicy,
     autoRunTools: settings.automation.autoRunTools,
   });
+
+  const handleNewChat = useCallback(() => {
+    const nextId = createNextConversationId();
+    setActiveConversationId(nextId);
+    controller.resetConversation(nextId);
+  }, [controller]);
+
+  const handleSelectConversation = useCallback((id: string) => {
+    if (!id) return;
+    setActiveConversationId(id);
+    saveActiveSession({ conversationId: id });
+  }, []);
+
   // This is HINAA's own text only. The avatar director uses it for a subtle
   // deterministic expression accent; it never classifies webcam/user emotion.
   const latestAssistantExpressionText = [...controller.messages].reverse().find((message) => message.role === "assistant")?.text;
@@ -467,6 +497,7 @@ export default function App() {
   const live = useLiveConversation({
     controller,
     playback,
+    conversationId: activeConversationId,
     calibration: "natural",
     outputMode: "headphones",
     activeLanguagePolicy: settings.language.activePolicy,
@@ -518,16 +549,20 @@ export default function App() {
   }, [playback.playing, playbackSession]);
 
   /* ─── Submit ─────────────────────────────────────────── */
-  const submit = useCallback((event?: any) => {
+  const submit = useCallback((event?: any, overrideText?: string) => {
     if (event && "preventDefault" in event) event.preventDefault();
-    if ((!input.trim() && !attachedImage) || live.active) return;
+    const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
+    if ((!textToSend && !attachedImage) || live.active) return;
+    void unlockAudio();
     interruptPlayback();
-    const text = input || (attachedImage ? "Look at this image" : "");
+    const text = textToSend || (attachedImage ? "Look at this image" : "");
     const imageData = attachedImage;
     setInput("");
     setAttachedImage(null);
     void (async () => {
-      const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
+      const result = await controller.sendText(text, {
+        imageUrl: imageData || undefined,
+      });
       const plan = result?.plan;
       if (!result || !plan) return;
       // Derive spokenText from displayText when the model omits it.
@@ -740,21 +775,39 @@ export default function App() {
 
     if (controller.state === "thinking") {
       const latestUserText = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
-      const isResearch = /search|find|research|look up|source|citation/i.test(latestUserText);
-      setSearching(isResearch);
-      if (isResearch) setContextMode("research");
-      setAgentSteps([
-        {
-          id: "awaiting-live-progress",
-          label: "Waiting for live execution updates",
-          detail: "The backend runtime will report each real step as it starts",
-          status: "active",
-        },
-      ]);
+      const isResearch = /search|find|research|look up|source|citation|latest|current|news|today|tonight|recent|recently|weather|score|price|stock|update|2026|live|right now|happening/i.test(latestUserText);
+      const isChatOnly = /^(hi|hello|hey|babe|gm|gn|good morning|good evening|bye|thanks|thank you)\b/i.test(latestUserText.trim()) || /^\/(image|pdf|doc)/i.test(latestUserText.trim());
+      const shouldSearch = isResearch && !isChatOnly;
+      setSearching(shouldSearch);
+      if (shouldSearch) {
+        setContextMode("research");
+        const cleanQuery = latestUserText
+          .replace(/^(hinaa|hey hinaa|can you|please|could you|tell me|what is|what's|search for|look up|find|give me|check)\s+/i, "")
+          .trim();
+        setSearchQuery(cleanQuery || latestUserText.slice(0, 40));
+        setAgentSteps([
+          {
+            id: "web_search",
+            label: "Searching the live web…",
+            detail: `Looking up live 2026 data: "${(cleanQuery || latestUserText).slice(0, 36)}"`,
+            status: "active",
+          },
+        ]);
+      } else {
+        setAgentSteps([
+          {
+            id: "awaiting-live-progress",
+            label: "Waiting for live execution updates",
+            detail: "The backend runtime will report each real step as it starts",
+            status: "active",
+          },
+        ]);
+      }
       return;
     }
 
     setSearching(false);
+    setSearchQuery("");
     if (controller.state === "speaking" || controller.state === "idle") {
       setAgentSteps((previous) => previous.map((step) =>
         step.status === "error" || step.status === "cancelled" || step.status === "pending"
@@ -823,8 +876,9 @@ export default function App() {
   if (isVoiceLab) return <VoiceLab />;
 
   return (
-    <SidebarProvider defaultExpanded={false}>
-      <div className="hinaa-shell">
+    <SpeechPlaybackContext.Provider value={playback.speech}>
+      <SidebarProvider defaultExpanded={false}>
+        <div className="hinaa-shell">
         {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
         <AuroraVeil state={controller.state} />
         <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />
@@ -843,45 +897,30 @@ export default function App() {
               else if (section === "memory") openMemoryPanel();
               else if (section === "settings") setSettingsOpen(true);
             }}
-            onNewChat={() => controller.resetConversation()}
+            onNewChat={handleNewChat}
+            onSelectConversation={handleSelectConversation}
             onToggleHistory={() => setSidebarExpanded((prev) => (prev ? null : "chat"))}
             historyOpen={Boolean(sidebarExpanded)}
-            activeConversationId={null}
+            activeConversationId={activeConversationId}
           >
-            {/* Mode navigation tabs */}
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "var(--space-1)",
-              padding: "var(--space-2) var(--space-4)",
-              borderBottom: "1px solid var(--border-subtle)",
-              background: "var(--bg-secondary)",
-              flexShrink: 0,
-            }}>
-              {(["talk", "work", "operate"] as const).map((mode) => (
-                <motion.button
-                  key={mode}
-                  onClick={() => setSakuraView(mode)}
-                  whileTap={{ scale: 0.95 }}
-                  style={{
-                    padding: "var(--space-1-5) var(--space-4)",
-                    borderRadius: "var(--radius-pill)",
-                    border: "none",
-                    background: sakuraView === mode ? "var(--accent-pale)" : "transparent",
-                    color: sakuraView === mode ? "var(--accent)" : "var(--text-tertiary)",
-                    fontSize: "var(--text-sm)",
-                    fontWeight: sakuraView === mode ? 600 : 500,
-                    fontFamily: "var(--font-body)",
-                    cursor: "pointer",
-                    textTransform: "capitalize",
-                  }}
-                  aria-pressed={sakuraView === mode}
-                >
-                  {mode}
-                </motion.button>
-              ))}
-            </div>
+            {/* Unified Frontier TopBar V6 */}
+            <TopBarV6
+              currentMode={sakuraView as WorkspaceMode}
+              onModeChange={(mode) => setSakuraView(mode)}
+              activeProject={{ id: "main", name: "HINAA Workspace", repo: "main" }}
+              activeGoal={
+                controller.activePlan?.topic
+                  ? { id: "current-goal", title: typeof controller.activePlan.topic === "string" ? controller.activePlan.topic : String(controller.activePlan.topic) }
+                  : null
+              }
+              activeProviderName={routing.activeModel || (routing.activeMode === "mock" ? "Mock Engine" : "Frontier Engine")}
+              isOnline={routing.activeMode ? providers.getHealth(routing.activeMode as any) !== "unavailable" : true}
+              onOpenSearch={() => setSidebarExpanded("chat")}
+              onOpenProjectSettings={openProjectWorkspace}
+              onOpenGoalDetails={() => setSakuraView("work")}
+            />
+
+
 
 
             {/* Mode content */}
@@ -917,6 +956,7 @@ export default function App() {
                 onOpenAvatarLab={openAvatarLab}
                 onToggleFullscreen={() => {}}
                 onTypeInstead={() => setSakuraView("work")}
+                onSendText={(text: string) => submit(undefined, text)}
                 isMuted={playback.muted}
                 onToggleMute={playback.toggleMute}
                 onReplay={() => void playback.replay()}
@@ -933,13 +973,16 @@ export default function App() {
               <WorkMode
                 companionId={controller.companionId}
                 companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+                plan={controller.activePlan}
                 messages={controller.messages}
                 streamingText={controller.streamingText}
                 partialTranscript={controller.partialTranscript}
                 isThinking={controller.state === "thinking" && !controller.streamingText && !controller.partialTranscript}
+                isSearching={controller.isSearching || searching}
+                searchQuery={controller.searchQuery || searchQuery}
                 input={input}
                 onInputChange={setInput}
-                onSend={() => submit()}
+                onSend={(customText?: string) => submit(undefined, customText)}
                 onStop={handleStop}
                 disabled={controller.state !== "idle" && controller.state !== "thinking"}
                 isVoiceActive={live.active}
@@ -983,6 +1026,7 @@ export default function App() {
                 speakingRef={playback.playingRef}
                 visemeEvents={playback.visemeEvents}
                 audioStartTimeRef={playback.audioStartTimeRef}
+                speechBridge={playback.speech}
                 // Provider micro-status & fallback props
                 activeProviderMode={routing.activeMode ?? "mock"}
                 activeProviderModel={routing.activeModel}
@@ -1044,13 +1088,19 @@ export default function App() {
 
         {/* Overlays */}
         <Suspense fallback={null}><MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} /></Suspense>
-        <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}>
-          <AppearanceSettings appearance={settings.appearance} onChange={setAppearance} />
-          <LanguageSettings language={settings.language} onChange={setLanguage} />
-          <ProviderSettings provider={settings.provider} providers={providers} onChange={setProvider} activeMode={routing.activeMode as any} />
-          <AutomationSettings automation={settings.automation} onChange={setAutomation} />
-          <DiagnosticsSettings providers={providers} />
-        </SettingsDialog>
+        <SettingsV6
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          setAppearance={setAppearance}
+          setLanguage={setLanguage}
+          setProvider={setProvider}
+          setAutomation={setAutomation}
+          providers={providers}
+          activeMode={routing.activeMode as any}
+          isMuted={playback.muted}
+          onToggleMute={playback.toggleMute}
+        />
         <HinaDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} mode={drawerMode} title={drawerTitle} side="bottom">{drawerContent}</HinaDrawer>
         <VoiceDiagnosticsDrawer
           isOpen={diagnosticsOpen}
@@ -1070,5 +1120,6 @@ export default function App() {
         </Suspense>
       </div>
     </SidebarProvider>
+    </SpeechPlaybackContext.Provider>
   );
 }

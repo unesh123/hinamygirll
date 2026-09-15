@@ -27,6 +27,7 @@ const FEATURED_PROVIDERS: Record<string, ProviderMeta> = {
   real: { label: "Gemini", desc: "Google Gemini Multimodal Flash", icon: "🌐", featured: true },
   claude: { label: "Claude", desc: "Anthropic Messages / Deep Reasoning", icon: "🧠", featured: true },
   qwen: { label: "Qwen", desc: "Multilingual & Coding Specialist", icon: "🏮", featured: true },
+  ollama: { label: "Ollama (Local)", desc: "Fast uncensored local models (dolphin-mistral, etc.)", icon: "🦙", featured: true },
   local: { label: "Local", desc: "Zero-credit on-device model (offline)", icon: "💻", featured: true },
   mock: { label: "Demo", desc: "Deterministic testing without API keys", icon: "🧪", featured: true },
 };
@@ -245,7 +246,7 @@ export function BrainSelector({
 
             {/* 2. Primary Providers List */}
             {providerOptions
-              .filter((opt) => ["cx-gateway", "real", "claude", "qwen", "local", "mock"].includes(opt.mode))
+              .filter((opt) => ["cx-gateway", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
               .map((opt) => {
                 const isSelected = opt.mode === currentMode;
                 const meta = FEATURED_PROVIDERS[opt.mode] || { label: opt.label, desc: opt.description, icon: "🤖" };
@@ -424,7 +425,7 @@ export function BrainSelector({
             {showAdvanced && (
               <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
                 {providerOptions
-                  .filter((opt) => !["cx-gateway", "real", "claude", "qwen", "local", "mock"].includes(opt.mode))
+                  .filter((opt) => !["cx-gateway", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
                   .map((opt) => {
                     const isSelected = opt.mode === currentMode;
                     return (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, CheckCircle2, XCircle, StopCircle, Sparkles, Wrench, FileSearch } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, StopCircle, Sparkles, Wrench, FileSearch, Globe } from "lucide-react";
 
 export interface ActivityStep {
   id: string;
@@ -306,6 +306,12 @@ export function AgentActivityCard({
                 <StopCircle size={13} style={{ color: "#64748b", flexShrink: 0 }} />
               ) : isPending ? (
                 <Wrench size={13} style={{ color: "#a855f7", flexShrink: 0 }} />
+              ) : st.id.includes("search") || st.title.toLowerCase().includes("search") ? (
+                <Globe
+                  size={13}
+                  className="animate-spin"
+                  style={{ color: "#0ea5e9", flexShrink: 0, animationDuration: "2.5s" }}
+                />
               ) : (
                 <Loader2
                   size={13}

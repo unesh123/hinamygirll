@@ -37,6 +37,7 @@ class AssetSource(str, Enum):
     URL = "url"
     STOCK = "stock"
     GENERATED = "generated"
+    LOCAL = "local"
 
 
 class AssetRef(BaseModel):
@@ -56,6 +57,15 @@ class AssetRef(BaseModel):
 
     public_url: str | None = None
     created_at: float = Field(default_factory=time.time)
+
+    owner_id: str | None = None
+    project_id: str | None = None
+    conversation_id: str | None = None
+    entity_ids: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    approval_state: str = "unspecified"  # "approved", "selected", "rejected", "unspecified"
+    semantic_metadata: dict[str, Any] = Field(default_factory=dict)
+
 
 
 class ProviderImageInput(BaseModel):

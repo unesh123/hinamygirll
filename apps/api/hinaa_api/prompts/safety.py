@@ -43,3 +43,10 @@ TOOL_POLICY_LAYER = """TOOL POLICY:
   - When the user message begins with "/image <prompt>" or "/generate <prompt>", you MUST immediately emit an image_generate ToolRequest with prompt=<prompt>.
   - When the user message begins with "/imagesearch <query>", you MUST immediately emit an image_search ToolRequest with query=<query>.
 """
+
+REALTIME_TOOL_POLICY_LAYER = """TOOL POLICY (Fast Conversational Mode):
+- Registered tools available: web_search (current news, real-time info, web links), image_generate (artwork, photos, wallpaper), etc.
+- For current news, real-time prices, or links, emit a web_search ToolRequest. For image creation, emit an image_generate ToolRequest.
+- For everyday chat, studying, coding, or discussion, respond directly, conversationally, and warmly without tools.
+"""
+

@@ -6,7 +6,7 @@ import type {
   ConversationRequest,
 } from "./conversationProvider";
 
-type ProviderMode = "mock" | "local" | "groq" | "openai" | "custom" | "real" | "claude" | "qwen" | "agent-router" | "cx-gateway" | "gemini-live";
+import type { ProviderMode } from "./types/provider";
 
 interface StreamEvent {
   type: string;
@@ -18,6 +18,8 @@ interface StreamEvent {
   event?: unknown;
   runId?: string;
   stepId?: string | null;
+  query?: string;
+  sourcesCount?: number;
 }
 
 function normalizeAgentEvent(event: StreamEvent): AgentRuntimeEvent | null {
@@ -64,9 +66,10 @@ export class BackendConversationProvider implements ConversationProvider {
   async *streamTurn(
     request: ConversationRequest,
   ): AsyncGenerator<ConversationProviderEvent> {
+    const convId = request.conversationId ?? request.sessionId ?? this.fallbackSessionId;
     const payload: Record<string, any> = {
-      sessionId: request.sessionId ?? request.conversationId ?? this.fallbackSessionId,
-      conversationId: request.conversationId ?? request.sessionId ?? this.fallbackSessionId,
+      sessionId: convId,
+      conversationId: convId,
       text: request.text,
       companionId: request.companionId,
       language: request.language,
@@ -97,6 +100,7 @@ export class BackendConversationProvider implements ConversationProvider {
         this.mode === "qwen" ||
         this.mode === "agent-router" ||
         this.mode === "cx-gateway" ||
+        this.mode === "codecraft" ||
         this.mode === "real") &&
       request.brainModel
     ) {
@@ -114,6 +118,7 @@ export class BackendConversationProvider implements ConversationProvider {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let lastSeenSequence = -1;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -126,8 +131,20 @@ export class BackendConversationProvider implements ConversationProvider {
           const agentEvent = normalizeAgentEvent(event);
           if (agentEvent) yield { type: "agent.event", event: agentEvent };
           if (event.type === "thinking") yield { type: "thinking" };
-          if (event.type === "text.delta" && event.delta)
+          if (event.type === "search.started")
+            yield { type: "search.started", query: event.query || "" };
+          if (event.type === "search.completed")
+            yield { type: "search.completed", query: event.query || "", sourcesCount: event.sourcesCount };
+          if (event.type === "text.delta" && event.delta) {
+            const rawEvent = event as unknown as Record<string, unknown>;
+            if (typeof rawEvent.sequence === "number") {
+              if (rawEvent.sequence <= lastSeenSequence) {
+                continue;
+              }
+              lastSeenSequence = rawEvent.sequence;
+            }
             yield { type: "text.delta", delta: event.delta };
+          }
           if (event.type === "plan" && event.plan) {
             let plan: any;
             try {
