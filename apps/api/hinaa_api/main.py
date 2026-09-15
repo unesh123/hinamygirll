@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 import time
 import httpx
@@ -783,9 +784,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
+        allow_origin_regex=r"https://.*\.vercel\.app",
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Correlation-ID", "Authorization", "X-HINAA-Dev-User"],
+        allow_headers=["*"],
         expose_headers=["X-Correlation-ID", "X-HINAA-Provider", "X-HINAA-Latency-Ms"],
     )
     app.add_exception_handler(HinaaError, hinaa_error_handler)  # type: ignore[arg-type]
@@ -1109,7 +1111,149 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "lastErrorCode": None if credential_present else "CREDENTIAL_MISSING",
         }
 
+    @app.get("/v1/capabilities")
+    @app.get("/api/v1/capabilities")
+    async def get_capabilities() -> dict[str, Any]:
+        """Expose runtime environment, configured providers, real models, and modes.
+        Derives from active server settings; never exposes raw credentials."""
+        has_claude = bool(getattr(active_settings, "claude_configured", False))
+        has_gemini = bool(getattr(active_settings, "gemini_configured", False))
+        has_openai = bool(getattr(active_settings, "openai_configured", False))
+        has_deepseek = bool(
+            os.environ.get("DEEPSEEK_PKAY_API_KEY")
+            or os.environ.get("DEEPSEEK_API_KEY")
+        )
+        has_elevenlabs = bool(getattr(active_settings, "elevenlabs_configured", False))
+        has_azure = bool(getattr(active_settings, "azure_configured", False))
+        has_ydc = bool(
+            (getattr(active_settings, "youcom_api_key", None) and active_settings.youcom_api_key.get_secret_value())
+            or os.environ.get("YDC_API_KEY")
+        )
+
+        providers = [
+            {
+                "id": "claude",
+                "name": "Anthropic Claude",
+                "configured": has_claude,
+                "defaultModel": active_settings.active_claude_model,
+                "allowedModels": list(active_settings.claude_allowed_models),
+                "protocol": active_settings.active_claude_protocol,
+            },
+            {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "configured": has_gemini,
+                "defaultModel": "gemini-2.5-pro",
+                "allowedModels": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"],
+                "protocol": "native-sdk",
+            },
+            {
+                "id": "deepseek",
+                "name": "DeepSeek AI",
+                "configured": has_deepseek,
+                "defaultModel": "deepseek-chat",
+                "allowedModels": ["deepseek-chat", "deepseek-reasoner"],
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "openai",
+                "name": "OpenAI / Codex",
+                "configured": has_openai,
+                "defaultModel": active_settings.active_openai_model,
+                "allowedModels": list(active_settings.openai_allowed_models),
+                "protocol": "openai-sdk",
+            },
+            {
+                "id": "you",
+                "name": "You.com Research",
+                "configured": has_ydc,
+                "defaultModel": "ydc-search",
+                "allowedModels": ["ydc-search"],
+                "protocol": "web-search-api",
+            },
+        ]
+
+        models = [
+            {
+                "id": "claude-3-7-sonnet-20250219",
+                "name": "Claude 3.7 Sonnet",
+                "provider": "claude",
+                "tier": "frontier",
+                "configured": has_claude,
+                "description": "Anthropic flagship hybrid reasoning and coding model",
+            },
+            {
+                "id": "claude-3-5-haiku-20241022",
+                "name": "Claude 3.5 Haiku",
+                "provider": "claude",
+                "tier": "fast",
+                "configured": has_claude,
+                "description": "High-velocity conversational reasoning and execution",
+            },
+            {
+                "id": "gemini-2.5-pro",
+                "name": "Gemini 2.5 Pro",
+                "provider": "gemini",
+                "tier": "frontier",
+                "configured": has_gemini,
+                "description": "Google frontier multimodal reasoning and large context",
+            },
+            {
+                "id": "gemini-2.5-flash",
+                "name": "Gemini 2.5 Flash",
+                "provider": "gemini",
+                "tier": "fast",
+                "configured": has_gemini,
+                "description": "Low-latency multimodal tool dispatch and instant turns",
+            },
+            {
+                "id": "deepseek-chat",
+                "name": "DeepSeek V3",
+                "provider": "deepseek",
+                "tier": "frontier",
+                "configured": has_deepseek,
+                "description": "High-efficiency coding, math, and general reasoning",
+            },
+            {
+                "id": "gpt-4o",
+                "name": "GPT-4o (Codex)",
+                "provider": "openai",
+                "tier": "frontier",
+                "configured": has_openai,
+                "description": "OpenAI flagship multimodal synthesis and code analysis",
+            },
+        ]
+
+        return {
+            "runtime": {
+                "version": "1.0.0",
+                "environment": active_settings.environment or "production",
+                "backendConnected": True,
+                "activeMode": active_settings.provider_mode,
+                "persistenceEnabled": active_settings.persistence_enabled,
+                "authMode": active_settings.auth_mode,
+            },
+            "modes": {
+                "auto": True,
+                "fast": True,
+                "deep": True,
+                "max": True,
+                "goal": True,
+            },
+            "providers": providers,
+            "models": models,
+            "features": {
+                "webSearch": has_ydc,
+                "artifacts": True,
+                "goals": True,
+                "agentCluster": bool(active_settings.agent_runtime_enabled),
+                "memory": bool(active_settings.persistence_enabled),
+                "speech": has_elevenlabs or has_azure,
+            },
+        }
+
     @app.get("/v1/providers", response_model=list[ProviderStatus])
+    @app.get("/api/v1/providers", response_model=list[ProviderStatus])
     async def provider_status() -> list[ProviderStatus]:
         # A provider on an ephemeral quick tunnel can keep valid-looking config
         # long after the tunnel has died. Probe those hosts so the UI never shows
@@ -2908,6 +3052,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return task_service.recover_interrupted_tasks(owner_id=auth.user_id)
 
     @app.post("/v1/conversations/turns:stream")
+    @app.post("/api/v1/conversations/turns:stream")
     async def stream_turn(request: Request, body: TurnRequest) -> StreamingResponse:
         # The web client normally sends its resolved provider explicitly. For
         # direct local API callers, inherit the CX-first server preference only

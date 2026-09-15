@@ -280,7 +280,11 @@ class Settings(BaseSettings):
     deepgram_base_url: str = Field("https://api.deepgram.com", alias="Deepgram_BASE_URL")
     deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"],
+        default_factory=lambda: [
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "https://hinaa-workspace.vercel.app",
+        ],
         alias="HINAA_ALLOWED_ORIGINS",
     )
     max_audio_bytes: int = 4 * 1024 * 1024

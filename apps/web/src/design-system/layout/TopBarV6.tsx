@@ -1,20 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
-  FolderGit2,
-  Target,
-  Search,
-  Sparkles,
   MessageSquare,
-  Briefcase,
-  SlidersHorizontal,
+  Brain,
+  FileText,
+  Search,
+  ChevronDown,
+  Layers,
+  Bell,
   Sun,
   Moon,
-  CheckCircle2,
-  ChevronDown,
-  X,
+  Settings,
 } from "lucide-react";
+import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
+import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 
 export type WorkspaceMode = "talk" | "work" | "operate";
+export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
 
 export interface TopBarV6Props {
   currentMode: WorkspaceMode;
@@ -28,350 +29,325 @@ export interface TopBarV6Props {
   onOpenSearch?: () => void;
   onOpenProjectSettings?: () => void;
   onOpenGoalDetails?: () => void;
+  clusterActive?: boolean;
+  onToggleCluster?: () => void;
+  onSelectModel?: (modelId: string, providerId: string) => void;
+  selectedModelId?: string | null;
 }
 
 export const TopBarV6: React.FC<TopBarV6Props> = ({
   currentMode,
   onModeChange,
-  activeProject = { id: "default", name: "HINAA Workspace", repo: "main" },
-  activeGoal,
-  activeProviderName = "Auto (Frontier)",
+  activeProject = { id: "default", name: "HINA Workspace", repo: "main" },
   isOnline = true,
   isDark = false,
   onToggleTheme,
   onOpenSearch,
-  onOpenProjectSettings,
-  onOpenGoalDetails,
+  clusterActive = true,
+  onToggleCluster,
+  onSelectModel,
+  selectedModelId,
 }) => {
-  const [goalPopoverOpen, setGoalPopoverOpen] = useState(false);
+  const [executiveMode, setExecutiveMode] = useState<ExecutiveMode>("chat");
+  const [clusterEnabled, setClusterEnabled] = useState(clusterActive);
+  const { models, providers, runtime } = useCapabilities();
+  const [isAuto, setIsAuto] = useState(!selectedModelId);
 
-  // Keyboard shortcut listener for Ctrl+K / Cmd+K
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        onOpenSearch?.();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onOpenSearch]);
+  const handleModeClick = (mode: ExecutiveMode) => {
+    setExecutiveMode(mode);
+    if (mode === "chat") onModeChange("work");
+    else if (mode === "research") onModeChange("work");
+    else onModeChange("work");
+  };
+
+  const handleToggleCluster = () => {
+    setClusterEnabled(!clusterEnabled);
+    onToggleCluster?.();
+  };
 
   return (
     <header
       className="topbar-v6"
+      data-testid="executive-topbar"
       style={{
-        height: "var(--topbar-height, 52px)",
+        height: 54,
         width: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0 16px",
-        background: "var(--surface-glass, rgba(255, 255, 255, 0.85))",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        borderBottom: "1px solid var(--border-subtle, rgba(0, 0, 0, 0.08))",
-        zIndex: 40,
+        padding: "0 20px",
+        background: "#ffffff",
+        borderBottom: "1px solid #e2e8f0",
+        zIndex: 25,
         userSelect: "none",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       }}
     >
-      {/* ── Left: Project Pill & Goal Pill ──────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-        {/* Project Pill */}
+      {/* ── Left: Breadcrumb ────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <button
           type="button"
-          onClick={onOpenProjectSettings}
-          className="topbar-project-pill"
-          title="Active Project Workspace"
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 6,
-            padding: "5px 12px",
-            borderRadius: "var(--radius-full, 9999px)",
-            background: "var(--surface-subtle, #f6f3f7)",
-            border: "1px solid var(--border-subtle, rgba(0, 0, 0, 0.08))",
-            color: "var(--text-primary, #1e191d)",
+            gap: 4,
+            background: "transparent",
+            border: "none",
+            color: "#64748b",
             fontSize: 13,
             fontWeight: 500,
             cursor: "pointer",
-            transition: "all 0.15s ease",
-            whiteSpace: "nowrap",
+            padding: 0,
           }}
         >
-          <FolderGit2 size={14} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
-          <span>{activeProject?.name || "Workspace"}</span>
-          <ChevronDown size={12} style={{ opacity: 0.6 }} />
+          <span>Workspace</span>
+          <ChevronDown size={12} style={{ opacity: 0.7 }} />
         </button>
-
-        {/* Goal Pill (if active) */}
-        {activeGoal ? (
-          <div style={{ position: "relative" }}>
-            <button
-              type="button"
-              onClick={() => setGoalPopoverOpen(!goalPopoverOpen)}
-              className="topbar-goal-pill"
-              title="Active Persistent Goal"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "5px 12px",
-                borderRadius: "var(--radius-full, 9999px)",
-                background: "var(--accent-subtle, #fff2f6)",
-                border: "1px solid var(--border-accent, rgba(220, 95, 139, 0.35))",
-                color: "var(--accent-primary, #dc5f8b)",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-                maxWidth: 220,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              <Target size={13} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                {activeGoal.title}
-              </span>
-              <ChevronDown size={11} style={{ opacity: 0.7 }} />
-            </button>
-
-            {/* Goal Preview Popover */}
-            {goalPopoverOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 8px)",
-                  left: 0,
-                  width: 280,
-                  padding: 14,
-                  background: "var(--surface-overlay, #ffffff)",
-                  borderRadius: "var(--radius-md, 12px)",
-                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
-                  border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
-                  zIndex: 50,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-primary)" }}>
-                    ACTIVE GOAL
-                  </div>
-                  <button
-                    onClick={() => setGoalPopoverOpen(false)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)" }}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 6 }}>
-                  {activeGoal.title}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
-                  {activeGoal.criteriaCount ? `${activeGoal.criteriaCount} acceptance criteria tracked` : "Continuous goal tracking active"}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGoalPopoverOpen(false);
-                    onOpenGoalDetails?.();
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "6px 12px",
-                    background: "var(--accent-primary)",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "var(--radius-sm, 8px)",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  View Goal Specs
-                </button>
-              </div>
-            )}
-          </div>
-        ) : null}
+        <span style={{ color: "#cbd5e1", fontSize: 13 }}>/</span>
+        <span style={{ fontSize: 13, fontWeight: 650, color: "#0f172a" }}>
+          Chat
+        </span>
       </div>
 
-      {/* ── Center: Workspace Mode Switcher (Talk / Work / Operate) ──────── */}
+      {/* ── Center: Executive Modes Pills ──────────────── */}
       <div
-        className="topbar-mode-switcher"
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 2,
-          padding: 3,
-          borderRadius: "var(--radius-full, 9999px)",
-          background: "var(--surface-subtle, #f6f3f7)",
-          border: "1px solid var(--border-subtle, rgba(0, 0, 0, 0.08))",
+          gap: 4,
+          background: "#f8fafc",
+          padding: "3px 4px",
+          borderRadius: 10,
+          border: "1px solid #f1f5f9",
         }}
       >
         <button
           type="button"
-          onClick={() => onModeChange("talk")}
-          className={`mode-tab ${currentMode === "talk" ? "active" : ""}`}
+          data-testid="mode-chat"
+          onClick={() => handleModeClick("chat")}
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            padding: "5px 14px",
-            borderRadius: "var(--radius-full, 9999px)",
+            padding: "5px 12px",
+            borderRadius: 7,
             border: "none",
-            fontSize: 13,
-            fontWeight: currentMode === "talk" ? 600 : 500,
-            background: currentMode === "talk" ? "var(--surface-card, #ffffff)" : "transparent",
-            color: currentMode === "talk" ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
-            boxShadow: currentMode === "talk" ? "var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05))" : "none",
+            fontSize: 12,
+            fontWeight: executiveMode === "chat" ? 600 : 500,
+            background: executiveMode === "chat" ? "#1a232b" : "transparent",
+            color: executiveMode === "chat" ? "#ffffff" : "#64748b",
             cursor: "pointer",
-            transition: "all 0.15s ease",
+            transition: "all 0.12s ease",
+            boxShadow: executiveMode === "chat" ? "0 1px 2px rgba(0,0,0,0.1)" : "none",
           }}
         >
           <MessageSquare size={13} />
-          <span>Talk</span>
+          <span>Chat</span>
         </button>
 
         <button
           type="button"
-          onClick={() => onModeChange("work")}
-          className={`mode-tab ${currentMode === "work" ? "active" : ""}`}
+          data-testid="mode-deep-reasoning"
+          onClick={() => handleModeClick("deep-reasoning")}
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            padding: "5px 14px",
-            borderRadius: "var(--radius-full, 9999px)",
-            border: "none",
-            fontSize: 13,
-            fontWeight: currentMode === "work" ? 600 : 500,
-            background: currentMode === "work" ? "var(--surface-card, #ffffff)" : "transparent",
-            color: currentMode === "work" ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
-            boxShadow: currentMode === "work" ? "var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05))" : "none",
-            cursor: "pointer",
-            transition: "all 0.15s ease",
-          }}
-        >
-          <Briefcase size={13} />
-          <span>Work</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onModeChange("operate")}
-          className={`mode-tab ${currentMode === "operate" ? "active" : ""}`}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "5px 14px",
-            borderRadius: "var(--radius-full, 9999px)",
-            border: "none",
-            fontSize: 13,
-            fontWeight: currentMode === "operate" ? 600 : 500,
-            background: currentMode === "operate" ? "var(--surface-card, #ffffff)" : "transparent",
-            color: currentMode === "operate" ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
-            boxShadow: currentMode === "operate" ? "var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05))" : "none",
-            cursor: "pointer",
-            transition: "all 0.15s ease",
-          }}
-        >
-          <SlidersHorizontal size={13} />
-          <span>Operate</span>
-        </button>
-      </div>
-
-      {/* ── Right: Global Search, Provider Pill, Theme Toggle ─────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* Global Search Button */}
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          className="topbar-search-btn"
-          title="Search conversation, files, and tools (Ctrl+K)"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
             padding: "5px 12px",
-            borderRadius: "var(--radius-full, 9999px)",
-            background: "var(--surface-subtle, #f6f3f7)",
-            border: "1px solid var(--border-subtle, rgba(0, 0, 0, 0.08))",
-            color: "var(--text-tertiary, #847a83)",
+            borderRadius: 7,
+            border: "none",
             fontSize: 12,
-            fontWeight: 500,
+            fontWeight: executiveMode === "deep-reasoning" ? 600 : 500,
+            background: executiveMode === "deep-reasoning" ? "#1a232b" : "transparent",
+            color: executiveMode === "deep-reasoning" ? "#ffffff" : "#64748b",
             cursor: "pointer",
+            transition: "all 0.12s ease",
+          }}
+        >
+          <Brain size={13} />
+          <span>Deep Reasoning</span>
+        </button>
+
+        <button
+          type="button"
+          data-testid="mode-report"
+          onClick={() => handleModeClick("report")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 7,
+            border: "none",
+            fontSize: 12,
+            fontWeight: executiveMode === "report" ? 600 : 500,
+            background: executiveMode === "report" ? "#1a232b" : "transparent",
+            color: executiveMode === "report" ? "#ffffff" : "#64748b",
+            cursor: "pointer",
+            transition: "all 0.12s ease",
+          }}
+        >
+          <FileText size={13} />
+          <span>Report</span>
+        </button>
+
+        <button
+          type="button"
+          data-testid="mode-research"
+          onClick={() => handleModeClick("research")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 7,
+            border: "none",
+            fontSize: 12,
+            fontWeight: executiveMode === "research" ? 600 : 500,
+            background: executiveMode === "research" ? "#1a232b" : "transparent",
+            color: executiveMode === "research" ? "#ffffff" : "#64748b",
+            cursor: "pointer",
+            transition: "all 0.12s ease",
           }}
         >
           <Search size={13} />
-          <span className="hidden sm:inline">Search...</span>
-          <kbd
-            style={{
-              padding: "1px 5px",
-              background: "var(--surface-card, #ffffff)",
-              border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))",
-              borderRadius: "var(--radius-xs, 4px)",
-              fontSize: 10,
-              fontWeight: 600,
-              color: "var(--text-muted)",
-            }}
-          >
-            ⌘K
-          </kbd>
+          <span>Research</span>
         </button>
+      </div>
 
-        {/* Provider Indicator Pill */}
-        <div
-          title={`Active Engine: ${activeProviderName}`}
+      {/* ── Right: Cluster, Real Model Selector & Actions ─── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* Cluster ON Badge */}
+        <button
+          type="button"
+          data-testid="cluster-toggle-btn"
+          onClick={handleToggleCluster}
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 5,
-            padding: "4px 10px",
-            borderRadius: "var(--radius-full, 9999px)",
-            background: "var(--surface-subtle, #f6f3f7)",
-            fontSize: 12,
-            color: "var(--text-secondary, #5e545d)",
+            gap: 6,
+            padding: "5px 10px",
+            borderRadius: 8,
+            background: clusterEnabled ? "#ecfdf5" : "#f1f5f9",
+            border: clusterEnabled ? "1px solid #a7f3d0" : "1px solid #e2e8f0",
+            color: clusterEnabled ? "#065f46" : "#64748b",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.12s ease",
           }}
         >
+          <Layers size={12} color={clusterEnabled ? "#10b981" : "#94a3b8"} />
+          <span>Cluster ON</span>
           <span
             style={{
               width: 6,
               height: 6,
               borderRadius: "50%",
-              backgroundColor: isOnline ? "var(--semantic-success-fg, #15803d)" : "var(--semantic-warning-fg, #b45309)",
+              background: clusterEnabled ? "#10b981" : "#94a3b8",
             }}
           />
-          <span style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {activeProviderName}
-          </span>
-        </div>
+        </button>
 
-        {/* Dark Mode Toggle */}
+        {/* Real Model Selector V7 */}
+        <ModelSelectorV7
+          models={models}
+          providers={providers}
+          selectedModelId={selectedModelId}
+          isAutoRouter={isAuto}
+          onSelectAuto={() => {
+            setIsAuto(true);
+            onSelectModel?.("auto", "auto");
+          }}
+          onSelectModel={(model) => {
+            setIsAuto(false);
+            onSelectModel?.(model.id, model.provider);
+          }}
+          backendConnected={runtime.backendConnected}
+        />
+
+        {/* Search button */}
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          title="Search (⌘K)"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            border: "1px solid #e2e8f0",
+            background: "#ffffff",
+            color: "#64748b",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <Search size={14} />
+        </button>
+
+        {/* Notification Bell */}
+        <button
+          type="button"
+          title="Notifications"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            border: "1px solid #e2e8f0",
+            background: "#ffffff",
+            color: "#64748b",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <Bell size={14} />
+        </button>
+
+        {/* Theme Sun */}
         {onToggleTheme && (
           <button
             type="button"
             onClick={onToggleTheme}
-            className="topbar-theme-toggle"
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            title={isDark ? "Light Mode" : "Dark Mode"}
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
               width: 32,
               height: 32,
-              borderRadius: "50%",
-              background: "transparent",
-              border: "1px solid var(--border-subtle, rgba(0, 0, 0, 0.08))",
-              color: "var(--text-secondary, #5e545d)",
+              borderRadius: 8,
+              border: "1px solid #e2e8f0",
+              background: "#ffffff",
+              color: "#64748b",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               cursor: "pointer",
             }}
           >
-            {isDark ? <Sun size={15} /> : <Moon size={15} />}
+            {isDark ? <Moon size={14} /> : <Sun size={14} />}
           </button>
         )}
+
+        {/* User Initials Circle */}
+        <div
+          style={{
+            width: 30,
+            height: 30,
+            borderRadius: 9999,
+            background: "#fecdd3",
+            color: "#be123c",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 11,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          AM
+        </div>
       </div>
     </header>
   );

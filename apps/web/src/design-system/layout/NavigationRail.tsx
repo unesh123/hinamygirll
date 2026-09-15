@@ -1,23 +1,14 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React from "react";
 import {
-  Mic,
-  MessageCircle,
-  FolderKanban,
-  Puzzle,
-  Brain,
+  MessageSquare,
+  LayoutGrid,
+  Cpu,
+  FileText,
   Settings,
-  Wrench,
-  ChevronLeft,
-  ChevronRight,
-  Moon,
-  Sun,
-  Wifi,
-  WifiOff,
-  Image as ImageIcon,
-  BookOpen,
   Plus,
-  Clock,
+  Sparkles,
+  User,
+  Circle,
 } from "lucide-react";
 
 export type NavSection =
@@ -33,26 +24,10 @@ export type NavSection =
   | "creations"
   | "memory"
   | "studio"
-  | "settings";
-
-
-interface NavItem {
-  id: NavSection;
-  label: string;
-  icon: React.ReactNode;
-  section: "primary" | "secondary";
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { id: "chat", label: "Chat", icon: <MessageCircle size={20} />, section: "primary" },
-  { id: "images", label: "Images", icon: <ImageIcon size={20} />, section: "primary" },
-  { id: "library", label: "Library", icon: <BookOpen size={20} />, section: "primary" },
-  { id: "talk", label: "Talk", icon: <Mic size={20} />, section: "primary" },
-  { id: "projects", label: "Projects", icon: <FolderKanban size={20} />, section: "primary" },
-  { id: "creations", label: "Plugins & Skills", icon: <Puzzle size={20} />, section: "primary" },
-  { id: "memory", label: "Memory", icon: <Brain size={20} />, section: "secondary" },
-  { id: "settings", label: "Settings", icon: <Settings size={20} />, section: "secondary" },
-];
+  | "settings"
+  | "dashboard"
+  | "models"
+  | "reports";
 
 interface NavigationRailProps {
   active: NavSection;
@@ -75,356 +50,390 @@ export function NavigationRail({
   isDark = false,
   onToggleTheme,
 }: NavigationRailProps) {
-  const [expanded, setExpanded] = useState(false);
-  const primaryItems = NAV_ITEMS.filter((i) => i.section === "primary");
-  const secondaryItems = NAV_ITEMS.filter((i) => i.section === "secondary");
+  const isChatActive = active === "chat" || active === "talk" || active === "voice";
+
+  const navItems = [
+    {
+      id: "chat" as NavSection,
+      title: "Chat",
+      subtitle: "Converse with HINA",
+      icon: MessageSquare,
+      active: isChatActive,
+    },
+    {
+      id: "dashboard" as NavSection,
+      title: "Dashboard",
+      subtitle: "System overview",
+      icon: LayoutGrid,
+      active: active === "dashboard" || active === "tasks",
+    },
+    {
+      id: "models" as NavSection,
+      title: "Models",
+      subtitle: "AI model selection",
+      icon: Cpu,
+      active: active === "models" || active === "creations",
+    },
+    {
+      id: "reports" as NavSection,
+      title: "Reports",
+      subtitle: "Generated documents",
+      icon: FileText,
+      active: active === "reports" || active === "files" || active === "library",
+    },
+    {
+      id: "settings" as NavSection,
+      title: "Settings",
+      subtitle: "Preferences",
+      icon: Settings,
+      active: active === "settings",
+    },
+  ];
 
   return (
-    <nav
+    <aside
       className="sakura-nav-rail"
-      data-expanded={expanded}
-      aria-label="HINAA navigation"
+      data-testid="executive-nav-sidebar"
       style={{
-        width: expanded ? "var(--nav-rail-expanded)" : "var(--nav-rail-width)",
+        width: 260,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: "#ffffff",
+        borderRight: "1px solid #e2e8f0",
+        padding: "16px 14px",
+        flexShrink: 0,
+        zIndex: 30,
+        userSelect: "none",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       }}
     >
-      {/* Logo */}
-      <div className="sakura-nav-logo" style={{
-        padding: expanded ? "var(--space-3) var(--space-4)" : "var(--space-3) 0",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: expanded ? "flex-start" : "center",
-        gap: "var(--space-2)",
-        marginBottom: "var(--space-2)",
-      }}>
-        <div style={{
-          width: 32,
-          height: 32,
-          borderRadius: "var(--radius-md)",
-          background: "linear-gradient(135deg, var(--accent), var(--peach))",
+      {/* ── Brand / Header ──────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 6px 16px 6px" }}>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 10,
+            background: "#1a232b",
+            color: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 2px 6px rgba(26, 35, 43, 0.2)",
+          }}
+        >
+          <Sparkles size={16} />
+        </div>
+        <div>
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: 14,
+              letterSpacing: "0.14em",
+              color: "#0f172a",
+              lineHeight: 1.1,
+            }}
+          >
+            H I N A
+          </div>
+          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500, letterSpacing: "0.02em" }}>
+            Intelligence OS
+          </div>
+        </div>
+      </div>
+
+      {/* ── Profile Card ────────────────────────────── */}
+      <div
+        style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
-          color: "white",
-          fontWeight: 800,
-          fontSize: "var(--text-sm)",
-          fontFamily: "var(--font-retro)",
-          flexShrink: 0,
-          boxShadow: "0 2px 8px var(--accent-glow)",
-        }}>
-          H
+          gap: 10,
+          padding: "8px 10px",
+          background: "#ffffff",
+          borderRadius: 12,
+          border: "1px solid #f1f5f9",
+          boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.03)",
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 30,
+            height: 30,
+            borderRadius: 9999,
+            background: "#fecdd3",
+            color: "#be123c",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 700,
+            fontSize: 11,
+            flexShrink: 0,
+          }}
+        >
+          AL
         </div>
-        <AnimatePresence>
-          {expanded && (
-            <motion.span
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -8 }}
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#1e293b",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            Alex Morgan
+          </div>
+          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>
+            Pro · Cluster access
+          </div>
+        </div>
+      </div>
+
+      {/* ── Primary Action: + New Session ──────────── */}
+      {onNewChat && (
+        <button
+          type="button"
+          data-testid="new-session-sidebar-btn"
+          onClick={onNewChat}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "9px 12px",
+            background: "#1a232b",
+            color: "#ffffff",
+            borderRadius: 12,
+            border: "none",
+            cursor: "pointer",
+            marginBottom: 14,
+            boxShadow: "0 2px 4px rgba(26, 35, 43, 0.15)",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600 }}>
+            <Plus size={15} />
+            <span>New Session</span>
+          </div>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: "1px 6px",
+              borderRadius: 5,
+              background: "rgba(255, 255, 255, 0.15)",
+              color: "rgba(255, 255, 255, 0.8)",
+            }}
+          >
+            ⌘N
+          </span>
+        </button>
+      )}
+
+      {/* ── Nav Tabs List ───────────────────────────── */}
+      <nav style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = item.active;
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              data-testid={`sidebar-nav-${item.id}`}
+              onClick={() => onNavigate(item.id)}
               style={{
-                fontFamily: "var(--font-retro)",
-                fontSize: "var(--text-sm)",
-                fontWeight: 700,
-                color: "var(--text-primary)",
-                letterSpacing: "var(--tracking-wide)",
-                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: isActive ? "1px solid rgba(226, 232, 240, 0.8)" : "1px solid transparent",
+                background: isActive ? "#f1f5f9" : "transparent",
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 0.12s ease",
+                position: "relative",
               }}
             >
-              HINAA
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Icon
+                  size={16}
+                  style={{
+                    color: isActive ? "#0f172a" : "#64748b",
+                    flexShrink: 0,
+                  }}
+                />
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: isActive ? 650 : 500,
+                      color: isActive ? "#0f172a" : "#475569",
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {item.title}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "#94a3b8",
+                      lineHeight: 1.2,
+                      marginTop: 1,
+                    }}
+                  >
+                    {item.subtitle}
+                  </div>
+                </div>
+              </div>
 
-      {/* New Chat + History buttons */}
-      <div style={{
-        display: "flex",
-        flexDirection: expanded ? "row" : "column",
-        gap: "var(--space-1)",
-        padding: expanded ? "0 var(--space-2)" : "0 var(--space-1-5)",
-        marginBottom: "var(--space-2)",
-        alignItems: "center",
-      }}>
-        {onNewChat && (
-          <motion.button
-            type="button"
-            onClick={onNewChat}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            aria-label="New chat"
-            title="New chat"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: expanded ? "flex-start" : "center",
-              gap: "var(--space-2)",
-              padding: expanded ? "var(--space-2) var(--space-3)" : "var(--space-2)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--border-default)",
-              background: "var(--accent)",
-              color: "#ffffff",
-              cursor: "pointer",
-              fontSize: "var(--text-sm)",
-              fontWeight: 600,
-              fontFamily: "var(--font-body)",
-              width: expanded ? "100%" : 40,
-              minHeight: 40,
-              flex: expanded ? 1 : "none",
-            }}
-          >
-            <Plus size={18} />
-            <AnimatePresence>
-              {expanded && (
-                <motion.span
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -8 }}
-                  style={{ whiteSpace: "nowrap" }}
-                >
-                  New chat
-                </motion.span>
+              {isActive && (
+                <div
+                  style={{
+                    width: 3,
+                    height: 18,
+                    borderRadius: 9999,
+                    background: "#f43f5e",
+                  }}
+                />
               )}
-            </AnimatePresence>
-          </motion.button>
-        )}
-        {onToggleHistory && (
-          <motion.button
-            type="button"
-            onClick={onToggleHistory}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            aria-label="Conversation history"
-            title="Conversation history"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "var(--space-2)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--border-default)",
-              background: historyOpen ? "var(--accent-pale)" : "transparent",
-              color: historyOpen ? "var(--accent)" : "var(--text-tertiary)",
-              cursor: "pointer",
-              width: 40,
-              minHeight: 40,
-              flexShrink: 0,
-            }}
-          >
-            <Clock size={18} />
-          </motion.button>
-        )}
-      </div>
+            </button>
+          );
+        })}
+      </nav>
 
-      {/* Primary nav */}
-      <div className="sakura-nav-section" style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-1)",
-        padding: expanded ? "0 var(--space-2)" : "0 var(--space-1-5)",
-        flex: 1,
-      }}>
-        {primaryItems.map((item) => (
-          <NavButton
-            key={item.id}
-            item={item}
-            isActive={active === item.id}
-            isExpanded={expanded}
-            onClick={() => onNavigate(item.id)}
-          />
-        ))}
-      </div>
-
-      {/* Secondary nav */}
-      <div className="sakura-nav-section" style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-1)",
-        padding: expanded ? "0 var(--space-2)" : "0 var(--space-1-5)",
-        borderTop: "1px solid var(--border-subtle)",
-        paddingTop: "var(--space-3)",
-      }}>
-        {secondaryItems.map((item) => (
-          <NavButton
-            key={item.id}
-            item={item}
-            isActive={active === item.id}
-            isExpanded={expanded}
-            onClick={() => onNavigate(item.id)}
-          />
-        ))}
-      </div>
-
-      {/* Bottom controls */}
-      <div style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-1)",
-        padding: expanded ? "0 var(--space-2) var(--space-3)" : "0 var(--space-1-5) var(--space-3)",
-        alignItems: "center",
-      }}>
-        {/* Connection status */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          padding: "var(--space-1-5) var(--space-2)",
-          borderRadius: "var(--radius-sm)",
-          fontSize: "var(--text-xs)",
-          color: isOnline ? "var(--success)" : "var(--danger)",
-          fontWeight: 500,
-          width: expanded ? "100%" : "auto",
-          justifyContent: expanded ? "flex-start" : "center",
-        }}>
-          {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
-          <AnimatePresence>
-            {expanded && (
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-              >
-                {isOnline ? "Online" : "Offline"}
-              </motion.span>
-            )}
-          </AnimatePresence>
+      {/* ── CONNECTED SOURCES Section ──────────────── */}
+      <div style={{ marginTop: 20 }}>
+        <div
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            color: "#94a3b8",
+            textTransform: "uppercase",
+            padding: "4px 8px 8px 8px",
+          }}
+        >
+          CONNECTED SOURCES
         </div>
 
-        {/* Theme toggle */}
-        <button
-          onClick={onToggleTheme}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 36,
-            height: 36,
-            borderRadius: "var(--radius-sm)",
-            border: "1px solid var(--border-subtle)",
-            background: "transparent",
-            color: "var(--text-tertiary)",
-            cursor: "pointer",
-            transition: "all var(--duration-fast) var(--ease-standard)",
-          }}
-          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-        >
-          {isDark ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 8px" }}>
+          {/* Knowledge Base */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "#10b981",
+                  flexShrink: 0,
+                }}
+              />
+              <span>Knowledge Base</span>
+            </div>
+            <span style={{ fontSize: 10, color: "#10b981", fontWeight: 500 }}>
+              Synced
+            </span>
+          </div>
 
-        {/* Expand toggle */}
+          {/* Calendar */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "#3b82f6",
+                  flexShrink: 0,
+                }}
+              />
+              <span>Calendar</span>
+            </div>
+            <span style={{ fontSize: 10, color: "#10b981", fontWeight: 500 }}>
+              Synced
+            </span>
+          </div>
+
+          {/* Documents */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "#f59e0b",
+                  flexShrink: 0,
+                }}
+              />
+              <span>Documents</span>
+            </div>
+            <span style={{ fontSize: 10, color: "#10b981", fontWeight: 500 }}>
+              Synced
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Footer ─────────────────────────────────── */}
+      <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid #f1f5f9" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, paddingLeft: 4 }}>
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: "#10b981",
+            }}
+          />
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#1e293b" }}>
+            All systems nominal
+          </span>
+        </div>
+        <div style={{ fontSize: 10, color: "#94a3b8", paddingLeft: 19 }}>
+          6 nodes · 99.97% uptime
+        </div>
+
         <button
-          onClick={() => setExpanded(!expanded)}
+          type="button"
+          onClick={() => onNavigate("settings")}
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            width: 36,
-            height: 36,
-            borderRadius: "var(--radius-sm)",
-            border: "1px solid var(--border-subtle)",
+            gap: 8,
+            marginTop: 12,
+            padding: "6px 8px",
+            borderRadius: 8,
+            border: "none",
             background: "transparent",
-            color: "var(--text-tertiary)",
+            color: "#64748b",
+            fontSize: 11,
             cursor: "pointer",
-            transition: "all var(--duration-fast) var(--ease-standard)",
+            width: "100%",
+            textAlign: "left",
           }}
-          title={expanded ? "Collapse navigation" : "Expand navigation"}
-          aria-label={expanded ? "Collapse navigation" : "Expand navigation"}
         >
-          {expanded ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+          <User size={13} />
+          <span>Account</span>
         </button>
       </div>
 
       <style>{`
         .sakura-nav-rail {
           display: flex;
-          flex-direction: column;
-          background: var(--bg-secondary);
-          border-right: 1px solid var(--border-subtle);
-          height: 100%;
-          transition: width var(--duration-slow) var(--ease-soft);
-          overflow: hidden;
-          flex-shrink: 0;
-          z-index: var(--z-raised);
         }
-
         @media (max-width: 768px) {
           .sakura-nav-rail {
-            display: none;
+            display: none !important;
           }
         }
       `}</style>
-    </nav>
-  );
-}
-
-function NavButton({
-  item,
-  isActive,
-  isExpanded,
-  onClick,
-}: {
-  item: NavItem;
-  isActive: boolean;
-  isExpanded: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      aria-label={item.label}
-      aria-current={isActive ? "page" : undefined}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.97 }}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--space-3)",
-        padding: isExpanded ? "var(--space-2) var(--space-3)" : "var(--space-2)",
-        borderRadius: "var(--radius-md)",
-        border: "none",
-        background: isActive ? "var(--accent-pale)" : "transparent",
-        color: isActive ? "var(--accent)" : "var(--text-tertiary)",
-        cursor: "pointer",
-        fontSize: "var(--text-sm)",
-        fontWeight: isActive ? 600 : 500,
-        fontFamily: "var(--font-body)",
-        transition: "background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard)",
-        justifyContent: isExpanded ? "flex-start" : "center",
-        width: "100%",
-        minHeight: 40,
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      {isActive && (
-        <motion.div
-          layoutId="nav-active-indicator"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 3,
-            height: 20,
-            borderRadius: "var(--radius-pill)",
-            background: "var(--accent)",
-          }}
-          transition={{ type: "spring", stiffness: 400, damping: 30 }}
-        />
-      )}
-      <span style={{ flexShrink: 0, display: "flex" }}>{item.icon}</span>
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.span
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -8 }}
-            style={{ whiteSpace: "nowrap" }}
-          >
-            {item.label}
-          </motion.span>
-        )}
-      </AnimatePresence>
-    </motion.button>
+    </aside>
   );
 }

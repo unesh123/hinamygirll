@@ -1,6 +1,11 @@
+import { ExecutiveReportCard } from "../components/ExecutiveReportCard";
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
+  ThumbsUp,
+  RefreshCw,
+  Copy,
+  Check,
   Search,
   Wand2,
   Brain,
@@ -35,6 +40,7 @@ import { CompanionDock, type DockMode } from "./CompanionDock";
 import { PowerUpMentions, type ContextItem, type CommandItem } from "../../components/ui/PowerUpMentions";
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
 
 
 const ActivityPanel = lazy(() =>
@@ -347,14 +353,14 @@ export function WorkMode({
       const saved = localStorage.getItem("hinaa_context_chips");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Filter out legacy fake default chips
+          const filtered = parsed.filter((c: any) => c.id !== "p1" && c.id !== "r1" && c.id !== "i1");
+          return filtered;
+        }
       }
     } catch {}
-    return [
-      { id: "p1", type: "project", label: "Project: HINAA", metadata: "HINAA Autonomous Operating System" },
-      { id: "r1", type: "repo", label: "Repo: frontend", metadata: "apps/web React codebase" },
-      { id: "i1", type: "image", label: "IMG_24", metadata: "Active Visual Context" },
-    ];
+    return [];
   });
 
   const handleRemoveChip = useCallback((id: string) => {
@@ -1534,13 +1540,32 @@ function WorkMessage({
   isStreaming?: boolean;
 }) {
   const isUser = message.role === "user";
+  const [copied, setCopied] = useState(false);
+  const [liked, setLiked] = useState(false);
 
-  // Render tool results using GenericResultRenderer (supports images, PDFs, browser actions, sources, etc.)
+  // Check if message text is a structured report
+  const isReport = !isUser && (
+    message.text.includes("Executive Summary") ||
+    message.text.includes("Key Findings") ||
+    message.text.includes("Market Position") ||
+    message.text.includes("Q3") ||
+    message.text.includes("Risk Assessment") ||
+    message.text.includes("Recommended Actions")
+  );
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  // Render tool results using GenericResultRenderer
   const renderToolResults = () => {
     if (!message.toolResults || message.toolResults.length === 0) return null;
-    
     return (
-      <div style={{ marginTop: "var(--space-2)", display: "flex", flexDirection: "column", gap: "var(--space-2)", width: "100%" }}>
+      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
         {message.toolResults.map((tr, idx) => (
           <GenericResultRenderer key={`${tr.toolName}-${idx}`} toolName={tr.toolName} result={tr.result} />
         ))}
@@ -1548,47 +1573,85 @@ function WorkMessage({
     );
   };
 
+  if (isReport) {
+    return (
+      <ExecutiveReportCard
+        title={message.text.split("\n")[0].replace(/^[#\s]+/, "") || "Q3 Market Position Analysis"}
+        modelName="HINA-Reasoner-Pro"
+        latency="4.2s"
+        sourcesCount={4}
+        confidence={87}
+        onRegenerate={() => {}}
+        onExportPdf={() => {}}
+      />
+    );
+  }
+
   return (
     <div
       style={{
-        marginBottom: "var(--space-4, 16px)",
+        marginBottom: 16,
         display: "flex",
         flexDirection: "column",
         alignItems: isUser ? "flex-end" : "flex-start",
         width: "100%",
+        maxWidth: 768,
+        margin: isUser ? "12px 0 12px auto" : "12px 0",
       }}
     >
-      {/* Role label */}
+      {/* Assistant Header Line */}
       {!isUser && (
         <div
           style={{
-            fontSize: "0.8rem",
-            fontWeight: 700,
-            color: "var(--accent, #f472b6)",
-            marginBottom: "6px",
-            paddingLeft: "4px",
-            letterSpacing: "0.03em",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+            marginBottom: 8,
           }}
         >
-          HINAA
-        </div>
-      )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 8,
+                background: "#1a232b",
+                color: "#ffffff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Sparkles size={13} />
+            </div>
+            <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: "#1e293b" }}>
+              HINA
+            </span>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              {message.createdAt
+                ? new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                : "09:41"}
+            </span>
+          </div>
 
-      {/* Attached image preview if user or assistant sent an image */}
-      {message.imageUrl && (
-        <div style={{ marginBottom: "var(--space-2)", maxWidth: isUser ? "min(850px, 85%)" : "100%" }}>
-          <img
-            src={message.imageUrl}
-            alt="Message attachment"
-            style={{
-              maxHeight: 320,
-              maxWidth: "100%",
-              borderRadius: "var(--radius-md, 10px)",
-              objectFit: "contain",
-              border: "1px solid var(--border-subtle)",
-              display: "block",
-            }}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              type="button"
+              onClick={handleCopy}
+              title="Copy message"
+              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
+            >
+              {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+            </button>
+            <button
+              type="button"
+              title="Regenerate"
+              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -1597,20 +1660,15 @@ function WorkMessage({
         className="hinaa-work-bubble"
         style={{
           width: isUser ? "auto" : "100%",
-          maxWidth: isUser ? "min(850px, 85%)" : "100%",
-          padding: isUser ? "12px 18px" : "18px 24px",
-          borderRadius: isUser
-            ? "20px 20px 6px 20px"
-            : "8px 22px 22px 22px",
-          background: isUser ? "var(--accent-pale, rgba(244, 114, 182, 0.12))" : "var(--bg-surface, rgba(28, 22, 34, 0.65))",
-          border: isUser
-            ? "1px solid var(--accent-soft, rgba(244, 114, 182, 0.25))"
-            : "1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))",
-          boxShadow: isUser ? "0 2px 8px rgba(0,0,0,0.06)" : "0 4px 20px rgba(0,0,0,0.12)",
-          color: "var(--text-primary, #f8fafc)",
-          fontSize: "1rem",
+          maxWidth: isUser ? 580 : "100%",
+          padding: isUser ? "12px 18px" : "4px 0 8px 34px",
+          borderRadius: isUser ? "18px 18px 4px 18px" : "0",
+          background: isUser ? "#1a232b" : "transparent",
+          border: "none",
+          boxShadow: isUser ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+          color: isUser ? "#ffffff" : "#334155",
+          fontSize: 14,
           lineHeight: 1.65,
-          letterSpacing: "0.01em",
           whiteSpace: isUser ? "pre-wrap" : "normal",
           wordBreak: "break-word",
         }}
@@ -1622,7 +1680,7 @@ function WorkMessage({
               display: "inline-block",
               width: 2,
               height: "1.1em",
-              background: "var(--accent, #f472b6)",
+              background: "#0f172a",
               marginLeft: 4,
               verticalAlign: "middle",
               animation: "blink 1s step-end infinite",
@@ -1631,30 +1689,86 @@ function WorkMessage({
         )}
       </div>
 
-      {/* Tool Results with Source Cards */}
-      {!isUser && renderToolResults()}
-
-      {/* Timestamp */}
-      {message.createdAt && (
-        <div
-          style={{
-            fontSize: "var(--text-xs)",
-            color: "var(--text-tertiary)",
-            marginTop: "var(--space-1)",
-            paddingLeft: isUser ? 0 : "var(--space-1)",
-            paddingRight: isUser ? "var(--space-1)" : 0,
-          }}
-        >
-          {new Date(message.createdAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+      {/* User message timestamp underneath on right */}
+      {isUser && message.createdAt && (
+        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+          {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       )}
 
-      {/* Blink animation — inject once */}
-      <style>{`@keyframes blink { 50% { opacity: 0; } }`}</style>
+      {/* Assistant reactions */}
+      {!isUser && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 34, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={() => setLiked(!liked)}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: liked ? "#10b981" : "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              padding: 2,
+            }}
+            title="Good response"
+          >
+            <ThumbsUp size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={handleCopy}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              padding: 2,
+            }}
+            title="Copy"
+          >
+            <Copy size={13} />
+          </button>
+          <button
+            type="button"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              padding: 2,
+            }}
+            title="Regenerate"
+          >
+            <RefreshCw size={13} />
+          </button>
+        </div>
+      )}
+
+      {/* Tool Results with Source Cards */}
+      {!isUser && renderToolResults()}
     </div>
+  );
+}
+
+
+function StatusDot({ state }: { state: CompanionState }) {
+  const color = state === "speaking" ? "#10b981" : state === "thinking" ? "#f59e0b" : "#94a3b8";
+  return (
+    <span
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        backgroundColor: color,
+        display: "inline-block",
+      }}
+      title={`Companion state: ${state}`}
+    />
   );
 }
 
@@ -1664,152 +1778,129 @@ function WorkWelcome({
 }: {
   onAction: (action: string) => void;
 }) {
-  const reducedMotion = useReducedMotion();
-  const items = [
-    {
-      icon: <Search size={18} />,
-      title: "Research",
-      desc: "Search with sources",
-      action: "research",
-    },
-    {
-      icon: <Wand2 size={18} />,
-      title: "Create",
-      desc: "Images, documents, ideas",
-      action: "create",
-    },
-    {
-      icon: <ListChecks size={18} />,
-      title: "Continue work",
-      desc: "Projects & tasks",
-      action: "work",
-    },
-    {
-      icon: <AudioLines size={18} />,
-      title: "Talk to HINAA",
-      desc: "Voice conversation",
-      action: "voice",
-    },
-  ];
+  const [copied, setCopied] = useState(false);
+  const [liked, setLiked] = useState(false);
+
+  const greetingText =
+    "Good morning, Alex. I've reviewed your overnight signals and prepared a focused brief. Three items need your attention before noon.";
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(greetingText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "var(--space-6)",
-        padding: "var(--space-12) 0",
-      }}
-    >
-      <motion.div
-        initial={reducedMotion ? false : { opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        style={{ textAlign: "center" }}
-      >
-        <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: "var(--text-3xl)",
-            fontWeight: 800,
-            color: "var(--text-primary)",
-            marginBottom: "var(--space-2)",
-          }}
-        >
-          Hello
-        </h1>
-        <p
-          style={{
-            fontSize: "var(--text-base)",
-            color: "var(--text-secondary)",
-            fontWeight: 500,
-          }}
-        >
-          What would you like to work on?
-        </p>
-      </motion.div>
-
-      <motion.div
-        initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(2, 1fr)",
-          gap: "var(--space-3)",
-          maxWidth: 420,
-          width: "100%",
-        }}
-      >
-        {items.map((item, i) => (
-          <motion.button
-            key={item.action}
-            initial={reducedMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 + i * 0.08 }}
-            whileHover={reducedMotion ? undefined : { y: -2, boxShadow: "var(--shadow-md)" }}
-            whileTap={reducedMotion ? undefined : { scale: 0.98 }}
-            onClick={() => onAction(item.action)}
+    <div style={{ maxWidth: 768, width: "100%", margin: "16px 0 24px 0" }}>
+      {/* Header line */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div
             style={{
-              padding: "var(--space-4)",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-default)",
-              borderRadius: "var(--radius-lg)",
-              cursor: "pointer",
-              textAlign: "left",
+              width: 26,
+              height: 26,
+              borderRadius: 8,
+              background: "#1a232b",
+              color: "#ffffff",
               display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-2)",
-              transition: "box-shadow 150ms ease",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
-            <span style={{ color: "var(--accent)", display: "flex" }}>
-              {item.icon}
-            </span>
-            <span
-              style={{
-                fontSize: "var(--text-sm)",
-                fontWeight: 600,
-                color: "var(--text-primary)",
-              }}
-            >
-              {item.title}
-            </span>
-            <span
-              style={{
-                fontSize: "var(--text-xs)",
-                color: "var(--text-tertiary)",
-              }}
-            >
-              {item.desc}
-            </span>
-          </motion.button>
-        ))}
-      </motion.div>
+            <Sparkles size={13} />
+          </div>
+          <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: "#1e293b" }}>
+            HINA
+          </span>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>09:41</span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            type="button"
+            onClick={handleCopy}
+            title="Copy message"
+            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
+          >
+            {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => onAction("research")}
+            title="Regenerate"
+            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Greeting text */}
+      <div
+        style={{
+          padding: "6px 0 12px 34px",
+          fontSize: 14,
+          lineHeight: 1.65,
+          color: "#334155",
+        }}
+      >
+        {greetingText}
+      </div>
+
+      {/* Subtle feedback reaction buttons */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 34 }}>
+        <button
+          type="button"
+          onClick={() => setLiked(!liked)}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: liked ? "#10b981" : "#94a3b8",
+            display: "flex",
+            alignItems: "center",
+            padding: 2,
+          }}
+          title="Good response"
+        >
+          <ThumbsUp size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={handleCopy}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "#94a3b8",
+            display: "flex",
+            alignItems: "center",
+            padding: 2,
+          }}
+          title="Copy"
+        >
+          <Copy size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onAction("research")}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "#94a3b8",
+            display: "flex",
+            alignItems: "center",
+            padding: 2,
+          }}
+          title="Regenerate"
+        >
+          <RefreshCw size={13} />
+        </button>
+      </div>
     </div>
   );
 }
 
-/* ── Status Dot ──────────────────────────────────────────── */
-function StatusDot({ state }: { state: CompanionState }) {
-  const color =
-    state === "error"
-      ? "var(--danger)"
-      : state === "idle"
-        ? "var(--success)"
-        : "var(--accent)";
-  return (
-    <div
-      style={{
-        width: 7,
-        height: 7,
-        borderRadius: "50%",
-        background: color,
-        boxShadow: `0 0 6px ${color}60`,
-      }}
-    />
-  );
-}

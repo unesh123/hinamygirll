@@ -334,6 +334,11 @@ export class MockConversationProvider implements ConversationProvider {
   async *streamTurn(
     request: ConversationRequest,
   ): AsyncGenerator<ConversationProviderEvent> {
+    if (import.meta.env.PROD && import.meta.env.VITE_ALLOW_MOCK !== "true") {
+      throw new Error(
+        "MOCK_PROVIDER_FORBIDDEN: MockConversationProvider is strictly prohibited in production. Real backend provider connection required."
+      );
+    }
     if (request.text.trim() === "/error") {
       await abortableDelay(this.delayMs, request.signal);
       throw new Error("Deterministic mock error");

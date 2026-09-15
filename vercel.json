@@ -7,15 +7,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://hinamygirl-api.onrender.com/:path*"
+      "destination": "https://founded-implementation-victorian-fog.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://hinamygirl-api.onrender.com/v1/:path*"
+      "destination": "https://founded-implementation-victorian-fog.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://hinamygirl-api.onrender.com/health"
+      "destination": "https://founded-implementation-victorian-fog.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health).*)",

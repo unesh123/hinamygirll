@@ -487,12 +487,16 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         let providerLatencyMs: number | undefined;
         const language = resolveTurnLanguage(text, languagePolicy);
         // Snapshot routing for this turn so it can't change mid-stream
-        const turnMode = routing.activeMode ?? "mock";
+        const isMockAllowed = !import.meta.env.PROD || import.meta.env.VITE_ALLOW_MOCK === "true";
+        let turnMode = routing.activeMode ?? (import.meta.env.PROD ? "claude" : "mock");
+        if (!isMockAllowed && turnMode === "mock") {
+          turnMode = "claude";
+        }
         const turnModel = routing.activeModel ?? "";
         
         const selectedProvider =
-          turnMode !== "mock" || options?.forceBackend
-            ? new BackendConversationProvider(turnMode)
+          turnMode !== "mock" || options?.forceBackend || !isMockAllowed
+            ? new BackendConversationProvider(turnMode === "mock" ? "claude" : turnMode)
             : provider.current;
             
         for await (const event of selectedProvider.streamTurn({

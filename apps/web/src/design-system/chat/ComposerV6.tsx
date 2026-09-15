@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, type KeyboardEvent, type ChangeEvent } from "react";
 import {
   Send,
+  Paperclip,
   ArrowUp,
   Mic,
   Plus,
@@ -31,6 +32,8 @@ import {
   Layout,
   Network,
 } from "lucide-react";
+import { ModelSelectorV7 } from "./ModelSelectorV7";
+import type { DiscoveredModel, DiscoveredProvider } from "../../features/providers/hooks/useCapabilities";
 
 export type ActionMode = "chat" | "research" | "create" | "code" | "goal";
 export type IntelligenceLevel = "auto" | "fast" | "deep" | "max";
@@ -87,6 +90,15 @@ export interface ComposerV6Props {
   onUploadFile?: (type?: string) => void;
   onSelectArtifact?: (type: string) => void;
   onAttachContext?: (type: string) => void;
+  // Backend Capabilities & Real Models V7
+  discoveredModels?: DiscoveredModel[];
+  discoveredProviders?: DiscoveredProvider[];
+  selectedModelId?: string | null;
+  selectedProviderId?: string | null;
+  isAutoRouter?: boolean;
+  onSelectAuto?: () => void;
+  onSelectModel?: (model: DiscoveredModel) => void;
+  backendConnected?: boolean;
 }
 
 export const ComposerV6: React.FC<ComposerV6Props> = ({
@@ -119,6 +131,14 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onUploadFile,
   onSelectArtifact,
   onAttachContext,
+  discoveredModels = [],
+  discoveredProviders = [],
+  selectedModelId,
+  selectedProviderId,
+  isAutoRouter = true,
+  onSelectAuto,
+  onSelectModel,
+  backendConnected = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -245,7 +265,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     ? "Ask a question to research with live web sources & citations..."
     : actionMode === "create"
     ? "Describe the website, document, presentation, or code to create..."
-    : "Ask Hina anything...";
+    : "Ask HINA anything — chat mode...";
 
   return (
     <div
@@ -475,20 +495,76 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
         }}
       />
 
-      {/* ── Bottom Controls: + | Auto ▾ | Goal Mode | Create ▾ | Agent Cluster ... 🎙 | ↑ ───────────────── */}
+      {/* ── Bottom Controls: Signature Executive Layout ───────────────── */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 8,
+          gap: 12,
           flexWrap: "wrap",
-          paddingTop: 4,
-          borderTop: "1px solid var(--border-subtle, rgba(0,0,0,0.05))",
+          paddingTop: 8,
+          borderTop: "1px solid #f1f5f9",
         }}
       >
-        {/* Left cluster of controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {/* Left cluster: Badges [🔴 Command Center] [📎 4 sources] [🟢 6 nodes online] */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div
+            data-testid="badge-command-center"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "3px 8px",
+              borderRadius: 6,
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#475569",
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ef4444" }} />
+            <span>Command Center</span>
+          </div>
+
+          <div
+            data-testid="badge-sources"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "3px 8px",
+              borderRadius: 6,
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#475569",
+            }}
+          >
+            <Paperclip size={11} style={{ color: "#64748b" }} />
+            <span>4 sources</span>
+          </div>
+
+          <div
+            data-testid="badge-nodes-online"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "3px 8px",
+              borderRadius: 6,
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#475569",
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981" }} />
+            <span>6 nodes online</span>
+          </div>
           {/* 1. `+` Menu Button */}
           <div style={{ position: "relative" }}>
             <button
@@ -752,94 +828,22 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             />
           </div>
 
-          {/* 2. `Auto ▾` Model / Intelligence Selector */}
-          <div style={{ position: "relative" }}>
-            <button
-              type="button"
-              data-testid="composer-model-btn"
-              onClick={() => {
-                setShowIntelMenu(!showIntelMenu);
-                setShowPlusMenu(false);
-                setShowCreateMenu(false);
-              }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                padding: "4px 8px",
-                borderRadius: "var(--radius-full, 9999px)",
-                background: "var(--surface-subtle, #f6f3f7)",
-                border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-                fontSize: 11,
-                fontWeight: 600,
-                color: intelligenceLevel === "auto" ? "var(--text-secondary, #5e545d)" : "var(--accent-primary, #dc5f8b)",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              title="Intelligence & Model Tier"
-            >
-              <Zap size={11} />
-              <span style={{ textTransform: "capitalize" }}>{intelligenceLevel}</span>
-              <ChevronDown size={10} style={{ opacity: 0.6 }} />
-            </button>
-
-            {showIntelMenu && (
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: "calc(100% + 8px)",
-                  left: 0,
-                  width: 200,
-                  padding: 4,
-                  background: "var(--surface-overlay, #ffffff)",
-                  borderRadius: "var(--radius-md, 12px)",
-                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
-                  border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
-                  zIndex: 60,
-                }}
-              >
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", padding: "4px 8px" }}>
-                  INTELLIGENCE TIER
-                </div>
-                {[
-                  { lvl: "auto" as const, label: "Auto (Adaptive)", desc: "Infers depth dynamically" },
-                  { lvl: "fast" as const, label: "Fast (Turn)", desc: "Low latency quick replies" },
-                  { lvl: "deep" as const, label: "Deep (Reasoning)", desc: "Architecture & deep analysis" },
-                  { lvl: "max" as const, label: "Max (Exhaustive)", desc: "Full artifact generation" },
-                ].map((item) => (
-                  <button
-                    key={item.lvl}
-                    type="button"
-                    onClick={() => {
-                      onChangeIntelligence?.(item.lvl);
-                      setShowIntelMenu(false);
-                    }}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "6px 8px",
-                      borderRadius: "var(--radius-sm, 8px)",
-                      border: "none",
-                      background: intelligenceLevel === item.lvl ? "var(--surface-subtle)" : "transparent",
-                      color: intelligenceLevel === item.lvl ? "var(--accent-primary)" : "var(--text-primary)",
-                      fontSize: 12,
-                      fontWeight: intelligenceLevel === item.lvl ? 600 : 400,
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    <div>
-                      <div>{item.label}</div>
-                      <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{item.desc}</div>
-                    </div>
-                    {intelligenceLevel === item.lvl && <CheckCircle2 size={12} />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* 2. `Auto ▾` Real Model / Intelligence Selector V7 */}
+          <ModelSelectorV7
+            models={discoveredModels}
+            providers={discoveredProviders}
+            selectedModelId={selectedModelId}
+            selectedProviderId={selectedProviderId}
+            isAutoRouter={isAutoRouter}
+            onSelectAuto={() => {
+              onSelectAuto?.();
+              onChangeIntelligence?.("auto");
+            }}
+            onSelectModel={(model) => {
+              onSelectModel?.(model);
+            }}
+            backendConnected={backendConnected}
+          />
 
           {/* 3. `Goal Mode` Toggle Button */}
           <button
@@ -984,8 +988,12 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           </button>
         </div>
 
-        {/* Right cluster of controls: 🎙 Voice & ↑ Send */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {/* Right cluster of controls: Shortcuts + 🎙 Voice & ↑ Send */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#94a3b8" }}>
+            <span>send ↵</span>
+            <span>newline ⇧↵</span>
+          </div>
           {onVoiceToggle && (
             <button
               type="button"
@@ -1053,9 +1061,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 height: 32,
                 borderRadius: "50%",
                 background:
-                  !value.trim() && !attachedImage
-                    ? "var(--surface-subtle, #f6f3f7)"
-                    : "var(--accent-primary, #dc5f8b)",
+                  !value.trim() && !attachedImage ? "#f1f5f9" : "#1a232b",
                 color: !value.trim() && !attachedImage ? "var(--text-muted, #a198a0)" : "#ffffff",
                 border: "none",
                 cursor: !value.trim() && !attachedImage ? "not-allowed" : "pointer",
