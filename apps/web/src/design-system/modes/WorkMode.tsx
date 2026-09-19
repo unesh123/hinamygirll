@@ -221,6 +221,13 @@ export function WorkMode({
   onUpdateAttachmentRole,
 }: WorkModeProps) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText]);
+  // Real capability discovery: providers + models actually configured on the
+  // backend. The composer's model menu renders from this, so the user always
+  // sees exactly what the runtime can answer with (never a fabricated list).
+  const discoveredCapabilities = useCapabilities();
+  const discoveredModels = discoveredCapabilities.models;
+  const discoveredProviders = discoveredCapabilities.providers;
+  const backendConnected = discoveredCapabilities.runtime.backendConnected;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputHeight, setInputHeight] = useState(44);
   const [showMentions, setShowMentions] = useState(false);
@@ -235,7 +242,7 @@ export function WorkMode({
         return saved as DockMode;
       }
     } catch {}
-    return "hidden";
+    return "right";
   });
 
   const handleDockModeChange = (mode: DockMode) => {
@@ -705,16 +712,19 @@ export function WorkMode({
         background: "var(--bg-canvas)",
       }}
     >
-      {/* ── Mobile Header Only ─────────────────────────────────── */}
-      {isMobile && (
-        <header
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "0 var(--space-4)",
-            borderBottom: "1px solid var(--border-subtle)",
-            background: "var(--bg-surface)",
+      {/* ── Work header — renders on every viewport. Its children are themselves
+             device-gated (mobile view switcher vs. desktop model control bar),
+             so gating the whole block on `isMobile` made the message count, the
+             desktop ModelControlBar, and the "Show companion panel" button
+             unreachable dead code. ─────────────────────────────────────────── */}
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 var(--space-4)",
+          borderBottom: "1px solid var(--border-subtle)",
+          background: "var(--bg-surface)",
           flexShrink: 0,
           height: 48,
           gap: 8,
@@ -841,7 +851,6 @@ export function WorkMode({
           <StatusDot state={companionState} />
         </div>
       </header>
-      )}
 
       {/* ── Voice Active Banner ───────────────────────── */}
       {isVoiceActive && (
@@ -1503,6 +1512,14 @@ export function WorkMode({
           activeModel={activeProviderModel || "gemini-2.5-flash"}
           activeProvider={getProviderDisplayName(activeProviderMode)}
           onOpenModelSelector={onOpenSettings}
+          discoveredModels={discoveredModels}
+          discoveredProviders={discoveredProviders}
+          selectedModelId={activeProviderModel ?? null}
+          selectedProviderId={activeProviderMode ?? null}
+          isAutoRouter={!activeProviderModel}
+          backendConnected={backendConnected}
+          onSelectAuto={() => onSelectProvider?.("auto")}
+          onSelectModel={(model: DiscoveredModel) => onSelectProvider?.(model.provider, model.id)}
           intelligenceLevel={intelligenceLevel}
           onChangeIntelligence={setIntelligenceLevel}
           actionMode={actionMode}
@@ -1783,8 +1800,16 @@ function WorkWelcome({
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
 
-  const greetingText =
-    "Good morning, Alex. I've reviewed your overnight signals and prepared a focused brief. Three items need your attention before noon.";
+  const hour = new Date().getHours();
+  const daypart = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  const greetingText = `Good ${daypart} — I'm Hina, your AI workspace companion. Ask me anything, research the live web with citations, create documents and images, or switch brains anytime from the model menu.`;
+
+  const suggestions = [
+    { label: "Explain a concept", prompt: "Explain Retrieval-Augmented Generation in simple terms with an example: " },
+    { label: "Research live", prompt: "Research the latest developments in " },
+    { label: "Create a document", prompt: "Create a comprehensive document about " },
+    { label: "Generate an image", prompt: "/image " },
+  ];
 
   const handleCopy = async () => {
     try {
@@ -1901,6 +1926,29 @@ function WorkWelcome({
         >
           <RefreshCw size={13} />
         </button>
+      </div>
+
+      {/* Starter suggestion chips — real prompts, one click to start */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 34, marginTop: 14 }}>
+        {suggestions.map((s) => (
+          <button
+            key={s.label}
+            type="button"
+            onClick={() => onAction(s.prompt)}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 999,
+              border: "1px solid var(--border-default, #e2e8f0)",
+              background: "var(--bg-surface, #ffffff)",
+              color: "var(--text-secondary, #475569)",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
     </div>
   );

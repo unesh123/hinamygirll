@@ -49,88 +49,54 @@ export interface RuntimeCapabilities {
 const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
   runtime: {
     version: "1.0.0",
-    environment: "production",
+    environment: "unknown",
+    // Optimistic defaults are dishonest: until /v1/capabilities answers we do
+    // not know the backend is reachable, so the UI must say so instead of
+    // implying live brains are available.
     backendConnected: false,
-    activeMode: "claude",
-    persistenceEnabled: true,
-    authMode: "dev",
+    activeMode: "unknown",
+    persistenceEnabled: false,
+    authMode: "unknown",
   },
   modes: {
     auto: true,
-    fast: true,
-    deep: true,
-    max: true,
-    goal: true,
+    fast: false,
+    deep: false,
+    max: false,
+    goal: false,
   },
-  providers: [
-    {
-      id: "claude",
-      name: "Anthropic Claude",
-      configured: true,
-      defaultModel: "claude-3-7-sonnet-20250219",
-      allowedModels: ["claude-3-7-sonnet-20250219", "claude-3-5-haiku-20241022"],
-      protocol: "anthropic-messages",
-    },
-    {
-      id: "gemini",
-      name: "Google Gemini",
-      configured: true,
-      defaultModel: "gemini-2.5-pro",
-      allowedModels: ["gemini-2.5-pro", "gemini-2.5-flash"],
-      protocol: "native-sdk",
-    },
-    {
-      id: "deepseek",
-      name: "DeepSeek AI",
-      configured: false,
-      defaultModel: "deepseek-chat",
-      allowedModels: ["deepseek-chat"],
-      protocol: "openai-compatible",
-    },
-  ],
-  models: [
-    {
-      id: "claude-3-7-sonnet-20250219",
-      name: "Claude 3.7 Sonnet",
-      provider: "claude",
-      tier: "frontier",
-      configured: true,
-      description: "Anthropic flagship hybrid reasoning and code synthesis",
-    },
-    {
-      id: "claude-3-5-haiku-20241022",
-      name: "Claude 3.5 Haiku",
-      provider: "claude",
-      tier: "fast",
-      configured: true,
-      description: "High-velocity conversational reasoning and execution",
-    },
-    {
-      id: "gemini-2.5-pro",
-      name: "Gemini 2.5 Pro",
-      provider: "gemini",
-      tier: "frontier",
-      configured: true,
-      description: "Google frontier multimodal reasoning and large context",
-    },
-    {
-      id: "gemini-2.5-flash",
-      name: "Gemini 2.5 Flash",
-      provider: "gemini",
-      tier: "fast",
-      configured: true,
-      description: "Low-latency multimodal execution and instant tool calling",
-    },
-  ],
+  providers: [],
+  models: [],
   features: {
-    webSearch: true,
-    artifacts: true,
-    goals: true,
-    agentCluster: true,
-    memory: true,
-    speech: true,
+    webSearch: false,
+    artifacts: false,
+    goals: false,
+    agentCluster: false,
+    memory: false,
+    speech: false,
   },
 };
+
+function normalizeCapabilities(raw: unknown): RuntimeCapabilities {
+  if (!raw || typeof raw !== "object") return DEFAULT_CAPABILITIES;
+  const payload = raw as Partial<RuntimeCapabilities>;
+  return {
+    runtime: {
+      ...DEFAULT_CAPABILITIES.runtime,
+      ...(typeof payload.runtime === "object" && payload.runtime !== null ? payload.runtime : {}),
+    },
+    modes: {
+      ...DEFAULT_CAPABILITIES.modes,
+      ...(typeof payload.modes === "object" && payload.modes !== null ? payload.modes : {}),
+    },
+    providers: Array.isArray(payload.providers) ? payload.providers : [],
+    models: Array.isArray(payload.models) ? payload.models : [],
+    features: {
+      ...DEFAULT_CAPABILITIES.features,
+      ...(typeof payload.features === "object" && payload.features !== null ? payload.features : {}),
+    },
+  };
+}
 
 export function useCapabilities() {
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities>(DEFAULT_CAPABILITIES);
@@ -152,7 +118,10 @@ export function useCapabilities() {
         throw new Error(`Failed to load capabilities (${res.status})`);
       }
       const data = await res.json();
-      setCapabilities(data);
+      // Defensive merge: a partial or malformed capabilities payload (proxy
+      // error page, older backend, mock) must never poison the shape the UI
+      // relies on. Missing keys fall back to the safe defaults.
+      setCapabilities(normalizeCapabilities(data));
       setError(null);
     } catch (err: any) {
       console.warn("Capability discovery fallback to cached defaults:", err?.message || err);

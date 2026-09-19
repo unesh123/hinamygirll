@@ -94,6 +94,7 @@ export function NavigationRail({
     <aside
       className="sakura-nav-rail"
       data-testid="executive-nav-sidebar"
+      aria-label="HINAA navigation"
       style={{
         width: 260,
         height: "100%",
@@ -244,6 +245,7 @@ export function NavigationRail({
               key={item.id}
               type="button"
               data-testid={`sidebar-nav-${item.id}`}
+              aria-label={item.title}
               onClick={() => onNavigate(item.id)}
               style={{
                 display: "flex",

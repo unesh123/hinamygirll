@@ -808,6 +808,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
 
     @app.post("/v1/assets", status_code=201)
+    @app.post("/api/v1/assets", status_code=201)
     async def upload_asset(file: UploadFile = File(...)) -> dict[str, Any]:
         """Store a supported attachment and return its canonical asset reference."""
         raw_bytes = await file.read()
@@ -835,6 +836,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.get("/v1/assets/{asset_id}/file")
+    @app.get("/api/v1/assets/{asset_id}/file")
     async def get_asset_file(asset_id: str) -> FileResponse:
         path = asset_store.get_file_path(asset_id)
         reference = asset_store.get_asset(asset_id)
@@ -843,6 +845,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return FileResponse(path, media_type=reference.mime_type, filename=reference.filename or path.name)
 
     @app.post("/v1/conversations/{conversation_id}/assets/select")
+    @app.post("/api/v1/conversations/{conversation_id}/assets/select")
     async def select_conversation_asset(
         conversation_id: str,
         body: SelectionRequestBody,
@@ -878,6 +881,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.get("/v1/conversations/{conversation_id}/assets/selection")
+    @app.get("/api/v1/conversations/{conversation_id}/assets/selection")
     async def get_conversation_asset_selection(
         conversation_id: str,
         request: Request,
@@ -966,6 +970,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.get("/v1/avatar-assets")
+    @app.get("/api/v1/avatar-assets")
     async def avatar_asset_inventory() -> dict[str, Any]:
         """List only approved application roots and HINAA-managed avatar assets.
 
@@ -974,6 +979,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"assets": avatar_assets.inventory()}
 
     @app.post("/v1/avatar-assets/import", status_code=201)
+    @app.post("/api/v1/avatar-assets/import", status_code=201)
     async def import_avatar_asset(file: UploadFile = File(...)) -> dict[str, Any]:
         """Import a user-selected avatar after binary/VRM metadata validation."""
         safe_name = Path(file.filename or "avatar.vrm").name
@@ -996,6 +1002,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             temporary.unlink(missing_ok=True)
 
     @app.get("/v1/avatar-assets/{asset_id}/file")
+    @app.get("/api/v1/avatar-assets/{asset_id}/file")
     async def get_managed_avatar_asset(asset_id: str) -> FileResponse:
         asset = avatar_assets.resolve_managed(asset_id)
         if asset is None:
@@ -1003,6 +1010,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return FileResponse(asset, media_type="model/gltf-binary", filename=asset.name)
 
     @app.delete("/v1/avatar-assets/{asset_id}")
+    @app.delete("/api/v1/avatar-assets/{asset_id}")
     async def delete_managed_avatar_asset(asset_id: str, confirm: bool = False) -> dict[str, bool]:
         if not confirm:
             raise HTTPException(status_code=400, detail="Deletion requires explicit confirm=true")
@@ -1171,58 +1179,104 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowedModels": ["ydc-search"],
                 "protocol": "web-search-api",
             },
+            # These providers report healthy in /v1/providers on this deployment
+            # (agent-router, codecraft, custom, ollama, gemini-live). Omitting
+            # them is what made users correctly report "no brains show live".
+            {
+                "id": "agent-router",
+                "name": "Agent Router",
+                "configured": bool(getattr(active_settings, "agent_router_configured", False)),
+                "defaultModel": active_settings.active_agent_router_model,
+                "allowedModels": list(active_settings.agent_router_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "cx-gateway",
+                "name": "CX Gateway",
+                "configured": bool(getattr(active_settings, "cx_gateway_configured", False)),
+                "defaultModel": active_settings.cx_gateway_model,
+                "allowedModels": list(active_settings.cx_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "codecraft",
+                "name": "CodeCraft AI",
+                "configured": bool(getattr(active_settings, "codecraft_configured", False)),
+                "defaultModel": active_settings.active_codecraft_model,
+                "allowedModels": list(active_settings.codecraft_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "custom",
+                "name": "Custom Model Gateway",
+                "configured": bool(getattr(active_settings, "custom_configured", False)),
+                "defaultModel": active_settings.active_custom_model,
+                "allowedModels": list(active_settings.custom_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "qwen",
+                "name": "Qwen (DashScope)",
+                "configured": bool(getattr(active_settings, "qwen_configured", False)),
+                "defaultModel": active_settings.qwen_model,
+                "allowedModels": list(active_settings.qwen_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "groq",
+                "name": "Groq",
+                "configured": bool(getattr(active_settings, "groq_configured", False)),
+                "defaultModel": active_settings.groq_model,
+                "allowedModels": [active_settings.groq_model],
+                "protocol": "groq-sdk",
+            },
         ]
 
-        models = [
-            {
-                "id": "claude-3-7-sonnet-20250219",
-                "name": "Claude 3.7 Sonnet",
-                "provider": "claude",
-                "tier": "frontier",
-                "configured": has_claude,
-                "description": "Anthropic flagship hybrid reasoning and coding model",
-            },
-            {
-                "id": "claude-3-5-haiku-20241022",
-                "name": "Claude 3.5 Haiku",
-                "provider": "claude",
-                "tier": "fast",
-                "configured": has_claude,
-                "description": "High-velocity conversational reasoning and execution",
-            },
-            {
-                "id": "gemini-2.5-pro",
-                "name": "Gemini 2.5 Pro",
-                "provider": "gemini",
-                "tier": "frontier",
-                "configured": has_gemini,
-                "description": "Google frontier multimodal reasoning and large context",
-            },
-            {
-                "id": "gemini-2.5-flash",
-                "name": "Gemini 2.5 Flash",
-                "provider": "gemini",
-                "tier": "fast",
-                "configured": has_gemini,
-                "description": "Low-latency multimodal tool dispatch and instant turns",
-            },
-            {
-                "id": "deepseek-chat",
-                "name": "DeepSeek V3",
-                "provider": "deepseek",
-                "tier": "frontier",
-                "configured": has_deepseek,
-                "description": "High-efficiency coding, math, and general reasoning",
-            },
-            {
-                "id": "gpt-4o",
-                "name": "GPT-4o (Codex)",
-                "provider": "openai",
-                "tier": "frontier",
-                "configured": has_openai,
-                "description": "OpenAI flagship multimodal synthesis and code analysis",
-            },
-        ]
+        models = []
+        # Derive the advertised model list from the SAME provider records above.
+        # A hardcoded list drifts from the real allow-lists (it advertised model
+        # ids the router would reject), so the selector must only ever show what
+        # the runtime can actually resolve.
+        _tier_by_hint = (
+            ("opus", "frontier"),
+            ("sonnet", "frontier"),
+            ("pro", "frontier"),
+            ("max", "frontier"),
+            ("sol", "frontier"),
+            ("astra", "frontier"),
+            ("haiku", "fast"),
+            ("flash", "fast"),
+            ("mini", "fast"),
+            ("lite", "fast"),
+            ("nano", "fast"),
+        )
+
+        def _tier_for(model_id: str) -> str:
+            lowered = model_id.lower()
+            for hint, tier in _tier_by_hint:
+                if hint in lowered:
+                    return tier
+            return "standard"
+
+        for provider in providers:
+            provider_id = provider["id"]
+            if provider_id == "you":
+                continue  # research provider, not a chat brain
+            if not provider.get("configured"):
+                # An unconfigured brain cannot answer; listing it would be the
+                # same "fake model list" defect the audit flagged.
+                continue
+            for model_id in provider.get("allowedModels") or []:
+                models.append(
+                    {
+                        "id": model_id,
+                        "name": model_id,
+                        "provider": provider_id,
+                        "tier": _tier_for(model_id),
+                        "configured": bool(provider.get("configured")),
+                        "description": f"{provider['name']} · {model_id}",
+                    }
+                )
 
         return {
             "runtime": {
@@ -1612,6 +1666,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ]
 
     @app.get("/v1/commands")
+    @app.get("/api/v1/commands")
     async def command_registry() -> dict[str, Any]:
         """Return the canonical command registry with availability based on provider configuration."""
         from .commands.registry import list_commands, CapabilityStatus
@@ -1666,6 +1721,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await realtime.handle(websocket, user_id=_resolve_user_id(websocket))
 
     @app.post("/v1/speech/transcriptions", response_model=TranscriptResponse)
+    @app.post("/api/v1/speech/transcriptions", response_model=TranscriptResponse)
     async def transcribe(
         audio: UploadFile = File(...),
         language: str = Form("hi-IN"),
@@ -1695,6 +1751,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/v1/tools/approve")
+    @app.post("/api/v1/tools/approve")
     async def approve_tool(request: Request) -> dict[str, Any]:
         data = await request.json()
         approval_id = data.get("approval_id")
@@ -1862,6 +1919,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"userId": user_id}
 
     @app.get("/v1/tools/poll")
+    @app.get("/api/v1/tools/poll")
     async def poll_tool(request: Request, job_id: str) -> dict[str, Any]:
         from hinaa_api.persistence.db import get_session_factory
         from hinaa_api.persistence.orm import GenerationSet, ImageJob
@@ -1954,6 +2012,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
 
     @app.get("/v1/tools")
+    @app.get("/api/v1/tools")
     async def list_tools() -> list[dict[str, Any]]:
         tools = registry.get_all_tools()
         return [
@@ -1972,6 +2031,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ]
 
     @app.post("/v1/tools/execute")
+    @app.post("/api/v1/tools/execute")
     async def execute_tool(request: Request, body: ToolRequest) -> dict[str, Any]:
         tool_def = registry.get_tool(body.toolName)
         if not tool_def:
@@ -2733,6 +2793,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.get("/v1/conversations")
+    @app.get("/api/v1/conversations")
     async def list_conversations(
         auth: AuthContext | None = Depends(conversation_auth),
         limit: int = 50,
@@ -2743,6 +2804,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return memory_service.list_conversations(auth.user_id, limit=max(1, min(limit, 100)), offset=max(0, offset))
 
     @app.get("/v1/conversations/{conversation_id}/messages")
+    @app.get("/api/v1/conversations/{conversation_id}/messages")
     async def conversation_messages(
         conversation_id: str,
         auth: AuthContext | None = Depends(conversation_auth),
@@ -2759,6 +2821,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title: Annotated[str, Field(min_length=1, max_length=200)]
 
     @app.patch("/v1/conversations/{conversation_id}")
+    @app.patch("/api/v1/conversations/{conversation_id}")
     async def rename_conversation(
         conversation_id: str,
         body: ConversationTitleBody,
@@ -2775,6 +2838,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return next((item for item in conversations if item["id"] == conversation_id), {"id": conversation_id, "title": title})
 
     @app.get("/v1/conversations/{conversation_id}/working-context")
+    @app.get("/api/v1/conversations/{conversation_id}/working-context")
     async def conversation_working_context(
         conversation_id: str,
         auth: AuthContext | None = Depends(conversation_auth),
@@ -2789,6 +2853,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/v1/conversations/{conversation_id}/resolve-reference")
+    @app.post("/api/v1/conversations/{conversation_id}/resolve-reference")
     async def resolve_conversation_reference(
         conversation_id: str,
         body: ConversationResolveBody,
@@ -3324,6 +3389,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/v1/speech/synthesis")
+    @app.post("/api/v1/speech/synthesis")
     async def synthesize(body: SpeechRequest) -> Response:
         started = perf_counter()
         result = await service.synthesize(body)

@@ -75,3 +75,5 @@ Thumbs.db
 
 # Allow VRM models in public/models
 !apps/web/public/models/*.vrm
+.vercel
+cloudflared.exe

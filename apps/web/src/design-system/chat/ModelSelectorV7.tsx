@@ -236,6 +236,23 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
 
           <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
 
+          {/* Empty / loading state — never silently show only "Auto" */}
+          {Object.keys(providerGroups).length === 0 && (
+            <div
+              data-testid="model-selector-empty"
+              style={{
+                padding: "10px 8px 12px 8px",
+                fontSize: 11,
+                lineHeight: 1.45,
+                color: "var(--text-tertiary, #847a83)",
+              }}
+            >
+              {backendConnected
+                ? "No live models are currently configured on the backend. Auto routing will use the default brain."
+                : "Loading available models… If this persists, Hina's backend is unreachable."}
+            </div>
+          )}
+
           {/* Discovered Real Models Grouped by Provider */}
           {Object.entries(providerGroups).map(([providerKey, groupModels]) => {
             const providerName = getProviderName(providerKey);

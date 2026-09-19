@@ -754,6 +754,7 @@ export default function App() {
     else if (action === "research") setInput("Deep research: ");
     else if (action === "create") openImageStudio();
     else if (action === "work") setInput("Help me plan my work: ");
+    else if (typeof action === "string" && action.length > 0) setInput(action);
   };
 
   /* ─── Agent steps ────────────────────────────────────── */
@@ -885,13 +886,15 @@ export default function App() {
           <AppShell
             activeSection={navSection as any}
             onNavigate={(section: any) => {
+              if (section === "memory") { setMemoryOpen(true); return; }
               setNavSection(section);
               if (section === "talk" || section === "voice") setSakuraView("talk");
               else if (section === "chat") setSakuraView("work");
+              else if (section === "dashboard" || section === "tasks" || section === "operate") setSakuraView("operate");
+              else if (section === "models" || section === "reports" || section === "tools") setSakuraView("operate");
               else if (section === "images") openImageStudio();
               else if (section === "library" || section === "projects" || section === "files") openProjectWorkspace();
               else if (section === "creations") openHumanizerStudio();
-              else if (section === "memory") openMemoryPanel();
               else if (section === "settings") setSettingsOpen(true);
             }}
             onNewChat={handleNewChat}
@@ -915,6 +918,17 @@ export default function App() {
               onOpenSearch={() => setSidebarExpanded("chat")}
               onOpenProjectSettings={openProjectWorkspace}
               onOpenGoalDetails={() => setSakuraView("work")}
+              onSelectModel={(modelId, providerId) => {
+                if (modelId === "auto") {
+                  setProvider({ preferredMode: "auto" as any });
+                  return;
+                }
+                setProvider({
+                  preferredMode: providerId as any,
+                  preferredModelByProvider: { ...settings.provider.preferredModelByProvider, [providerId]: modelId },
+                });
+              }}
+              selectedModelId={routing.activeModel}
             />
 
 

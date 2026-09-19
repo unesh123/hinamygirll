@@ -18,6 +18,9 @@ const KNOWN_PRESENTATIONS: Record<string, AvatarPresentation> = {
   "/models/AvatarSample_E.vrm": { rotationY: 0, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
   "/models/model_6164.vrm": { rotationY: Math.PI, offsetY: -0.24, scale: 0.90, poseMode: "relaxed" },
   "/models/model_5447.vrm": { rotationY: 0, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
+  // Kept calibrated across the URL-safe rename so the default Hinaa model keeps
+  // its authored framing instead of falling back to the generic preset.
+  "/models/hinaa-original.vrm": { rotationY: Math.PI, offsetY: -0.15, scale: 0.95, poseMode: "relaxed" },
   "/models/5798998195377315936 (1).vrm": { rotationY: Math.PI, offsetY: -0.15, scale: 0.95, poseMode: "relaxed" },
 };
 

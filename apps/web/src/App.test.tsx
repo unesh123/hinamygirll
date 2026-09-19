@@ -32,19 +32,19 @@ describe("HINAA assistant workspace", () => {
 
   it("renders the Sakura OS navigation rail", () => {
     render(<App />);
-    expect(screen.getByLabelText("HINAA navigation")).toBeInTheDocument();
+    expect(screen.getByTestId("executive-nav-sidebar")).toBeInTheDocument();
   });
 
-  it("renders Talk, Chat, and Projects navigation destinations", () => {
+  it("renders Chat, Dashboard, and Models navigation destinations", () => {
     render(<App />);
-    expect(screen.getAllByRole("button", { name: "Talk" })[0]).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Chat" })[0]).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Projects" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Dashboard" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Models" })[0]).toBeInTheDocument();
   });
 
   it("shows the Work mode text composer", () => {
     render(<App />);
-    const composer = screen.getByPlaceholderText("Ask HINAA anything...");
+    const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
     expect(composer).toBeInTheDocument();
   });
 
@@ -77,7 +77,7 @@ describe("HINAA assistant workspace", () => {
     }));
     render(<App />);
 
-    const composer = screen.getByPlaceholderText("Ask HINAA anything...");
+    const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
     fireEvent.change(composer, { target: { value: "Give me a quick status update." } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
