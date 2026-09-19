@@ -3478,6 +3478,86 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async def delete_all(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:
             return memory_service.delete_all(auth.user_id)
 
+    @app.get("/v1/generated-docs")
+    @app.get("/api/v1/generated-docs")
+    async def list_generated_documents() -> dict[str, object]:
+        """List HINAA-generated documents (metadata files on disk), newest first."""
+        import json as _json
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        roots = [
+            (Path(__file__).resolve().parent / "data" / "documents").resolve(),
+            (Path(__file__).resolve().parent.parent / "data" / "documents").resolve(),
+            Path("apps/api/data/documents").resolve(),
+            Path("apps/api/hinaa_api/data/documents").resolve(),
+        ]
+        docs: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for root in roots:
+            if not root.exists():
+                continue
+            metas = sorted(root.glob("*.metadata.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+            for meta_path in metas:
+                try:
+                    meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if not isinstance(meta, dict):
+                    continue
+                doc_id = str(meta.get("docId") or meta_path.name.removesuffix(".metadata.json"))
+                if doc_id in seen:
+                    continue
+                seen.add(doc_id)
+                docs.append(
+                    {
+                        "docId": doc_id,
+                        "title": meta.get("title") or meta.get("filename") or doc_id,
+                        "filename": meta.get("filename"),
+                        "format": meta.get("format") or "pdf",
+                        "pageCount": meta.get("pageCount"),
+                        "fileSizeKb": meta.get("fileSizeKb"),
+                        "topic": meta.get("topic"),
+                        "downloadUrl": meta.get("downloadUrl") or f"/api/v1/generated-docs/{doc_id}",
+                        "createdAt": datetime.fromtimestamp(meta_path.stat().st_mtime, tz=timezone.utc).isoformat(),
+                    }
+                )
+        return {"documents": docs, "count": len(docs)}
+
+    # ── Generic /api/v1 aliases ─────────────────────────────────────
+    # Routes are canonically declared at /v1/... but the frontend addresses
+    # the API as /api/v1/... (mixed usage predates this). Mirror every
+    # declared /v1 route under the /api prefix so no endpoint is ever
+    # unreachable. Explicit /api/v1 declarations above are preserved.
+    # FastAPI registers each method as its own route with its own handler,
+    # so aliases must be per (path, method) — merging methods onto one
+    # route would serve the first handler for every method.
+    alias_routes: dict[str, dict[str, tuple[object, str]]] = {}
+    for route in list(app.routes):
+        path = getattr(route, "path", "")
+        if not path.startswith("/v1/"):
+            continue
+        methods = {m for m in (getattr(route, "methods", None) or ()) if m not in {"HEAD", "OPTIONS"}}
+        if not methods:
+            continue
+        per_method = alias_routes.setdefault(f"/api{path}", {})
+        route_name = str(getattr(route, "name", path))
+        for method in methods:
+            per_method.setdefault(method, (route.endpoint, route_name))
+
+    existing_paths = {getattr(r, "path", "") for r in app.routes}
+    for alias_path, per_method in alias_routes.items():
+        if alias_path in existing_paths:
+            continue
+        for method, (endpoint, route_name) in per_method.items():
+            app.add_api_route(
+                alias_path,
+                endpoint,  # type: ignore[arg-type]
+                methods=[method],
+                name=f"api_alias_{route_name}_{method.lower()}",
+                include_in_schema=False,
+            )
+
     return app
 
 

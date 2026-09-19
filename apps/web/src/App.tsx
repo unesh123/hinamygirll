@@ -9,7 +9,7 @@ import { TopBarV6, type WorkspaceMode } from "./design-system/layout/TopBarV6";
 import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
-import { OperateMode } from "./design-system/modes/OperateMode";
+import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
 import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
@@ -390,6 +390,7 @@ export default function App() {
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [sidebarExpanded, setSidebarExpanded] = useState<NavSection | null>(null);
+  const [operateTab, setOperateTab] = useState<OperateTab>("tasks");
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [contextMode, setContextMode] = useState<ContextMode>("hidden");
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
@@ -890,8 +891,9 @@ export default function App() {
               setNavSection(section);
               if (section === "talk" || section === "voice") setSakuraView("talk");
               else if (section === "chat") setSakuraView("work");
-              else if (section === "dashboard" || section === "tasks" || section === "operate") setSakuraView("operate");
-              else if (section === "models" || section === "reports" || section === "tools") setSakuraView("operate");
+              else if (section === "dashboard" || section === "tasks" || section === "operate") { setSakuraView("operate"); setOperateTab("tasks"); }
+              else if (section === "models" || section === "tools") { setSakuraView("operate"); setOperateTab("capabilities"); }
+              else if (section === "reports") { setSakuraView("operate"); setOperateTab("reports"); }
               else if (section === "images") openImageStudio();
               else if (section === "library" || section === "projects" || section === "files") openProjectWorkspace();
               else if (section === "creations") openHumanizerStudio();
@@ -1058,7 +1060,7 @@ export default function App() {
             )}
 
             {sakuraView === "operate" && (
-              <OperateMode />
+              <OperateMode key={operateTab} initialTab={operateTab} />
             )}
           </AppShell>
 

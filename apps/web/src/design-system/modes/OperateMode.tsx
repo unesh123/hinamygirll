@@ -27,6 +27,8 @@ import {
   Activity,
   Layers,
   CheckCircle,
+  Download,
+  Calendar,
 } from "lucide-react";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
 
@@ -111,8 +113,22 @@ function getCategoryIcon(category: string) {
 }
 
 /* ── Main Component ─────────────────────────────────── */
-export function OperateMode() {
-  const [activeTab, setActiveTab] = useState<"tasks" | "capabilities" | "approvals">("tasks");
+export type OperateTab = "tasks" | "capabilities" | "approvals" | "reports";
+
+interface GeneratedDocSummary {
+  docId: string;
+  title: string;
+  filename?: string | null;
+  format?: string;
+  pageCount?: number | null;
+  fileSizeKb?: number | null;
+  topic?: string | null;
+  downloadUrl: string;
+  createdAt: string;
+}
+
+export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab } = {}) {
+  const [activeTab, setActiveTab] = useState<OperateTab>(initialTab);
   const [tasks, setTasks] = useState<RuntimeTask[]>([]);
   const [tools, setTools] = useState<RuntimeToolCapability[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -131,6 +147,30 @@ export function OperateMode() {
     }
     return false;
   });
+
+  const [docs, setDocs] = useState<GeneratedDocSummary[]>([]);
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+
+  const loadDocs = useCallback(async () => {
+    try {
+      setIsLoadingDocs(true);
+      const res = await fetch("/api/v1/generated-docs", {
+        headers: { "X-HINAA-Dev-User": "local-web-user" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDocs(Array.isArray(data.documents) ? data.documents : []);
+      }
+    } catch {
+      // Reports are non-critical; keep previous state on failure
+    } finally {
+      setIsLoadingDocs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "reports") void loadDocs();
+  }, [activeTab, loadDocs]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -426,6 +466,37 @@ export function OperateMode() {
                   fontWeight: 700,
                 }}>
                   {waitingTasks.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab("reports")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 6,
+                fontSize: "12px",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "reports" ? "var(--bg-surface-active, rgba(255,255,255,0.15))" : "transparent",
+                color: activeTab === "reports" ? "#fff" : "var(--text-secondary, #a1a1aa)",
+                transition: "all 150ms ease",
+              }}
+            >
+              <FileText size={13} />
+              Reports
+              {docs.length > 0 && (
+                <span style={{
+                  fontSize: "10px",
+                  padding: "0 5px",
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,0.1)",
+                }}>
+                  {docs.length}
                 </span>
               )}
             </button>
@@ -977,6 +1048,122 @@ export function OperateMode() {
                 </div>
               )}
             </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Tab: Generated Reports / Documents ────────────── */}
+        {activeTab === "reports" && (
+          <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "20px 24px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary, #fff)" }}>
+                Generated Documents
+              </div>
+              <button
+                onClick={() => void loadDocs()}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "transparent",
+                  color: "var(--text-secondary, #a1a1aa)",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <RefreshCw size={12} />
+                Refresh
+              </button>
+            </div>
+
+            {isLoadingDocs && (
+              <div style={{ textAlign: "center", padding: 40, color: "var(--text-tertiary, #71717a)", fontSize: "12px" }}>
+                Loading documents…
+              </div>
+            )}
+
+            {!isLoadingDocs && docs.length === 0 && (
+              <div style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 48,
+                color: "var(--text-tertiary, #71717a)",
+                fontSize: "12px",
+                textAlign: "center",
+                gap: 8,
+              }}>
+                <FileText size={30} style={{ opacity: 0.35 }} />
+                No generated documents yet. Ask HINA to create a PDF, report, or document — they will appear here.
+              </div>
+            )}
+
+            {!isLoadingDocs && docs.length > 0 && (
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))",
+                gap: 12,
+              }}>
+                {docs.map((doc) => (
+                  <div
+                    key={doc.docId}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                      padding: 14,
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "var(--bg-surface, rgba(255,255,255,0.04))",
+                    }}
+                  >
+                    <div style={{ fontSize: "12.5px", fontWeight: 650, color: "var(--text-primary, #fff)", lineHeight: 1.35 }}>
+                      {doc.title}
+                    </div>
+                    {doc.topic && (
+                      <div style={{ fontSize: "11px", color: "var(--text-tertiary, #71717a)", lineHeight: 1.4 }}>
+                        {doc.topic}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "10.5px", color: "var(--text-tertiary, #71717a)", flexWrap: "wrap" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, textTransform: "uppercase", fontWeight: 700 }}>
+                        <FileText size={11} /> {doc.format ?? "pdf"}
+                      </span>
+                      {doc.pageCount != null && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Layers size={11} /> {doc.pageCount}p</span>}
+                      {doc.fileSizeKb != null && <span>{doc.fileSizeKb} KB</span>}
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <Calendar size={11} /> {new Date(doc.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <a
+                      href={doc.downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        padding: "7px 10px",
+                        borderRadius: 8,
+                        background: "rgba(236,72,153,0.16)",
+                        color: "#f472b6",
+                        fontSize: "11px",
+                        fontWeight: 650,
+                        textDecoration: "none",
+                      }}
+                    >
+                      <Download size={12} />
+                      Download
+                    </a>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
