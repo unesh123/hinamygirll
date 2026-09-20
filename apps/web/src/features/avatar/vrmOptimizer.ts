@@ -210,12 +210,20 @@ export function pruneVrmMorphTargets(
 
   const keepNames = new Set(keepExpressionNames.map((name) => name.toLowerCase()));
 
+  // three-vrm's VRMExpression extends Object3D, so `.name` is the *node* name
+  // (`VRMExpression_aa`) while the preset key lives on `.expressionName`. The
+  // keep-list holds bare preset names, so matching on `.name` matches nothing.
+  const presetNameOf = (expression: { name?: string; expressionName?: string }): string =>
+    (expression.expressionName ?? expression.name ?? "")
+      .replace(/^VRMExpression_/, "")
+      .toLowerCase();
+
   // 1. Collect every (mesh, index) pair referenced by a kept expression.
   const usedIndices = new Map<string, Set<number>>();
   const binds: MorphBind[] = [];
 
   for (const expression of manager.expressions) {
-    if (!expression || !keepNames.has(expression.name.toLowerCase())) continue;
+    if (!expression || !keepNames.has(presetNameOf(expression))) continue;
     const expressionBinds = expression.binds as unknown as MorphBind[] | undefined;
     if (!Array.isArray(expressionBinds)) continue;
     for (const bind of expressionBinds) {
@@ -231,6 +239,12 @@ export function pruneVrmMorphTargets(
       }
     }
   }
+
+  // If no expression claimed a morph index, the rig uses names this keep-list
+  // does not cover. Pruning from there would collapse every face mesh to
+  // morph #0 via the fallback below and delete all visemes, so leave the model
+  // untouched and pay the VRAM instead of freezing the mouth.
+  if (usedIndices.size === 0) return 0;
 
   // 2. For each mesh with morph targets, rebuild attributes keeping only used
   //    indices and remap old → new index.

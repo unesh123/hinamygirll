@@ -38,21 +38,22 @@ function makeVrm() {
   scene.add(mesh);
 
   const bind = (index: number) => ({ primitives: [mesh], index, weight: 1 });
-  // One expression per dictionary entry: names match, binds point at the
-  // matching morph index.
-  const expressions = [
-    { name: "happy", binds: [bind(0)], weight: 0 },
-    { name: "aa", binds: [bind(1)], weight: 0 },
-    { name: "blink", binds: [bind(2)], weight: 0 },
-    { name: "sad", binds: [bind(3)], weight: 0 },
-    { name: "custom", binds: [bind(4)], weight: 0 },
-  ];
+  // One expression per dictionary entry: binds point at the matching morph
+  // index. three-vrm's VRMExpression extends Object3D, so `name` is the *node*
+  // name ("VRMExpression_aa") and the preset key lives on `expressionName` —
+  // the fixture has to match that or it proves nothing about the real library.
+  const expressions = ["happy", "aa", "blink", "sad", "custom"].map((preset) => ({
+    name: `VRMExpression_${preset}`,
+    expressionName: preset,
+    binds: [bind(mesh.morphTargetDictionary![preset]!)],
+    weight: 0,
+  }));
   const expressionManager = {
     expressions,
     getExpression: (name: string) =>
-      expressions.find((e) => e.name === name) ?? null,
+      expressions.find((e) => e.expressionName === name) ?? null,
     setValue: (name: string, weight: number) => {
-      const e = expressions.find((x) => x.name === name);
+      const e = expressions.find((x) => x.expressionName === name);
       if (e) e.weight = weight;
     },
   };
@@ -107,15 +108,36 @@ describe("pruneVrmMorphTargets", () => {
     expect(expressions[3].binds[0].index).toBe(1);
   });
 
-  it("keeps at least one morph when nothing is bound (three.js safety)", () => {
+  it("refuses to prune when the keep-list matches no expression", () => {
     const { vrm, geometry, mesh } = makeVrm();
 
     const removed = pruneVrmMorphTargets(vrm, ["nonexistent"]);
 
-    expect(geometry.morphAttributes.position).toHaveLength(1);
-    expect(mesh.morphTargetDictionary).toEqual({ happy: 0 });
-    expect(mesh.morphTargetInfluences).toHaveLength(1);
-    expect(removed).toBe(4);
+    // Collapsing every mesh to morph #0 is how the visemes got deleted. An
+    // unrecognised rig must be left alone and pay the VRAM instead.
+    expect(removed).toBe(0);
+    expect(geometry.morphAttributes.position).toHaveLength(5);
+    expect(mesh.morphTargetDictionary).toEqual({
+      happy: 0,
+      aa: 1,
+      blink: 2,
+      sad: 3,
+      custom: 4,
+    });
+  });
+
+  it("keeps viseme morphs bound through three-vrm's VRMExpression_ node names", () => {
+    const { vrm, geometry, mesh, expressions } = makeVrm();
+
+    pruneVrmMorphTargets(vrm, ["happy", "aa", "blink"]);
+
+    // Regression: matching on `expression.name` ("VRMExpression_aa") instead of
+    // `expression.expressionName` ("aa") matched zero expressions, so every
+    // mouth morph was deleted and the avatar spoke with a closed face.
+    expect(geometry.morphAttributes.position).toHaveLength(3);
+    const aa = expressions.find((e) => e.expressionName === "aa");
+    expect(aa?.binds[0].index).toBe(1);
+    expect(mesh.morphTargetInfluences?.[aa!.binds[0].index]).toBeDefined();
   });
 
   it("is a no-op when every morph is bound", () => {
