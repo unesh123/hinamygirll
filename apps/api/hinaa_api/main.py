@@ -1292,15 +1292,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "fast": True,
                 "deep": True,
                 "max": True,
-                "goal": True,
+                "goal": bool(active_settings.agent_runtime_enabled),
             },
             "providers": providers,
             "models": models,
             "features": {
                 "webSearch": has_ydc,
-                "artifacts": True,
-                "goals": True,
-                "agentCluster": bool(active_settings.agent_runtime_enabled),
+                "artifacts": bool(active_settings.persistence_enabled),
+                "goals": bool(active_settings.agent_runtime_enabled),
+                # Named for what it measures: the serial agent runtime gate. There
+                # is no parallel worker cluster yet, so none is reported.
+                "agentRuntime": bool(active_settings.agent_runtime_enabled),
                 "memory": bool(active_settings.persistence_enabled),
                 "speech": has_elevenlabs or has_azure,
             },
@@ -1676,7 +1678,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         commands = list_commands()
         youcom_client = YouComClient(active_settings)
         comfyui_ready = await comfyui_provider.health_check()
-        
+
+        # Availability has to be measured. These were previously marked AVAILABLE
+        # unconditionally, so the palette advertised /memory, /plan, /model, /voice,
+        # /avatar and /goal as ready even with no database, no agent runtime, no
+        # chat brain and no speech provider configured.
+        #
+        # `ollama` is deliberately absent: `ollama_base_url` defaults to
+        # http://localhost:11434, so `ollama_configured` is true for every install
+        # and would make `has_brain` unconditionally true again.
+        has_brain = any(
+            (
+                bool(getattr(active_settings, f"{name}_configured", False))
+                for name in (
+                    "claude", "gemini", "openai", "qwen", "groq", "custom",
+                    "agent_router", "codecraft", "cx_gateway",
+                )
+            )
+        ) or bool(os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_PKAY_API_KEY"))
+        has_speech = any(
+            bool(getattr(active_settings, f"{name}_configured", False))
+            for name in ("elevenlabs", "azure", "fish_audio", "deepgram")
+        )
+        persistence_on = bool(active_settings.persistence_enabled)
+        runtime_on = bool(active_settings.agent_runtime_enabled)
+
         result = []
         for cmd in commands:
             # Determine availability based on provider configuration
@@ -1685,8 +1711,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 availability = CapabilityStatus.AVAILABLE if youcom_client.configured else CapabilityStatus.UNCONFIGURED
             elif cmd.capability in {"image_generation", "pdf_generation", "document_generation", "presentation_generation"}:
                 availability = CapabilityStatus.AVAILABLE if comfyui_ready else CapabilityStatus.DEGRADED
-            elif cmd.capability in {"memory", "file_search", "planning", "summarization", "analysis", "model_selection", "voice_config", "avatar_config", "settings", "agent_goal"}:
-                availability = CapabilityStatus.AVAILABLE
+            elif cmd.capability in {"summarization", "analysis"}:
+                availability = CapabilityStatus.AVAILABLE if has_brain else CapabilityStatus.UNCONFIGURED
+            elif cmd.capability == "model_selection":
+                availability = CapabilityStatus.AVAILABLE if has_brain else CapabilityStatus.UNCONFIGURED
+            elif cmd.capability in {"planning", "agent_goal"}:
+                availability = CapabilityStatus.AVAILABLE if runtime_on else CapabilityStatus.UNAVAILABLE
+            elif cmd.capability == "memory":
+                availability = CapabilityStatus.AVAILABLE if persistence_on else CapabilityStatus.UNAVAILABLE
+            elif cmd.capability == "file_search":
+                availability = CapabilityStatus.AVAILABLE if persistence_on else CapabilityStatus.DEGRADED
+            elif cmd.capability == "voice_config":
+                availability = CapabilityStatus.AVAILABLE if has_speech else CapabilityStatus.UNCONFIGURED
+            elif cmd.capability == "avatar_config":
+                availability = CapabilityStatus.AVAILABLE  # browser-side rendering only
+            elif cmd.capability == "settings":
+                availability = CapabilityStatus.AVAILABLE  # browser-side only
             elif cmd.capability == "automation":
                 availability = CapabilityStatus.CONFIGURED  # Requires worker setup
             elif cmd.capability == "media_playback":
