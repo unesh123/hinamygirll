@@ -4,7 +4,12 @@ import "./App.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { AudioLines, ListChecks, ScanFace, Search, Wand2, Sparkles } from "lucide-react";
 import { AppShell } from "./design-system/layout/AppShell";
-import { TopBarV6, type WorkspaceMode } from "./design-system/layout/TopBarV6";
+import {
+  TopBarV6,
+  type ExecutiveMode,
+  type WorkspaceMode,
+} from "./design-system/layout/TopBarV6";
+import type { ResponseMode } from "./features/providers/conversationProvider";
 
 import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
@@ -378,6 +383,25 @@ export default function App() {
 
   // ─── Sakura OS mode state ──────────────────────────────
   const [sakuraView, setSakuraView] = useState<"talk" | "work" | "operate">("work");
+  const [executiveMode, setExecutiveMode] = useState<ExecutiveMode>(() => {
+    try {
+      const stored = window.localStorage.getItem("hinaa-executive-mode");
+      return stored === "deep-reasoning" || stored === "report" || stored === "research"
+        ? stored
+        : "chat";
+    } catch { return "chat"; }
+  });
+  const changeExecutiveMode = (mode: ExecutiveMode) => {
+    setExecutiveMode(mode);
+    try { window.localStorage.setItem("hinaa-executive-mode", mode); } catch {}
+  };
+  // `chat` deliberately sends nothing: the backend then infers the mode from the
+  // wording, so a greeting stays a greeting even with the chip selected.
+  const requestResponseMode: ResponseMode | undefined =
+    executiveMode === "report" ? "professional"
+      : executiveMode === "research" ? "research"
+      : executiveMode === "deep-reasoning" ? "technical"
+      : undefined;
   const [visualMode, setVisualMode] = useState<VisualMode>(() => {
     try {
       return (window.localStorage.getItem("hinaa-visual-mode") as VisualMode) || "vrm";
@@ -563,6 +587,7 @@ export default function App() {
     void (async () => {
       const result = await controller.sendText(text, {
         imageUrl: imageData || undefined,
+        responseMode: requestResponseMode,
       });
       const plan = result?.plan;
       if (!result || !plan) return;
@@ -670,7 +695,7 @@ export default function App() {
         }
       }
     })();
-  }, [input, live.active, controller, playback, attachedImage, interruptPlayback]);
+  }, [input, live.active, controller, playback, attachedImage, interruptPlayback, requestResponseMode]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
     // A command changes HINAA's working surface and leaves an explicit intent
@@ -930,6 +955,8 @@ export default function App() {
                 });
               }}
               selectedModelId={routing.activeModel}
+              executiveMode={executiveMode}
+              onExecutiveModeChange={changeExecutiveMode}
             />
 
 

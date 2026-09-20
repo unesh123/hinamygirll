@@ -86,4 +86,45 @@ describe("backend conversation provider", () => {
       "PROVIDER_TIMEOUT: Service timed out",
     );
   });
+
+  it("sends the selected response mode and omits it when unset", async () => {
+    const body = `${JSON.stringify({ type: "plan", plan: buildMockPlan("hello", "hinaa") })}\n`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const drain = async (request: Parameters<
+      BackendConversationProvider["streamTurn"]
+    >[0]) => {
+      for await (const _event of new BackendConversationProvider(
+        "claude",
+      ).streamTurn(request)) {
+        // Consume the stream.
+      }
+      return JSON.parse(fetchMock.mock.lastCall[1].body);
+    };
+
+    const explicit = await drain({
+      text: "hello",
+      companionId: "hinaa",
+      signal: new AbortController().signal,
+      language: "en-US",
+      responseMode: "professional",
+    });
+    expect(explicit.responseMode).toBe("professional");
+
+    const inferred = await drain({
+      text: "hello",
+      companionId: "hinaa",
+      signal: new AbortController().signal,
+      language: "en-US",
+    });
+    expect("responseMode" in inferred).toBe(false);
+  });
 });

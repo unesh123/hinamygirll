@@ -29,6 +29,8 @@ export interface TopBarV6Props {
   onOpenGoalDetails?: () => void;
   onSelectModel?: (modelId: string, providerId: string) => void;
   selectedModelId?: string | null;
+  executiveMode: ExecutiveMode;
+  onExecutiveModeChange: (mode: ExecutiveMode) => void;
 }
 
 export const TopBarV6: React.FC<TopBarV6Props> = ({
@@ -40,16 +42,15 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   onOpenSearch,
   onSelectModel,
   selectedModelId,
+  executiveMode,
+  onExecutiveModeChange,
 }) => {
-  const [executiveMode, setExecutiveMode] = useState<ExecutiveMode>("chat");
   const { models, providers, runtime } = useCapabilities();
   const [isAuto, setIsAuto] = useState(!selectedModelId);
 
   const handleModeClick = (mode: ExecutiveMode) => {
-    setExecutiveMode(mode);
-    if (mode === "chat") onModeChange("work");
-    else if (mode === "research") onModeChange("work");
-    else onModeChange("work");
+    onExecutiveModeChange(mode);
+    if (!(mode === "chat" && currentMode === "talk")) onModeChange("work");
   };
 
   return (

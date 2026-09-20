@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { BackendConversationProvider } from "../providers/backendConversationProvider";
-import type { AgentRuntimeEvent } from "../providers/conversationProvider";
+import type {
+  AgentRuntimeEvent,
+  ResponseMode,
+} from "../providers/conversationProvider";
 import { MockConversationProvider } from "../providers/mockConversationProvider";
 import {
   companionProfiles,
@@ -164,6 +167,7 @@ export interface CompanionController {
     text: string,
     options?: {
       forceBackend?: boolean;
+      responseMode?: ResponseMode;
       imageUrl?: string;
       attachment_ids?: string[];
       attachments?: import("./types").MessageAttachment[];
@@ -446,6 +450,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       rawText: string,
       options?: {
         forceBackend?: boolean;
+        responseMode?: ResponseMode;
         imageUrl?: string;
         attachment_ids?: string[];
         attachments?: import("./types").MessageAttachment[];
@@ -504,6 +509,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           companionId,
           signal: abortController.signal,
           language,
+          responseMode: options?.responseMode,
           brainModel: turnModel,
           imageEngine: options?.imageEngine,
           voiceEngine: options?.voiceEngine,

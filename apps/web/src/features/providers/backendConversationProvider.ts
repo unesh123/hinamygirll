@@ -75,6 +75,9 @@ export class BackendConversationProvider implements ConversationProvider {
       language: request.language,
       providerMode: this.mode,
     };
+    if (request.responseMode) {
+      payload.responseMode = request.responseMode;
+    }
     if (request.imageUrl) {
       payload.imageUrl = request.imageUrl;
     }
