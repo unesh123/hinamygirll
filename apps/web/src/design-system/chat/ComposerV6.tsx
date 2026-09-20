@@ -138,7 +138,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   isAutoRouter = true,
   onSelectAuto,
   onSelectModel,
-  backendConnected = true,
+  backendConnected = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -149,6 +149,20 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const [showIntelMenu, setShowIntelMenu] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [previewChip, setPreviewChip] = useState<ContextChip | null>(null);
+
+  // Footer status is measured from /v1/capabilities via props, never asserted:
+  // the previous literals read "6 nodes online" green straight through an outage.
+  const readyProviders = discoveredProviders.filter((p) => p.configured).length;
+  const readyModels = discoveredModels.filter((m) => m.configured).length;
+  const contextCount = contextChips.length + (attachedImage ? 1 : 0);
+  const statusTone = !backendConnected
+    ? { dot: "#ef4444", label: "Backend offline" }
+    : readyProviders === 0
+      ? { dot: "#f59e0b", label: "No providers configured" }
+      : {
+          dot: "#10b981",
+          label: `${readyProviders} provider${readyProviders === 1 ? "" : "s"} · ${readyModels} models`,
+        };
 
   // Auto-grow textarea
   const adjustHeight = useCallback(() => {
@@ -507,7 +521,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           borderTop: "1px solid #f1f5f9",
         }}
       >
-        {/* Left cluster: Badges [🔴 Command Center] [📎 4 sources] [🟢 6 nodes online] */}
+        {/* Left cluster: Badges [🔴 Command Center] [📎 N attached] [status from /v1/capabilities] */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <div
             data-testid="badge-command-center"
@@ -528,24 +542,26 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             <span>Command Center</span>
           </div>
 
-          <div
-            data-testid="badge-sources"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "3px 8px",
-              borderRadius: 6,
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "#475569",
-            }}
-          >
-            <Paperclip size={11} style={{ color: "#64748b" }} />
-            <span>4 sources</span>
-          </div>
+          {contextCount > 0 && (
+            <div
+              data-testid="badge-sources"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "3px 8px",
+                borderRadius: 6,
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                fontSize: 11,
+                fontWeight: 500,
+                color: "#475569",
+              }}
+            >
+              <Paperclip size={11} style={{ color: "#64748b" }} />
+              <span>{contextCount} attached</span>
+            </div>
+          )}
 
           <div
             data-testid="badge-nodes-online"
@@ -562,8 +578,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               color: "#475569",
             }}
           >
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981" }} />
-            <span>6 nodes online</span>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusTone.dot }} />
+            <span>{statusTone.label}</span>
           </div>
           {/* 1. `+` Menu Button */}
           <div style={{ position: "relative" }}>

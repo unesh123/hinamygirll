@@ -10,6 +10,7 @@ import {
   User,
   Circle,
 } from "lucide-react";
+import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 
 export type NavSection =
   | "talk"
@@ -46,11 +47,37 @@ export function NavigationRail({
   onNewChat,
   onToggleHistory,
   historyOpen = false,
-  isOnline = true,
+  isOnline = false,
   isDark = false,
   onToggleTheme,
 }: NavigationRailProps) {
   const isChatActive = active === "chat" || active === "talk" || active === "voice";
+  const { capabilities, loading: capsLoading, error: capsError } = useCapabilities();
+  const { runtime, features, providers } = capabilities;
+  const configuredProviders = providers.filter((p) => p.configured).length;
+  const backendOk = runtime.backendConnected && !capsError && isOnline;
+
+  // Never assert health the rail has not measured — these literals stayed green
+  // through a total backend outage.
+  const status = capsLoading
+    ? { dot: "#94a3b8", headline: "Checking systems…", detail: "Probing /v1/capabilities" }
+    : backendOk
+      ? {
+          dot: "#10b981",
+          headline: "All systems nominal",
+          detail: `${configuredProviders} providers · ${runtime.activeMode} mode`,
+        }
+      : {
+          dot: "#ef4444",
+          headline: "Backend unreachable",
+          detail: capsError ? capsError : "API not responding",
+        };
+
+  const sources = [
+    { label: "Knowledge Base", color: "#10b981", ready: features.memory },
+    { label: "Web Search", color: "#3b82f6", ready: features.webSearch },
+    { label: "Artifacts", color: "#f59e0b", ready: features.artifacts },
+  ];
 
   const navItems = [
     {
@@ -324,83 +351,75 @@ export function NavigationRail({
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 8px" }}>
-          {/* Knowledge Base */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
+          {sources.map((src) => (
+            <div
+              key={src.label}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: capsLoading ? "#cbd5e1" : src.ready ? src.color : "#cbd5e1",
+                    flexShrink: 0,
+                  }}
+                />
+                <span>{src.label}</span>
+              </div>
               <span
                 style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "#10b981",
-                  flexShrink: 0,
+                  fontSize: 10,
+                  color: !capsLoading && src.ready ? "#10b981" : "#94a3b8",
+                  fontWeight: 500,
                 }}
-              />
-              <span>Knowledge Base</span>
+              >
+                {capsLoading ? "Checking" : src.ready ? "Available" : "Unavailable"}
+              </span>
             </div>
-            <span style={{ fontSize: 10, color: "#10b981", fontWeight: 500 }}>
-              Synced
-            </span>
-          </div>
-
-          {/* Calendar */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "#3b82f6",
-                  flexShrink: 0,
-                }}
-              />
-              <span>Calendar</span>
-            </div>
-            <span style={{ fontSize: 10, color: "#10b981", fontWeight: 500 }}>
-              Synced
-            </span>
-          </div>
-
-          {/* Documents */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "#f59e0b",
-                  flexShrink: 0,
-                }}
-              />
-              <span>Documents</span>
-            </div>
-            <span style={{ fontSize: 10, color: "#10b981", fontWeight: 500 }}>
-              Synced
-            </span>
-          </div>
+          ))}
         </div>
       </div>
 
       {/* ── Footer ─────────────────────────────────── */}
       <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid #f1f5f9" }}>
+        {!capsLoading && !backendOk && (
+          <div
+            data-testid="rail-degraded-banner"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 8,
+              padding: "6px 8px",
+              borderRadius: 8,
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              fontSize: 10,
+              lineHeight: 1.4,
+              color: "#991b1b",
+            }}
+          >
+            <Circle size={8} fill="#ef4444" stroke="#ef4444" style={{ flexShrink: 0 }} />
+            <span>Degraded — HINAA cannot reach its backend, so chat replies will fail.</span>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, paddingLeft: 4 }}>
           <span
+            data-testid="rail-status-dot"
             style={{
               width: 7,
               height: 7,
               borderRadius: "50%",
-              background: "#10b981",
+              background: status.dot,
             }}
           />
           <span style={{ fontSize: 11, fontWeight: 600, color: "#1e293b" }}>
-            All systems nominal
+            {status.headline}
           </span>
         </div>
-        <div style={{ fontSize: 10, color: "#94a3b8", paddingLeft: 19 }}>
-          6 nodes · 99.97% uptime
-        </div>
+        <div style={{ fontSize: 10, color: "#94a3b8", paddingLeft: 19 }}>{status.detail}</div>
 
         <button
           type="button"
