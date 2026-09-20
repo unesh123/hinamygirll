@@ -73,6 +73,14 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Local test/audit scratch outputs (regenerated on every run)
+vitest-out.txt
+vitest-*.txt
+apps/web/vitest-*.txt
+apps/web/run-vitest.cmd
+apps/web/.audit-out/
+scratch/
+
 # Allow VRM models in public/models
 !apps/web/public/models/*.vrm
 .vercel
