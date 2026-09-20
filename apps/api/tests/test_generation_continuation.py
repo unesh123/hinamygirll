@@ -544,6 +544,33 @@ class TestVoiceResponsePlanner:
         assert vtype == VoiceResponseType.COMPLETION
         assert "PDF" in text
 
+    def test_live_voice_rejects_a_lead_in_as_the_whole_answer(self) -> None:
+        """Measured live: a 125-char warm-up over a 3,145-char report became her
+        entire spoken reply, so she stopped after one sentence."""
+        from hinaa_api.services import VoiceResponseType, plan_voice_response
+
+        teaser = (
+            "Great question, babe. Let me be completely honest with you about how "
+            "my memory and learning system actually works — no fluff."
+        )
+        vtype, text = plan_voice_response(
+            self._long_doc(), teaser, is_progress=False, live=True
+        )
+        assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
+        assert len(text) > 600, "live voice must carry substance, not a warm-up"
+        # The same turn in chat may stay terse — the display text carries content.
+        _, chat_text = plan_voice_response(self._long_doc(), teaser, is_progress=False)
+        assert len(chat_text) < 400
+
+    def test_question_fallback_never_speaks_markdown(self) -> None:
+        from hinaa_api.services import VoiceResponseType, plan_voice_response
+
+        doc = "## How My Memory Works\n\n" + "Session memory is fed back to me each turn. " * 20
+        vtype, text = plan_voice_response(doc + "\n\nWant the full list?", "", is_progress=False, live=True)
+        assert vtype == VoiceResponseType.QUESTION
+        for marker in ("##", "\n", "```"):
+            assert marker not in text
+
     def test_no_mid_thought_cut_on_clause_truncation(self) -> None:
         from hinaa_api.services import _truncate_at_clause_boundary
 

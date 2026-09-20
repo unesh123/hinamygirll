@@ -364,12 +364,18 @@ def plan_voice_response(
     has_error: bool = False,
     is_progress: bool = False,
     artifact_title: str | None = None,
+    live: bool = False,
 ) -> tuple[VoiceResponseType, str]:
     """Classify the turn and produce the voice text for that type.
 
     Long documents never get a recitation; short conversational answers
     keep their full voice text; the summary is built from whole sentences
     and never cut mid-thought.
+
+    `live` widens every budget. In the chat window a short spoken line
+    complements a long display answer the user can scroll through; in a
+    hands-free call it is the only surface, so the chat clamps truncated her
+    to two sentences mid-thought.
     """
     display = (display_text or "").strip()
     spoken = (spoken_text or "").strip()
@@ -396,26 +402,48 @@ def plan_voice_response(
     # with a summary, that would erase the ask.
     if spoken.endswith("?") or (not spoken and display.rstrip().endswith("?")):
         question = spoken or display
+        if any(marker in question for marker in ("```", "\n", "•", "|", "###", "##", "- ")):
+            # Falling back to the display text can pull in headings and bullets
+            # that must never be read aloud.
+            question = _plain_first_sentences(question, limit=400) or question.replace("\n", " ")
         if len(question) <= 400:
             return VoiceResponseType.QUESTION, question
         return VoiceResponseType.QUESTION, _truncate_at_clause_boundary(question, 380)
 
-    if len(display) <= 600:
+    # Chat surfaces can clamp hard because the display text carries the rest.
+    # Live voice has no second surface, so the same clamps truncated her after
+    # two sentences; ~1.4k characters is about 90s of fluent speech.
+    whole_answer_ceiling = 1_400 if live else 600
+    verbatim_cap = 1_400 if live else 450
+    distill_limit = 1_400 if live else 350
+    summary_limit = 1_200 if live else 280
+
+    if len(display) <= whole_answer_ceiling:
         # Short conversational turn: keep the model's own voice text when it
         # is a complete thought; otherwise speak the display text itself.
         candidate = spoken or display
-        if len(candidate) <= 450 and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", candidate.rstrip())):
+        if len(candidate) <= verbatim_cap and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", candidate.rstrip())):
             return VoiceResponseType.SHORT_FULL, candidate
-        if len(display) <= 450:
+        if len(display) <= verbatim_cap:
             return VoiceResponseType.SHORT_FULL, display
-        distilled = _plain_first_sentences(display, limit=350)
+        distilled = _plain_first_sentences(display, limit=distill_limit)
         return VoiceResponseType.SHORT_FULL, distilled or "I've put the full breakdown in chat! ✨"
 
     # Long document: executive summary from whole substantive sentences.
     clean_spoken = spoken.strip()
+    # A 40-character floor accepted pure lead-in sentences ("Great question,
+    # babe, let me be honest with you…") as the whole spoken answer, so she
+    # stopped after the warm-up. In chat the display text carries the content;
+    # on a call her voice is the only surface, so demand real substance and
+    # fall through to the distilled document summary when the model didn't give
+    # one.
+    sentence_ends = len(re.findall(r"[.!?\u0964\u0965]", clean_spoken))
+    min_substantive_chars = 320 if live else 40
+    min_substantive_sentences = 3 if live else 1
     is_substantive_spoken = (
-        len(clean_spoken) >= 40
-        and len(clean_spoken) <= 700
+        len(clean_spoken) >= min_substantive_chars
+        and sentence_ends >= min_substantive_sentences
+        and len(clean_spoken) <= (2_400 if live else 700)
         and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", clean_spoken))
         and not any(marker in clean_spoken for marker in ("```", "\n", "•", "|", "###", "##"))
         and not clean_spoken.lower().startswith("here is your")
@@ -424,12 +452,17 @@ def plan_voice_response(
     if is_substantive_spoken:
         return VoiceResponseType.EXECUTIVE_SUMMARY, clean_spoken
 
-    summary = _plain_first_sentences(display, limit=280)
+    summary = _plain_first_sentences(display, limit=summary_limit)
     if not summary:
-        summary = _truncate_at_clause_boundary(spoken or display, 280)
+        summary = _truncate_at_clause_boundary(spoken or display, summary_limit)
     if summary and not re.search(r"[.!?:\u0964\u0965]\s*$", summary.rstrip()):
-        summary = _truncate_at_clause_boundary(summary, 280)
-    return VoiceResponseType.EXECUTIVE_SUMMARY, f"{summary} The full document is in chat for you! ✨"
+        summary = _truncate_at_clause_boundary(summary, summary_limit)
+    sign_off = (
+        "Want me to walk you through the whole thing?"
+        if live
+        else "The full document is in chat for you! ✨"
+    )
+    return VoiceResponseType.EXECUTIVE_SUMMARY, f"{summary} {sign_off}"
 
 
 def _apply_response_quality_guard(
@@ -483,6 +516,12 @@ def _apply_response_quality_guard(
         return
 
     raw_spoken = plan.spokenText or ""
+    if is_live:
+        # A paragraph break is prose, not structure. Discarding spoken text
+        # just because it contained "\n" threw away everything the model
+        # wrote to be said aloud; flatten it and keep the real hazards fatal.
+        raw_spoken = " ".join(part.strip() for part in raw_spoken.split("\n") if part.strip())
+        plan.spokenText = raw_spoken
     # Check if spoken text contains structured markdown, code, or outlines that should never be spoken aloud
     has_forbidden_speech_structure = any(
         marker in raw_spoken for marker in ("```", "\n", "•", "|", "- ", "1. ", "###", "##")
@@ -493,19 +532,19 @@ def _apply_response_quality_guard(
 
     if has_forbidden_speech_structure or is_verbatim_echo:
         voice_type, voice_text = plan_voice_response(
-            plan.displayText, "", is_progress=False
+            plan.displayText, "", is_progress=False, live=is_live
         )
         plan.spokenText = voice_text
-    elif len(plan.spokenText) > 750:
+    elif len(plan.spokenText) > (3_000 if is_live else 750):
         voice_type, voice_text = plan_voice_response(
-            plan.displayText, plan.spokenText, is_progress=False
+            plan.displayText, plan.spokenText, is_progress=False, live=is_live
         )
         plan.spokenText = voice_text
-    elif len(plan.displayText) > 600:
+    elif len(plan.displayText) > (1_400 if is_live else 600):
         # Document guard (EXECUTIVE_SUMMARY): when displayText is a long
         # document/report, voice provides a smart, substantive executive summary.
         voice_type, voice_text = plan_voice_response(
-            plan.displayText, plan.spokenText, is_progress=False
+            plan.displayText, plan.spokenText, is_progress=False, live=is_live
         )
         plan.spokenText = voice_text
 
