@@ -1124,6 +1124,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_capabilities() -> dict[str, Any]:
         """Expose runtime environment, configured providers, real models, and modes.
         Derives from active server settings; never exposes raw credentials."""
+        from hinaa_api.prompts.companions import OWNER_NAME
+
         has_claude = bool(getattr(active_settings, "claude_configured", False))
         has_gemini = bool(getattr(active_settings, "gemini_configured", False))
         has_openai = bool(getattr(active_settings, "openai_configured", False))
@@ -1286,6 +1288,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "activeMode": active_settings.provider_mode,
                 "persistenceEnabled": active_settings.persistence_enabled,
                 "authMode": active_settings.auth_mode,
+                "ownerName": OWNER_NAME,
+                # dev mode maps every anonymous caller to dev_auth_subject, so
+                # tenant scoping is correct but there is no tenant to check.
+                "privateDataOpen": active_settings.auth_mode == "dev",
             },
             "modes": {
                 "auto": True,

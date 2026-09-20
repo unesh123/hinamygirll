@@ -1,4 +1,3 @@
-import { ExecutiveReportCard } from "../components/ExecutiveReportCard";
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
@@ -1381,15 +1380,12 @@ function WorkMessage({
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
 
-  // Check if message text is a structured report
-  const isReport = !isUser && (
-    message.text.includes("Executive Summary") ||
-    message.text.includes("Key Findings") ||
-    message.text.includes("Market Position") ||
-    message.text.includes("Q3") ||
-    message.text.includes("Risk Assessment") ||
-    message.text.includes("Recommended Actions")
-  );
+  const plan = message.plan;
+  const answeredBy = plan?.resolvedModel || plan?.resolvedProvider || null;
+  const requestedBrain = plan?.requestedModel || plan?.requestedProvider || null;
+  const answeredByLabel = answeredBy
+    ? `${answeredBy}${plan?.latencyMs ? ` · ${Math.round(plan.latencyMs / 100) / 10}s` : ""}`
+    : null;
 
   const handleCopy = async () => {
     try {
@@ -1410,20 +1406,6 @@ function WorkMessage({
       </div>
     );
   };
-
-  if (isReport) {
-    return (
-      <ExecutiveReportCard
-        title={message.text.split("\n")[0].replace(/^[#\s]+/, "") || "Q3 Market Position Analysis"}
-        modelName="HINA-Reasoner-Pro"
-        latency="4.2s"
-        sourcesCount={4}
-        confidence={87}
-        onRegenerate={() => {}}
-        onExportPdf={() => {}}
-      />
-    );
-  }
 
   return (
     <div
@@ -1466,11 +1448,19 @@ function WorkMessage({
             <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: "#1e293b" }}>
               HINA
             </span>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {message.createdAt
-                ? new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                : "09:41"}
-            </span>
+            {message.createdAt && (
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            {answeredByLabel && (
+              <span
+                style={{ fontSize: 10, color: plan?.fallback ? "#b45309" : "#94a3b8", fontWeight: plan?.fallback ? 600 : 400 }}
+                title={plan?.fallback ? plan.fallbackReason ?? undefined : undefined}
+              >
+                {answeredByLabel}
+              </span>
+            )}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1482,14 +1472,26 @@ function WorkMessage({
             >
               {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
             </button>
-            <button
-              type="button"
-              title="Regenerate"
-              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
-            >
-              <RefreshCw size={14} />
-            </button>
           </div>
+        </div>
+      )}
+
+      {plan?.fallback && !isUser && (
+        <div
+          style={{
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: "#92400e",
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            borderRadius: 8,
+            padding: "6px 10px",
+            marginBottom: 6,
+            marginLeft: 34,
+            maxWidth: 620,
+          }}
+        >
+          {`You asked for ${requestedBrain ?? "the selected brain"}, but ${answeredBy ?? "another brain"} answered because ${plan.fallbackReason ?? "the first attempt did not finish"}.`}
         </div>
       )}
 

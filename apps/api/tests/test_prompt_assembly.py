@@ -495,3 +495,25 @@ def test_depth_classifier_uses_hindi_english_route_without_nepali_aliases() -> N
     assert "कसरी" not in patterns
     assert "हैन" not in patterns
     assert infer_response_depth("हिना, मुझे ComfyUI setup समझाओ", "rest") == "procedural"
+
+
+def test_prompt_carries_measured_self_state_not_invented_architecture() -> None:
+    """He asks "what is the current state of Hina?" — her own numbers must be in the prompt.
+
+    Measured before this existed: a 553-word answer about herself with zero real
+    facts in it, because nothing told her which brains, tools or modes are running.
+    """
+    from hinaa_api.prompts.assembly import _self_state_layer
+    from hinaa_api.tools import registry
+
+    block = _self_state_layer()
+    tool_count = len(registry.get_all_tools())
+    assert "MEASURED SELF STATE" in block
+    assert f"Registered tools ({tool_count})" in block
+    assert PROMPT_VERSION in block
+    assert "Active brain routing:" in block
+    assert "Auth mode:" in block
+    assert "Say you do not know rather than invent" in block
+
+    assembled = assemble_prompt(_input(user_text="What is the current state of Hina?"))
+    assert "MEASURED SELF STATE" in assembled.system_instruction

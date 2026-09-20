@@ -26,6 +26,8 @@ export interface RuntimeCapabilities {
     activeMode: string;
     persistenceEnabled: boolean;
     authMode: string;
+    ownerName: string;
+    privateDataOpen: boolean;
   };
   modes: {
     auto: boolean;
@@ -64,6 +66,8 @@ const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
     activeMode: "unknown",
     persistenceEnabled: false,
     authMode: "unknown",
+    ownerName: "",
+    privateDataOpen: false,
   },
   modes: {
     auto: true,

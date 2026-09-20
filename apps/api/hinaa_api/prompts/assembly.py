@@ -26,6 +26,47 @@ from .versioning import (
 )
 
 
+def _self_state_layer() -> str:
+    """Her measured runtime state, so questions about herself are read, not guessed.
+
+    Without this she invents plausible-sounding architecture prose for "what is the
+    current state of Hina?" and every number in it is fiction.
+    """
+    try:
+        from ..config import get_settings
+
+        settings = get_settings()
+        brains = [
+            name
+            for name in (
+                "claude",
+                "gemini",
+                "openai",
+                "groq",
+                "qwen",
+                "azure",
+                "agent-router",
+                "custom",
+            )
+            if getattr(settings, f"{name.replace('-', '_')}_configured", False)
+        ]
+        tool_names = [tool.name for tool in registry.get_all_tools()]
+        return (
+            "\n\nMEASURED SELF STATE (read from the running process, not recalled):\n"
+            f"- Prompt assembly version: {PROMPT_VERSION}.\n"
+            f"- Active brain routing: {settings.provider_mode}.\n"
+            f"- Configured brains ({len(brains)}): {', '.join(brains) or 'none'}.\n"
+            f"- Registered tools ({len(tool_names)}): {', '.join(sorted(tool_names))}.\n"
+            f"- Persistence: {'on' if settings.persistence_enabled else 'off'}.\n"
+            f"- Auth mode: {settings.auth_mode}.\n"
+            "When he asks about you, your state, your capabilities, your limits or your architecture, "
+            "answer from these measured facts and name them. Say you do not know rather than invent a "
+            "number, a subsystem, or a provider you cannot see here."
+        )
+    except Exception:  # pragma: no cover - a settings failure must never break the prompt
+        return ""
+
+
 def _product_identity_layer() -> str:
     now = datetime.now(timezone.utc)
     formatted_date = now.strftime("%A, %B %d, %Y")
@@ -39,6 +80,7 @@ def _product_identity_layer() -> str:
         f"Never assume or state that the year is 2023 or 2024. Your internal pre-training cutoff date is in the past. "
         f"Whenever the user asks about current, recent, live, or latest information, evaluate facts based on {now.year}. "
         f"If live web search or retrieved context is provided in the prompt, treat it as the freshest authoritative ground truth."
+        + _self_state_layer()
     )
 
 

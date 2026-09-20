@@ -73,6 +73,20 @@ export function NavigationRail({
           detail: capsError ? capsError : "API not responding",
         };
 
+  const ownerName = runtime.ownerName.trim();
+  const ownerInitials = ownerName
+    ? ownerName
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((word) => word[0]?.toUpperCase() ?? "")
+        .join("")
+    : "··";
+  const sessionLine = capsLoading
+    ? "Identifying session…"
+    : capsError
+      ? "Session unknown"
+      : `${runtime.environment} · ${runtime.authMode} auth`;
+
   const sources = [
     { label: "Knowledge Base", color: "#10b981", ready: features.memory },
     { label: "Web Search", color: "#3b82f6", ready: features.webSearch },
@@ -200,7 +214,7 @@ export function NavigationRail({
             flexShrink: 0,
           }}
         >
-          AL
+          {ownerInitials}
         </div>
         <div style={{ minWidth: 0 }}>
           <div
@@ -213,13 +227,34 @@ export function NavigationRail({
               textOverflow: "ellipsis",
             }}
           >
-            Alex Morgan
+            {ownerName || "Not reported"}
           </div>
           <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>
-            Pro · Cluster access
+            {sessionLine}
           </div>
         </div>
       </div>
+
+      {/* ── Measured exposure state ─────────────────── */}
+      {!capsLoading && !capsError && runtime.privateDataOpen && (
+        <div
+          style={{
+            fontSize: 10,
+            lineHeight: 1.45,
+            fontWeight: 500,
+            color: "#92400e",
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            borderRadius: 10,
+            padding: "7px 9px",
+            marginBottom: 12,
+          }}
+        >
+          Anyone with this URL can read memories, chats and tasks. Set{' '}
+          <code style={{ fontFamily: "inherit", fontWeight: 700 }}>HINAA_AUTH_MODE=clerk</code>{' '}
+          and a token-verified owner.
+        </div>
+      )}
 
       {/* ── Primary Action: + New Session ──────────── */}
       {onNewChat && (
