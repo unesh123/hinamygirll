@@ -7,6 +7,7 @@ from anthropic import AsyncAnthropic, APIError, APIConnectionError, APITimeoutEr
 from hinaa_api.providers.openai_llm import OpenAILLMProvider, _sanitize_delta, _orchestrator_continuations, _custom_text_from_raw
 from hinaa_api.errors import HinaaError
 from hinaa_api.prompts import PromptPackage
+from hinaa_api.prompts.depth import depth_word_floor
 from hinaa_api.providers.blocks import normalize_anthropic_response, extract_text_from_canonical_blocks
 from hinaa_api.generation.orchestrator import GenerationOrchestrator
 from hinaa_api.generation.continuation_contract import (
@@ -302,6 +303,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                     segment_number=len(orchestrator.segment_results) + 2,
                     original_goal=base_text,
                     previous_tail=prior[-6_000:],
+                    remaining_words=orchestrator.words_short(prior),
                 )
                 continued_text = render_continuation_prompt(continuation_req)
                 cont_prompt = prompt.model_copy(
@@ -335,6 +337,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                 max_continuations=_orchestrator_continuations(),
                 char_budget=_llm_budget_tokens() * 4,
                 generation_id=f"{self._provider_id}:{started:.0f}",
+                min_words=depth_word_floor(prompt.response_depth),
             )
             outcome = await orchestrator.run(
                 first_segment_stream=_first_stream(),

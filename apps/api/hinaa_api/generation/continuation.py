@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 __all__ = [
+    "word_count",
     "ContinuationStatus",
     "ContinuationReason",
     "ContinuationNeeded",
@@ -44,6 +45,15 @@ __all__ = [
     "ConsistencyReport",
     "run_consistency_pass",
 ]
+
+
+def word_count(text: str) -> int:
+    """Words of written substance in a draft — the unit the depth contract uses.
+
+    Whitespace-split, so Markdown table pipes and fences cost little: a table
+    heavy report counts close to what a reader would call its length.
+    """
+    return len(text.split())
 
 
 class ContinuationStatus(str, Enum):
@@ -65,6 +75,7 @@ class ContinuationReason(str, Enum):
     INCOMPLETE_TABLE = "incomplete_table"
     UNFINISHED_SECTION = "unfinished_section"
     MISSING_REQUESTED_SECTIONS = "missing_requested_sections"
+    DEPTH_CONTRACT_UNMET = "depth_contract_unmet"
     NONE = "none"
 
 
@@ -88,6 +99,8 @@ class ContinuationEvidence:
     remaining_sections: tuple[str, ...] = ()
     conversational_closing: bool = False
     trailing_decorations: str = ""
+    shallow_vs_contract: bool = False
+    words_short: int = 0
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -101,6 +114,8 @@ class ContinuationEvidence:
             "remaining_sections": list(self.remaining_sections),
             "conversational_closing": self.conversational_closing,
             "trailing_decorations": self.trailing_decorations,
+            "shallow_vs_contract": self.shallow_vs_contract,
+            "words_short": self.words_short,
         }
 
 
@@ -234,6 +249,7 @@ def detect_continuation_need(
     max_segments: int = 10,
     planned_sections: tuple[str, ...] = (),
     remaining_sections: tuple[str, ...] = (),
+    min_words: int = 0,
 ) -> ContinuationDecision:
     """Decide whether generation must continue using strict finish-reason precedence (P0.14 §1–§5).
 
@@ -246,6 +262,9 @@ def detect_continuation_need(
     6. Structured Output Plan Completeness: If planned/remaining sections are missing,
        continuation MUST trigger regardless of conversational closing phrases.
     7. Structural Incompleteness: Mid-word, open fences, open JSON, incomplete table.
+    7b. Depth Contract: written text below the word count the response-depth
+        prompt promised (min_words). A clean stop at a third of the promised
+        report is a finished-looking outline, not a deliverable — expand it.
     8. Terminal Punctuation / Conversational Closing: LOW-STRENGTH evidence; confirms
        completion only if natural stop, no open structures, and all planned sections exist.
     """
@@ -398,6 +417,20 @@ def detect_continuation_need(
         reasons.append(
             ContinuationNeeded(
                 ContinuationReason.INCOMPLETE_PARAGRAPH, "ends on an open Markdown construct"
+            )
+        )
+
+    # 7b. Depth contract: the prompt told the model how long this answer had to
+    # be. A clean stop well under that floor is the failure the old detector
+    # could not see, because nothing was *broken* — it was just thin.
+    written_words = word_count(tail)
+    if min_words > 0 and written_words < min_words and not reasons:
+        evidence.shallow_vs_contract = True
+        evidence.words_short = min_words - written_words
+        reasons.append(
+            ContinuationNeeded(
+                ContinuationReason.DEPTH_CONTRACT_UNMET,
+                f"{written_words:,} words written against a {min_words:,} word depth floor",
             )
         )
 

@@ -47,6 +47,32 @@ _MODE_DEPTH: dict[str, ResponseDepth] = {
     "concise_voice": "minimal",
 }
 
+# (floor, target) words of WRITTEN text the depth class promises. Only the
+# depths with a genuine long-form deliverable carry one; a contract on
+# `minimal` or `supportive` would inflate a two-line reply into an essay.
+_DEPTH_WORDS: dict[ResponseDepth, tuple[int, int]] = {
+    "explanatory": (1_000, 2_000),
+    "report": (4_900, 5_000),
+}
+
+
+def depth_words(depth: ResponseDepth) -> tuple[int, int] | None:
+    """The (floor, target) word contract for `depth`, or None if it has none."""
+    return _DEPTH_WORDS.get(depth)
+
+
+def depth_word_floor(depth: ResponseDepth) -> int:
+    """Words of written text that satisfy `depth`'s promise; 0 if unbounded.
+
+    Counted in words, not characters: a report with data tables carries far
+    more characters per word than prose, so a character floor would let a thin
+    report through while looking long. This is the number the generation
+    orchestrator compares against real output, so the prompt and the
+    enforcement can never drift apart.
+    """
+    contract = _DEPTH_WORDS.get(depth)
+    return 0 if contract is None else contract[0]
+
 
 def infer_response_depth(
     user_text: str,
@@ -108,8 +134,9 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
         "minimal": "Respond with a brief acknowledgment plus at most one useful next step.",
         "conversational": conversational_desc,
         "explanatory": (
-            "Lead with the direct answer in the first sentence, then give the full picture in your own words: "
-            "1,000-2,000 words of structured Markdown with ### headings is the normal size for a real question, "
+            f"Lead with the direct answer in the first sentence, then give the full picture in your own words: "
+            f"{_DEPTH_WORDS['explanatory'][0]:,}-{_DEPTH_WORDS['explanatory'][1]:,} words of structured Markdown with "
+            f"### headings is the normal size for a real question, "
             "because he asked to be explained to, not summarised. Cover every part of the question, give the "
             "concrete details that make it actionable, and finish with what he can do next. Do not pad, but do "
             "not stop early and do not hand back an outline with one line under each heading."
@@ -121,7 +148,8 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "where comparing options or status, code blocks for technical context, Key Takeaways with citations, "
             "and formatted Source links. "
             "displayText MUST contain the comprehensive, documented report and its length is the deliverable: "
-            "4,000-5,000+ words whenever he asks for a full, documented, comprehensive or detailed report. "
+            f"{_DEPTH_WORDS['report'][0]:,}-{_DEPTH_WORDS['report'][1]:,}+ words whenever he asks for a full, "
+            "documented, comprehensive or detailed report. "
             "Write every section out in complete prose — "
             "a heading with two sentences under it is an outline, not a report. Never compress a section into a "
             "placeholder, never say 'as above' or 'etc.', and never stop because the answer feels long. "

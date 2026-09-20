@@ -24,7 +24,14 @@ from hinaa_api.generation.continuation import (
     detect_continuation_need,
     run_consistency_pass,
     seam_dedup,
+    word_count,
 )
+from hinaa_api.generation.continuation_contract import (
+    ContinuationRequest,
+    render_continuation_prompt,
+)
+from hinaa_api.generation.orchestrator import GenerationOrchestrator
+from hinaa_api.prompts.depth import depth_guidance, depth_word_floor, depth_words
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +300,266 @@ class TestDetectContinuationNeed:
         assert decision.continue_needed
         assert decision.status == ContinuationStatus.ACTIVE
         assert decision.evidence.max_tokens
+
+
+# ---------------------------------------------------------------------------
+# Depth contract (written length the response-depth prompt promised)
+# ---------------------------------------------------------------------------
+
+
+def _prose(words: int) -> str:
+    """Exactly `words` whole words, ending on a clean sentence boundary."""
+    unit = (
+        "The routing layer balances requests across the configured brains "
+        "while the memory store keeps every verified turn safe"
+    ).split()
+    body = (unit * (words // len(unit) + 1))[: max(words - 1, 0)]
+    return " ".join(body + ["complete."])
+
+
+class TestDepthContract:
+    def test_clean_stop_below_the_floor_continues(self) -> None:
+        """The failure the old detector could not see: nothing broken, just thin."""
+        decision = detect_continuation_need(
+            text=_prose(480),
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=8,
+            min_words=1_000,
+        )
+        assert decision.continue_needed
+        assert ContinuationReason.DEPTH_CONTRACT_UNMET in decision.reason_ids
+        assert decision.evidence.shallow_vs_contract
+        assert decision.evidence.words_short == 520
+
+    def test_meeting_the_floor_stops(self) -> None:
+        decision = detect_continuation_need(
+            text=_prose(1_100),
+            finish_reason="STOP",
+            char_budget=1_000_000,
+            segment_number=1,
+            max_segments=8,
+            min_words=1_000,
+        )
+        assert not decision.continue_needed
+        assert decision.status == ContinuationStatus.COMPLETED
+        assert not decision.evidence.shallow_vs_contract
+        assert decision.evidence.words_short == 0
+
+    def test_no_floor_keeps_the_old_verdict(self) -> None:
+        """Callers that pass no contract must behave exactly as before."""
+        short = "Everything about the memory subsystem is working as designed."
+        without = detect_continuation_need(
+            text=short,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=5,
+        )
+        assert not without.continue_needed
+        assert not without.evidence.shallow_vs_contract
+
+    def test_structural_damage_is_not_stacked_with_the_contract(self) -> None:
+        """An unclosed fence already forces a continuation; don't add a second cause."""
+        decision = detect_continuation_need(
+            text="Here is the config:\n\n```python\nvalue = 1\n",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=8,
+            min_words=1_000,
+        )
+        assert decision.continue_needed
+        assert ContinuationReason.OPEN_CODE_FENCE in decision.reason_ids
+        assert ContinuationReason.DEPTH_CONTRACT_UNMET not in decision.reason_ids
+
+    def test_segment_budget_still_bounds_expansion(self) -> None:
+        """The contract must never override the hard budget."""
+        decision = detect_continuation_need(
+            text=_prose(200),
+            finish_reason="STOP",
+            char_budget=1_000_000,
+            segment_number=8,
+            max_segments=8,
+            min_words=4_900,
+        )
+        assert not decision.continue_needed
+        assert decision.status == ContinuationStatus.TRUNCATED
+
+    def test_the_promised_numbers_are_the_enforced_numbers(self) -> None:
+        """The prompt renders the same table the orchestrator enforces against.
+
+        Pinned here because a silent edit to one side would either promise an
+        essay and accept a paragraph, or the other way round.
+        """
+        assert depth_words("explanatory") == (1_000, 2_000)
+        assert depth_words("report") == (4_900, 5_000)
+        assert "1,000-2,000 words" in depth_guidance("explanatory", "chat")
+        assert "4,900-5,000+ words" in depth_guidance("report", "chat")
+
+    def test_the_short_reply_classes_have_no_contract(self) -> None:
+        """A floor on `minimal` would turn "I love you too" into an essay."""
+        for depth in ("minimal", "conversational", "procedural", "supportive", "clarification"):
+            assert depth_word_floor(depth) == 0, depth
+
+    def test_a_closing_offer_does_not_defeat_the_contract(self) -> None:
+        """A real shallow answer ended with an offer to continue and stopped."""
+        decision = detect_continuation_need(
+            text=_prose(470) + "\n\nLet me know if you want me to walk any layer in more detail.",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=8,
+            min_words=1_000,
+        )
+        assert decision.continue_needed
+        assert decision.evidence.conversational_closing
+        assert ContinuationReason.DEPTH_CONTRACT_UNMET in decision.reason_ids
+
+
+# ---------------------------------------------------------------------------
+# Depth contract enforced end-to-end
+# ---------------------------------------------------------------------------
+
+
+def _unique_prose(words: int, tag: str) -> str:
+    """Prose with no repeated sentence, so seam dedup cannot eat fixture text."""
+    out: list[str] = []
+    written = 0
+    i = 0
+    while written < words:
+        i += 1
+        sentence = f"{tag} detail {i} records the measured behaviour of subsystem {i} completely."
+        out.append(sentence)
+        written += len(sentence.split())
+    return " ".join(out)
+
+
+class TestDepthContractEnforcement:
+    def test_shortfall_helper_reports_real_numbers(self) -> None:
+        orchestrator = GenerationOrchestrator(
+            max_continuations=8,
+            char_budget=65_536,
+            generation_id="floor",
+            min_words=1_000,
+        )
+        assert orchestrator.words_short(_prose(480)) == 520
+        assert orchestrator.words_short(_prose(1_100)) == 0
+        assert orchestrator.trace.depth_floor_words == 1_000
+
+    def test_no_floor_means_no_shortfall(self) -> None:
+        orchestrator = GenerationOrchestrator(
+            max_continuations=8,
+            char_budget=65_536,
+            generation_id="unbounded",
+        )
+        assert orchestrator.words_short("a short answer") == 0
+
+    def test_continuation_prompt_carries_the_length_contract(self) -> None:
+        rendered = render_continuation_prompt(
+            ContinuationRequest(
+                generation_id="g1",
+                segment_number=2,
+                original_goal="Explain the current state of Hina.",
+                previous_tail="### Routing\n\nThe gateway selects a brain.",
+                remaining_words=463,
+            )
+        )
+        assert "LENGTH CONTRACT STILL UNMET" in rendered
+        assert "463 more words" in rendered
+
+    def test_length_contract_omitted_when_nothing_is_missing(self) -> None:
+        rendered = render_continuation_prompt(
+            ContinuationRequest(
+                generation_id="g1",
+                segment_number=2,
+                original_goal="Explain the current state of Hina.",
+                previous_tail="### Routing\n\nThe gateway selects a brain.",
+            )
+        )
+        assert "LENGTH CONTRACT" not in rendered
+
+    @pytest.mark.asyncio
+    async def test_shallow_answer_is_continued_to_the_floor(self) -> None:
+        """A report that stopped cleanly at a fraction of its promised length must keep going."""
+        first = _prose(480)
+        floor = depth_word_floor("explanatory")
+        assert word_count(first) < floor
+
+        async def first_stream():
+            yield first
+
+        seen_priors: list[str] = []
+
+        def cont_factory(prior: str):
+            seen_priors.append(prior)
+            holder = {"value": "stop"}
+
+            async def gen():
+                yield " " + _unique_prose(1_500, "Appendix")
+
+            return gen(), holder
+
+        deltas: list[str] = []
+
+        async def emit(d: str) -> None:
+            deltas.append(d)
+
+        orchestrator = GenerationOrchestrator(
+            max_continuations=8,
+            char_budget=65_536,
+            generation_id="shallow-report",
+            min_words=floor,
+        )
+        outcome = await orchestrator.run(
+            first_segment_stream=first_stream(),
+            first_finish_reason_holder={"value": "stop"},
+            continuation_stream_factory=cont_factory,
+            emit_delta=emit,
+        )
+
+        assert outcome.segments == 2, "a natural stop below the floor must still continue"
+        assert word_count(outcome.text) >= floor
+        assert "Appendix detail 1" in outcome.text
+        # The provider was told the real shortfall, not a fixed guess.
+        assert orchestrator.words_short(seen_priors[0]) > 0
+        # Everything the model wrote reached the UI, including the expansion.
+        assert "".join(deltas).strip() == outcome.text
+
+    @pytest.mark.asyncio
+    async def test_without_a_floor_a_clean_stop_is_one_segment(self) -> None:
+        async def first_stream():
+            yield _prose(480)
+
+        called = False
+
+        def cont_factory(prior: str):
+            nonlocal called
+            called = True
+            holder = {"value": "stop"}
+
+            async def gen():
+                yield "should not be requested"
+
+            return gen(), holder
+
+        async def emit(d: str) -> None:
+            return None
+
+        orchestrator = GenerationOrchestrator(
+            max_continuations=8,
+            char_budget=65_536,
+            generation_id="no-floor",
+        )
+        outcome = await orchestrator.run(
+            first_segment_stream=first_stream(),
+            first_finish_reason_holder={"value": "stop"},
+            continuation_stream_factory=cont_factory,
+            emit_delta=emit,
+        )
+        assert outcome.segments == 1
+        assert not called
 
 
 # ---------------------------------------------------------------------------

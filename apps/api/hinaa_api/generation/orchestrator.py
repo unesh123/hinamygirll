@@ -15,6 +15,7 @@ Directive §1–§3 honored:
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -26,7 +27,10 @@ from .continuation import (
     SeamGuard,
     detect_continuation_need,
     run_consistency_pass,
+    word_count,
 )
+
+logger = logging.getLogger("hinaa.generation")
 
 __all__ = [
     "GenerationFinishReason",
@@ -210,6 +214,7 @@ class GenerationTrace:
     requested_max_continuations: int = 0
     effective_max_continuations: int = 0
     char_budget: int = 0
+    depth_floor_words: int = 0
     total_characters: int = 0
     total_segments: int = 0
     total_seam_deduped_chars: int = 0
@@ -226,6 +231,7 @@ class GenerationTrace:
             "requested_max_continuations": self.requested_max_continuations,
             "effective_max_continuations": self.effective_max_continuations,
             "char_budget": self.char_budget,
+            "depth_floor_words": self.depth_floor_words,
             "total_characters": self.total_characters,
             "total_segments": self.total_segments,
             "total_seam_deduped_chars": self.total_seam_deduped_chars,
@@ -268,9 +274,11 @@ class GenerationOrchestrator:
         provider: str = "",
         model: str = "",
         requested_max_continuations: int | None = None,
+        min_words: int = 0,
     ) -> None:
         self.max_continuations = max_continuations
         self.char_budget = char_budget
+        self.min_words = max(0, int(min_words))
         self.planned_sections = planned_sections
         self.provider = provider
         self.model = model
@@ -288,6 +296,7 @@ class GenerationOrchestrator:
             requested_max_continuations=req_cont,
             effective_max_continuations=max_continuations,
             char_budget=char_budget,
+            depth_floor_words=self.min_words,
         )
         self.state = GenerationContinuationState(
             generation_id=generation_id,
@@ -296,6 +305,16 @@ class GenerationOrchestrator:
         )
         self.deduped_total = 0
         self.segment_results: list[SegmentResult] = []
+
+    def words_short(self, text: str) -> int:
+        """How many more words this draft needs to meet its depth floor.
+
+        The same `word_count` the detector used, so the number in the
+        continuation prompt can't disagree with the number that triggered it.
+        """
+        if self.min_words <= 0:
+            return 0
+        return max(0, self.min_words - word_count(text))
 
     async def run(
         self,
@@ -387,6 +406,7 @@ class GenerationOrchestrator:
                 segment_number=segment_no,
                 max_segments=self.state.max_segments,
                 planned_sections=self.planned_sections,
+                min_words=self.min_words,
             )
 
             explanation = (
@@ -424,6 +444,22 @@ class GenerationOrchestrator:
         self.trace.total_segments = segment_no
         self.trace.total_seam_deduped_chars = self.deduped_total
         self.trace.final_status = self.state.status.value
+
+        if segment_no > 1:
+            logger.info(
+                "generation %s used %d segments -> %d chars / %d words (status %s, "
+                "depth floor %d words, seam dedup %d chars): %s",
+                self.trace.generation_id,
+                segment_no,
+                len(consistency.text),
+                word_count(consistency.text),
+                self.state.status.value,
+                self.min_words,
+                self.deduped_total,
+                " | ".join(
+                    f"seg{s.segment_number}:{s.decision_reason}" for s in self.trace.segments
+                ),
+            )
 
         return OrchestratorOutcome(
             text=consistency.text,

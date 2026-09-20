@@ -18,6 +18,8 @@ from ..generation.orchestrator import (
 
 logger = logging.getLogger(__name__)
 from ..models import AssistantTurnPlan, CompanionId, Language
+from ..prompts.depth import depth_word_floor
+from ..generation.continuation import word_count
 from ..prompts import (
     PromptPackage,
     build_plan_from_text,
@@ -96,6 +98,14 @@ def _build_continuation_contents(prompt: PromptPackage, generated: str) -> Any:
         "do not apologize, and do not summarize what you already wrote. "
         "Resume mid-sentence if that is where it stopped, and finish the complete response."
     )
+    short_words = depth_word_floor(prompt.response_depth) - word_count(generated)
+    if short_words > 0:
+        instruction += (
+            f" LENGTH CONTRACT STILL UNMET: this answer needs at least "
+            f"{short_words:,} more words before it is finished. Write the "
+            "substance that is missing with worked detail, numbers and examples. Do not conclude, "
+            "summarise or offer follow-up help while the contract is unmet — keep reporting."
+        )
     parts: list[Any] = []
     if getattr(prompt, "attachments", None):
         for att in prompt.attachments:
@@ -264,6 +274,7 @@ class GeminiLLMProvider:
                 max_continuations=max_continuations,
                 char_budget=char_budget,
                 generation_id=f"gemini:{started:.0f}",
+                min_words=depth_word_floor(prompt.response_depth),
             )
             outcome = await orchestrator.run(
                 first_segment_stream=_first_stream(),

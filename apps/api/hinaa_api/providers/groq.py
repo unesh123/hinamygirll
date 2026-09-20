@@ -16,6 +16,7 @@ from ..generation.continuation_contract import (
     PromptInvariantVerifier,
 )
 from ..models import AssistantTurnPlan, CompanionId, Language
+from ..prompts.depth import depth_word_floor
 from ..prompts import (
     PromptPackage,
     build_plan_from_text,
@@ -191,6 +192,7 @@ class GroqLLMProvider:
                     segment_number=len(orchestrator.segment_results) + 2,
                     original_goal=base_text,
                     previous_tail=prior[-6_000:],
+                    remaining_words=orchestrator.words_short(prior),
                 )
                 continued_text = render_continuation_prompt(continuation_req)
                 cont_prompt = prompt.model_copy(
@@ -220,6 +222,7 @@ class GroqLLMProvider:
                 max_continuations=_max_continuations(),
                 char_budget=_llm_stream_char_budget(),
                 generation_id=f"groq:{started:.0f}",
+                min_words=depth_word_floor(prompt.response_depth),
             )
             outcome = await orchestrator.run(
                 first_segment_stream=_first_stream(),

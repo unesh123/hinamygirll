@@ -27,6 +27,7 @@ class ContinuationRequest(BaseModel):
     previous_tail: str
     semantic_progress_summary: str = ""
     output_format: str = "markdown"
+    remaining_words: int = 0
 
 
 def render_continuation_prompt(req: ContinuationRequest) -> str:
@@ -62,7 +63,20 @@ def render_continuation_prompt(req: ContinuationRequest) -> str:
         "--- END PARTIAL OUTPUT ---"
     )
 
-    # 4. Strict instruction
+    # 4. Depth contract, when the answer stopped short rather than broke off
+    if req.remaining_words > 0:
+        sections.append(
+            "LENGTH CONTRACT STILL UNMET:\n"
+            f"- This answer must grow by at least {req.remaining_words:,} more words before it is finished.\n"
+            "- Write the substance that is missing: the sections never started, and the ones that got "
+            "one or two sentences instead of being explained properly.\n"
+            "- Add worked detail, concrete numbers, real examples, edge cases and trade-offs — the kind of "
+            "content that earns the length, not restatements of what is already above.\n"
+            "- Do NOT write a conclusion, a summary, or a closing offer while the contract is unmet. Keep "
+            "reporting."
+        )
+
+    # 5. Strict instruction
     instruction = (
         f"[SEGMENT {req.segment_number}] CONTINUE the response EXACTLY from where it stopped.\n"
         "Rules:\n"
