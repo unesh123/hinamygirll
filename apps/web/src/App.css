@@ -2443,7 +2443,7 @@ body {
   .avatar-playground__controls { right:10px; bottom:10px; gap:8px; }
   .avatar-playground__control { width:40px; height:40px; border-radius:13px; }
   .avatar-playground__control svg { width:16px; height:16px; }
-  .avatar-playground--fullscreen .avatar-playground__controls { top:88px; right:16px; }
+  .avatar-playground--fullscreen .avatar-playground__controls { top:106px; right:16px; }
 }
 @media (max-width: 360px) {
   .welcome-center .welcome-card { grid-template-columns:22px minmax(0, 1fr); column-gap:7px; min-height:66px; padding:9px; }
@@ -2489,13 +2489,17 @@ body {
   .fullscreen-companion-overlay {
     padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
   }
+  /* The longest chip alone is ~197px, so identity and signals cannot share one
+     365px row without wrapping the subtitle. Stack them instead of hiding either. */
   .fullscreen-companion-overlay__header {
+    flex-wrap: wrap;
     align-items: flex-start;
-    gap: 10px;
+    gap: 8px 10px;
   }
   .fullscreen-companion-overlay__signals {
-    max-width: 56%;
-    justify-content: flex-end;
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
   }
   .fullscreen-companion-overlay__conversation {
     width: min(100%, 340px);
@@ -2512,7 +2516,6 @@ body {
 }
 
 @media (max-width: 390px) {
-  .fullscreen-companion-overlay__identity > div > span { display: none; }
   .fullscreen-companion-overlay__signal { font-size: .52rem; letter-spacing: .055em; }
   .fullscreen-companion-overlay__conversation { margin-bottom: 142px; }
 }
