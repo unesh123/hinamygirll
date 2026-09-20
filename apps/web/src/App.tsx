@@ -916,7 +916,6 @@ export default function App() {
                   : null
               }
               activeProviderName={routing.activeModel || (routing.activeMode === "mock" ? "Mock Engine" : "Frontier Engine")}
-              isOnline={routing.activeMode ? providers.getHealth(routing.activeMode as any) !== "unavailable" : true}
               onOpenSearch={() => setSidebarExpanded("chat")}
               onOpenProjectSettings={openProjectWorkspace}
               onOpenGoalDetails={() => setSakuraView("work")}

@@ -5,7 +5,6 @@ import {
   FileText,
   Search,
   ChevronDown,
-  Layers,
   Bell,
   Sun,
   Moon,
@@ -23,14 +22,11 @@ export interface TopBarV6Props {
   activeProject?: { id: string; name: string; repo?: string } | null;
   activeGoal?: { id: string; title: string; criteriaCount?: number } | null;
   activeProviderName?: string;
-  isOnline?: boolean;
   isDark?: boolean;
   onToggleTheme?: () => void;
   onOpenSearch?: () => void;
   onOpenProjectSettings?: () => void;
   onOpenGoalDetails?: () => void;
-  clusterActive?: boolean;
-  onToggleCluster?: () => void;
   onSelectModel?: (modelId: string, providerId: string) => void;
   selectedModelId?: string | null;
 }
@@ -39,17 +35,13 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   currentMode,
   onModeChange,
   activeProject = { id: "default", name: "HINA Workspace", repo: "main" },
-  isOnline = true,
   isDark = false,
   onToggleTheme,
   onOpenSearch,
-  clusterActive = true,
-  onToggleCluster,
   onSelectModel,
   selectedModelId,
 }) => {
   const [executiveMode, setExecutiveMode] = useState<ExecutiveMode>("chat");
-  const [clusterEnabled, setClusterEnabled] = useState(clusterActive);
   const { models, providers, runtime } = useCapabilities();
   const [isAuto, setIsAuto] = useState(!selectedModelId);
 
@@ -58,11 +50,6 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
     if (mode === "chat") onModeChange("work");
     else if (mode === "research") onModeChange("work");
     else onModeChange("work");
-  };
-
-  const handleToggleCluster = () => {
-    setClusterEnabled(!clusterEnabled);
-    onToggleCluster?.();
   };
 
   return (
@@ -215,40 +202,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         </button>
       </div>
 
-      {/* ── Right: Cluster, Real Model Selector & Actions ─── */}
+      {/* ── Right: Real Model Selector & Actions ─── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* Cluster ON Badge */}
-        <button
-          type="button"
-          data-testid="cluster-toggle-btn"
-          onClick={handleToggleCluster}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "5px 10px",
-            borderRadius: 8,
-            background: clusterEnabled ? "#ecfdf5" : "#f1f5f9",
-            border: clusterEnabled ? "1px solid #a7f3d0" : "1px solid #e2e8f0",
-            color: clusterEnabled ? "#065f46" : "#64748b",
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "all 0.12s ease",
-          }}
-        >
-          <Layers size={12} color={clusterEnabled ? "#10b981" : "#94a3b8"} />
-          <span>Cluster ON</span>
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: clusterEnabled ? "#10b981" : "#94a3b8",
-            }}
-          />
-        </button>
-
         {/* Real Model Selector V7 */}
         <ModelSelectorV7
           models={models}

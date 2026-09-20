@@ -48,6 +48,14 @@ describe("HINAA assistant workspace", () => {
     expect(composer).toBeInTheDocument();
   });
 
+  it("does not claim an agent cluster the backend does not run", () => {
+    render(<App />);
+    const text = document.body.textContent || "";
+    expect(text).not.toMatch(/agent cluster/i);
+    expect(text).not.toMatch(/cluster on/i);
+    expect(text).not.toMatch(/4\s*(parallel\s+)?workers?/i);
+  });
+
   it("shows welcome actions in Work mode", () => {
     render(<App />);
     // Welcome cards should be visible in Work mode

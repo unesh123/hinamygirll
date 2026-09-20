@@ -24,7 +24,6 @@ import {
   Tv,
   Terminal,
   Zap,
-  Users,
   Music,
   Video,
   Camera,
@@ -55,7 +54,6 @@ export interface ComposerV6Props {
     intelligence?: IntelligenceLevel;
     attachmentRole?: AttachmentRole;
     isGoalMode?: boolean;
-    isAgentCluster?: boolean;
   }) => void;
   onStop?: () => void;
   isGenerating?: boolean;
@@ -78,11 +76,9 @@ export interface ComposerV6Props {
   // Action Mode
   actionMode?: ActionMode;
   onChangeActionMode?: (mode: ActionMode) => void;
-  // Goal Mode & Agent Cluster
+  // Goal Mode
   isGoalMode?: boolean;
   onToggleGoalMode?: () => void;
-  isAgentCluster?: boolean;
-  onToggleAgentCluster?: () => void;
   // Attachments
   attachedImage?: string | null;
   onImageAttach?: (dataUrl: string | null, role?: AttachmentRole) => void;
@@ -124,8 +120,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onChangeActionMode,
   isGoalMode = false,
   onToggleGoalMode,
-  isAgentCluster = false,
-  onToggleAgentCluster,
   attachedImage,
   onImageAttach,
   onUploadFile,
@@ -201,7 +195,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           intelligence: intelligenceLevel,
           attachmentRole: selectedRole,
           isGoalMode,
-          isAgentCluster,
         });
       }
     }
@@ -273,8 +266,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
 
   const placeholderText = isGoalMode
     ? "Define your goal, constraints, and success criteria for Hina..."
-    : isAgentCluster
-    ? "Describe a task for the 4-worker Agent Cluster [Architect, Coder, QA, Critic]..."
     : actionMode === "research"
     ? "Ask a question to research with live web sources & citations..."
     : actionMode === "create"
@@ -977,31 +968,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             )}
           </div>
 
-          {/* 5. `Agent Cluster` Toggle Button */}
-          <button
-            type="button"
-            data-testid="composer-cluster-btn"
-            aria-pressed={isAgentCluster}
-            onClick={onToggleAgentCluster}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "4px 9px",
-              borderRadius: "var(--radius-full, 9999px)",
-              background: isAgentCluster ? "rgba(147, 51, 234, 0.15)" : "var(--surface-subtle, #f6f3f7)",
-              border: isAgentCluster ? "1px solid #9333ea" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-              color: isAgentCluster ? "#9333ea" : "var(--text-secondary, #5e545d)",
-              fontSize: 11,
-              fontWeight: isAgentCluster ? 700 : 500,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-            title="Toggle 4-Worker Parallel Agent Cluster"
-          >
-            <Users size={12} />
-            <span>Agent Cluster</span>
-          </button>
         </div>
 
         {/* Right cluster of controls: Shortcuts + 🎙 Voice & ↑ Send */}
@@ -1064,7 +1030,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   intelligence: intelligenceLevel,
                   attachmentRole: selectedRole,
                   isGoalMode,
-                  isAgentCluster,
                 })
               }
               disabled={disabled || (!value.trim() && !attachedImage)}

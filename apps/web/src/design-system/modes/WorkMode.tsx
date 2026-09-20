@@ -24,7 +24,6 @@ import {
   AtSign,
   ArrowDown,
   Target,
-  Users,
   X,
 } from "lucide-react";
 import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
@@ -338,23 +337,6 @@ export function WorkMode({
     });
   }, []);
 
-  const [agentClusterEnabled, setAgentClusterEnabled] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("hinaa_agent_cluster") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const toggleAgentCluster = useCallback(() => {
-    setAgentClusterEnabled((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("hinaa_agent_cluster", String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
-
   const [contextChips, setContextChips] = useState<ContextChip[]>(() => {
     try {
       const saved = localStorage.getItem("hinaa_context_chips");
@@ -398,18 +380,15 @@ export function WorkMode({
   const activeTopic = localTopic !== null ? (localTopic || null) : (searchQuery || (plan as any)?.topic || null);
 
   const handleComposerSend = useCallback(
-    (options?: { mode?: ActionMode; intelligence?: IntelligenceLevel; attachmentRole?: AttachmentRole; isGoalMode?: boolean; isAgentCluster?: boolean } | ActionMode, role?: AttachmentRole) => {
+    (options?: { mode?: ActionMode; intelligence?: IntelligenceLevel; attachmentRole?: AttachmentRole; isGoalMode?: boolean } | ActionMode, role?: AttachmentRole) => {
       let text = input.trim();
       if (!text && !attachedImage) return;
 
       const mode = typeof options === "object" ? options?.mode : options;
       const isGoal = typeof options === "object" ? options?.isGoalMode : goalModeEnabled;
-      const isCluster = typeof options === "object" ? options?.isAgentCluster : agentClusterEnabled;
 
       if ((isGoal || mode === "goal") && !text.startsWith("/goal")) {
         text = `/goal ${text}`;
-      } else if (isCluster && !text.includes("[Agent Cluster")) {
-        text = `[Agent Cluster: 4-Worker Swarm Active] ${text}`;
       } else if (mode === "research" && !text.startsWith("/search") && !text.startsWith("/research")) {
         text = `/search ${text}`;
       } else if (mode === "create" && !text.startsWith("/image") && !text.startsWith("/draw")) {
@@ -420,7 +399,7 @@ export function WorkMode({
 
       onSend(text);
     },
-    [input, attachedImage, goalModeEnabled, agentClusterEnabled, onSend]
+    [input, attachedImage, goalModeEnabled, onSend]
   );
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
@@ -557,44 +536,6 @@ export function WorkMode({
       setInputHeight(newHeight);
     },
     [onInputChange]
-  );
-
-  const handleSubmit = useCallback(() => {
-    if (!input.trim() && !attachedImage) return;
-    onSend();
-    if (inputRef.current) {
-      inputRef.current.style.height = "44px";
-      setInputHeight(44);
-    }
-  }, [input, attachedImage, onSend]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (showMentions) {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setShowMentions(false);
-          setMentionFilter("");
-          return;
-        }
-        if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          return;
-        }
-      }
-      if (e.key === "Escape") {
-        if (isThinking || companionState === "thinking" || companionState === "speaking") {
-          e.preventDefault();
-          onStop();
-          return;
-        }
-      }
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
-      }
-    },
-    [handleSubmit, isThinking, companionState, onStop, showMentions]
   );
 
   const handleContextSelect = useCallback(
@@ -1440,38 +1381,6 @@ export function WorkMode({
           </div>
         )}
 
-        {/* Agent Cluster Status Banner */}
-        {agentClusterEnabled && (
-          <div
-            data-testid="agent-cluster-banner"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "6px 12px",
-              marginBottom: 8,
-              background: "rgba(147, 51, 234, 0.08)",
-              border: "1px solid rgba(147, 51, 234, 0.25)",
-              borderRadius: 8,
-              fontSize: 12,
-              color: "#9333ea",
-              fontWeight: 500,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Users size={14} />
-              <span><strong>Agent Cluster Active:</strong> 4 Parallel Workers [Architect, Coder, QA, Critic] running consensus.</span>
-            </div>
-            <button
-              onClick={toggleAgentCluster}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 2 }}
-              title="Deactivate Agent Cluster"
-            >
-              <X size={13} />
-            </button>
-          </div>
-        )}
-
         {/* Frontier V6 Composer */}
         <ComposerV6
           value={input}
@@ -1526,8 +1435,6 @@ export function WorkMode({
           onChangeActionMode={setActionMode}
           isGoalMode={goalModeEnabled}
           onToggleGoalMode={toggleGoalMode}
-          isAgentCluster={agentClusterEnabled}
-          onToggleAgentCluster={toggleAgentCluster}
           attachedImage={attachedImage}
           onImageAttach={(dataUrl, role) => {
             onImageAttach(dataUrl);

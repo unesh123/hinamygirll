@@ -40,7 +40,7 @@ export interface RuntimeCapabilities {
     webSearch: boolean;
     artifacts: boolean;
     goals: boolean;
-    agentCluster: boolean;
+    agentRuntime: boolean;
     memory: boolean;
     speech: boolean;
   };
@@ -71,7 +71,7 @@ const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
     webSearch: false,
     artifacts: false,
     goals: false,
-    agentCluster: false,
+    agentRuntime: false,
     memory: false,
     speech: false,
   },
