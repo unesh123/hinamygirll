@@ -334,7 +334,11 @@ class Settings(BaseSettings):
     personality_proactivity: float = Field(0.35, alias="HINAA_PERSONALITY_PROACTIVITY")
     realtime_protocol_version: str = "1.0"
     realtime_max_frame_bytes: int = 1_280
-    realtime_max_buffer_bytes: int = 320_000
+    # Ceiling for one turn's buffered capture, in bytes. The browser sends PCM16
+    # mono at its AudioContext rate of 48 kHz, so 96,000 bytes per second:
+    # 2_880_000 = 30 s. Must stay above the client's 20 s force-commit, or a
+    # sentence longer than the ceiling overflows and ends the live turn.
+    realtime_max_buffer_bytes: int = 2_880_000
     realtime_idle_timeout_seconds: float = 35.0
     realtime_commit_timeout_seconds: float = 8.0
     # Browser-reachable origin for the realtime WebSocket (e.g. a tunnel host).

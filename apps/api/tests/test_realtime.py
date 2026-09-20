@@ -93,10 +93,21 @@ def test_duplicate_gap_and_stale_frames_are_rejected_without_duplication(
         socket.receive_json()
         send_frame(socket, 0)
         assert socket.receive_json()["reason"] == "duplicate-frame"
+        # A lost frame resyncs rather than faulting: the old AUDIO_SEQUENCE_GAP
+        # error never advanced expected_sequence, so every later frame gapped
+        # too and the client tore the session down mid-conversation.
         send_frame(socket, 2)
-        assert socket.receive_json()["code"] == "AUDIO_SEQUENCE_GAP"
+        assert socket.receive_json()["reason"] == "sequence-resynced"
         send_frame(socket, 1, generation=0)
         assert socket.receive_json()["reason"] == "stale-generation"
+        socket.send_json({"type": "audio.commit", "generation": 1, "endedAtMs": 0})
+        types = set()
+        for _ in range(12):
+            event = socket.receive_json()
+            types.add(event["type"])
+            if "assistant.plan" in types:
+                break
+        assert "assistant.plan" in types
 
 
 def test_silence_never_reaches_the_model(client: TestClient) -> None:

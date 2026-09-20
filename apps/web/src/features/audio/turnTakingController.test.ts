@@ -146,9 +146,9 @@ describe("TurnTakingController", () => {
 
   it("barge-in when assistant is playing and energy rises", () => {
     const controller = new TurnTakingController({ startFrames: 2 });
-    // Barge-in is intentional: it requires sustained voice (bargeInFrames = 8
-    // frames, ~160ms) so playback echo can never cut Hinaa off.
-    const frames = [...Array(8).fill(0.2)];
+    // Barge-in is intentional: it needs sustained voice (bargeInFrames = 12,
+    // ~240ms) so playback echo can never cut Hinaa off.
+    const frames = [...Array(12).fill(0.2)];
     const decisions = frames.map(() =>
       controller.process({
         level: 0.2,
@@ -162,10 +162,28 @@ describe("TurnTakingController", () => {
     expect(decisions.at(-1)?.state).toBe("interrupted");
   });
 
+  it("does not interrupt on a brief echo blip while she is speaking", () => {
+    const controller = new TurnTakingController();
+    // Six frames (~120ms) of above-threshold audio is what her own TTS coming
+    // back out of the speaker looks like. At the old bargeInFrames = 3 it
+    // triggered an interrupt, and the surviving audio chunks were dropped —
+    // the user heard her stop mid-sentence.
+    const decisions = [...Array(6).fill(0)].map(() =>
+      controller.process({
+        level: 0.2,
+        assistantPlaying: true,
+        partialText: "",
+        sessionActive: true,
+        paused: false,
+      }),
+    );
+    expect(decisions.some((d) => d.bargeIn)).toBe(false);
+  });
+
   it("repeated barge-in stays interruptible", () => {
     const controller = new TurnTakingController({ startFrames: 1 });
     const run = () =>
-      [...Array(8).fill(0.3)].map(() =>
+      [...Array(12).fill(0.3)].map(() =>
         controller.process({
           level: 0.3,
           assistantPlaying: true,

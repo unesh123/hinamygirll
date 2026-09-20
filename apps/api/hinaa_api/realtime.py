@@ -252,8 +252,20 @@ class RealtimeGateway:
                 await self._send(websocket, session, "event.ignored", {"reason": "duplicate-frame"})
                 return
             if descriptor.sequence > session.expected_sequence:
-                await self._error(websocket, session, "AUDIO_SEQUENCE_GAP", True)
-                return
+                # A dropped frame must not end the turn. expected_sequence is
+                # never advanced by the reject path, so erroring here instead
+                # made every later frame gap as well — one loss killed the rest
+                # of the capture. Skip ahead and keep the audio we did get.
+                await self._send(
+                    websocket,
+                    session,
+                    "event.ignored",
+                    {
+                        "reason": "sequence-resynced",
+                        "droppedFrames": descriptor.sequence - session.expected_sequence,
+                    },
+                )
+                session.expected_sequence = descriptor.sequence
             if len(session.audio) + len(frame) > self.settings.realtime_max_buffer_bytes:
                 await self._error(websocket, session, "AUDIO_BUFFER_LIMIT", False)
                 return

@@ -40,7 +40,7 @@ export interface TurnTakingConfig {
 
 export const DEFAULT_TURN_TAKING: TurnTakingConfig = {
   startFrames: 4,               // ~80ms sustained voice onset (rejects 1-frame air puffs & clicks)
-  bargeInFrames: 3,            // ~60ms of sustained voice triggers immediate barge-in interruption
+  bargeInFrames: 12,           // ~240ms of sustained voice; 3 frames let her own speaker echo interrupt and discard her remaining audio
   minimumSpeechFrames: 8,       // ~160ms minimum voiced frames
   hesitationFrames: 14,         // ~280ms pause treated as natural thinking hesitation
   endOfTurnFrames: 28,          // ~560ms natural pause before turn commit (prevents mid-sentence cutoffs)

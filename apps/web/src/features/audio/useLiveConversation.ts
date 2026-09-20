@@ -99,6 +99,8 @@ interface LiveEvent {
   provider?: string;
   code?: string;
   message?: string;
+  /** error contract: true ends the turn, false ends the session. */
+  retryable?: boolean;
   requestedVoice?: string;
   actualVoice?: string;
   calibration?: string;
@@ -1044,10 +1046,6 @@ export function useLiveConversation({
         try { socket.current?.close(); } catch { /* already closing */ }
         return;
       }
-      turnTaking.current.setSessionState(
-        liveProviderUnavailable ? "provider_unavailable" : "error",
-      );
-      setStatus("error");
       // User-friendly error messages (technical codes go to diagnostics only)
       const userMessages: Record<string, string> = {
         PROVIDER_KEY_INVALID: "The voice service needs to be configured. You can still type to me.",
@@ -1060,12 +1058,26 @@ export function useLiveConversation({
         PLAYBACK_BLOCKED: "I couldn't play the voice response. Tap to retry audio.",
         REALTIME_TURN_FAILED: "Something went wrong. Let's try again.",
       };
-      setDetail(
-        userMessages[code] || event.message?.trim() ||
+      const friendly =
+        userMessages[code] ||
+        event.message?.trim() ||
         (liveProviderUnavailable
           ? "The voice service is temporarily unavailable. You can still type to me."
-          : "Something went wrong with the voice session. Let's try again."),
+          : "Something went wrong with the voice session. Let's try again.");
+      // A retryable error ends the turn, not the session. The mic and socket
+      // stay open so the next sentence needs no "Start" press.
+      if (event.retryable) {
+        manualAudioStop.current = false;
+        turnTaking.current.setSessionState("listening");
+        setStatus("listening");
+        setDetail(`${friendly} · still listening`);
+        return;
+      }
+      turnTaking.current.setSessionState(
+        liveProviderUnavailable ? "provider_unavailable" : "error",
       );
+      setStatus("error");
+      setDetail(friendly);
       // Release mic/websocket so Start button works for retry.
       teardownSession();
     }
