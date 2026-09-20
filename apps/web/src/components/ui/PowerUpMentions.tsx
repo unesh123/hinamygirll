@@ -317,47 +317,55 @@ export function PowerUpMentions({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!visible) return;
-      
+
+      // Consume the key so it never reaches the composer's React handler.
+      const own = () => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
       // Tab to switch between contexts and commands
       if (e.key === "Tab") {
-        e.preventDefault();
+        own();
         setActiveTab((prev) => (prev === "contexts" ? "commands" : "contexts"));
         return;
       }
-      
+
       if (e.key === "ArrowDown") {
-        e.preventDefault();
+        own();
         setSelectedIndex((i) => Math.min(i + 1, activeItems.length - 1));
       } else if (e.key === "ArrowUp") {
-        e.preventDefault();
+        own();
         setSelectedIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
-        e.preventDefault();
         if (isLegacyMode) {
-          if (filteredLegacy[selectedIndex]) {
-            onSelect?.(filteredLegacy[selectedIndex]);
-          }
+          if (!filteredLegacy[selectedIndex]) return;
+          own();
+          onSelect?.(filteredLegacy[selectedIndex]);
           return;
         }
-        if (activeItems[selectedIndex]) {
-          const item = activeItems[selectedIndex];
-          if (activeTab === "contexts") {
-            onSelectContext?.(item as ContextItem);
-          } else {
-            onSelectCommand?.(item as CommandItem);
-          }
+        if (!activeItems[selectedIndex]) return;
+        own();
+        const item = activeItems[selectedIndex];
+        if (activeTab === "contexts") {
+          onSelectContext?.(item as ContextItem);
+        } else {
+          onSelectCommand?.(item as CommandItem);
         }
       } else if (e.key === "Escape") {
-        e.preventDefault();
+        own();
         onClose();
       }
     },
-    [visible, activeItems, selectedIndex, activeTab, onSelectContext, onSelectCommand, onClose],
+    [visible, activeItems, selectedIndex, activeTab, isLegacyMode, filteredLegacy, onSelect, onSelectContext, onSelectCommand, onClose],
   );
 
   useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Capture phase, deliberately. React attaches its synthetic handler to the
+    // root container, so a bubble-phase listener on `window` only sees the key
+    // after the textarea has already handled Enter and submitted the chat.
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [handleKeyDown]);
 
   // Scroll selected into view
@@ -409,12 +417,12 @@ export function PowerUpMentions({
           position: "absolute",
           bottom: "calc(100% + 8px)",
           left: 0,
-          background: "linear-gradient(145deg, rgba(55,38,54,.98), rgba(28,18,33,.99))",
-          backdropFilter: "blur(28px)",
-          WebkitBackdropFilter: "blur(28px)",
-          borderRadius: 18,
-          border: "1px solid rgba(255,202,218,.22)",
-          boxShadow: "0 18px 60px rgba(4,2,5,.42), inset 0 1px rgba(255,255,255,.06)",
+          background: "var(--surface-overlay)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderRadius: "var(--radius-lg)",
+          border: "1px solid var(--border-default)",
+          boxShadow: "var(--shadow-overlay)",
           padding: "10px 8px",
           zIndex: 200,
           width: "min(400px, calc(100vw - 24px))",
@@ -424,7 +432,7 @@ export function PowerUpMentions({
       >
         {/* Tab bar */}
         {!isLegacyMode && (
-        <div style={{ display: "flex", gap: 4, marginBottom: 8, padding: "0 4px" }}>
+        <div style={{ display: "flex", gap: 4, marginBottom: 8, padding: "0 4px 8px", borderBottom: "1px solid var(--border-subtle)" }}>
           <button
             type="button"
             onClick={() => setActiveTab("contexts")}
@@ -433,8 +441,8 @@ export function PowerUpMentions({
               padding: "6px 12px",
               borderRadius: 8,
               border: "none",
-              background: activeTab === "contexts" ? "rgba(238,145,173,.16)" : "transparent",
-              color: activeTab === "contexts" ? "#ffd4e0" : "#c9aeba",
+              background: activeTab === "contexts" ? "var(--accent-subtle)" : "transparent",
+              color: activeTab === "contexts" ? "var(--text-accent)" : "var(--text-secondary)",
               fontSize: "0.7rem",
               fontWeight: 600,
               fontFamily: "inherit",
@@ -456,8 +464,8 @@ export function PowerUpMentions({
               padding: "6px 12px",
               borderRadius: 8,
               border: "none",
-              background: activeTab === "commands" ? "rgba(238,145,173,.16)" : "transparent",
-              color: activeTab === "commands" ? "#ffd4e0" : "#c9aeba",
+              background: activeTab === "commands" ? "var(--accent-subtle)" : "transparent",
+              color: activeTab === "commands" ? "var(--text-accent)" : "var(--text-secondary)",
               fontSize: "0.7rem",
               fontWeight: 600,
               fontFamily: "inherit",
@@ -476,6 +484,7 @@ export function PowerUpMentions({
 
         <div
           ref={containerRef}
+          className="hinaa-command-popover__list"
           style={{
             maxHeight: 420,
             overflowY: "auto",
@@ -490,7 +499,7 @@ export function PowerUpMentions({
                 style={{
                   fontSize: "0.65rem",
                   fontWeight: 700,
-                  color: "#c9aeba",
+                  color: "var(--text-muted)",
                   textTransform: "uppercase",
                   letterSpacing: "0.06em",
                   padding: "4px 8px",
@@ -527,7 +536,7 @@ export function PowerUpMentions({
                         padding: "8px 10px",
                         border: "none",
                         borderRadius: 10,
-                        background: isSelected ? "rgba(238,145,173,.16)" : "transparent",
+                        background: isSelected ? "var(--surface-selected)" : "transparent",
                         cursor: "pointer",
                         width: "100%",
                         textAlign: "left",
@@ -551,10 +560,10 @@ export function PowerUpMentions({
                         <Icon size={15} color={powerUp.color} />
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "#fff4f8" }}>
+                        <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "var(--text-primary)" }}>
                           {powerUp.label}
                         </div>
-                        <div style={{ fontSize: "0.67rem", color: "#c9aeba", marginTop: 1 }}>
+                        <div style={{ fontSize: "0.67rem", color: "var(--text-secondary)", marginTop: 1 }}>
                           {powerUp.description}
                         </div>
                       </div>
@@ -562,8 +571,8 @@ export function PowerUpMentions({
                         style={{
                           fontSize: "0.6rem",
                           fontWeight: 700,
-                          color: isSelected ? "#ffd4e0" : "#c9aeba",
-                          background: isSelected ? `${powerUp.color}22` : "rgba(255,255,255,.055)",
+                          color: isSelected ? powerUp.color : "var(--text-tertiary)",
+                          background: isSelected ? `${powerUp.color}1f` : "var(--surface-subtle)",
                           padding: "2px 8px",
                           borderRadius: 6,
                           fontFamily: "monospace",
@@ -595,7 +604,7 @@ export function PowerUpMentions({
                         padding: "8px 10px",
                         border: "none",
                         borderRadius: 10,
-                        background: isSelected ? "rgba(238,145,173,.16)" : "transparent",
+                        background: isSelected ? "var(--surface-selected)" : "transparent",
                         cursor: "pointer",
                         width: "100%",
                         textAlign: "left",
@@ -619,10 +628,10 @@ export function PowerUpMentions({
                         <Icon size={15} color={ctx.color} />
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "#fff4f8" }}>
+                        <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "var(--text-primary)" }}>
                           {ctx.label}
                         </div>
-                        <div style={{ fontSize: "0.67rem", color: "#c9aeba", marginTop: 1 }}>
+                        <div style={{ fontSize: "0.67rem", color: "var(--text-secondary)", marginTop: 1 }}>
                           {ctx.description}
                         </div>
                       </div>
@@ -630,8 +639,8 @@ export function PowerUpMentions({
                         style={{
                           fontSize: "0.6rem",
                           fontWeight: 700,
-                          color: isSelected ? "#ffd4e0" : "#c9aeba",
-                          background: isSelected ? `${ctx.color}22` : "rgba(255,255,255,.055)",
+                          color: isSelected ? ctx.color : "var(--text-tertiary)",
+                          background: isSelected ? `${ctx.color}1f` : "var(--surface-subtle)",
                           padding: "2px 8px",
                           borderRadius: 6,
                           fontFamily: "monospace",
@@ -668,7 +677,7 @@ export function PowerUpMentions({
                         padding: "10px 12px",
                         border: "none",
                         borderRadius: 10,
-                        background: isSelected ? "rgba(238,145,173,.16)" : "transparent",
+                        background: isSelected ? "var(--surface-selected)" : "transparent",
                         cursor: "pointer",
                         width: "100%",
                         textAlign: "left",
@@ -693,10 +702,10 @@ export function PowerUpMentions({
                           <Icon size={15} color={cmdColor} />
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "#fff4f8" }}>
+                          <div style={{ fontSize: "0.8rem", fontWeight: 650, color: "var(--text-primary)" }}>
                             {cmdLabel}
                           </div>
-                          <div style={{ fontSize: "0.67rem", color: "#c9aeba", marginTop: 1 }}>
+                          <div style={{ fontSize: "0.67rem", color: "var(--text-secondary)", marginTop: 1 }}>
                             {cmdDescShort}
                           </div>
                         </div>
@@ -704,8 +713,8 @@ export function PowerUpMentions({
                           style={{
                             fontSize: "0.6rem",
                             fontWeight: 700,
-                            color: isSelected ? "#ffd4e0" : "#c9aeba",
-                            background: isSelected ? `${cmdColor}22` : "rgba(255,255,255,.055)",
+                            color: isSelected ? cmdColor : "var(--text-tertiary)",
+                            background: isSelected ? `${cmdColor}1f` : "var(--surface-subtle)",
                             padding: "2px 8px",
                             borderRadius: 6,
                             fontFamily: "monospace",
@@ -728,7 +737,7 @@ export function PowerUpMentions({
                         </span>
                       </div>
                       {cmdDesc && (
-                        <div style={{ fontSize: "0.65rem", color: "#c9aeba", width: "100%", paddingLeft: 42 }}>
+                        <div style={{ fontSize: "0.65rem", color: "var(--text-secondary)", width: "100%", paddingLeft: 42 }}>
                           {cmdDesc}
                         </div>
                       )}
@@ -746,14 +755,14 @@ export function PowerUpMentions({
             justifyContent: "center",
             gap: 16,
             padding: "6px 0 2px",
-            borderTop: "1px solid rgba(255,218,231,.12)",
+            borderTop: "1px solid var(--border-subtle)",
             marginTop: 4,
           }}
         >
-          <span style={{ fontSize: "0.62rem", color: "#c9aeba" }}>↑↓ navigate</span>
-          <span style={{ fontSize: "0.62rem", color: "#c9aeba" }}>↵ select</span>
-          <span style={{ fontSize: "0.62rem", color: "#c9aeba" }}>esc close</span>
-          <span style={{ fontSize: "0.62rem", color: "#c9aeba" }}>Tab switch</span>
+          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>↑↓ navigate</span>
+          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>↵ select</span>
+          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>esc close</span>
+          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Tab switch</span>
         </div>
       </motion.div>
     </AnimatePresence>

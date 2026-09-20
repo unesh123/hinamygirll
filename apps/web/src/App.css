@@ -2474,7 +2474,7 @@ body {
 .hinaa-command-popover button:focus-visible,
 .fullscreen-companion-overlay__mic:focus-visible,
 .fullscreen-companion-overlay__minor-action:focus-visible {
-  outline: 2px solid #ffd2df;
+  outline: 2px solid var(--border-focus);
   outline-offset: 3px;
 }
 
@@ -2484,7 +2484,7 @@ body {
     transform: translateX(-50%);
     max-height: min(52vh, 390px);
   }
-  .hinaa-command-popover > div:first-child { max-height: min(44vh, 330px) !important; }
+  .hinaa-command-popover__list { max-height: min(44vh, 330px) !important; }
   .fullscreen-companion-overlay {
     padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
   }

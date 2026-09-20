@@ -1,6 +1,103 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PowerUpMentions } from "./PowerUpMentions";
+import { PowerUpMentions, type CommandItem } from "./PowerUpMentions";
+
+function command(name: string, label: string): CommandItem {
+  return {
+    name,
+    aliases: [],
+    label,
+    description: `${label} description`,
+    descriptionShort: label,
+    icon: undefined as unknown as CommandItem["icon"],
+    color: "#F36F9C",
+    group: "Create",
+    inputSchema: {},
+    capability: name,
+    riskLevel: "read",
+    approvalPolicy: "automatic",
+    availability: "available",
+    executionLocation: "api",
+    examples: [],
+  };
+}
+
+const COMMANDS = [command("research", "Deep Research"), command("generate", "Generate Image")];
+
+/**
+ * Reproduces the real defect. The existing tests fire keydown on `window`,
+ * which skips the composer entirely and so cannot observe the Enter leak:
+ * React attaches its synthetic handler to the root container, so a bubble-phase
+ * palette listener only runs after the textarea has already submitted the chat.
+ */
+function ComposerHarness({
+  paletteOpen,
+  onSelectCommand,
+  onSend,
+}: {
+  paletteOpen: boolean;
+  onSelectCommand: (cmd: CommandItem) => void;
+  onSend: () => void;
+}) {
+  return (
+    <>
+      <textarea
+        data-testid="composer"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) onSend();
+        }}
+      />
+      {paletteOpen && (
+        <PowerUpMentions
+          visible
+          filter=""
+          trigger="/"
+          contexts={[]}
+          commands={COMMANDS}
+          onSelectCommand={onSelectCommand}
+          onClose={() => undefined}
+        />
+      )}
+    </>
+  );
+}
+
+describe("PowerUpMentions keyboard priority", () => {
+  it("consumes Enter fired on the textarea instead of submitting the chat", () => {
+    const onSelectCommand = vi.fn();
+    const onSend = vi.fn();
+    render(<ComposerHarness paletteOpen onSelectCommand={onSelectCommand} onSend={onSend} />);
+
+    fireEvent.keyDown(screen.getByTestId("composer"), { key: "Enter", shiftKey: false });
+
+    expect(onSelectCommand).toHaveBeenCalledWith(expect.objectContaining({ name: "research" }));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("moves the highlight with ArrowDown through the real event path", () => {
+    const onSelectCommand = vi.fn();
+    const onSend = vi.fn();
+    render(<ComposerHarness paletteOpen onSelectCommand={onSelectCommand} onSend={onSend} />);
+    const composer = screen.getByTestId("composer");
+
+    fireEvent.keyDown(composer, { key: "ArrowDown" });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    expect(onSelectCommand).toHaveBeenCalledWith(expect.objectContaining({ name: "generate" }));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("still sends the chat normally when the palette is closed", () => {
+    const onSelectCommand = vi.fn();
+    const onSend = vi.fn();
+    render(<ComposerHarness paletteOpen={false} onSelectCommand={onSelectCommand} onSend={onSend} />);
+
+    fireEvent.keyDown(screen.getByTestId("composer"), { key: "Enter", shiftKey: false });
+
+    expect(onSelectCommand).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledOnce();
+  });
+});
 
 describe("PowerUpMentions", () => {
   it("matches slash queries against /-aliases and surfaces the exact verb first", () => {
