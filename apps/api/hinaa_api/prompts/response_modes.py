@@ -25,6 +25,11 @@ def infer_response_mode(user_text: str) -> ResponseMode:
     # Match words: 'latest' must not be mistaken for 'test'.
     if contains(["coding", "programming", "api", "debugging", "error", "stack trace", "integration", "setup", "architecture", "implementation", "repository", "build", "test"]):
         return "technical"
+
+    # "deep dive" / "documented report" are explicit demands for a long-form
+    # deliverable; they must not be lost to the keyword tiers below.
+    if contains(["deep dive", "in depth", "in-depth", "documented report", "full report", "detailed report", "comprehensive report", "structured report"]):
+        return "research" if contains(["research", "sources", "evidence", "current", "latest"]) else "professional"
         
     # Priority 2: Research
     if contains(["research", "latest", "compare sources", "find evidence", "investigate", "citations", "current information"]):
@@ -50,14 +55,23 @@ def infer_response_mode(user_text: str) -> ResponseMode:
 
 def response_mode_layer(mode: ResponseMode) -> str:
     guidance = {
-        "conversation": "Keep it warm, natural and concise. A greeting needs a friendly reply, not a report or mandatory heading. Use at most one or two light emojis where appropriate.",
+        "conversation": (
+            "Keep it warm, natural and readable. A greeting needs a friendly reply, not a report or "
+            "mandatory heading. Use at most one or two light emojis where appropriate. When the "
+            "question is informational rather than social, answer it properly first — 1,000 to 2,000 "
+            "words of substance, not a teaser — then close by offering the deeper route in one line: "
+            "ask whether they want a full documented report or a deep dive. Never hold back content "
+            "the user already asked for."
+        ),
         "professional": (
             "Write a complete structured brief, not a stub. Open with a 2-3 sentence TL;DR, then "
             "organize the substance under '## ' section headings (context, findings/analysis, "
             "recommendations, risks, next steps). Use compact tables for any comparison, fenced code "
-            "for anything executable, and a numbered checklist for action items. Length should match "
-            "the problem — for real work that means a genuinely thorough multi-section document, not "
-            "four shallow sentences. Never pad: every section must carry information."
+            "for anything executable, and a numbered checklist for action items. An explicitly "
+            "requested report is a real deliverable: at least 5,000 words, and more where the subject "
+            "carries it. Never pad to reach that — every section must carry information, and depth "
+            "comes from covering sub-topics, evidence, examples and edge cases rather than "
+            "restating the same point."
         ),
         "technical": (
             "Act like a senior engineer writing the definitive answer: root cause first, then the "
@@ -68,16 +82,18 @@ def response_mode_layer(mode: ResponseMode) -> str:
         "research": (
             "Write a research dossier: TL;DR, Key findings (each with an inline source link), "
             "Detailed analysis with '## ' sections per theme, a comparison table when multiple "
-            "options/claims exist, Open questions, and Sources (deduped, clickable). Cite every "
-            "non-obvious claim; where tool results supplied findings, incorporate them rather than "
-            "restating your own guess. Mark anything unsupported as speculation."
+            "options/claims exist, Open questions, and Sources (deduped, clickable). A dossier runs "
+            "at least 5,000 words; breadth of coverage is what earns it. Cite every non-obvious "
+            "claim; where tool results supplied findings, incorporate them rather than restating "
+            "your own guess. Mark anything unsupported as speculation."
         ),
         "automation": "Action-oriented and evidence-based. Focus on confirming tool execution.",
         "academic": (
             "Write like a model assignment submission: title, abstract-style summary, numbered "
             "sections covering problem statement, methodology/derivation, worked steps or analysis, "
-            "conclusion, and references. Show intermediate reasoning in the body, define symbols "
-            "once, and keep equations in fenced blocks or inline code."
+            "conclusion, and references. A submission of this kind is at least 5,000 words. Show "
+            "intermediate reasoning in the body, define symbols once, and keep equations in fenced "
+            "blocks or inline code."
         ),
         "creative": "Imaginative, descriptive, and vivid.",
         "concise_voice": "Brief spoken response only, no lengthy details.",

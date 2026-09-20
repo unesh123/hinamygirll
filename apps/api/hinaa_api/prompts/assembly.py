@@ -79,7 +79,7 @@ def _schema_layer(mode: str) -> str:
 
 def assemble_prompt(inp: PromptInput) -> PromptPackage:
     actual_mode = inp.response_mode or infer_response_mode(inp.user_text)
-    depth = infer_response_depth(inp.user_text, inp.interaction_mode)
+    depth = infer_response_depth(inp.user_text, inp.interaction_mode, actual_mode)
     layers = [
         PromptLayer(name="safety", priority=1, trusted=True, text=SAFETY_LAYER),
         PromptLayer(name="product_identity", priority=2, trusted=True, text=_product_identity_layer()),

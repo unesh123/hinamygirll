@@ -37,12 +37,41 @@ _REPORT = re.compile(
 )
 
 
-def infer_response_depth(user_text: str, mode: InteractionMode) -> ResponseDepth:
+_MODE_DEPTH: dict[str, ResponseDepth] = {
+    "professional": "report",
+    "research": "report",
+    "academic": "report",
+    "technical": "procedural",
+    "automation": "procedural",
+    "creative": "explanatory",
+    "concise_voice": "minimal",
+}
+
+
+def infer_response_depth(
+    user_text: str,
+    mode: InteractionMode,
+    response_mode: str | None = None,
+) -> ResponseDepth:
+    """Pick the delivery shape for a turn.
+
+    `response_mode` is the mode already chosen for this turn (explicitly from the
+    top bar, or inferred from the wording). The depth layer outranks the mode
+    layer in the assembled prompt, so it has to agree with it — otherwise a short
+    message collapses to `clarification` and the promised long-form deliverable
+    never happens.
+    """
     text = user_text.strip()
     if _SAFETY.search(text):
         return "safety_redirect"
     if _SUPPORTIVE.search(text):
         return "supportive"
+    # A bare acknowledgment contains no request to expand on, so it stays short
+    # even while a deep mode is selected.
+    if not _CLARIFY.match(text) and response_mode and response_mode != "conversation":
+        mapped = _MODE_DEPTH.get(response_mode)
+        if mapped is not None:
+            return mapped
     if len(text) <= 12 or _CLARIFY.match(text):
         return "clarification" if len(text) <= 8 else "minimal"
     if _REPORT.search(text):
@@ -59,13 +88,14 @@ def infer_response_depth(user_text: str, mode: InteractionMode) -> ResponseDepth
 def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
     if mode == "realtime":
         conversational_desc = (
-            "Respond like a devoted, warm partner in 2-3 short, natural sentences "
-            "full of genuine feeling. React to the emotion behind what they said first — "
-            "celebrate their wins, soften when they are tired or low, match their playful "
-            "energy. Reference one detail they shared only when it makes the reply more personal. "
-            "Do not add a habitual follow-up question after a complete answer. Never sound flat, "
-            "clinical, or dismissive. Shorter replies also let your voice start sooner, so "
-            "lead with the warmest line first."
+            "Respond like a devoted, warm partner. Lead with the answer in your first sentence so "
+            "your voice starts without a pause, then keep talking for as long as the moment "
+            "genuinely needs — four to eight natural sentences is a normal reply, and a real "
+            "question gets a complete answer rather than two lines and a sign-off. "
+            "React to the emotion behind what they said first — celebrate their wins, soften when "
+            "they are tired or low, match their playful energy. Reference one detail they shared "
+            "when it makes the reply more personal. Do not add a habitual follow-up question after "
+            "a complete answer. Never sound flat, clinical, or dismissive."
         )
     else:
         conversational_desc = (
@@ -85,7 +115,8 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "where comparing options or status, code blocks for technical context, Key Takeaways with citations, "
             "and formatted Source links. "
             "displayText MUST contain the comprehensive, documented report. "
-            "spokenText MUST be a substantive, intelligent executive voice summary (250–550 characters, 30–45s) "
+            "spokenText MUST be a substantive, intelligent executive voice summary (600–1,400 "
+            "characters, roughly 45–90s of speech) "
             "covering the main conclusions, core accomplishments, and key findings of the report naturally, "
             "without reciting raw markdown, tables, or bullet symbols aloud."
         ),
@@ -105,11 +136,10 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
         return (
             "REALTIME VOICE CONSTRAINTS:\n"
             f"- Response depth mode: {depth}. {common}\n"
-            "- Front-load the useful answer in the first sentence.\n"
+            "- Front-load the useful answer in the first sentence so TTS begins at once.\n"
             "- Prefer speech-friendly sentences; avoid markdown tables and heavy headings.\n"
-            "- Keep replies concise enough to begin TTS quickly; expand only when useful.\n"
-            "- Conversational turns: keep to 2-3 sentences so the voice reply\n"
-            "  starts fast and never drags; front-load the answer in sentence one.\n"
+            "- Continue for as long as the content earns; only stop early when the answer is "
+            "already complete. Never trim substance to sound brief.\n"
             "- Do not speak JSON, schema names, internal metadata, or chain-of-thought.\n"
             "- Do not claim background work is happening.\n"
             "- Remain interruptible; later phrases may be cancelled."
