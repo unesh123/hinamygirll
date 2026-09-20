@@ -528,6 +528,7 @@ export function PowerUpMentions({
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSelect?.(powerUp)}
                       style={{
                         display: "flex",
@@ -596,6 +597,7 @@ export function PowerUpMentions({
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSelectContext?.(ctx)}
                       style={{
                         display: "flex",
@@ -668,6 +670,7 @@ export function PowerUpMentions({
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSelectCommand?.(cmd)}
                       style={{
                         display: "flex",

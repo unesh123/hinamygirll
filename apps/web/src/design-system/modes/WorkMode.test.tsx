@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkMode } from "./WorkMode";
 import type { TranscriptMessage } from "../../features/companion/types";
@@ -12,8 +13,8 @@ const messages: TranscriptMessage[] = [
   },
 ];
 
-function renderWorkMode(overrides: Partial<Parameters<typeof WorkMode>[0]> = {}) {
-  const props: Parameters<typeof WorkMode>[0] = {
+function defaultProps(): Parameters<typeof WorkMode>[0] {
+  return {
     companionState: "idle",
     messages,
     streamingText: "",
@@ -36,8 +37,11 @@ function renderWorkMode(overrides: Partial<Parameters<typeof WorkMode>[0]> = {})
     onWelcomeAction: vi.fn(),
     attachedImage: null,
     onImageAttach: vi.fn(),
-    ...overrides,
   };
+}
+
+function renderWorkMode(overrides: Partial<Parameters<typeof WorkMode>[0]> = {}) {
+  const props: Parameters<typeof WorkMode>[0] = { ...defaultProps(), ...overrides };
 
   render(<WorkMode {...props} />);
   return props;
@@ -241,5 +245,36 @@ describe("WorkMode voice controls", () => {
       window.innerWidth = originalWidth;
       window.dispatchEvent(new Event("resize"));
     }
+  });
+});
+
+describe("WorkMode command palette", () => {
+  it("replaces the slash token with the chosen command instead of sending it", async () => {
+    const onSend = vi.fn();
+
+    // ComposerV6 renders a controlled textarea, so the palette has to be opened
+    // by a real value transition; React skips onChange when the value is
+    // unchanged, which is why seeding `input` directly never shows the popover.
+    function Controlled() {
+      const [value, setValue] = useState("");
+      return <WorkMode {...defaultProps()} input={value} onInputChange={setValue} onSend={onSend} />;
+    }
+
+    render(<Controlled />);
+    const composer = screen.getByRole("textbox", { name: "Message HINAA" });
+    fireEvent.change(composer, { target: { value: "/sea" } });
+
+    // Scoped to the popover: the "Web Search" label also appears elsewhere in
+    // WorkMode, so a plain findByText can resolve before the command registry
+    // has loaded and leave the palette with an empty list.
+    await waitFor(() => {
+      const popover = document.querySelector(".hinaa-command-popover");
+      if (!popover?.textContent?.includes("Web Search")) throw new Error("palette list not populated");
+    });
+
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    expect(screen.getByRole("textbox", { name: "Message HINAA" })).toHaveValue("/search ");
+    expect(onSend).not.toHaveBeenCalled();
   });
 });

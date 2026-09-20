@@ -227,8 +227,6 @@ export function WorkMode({
   const discoveredModels = discoveredCapabilities.models;
   const discoveredProviders = discoveredCapabilities.providers;
   const backendConnected = discoveredCapabilities.runtime.backendConnected;
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [inputHeight, setInputHeight] = useState(44);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
   const [mentionCursorPos, setMentionCursorPos] = useState(0);
@@ -501,81 +499,28 @@ export function WorkMode({
 
   // contexts are driven by the useMemo above; no separate state copy needed
 
-  // Auto-resize textarea
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      onInputChange(val);
-      // Detect @ context picker or / command palette at cursor
-      const cursorPos = e.target.selectionStart ?? val.length;
-      const beforeCursor = val.slice(0, cursorPos);
-      const mentionMatch = beforeCursor.match(/@(\S*)$/);
-      // "/" only triggers a command palette at the start of a word,
-      // so URLs (example.com/x) and dates (12/08) never pop the palette.
-      const commandMatch = /^\/(\S*)$/.test(beforeCursor.trim()) || /\s\/(\S*)$/.test(beforeCursor)
-        ? beforeCursor.match(/\/(\S*)$/)
-        : null;
-      if (mentionMatch) {
-        setTrigger("@");
-        setShowMentions(true);
-        setMentionFilter(mentionMatch[1]);
-        setMentionCursorPos(cursorPos - mentionMatch[1].length - 1);
-      } else if (commandMatch) {
-        setTrigger("/");
-        setShowMentions(true);
-        setMentionFilter(commandMatch[1]);
-        setMentionCursorPos(cursorPos - commandMatch[1].length - 1);
-      } else {
-        setShowMentions(false);
-        setMentionFilter("");
-      }
-      const el = e.target;
-      el.style.height = "auto";
-      const newHeight = Math.min(Math.max(44, el.scrollHeight), 160);
-      el.style.height = `${newHeight}px`;
-      setInputHeight(newHeight);
+  const replacePaletteToken = useCallback(
+    (replacement: string) => {
+      const tokenEnd = mentionCursorPos + 1 + mentionFilter.length;
+      onInputChange(`${input.slice(0, mentionCursorPos)}${replacement}${input.slice(tokenEnd)}`);
+      setShowMentions(false);
+      setMentionFilter("");
     },
-    [onInputChange]
+    [input, mentionCursorPos, mentionFilter, onInputChange],
   );
 
   const handleContextSelect = useCallback(
     (context: ContextItem) => {
-      if (!inputRef.current) return;
-      const el = inputRef.current;
-      const val = el.value;
-      const before = val.slice(0, mentionCursorPos);
-      const after = val.slice(el.selectionStart ?? val.length);
-      // Replace @trigger with a context chip reference
-      const newVal = before + `@${context.kind}:${context.sourceId} ` + after;
-      onInputChange(newVal);
-      setShowMentions(false);
-      setMentionFilter("");
+      replacePaletteToken(`@${context.kind}:${context.sourceId} `);
     },
-    [mentionCursorPos, onInputChange],
+    [replacePaletteToken],
   );
 
   const handleCommandSelect = useCallback(
     (command: CommandItem) => {
-      setShowMentions(false);
-      setMentionFilter("");
-      if (!inputRef.current) return;
-      const el = inputRef.current;
-      const val = el.value;
-      const before = val.slice(0, mentionCursorPos);
-      const after = val.slice(el.selectionStart ?? val.length);
-      const cmdText = `/${command.name} `;
-      const newVal = before + cmdText + after;
-      onInputChange(newVal);
-      // Position cursor immediately after the inserted command
-      window.requestAnimationFrame(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          const targetPos = before.length + cmdText.length;
-          inputRef.current.setSelectionRange(targetPos, targetPos);
-        }
-      });
+      replacePaletteToken(`/${command.name} `);
     },
-    [mentionCursorPos, onInputChange],
+    [replacePaletteToken],
   );
 
   // Find tool approval requests
