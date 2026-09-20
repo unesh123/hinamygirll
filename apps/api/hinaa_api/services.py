@@ -7,6 +7,7 @@ import re
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -19,7 +20,7 @@ from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest,
 if TYPE_CHECKING:  # pragma: no cover
     from .persistence.memory_service import MemoryService
 
-from .prompts import PROMPT_VERSION, neutral_fallback_plan
+from .prompts import PROMPT_VERSION, build_plan_from_text, neutral_fallback_plan
 from .prompts.performance import extract_executive_voice_summary
 from .prompts.turn_prompt import build_turn_prompt
 from .providers.agent_router import AgentRouterOpenAIProvider, AgentRouterAnthropicProvider, ClaudeLLMProvider
@@ -41,6 +42,37 @@ from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
 from .voice_profiles import resolve_calibration, resolve_voice
 
 logger = logging.getLogger("hinaa.conversation")
+
+# Below this many characters the primary had not really started answering, so a
+# fallback brain may still take the turn; above it the text is already on the
+# user's screen and replacing it would attribute words to her she never wrote.
+_MIN_STREAMED_CHARS_TO_KEEP = 400
+
+
+@asynccontextmanager
+async def live_generation_window(
+    *,
+    ceiling_s: float,
+    idle_s: float,
+    forward: Callable[[str], Awaitable[None]],
+    sink: list[str] | None = None,
+) -> AsyncIterator[tuple[Callable[[str], Awaitable[None]], Callable[[], bool]]]:
+    """Emit hook + liveness predicate for one live brain attempt.
+
+    The idle deadline moves forward on every token, so a long answer is never
+    killed merely for being long; only a silent stream is. ``ceiling_s`` remains
+    as the absolute backstop against a hung connection.
+    """
+    loop = asyncio.get_running_loop()
+    async with asyncio.timeout(ceiling_s), asyncio.timeout(idle_s) as idle_window:
+
+        async def emit(delta: str) -> None:
+            if sink is not None:
+                sink.append(delta)
+            idle_window.reschedule(loop.time() + idle_s)
+            await forward(delta)
+
+        yield emit, idle_window.expired
 
 
 @dataclass
@@ -438,7 +470,9 @@ def plan_voice_response(
     # fall through to the distilled document summary when the model didn't give
     # one.
     sentence_ends = len(re.findall(r"[.!?\u0964\u0965]", clean_spoken))
-    min_substantive_chars = 320 if live else 40
+    # Half the live summary budget: below that the model handed over a lead-in,
+    # not a summary of the document, and distilling from displayText says more.
+    min_substantive_chars = int(summary_limit * 0.5) if live else 40
     min_substantive_sentences = 3 if live else 1
     is_substantive_spoken = (
         len(clean_spoken) >= min_substantive_chars
@@ -456,7 +490,9 @@ def plan_voice_response(
     if not summary:
         summary = _truncate_at_clause_boundary(spoken or display, summary_limit)
     if summary and not re.search(r"[.!?:\u0964\u0965]\s*$", summary.rstrip()):
-        summary = _truncate_at_clause_boundary(summary, summary_limit)
+        # Truncating here only made her shorter and still left the sentence
+        # open, so the sign-off ran straight into it when spoken aloud.
+        summary = summary.rstrip() + "."
     sign_off = (
         "Want me to walk you through the whole thing?"
         if live
@@ -3163,10 +3199,21 @@ class ConversationService:
         fallback_reason: str | None = None
 
         is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
-        primary_live_timeout = self.settings.llm_timeout_seconds
+        primary_idle_timeout = self.settings.llm_stream_idle_timeout_seconds
+        primary_live_timeout = max(
+            self.settings.llm_stream_ceiling_seconds, primary_idle_timeout
+        )
+        primary_text: list[str] = []
+        primary_idle_expired: Callable[[], bool] = lambda: False
 
         try:
-            async with asyncio.timeout(primary_live_timeout):
+            async with live_generation_window(
+                ceiling_s=primary_live_timeout,
+                idle_s=primary_idle_timeout,
+                forward=emit_delta,
+                sink=primary_text,
+            ) as (primary_emit, idle_expired):
+                primary_idle_expired = idle_expired
                 provider = self._fast_casual_provider(
                     request.providerMode, request.text, history
                 )
@@ -3181,7 +3228,7 @@ class ConversationService:
                         request.companionId,
                         request.language,
                         history,
-                        emit_delta,
+                        primary_emit,
                         prompt,
                     )
                     stages = {"prompt_built": timing.ms_since_start("prompt_built") or 0}
@@ -3193,6 +3240,9 @@ class ConversationService:
                         result.latency_ms,
                         stages=stages,
                     )
+                    # The interface now names the brain that answered, so record
+                    # the one that actually ran rather than the one requested.
+                    resolved_provider = getattr(provider, "id", None) or resolved_provider
                 else:
                     # Mock / non-streaming path: deltas are synthetic after full plan.
                     timing.mark("provider_client_ready")
@@ -3226,7 +3276,7 @@ class ConversationService:
                     for start in range(0, len(display), 7):
                         chunk = display[start : start + 7]
                         timing.mark("first_text_delta")
-                        await emit_delta(chunk)
+                        await primary_emit(chunk)
                         await asyncio.sleep(0.006)
                     timing.mark("text_complete")
                     result = ProviderResult(
@@ -3237,9 +3287,16 @@ class ConversationService:
                     )
         except (HinaaError, TimeoutError, Exception) as raw_error:
             if isinstance(raw_error, TimeoutError):
+                timed_out_idle = primary_idle_expired()
                 error = HinaaError(
                     "PROVIDER_TIMEOUT",
-                    f"Live primary brain {request.providerMode} timed out after {primary_live_timeout}s.",
+                    (
+                        f"Live primary brain {request.providerMode} went silent for "
+                        f"{primary_idle_timeout}s."
+                        if timed_out_idle
+                        else f"Live primary brain {request.providerMode} exceeded the "
+                        f"{primary_live_timeout}s ceiling for one turn."
+                    ),
                     504,
                     True,
                 )
@@ -3257,12 +3314,41 @@ class ConversationService:
                 logger.warning("Live primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
                 raise error
 
+            kept_text = "".join(primary_text).strip()
+            keep_streamed_text = len(kept_text) >= _MIN_STREAMED_CHARS_TO_KEEP
+            if keep_streamed_text:
+                # The user already watched this brain answer. Shipping another
+                # model's reply over the top of it would put words on screen that
+                # she never wrote, so finish with what she actually produced.
+                logger.warning(
+                    "Live primary %s ended with %s chars already streamed; keeping her "
+                    "own text instead of answering with a fallback brain (%s).",
+                    request.providerMode,
+                    len(kept_text),
+                    error.code,
+                )
+                result = ProviderResult(
+                    build_plan_from_text(
+                        text=kept_text,
+                        companion_id=request.companionId,
+                        language=request.language,
+                        depth=prompt.response_depth,
+                    ),
+                    provider=request.providerMode,
+                    latency_ms=timing.ms_since_start("prompt_built") or 0,
+                    stages=timing.snapshot(),
+                )
+
             live_retry_succeeded = False
-            if fast_provider_id and error.code in {
-                "PROVIDER_KEY_INVALID",
-                "PROVIDER_UNAVAILABLE",
-                "PROVIDER_RATE_LIMIT",
-            }:
+            if (
+                not keep_streamed_text
+                and fast_provider_id
+                and error.code in {
+                    "PROVIDER_KEY_INVALID",
+                    "PROVIDER_UNAVAILABLE",
+                    "PROVIDER_RATE_LIMIT",
+                }
+            ):
                 self._mark_fast_key_bad(fast_provider_id)
                 selected_provider = self.router.llm(request.providerMode, request.brainModel)
                 if getattr(selected_provider, "id", None) != fast_provider_id:
@@ -3296,7 +3382,7 @@ class ConversationService:
                             True,
                         )
 
-            if not live_retry_succeeded:
+            if not live_retry_succeeded and not keep_streamed_text:
                 if getattr(error, "code", None) == "SAFETY_REFUSAL":
                     logger.warning("Live provider returned SAFETY_REFUSAL; raising without fallback.")
                     raise error
@@ -3318,14 +3404,18 @@ class ConversationService:
                                 fb_model,
                             )
                             fb_provider = self.router.llm(fb_mode, fb_model)
-                            async with asyncio.timeout(30.0):
+                            async with live_generation_window(
+                                ceiling_s=primary_live_timeout,
+                                idle_s=primary_idle_timeout,
+                                forward=emit_delta,
+                            ) as (fallback_emit, _):
                                 if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                                     fallback_live_result = await fb_provider.create_live_plan(
                                         request.text,
                                         request.companionId,
                                         request.language,
                                         history,
-                                        emit_delta,
+                                        fallback_emit,
                                         prompt,
                                     )
                                 else:

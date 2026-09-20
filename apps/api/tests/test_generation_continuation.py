@@ -11,6 +11,7 @@ Covers directive §2–§6, §37, §39, §43, §55:
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
@@ -529,6 +530,23 @@ class TestVoiceResponsePlanner:
         vtype, text = plan_voice_response(q, q, is_progress=False)
         assert vtype == VoiceResponseType.QUESTION
         assert text.endswith("?")
+
+    def test_live_report_ignores_a_thin_model_summary(self) -> None:
+        """A live call has no second surface, so a lead-in is not a summary."""
+        from hinaa_api.services import VoiceResponseType, plan_voice_response
+
+        thin = (
+            "I wrote you a full report on every subsystem, her providers, "
+            "her tools, and her limits. " * 4
+        )
+        assert 320 <= len(thin) < 600
+        vtype, text = plan_voice_response(
+            self._long_doc(), thin, is_progress=False, live=True
+        )
+        assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
+        assert len(text) > len(thin)
+        # Measured run-on: "...current limitations Want me to walk you…".
+        assert re.search(r"[.!?:] Want me to walk", text), text
 
     def test_error_path_safe_fallback(self) -> None:
         from hinaa_api.services import VoiceResponseType, plan_voice_response

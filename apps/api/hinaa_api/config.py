@@ -310,6 +310,12 @@ class Settings(BaseSettings):
     # 3-4 minutes even on fast models.
     llm_timeout_seconds: float = Field(300.0, alias="HINAA_LLM_TIMEOUT_SECONDS")
     llm_stream_idle_timeout_seconds: float = Field(120.0, alias="HINAA_LLM_STREAM_IDLE_TIMEOUT_SECONDS")
+    # A live (streamed) turn is judged by liveness, not by wall clock: the idle
+    # deadline above moves forward on every token, so a long document is never
+    # killed merely for being long. This ceiling is only the backstop for a
+    # connection that never closes at all, so it stays well above the idle
+    # timeout and deliberately ignores HINAA_LLM_TIMEOUT_SECONDS.
+    llm_stream_ceiling_seconds: float = Field(900.0, alias="HINAA_LLM_STREAM_CEILING_SECONDS")
     local_command_timeout_seconds: float = Field(12.0, alias="HINAA_LOCAL_COMMAND_TIMEOUT_SECONDS")
     local_stt_command: str | None = Field(None, alias="HINAA_LOCAL_STT_COMMAND")
     local_tts_command: str | None = Field(None, alias="HINAA_LOCAL_TTS_COMMAND")
@@ -427,6 +433,15 @@ class Settings(BaseSettings):
         if self.llm_stream_idle_timeout_seconds < 15:
             corrections.append("llm_stream_idle_timeout below 15s; clamped")
             object.__setattr__(self, "llm_stream_idle_timeout_seconds", 15.0)
+        if self.llm_stream_ceiling_seconds < self.llm_stream_idle_timeout_seconds:
+            corrections.append(
+                f"HINAA_LLM_STREAM_CEILING_SECONDS={self.llm_stream_ceiling_seconds}s is below the "
+                f"{self.llm_stream_idle_timeout_seconds}s idle timeout, so the wall clock would kill "
+                "healthy long answers before silence ever got to decide; raised to 4x the idle timeout"
+            )
+            object.__setattr__(
+                self, "llm_stream_ceiling_seconds", self.llm_stream_idle_timeout_seconds * 4
+            )
         self.generation_config_corrections = corrections
         return self
 

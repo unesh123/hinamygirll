@@ -213,10 +213,16 @@ def extract_executive_voice_summary(text: str, limit: int = 150) -> str:
         if curr_len + added_len <= limit:
             collected.append(s)
             curr_len += added_len
-        else:
-            if not collected:
-                collected.append(s)
+            continue
+        if not collected:
+            collected.append(s)
             break
+        if curr_len < int(limit * 0.7) and added_len > int(limit * 0.5):
+            # This sentence alone is bigger than the budget. Stopping here left
+            # her describing a 5,900-word report in one breath, so skip it and
+            # let the later ones speak instead.
+            continue
+        break
 
     spoken = " ".join(collected)
 
@@ -230,6 +236,18 @@ def extract_executive_voice_summary(text: str, limit: int = 150) -> str:
             spoken = (window[:last_space] if last_space != -1 else window).rstrip(" ,;—") + "…"
 
     return spoken
+
+
+_SPOKEN_BUDGET_CHARS: dict[str, int] = {
+    "minimal": 220,
+    "clarification": 220,
+    "conversational": 450,
+    "supportive": 450,
+    "safety_redirect": 320,
+    "explanatory": 700,
+    "procedural": 900,
+    "report": 1_400,
+}
 
 
 def build_plan_from_text(
@@ -254,8 +272,7 @@ def build_plan_from_text(
         cleaned,
     )
     display_full = cleaned.strip() or "I'm here. How can I help?"
-    # Spoken text is an executive summary (< 150 chars) conveying the substantive core finding
-    spoken = extract_executive_voice_summary(display_full, limit=150)
+    spoken = extract_executive_voice_summary(display_full, limit=_SPOKEN_BUDGET_CHARS.get(depth, 450))
     emotion, performance = plan_performance(
         text=spoken, companion_id=companion_id, depth=depth, language=resolved_lang
     )

@@ -107,16 +107,26 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
     common = {
         "minimal": "Respond with a brief acknowledgment plus at most one useful next step.",
         "conversational": conversational_desc,
-        "explanatory": "Lead with the direct answer, then provide a full, structured explanation with all necessary context.",
+        "explanatory": (
+            "Lead with the direct answer in the first sentence, then give the full picture in your own words: "
+            "1,000-2,000 words of structured Markdown with ### headings is the normal size for a real question, "
+            "because he asked to be explained to, not summarised. Cover every part of the question, give the "
+            "concrete details that make it actionable, and finish with what he can do next. Do not pad, but do "
+            "not stop early and do not hand back an outline with one line under each heading."
+        ),
         "procedural": "Give clear ordered steps with complete code or commands. Be thorough and actionable.",
         "report": (
             "Produce an exhaustive, highly structured, professional technical or analytical report. "
             "Use clear Markdown hierarchy (### headings), precise bullet points, markdown data tables "
             "where comparing options or status, code blocks for technical context, Key Takeaways with citations, "
             "and formatted Source links. "
-            "displayText MUST contain the comprehensive, documented report. "
-            "spokenText MUST be a substantive, intelligent executive voice summary (600–1,400 "
-            "characters, roughly 45–90s of speech) "
+            "displayText MUST contain the comprehensive, documented report and its length is the deliverable: "
+            "4,000-5,000+ words whenever he asks for a full, documented, comprehensive or detailed report. "
+            "Write every section out in complete prose — "
+            "a heading with two sentences under it is an outline, not a report. Never compress a section into a "
+            "placeholder, never say 'as above' or 'etc.', and never stop because the answer feels long. "
+            "spokenText MUST be a substantive, intelligent executive voice summary (600-1,400 "
+            "characters, roughly 45-90s of speech) "
             "covering the main conclusions, core accomplishments, and key findings of the report naturally, "
             "without reciting raw markdown, tables, or bullet symbols aloud."
         ),
@@ -137,7 +147,9 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "REALTIME VOICE CONSTRAINTS:\n"
             f"- Response depth mode: {depth}. {common}\n"
             "- Front-load the useful answer in the first sentence so TTS begins at once.\n"
-            "- Prefer speech-friendly sentences; avoid markdown tables and heavy headings.\n"
+            "- For spokenText only: speech-friendly sentences, no markdown tables, no heavy headings.\n"
+            "- displayText is read on screen, not spoken. Give it exactly the structure and length the "
+            "depth mode above asks for — headings, tables, code blocks.\n"
             "- Continue for as long as the content earns; only stop early when the answer is "
             "already complete. Never trim substance to sound brief.\n"
             "- Do not speak JSON, schema names, internal metadata, or chain-of-thought.\n"
