@@ -75,3 +75,23 @@ def test_extract_search_query() -> None:
     assert svc._extract_search_query("Hey Hinaa can you check the latest news in Nepal?") == "the latest news in Nepal"
     assert svc._extract_search_query("tell me what is the weather today?") == "the weather today"
     assert svc._extract_search_query("look up bitcoin price right now") == "bitcoin price right now"
+
+
+def test_a_question_about_her_must_not_become_a_web_search_for_someone_else() -> None:
+    """Measured P0: "What is the current state of Hina?" fired a live search.
+
+    "current" matched the temporal indicators, the search returned anime
+    characters named Hina, and she answered about One Piece instead of her own
+    runtime. Questions about her are answered from MEASURED SELF STATE.
+    """
+    settings = Settings(HINAA_PROVIDER_MODE="mock", _env_file=None)
+    service = ConversationService(settings)
+
+    assert not service._should_pre_search("What is the current state of Hina? Explain her system.")
+    assert not service._should_pre_search("what are your capabilities?")
+    assert not service._should_pre_search("explain Hina's architecture and her tools")
+    assert not service._should_pre_search("how do you work?")
+
+    # An external question that happens to address her still gets real facts.
+    assert service._should_pre_search("hina, what is the current price of gold today")
+    assert service._should_pre_search("what is the latest news today")

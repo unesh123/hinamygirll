@@ -2533,6 +2533,27 @@ class ConversationService:
         if re.search(r"^(hi|hello|hey|yo|namaste|good\s+(?:morning|evening|afternoon|night)|k\s+cha|kasto\s+cha)[!., ]*$", lowered):
             return False
 
+        # CRITICAL: She must not Google herself.
+        # "What is the current state of Hina?" contains "current", which the
+        # temporal indicators below treat as a live-facts signal. The search then
+        # returns anime characters named Hina, and because retrieved web context is
+        # declared authoritative she answers about One Piece instead of her own
+        # runtime. Questions about her are answered from MEASURED SELF STATE.
+        _SELF_TOPIC = (
+            r"(?:system|state|status|architecture|subsystem|capabilit\w*|memory|memories|"
+            r"tool\w*|brain|model|provider|limit\w*|feature\w*|voice|ability|abilities|dashboard)"
+        )
+        is_about_herself = bool(
+            re.search(rf"\b(?:your|her)\s+{_SELF_TOPIC}\b", lowered)
+            or re.search(rf"\bhinaa?'s\s+{_SELF_TOPIC}\b", lowered)
+            or re.search(rf"\b{_SELF_TOPIC}\s+of\s+hinaa?\b", lowered)
+            or re.search(r"\bhow\s+(?:do|does)\s+(?:you|she|hinaa?)\s+work\b", lowered)
+            or re.search(r"\bhinaa?\b[^?.]{0,40}\bexplain\b", lowered)
+        )
+        if is_about_herself:
+            logger.info("Pre-search suppressed: the question is about her own runtime.")
+            return False
+
         # CRITICAL: Referent-Before-Research Guard.
         # If the user utterance is anaphoric/pronoun-based ("tell me more details about her", "who is she",
         # "tell me about him") without a concrete named entity in this turn, AND dialogue state has NO
