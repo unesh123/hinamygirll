@@ -1850,6 +1850,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ],
         }
 
+    @app.get("/v1/generated-images")
+    async def list_generated_images(limit: int = 50) -> dict[str, object]:
+        """Every image file HINAA actually produced, newest first.
+
+        The Library view fetches /api/v1/generated-images, which had no route
+        and so fell through to fabricated demo rows. Declared under /v1 so the
+        generic alias block below also serves the /api/v1 form.
+        """
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        from hinaa_api.config import DATA_DIR
+
+        try:
+            page = max(1, min(int(limit), 200))
+        except (TypeError, ValueError):
+            page = 50
+
+        prompts: dict[str, str] = {}
+        try:
+            from hinaa_api.persistence.db import get_session_factory
+            from hinaa_api.persistence.orm import ImageJob
+
+            with get_session_factory(active_settings)() as session:
+                jobs = (
+                    session.query(ImageJob)
+                    .filter(ImageJob.file_path.is_not(None))
+                    .order_by(ImageJob.created_at.desc())
+                    .all()
+                )
+                for job in jobs:
+                    prompt = job.generation_set.prompt if job.generation_set else None
+                    if not prompt:
+                        continue
+                    stored = Path(str(job.file_path))
+                    for key in (stored.name, stored.stem):
+                        prompts.setdefault(key, prompt)
+        except Exception:
+            # Persistence is optional; files on disk are still the truth.
+            pass
+
+        entries: list[dict[str, object]] = []
+        images_root = DATA_DIR / "images"
+        if images_root.exists():
+            suffixes = {".png", ".jpg", ".jpeg", ".webp"}
+            files = [
+                path
+                for path in images_root.iterdir()
+                if path.is_file() and path.suffix.lower() in suffixes
+            ]
+            files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+            for path in files[:page]:
+                stat = path.stat()
+                entries.append(
+                    {
+                        "id": path.name,
+                        "filename": path.name,
+                        "url": f"/api/v1/generated-images/{path.name}",
+                        "prompt": prompts.get(path.stem) or prompts.get(path.name),
+                        "created_at": datetime.fromtimestamp(
+                            stat.st_mtime, tz=timezone.utc
+                        ).isoformat(),
+                        "sizeKb": round(stat.st_size / 1024, 1),
+                    }
+                )
+        return {"images": entries, "count": len(entries)}
+
     @app.get("/v1/generated-images/{image_id}")
     @app.get("/api/v1/generated-images/{image_id}")
     async def get_generated_image(image_id: str):

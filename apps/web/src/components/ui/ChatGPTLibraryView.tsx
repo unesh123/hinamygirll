@@ -10,94 +10,72 @@ interface LibraryItem {
   url?: string;
 }
 
-const DEMO_LIBRARY_ITEMS: LibraryItem[] = [
-  {
-    id: "lib-1",
-    name: "Sakura_OS_Architecture_Overview.pptx",
-    type: "presentation",
-    modified: "Yesterday",
-    size: "152 KB",
-  },
-  {
-    id: "lib-2",
-    name: "hinaa_cyberpunk_neon_portrait.png",
-    type: "image",
-    modified: "Yesterday",
-    size: "1.76 MB",
-  },
-  {
-    id: "lib-3",
-    name: "mikasa_ackerman_hd_fanart.png",
-    type: "image",
-    modified: "Today",
-    size: "2.25 MB",
-  },
-  {
-    id: "lib-4",
-    name: "hinata_hyuga_aesthetic_wallpaper.png",
-    type: "image",
-    modified: "Today",
-    size: "1.42 MB",
-  },
-  {
-    id: "lib-5",
-    name: "Quantum_AI_Research_Report.pdf",
-    type: "document",
-    modified: "Aug 28",
-    size: "410 KB",
-  },
-  {
-    id: "lib-6",
-    name: "HINAA_Companion_Design_System.md",
-    type: "document",
-    modified: "Aug 25",
-    size: "54.4 KB",
-  },
-];
+function formatSize(sizeKb: number | null | undefined): string {
+  if (typeof sizeKb !== "number" || !Number.isFinite(sizeKb)) return "—";
+  return sizeKb >= 1024 ? `${(sizeKb / 1024).toFixed(2)} MB` : `${Math.round(sizeKb)} KB`;
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString();
+}
 
 interface Props {
   onOpenChat: (initialPrompt?: string) => void;
 }
 
 export function ChatGPTLibraryView({ onOpenChat }: Props) {
-  const [items, setItems] = useState<LibraryItem[]>(DEMO_LIBRARY_ITEMS);
+  const [items, setItems] = useState<LibraryItem[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "images" | "documents">("all");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [loading, setLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     async function loadLibrary() {
       setLoading(true);
+      setLoadFailed(false);
+      const headers = { "X-HINAA-Dev-User": "local-web-user" };
       try {
-        const realItems: LibraryItem[] = [];
-        const imgRes = await fetch("/api/v1/generated-images?limit=50", {
-          headers: { "X-HINAA-Dev-User": "local-web-user" },
-        });
+        const [imgRes, docRes] = await Promise.all([
+          fetch("/api/v1/generated-images?limit=50", { headers }),
+          fetch("/api/v1/generated-docs", { headers }),
+        ]);
+        const loaded: LibraryItem[] = [];
         if (imgRes.ok) {
-          const imgData = await imgRes.json();
-          if (Array.isArray(imgData.images)) {
-            for (const img of imgData.images) {
-              const cleanPrompt = (img.prompt || "hinaa_creation")
-                .slice(0, 30)
-                .trim()
-                .replace(/[^a-zA-Z0-9_-]/g, "_");
-              realItems.push({
-                id: `img-${img.id}`,
-                name: `${cleanPrompt}.png`,
-                type: "image",
-                modified: img.created_at ? new Date(img.created_at).toLocaleDateString() : "Today",
-                size: "1.2 MB",
-                url: img.url,
-              });
-            }
+          const data = await imgRes.json();
+          for (const img of Array.isArray(data?.images) ? data.images : []) {
+            loaded.push({
+              id: `img-${img.id}`,
+              name: img.filename || img.id,
+              type: "image",
+              modified: formatDate(img.created_at),
+              size: formatSize(img.sizeKb),
+              url: img.url,
+            });
           }
         }
-        if (realItems.length > 0) {
-          setItems([...realItems, ...DEMO_LIBRARY_ITEMS]);
+        if (docRes.ok) {
+          const data = await docRes.json();
+          for (const doc of Array.isArray(data?.documents) ? data.documents : []) {
+            loaded.push({
+              id: `doc-${doc.docId}`,
+              name: doc.filename || doc.title || doc.docId,
+              type: doc.format === "pptx" ? "presentation" : "document",
+              modified: formatDate(doc.createdAt),
+              size: formatSize(doc.fileSizeKb),
+              url: doc.downloadUrl,
+            });
+          }
         }
+        setItems(loaded);
+        setLoadFailed(!imgRes.ok || !docRes.ok);
       } catch {
-        // fallback to demo items
+        // A failed request must read as failed, not as an empty library.
+        setItems([]);
+        setLoadFailed(true);
       } finally {
         setLoading(false);
       }
@@ -358,6 +336,37 @@ export function ChatGPTLibraryView({ onOpenChat }: Props) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {!loading && filteredItems.length === 0 && (
+          <div
+            data-testid="library-empty-state"
+            style={{
+              padding: "var(--space-8) var(--space-6)",
+              textAlign: "center",
+              border: "1px dashed var(--border-default)",
+              borderRadius: 14,
+              color: "var(--text-secondary)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontWeight: 650, color: "var(--text-primary)" }}>
+              {loadFailed
+                ? "Library unavailable"
+                : items.length === 0
+                  ? "Nothing generated yet"
+                  : "No files match this filter"}
+            </span>
+            <span style={{ fontSize: "0.82rem" }}>
+              {loadFailed
+                ? "HINAA could not read the generated-files endpoints, so this list is empty rather than fake."
+                : items.length === 0
+                  ? "Images and documents Hina actually produces will appear here."
+                  : "Try clearing the search box or switching back to All."}
+            </span>
           </div>
         )}
       </div>

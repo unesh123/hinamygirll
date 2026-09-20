@@ -81,3 +81,48 @@ def test_github_integration_reports_the_credential_that_is_actually_set() -> Non
     # A credential is not an integration: github_flow.py has no caller, so this
     # must stay False until a route actually serves it.
     assert configured["served"] is False
+
+
+def test_generated_images_listing_only_returns_files_that_exist_on_disk(client: TestClient) -> None:
+    """The Library view used to render six fabricated demo rows because no list
+    route existed. Every entry must be a real file that the item route serves."""
+    from hinaa_api.config import DATA_DIR
+
+    images_root = DATA_DIR / "images"
+    images_root.mkdir(parents=True, exist_ok=True)
+    probe = images_root / "hinaa_honesty_probe.png"
+    # 1×1 transparent PNG.
+    probe.write_bytes(
+        bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+            "890000000a49444154789c630001000005008115d1d20000000049454e44ae426082"
+        )
+    )
+    created_size = probe.stat().st_size
+    try:
+        payload = client.get("/api/v1/generated-images?limit=5").json()
+    finally:
+        probe.unlink()
+
+    assert isinstance(payload["images"], list)
+    assert payload["count"] == len(payload["images"])
+
+    probe_entries = [e for e in payload["images"] if e["filename"] == probe.name]
+    assert len(probe_entries) == 1, "a file on disk must be listed exactly once"
+    entry = probe_entries[0]
+    assert entry["url"] == f"/api/v1/generated-images/{probe.name}"
+    assert entry["sizeKb"] == round(created_size / 1024, 1)
+    assert entry["created_at"], "every entry needs a real timestamp to display"
+
+    for e in payload["images"]:
+        if e["filename"] == probe.name:
+            continue
+        assert (images_root / e["filename"]).is_file(), e["filename"]
+        served = client.get(e["url"])
+        assert served.status_code == 200, e["url"]
+        assert served.headers["content-type"].startswith("image/")
+
+
+def test_generated_images_listing_is_served_under_both_route_prefixes(client: TestClient) -> None:
+    assert client.get("/v1/generated-images").status_code == 200
+    assert client.get("/api/v1/generated-images").status_code == 200
