@@ -208,6 +208,8 @@ import threading
 import datetime
 from pathlib import Path
 
+from hinaa_api.config import DATA_DIR
+
 
 class FileReadParams(BaseModel):
     file_path: str = Field(..., description="Absolute path to the file to read.")
@@ -449,7 +451,7 @@ async def screenshot(params: ScreenshotParams) -> str:
                 x, y, w, h = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
                 monitor = {"top": y, "left": x, "width": w, "height": h}
             sct_img = sct.grab(monitor)
-            img_path = Path("data/screenshot.png")
+            img_path = DATA_DIR / "screenshot.png"
             img_path.parent.mkdir(parents=True, exist_ok=True)
             mss.tools.to_png(sct.rgb, sct.size, output=str(img_path))
             return f"Screenshot saved to '{img_path}'. Region: {params.region}"
@@ -478,7 +480,7 @@ registry.register(screenshot_def, screenshot)
 # Memory: User Preferences Persistence
 # =====================================================
 
-_user_preferences_file = Path("data/user_preferences.json")
+_user_preferences_file = DATA_DIR / "user_preferences.json"
 _user_preferences: Dict[str, Any] = {}
 
 # Ensure data directory exists

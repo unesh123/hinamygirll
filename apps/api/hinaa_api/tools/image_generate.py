@@ -23,7 +23,7 @@ import uuid
 
 from pydantic import BaseModel
 
-from ..config import get_settings
+from ..config import DATA_DIR, get_settings
 from ..persistence.db import get_session_factory
 from ..persistence.orm import Conversation, GenerationSet, ImageJob
 from ..errors import HinaaError
@@ -212,7 +212,7 @@ image_generate_def = ToolDefinition(
 
 
 def _image_store() -> Path:
-    store = Path("apps/api/data/images").absolute()
+    store = DATA_DIR / "images"
     store.mkdir(parents=True, exist_ok=True)
     return store
 

@@ -10,6 +10,10 @@ from pydantic import AliasChoices, Field, SecretStr, field_validator, model_vali
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env.local"
+# Anchored to this file, not the working directory: the API is launched from
+# apps/api, so CWD-relative "apps/api/data" paths resolve to a stray
+# apps/api/apps/api/data tree and split writes away from reads.
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 DEFAULT_LOCAL_DATABASE_URL = f"sqlite+pysqlite:///{Path.home() / '.hinaa' / 'hinaa.db'}"
 
 # Official Anthropic defaults remain the safe default. The documented mwapi

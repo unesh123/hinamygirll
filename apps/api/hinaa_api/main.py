@@ -1801,12 +1801,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_generated_image(image_id: str):
         from hinaa_api.persistence.db import get_session_factory
         from hinaa_api.persistence.orm import ImageJob
-        from hinaa_api.config import get_settings
+        from hinaa_api.config import DATA_DIR, get_settings
         settings = get_settings()
         from fastapi.responses import FileResponse
         from pathlib import Path
         
-        allowed_root = Path("apps/api/data/images").resolve()
+        allowed_root = DATA_DIR / "images"
         resolved_path = None
 
         # 1. Direct file lookup in allowed_root (for Freepik/Magnific/Pollinations saved files)

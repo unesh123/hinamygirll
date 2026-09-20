@@ -24,14 +24,14 @@ import uuid
 import httpx
 from pydantic import BaseModel, Field
 
-from ..config import get_settings
+from ..config import DATA_DIR, get_settings
 from ..errors import HinaaError
 from .registry import ToolDefinition, registry
 
 logger = logging.getLogger("hinaa.freepik_suite")
 
-USAGE_FILE = Path("apps/api/data/freepik_usage.json")
-IMAGE_STORE = Path("apps/api/data/images")
+USAGE_FILE = DATA_DIR / "freepik_usage.json"
+IMAGE_STORE = DATA_DIR / "images"
 IMAGE_STORE.mkdir(parents=True, exist_ok=True)
 USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
 

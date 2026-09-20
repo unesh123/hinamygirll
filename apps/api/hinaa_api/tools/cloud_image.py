@@ -22,11 +22,11 @@ from pathlib import Path
 
 import httpx
 
-from ..config import get_settings
+from ..config import DATA_DIR, get_settings
 
 logger = logging.getLogger("hinaa.cloud_image")
 
-_IMAGE_STORE = Path("apps/api/data/images")
+_IMAGE_STORE = DATA_DIR / "images"
 
 
 def cloud_image_available() -> bool:

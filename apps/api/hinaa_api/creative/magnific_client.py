@@ -4,7 +4,7 @@ import logging
 from typing import Any
 import httpx
 
-from ..config import Settings, get_settings
+from ..config import DATA_DIR, Settings, get_settings
 from ..errors import HinaaError
 from .registry import CreativeModelRegistry
 
@@ -127,8 +127,7 @@ class MagnificClient:
                     try:
                         import base64
                         from uuid import uuid4
-                        from pathlib import Path
-                        img_dir = Path("apps/api/data/images").resolve()
+                        img_dir = DATA_DIR / "images"
                         img_dir.mkdir(parents=True, exist_ok=True)
                         fname = f"ref_{uuid4().hex}.jpg"
                         (img_dir / fname).write_bytes(base64.b64decode(ref.split(",", 1)[1]))
@@ -156,8 +155,7 @@ class MagnificClient:
                         if b64:
                             import base64
                             from uuid import uuid4
-                            from pathlib import Path
-                            img_dir = Path("apps/api/data/images").resolve()
+                            img_dir = DATA_DIR / "images"
                             img_dir.mkdir(parents=True, exist_ok=True)
                             fname = f"{uuid4().hex}.jpg"
                             target_file = img_dir / fname

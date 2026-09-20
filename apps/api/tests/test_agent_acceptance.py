@@ -220,9 +220,9 @@ def test_14_existing_generated_image_routes(client_and_runtime, tmp_path, monkey
     client, _ = client_and_runtime
     image_id = "056e086c693e4951bce9105a149d5e30"
 
-    # Locate the image store relative to CWD (same logic as main.py)
-    from pathlib import Path
-    store = Path("apps/api/data/images").resolve()
+    # Locate the image store the same way main.py does (anchored, not CWD-relative)
+    from hinaa_api.config import DATA_DIR
+    store = DATA_DIR / "images"
     store.mkdir(parents=True, exist_ok=True)
     fixture = store / f"{image_id}.jpg"
 

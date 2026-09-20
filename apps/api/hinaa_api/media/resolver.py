@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import httpx
 from .asset_store import AssetStore, get_asset_store
+from ..config import DATA_DIR
 from .extractors import (
     extract_csv_summary,
     extract_docx_text,
@@ -221,7 +222,7 @@ class MediaResolver:
         from pathlib import Path
         clean_name = Path(image_id).name
         search_dirs = [
-            Path("apps/api/data/images").resolve(),
+            DATA_DIR / "images",
             Path.home() / ".hinaa" / "data" / "images",
             Path.home() / ".hinaa" / "assets",
         ]
