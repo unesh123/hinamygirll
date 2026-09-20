@@ -44,6 +44,13 @@ export interface RuntimeCapabilities {
     memory: boolean;
     speech: boolean;
   };
+  integrations: {
+    github: {
+      configured: boolean;
+      defaultRepo: string | null;
+      served: boolean;
+    };
+  };
 }
 
 const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
@@ -75,6 +82,9 @@ const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
     memory: false,
     speech: false,
   },
+  integrations: {
+    github: { configured: false, defaultRepo: null, served: false },
+  },
 };
 
 function normalizeCapabilities(raw: unknown): RuntimeCapabilities {
@@ -94,6 +104,12 @@ function normalizeCapabilities(raw: unknown): RuntimeCapabilities {
     features: {
       ...DEFAULT_CAPABILITIES.features,
       ...(typeof payload.features === "object" && payload.features !== null ? payload.features : {}),
+    },
+    integrations: {
+      github: {
+        ...DEFAULT_CAPABILITIES.integrations.github,
+        ...(payload.integrations?.github ?? {}),
+      },
     },
   };
 }

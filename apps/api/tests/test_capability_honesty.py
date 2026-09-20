@@ -58,3 +58,26 @@ def test_commands_do_not_claim_ready_for_capabilities_their_dependency_disables(
     assert commands["web_search"] == "unconfigured"
     for brain_backed in ("summarization", "analysis", "model_selection"):
         assert commands[brain_backed] == "unconfigured", brain_backed
+
+
+def test_github_integration_reports_the_credential_that_is_actually_set() -> None:
+    with TestClient(create_app(DISABLED_RUNTIME)) as value:
+        unconfigured = value.get("/api/v1/capabilities").json()["integrations"]["github"]
+
+    assert unconfigured == {"configured": False, "defaultRepo": None, "served": False}
+
+    tokened = Settings(
+        **{
+            **DISABLED_RUNTIME.model_dump(),
+            "github_token": "ghp_not_a_real_token",
+            "github_default_repo": "owner/repo",
+        }
+    )
+    with TestClient(create_app(tokened)) as value:
+        configured = value.get("/api/v1/capabilities").json()["integrations"]["github"]
+
+    assert configured["configured"] is True
+    assert configured["defaultRepo"] == "owner/repo"
+    # A credential is not an integration: github_flow.py has no caller, so this
+    # must stay False until a route actually serves it.
+    assert configured["served"] is False

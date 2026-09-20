@@ -1306,6 +1306,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "memory": bool(active_settings.persistence_enabled),
                 "speech": has_elevenlabs or has_azure,
             },
+            # The UI used to print a green "Repository Connected & Synced" badge
+            # unconditionally. `configured` is the only sync fact anyone can
+            # actually measure, and `served` is deliberately false because no
+            # route calls into repository/github_flow.py today.
+            "integrations": {
+                "github": {
+                    "configured": bool(
+                        active_settings.github_token
+                        and active_settings.github_token.get_secret_value()
+                    ),
+                    "defaultRepo": active_settings.github_default_repo,
+                    "served": False,
+                },
+            },
         }
 
     @app.get("/v1/providers", response_model=list[ProviderStatus])

@@ -30,6 +30,7 @@ import { LanguageSettings } from "./sections/LanguageSettings";
 import { ProviderSettings } from "./sections/ProviderSettings";
 import { AutomationSettings } from "./sections/AutomationSettings";
 import { DiagnosticsSettings } from "./sections/DiagnosticsSettings";
+import { useCapabilities } from "../providers/hooks/useCapabilities";
 
 export type SettingsTabId =
   | "general"
@@ -94,6 +95,8 @@ export function SettingsV6({
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
   const [searchQuery, setSearchQuery] = useState("");
   const [liveToolsCount, setLiveToolsCount] = useState<number | null>(null);
+  const { capabilities } = useCapabilities();
+  const github = capabilities.integrations.github;
   const dialogRef = useRef<HTMLDialogElement | null>(null);
 
   useEffect(() => {
@@ -659,6 +662,7 @@ export function SettingsV6({
                 </div>
 
                 <div
+                  data-testid="github-integration-state"
                   style={{
                     padding: 16,
                     borderRadius: 12,
@@ -670,21 +674,33 @@ export function SettingsV6({
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>Active Repository</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>Configured Repository</span>
                     <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: "#a78bfa" }}>
-                      unesh123/hinamygirll
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>Default Branch</span>
-                    <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: "rgba(255, 255, 255, 0.6)" }}>
-                      main
+                      {github.defaultRepo ?? "not set"}
                     </span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80" }} />
-                    <span style={{ fontSize: 12, color: "#4ade80" }}>
-                      Repository Connected & Synced
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: github.served ? "#4ade80" : github.configured ? "#fbbf24" : "#64748b",
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: github.served ? "#4ade80" : github.configured ? "#fbbf24" : "#94a3b8",
+                      }}
+                    >
+                      {/* Every branch here is read from /api/v1/capabilities. This
+                          row used to be a static green "Connected & Synced". */}
+                      {github.served
+                        ? "Repository connected and served by the API"
+                        : github.configured
+                          ? "Credential present, but no API route uses it yet"
+                          : "Not connected — GITHUB_TOKEN is not set on the backend"}
                     </span>
                   </div>
                 </div>
