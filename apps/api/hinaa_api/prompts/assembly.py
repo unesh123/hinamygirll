@@ -102,8 +102,10 @@ def _schema_layer(mode: str) -> str:
     if mode == "realtime":
         return (
             "REALTIME OUTPUT CONTRACT:\n"
-            "- Reply with natural conversational text only (no JSON wrapper in the stream).\n"
-            "- Do not emit stage directions, XML tags (no <spokenText> or <displayText>), emotion tags, markdown tables, or tool markup.\n"
+            "- Reply with natural text only (no JSON wrapper in the stream).\n"
+            "- Do not emit stage directions, XML tags (no <spokenText> or <displayText>), emotion tags, or tool markup.\n"
+            "- spokenText is the channel that must stay speech-safe: no markdown tables, headings or code blocks. "
+            "displayText is read on screen and should use whatever structure the response depth asks for.\n"
             "- Do not append or output personality scores or parameter values (e.g. no affection=... or sass=...).\n"
             "- Speak directly to the user as your persona.\n"
             f"- Schema contract version reference: {SCHEMA_CONTRACT_VERSION}."
