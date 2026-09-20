@@ -2154,7 +2154,7 @@ body {
 .avatar-playground--fullscreen { background:radial-gradient(ellipse 74% 70% at 50% 30%, rgba(230,255,249,.3), rgba(225,244,250,.2) 52%, rgba(239,233,255,.2)); }
 .avatar-playground--fullscreen::after { display:none; }
 .avatar-playground__controls button:focus-visible { outline:3px solid var(--accent, #dc5f8b); outline-offset:3px; }
-@media (max-width: 768px) { .avatar-playground__controls { bottom:8px !important; right:8px !important; } }
+@media (max-width: 768px) { .avatar-playground__controls { bottom:8px; right:8px; } }
 
 
 /* ─── HINAA motion link: progressive companion diagnostics ─────────────── */
@@ -2373,7 +2373,8 @@ body {
 .avatar-playground--fullscreen .avatar-playground__controls { top:74px; right:clamp(18px, 2.6vw, 36px); bottom:auto; z-index:6; }
 .avatar-playground--fullscreen .avatar-playground__live-badge { display:none; }
 @keyframes fullscreen-live-pulse { 0%, 100% { opacity:.68; } 50% { opacity:1; filter:drop-shadow(0 0 5px rgba(134,239,172,.8)); } }
-@media (max-width: 760px) { .fullscreen-companion-overlay { grid-template-columns:1fr; padding:16px; } .fullscreen-companion-overlay__signals { max-width:64%; } .fullscreen-companion-overlay__conversation { align-self:end; width:min(100%, 300px); margin-bottom:134px; max-height:34vh; } .fullscreen-turn { padding:9px 11px; } .fullscreen-turn p { font-size:.73rem; -webkit-line-clamp:3; } .fullscreen-companion-overlay__voice-dock { min-width:0; width:100%; padding:12px 14px; border-radius:20px; } .avatar-playground--fullscreen .avatar-playground__controls { top:68px; right:16px; } }
+@media (max-width: 760px) { .fullscreen-companion-overlay { grid-template-columns:1fr; padding:16px; } .fullscreen-companion-overlay__signals { max-width:64%; } .fullscreen-companion-overlay__conversation { align-self:end; width:min(100%, 300px); margin-bottom:134px; max-height:34vh; } .fullscreen-turn { padding:9px 11px; } .fullscreen-turn p { font-size:.73rem; -webkit-line-clamp:3; } .fullscreen-companion-overlay__voice-dock { min-width:0; width:100%; padding:12px 14px; border-radius:20px; } }
+
 @media (max-height: 630px) and (min-width: 761px) { .fullscreen-companion-overlay__conversation { max-height:30vh; } .fullscreen-companion-overlay__voice-dock { padding:10px 16px; } .fullscreen-companion-overlay__hint { display:none; } }
 @media (prefers-reduced-motion: reduce) { .fullscreen-companion-overlay *, .fullscreen-companion-overlay *::before, .fullscreen-companion-overlay *::after { animation:none !important; transition-duration:1ms !important; } }
 
@@ -2442,7 +2443,7 @@ body {
   .avatar-playground__controls { right:10px; bottom:10px; gap:8px; }
   .avatar-playground__control { width:40px; height:40px; border-radius:13px; }
   .avatar-playground__control svg { width:16px; height:16px; }
-  .avatar-playground--fullscreen .avatar-playground__controls { top:62px; right:16px; }
+  .avatar-playground--fullscreen .avatar-playground__controls { top:88px; right:16px; }
 }
 @media (max-width: 360px) {
   .welcome-center .welcome-card { grid-template-columns:22px minmax(0, 1fr); column-gap:7px; min-height:66px; padding:9px; }
@@ -3324,3 +3325,57 @@ body {
 .hinaa-voice-veil__retry { padding:3px 10px; border-radius:999px; border:1px solid rgba(224,112,143,.4); background:rgba(224,112,143,.1); color:#a93a5d; font-size:10.5px; font-weight:750; cursor:pointer; }
 .hinaa-voice-veil__retry:hover { background:rgba(224,112,143,.18); }
 @media (prefers-reduced-motion: reduce) { .hinaa-voice-veil__dot { animation:none; } .hinaa-voice-veil__meter i { transition:none; } }
+
+/* ══ Executive chrome: base geometry ═════════════════════════════════════
+   These moved out of inline styles because an inline declaration cannot be
+   media-queried, which is exactly how the top bar ended up 774px wide on a
+   393px phone. Values match the previous inline ones so desktop is unchanged. */
+.topbar-v6 { min-height: 54px; padding: 0 20px; box-sizing: border-box; }
+.topbar-v6__breadcrumb { display: flex; align-items: center; gap: 6px; }
+.topbar-v6__actions { display: flex; align-items: center; gap: 10px; }
+.topbar-v6__mode-btn { padding: 5px 12px; font-size: 12px; }
+.composer-v6__shortcuts { display: flex; align-items: center; gap: 8px; }
+.talk-status-header { min-height: 40px; padding: 0 var(--space-4); box-sizing: border-box; }
+.model-selector-v7__label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ══ Phones: repairs for observed defects, not a restyle ═════════════════
+   Measured at 393x851 with elementFromPoint hit-testing:
+   - .sakura-mobile-nav is fixed and ~60px tall while <main> ran to the
+     viewport bottom, so the composer mic resolved to a nav button.
+   - The top bar's mode row reached x=507 and its action cluster x=774.
+   - Talk mode's VRM switcher was clipped by its 40px fixed-height header. */
+:root { --hinaa-mobile-nav-clearance: 0px; }
+
+@media (max-width: 768px) {
+  :root { --hinaa-mobile-nav-clearance: calc(60px + env(safe-area-inset-bottom, 0px)); }
+
+  .topbar-v6 { flex-wrap: wrap; align-content: center; row-gap: 6px; padding: 6px 12px; }
+  .topbar-v6__breadcrumb { display: none; }
+  .topbar-v6__modes { order: 3; flex: 1 1 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .topbar-v6__modes::-webkit-scrollbar { display: none; }
+  .topbar-v6__modes > button { flex-shrink: 0; min-height: 32px; }
+  .topbar-v6__mode-btn { padding: 5px 8px; font-size: 11px; }
+  .topbar-v6__actions { flex-shrink: 0; gap: 8px; margin-left: auto; }
+  .topbar-v6 .model-selector-v7__label { max-width: 92px; }
+
+  .talk-status-header { padding: 4px 12px; }
+  .talk-status-header__models { min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .talk-status-header__models::-webkit-scrollbar { display: none; }
+  .talk-status-header__models button { min-height: 32px; }
+  .talk-toolbar button { min-height: 32px; }
+  [data-testid="mobile-tab-chat"], [data-testid="mobile-tab-avatar"] { min-height: 32px; }
+  .topbar-v6__actions button { min-height: 32px; }
+
+  .composer-v6__shortcuts { display: none; }
+
+  [data-testid="composer-voice-btn"],
+  [data-testid="composer-send-btn"],
+  [data-testid="composer-plus-btn"] { min-width: 40px; min-height: 40px; }
+  [data-testid="composer-goal-btn"],
+  [data-testid="composer-create-btn"],
+  [data-testid="composer-model-selector-btn"] { min-height: 32px; }
+  .hinaa-work-transcript button { min-width: 32px; min-height: 32px; }
+  [data-testid="provider-micro-status"] [role="button"] { min-height: 32px; }
+
+  .fullscreen-companion-overlay { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+}

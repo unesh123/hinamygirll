@@ -803,9 +803,13 @@ interface Props {
 
 
 /* ─── Live-voice veil: listening feedback + honest reconnect state ─── */
-function VoiceVeil({ live, onReconnect }: { live: FullscreenLiveStatus; onReconnect: () => void }) {
+function VoiceVeil({ live, onReconnect, overlayActive = false }: { live: FullscreenLiveStatus; onReconnect: () => void; overlayActive?: boolean }) {
   const status = live.status ?? "idle";
-  const show = live.active || status === "reconnecting" || status === "error";
+  const faulty = status === "reconnecting" || status === "error";
+  // The fullscreen overlay already carries this state and its own level meter,
+  // and the two are both bottom-centred, so the pill only stays for the states
+  // the overlay cannot act on.
+  const show = faulty || (live.active && !overlayActive);
   const level = Math.max(0, Math.min(1, live.microphoneLevel));
   const bars = [0.55, 0.85, 1, 0.8, 0.5];
   const label = status === "reconnecting" ? "Reconnecting — Hinaa keeps listening soon"
@@ -986,6 +990,7 @@ export function AvatarPresence({
       <VoiceVeil
         live={liveStatus ?? { active: false, paused: false, detail: "", microphoneLevel: 0 }}
         onReconnect={onStartLive ?? (() => undefined)}
+        overlayActive={isFullscreen}
       />
 
       <FullscreenCompanionOverlay

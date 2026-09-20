@@ -227,8 +227,9 @@ describe("WorkMode voice controls", () => {
 
       // On mobile chat tab, companion panel is NOT rendered side-by-side
       expect(screen.queryByTestId("work-companion-panel")).not.toBeInTheDocument();
-      // But floating jump pill IS rendered
-      expect(screen.getByTestId("mobile-floating-avatar-pill")).toBeInTheDocument();
+      // No floating pill — the header switcher is the only entry point, so the
+      // message list and the "Latest" button stay unobstructed.
+      expect(screen.queryByTestId("mobile-floating-avatar-pill")).not.toBeInTheDocument();
 
       // Click "🌸 3D Avatar" tab in header
       const avatarTabBtn = screen.getByTestId("mobile-tab-avatar");

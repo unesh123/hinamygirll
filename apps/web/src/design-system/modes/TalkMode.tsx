@@ -184,18 +184,18 @@ export function TalkMode({
     >
       {/* ── Status Header ──────────────────────────── */}
       <header
+        className="talk-status-header"
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0 var(--space-4)",
+          gap: "var(--space-2)",
           borderBottom: "1px solid var(--border-subtle)",
           background: "var(--bg-surface)",
           flexShrink: 0,
-          height: 40,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexShrink: 0 }}>
           <StatusPill state={companionState} />
           <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
             {companionName}
@@ -204,7 +204,7 @@ export function TalkMode({
 
         {/* VRM Model Switcher */}
         {availableModels && onSelectModel && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--bg-secondary)", padding: 2, borderRadius: "var(--radius-pill)", border: "1px solid var(--border-subtle)" }}>
+          <div className="talk-status-header__models" style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--bg-secondary)", padding: 2, borderRadius: "var(--radius-pill)", border: "1px solid var(--border-subtle)" }}>
             {availableModels.map((m) => (
               <button
                 key={m.url}
@@ -218,6 +218,7 @@ export function TalkMode({
                   fontSize: 11,
                   fontWeight: avatarModel === m.url ? 600 : 500,
                   cursor: "pointer",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {m.label}
@@ -229,6 +230,7 @@ export function TalkMode({
 
       {/* ── Sakura Sleek Secondary Toolbar ── */}
       <div
+        className="talk-toolbar"
         style={{
           display: "flex",
           flexWrap: "wrap",
@@ -439,6 +441,19 @@ export function TalkMode({
                 expressionText={expressionText}
                 presentation={avatarPresentation}
                 companionName={companionName}
+                liveStatus={{
+                  active: isVoiceActive,
+                  paused: isPaused,
+                  detail: voiceDetail ?? "",
+                  microphoneLevel: diagnostics?.rmsLevel ?? 0,
+                }}
+                messages={messages}
+                partialTranscript={partialTranscript}
+                streamingText={streamingText}
+                onStartLive={onStartVoice}
+                onStopLive={onStopVoice}
+                onPauseLive={onPauseVoice}
+                onResumeLive={onResumeVoice}
               />
             </Suspense>
           ) : (

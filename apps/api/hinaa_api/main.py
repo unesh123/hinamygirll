@@ -1774,6 +1774,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def realtime_session(websocket: WebSocket) -> None:
         await realtime.handle(websocket, user_id=_resolve_user_id(websocket))
 
+    @app.get("/v1/realtime/url")
+    async def realtime_url(request: Request) -> dict[str, object]:
+        """Where a browser must open the realtime WebSocket.
+
+        The deployed frontend cannot use its own origin: Vercel rewrites proxy
+        HTTP but not WebSocket upgrades, so wss://<vercel-host>/…/realtime can
+        never reach this process. The tunnel hostname also changes every time a
+        quick tunnel restarts, so the answer is derived per request rather than
+        baked into the bundle.
+        """
+        configured = (active_settings.realtime_public_origin or "").strip()
+        host = (request.headers.get("host") or "").strip()
+        forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
+
+        origin = (configured or host).lower()
+        for prefix in ("https://", "http://", "wss://", "ws://"):
+            if origin.startswith(prefix):
+                origin = origin[len(prefix) :]
+                break
+        origin = origin.rstrip("/")
+
+        is_local = origin.split(":")[0] in {"localhost", "127.0.0.1", "[::1]"}
+        forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+        tls = forwarded_proto == "https" if forwarded_proto else not is_local
+        return {
+            "url": f"{'wss' if tls else 'ws'}://{origin}/v1/realtime" if origin else None,
+            "source": "configured" if configured else ("host" if host else "unavailable"),
+            "observed": {"host": host or None, "xForwardedHost": forwarded_host or None},
+        }
+
     @app.post("/v1/speech/transcriptions", response_model=TranscriptResponse)
     @app.post("/api/v1/speech/transcriptions", response_model=TranscriptResponse)
     async def transcribe(

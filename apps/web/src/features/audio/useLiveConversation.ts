@@ -128,13 +128,48 @@ interface LiveOptions {
   onPipelineStuck?: (stage: string) => void;
 }
 
-function websocketUrl(): string {
-  // Always connect same-origin through /api. In dev the Vite proxy forwards
-  // the WebSocket upgrade to the backend (verified end-to-end). Connecting
-  // directly to :8000 broke two real cases: phones on the LAN (uvicorn only
-  // listens on 127.0.0.1) and HTTPS dev (wss:// to a plain-HTTP backend).
+function sameOriginWebsocketUrl(): string {
+  // Dev only: the Vite proxy forwards the upgrade to the backend, so
+  // same-origin works there and connecting straight to :8000 does not (phones
+  // on the LAN cannot reach 127.0.0.1, and wss:// cannot wrap a plain-HTTP origin).
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/api/v1/realtime`;
+}
+
+let advertisedWebsocketUrl: string | null = null;
+
+/**
+ * Where the realtime socket can actually be opened.
+ *
+ * The deployed site is served by Vercel, whose rewrites proxy HTTP but not
+ * WebSocket upgrades — so same-origin `wss://<vercel-host>/api/v1/realtime`
+ * answers 404 and voice can never start. The backend is reached through those
+ * rewrites over HTTP, so it can name a browser-reachable origin instead. That
+ * origin is a tunnel hostname that changes on every restart, which is why it is
+ * asked for at runtime rather than baked into the bundle.
+ */
+async function resolveWebsocketUrl(): Promise<string> {
+  if (window.location.protocol !== "https:") return sameOriginWebsocketUrl();
+  if (advertisedWebsocketUrl) return advertisedWebsocketUrl;
+  const apiBase = import.meta.env.VITE_HINAA_API_BASE_URL
+    ? String(import.meta.env.VITE_HINAA_API_BASE_URL).replace(/\/+$/, "")
+    : "";
+  try {
+    const response = await fetch(`${apiBase}/api/v1/realtime/url`, {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) return sameOriginWebsocketUrl();
+    const payload = (await response.json()) as { url?: unknown };
+    const advertised = typeof payload.url === "string" ? payload.url : null;
+    // An answer pointing back at this origin is the route that cannot upgrade.
+    if (advertised?.startsWith("wss://") && !advertised.includes(`//${window.location.host}/`)) {
+      advertisedWebsocketUrl = advertised;
+      return advertised;
+    }
+  } catch {
+    // Backend unreachable over HTTP too; same-origin is the only attempt left.
+  }
+  return sameOriginWebsocketUrl();
 }
 
 const liveLocaleForPolicy = recognitionLocale;
@@ -231,6 +266,7 @@ export function useLiveConversation({
   const chunksSentRef = useRef(0);
   const chunksPerSecRef = useRef(0);
   const socket = useRef<WebSocket | undefined>(undefined);
+  const attemptedUrl = useRef<string | undefined>(undefined);
   const stream = useRef<MediaStream | undefined>(undefined);
   const audioContext = useRef<AudioContext | undefined>(undefined);
   const source = useRef<MediaStreamAudioSourceNode | undefined>(undefined);
@@ -1035,8 +1071,12 @@ export function useLiveConversation({
     }
   }, [teardownSession, updateQueueDiagnostics]);
 
-  const connect = useCallback(() => {
-    const next = new WebSocket(websocketUrl());
+  const connect = useCallback(async () => {
+    const url = await resolveWebsocketUrl();
+    // The user can stop while the URL request is still in flight.
+    if (!active.current) return;
+    const next = new WebSocket(url);
+    attemptedUrl.current = url;
     socket.current = next;
     next.binaryType = "arraybuffer";
     setDiagnostics((prev) => ({ ...prev, sttSocketState: "connecting", currentStage: "stt-connecting" }));
@@ -1092,14 +1132,19 @@ export function useLiveConversation({
         setDetail("An invalid server event was ignored safely");
       }
     };
-    next.onerror = () => setDetail("Realtime connection error");
+    next.onerror = () => {
+      const host = url.split("/")[2] ?? url;
+      setDetail(`Realtime voice server unreachable at ${host} · the microphone itself is fine`);
+      setDiagnostics((prev) => ({ ...prev, currentStage: "stt-unreachable", lastError: `unreachable ${host}` }));
+    };
     next.onclose = () => {
       ready.current = false;
       if (heartbeat.current) window.clearInterval(heartbeat.current);
       if (!active.current || manualStop.current) return;
       if (reconnectAttempt.current >= 10) {
+        const host = url.split("/")[2] ?? url;
         callbacks.current.controller.applyLiveError(
-          "Realtime reconnection stopped after multiple bounded attempts.",
+          `Realtime voice stopped retrying ${host} after 10 attempts.`,
         );
         teardownSession();
         setStatus("error");
@@ -1141,6 +1186,18 @@ export function useLiveConversation({
     });
     turnTaking.current.setSessionState("initializing");
     try {
+      // Built before the permission await on purpose: mobile browsers spend the
+      // tap's user activation while the prompt is open, and an AudioContext
+      // constructed afterwards stays suspended with no audio ever flowing.
+      const context = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+      if (!navigator.mediaDevices?.getUserMedia) {
+        void context.close();
+        throw new Error(
+          window.isSecureContext
+            ? "this browser exposes no microphone input"
+            : "the page is not a secure origin",
+        );
+      }
       const media = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -1150,7 +1207,6 @@ export function useLiveConversation({
         },
         video: false,
       });
-      const context = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
       // Chrome suspends AudioContext by default — must resume to start mic processing
       if (context.state === "suspended") {
         await context.resume();
@@ -1220,16 +1276,25 @@ export function useLiveConversation({
                       : "Connecting realtime providers…",
 
       );
-      connect();
+      void connect();
     } catch (error) {
       teardownSession();
       setStatus("error");
-      turnTaking.current.setSessionState("microphone_denied");
-      setDiagnostics((prev) => ({ ...prev, micPermission: "denied", currentStage: "mic-denied" }));
+      const refused =
+        error instanceof DOMException &&
+        (error.name === "NotAllowedError" || error.name === "PermissionDeniedError");
+      const reason = error instanceof Error ? error.message : String(error);
+      turnTaking.current.setSessionState(refused ? "microphone_denied" : "error");
+      setDiagnostics((prev) => ({
+        ...prev,
+        micPermission: refused ? "denied" : prev.micPermission,
+        currentStage: refused ? "mic-denied" : "mic-setup-failed",
+        lastError: reason.slice(0, 120),
+      }));
       setDetail(
-        error instanceof DOMException && error.name === "NotAllowedError"
+        refused
           ? "Microphone permission denied · text mode still works"
-          : "Live microphone setup failed safely · use text fallback",
+          : `Microphone could not start: ${reason.slice(0, 120)} · text mode still works`,
       );
       // Mirror the failure into the companion state so the header pill and the
       // avatar show the error too, not just the stage status bar.

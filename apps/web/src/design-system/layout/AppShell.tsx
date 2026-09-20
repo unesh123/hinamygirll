@@ -113,6 +113,8 @@ export function AppShell({
           overflow: "hidden",
           minWidth: 0,
           minHeight: 0,
+          boxSizing: "border-box",
+          paddingBottom: "var(--hinaa-mobile-nav-clearance, 0px)",
         }}
       >
         {children}

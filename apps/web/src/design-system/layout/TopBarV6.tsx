@@ -57,12 +57,10 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
       className="topbar-v6"
       data-testid="executive-topbar"
       style={{
-        height: 54,
         width: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0 20px",
         background: "#ffffff",
         borderBottom: "1px solid #e2e8f0",
         zIndex: 25,
@@ -71,7 +69,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
       }}
     >
       {/* ── Left: Breadcrumb ────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div className="topbar-v6__breadcrumb">
         <button
           type="button"
           style={{
@@ -98,6 +96,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
 
       {/* ── Center: Executive Modes Pills ──────────────── */}
       <div
+        className="topbar-v6__modes"
         style={{
           display: "flex",
           alignItems: "center",
@@ -112,14 +111,13 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           type="button"
           data-testid="mode-chat"
           onClick={() => handleModeClick("chat")}
+          className="topbar-v6__mode-btn"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            padding: "5px 12px",
             borderRadius: 7,
             border: "none",
-            fontSize: 12,
             fontWeight: executiveMode === "chat" ? 600 : 500,
             background: executiveMode === "chat" ? "#1a232b" : "transparent",
             color: executiveMode === "chat" ? "#ffffff" : "#64748b",
@@ -136,14 +134,13 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           type="button"
           data-testid="mode-deep-reasoning"
           onClick={() => handleModeClick("deep-reasoning")}
+          className="topbar-v6__mode-btn"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            padding: "5px 12px",
             borderRadius: 7,
             border: "none",
-            fontSize: 12,
             fontWeight: executiveMode === "deep-reasoning" ? 600 : 500,
             background: executiveMode === "deep-reasoning" ? "#1a232b" : "transparent",
             color: executiveMode === "deep-reasoning" ? "#ffffff" : "#64748b",
@@ -159,14 +156,13 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           type="button"
           data-testid="mode-report"
           onClick={() => handleModeClick("report")}
+          className="topbar-v6__mode-btn"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            padding: "5px 12px",
             borderRadius: 7,
             border: "none",
-            fontSize: 12,
             fontWeight: executiveMode === "report" ? 600 : 500,
             background: executiveMode === "report" ? "#1a232b" : "transparent",
             color: executiveMode === "report" ? "#ffffff" : "#64748b",
@@ -182,14 +178,13 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           type="button"
           data-testid="mode-research"
           onClick={() => handleModeClick("research")}
+          className="topbar-v6__mode-btn"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            padding: "5px 12px",
             borderRadius: 7,
             border: "none",
-            fontSize: 12,
             fontWeight: executiveMode === "research" ? 600 : 500,
             background: executiveMode === "research" ? "#1a232b" : "transparent",
             color: executiveMode === "research" ? "#ffffff" : "#64748b",
@@ -203,7 +198,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
       </div>
 
       {/* ── Right: Real Model Selector & Actions ─── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="topbar-v6__actions">
         {/* Real Model Selector V7 */}
         <ModelSelectorV7
           models={models}

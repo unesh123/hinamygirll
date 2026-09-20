@@ -972,7 +972,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
 
         {/* Right cluster of controls: Shortcuts + 🎙 Voice & ↑ Send */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#94a3b8" }}>
+          <div className="composer-v6__shortcuts" style={{ fontSize: 11, color: "#94a3b8" }}>
             <span>send ↵</span>
             <span>newline ⇧↵</span>
           </div>

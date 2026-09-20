@@ -1127,39 +1127,6 @@ export function WorkMode({
           </button>
         )}
 
-        {/* Mobile floating 3D avatar jump button */}
-        {isMobile && avatarModel && (
-          <motion.button
-            type="button"
-            data-testid="mobile-floating-avatar-pill"
-            whileTap={{ scale: 0.94 }}
-            onClick={() => setMobileTab("avatar")}
-            aria-label="Switch to 3D Avatar Screen"
-            style={{
-              position: "fixed",
-              bottom: 84,
-              right: 16,
-              zIndex: 40,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "8px 14px",
-              borderRadius: "24px",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-default)",
-              boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
-              color: "var(--text-primary)",
-              fontSize: "0.78rem",
-              fontWeight: 650,
-              cursor: "pointer",
-            }}
-          >
-            <Sparkles size={14} color="var(--accent)" />
-            <span>3D Hinaa</span>
-            <StatusDot state={companionState} />
-          </motion.button>
-        )}
-
         {/* Desktop Companion Panel */}
         {!isMobile && avatarModel && dockMode !== "hidden" && renderCompanionPanel()}
       </div>

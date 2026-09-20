@@ -337,6 +337,9 @@ class Settings(BaseSettings):
     realtime_max_buffer_bytes: int = 320_000
     realtime_idle_timeout_seconds: float = 35.0
     realtime_commit_timeout_seconds: float = 8.0
+    # Browser-reachable origin for the realtime WebSocket (e.g. a tunnel host).
+    # Unset → derived per request from the Host header; see GET /v1/realtime/url.
+    realtime_public_origin: str | None = Field(None, alias="HINAA_REALTIME_PUBLIC_ORIGIN")
     database_url: str = Field(DEFAULT_LOCAL_DATABASE_URL, alias="HINAA_DATABASE_URL")
     auth_mode: Literal["dev", "oidc", "clerk"] = Field("dev", alias="HINAA_AUTH_MODE")
     dev_auth_subject: str = Field("local-dev-user", alias="HINAA_DEV_AUTH_SUBJECT")

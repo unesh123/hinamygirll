@@ -128,9 +128,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
         ) : (
           <Brain size={11} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
         )}
-        <span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {activeLabel}
-        </span>
+        <span className="model-selector-v7__label">{activeLabel}</span>
         <ChevronDown size={10} style={{ opacity: 0.6 }} />
       </button>
 
