@@ -87,6 +87,8 @@ def infer_response_depth(
     user_text: str,
     mode: InteractionMode,
     response_mode: str | None = None,
+    *,
+    mode_inferred: bool = False,
 ) -> ResponseDepth:
     """Pick the delivery shape for a turn.
 
@@ -95,6 +97,11 @@ def infer_response_depth(
     layer in the assembled prompt, so it has to agree with it — otherwise a short
     message collapses to `clarification` and the promised long-form deliverable
     never happens.
+
+    `mode_inferred` says which of those two it was. Choosing a mode in the UI is
+    consent to the length that mode promises; a classifier guessing
+    `professional` from the wording is not, so a guess never earns the 4,900-word
+    report contract unless the message itself asked for a deliverable.
     """
     text = user_text.strip()
     if _SAFETY.search(text):
@@ -105,7 +112,8 @@ def infer_response_depth(
     # even while a deep mode is selected.
     if not _CLARIFY.match(text) and response_mode and response_mode != "conversation":
         mapped = _MODE_DEPTH.get(response_mode)
-        if mapped is not None:
+        report_unasked = mapped == "report" and mode_inferred and not _REPORT.search(text)
+        if mapped is not None and not report_unasked:
             return mapped
     if len(text) <= 12 or _CLARIFY.match(text):
         return "clarification" if len(text) <= 8 else "minimal"
@@ -148,7 +156,9 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             f"### headings is the normal size for a real question, "
             "because he asked to be explained to, not summarised. Cover every part of the question, give the "
             "concrete details that make it actionable, and finish with what he can do next. Do not pad, but do "
-            "not stop early and do not hand back an outline with one line under each heading."
+            "not stop early and do not hand back an outline with one line under each heading. "
+            "MANDATORY LAST LINE: finish the answer by asking him, in one short sentence, whether you "
+            "should write this up as a full documented report. He should never have to ask twice."
         ),
         "procedural": "Give clear ordered steps with complete code or commands. Be thorough and actionable.",
         "report": (

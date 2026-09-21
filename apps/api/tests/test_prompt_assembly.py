@@ -367,6 +367,13 @@ def test_selected_response_mode_shapes_depth(
         # Asking how something is going is an info question, not a document.
         ("what is the current status of your memory system?", "explanatory"),
         ("what is the current state of hina?", "explanatory"),
+        # Measured: this wording classifies as `professional`, which mapped
+        # straight to the report contract and turned one question into 9,057
+        # words over 212s. A guessed mode is not consent to a document.
+        (
+            "Explain in depth how your own response pipeline works end to end",
+            "explanatory",
+        ),
         # An explicit deliverable ask still earns the report contract.
         ("give me a documented structure report of everything", "report"),
         ("prepare a full report on the codebase", "report"),
@@ -376,11 +383,31 @@ def test_selected_response_mode_shapes_depth(
 )
 def test_depth_follows_the_wording_of_a_plain_typed_turn(text: str, expected: str) -> None:
     """The chip-less path: the backend infers the mode, then the depth contract."""
-    depth = infer_response_depth(text, "rest", infer_response_mode(text))
+    depth = infer_response_depth(
+        text, "rest", infer_response_mode(text), mode_inferred=True
+    )
     assert depth == expected
     assert depth_word_floor(depth) == (
         4_900 if expected == "report" else 1_000 if expected == "explanatory" else 0
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "response_mode", "expected"),
+    [
+        # He picked the mode, so the length it promises is what he asked for even
+        # though the message never says "report".
+        ("what is the current state of hina?", "professional", "report"),
+        ("what is the current state of hina?", "research", "report"),
+        # Selecting a deep mode still cannot override what the turn is: a bare
+        # acknowledgment has nothing to write up.
+        ("ok", "professional", "clarification"),
+    ],
+)
+def test_selected_mode_still_earns_the_report_contract(
+    text: str, response_mode: str, expected: str
+) -> None:
+    assert infer_response_depth(text, "rest", response_mode) == expected
 
 
 def test_depth_layer_does_not_contradict_mode_layer() -> None:
@@ -397,6 +424,19 @@ def test_depth_layer_does_not_contradict_mode_layer() -> None:
     assert package.response_depth == "report"
     assert "exhaustive, highly structured" in layers["response_depth"]
     assert "brief acknowledgment" not in layers["response_depth"]
+
+
+def test_an_info_question_offers_the_report_instead_of_becoming_one() -> None:
+    """Measured: this question used to arrive as a 4,900-word report and take
+    212s; and with the offer phrased as a suggestion she simply skipped it."""
+    package = assemble_prompt(
+        _input(user_text="what is the current state of hina?")
+    )
+    layer = next(l.text for l in package.layers if l.name == "response_depth")
+    assert package.response_depth == "explanatory"
+    assert "4,900" not in layer
+    assert "MANDATORY LAST LINE" in layer
+    assert "full documented report" in layer
 
 
 def test_history_is_untrusted_and_budgeted() -> None:

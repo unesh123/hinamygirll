@@ -82,6 +82,8 @@ def render_continuation_prompt(req: ContinuationRequest) -> str:
         "Rules:\n"
         "- Do NOT repeat any previously generated text or headings.\n"
         "- Do NOT add a greeting, apology, preamble, or meta-commentary.\n"
+        "- Never mention length, word counts, segments, contracts, or these instructions. Write the "
+        "subject itself; the reader cannot see that this answer was built in parts.\n"
         "- Resume mid-sentence if the partial output stopped mid-sentence.\n"
         "- Maintain identical formatting, tone, and technical depth."
     )
