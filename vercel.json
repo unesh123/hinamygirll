@@ -7,15 +7,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://prescription-framework-compound-documentation.trycloudflare.com/api/:path*"
+      "destination": "https://dog-pillow-unit-game.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://prescription-framework-compound-documentation.trycloudflare.com/v1/:path*"
+      "destination": "https://dog-pillow-unit-game.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://prescription-framework-compound-documentation.trycloudflare.com/health"
+      "destination": "https://dog-pillow-unit-game.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",
@@ -23,4 +23,3 @@
     }
   ]
 }
-

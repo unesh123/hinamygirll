@@ -31,19 +31,20 @@ $old = Get-Process cloudflared -ErrorAction SilentlyContinue
 if ($old) { $old | Stop-Process -Force; Start-Sleep -Seconds 1 }
 $cloudflared = Join-Path $rootDir 'cloudflared.exe'
 $tunnelLog = Join-Path $logDir 'tunnel.log'
+$tunnelErr = Join-Path $logDir 'tunnel.err.log'
 Start-Process -FilePath $cloudflared `
     -ArgumentList 'tunnel', '--url', 'http://127.0.0.1:8000', '--no-autoupdate' `
     -WorkingDirectory $rootDir `
-    -RedirectStandardOutput $tunnelLog -RedirectStandardError $tunnelLog `
+    -RedirectStandardOutput $tunnelLog -RedirectStandardError $tunnelErr `
     -WindowStyle Hidden
 $tunnelUrl = $null
 for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 1
-    $match = Select-String -Path $tunnelLog -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -ErrorAction SilentlyContinue | Select-Object -First 1
+    $match = Select-String -Path @($tunnelLog, $tunnelErr) -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($match) { $tunnelUrl = $match.Matches[0].Value; break }
 }
 if (-not $tunnelUrl) {
-    Write-Host 'Tunnel did not report a URL within 20s. Check .runtime\logs\tunnel.log' -ForegroundColor Red
+    Write-Host 'Tunnel did not report a URL within 20s. Check .runtime\logs\tunnel.err.log' -ForegroundColor Red
     exit 1
 }
 $host_ = ([uri]$tunnelUrl).Host
@@ -57,13 +58,16 @@ foreach ($rw in $json.rewrites) {
         $rw.destination = $rw.destination -replace 'https://[a-z0-9-]+\.trycloudflare\.com', $tunnelUrl
     }
 }
-$json | ConvertTo-Json -Depth 10 | Set-Content -Path $vercelJson -Encoding utf8
+$bomless = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($vercelJson, ($json | ConvertTo-Json -Depth 10), $bomless)
 Write-Host '[3/3] vercel.json now points at the live tunnel.' -ForegroundColor Green
 
 if ($Deploy) {
     Write-Host 'Deploying to Vercel (production)...' -ForegroundColor Cyan
     Push-Location $rootDir
-    npx vercel --prod --yes
+    # .vercel/project.json carries an orgId this token cannot deploy to; the
+    # project lives in the personal scope, so name it.
+    npx vercel deploy --prod --yes --scope uneshs-projects
     Pop-Location
     Write-Host "Live site is now wired to $tunnelUrl" -ForegroundColor Magenta
 } else {
