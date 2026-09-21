@@ -50,7 +50,12 @@ def _map_httpx_error(e: Exception) -> HinaaError:
     elif isinstance(e, httpx.TimeoutException):
         return HinaaError(code="PROVIDER_TIMEOUT", status_code=500, message="Timeout")
     else:
-        return HinaaError(code="PROVIDER_UNREACHABLE", status_code=500, message="Connection Error")
+        return HinaaError(
+            code="PROVIDER_UNREACHABLE",
+            status_code=500,
+            message="Connection Error",
+            developer_message=f"{type(e).__name__}: {e}",
+        )
 
 
 class AgentRouterOpenAIProvider(OpenAILLMProvider):
@@ -202,7 +207,12 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         elif isinstance(e, APITimeoutError):
             return HinaaError(code="PROVIDER_TIMEOUT", status_code=500, message="Timeout")
         elif isinstance(e, APIConnectionError):
-            return HinaaError(code="PROVIDER_UNREACHABLE", status_code=500, message="Connection Error")
+            return HinaaError(
+                code="PROVIDER_UNREACHABLE",
+                status_code=500,
+                message="Connection Error",
+                developer_message=str(e)[:400],
+            )
         elif isinstance(e, APIError):
             status = getattr(e.response, "status_code", 500) if hasattr(e, "response") else 500
             if status == 404:

@@ -25,6 +25,9 @@ class HinaaError(Exception):
     status_code: int = 500
     retryable: bool = False
     user_action_required: bool = False
+    # Operator-only diagnosis (raw provider text/exception). Deliberately absent
+    # from ErrorBody so it never reaches a client response.
+    developer_message: str | None = None
 
 
 async def hinaa_error_handler(request: Request, error: HinaaError) -> JSONResponse:

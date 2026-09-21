@@ -771,8 +771,35 @@ class TestVoiceResponsePlanner:
 
         vtype, text = plan_voice_response(self._long_doc(), "", is_progress=False)
         assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
-        assert len(text) <= 350
+        assert len(text) <= 950
         assert text.rstrip().endswith(("✨", "!", ".", "?"))
+
+    def test_prompt_compliant_summary_survives_the_chat_path(self) -> None:
+        """Measured before the fix: the report-depth prompt asks for 600-1,400
+        characters of spoken summary, and chat's 700-character ceiling rejected
+        a compliant 930-character one, replacing it with a 104-character teaser.
+        Her voice went from a minute of substance to one sentence."""
+        from hinaa_api.services import VoiceResponseType, plan_voice_response
+
+        summary = (
+            "Here is the honest picture of where you stand after everything we fixed today. "
+            "The runtime now gates every machine-touching tool by the real request origin "
+            "instead of trusting the caller, and ten unit tests plus three live HTTP probes "
+            "confirm the exploit is closed on the public tunnel. The report depth contract is "
+            "enforced with a real continuation pass rather than a truncated first draft, and "
+            "voice on mobile uses the production stream, so the mic and the speaker both work "
+            "without the dev proxy. The avatar's lip sync needed the VRM expression names "
+            "remapped before the morph targets animated at all, and private data routes still "
+            "need Clerk instance keys before I can call the session genuinely authenticated. "
+            "Three areas remain theater: the parallel agent cluster, the durable worker "
+            "fabric, and the named tunnel. If you want, I can take those leftovers in order "
+            "and finish them one at a time. 💜"
+        )
+        assert 850 <= len(summary) <= 1_050, len(summary)
+
+        vtype, text = plan_voice_response(self._long_doc(), summary, is_progress=False)
+        assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
+        assert text == summary
 
     def test_long_document_never_repeats_spoken_recitation(self) -> None:
         from hinaa_api.services import VoiceResponseType, plan_voice_response

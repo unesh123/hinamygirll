@@ -26,6 +26,7 @@ from hinaa_api.agent.contracts import (
 from hinaa_api.agent.cancellation import request_cancellation
 from hinaa_api.agent.recovery import recover_run
 from hinaa_api.agent.retry import FailureCategory, is_retryable
+from hinaa_api.errors import HinaaError
 
 
 # ==============================================================================
@@ -792,3 +793,64 @@ def test_api_agent_runs_crud_and_isolation(client):
     res_recover = client.post(f"/v1/agent/runs/{recovery_run.run_id}/recover")
     assert res_recover.status_code == 200
     assert res_recover.json()["status"] == "interrupted"
+
+
+# ==============================================================================
+# 15. FAILURE CLASSIFICATION
+# ==============================================================================
+
+def test_mapped_provider_connection_error_is_classified_retryable():
+    """Measured before the fix: HinaaError is a dataclass Exception, so its args
+    stay empty and str(err) == "". The runtime's transient branch scraped str()
+    for keywords, which matched nothing — so a gateway connection reset failed
+    the step on the first attempt and the turn ended with no text at all.
+    """
+    reset = HinaaError(
+        code="PROVIDER_UNREACHABLE",
+        status_code=500,
+        message="Connection Error",
+        developer_message="APIConnectionError: [Errno 64] Connection reset by peer",
+    )
+    assert str(reset) == ""
+    assert is_retryable(reset) is True
+
+
+@pytest.mark.parametrize(
+    "code,message",
+    [
+        ("SAFETY_REFUSAL", "Refusal due to safety policy"),
+        ("AUTH_REQUIRED", "Authentication required for task management"),
+        ("PROVIDER_AUTH_FAILED", "Authentication Failed"),
+        ("VALIDATION_ERROR", "Invalid sessionId"),
+    ],
+)
+def test_permanent_failures_are_not_retried(code: str, message: str) -> None:
+    assert is_retryable(HinaaError(code=code, status_code=400, message=message)) is False
+
+
+@pytest.mark.asyncio
+async def test_runtime_retries_a_step_that_hits_a_transient_provider_error():
+    """The classifier is only half the guarantee: the runtime has to actually
+    re-run the step, otherwise one gateway reset still ends the turn silent.
+    """
+    calls = 0
+
+    async def flaky_executor(step):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise HinaaError(
+                code="PROVIDER_UNREACHABLE",
+                status_code=500,
+                message="Connection Error",
+            )
+        return {"data": "answered on the second attempt"}
+
+    runtime = AgentRuntime(executor=flaky_executor)
+    run = runtime.create_run("transient provider reset", "u1")
+    result = await runtime.execute(run)
+
+    assert result.status == RunStatus.COMPLETED
+    assert calls == 2
+    event_types = [e.event_type for e in runtime.get_events(run.run_id, "u1")]
+    assert "agent.step.retrying" in event_types

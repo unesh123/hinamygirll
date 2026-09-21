@@ -293,8 +293,11 @@ export function deriveSpokenText(displayText: string): string {
     // Collapse whitespace
     .replace(/\s+/g, " ")
     .trim();
-  // Truncate to a natural speaking length with sentence-aware cutting
-  const MAX_SPOKEN_LENGTH = 280;
+  // Truncate to a natural speaking length with sentence-aware cutting.
+  // Must match the backend chat budget in services.plan_voice_response —
+  // a shorter clamp here silently re-truncated every turn that had to derive
+  // its own speech, which is how her voice kept collapsing to one sentence.
+  const MAX_SPOKEN_LENGTH = 900;
   const LOOKAHEAD_LIMIT = 40; // allow looking a few words past the target
   if (spoken.length > MAX_SPOKEN_LENGTH) {
     // Search for the last sentence boundary in a window around the target length

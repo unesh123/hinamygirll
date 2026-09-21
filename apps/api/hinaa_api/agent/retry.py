@@ -8,17 +8,41 @@ class FailureCategory(str, Enum):
 
 RETRYABLE = {FailureCategory.TIMEOUT, FailureCategory.PROVIDER_UNAVAILABLE, FailureCategory.RATE_LIMITED, FailureCategory.TRANSIENT_NETWORK_ERROR}
 
+# HinaaError is a dataclass Exception, so its args stay empty and str(err) is
+# "". Matching on str() meant a mapped provider failure — including the
+# connection resets the agent-router gateway throws — was never retried.
+_RETRYABLE_HINTS = (
+    "timeout",
+    "rate_limit",
+    "rate limited",
+    "transient",
+    "network",
+    "unavailable",
+    "unreachable",
+    "connection",
+    "reset by peer",
+    "temporarily unavail",
+)
+
+
+def _retryable_haystack(item: Exception) -> str:
+    parts = [
+        str(getattr(item, name, "") or "")
+        for name in ("code", "message", "developer_message")
+    ]
+    return " ".join(parts).strip() or str(item)
+
 
 def is_retryable(item: FailureCategory | Exception | str) -> bool:
     if isinstance(item, FailureCategory):
         return item in RETRYABLE
     if isinstance(item, Exception):
-        msg = str(item).lower()
-        return any(w in msg for w in ("timeout", "rate_limit", "transient", "network", "unavailable"))
+        msg = _retryable_haystack(item).lower()
+        return any(w in msg for w in _RETRYABLE_HINTS)
     if isinstance(item, str):
         try:
             return FailureCategory(item) in RETRYABLE
         except ValueError:
-            return any(w in item.lower() for w in ("timeout", "rate_limit", "transient", "network", "unavailable"))
+            return any(w in item.lower() for w in _RETRYABLE_HINTS)
     return False
 

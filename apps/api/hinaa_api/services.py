@@ -48,6 +48,30 @@ logger = logging.getLogger("hinaa.conversation")
 # user's screen and replacing it would attribute words to her she never wrote.
 _MIN_STREAMED_CHARS_TO_KEEP = 400
 
+# A dead primary brain should hand the turn to a working one, not surface an
+# error. This list must track the codes providers actually raise: the per-path
+# copies of it used to name PROVIDER_RATE_LIMIT / PROVIDER_KEY_INVALID (which
+# nothing emits) while missing PROVIDER_UNREACHABLE and PROVIDER_RATE_LIMITED
+# (which the agent-router gateway emits on every connection reset and 429), so
+# the documented recovery never ran.
+# SAFETY_REFUSAL and *_RESPONSE_INVALID stay out on purpose: refusal is final,
+# and a malformed answer has its own neutral-plan path.
+FALLBACK_ELIGIBLE_ERROR_CODES = frozenset(
+    {
+        "PROVIDER_UNREACHABLE",
+        "PROVIDER_UNAVAILABLE",
+        "PROVIDER_TIMEOUT",
+        "PROVIDER_RATE_LIMIT",
+        "PROVIDER_RATE_LIMITED",
+        "PROVIDER_KEY_INVALID",
+        "PROVIDER_AUTH_FAILED",
+        "PROVIDER_ACCESS_DENIED",
+        "PROVIDER_ENDPOINT_INVALID",
+        "PROVIDER_MODEL_NOT_FOUND",
+        "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
+    }
+)
+
 
 @asynccontextmanager
 async def live_generation_window(
@@ -287,6 +311,26 @@ def _plain_first_sentences(text: str, limit: int = 280) -> str:
     return extract_executive_voice_summary(text, limit=limit)
 
 
+def _speech_safe(text: str) -> str:
+    """Strip inline markdown from the spoken channel. The document keeps its
+    formatting; a voice engine reads a backtick as a hiccup and says 'asterisk'
+    out loud. Measured live: she spoke `tier-a-conversation-brain-1.0.0` with
+    the backticks in it because the guard only looks for triple backticks.
+
+    Deliberately narrow: emphasis markers only count when they hug a word on
+    both sides, so "2 * 3 * 4" and snake_case identifiers survive untouched.
+    """
+    if not text:
+        return text
+    safe = re.sub(r"\[([^\]\n]+)\]\([^)\n]*\)", r"\1", text)
+    safe = re.sub(r"`{1,3}([^`\n]*)`{1,3}", r"\1", safe)
+    safe = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", safe)
+    safe = re.sub(r"(?<!\*)\*(?=[^\s*])([^*\n]*?[^\s*])\*(?!\*)", r"\1", safe)
+    safe = re.sub(r"(?<![\w_])_(?=[^\s_])([^_\n]*?[^\s_])_(?![\w_])", r"\1", safe)
+    safe = re.sub(r"^\s{0,3}#{1,6}\s+", "", safe, flags=re.MULTILINE)
+    return re.sub(r"\s{2,}", " ", safe).strip()
+
+
 def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
     """Clean leaked XML, thinking blocks, and stage directions (*laughs*, *मुस्कुराते हुए*, etc.).
     Returns (cleaned_text, had_laughter_or_smile)."""
@@ -442,13 +486,16 @@ def plan_voice_response(
             return VoiceResponseType.QUESTION, question
         return VoiceResponseType.QUESTION, _truncate_at_clause_boundary(question, 380)
 
-    # Chat surfaces can clamp hard because the display text carries the rest.
-    # Live voice has no second surface, so the same clamps truncated her after
-    # two sentences; ~1.4k characters is about 90s of fluent speech.
-    whole_answer_ceiling = 1_400 if live else 600
-    verbatim_cap = 1_400 if live else 450
-    distill_limit = 1_400 if live else 350
-    summary_limit = 1_200 if live else 280
+    # Two tiers, one reason: a call has no second surface, so her voice has to
+    # carry the whole answer. In chat he can scroll the document — but he asked
+    # out loud to *hear* her, and the chat tier used to be so tight that a
+    # 930-character summary (exactly what the report-depth prompt asks for) got
+    # thrown away for a 104-character teaser. ~900 characters is about a minute
+    # of fluent speech, and ~1.4k is about 90s.
+    whole_answer_ceiling = 1_400 if live else 900
+    verbatim_cap = 1_400 if live else 900
+    distill_limit = 1_400 if live else 900
+    summary_limit = 1_200 if live else 900
 
     if len(display) <= whole_answer_ceiling:
         # Short conversational turn: keep the model's own voice text when it
@@ -463,25 +510,41 @@ def plan_voice_response(
 
     # Long document: executive summary from whole substantive sentences.
     clean_spoken = spoken.strip()
-    # A 40-character floor accepted pure lead-in sentences ("Great question,
-    # babe, let me be honest with you…") as the whole spoken answer, so she
-    # stopped after the warm-up. In chat the display text carries the content;
-    # on a call her voice is the only surface, so demand real substance and
-    # fall through to the distilled document summary when the model didn't give
-    # one.
     sentence_ends = len(re.findall(r"[.!?\u0964\u0965]", clean_spoken))
-    # Half the live summary budget: below that the model handed over a lead-in,
-    # not a summary of the document, and distilling from displayText says more.
+    # Distinct sentences, not terminators: padding one sentence out twenty
+    # times satisfies a terminator count while saying nothing new.
+    distinct_sentences = len(
+        {
+            piece.strip().casefold()
+            for piece in re.split(r"(?<=[.!?।])\s+", clean_spoken)
+            if piece.strip()
+        }
+    )
+    # Below these floors the model handed over a lead-in ("Great question,
+    # babe, let me be honest with you…") rather than a summary, and distilling
+    # from displayText says more. Live needs half its budget because her voice
+    # is the only surface. Chat keeps a near-zero floor: a real three-sentence
+    # summary measured 187 characters, so any character gate high enough to
+    # catch a warm-up also destroys genuine summaries — the sentence rules
+    # below are what separate the two.
     min_substantive_chars = int(summary_limit * 0.5) if live else 40
-    min_substantive_sentences = 3 if live else 1
+    min_substantive_sentences = 3 if live else 2
+    # Announcing that she is about to read the document is not a summary of it.
+    recitation_openers = (
+        "here is your",
+        "i have generated",
+        "i will now read",
+        "i'll now read",
+        "let me read",
+    )
     is_substantive_spoken = (
         len(clean_spoken) >= min_substantive_chars
+        and distinct_sentences >= min_substantive_sentences
         and sentence_ends >= min_substantive_sentences
-        and len(clean_spoken) <= (2_400 if live else 700)
+        and len(clean_spoken) <= (2_400 if live else 1_500)
         and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", clean_spoken))
         and not any(marker in clean_spoken for marker in ("```", "\n", "•", "|", "###", "##"))
-        and not clean_spoken.lower().startswith("here is your")
-        and not clean_spoken.lower().startswith("i have generated")
+        and not clean_spoken.lower().startswith(recitation_openers)
     )
     if is_substantive_spoken:
         return VoiceResponseType.EXECUTIVE_SUMMARY, clean_spoken
@@ -509,6 +572,8 @@ def _apply_response_quality_guard(
     """Normalize a completed plan without changing meaning or tool requests."""
     clean_display, display_laughed = _clean_natural_speech_and_display(plan.displayText)
     clean_spoken, spoken_laughed = _clean_natural_speech_and_display(plan.spokenText)
+    # Speech only — the document keeps its markdown, her voice must not read it.
+    clean_spoken = _speech_safe(clean_spoken)
 
     plan.displayText = _remove_repeated_passages(clean_display)
     plan.spokenText = _remove_repeated_passages(clean_spoken)
@@ -571,12 +636,12 @@ def _apply_response_quality_guard(
             plan.displayText, "", is_progress=False, live=is_live
         )
         plan.spokenText = voice_text
-    elif len(plan.spokenText) > (3_000 if is_live else 750):
+    elif len(plan.spokenText) > (3_000 if is_live else 1_500):
         voice_type, voice_text = plan_voice_response(
             plan.displayText, plan.spokenText, is_progress=False, live=is_live
         )
         plan.spokenText = voice_text
-    elif len(plan.displayText) > (1_400 if is_live else 600):
+    elif len(plan.displayText) > (1_400 if is_live else 900):
         # Document guard (EXECUTIVE_SUMMARY): when displayText is a long
         # document/report, voice provides a smart, substantive executive summary.
         voice_type, voice_text = plan_voice_response(
@@ -2883,13 +2948,7 @@ class ConversationService:
                 if getattr(error, "code", None) == "SAFETY_REFUSAL":
                     logger.warning("Provider returned SAFETY_REFUSAL; raising without fallback.")
                     raise error
-                if self.settings.auto_fallback_enabled and error.code in {
-                    "PROVIDER_RATE_LIMIT",
-                    "PROVIDER_UNAVAILABLE",
-                    "PROVIDER_KEY_INVALID",
-                    "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
-                    "PROVIDER_TIMEOUT",
-                }:
+                if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
                     fallback_result = None
                     for fb_mode, fb_model in self._fallback_candidate_modes(request.providerMode):
                         try:
@@ -3407,13 +3466,7 @@ class ConversationService:
                 if getattr(error, "code", None) == "SAFETY_REFUSAL":
                     logger.warning("Live provider returned SAFETY_REFUSAL; raising without fallback.")
                     raise error
-                if self.settings.auto_fallback_enabled and error.code in {
-                    "PROVIDER_KEY_INVALID",
-                    "PROVIDER_UNAVAILABLE",
-                    "PROVIDER_RATE_LIMIT",
-                    "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
-                    "PROVIDER_TIMEOUT",
-                }:
+                if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
                     fallback_live_result = None
                     for fb_mode, fb_model in self._fallback_candidate_modes(request.providerMode):
                         try:

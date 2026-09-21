@@ -59,9 +59,12 @@ def response_mode_layer(mode: ResponseMode) -> str:
             "Keep it warm, natural and readable. A greeting needs a friendly reply, not a report or "
             "mandatory heading. Use at most one or two light emojis where appropriate. When the "
             "question is informational rather than social, answer it properly first — 1,000 to 2,000 "
-            "words of substance, not a teaser — then close by offering the deeper route in one line: "
-            "ask whether they want a full documented report or a deep dive. Never hold back content "
-            "the user already asked for."
+            "words of substance, not a teaser. Never hold back content the user already asked for. "
+            "Then close that answer with one final line that offers the deeper route and asks him to "
+            "choose: offer the full documented report (the structured, section-by-section deliverable) "
+            "or a focused deep dive on one part. Make that offer literally the last sentence of both "
+            "displayText and spokenText — do not end on a summary, a sign-off, or 'tell me what's next' "
+            "instead of it. He should never have to ask for a documented report twice."
         ),
         "professional": (
             "Write a complete structured brief, not a stub. Open with a 2-3 sentence TL;DR, then "

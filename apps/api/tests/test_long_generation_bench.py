@@ -121,7 +121,7 @@ class TestBoundedMultiSegmentLongGenerationBench:
         # Plan voice response
         vtype, voice_text = plan_voice_response(final_text, "", is_progress=False)
         assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
-        assert len(voice_text) <= 350
+        assert len(voice_text) <= 950
         assert not voice_text.lower().startswith("here is")
         assert not voice_text.lower().startswith("sure")
 
@@ -185,7 +185,7 @@ class TestBoundedMultiSegmentLongGenerationBench:
 
         vtype, voice_text = plan_voice_response(final_text, "", is_progress=False)
         assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
-        assert len(voice_text) <= 350
+        assert len(voice_text) <= 950
 
         plan = _make_plan(final_text, voice_text)
 
@@ -262,7 +262,7 @@ class TestBoundedMultiSegmentLongGenerationBench:
 
         vtype, voice_text = plan_voice_response(final_text, "", is_progress=False)
         assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
-        assert len(voice_text) <= 350
+        assert len(voice_text) <= 950
 
         plan = _make_plan(final_text, voice_text)
 

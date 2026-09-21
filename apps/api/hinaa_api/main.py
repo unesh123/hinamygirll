@@ -3362,6 +3362,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     for runtime_event in completed_events:
                         yield _runtime_event_payload(runtime_event)
             except HinaaError as error:
+                logger.warning(
+                    "Streamed turn failed: code=%s message=%s cause=%s",
+                    error.code,
+                    error.message,
+                    getattr(error, "developer_message", None),
+                )
                 if agent_run:
                     for runtime_event in agent_runtime.fail_stream_turn(
                         agent_run,
