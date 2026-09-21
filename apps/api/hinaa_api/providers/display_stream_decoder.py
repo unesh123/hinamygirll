@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import re
 
+from .tool_call_narration import SimulatedToolCallFilter, TOOLISH_TAG_SOURCE
+
 __all__ = [
     "DisplayTextStreamDecoder",
     "JsonDisplayTextLocator",
@@ -426,12 +428,13 @@ class AdaptiveStreamDecoder:
         self._mode: str | None = None  # None: undetermined, "json", "prose"
         self._prefix_buffer = ""
         self._chain = DisplayTextChain()
+        self._narration = SimulatedToolCallFilter()
 
     def feed(self, chunk: str) -> str:
         if not chunk:
             return ""
         if self._mode == "prose":
-            return chunk
+            return self._narration.feed(chunk)
         if self._mode == "json":
             return self._chain.feed(chunk)
 
@@ -447,7 +450,7 @@ class AdaptiveStreamDecoder:
             self._mode = "prose"
             out = self._prefix_buffer
             self._prefix_buffer = ""
-            return out
+            return self._narration.feed(out)
 
     def finish(self) -> str:
         if self._mode == "json":
@@ -455,7 +458,9 @@ class AdaptiveStreamDecoder:
         if self._mode is None and self._prefix_buffer:
             out = self._prefix_buffer
             self._prefix_buffer = ""
-            return out
+            return self._narration.feed(out) + self._narration.finish()
+        if self._mode == "prose":
+            return self._narration.finish()
         return ""
 
 
@@ -463,12 +468,11 @@ class AdaptiveStreamDecoder:
 # goes through the tool pipeline, so anything of this shape in the answer is
 # noise that duplicates the card the user is already shown.
 _SIMULATED_TOOL_CALL_PATTERN = re.compile(
-    r"<\s*(tool_?calls?|function_calls?|antml:tool_use)\b[^>]*>.*?"
-    r"<\s*/\s*\1\s*>",
+    r"<\s*(?:" + TOOLISH_TAG_SOURCE + r")[^>]*>.*?<\s*/\s*[A-Za-z][\w:.-]*\s*>",
     re.DOTALL | re.IGNORECASE,
 )
 _STRAY_TOOL_TAG_PATTERN = re.compile(
-    r"<\s*/?\s*(?:tool_?calls?|function_calls?|antml:tool_use)\b[^>]*>?",
+    r"<\s*/?\s*(?:" + TOOLISH_TAG_SOURCE + r")[^>]*>?",
     re.IGNORECASE,
 )
 

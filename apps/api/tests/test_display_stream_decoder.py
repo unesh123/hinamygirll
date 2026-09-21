@@ -357,3 +357,95 @@ class TestAdaptiveStreamDecoderEdgeCases:
             emitted.append(rest)
         assert "".join(emitted) == raw
 
+
+# Measured from a live agent-router turn on 2026-09-22: the flash-tier brain
+# wrote its own call into the answer between two spoken sentences. It closes
+# <tool_call> with </toolCall>, so nothing here matches by tag identity.
+_INVENTED_CALL_REPLY = (
+    "\n\nHere are some Tokyo Ghoul pics for you, babe! Let me search them up. \U0001f5a4\n\n"
+    "<tool_call>\ntoolName: image_search\n</toolCall>\n\n"
+    "<toolCall>toolName: image_search\n"
+    '<toolArg name=query>Tokyo Ghoul</toolArg>\n</toolCall>\n\n'
+    "I searched for Tokyo Ghoul images, babe!"
+)
+
+
+def _stream_prose(raw: str, chunk_size: int) -> str:
+    decoder = AdaptiveStreamDecoder()
+    emitted = []
+    for i in range(0, len(raw), chunk_size):
+        emitted.append(decoder.feed(raw[i : i + chunk_size]))
+    emitted.append(decoder.finish())
+    return "".join(emitted)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 2, 3, 5, 7, 11, 13, 4000])
+def test_invented_tool_call_never_reaches_the_reader(chunk_size: int) -> None:
+    """These deltas are what the screen appends and the voice queue speaks, so
+    holding a tag back is the only thing that keeps XML out of her mouth."""
+    out = _stream_prose(_INVENTED_CALL_REPLY, chunk_size)
+    assert "<" not in out
+    for noise in ("toolName", "toolArg", "image_search"):
+        assert noise not in out
+    assert "Here are some Tokyo Ghoul pics for you, babe!" in out
+    assert "I searched for Tokyo Ghoul images, babe!" in out
+
+
+def test_angle_brackets_that_are_not_a_tool_call_survive() -> None:
+    raw = "Wrap the label in <b class='x'> and </b> tags, then call render()."
+    assert _stream_prose(raw, 3) == raw
+
+
+def test_a_tool_tag_split_across_deltas_is_still_dropped() -> None:
+    decoder = AdaptiveStreamDecoder()
+    out = ""
+    for piece in (
+        "Sure! <",
+        "tool_cal",
+        "l>",
+        "toolName: web_search",
+        "</toolCall>",
+        " Done.",
+    ):
+        out += decoder.feed(piece)
+    out += decoder.finish()
+    assert out == "Sure!  Done."
+
+
+def _closing(name: str) -> str:
+    return "<" + "/" + name + ">"
+
+
+def test_the_invoke_dialect_of_invented_call_markup_is_dropped_too() -> None:
+    """Measured the next live turn: the model changed dialect and wrote an
+    invoke element with parameter children instead of a tool_call block."""
+    raw = (
+        "Let me grab some Tokyo Ghoul pics for you babe!\n\n"
+        + '<invoke name="freepik_image_generate">\n'
+        + '<parameter name="prompt">Tokyo Ghoul anime artwork' + _closing("parameter") + "\n"
+        + '<parameter name="count">8' + _closing("parameter") + "\n"
+        + _closing("invoke") + "\n\n"
+        + "One sec~"
+    )
+    out = _stream_prose(raw, 5)
+    assert out.startswith("Let me grab some Tokyo Ghoul pics for you babe!")
+    assert out.endswith("One sec~")
+    for noise in ("invoke", "parameter", "freepik_image_generate", "8"):
+        assert noise not in out
+
+
+def test_a_third_spelling_of_the_same_invented_call_is_dropped() -> None:
+    """Measured live one turn later: tool_argument and tool_arguments elements,
+    spellings no name list contained. The structural rule catches them anyway."""
+    raw = (
+        "I'll search for Tokyo Ghoul images for you, babe!\n\n"
+        + '<tool_argument name="count">8' + _closing("tool_argument") + "\n"
+        + '<tool_arguments>{"query": "Tokyo Ghoul official art", "count": 8}'
+        + _closing("tool_arguments") + "\n\n"
+        + "Give me one sec~"
+    )
+    out = _stream_prose(raw, 6)
+    assert out.startswith("I'll search for Tokyo Ghoul images for you, babe!")
+    assert out.endswith("Give me one sec~")
+    for noise in ("tool_argument", "tool_arguments", "count", "8"):
+        assert noise not in out
