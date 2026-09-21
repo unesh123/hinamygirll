@@ -5,7 +5,7 @@ from time import perf_counter
 from typing import AsyncIterator, Any
 from urllib.parse import urlparse
 from anthropic import AsyncAnthropic, APIError, APIConnectionError, APITimeoutError, RateLimitError, AuthenticationError
-from hinaa_api.providers.openai_llm import OpenAILLMProvider, _sanitize_delta, _orchestrator_continuations, _custom_text_from_raw
+from hinaa_api.providers.openai_llm import OpenAILLMProvider, _sanitize_delta, _orchestrator_continuations, _llm_stream_char_budget, _custom_text_from_raw
 from hinaa_api.errors import HinaaError
 from hinaa_api.prompts import PromptPackage
 from hinaa_api.prompts.depth import depth_word_floor
@@ -389,7 +389,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
 
             orchestrator = GenerationOrchestrator(
                 max_continuations=_orchestrator_continuations(),
-                char_budget=_llm_budget_tokens() * 4,
+                char_budget=_llm_stream_char_budget(),
                 generation_id=f"{self._provider_id}:{started:.0f}",
                 min_words=depth_word_floor(prompt.response_depth),
             )

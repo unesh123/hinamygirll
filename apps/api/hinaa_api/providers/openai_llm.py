@@ -56,6 +56,21 @@ def _llm_budget_tokens() -> int:
         return 16_384
 
 
+def _llm_stream_char_budget() -> int:
+    """Ceiling for a whole generation, which may span several segments.
+
+    `llm_max_output_tokens` bounds ONE provider call, so multiplying it by a
+    chars-per-token estimate truncates a long report mid-sentence once the
+    continuation pass pushes the draft past a single call's window.
+    """
+    try:
+        from ..config import get_settings
+
+        return int(get_settings().llm_stream_char_budget)
+    except Exception:  # pragma: no cover
+        return 200_000
+
+
 def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
     from hinaa_api.models import safe_extract_display_text
 
@@ -396,7 +411,7 @@ class OpenAILLMProvider:
 
             orchestrator = GenerationOrchestrator(
                 max_continuations=_orchestrator_continuations(),
-                char_budget=_llm_budget_tokens() * 4,  # chars ≈ 4× token budget
+                char_budget=_llm_stream_char_budget(),
                 generation_id=f"{self._provider_id}:{started:.0f}",
                 min_words=depth_word_floor(prompt.response_depth),
             )

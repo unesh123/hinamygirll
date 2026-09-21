@@ -5,6 +5,7 @@ Covers directive §2–§6, §37, §39, §43, §55:
 - seam deduplication (exact/normalized overlap)
 - consistency pass (fence repair, placeholder/heading reports)
 - config validation (dangerous combos clamped, profiles)
+- provider budgets (a multi-segment generation is not capped by one call's window)
 - voice planner (semantic types, no mid-thought cuts)
 """
 
@@ -1003,3 +1004,100 @@ class TestVoiceResponsePlanner:
         res = planner.plan(self._long_doc(), spoken_summary)
         assert res.intent == VoiceIntent.EXECUTIVE_SUMMARY
         assert res.spoken_text == spoken_summary
+
+
+# ---------------------------------------------------------------------------
+# Character budget ownership
+# ---------------------------------------------------------------------------
+
+
+class TestProviderCharacterBudget:
+    """A whole generation may span several provider calls, so its ceiling cannot
+    be one call's output window. Deriving it from `max_tokens` stopped a deep
+    report with `character budget reached` while the model still had segments and
+    room left, which cut the last sentence in half on screen."""
+
+    ONE_CALL_WINDOW = 16_384 * 4
+    STREAM_BUDGET = 200_000
+
+    async def _run(self, char_budget: int):
+        async def first_stream():
+            yield _unique_prose(6_000, "Head")
+
+        def cont_factory(prior: str):
+            holder = {"value": "stop"}
+
+            async def gen():
+                yield " " + _unique_prose(5_000, "Tail")
+
+            return gen(), holder
+
+        async def emit(d: str) -> None:
+            return None
+
+        orchestrator = GenerationOrchestrator(
+            max_continuations=4,
+            char_budget=char_budget,
+            generation_id="provider-budget",
+        )
+        return await orchestrator.run(
+            first_segment_stream=first_stream(),
+            first_finish_reason_holder={"value": "max_tokens"},
+            continuation_stream_factory=cont_factory,
+            emit_delta=emit,
+        )
+
+    @pytest.mark.asyncio
+    async def test_one_call_window_truncates_a_report_sized_draft(self) -> None:
+        outcome = await self._run(self.ONE_CALL_WINDOW)
+        assert outcome.trace is not None
+        # The canonical text gets clamped to the budget, so the draft size that
+        # triggered the stop only survives in the per-segment trace.
+        assert sum(s.characters for s in outcome.trace.segments) > self.ONE_CALL_WINDOW, (
+            "the fixture must straddle the one-call window to test it"
+        )
+        assert outcome.status == ContinuationStatus.TRUNCATED
+        assert outcome.trace.segments[-1].decision_reason == "character budget reached"
+
+    @pytest.mark.asyncio
+    async def test_stream_budget_lets_the_same_draft_finish(self) -> None:
+        outcome = await self._run(self.STREAM_BUDGET)
+        assert len(outcome.text) > self.ONE_CALL_WINDOW
+        assert outcome.status == ContinuationStatus.COMPLETED
+        assert outcome.text.rstrip().endswith("completely.")
+
+    def test_every_provider_sizes_a_generation_from_the_stream_budget(self) -> None:
+        """openai_llm, agent_router and groq share one helper; gemini reads the
+        same setting through `_llm_budgets()`. Both must return the ceiling for a
+        whole multi-segment run, not one call's token window."""
+        from hinaa_api.config import get_settings
+        from hinaa_api.providers.gemini import _llm_budgets
+        from hinaa_api.providers.openai_llm import (
+            _llm_budget_tokens,
+            _llm_stream_char_budget,
+        )
+
+        configured = int(get_settings().llm_stream_char_budget)
+        one_call_window = _llm_budget_tokens() * 4
+        assert _llm_stream_char_budget() == configured
+        assert _llm_budgets()[1] == configured
+        assert configured > one_call_window, (
+            "a generation ceiling equal to one call's output window "
+            "truncates a long report mid-sentence"
+        )
+
+    def test_the_openai_family_call_sites_use_that_ceiling(self) -> None:
+        """The helpers being right is not enough — the fix was a call site."""
+        import inspect
+
+        from hinaa_api.providers import agent_router, openai_llm
+
+        for module in (openai_llm, agent_router):
+            passes = [
+                line.strip()
+                for line in inspect.getsource(module).splitlines()
+                if line.strip().startswith("char_budget=")
+            ]
+            assert passes, f"{module.__name__} no longer builds an orchestrator"
+            for line in passes:
+                assert "stream_char_budget" in line, f"{module.__name__}: {line}"
