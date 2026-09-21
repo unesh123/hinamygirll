@@ -45,6 +45,17 @@ def test_health_and_provider_readiness_are_safe(client: TestClient) -> None:
     assert "api_key" not in diagnostics
 
 
+def test_openapi_schema_builds_for_every_route(client: TestClient) -> None:
+    """A request model declared inside the app factory leaves FastAPI holding an
+    unresolvable ForwardRef, and the entire schema 500s while every route keeps
+    answering. That is invisible to route-level tests, so the schema is gated
+    on its own here."""
+    schema = client.get("/openapi.json")
+    assert schema.status_code == 200, schema.text
+    paths = schema.json()["paths"]
+    assert "/api/v1/conversations/{conversation_id}" in paths
+
+
 def test_voice_profiles_disclose_standard_hindi_voices(client: TestClient) -> None:
     profiles = client.get("/v1/voice-profiles").json()
     assert profiles[0]["requestedVoice"] == "hi-IN-SwaraNeural"

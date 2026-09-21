@@ -60,6 +60,10 @@ class MemoryToggleBody(BaseModel):
     enabled: bool
 
 
+class ConversationTitleBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+
+
 class ProjectCreateBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=180)]
     description: Annotated[str, Field(max_length=4000)] = ""
@@ -3019,9 +3023,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return memory_service.get_conversation_messages(
             auth.user_id, conversation_id, limit=max(1, min(limit, 200)), offset=max(0, offset)
         )
-
-    class ConversationTitleBody(BaseModel):
-        title: Annotated[str, Field(min_length=1, max_length=200)]
 
     @app.patch("/v1/conversations/{conversation_id}")
     @app.patch("/api/v1/conversations/{conversation_id}")
