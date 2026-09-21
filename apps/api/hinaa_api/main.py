@@ -35,7 +35,7 @@ from .prompts import PROMPT_VERSION
 from .reachability import is_ephemeral_tunnel, probe_gateway
 from .realtime import RealtimeGateway
 from .services import ConversationService
-from .tools import registry
+from .tools import policy as tool_policy, registry
 from .vmc_bridge import vmc_bridge
 from .voice_profiles import public_profiles
 from .artifacts import ArtifactFormat, ArtifactService
@@ -304,6 +304,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             handler = registry._handlers.get(step.tool_name)
             if not handler:
                 raise HinaaError("TOOL_UNAVAILABLE", f"Tool handler for {step.tool_name} not found", 404)
+            tool_policy.enforce(step.tool_name, active_settings)
             import inspect
             from typing import get_type_hints
             from pydantic import BaseModel
@@ -797,7 +798,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def request_context(request: Request, call_next):  # type: ignore[no-untyped-def]
         correlation_id = _correlation_id(request.headers.get("X-Correlation-ID"))
         request.state.correlation_id = correlation_id
-        response = await call_next(request)
+        host_token = tool_policy.set_request_host(request.headers.get("host"))
+        try:
+            response = await call_next(request)
+        finally:
+            tool_policy.reset_request_host(host_token)
         response.headers["X-Correlation-ID"] = correlation_id
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -2193,6 +2198,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_def = registry.get_tool(body.toolName)
         if not tool_def:
             raise HTTPException(status_code=404, detail="Tool not found")
+        verdict = tool_policy.decide(body.toolName, active_settings, request.headers.get("host"))
+        if not verdict.permitted:
+            raise HinaaError(verdict.code, verdict.message, 403, False, True)
         is_user_approved = body.confirmed and body.approvalSource == "user"
         is_safe_standing_consent = (
             body.confirmed

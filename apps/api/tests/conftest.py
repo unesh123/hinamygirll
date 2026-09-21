@@ -55,5 +55,9 @@ def _reset_vmc_bridge():
 
 @pytest.fixture
 def client(settings: Settings) -> TestClient:
-    with TestClient(create_app(settings)) as value:
+    # Loopback base_url so Host names the host machine: the effect policy in
+    # tools/policy.py denies machine-touching tools to public-origin requests,
+    # and "testserver" reads as one. tests/test_tool_policy.py passes an explicit
+    # host header to cover both origins.
+    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as value:
         yield value

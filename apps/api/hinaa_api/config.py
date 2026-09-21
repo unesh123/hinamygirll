@@ -355,6 +355,9 @@ class Settings(BaseSettings):
     dev_auth_subject: str = Field("local-dev-user", alias="HINAA_DEV_AUTH_SUBJECT")
     oidc_issuer: str | None = Field(None, alias="HINAA_OIDC_ISSUER")
     allow_oidc_scaffold_tokens: bool = Field(False, alias="HINAA_ALLOW_OIDC_SCAFFOLD_TOKENS")
+    # Machine-touching tools (clipboard, screen, file I/O, process launch) stay on
+    # the host until a verified session can replace the origin check. See tools/policy.py.
+    allow_remote_local_tools: bool = Field(False, alias="HINAA_ALLOW_REMOTE_LOCAL_TOOLS")
     clerk_jwt_key: str | None = Field(None, alias="CLERK_JWT_KEY")
     clerk_authorized_parties: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"],

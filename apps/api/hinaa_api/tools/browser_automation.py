@@ -370,7 +370,7 @@ app_launch_def = ToolDefinition(
     },
     required_parameters=["app_name"],
     voice_aliases=["open", "run", "launch"],
-    requires_confirmation=False,
+    requires_confirmation=True,
     risk_level="medium"
 )
 registry.register(app_launch_def, app_launch)
