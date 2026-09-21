@@ -1,6 +1,7 @@
 import httpx
 import logging
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 from typing import AsyncIterator, Any
 from urllib.parse import urlparse
 from anthropic import AsyncAnthropic, APIError, APIConnectionError, APITimeoutError, RateLimitError, AuthenticationError
@@ -199,14 +200,32 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
 
     def _map_anthropic_error(self, e: Exception) -> HinaaError:
         if any(m in str(e).lower() for m in ("content_filter", "safety", "refusal", "policy")):
+            # The gateway served the request and declined its content. That is a
+            # refusal, not a broken connection, so it says nothing about health.
             return HinaaError(code="SAFETY_REFUSAL", status_code=400, message="Refusal due to safety policy")
         if isinstance(e, AuthenticationError):
+            self._circuit_breaker.record_failure(
+                "PROVIDER_KEY_INVALID",
+                f"{self._provider_label()} rejected the credentials for this request.",
+            )
             return HinaaError(code="PROVIDER_AUTH_FAILED", status_code=500, message="Authentication Failed")
         elif isinstance(e, RateLimitError):
+            self._circuit_breaker.record_failure(
+                "PROVIDER_RATE_LIMIT",
+                f"{self._provider_label()} is rate limited right now.",
+            )
             return HinaaError(code="PROVIDER_RATE_LIMITED", status_code=500, message="Rate Limit Exceeded")
         elif isinstance(e, APITimeoutError):
+            self._circuit_breaker.record_failure(
+                "PROVIDER_TIMEOUT",
+                f"{self._provider_label()} timed out.",
+            )
             return HinaaError(code="PROVIDER_TIMEOUT", status_code=500, message="Timeout")
         elif isinstance(e, APIConnectionError):
+            self._circuit_breaker.record_failure(
+                "OFFLINE",
+                f"{self._provider_label()} could not be reached.",
+            )
             return HinaaError(
                 code="PROVIDER_UNREACHABLE",
                 status_code=500,
@@ -216,7 +235,28 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         elif isinstance(e, APIError):
             status = getattr(e.response, "status_code", 500) if hasattr(e, "response") else 500
             if status == 404:
+                self._circuit_breaker.record_failure(
+                    "MODEL_UNAVAILABLE",
+                    f"{self._provider_label()} does not serve the model {self._model}.",
+                )
                 return HinaaError(code="PROVIDER_MODEL_NOT_FOUND", status_code=500, message="Model Not Found")
+            if status in {401, 403}:
+                # A 403 on a Messages route is a durable connection/permission
+                # rejection, not a transient blip: every later call fails the
+                # same way until the configuration changes.
+                self._circuit_breaker.record_failure(
+                    "PROVIDER_KEY_INVALID",
+                    f"{self._provider_label()} rejected the request (HTTP {status}).",
+                )
+                return HinaaError(
+                    code="PROVIDER_UNAVAILABLE",
+                    status_code=500,
+                    message=f"{self._provider_label()} rejected the request.",
+                )
+            self._circuit_breaker.record_failure(
+                "PROVIDER_UNAVAILABLE",
+                f"{self._provider_label()} returned HTTP {status}.",
+            )
             return HinaaError(code="PROVIDER_UNAVAILABLE", status_code=500, message=str(e))
         return HinaaError(code="PROVIDER_RESPONSE_INVALID", status_code=500, message=str(e))
 
@@ -225,6 +265,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
     ) -> AsyncIterator[str]:
         system = prompt.system_instruction
         messages = _anthropic_messages(prompt)
+        started = perf_counter()
 
         try:
             async with self.anthropic_client.messages.stream(
@@ -242,13 +283,15 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                         # Anthropic stop reasons normalize onto the OpenAI map.
                         table = {"max_tokens": "max_tokens", "end_turn": "stop", "stop_sequence": "stop", "refusal": "content_filter"}
                         finish_reason_holder["value"] = table.get(str(stop), str(stop))
+            self._circuit_breaker.record_success(int((perf_counter() - started) * 1000))
         except Exception as e:
             raise self._map_anthropic_error(e)
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
         system = prompt.system_instruction
         messages = _anthropic_messages(prompt)
-        
+        started = perf_counter()
+
         try:
             response = await self.anthropic_client.messages.create(
                 model=self._model,
@@ -257,6 +300,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                 messages=messages
             )
             visible_text, _ = normalize_anthropic_response(response)
+            self._circuit_breaker.record_success(int((perf_counter() - started) * 1000))
             return visible_text
         except Exception as e:
             raise self._map_anthropic_error(e)

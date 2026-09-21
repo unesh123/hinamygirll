@@ -45,6 +45,7 @@ class ProviderCircuitBreaker:
         self.last_latency_ms: int = 0
         self.last_failure_code: str = ""
         self.last_failure_message: str = ""
+        self.last_failure_timestamp: float = 0.0
         self.last_success_timestamp: float = 0.0
         self.last_probe_timestamp: float = 0.0
 
@@ -108,6 +109,7 @@ class ProviderCircuitBreaker:
         self.last_failure_code = error_code
         self.last_failure_message = error_message
         now = monotonic()
+        self.last_failure_timestamp = now
 
         # Handle specific error scenarios
         if error_code in {"PROVIDER_KEY_INVALID", "AUTH_ERROR"}:
@@ -200,6 +202,10 @@ class ProviderCircuitBreaker:
             "lastFailureMessage": self.last_failure_message or None,
         }
 
+    def cooldown_remaining(self) -> float:
+        """Seconds until this provider may be tried again; 0 when it may be now."""
+        return max(0.0, self.cooloff_until - monotonic())
+
 
 _REGISTRY: dict[str, ProviderCircuitBreaker] = {}
 
@@ -209,6 +215,61 @@ def get_circuit_breaker(provider_id: str) -> ProviderCircuitBreaker:
     if provider_id not in _REGISTRY:
         _REGISTRY[provider_id] = ProviderCircuitBreaker(provider_id)
     return _REGISTRY[provider_id]
+
+
+def peek_circuit_breaker(provider_id: str) -> ProviderCircuitBreaker | None:
+    """Return the breaker for ``provider_id`` only if a call has used it.
+
+    Reading health must not manufacture history for a brain that has never been
+    asked to answer.
+    """
+    return _REGISTRY.get(provider_id)
+
+
+# A rejected key stays rejected, but outcomes this old describe a connection the
+# deployment may no longer have (restarted tunnel, new key, different model).
+# Keep the verdict long enough that every turn in a session agrees, short enough
+# that a fixed configuration is not punished for the rest of the process.
+LIVE_OUTCOME_WINDOW_SECONDS = 900.0
+
+
+def measured_state(
+    provider_id: str,
+    *,
+    window_seconds: float = LIVE_OUTCOME_WINDOW_SECONDS,
+) -> tuple[str, str] | None:
+    """What recent *live* calls proved about this provider, if anything.
+
+    Returns ``(state, user_message)`` where state is ``"unavailable"`` for a
+    brain whose real requests were rejected, or ``"degraded"`` for one that is
+    throttled but intact. Returns None when live outcomes say nothing, so the
+    caller falls back to its configuration-derived badge.
+
+    Configuration presence is not availability: a brain can hold a valid-looking
+    key and answer nothing but HTTP 403. Reported health follows the calls that
+    actually happened instead of claiming a verdict nobody measured.
+    """
+    breaker = peek_circuit_breaker(provider_id)
+    if breaker is None or breaker.consecutive_failures == 0:
+        return None
+    if not breaker.last_failure_code:
+        return None
+    now = monotonic()
+    if breaker.last_success_timestamp > breaker.last_failure_timestamp:
+        return None
+    if now - breaker.last_failure_timestamp > window_seconds:
+        return None
+
+    detail = breaker.last_failure_message or breaker.last_failure_code
+    if breaker.state is CircuitBreakerState.RATE_LIMITED:
+        remaining = breaker.cooldown_remaining()
+        return (
+            "degraded",
+            f"{detail} Live calls are rate limited; retry in {int(remaining) + 1}s.",
+        )
+    if breaker.state is CircuitBreakerState.DEGRADED:
+        return ("degraded", f"{detail} The last live call failed; a retry is allowed now.")
+    return ("unavailable", f"{detail} The last live call was rejected.")
 
 
 def reset_circuit_breakers() -> None:

@@ -725,6 +725,8 @@ class OpenAILLMProvider:
             return "Qwen"
         if self._provider_id == "ollama":
             return "Ollama local engine"
+        if self._provider_id in {"agent-router", "agent-router-openai", "agent-router-anthropic"}:
+            return "Agent router"
         return "OpenAI"
 
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
+from hinaa_api.circuit_breaker import get_circuit_breaker, reset_circuit_breakers
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
+from hinaa_api.services import ConversationService
 
 DISABLED_RUNTIME = Settings(
     HINAA_PROVIDER_MODE="mock",
@@ -126,3 +129,74 @@ def test_generated_images_listing_only_returns_files_that_exist_on_disk(client: 
 def test_generated_images_listing_is_served_under_both_route_prefixes(client: TestClient) -> None:
     assert client.get("/v1/generated-images").status_code == 200
     assert client.get("/api/v1/generated-images").status_code == 200
+
+
+# Every brain configured except the ones left disabled above, so routing and
+# health can be exercised against a deployment that looks like production.
+MULTI_BRAIN = Settings(
+    **{
+        **DISABLED_RUNTIME.model_dump(),
+        "HINAA_PROVIDER_MODE": "claude",
+        "claude_api_key": "claude-key-for-tests",
+        "codecraft_api_key": "codecraft-key-for-tests",
+        "qwen_api_key": "qwen-key-for-tests",
+        "gemini_api_key": "gemini-key-for-tests",
+        "_env_file": None,
+    }
+)
+
+
+@pytest.fixture(autouse=True)
+def _clean_live_outcomes():
+    """Reported brain health is learned from real calls, so each test starts
+    from a process that has not made any."""
+    reset_circuit_breakers()
+    yield
+    reset_circuit_breakers()
+
+
+def _brain(client: TestClient, provider_id: str) -> dict[str, object]:
+    return next(entry for entry in client.get("/api/v1/providers").json() if entry["id"] == provider_id)
+
+
+def test_a_rejected_brain_is_reported_by_what_its_calls_did() -> None:
+    with TestClient(create_app(MULTI_BRAIN)) as value:
+        # Configuration alone may claim readiness — that is the honest starting
+        # point, and the message says so.
+        configured = _brain(value, "claude")
+        assert configured["state"] == "healthy"
+        assert "no live call" in configured["userMessage"]
+
+        get_circuit_breaker("claude").record_failure(
+            "PROVIDER_KEY_INVALID", "Claude gateway rejected the request (HTTP 403)."
+        )
+        rejected = _brain(value, "claude")
+        assert rejected["state"] == "unavailable"
+        assert "403" in rejected["userMessage"]
+
+        # A later call that answers is the only thing that clears the verdict.
+        get_circuit_breaker("claude").record_success(latency_ms=900)
+        assert _brain(value, "claude")["state"] == "healthy"
+
+
+def test_fallback_candidates_rank_brains_by_answer_quality() -> None:
+    candidates = ConversationService(MULTI_BRAIN)._fallback_candidate_modes("claude")
+    modes = [mode for mode, _model in candidates]
+
+    # The pinned brain never competes with itself, the strongest remaining
+    # frontier brain goes first, and the always-configured closer goes last.
+    # `custom` ranks second because it reuses the CodeCraft credential.
+    assert modes == ["codecraft", "custom", "qwen", "real"]
+    assert all(model for _mode, model in candidates), "every candidate needs a model to call"
+
+
+def test_a_brain_in_cooldown_yields_to_one_that_can_answer() -> None:
+    service = ConversationService(MULTI_BRAIN)
+    get_circuit_breaker("codecraft").record_failure(
+        "PROVIDER_RATE_LIMIT", "CodeCraft is rate limited right now.", retry_after=30.0
+    )
+
+    modes = [mode for mode, _model in service._fallback_candidate_modes("claude")]
+
+    # Demoted, not dropped: a throttled brain still beats ending the turn.
+    assert modes == ["custom", "qwen", "real", "codecraft"]

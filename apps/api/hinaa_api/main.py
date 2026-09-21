@@ -32,6 +32,7 @@ from .persistence.db import get_session_factory, reset_session_factory
 from .persistence.project_service import LocalProjectService
 from .dialogue_state import AssetReferenceResolver, AssetSelectionSource, ConversationTurnState
 from .prompts import PROMPT_VERSION
+from .circuit_breaker import measured_state
 from .reachability import is_ephemeral_tunnel, probe_gateway
 from .realtime import RealtimeGateway
 from .services import ConversationService
@@ -1333,6 +1334,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         }
 
+    # Worst-to-best is what the overlay compares against: a live outcome may
+    # only ever make a brain look worse than configuration already proved.
+    _PROVIDER_STATE_RANK = {
+        "healthy": 0,
+        "degraded": 1,
+        "unavailable": 2,
+        "disabled": 3,
+    }
+
     @app.get("/v1/providers", response_model=list[ProviderStatus])
     @app.get("/api/v1/providers", response_model=list[ProviderStatus])
     async def provider_status() -> list[ProviderStatus]:
@@ -1407,7 +1417,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "Ensure Ollama is running (`ollama serve`)."
                     )
 
-        return [
+        statuses = [
             ProviderStatus(
                 id="mock",
                 capabilities=["stt", "llm", "tts", "hi-IN", "offline"],
@@ -1691,6 +1701,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ),
         ]
+
+        # The badges above answer "is this configured?". Configuration presence
+        # outlives availability: a gateway can keep its key and URL and reject
+        # every request. Overlay the outcomes of real calls so a badge is never
+        # greener than the last turn that actually went to that brain.
+        for status in statuses:
+            if "llm" not in status.capabilities:
+                continue
+            breaker_ids = [status.id]
+            if status.id == "agent-router":
+                breaker_ids.append("agent-router-openai")
+                breaker_ids.append("agent-router-anthropic")
+            outcome = None
+            for breaker_id in breaker_ids:
+                outcome = measured_state(breaker_id)
+                if outcome is not None:
+                    break
+            if outcome is None:
+                continue
+            measured_state_name, measured_message = outcome
+            if _PROVIDER_STATE_RANK[measured_state_name] <= _PROVIDER_STATE_RANK[status.state]:
+                continue
+            status.state = measured_state_name
+            status.userMessage = measured_message
+
+        return statuses
 
     @app.get("/v1/commands")
     @app.get("/api/v1/commands")

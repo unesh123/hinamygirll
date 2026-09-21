@@ -13,6 +13,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from .config import Settings
+from .circuit_breaker import peek_circuit_breaker
 from .errors import HinaaError
 from .memory import SessionMemory
 from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest, ToolRequest, Emotion
@@ -2400,17 +2401,41 @@ class ConversationService:
                 break
 
     def _fallback_candidate_modes(self, primary_mode: str) -> list[tuple[str, str | None]]:
-        """Return candidate fallback (mode, model) in order of reliability."""
-        candidates: list[tuple[str, str | None]] = []
-        if self.settings.gemini_configured and primary_mode not in {"real", "gemini"}:
-            candidates.append(("real", self.settings.gemini_model))
-        if self.settings.claude_configured and primary_mode != "claude":
-            candidates.append(("claude", self.settings.active_claude_model))
-        if self.settings.qwen_configured and primary_mode != "qwen":
-            candidates.append(("qwen", self.settings.active_qwen_model))
-        if self.settings.groq_configured and primary_mode != "groq":
-            candidates.append(("groq", self.settings.groq_model))
-        return candidates
+        """Configured brains that can take this turn, strongest answer first.
+
+        The point of falling back is to keep the conversation intelligent, so
+        order follows answer quality rather than ease of reaching a gateway.
+        Gemini stays last: it is the always-configured closer, and when the
+        frontier brains are down a weaker real answer still beats no answer.
+        """
+        configured: dict[str, tuple[bool, str | None]] = {
+            "claude": (self.settings.claude_configured, self.settings.active_claude_model),
+            "codecraft": (self.settings.codecraft_configured, self.settings.active_codecraft_model),
+            "custom": (self.settings.custom_configured, self.settings.active_custom_model),
+            "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
+            "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
+            "openai": (self.settings.openai_configured, self.settings.active_openai_model),
+            "agent-router": (
+                self.settings.agent_router_configured,
+                self.settings.active_agent_router_model,
+            ),
+            "groq": (self.settings.groq_configured, self.settings.groq_model),
+            "real": (self.settings.gemini_configured, self.settings.gemini_model),
+        }
+        primary = "real" if primary_mode == "gemini" else primary_mode
+
+        ready: list[tuple[str, str | None]] = []
+        cooling: list[tuple[str, str | None]] = []
+        for mode, (is_configured, model) in configured.items():
+            if not is_configured or mode == primary:
+                continue
+            breaker = peek_circuit_breaker(mode)
+            if breaker is not None and breaker.cooldown_remaining() > 0:
+                cooling.append((mode, model))
+            else:
+                ready.append((mode, model))
+        # A brain in cooldown is still better than no candidate at all.
+        return ready + cooling
 
     async def _resolve_turn_media(self, request: TurnRequest) -> list[Any]:
         from .media import MediaResolver
