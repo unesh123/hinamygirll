@@ -11,7 +11,8 @@ from hinaa_api.prompts import (
 )
 from hinaa_api.prompts.companions import HINAA_IDENTITY, HIRO_IDENTITY
 from hinaa_api.prompts.context import build_history_block
-from hinaa_api.prompts.depth import infer_response_depth
+from hinaa_api.prompts.depth import depth_word_floor, infer_response_depth
+from hinaa_api.prompts.response_modes import infer_response_mode
 from hinaa_api.prompts.fallback import neutral_fallback_plan, validate_or_none
 from hinaa_api.prompts.performance import build_plan_from_text, plan_performance
 from hinaa_api.prompts.safety import SAFETY_LAYER
@@ -353,6 +354,33 @@ def test_selected_response_mode_shapes_depth(
     text: str, response_mode: str, expected: str
 ) -> None:
     assert infer_response_depth(text, "rest", response_mode) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # An image request takes its length from the ask. Inheriting the
+        # explanatory contract made her pad it and then complain out loud about
+        # the word count she was being pushed to.
+        ("generate an image of a red fox sitting in the rain", "conversational"),
+        ("i love you", "minimal"),
+        # Asking how something is going is an info question, not a document.
+        ("what is the current status of your memory system?", "explanatory"),
+        ("what is the current state of hina?", "explanatory"),
+        # An explicit deliverable ask still earns the report contract.
+        ("give me a documented structure report of everything", "report"),
+        ("prepare a full report on the codebase", "report"),
+        ("give me a comprehensive overview of the modules", "report"),
+        ("deep dive into the audio pipeline", "report"),
+    ],
+)
+def test_depth_follows_the_wording_of_a_plain_typed_turn(text: str, expected: str) -> None:
+    """The chip-less path: the backend infers the mode, then the depth contract."""
+    depth = infer_response_depth(text, "rest", infer_response_mode(text))
+    assert depth == expected
+    assert depth_word_floor(depth) == (
+        4_900 if expected == "report" else 1_000 if expected == "explanatory" else 0
+    )
 
 
 def test_depth_layer_does_not_contradict_mode_layer() -> None:

@@ -30,8 +30,16 @@ _EXPLAIN = re.compile(
     r"(क्यों|क्या है|समझा|detail)",
     re.IGNORECASE,
 )
+# A report carries a 4,900-word contract, so only an explicit deliverable ask
+# earns it. Bare nouns that routinely appear inside ordinary questions ("what is
+# the current status of your memory?") must not inflate the answer into a
+# document; those fall through to the depth the question actually asks for.
 _REPORT = re.compile(
-    r"\b(report|status|overview|architecture|audit|document|breakdown|deep dive|comprehensive|analysis|comparison|full plan)\b|"
+    r"\breport\b|"
+    r"\b(?:full|complete|exhaustive|detailed|documented|comprehensive|in[- ]depth|deep|structured|long)\b"
+    r"[^.?!]{0,24}"
+    r"\b(?:report|overview|breakdown|analysis|audit|review|walkthrough|plan|document|documentation|guide)\b|"
+    r"\bdeep[- ]dive\b|"
     r"(रिपोर्ट|विवरण|विस्तार)",
     re.IGNORECASE,
 )
@@ -43,7 +51,8 @@ _MODE_DEPTH: dict[str, ResponseDepth] = {
     "academic": "report",
     "technical": "procedural",
     "automation": "procedural",
-    "creative": "explanatory",
+    # No entry for "creative": an image or story request takes its length from
+    # what was asked, not from the essay contract `explanatory` carries.
     "concise_voice": "minimal",
 }
 
