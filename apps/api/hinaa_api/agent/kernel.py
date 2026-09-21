@@ -21,6 +21,22 @@ from .verifier import AgentVerifier
 logger = logging.getLogger("hinaa.agent.kernel")
 
 
+def _compiled_visual_query(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Compile the image step's query through the shared media compiler.
+
+    Planners fill this step differently, and one measured run handed the vendor
+    "i want pics of tokyo ghoul" verbatim. If the compile raises, the step keeps
+    the planner's own value rather than losing the request.
+    """
+    try:
+        from ..media.search_intelligence import compiled_image_query_parameters
+
+        return compiled_image_query_parameters(parameters)
+    except Exception:
+        logger.warning("image_search query compilation failed; using planner value", exc_info=True)
+        return parameters
+
+
 def _safe_error_text(value: object) -> str:
     """Keep provider/transport errors useful without echoing credentials."""
     text = str(value)
@@ -153,6 +169,8 @@ class HinaaAgent:
             try:
                 # 4. EXECUTE STEP
                 if self.executor_func:
+                    if ready_step.skill_id == "image_search":
+                        ready_step.parameters = _compiled_visual_query(dict(ready_step.parameters))
                     # Pass dependency results explicitly as untrusted context so
                     # later steps (for example PDF compilation) can consume
                     # verified upstream material without hidden global state.

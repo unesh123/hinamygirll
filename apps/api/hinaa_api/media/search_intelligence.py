@@ -140,6 +140,15 @@ _KNOWN_LOCATIONS_RE = re.compile(
     r"\b(nepal|kathmandu|pokhara|japan|tokyo|kyoto|india|delhi|mumbai|china|beijing|shanghai|usa|america|california|new\s+york|uk|britain|london|france|paris|germany|berlin|korea|seoul)\b",
     re.I,
 )
+# Series whose names read as geography or as a disaster once taken apart word by
+# word. Asking for pictures of one is a request for that show, not for the place
+# or the incident its title happens to contain.
+_SERIES_TITLE_RE = re.compile(
+    r"\b(tokyo\s+ghoul|tokyo\s+revengers|tokyo\s+mew\s+mew|fire\s+force|attack\s+on\s+titan"
+    r"|jujutsu\s+kaisen|chainsaw\s+man|my\s+hero\s+academia|demon\s+slayer|spy\s+x\s+family"
+    r"|mob\s+psycho\s+100|cowboy\s+bebop|neon\s+genesis\s+evangelion|one\s+punch\s+man)\b",
+    re.I,
+)
 
 
 def normalize_space(value: str) -> str:
@@ -323,6 +332,8 @@ def resolve_media_subject(
     has_loc = _KNOWN_LOCATIONS_RE.search(lowered)
     has_event = _CURRENT_EVENT_MARKERS_RE.search(lowered)
     has_temporal = _TEMPORAL_ANCHOR_RE.search(lowered)
+    if _SERIES_TITLE_RE.search(lowered):
+        has_loc = has_event = has_temporal = None
     loc_str = has_loc.group(0).title() if has_loc else None
     temp_str = has_temporal.group(0).lower() if has_temporal else None
 
@@ -336,7 +347,7 @@ def resolve_media_subject(
     if is_explicit_request and len(cleaned) >= 2 and not _GENERIC_REF_RE.fullmatch(cleaned):
         without_noise = normalize_space(_COMMAND_NOISE_RE.sub(" ", cleaned))
         subject = without_noise or cleaned
-        is_current = bool(has_loc or has_event or has_temporal)
+        is_current = bool(has_event or has_temporal)
         return MediaSubjectResolution(
             subject=subject,
             canonical_subject=subject.title(),
@@ -558,6 +569,27 @@ def concise_media_text(subject: str, count: int) -> str:
     if count <= 0:
         return f"I couldn't find relevant {subject} images from this source."
     return f"Found {count} relevant {subject} image{'s' if count != 1 else ''}."
+
+
+def compiled_image_query_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite an image_search request so the vendor gets a subject, not a sentence.
+
+    Every path that can produce this tool call — a model writing its own plan,
+    the deterministic injector, the agent runtime step — funnels through here,
+    because a model asked to plan an image search echoes "i want pics of tokyo
+    ghoul" into both `query` and `canonicalSubject`. A compile that names no
+    subject leaves the caller's parameters alone.
+    """
+    raw = str(parameters.get("query") or parameters.get("q") or "").strip()
+    if not raw:
+        return parameters
+    intent = build_media_intent(raw)
+    if intent is None:
+        return parameters
+    compiled = dict(parameters)
+    compiled["query"] = compile_image_search_query(intent).primary_query
+    compiled["canonicalSubject"] = intent.canonical_subject
+    return compiled
 
 
 def new_result_set_id() -> str:

@@ -1601,6 +1601,14 @@ class ConversationService:
         # Flexible, natural image search trigger supporting prefixes, typos (sho/show), and mid-sentence entities
         has_image_kw = bool(re.search(r"\b(images?|imges?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|तस्वीरें|चित्र|फोटो)\b", unquoted, re.I))
         has_fetch_verb = bool(re.search(r"\b(show|sho|display|find|search|get|fetch|bring|see|load|look\s+for|ढूँढ|खोज|दिखा|लाओ)\b", unquoted, re.I))
+        # Saying she should get them is a fetch even without a fetch verb: "i want
+        # pics of tokyo ghoul" used to fall through to a prose apology that began
+        # by claiming images were being fetched.
+        has_visual_request = bool(
+            has_image_kw
+            and re.search(r"\b(want|wanna|need|gimme|give\s+me|send\s+me|looking\s+for|chahe|chahiye)\b", unquoted, re.I)
+            and not re.search(r"\b(?:don'?t|didn'?t|do\s+not|no)\s+(?:want|need|asked|ask)\b", unquoted, re.I)
+        )
         is_followup_fetch = bool(re.search(r"\b(?:fetch|show|sho|get|see|display|load|bring)\s+(?:them|it|these|those)\b", unquoted, re.I))
         is_generate_action = bool(re.search(r"\b(generate|genrate|fenerate|generat|create|creat|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b", unquoted, re.I))
         has_reference_intent = bool(re.search(r"\b(reference|refrence|referance|as\s+ref|referencing|refer to)\b", unquoted, re.I))
@@ -1655,7 +1663,7 @@ class ConversationService:
             and not (has_research_or_web_intent and not has_image_kw and not has_art_platform)
             and (
                 is_character_visual
-                or (has_image_kw and (has_fetch_verb or len(unquoted.split()) <= 4))
+                or (has_image_kw and (has_fetch_verb or has_visual_request or len(unquoted.split()) <= 4))
                 or is_followup_fetch
                 or has_art_platform
                 or is_image_refinement
@@ -1667,6 +1675,7 @@ class ConversationService:
             from hinaa_api.media.search_intelligence import (
                 build_media_intent,
                 compile_image_search_query,
+                compiled_image_query_parameters,
                 canonical_entity_from_text,
             )
 
@@ -1807,6 +1816,14 @@ class ConversationService:
                 if final_query.lower() in CHARACTER_ENTITY_MAP:
                     final_query = CHARACTER_ENTITY_MAP[final_query.lower()]
                 canonical_subject = final_query.title()
+
+                # The compiler is what turns a sentence into a subject, and it
+                # declined above because the utterance repeated the active topic.
+                # Ask it about the candidate on its own, or the vendor receives
+                # "i want pics of tokyo ghoul" as the search query.
+                compiled = compiled_image_query_parameters({"query": final_query, "count": 6})
+                final_query = str(compiled.get("query") or final_query)
+                canonical_subject = str(compiled.get("canonicalSubject") or canonical_subject)
 
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
@@ -3788,6 +3805,12 @@ class ConversationService:
         # Emit tool events for each tool request
         total_tools = len(result.value.toolRequests)
         for idx, tool_req in enumerate(result.value.toolRequests, 1):
+            if tool_req.toolName == "image_search" and isinstance(tool_req.parameters, dict):
+                # Whatever planned this call, the vendor gets a subject rather
+                # than the sentence he typed, and the card shows the same thing.
+                from hinaa_api.media.search_intelligence import compiled_image_query_parameters
+
+                tool_req.parameters = compiled_image_query_parameters(tool_req.parameters)
             tool_run_id = str(uuid.uuid4())
             yield self._event("tool.started", {
                 "toolRunId": tool_run_id,

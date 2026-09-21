@@ -79,6 +79,31 @@ def test_natural_language_show_character_disambiguates():
     assert req.parameters["canonicalSubject"] == "Mikasa Ackerman"
 
 
+def test_stated_want_for_pics_routes_to_image_search():
+    """Measured on the live turn: "i want pics of tokyo ghoul" produced no tool
+    event at all, and she answered with an apology about not being able to fetch
+    copyrighted images after promising twice that she was fetching them."""
+    settings = Settings()
+    service = ConversationService(settings)
+    plan = _test_plan()
+
+    service._inject_deterministic_tool_intents("i want pics of tokyo ghoul", plan)
+
+    assert any(t.toolName == "image_search" for t in plan.toolRequests)
+    req = next(t for t in plan.toolRequests if t.toolName == "image_search")
+    assert req.parameters["query"] == "Tokyo Ghoul"
+
+
+def test_declining_pics_does_not_fetch_pics():
+    settings = Settings()
+    service = ConversationService(settings)
+    plan = _test_plan()
+
+    service._inject_deterministic_tool_intents("i don't want pics", plan)
+
+    assert not any(t.toolName == "image_search" for t in plan.toolRequests)
+
+
 def test_search_web_for_character_does_not_hijack_to_image_search():
     settings = Settings()
     service = ConversationService(settings)
@@ -249,3 +274,60 @@ def test_stop_searching_for_mikasa_multiword_negation():
     assert not any(e.get("name") == "Mikasa Ackerman" for e in state.active_entities)
     assert state.active_topic == "Nepal floods"
 
+
+
+def test_runtime_image_step_never_sends_his_sentence_to_the_vendor():
+    """Measured live: the runtime executed image_search with query
+    "i want pics of tokyo ghoul". Every planner fills this step differently, so
+    the compiler runs at execution and the card shows the same subject."""
+    from hinaa_api.agent.kernel import _compiled_visual_query
+
+    compiled = _compiled_visual_query({"query": "i want pics of tokyo ghoul", "count": 6})
+    assert compiled["query"] == "Tokyo Ghoul"
+    assert compiled["canonicalSubject"] == "Tokyo Ghoul"
+
+
+def test_runtime_image_step_keeps_a_query_the_compiler_cannot_resolve():
+    from hinaa_api.agent.kernel import _compiled_visual_query
+
+    compiled = _compiled_visual_query({"query": "it", "count": 4})
+    assert compiled["query"] == "it"
+    assert compiled["count"] == 4
+
+
+def test_every_path_that_can_plan_an_image_search_compiles_its_query():
+    """The helpers being right is not enough — the measured raw query came from
+    the model's own plan JSON, which used to be handed to ToolRequest as-is."""
+    import inspect
+
+    from hinaa_api import services
+    from hinaa_api.agent import kernel
+    from hinaa_api.media import search_intelligence
+    from hinaa_api.prompts import fallback
+
+    assert hasattr(search_intelligence, "compiled_image_query_parameters")
+    for module in (kernel, services, fallback):
+        source = inspect.getsource(module)
+        assert "compiled_image_query_parameters" in source, (
+            f"{module.__name__} no longer compiles image_search queries"
+        )
+
+
+def test_a_model_written_image_plan_gets_a_subject_not_his_sentence():
+    """Measured live: the plan event carried
+    {"query": "i want pics of tokyo ghoul", "canonicalSubject": "i want pics of
+    tokyo ghoul"} straight from the model's JSON, so the vendor search and the
+    card the user is shown both repeated his sentence."""
+    from hinaa_api.prompts.fallback import parse_turn_plan
+
+    plan = parse_turn_plan(
+        '{"displayText":"sure babe","spokenText":"sure","language":"en-US",'
+        '"emotion":{"primary":"happy","intensity":0.6,"valence":0.6,"arousal":0.5},'
+        '"toolRequests":[{"toolName":"image_search","parameters":'
+        '{"query":"i want pics of tokyo ghoul","count":6,'
+        '"canonicalSubject":"i want pics of tokyo ghoul"}}]}'
+    )
+    request = next(t for t in plan.toolRequests if t.toolName == "image_search")
+    assert request.parameters["query"] == "Tokyo Ghoul"
+    assert request.parameters["canonicalSubject"] == "Tokyo Ghoul"
+    assert request.parameters["count"] == 6

@@ -89,6 +89,14 @@ _EVENT_ROOTS: list[tuple[str, str]] = [
     ("disaster", r"\b(disasters?|crisis)\b"),
 ]
 
+# The words that make a location into something that happened there. Geography on
+# its own is a subject, not an event.
+_EVENT_MARKER_RE = re.compile(
+    r"\b(flood|flooding|landslide|monsoon|earthquake|quake|tremor|wildfire|fire|storm|cyclone"
+    r"|typhoon|hurricane|crash|disaster|crisis|incident|emergency|aftermath|damage|outage"
+    r"|explosion|shooting|riot|protest|news|breaking)\b"
+)
+
 
 class CurrentEventResolver:
     """Discovers concrete real-world events from locations, incident markers, and live news headlines before query compilation.
@@ -228,16 +236,13 @@ class CurrentEventResolver:
                     expected_entities=entry["expected_entities"],
                 )
 
-        # 3. Dynamic synthesis when location and event markers exist but are not in the predefined table
-        if location:
+        # 3. Dynamic synthesis when the caller names a location *and* something
+        #    happened there. A place by itself is a subject, not an incident.
+        marker = (event_marker or "").strip()
+        text_match = _EVENT_MARKER_RE.search(lowered)
+        if location and (marker or text_match):
             loc_clean = location.title().strip()
-            evt_name = "Current Incident"
-            evt_match = re.search(
-                r"\b(flood|flooding|earthquake|landslide|crash|fire|protest|riot|disaster|storm|cyclone|crisis)\b",
-                lowered,
-            )
-            if evt_match:
-                evt_name = evt_match.group(1).title()
+            evt_name = (marker or text_match.group(0)).title()
 
             specific_query = f"{loc_clean} {evt_name.lower()} news emergency rescue damage photos 2026"
             return ResolvedCurrentEvent(

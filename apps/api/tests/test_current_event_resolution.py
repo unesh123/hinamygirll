@@ -67,3 +67,27 @@ def test_event_resolution_from_live_evidence_headlines():
     assert "landslide" in res.specific_search_query.lower()
     assert "2026" in res.specific_search_query
 
+
+def test_a_place_name_alone_is_not_an_incident():
+    """Measured: `resolve_event("tokyo", location="Tokyo")` returned
+    "Tokyo current incident news emergency rescue damage photos 2026", so asking
+    for anime pictures came back as disaster photography. Geography is a subject;
+    it only becomes an event when something happened there."""
+    assert CurrentEventResolver.resolve_event("tokyo", location="Tokyo") is None
+
+
+def test_an_explicit_marker_still_resolves_for_a_bare_location():
+    res = CurrentEventResolver.resolve_event("tokyo", location="Tokyo", event_marker="earthquake")
+    assert res is not None
+    assert "earthquake" in res.specific_search_query.lower()
+
+
+def test_anime_title_containing_a_place_is_not_compiled_as_news():
+    intent = build_media_intent("i want pics of tokyo ghoul")
+    assert intent is not None
+    spec = compile_image_search_query(intent)
+    assert spec.provider_profile != "news_image_search"
+    assert "tokyo ghoul" in spec.primary_query.lower()
+    for noise in ("incident", "rescue", "damage", "emergency"):
+        assert noise not in spec.primary_query.lower()
+
