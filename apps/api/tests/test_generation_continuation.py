@@ -801,6 +801,86 @@ class TestVoiceResponsePlanner:
         assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
         assert text == summary
 
+    def test_closing_offer_survives_a_long_document(self) -> None:
+        """Measured on production: an 8,248-character status answer ended with
+        "### Exploration Paths" and a bullet asking whether he wanted the deep
+        dive. Her voice spoke 694 characters and stopped on a mid-document
+        bullet about colour palettes, so the offer existed on screen but was
+        never said — which is the whole point of asking for it."""
+        from hinaa_api.services import VoiceResponseType, plan_voice_response
+
+        body = (
+            "Hinaa is live on Vercel with a FastAPI companion brain. "
+            "The runtime gates machine-touching tools by request origin. "
+        ) * 30
+        display = (
+            f"## Core Presence\n\n{body}\n\n"
+            "### Exploration Paths\n"
+            "* Would you like to dive deeper into how my tool execution pipeline "
+            "handles multi-step agentic workflows, or shall we explore optimizing "
+            "your current coding project right now?"
+        )
+        spoken = (
+            "Your companion Hina is running end to end. The gateway recovers from "
+            "provider drops and the depth contract holds. Core Presence: Violet-blue "
+            "state palette with a crystalline core, maintaining a warm tone."
+        )
+        assert len(display) > 1_500
+
+        vtype, text = plan_voice_response(display, spoken, is_progress=False)
+        assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
+        assert text.rstrip().endswith("?")
+        assert "Would you like to dive deeper" in text
+        assert "#" not in text and "*" not in text
+        assert len(text) <= 1_500
+
+    def test_a_tangent_question_does_not_outrank_the_report_offer(self) -> None:
+        """Measured on production right after the first fix: the offer she spoke
+        was her *last* question, which happened to be "Would you prefer a
+        focused deep dive into PyTorch performance tuning?" Nothing about a
+        documented report. He asked never to have to request it twice."""
+        from hinaa_api.services import _closing_ask
+
+        display = (
+            "## Status\n\nThe runtime is healthy.\n\n"
+            "### Paths\n"
+            "* Would you like the full documented report on my architecture?\n"
+            "* Would you prefer a focused deep dive into PyTorch performance tuning?"
+        )
+        ask = _closing_ask(display)
+        assert "documented report" in ask.lower()
+        assert "PyTorch" not in ask
+
+    def test_a_thin_summary_is_not_enough_for_a_report(self) -> None:
+        """Measured on production: a 39,503-character / 5,056-word report came
+        back with 398 characters of speech — about 20 seconds for a 40-minute
+        read. Every sentence rule passed, so the only thing that accepted it was
+        chat's 40-character floor."""
+        from hinaa_api.services import VoiceResponseType, plan_voice_response
+
+        report = (
+            "The orchestration layer assigns each subtask to a worker and reconciles "
+            "the results before the reply is composed. " * 200
+        ) + "\n\n### Next\n* Would you like me to go deeper on the orchestration layer?"
+        assert len(report) > 12_000
+        thin = (
+            "Your system is healthy and every layer is operational. The gateway "
+            "recovers from drops and the depth contract holds firmly. "
+            "Shall we examine the concurrency control primitives?"
+        )
+        assert len(thin) < 450
+
+        vtype, text = plan_voice_response(report, thin, is_progress=False)
+        assert vtype == VoiceResponseType.EXECUTIVE_SUMMARY
+        assert len(text) >= 600
+        assert "Would you like me to go deeper on the orchestration layer?" in text
+
+    def test_a_document_without_a_question_keeps_the_canned_sign_off(self) -> None:
+        from hinaa_api.services import plan_voice_response
+
+        vtype, text = plan_voice_response(self._long_doc(), "", is_progress=False)
+        assert text.rstrip().endswith("✨")
+
     def test_long_document_never_repeats_spoken_recitation(self) -> None:
         from hinaa_api.services import VoiceResponseType, plan_voice_response
 

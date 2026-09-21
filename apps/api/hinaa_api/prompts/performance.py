@@ -235,6 +235,22 @@ def extract_executive_voice_summary(text: str, limit: int = 150) -> str:
             last_space = window.rfind(" ")
             spoken = (window[:last_space] if last_space != -1 else window).rstrip(" ,;—") + "…"
 
+    # The document's own summary block is the honest thing to read aloud, but it
+    # is routinely far shorter than the budget it is handed. Measured on
+    # production: a 4,914-word report had a ~250-character TL;DR, so her voice
+    # covered 15s of a 40-minute document with 1,200 characters of budget unused.
+    # Top up with the body prose that follows the block.
+    if match and len(spoken) < int(limit * 0.7):
+        for piece in re.split(r"(?<=[.!?।])\s+", _clean_for_speech(text[match.end():])):
+            sentence = piece.strip()
+            if not sentence or sentence.endswith(":") or len(sentence.split()) < 3:
+                continue
+            if sentence in spoken or len(spoken) + 1 + len(sentence) > limit:
+                continue
+            spoken = f"{spoken} {sentence}" if spoken else sentence
+            if len(spoken) >= int(limit * 0.7):
+                break
+
     return spoken
 
 

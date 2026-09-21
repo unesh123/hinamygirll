@@ -331,6 +331,53 @@ def _speech_safe(text: str) -> str:
     return re.sub(r"\s{2,}", " ", safe).strip()
 
 
+def _closing_ask(display: str) -> str:
+    """The last real question in a document — normally her offer to build the
+    full report or deep-dive next.
+
+    A long answer is spoken from its *first* sentences, so whatever sits at the
+    end is structurally never said. Measured on production: an 8,248-character
+    status answer asked "Would you like the full documented report?" on screen
+    while her voice ended on a mid-document bullet about colour palettes.
+    """
+    if not display:
+        return ""
+    # Split on line breaks as well as terminators: a heading such as
+    # "### Exploration Paths" carries no full stop, so terminator-only splitting
+    # glued it onto the bullet underneath and dragged the literal "\n* " into
+    # what she then read aloud.
+    sentences = [
+        re.sub(r"\s+", " ", piece.lstrip("-*•\u2192>\u00a0 ").strip())
+        for piece in re.split(r"\n+|(?<=[.!?।])\s+", _speech_safe(display))
+    ]
+    questions = [s for s in sentences if s.endswith("?") and len(s) >= 25]
+    if not questions:
+        return ""
+    # He asked to be offered the documented report out loud. When she writes
+    # several questions, the last one can be a tangent ("...or shall we tune
+    # your PyTorch loop?") while the report offer sits above it — so prefer the
+    # last offer that actually names the report, and fall back to the last ask.
+    for sentence in reversed(questions):
+        if re.search(r"\b(report|document|write-up|writeup|brief)\b", sentence, re.I):
+            return sentence
+    return questions[-1]
+
+
+def _with_closing_ask(text: str, display: str, limit: int) -> str:
+    """Append her closing ask to a spoken summary without busting the budget."""
+    ask = _closing_ask(display)
+    if not ask or ask.rstrip("?").strip() in text:
+        return text
+    room = limit - len(ask) - 1
+    if room < 200:
+        return text
+    body = text.strip() if len(text) <= room else (_plain_first_sentences(text, limit=room) or text[:room])
+    body = body.strip()
+    if body and not re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", body):
+        body += "."
+    return f"{body} {ask}" if body else ask
+
+
 def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
     """Clean leaked XML, thinking blocks, and stage directions (*laughs*, *मुस्कुराते हुए*, etc.).
     Returns (cleaned_text, had_laughter_or_smile)."""
@@ -474,9 +521,28 @@ def plan_voice_response(
             return VoiceResponseType.PROGRESS_UPDATE, spoken
         return VoiceResponseType.PROGRESS_UPDATE, "Working on it — I'll have it ready shortly! ✨"
 
+    # Two tiers, one reason: a call has no second surface, so her voice has to
+    # carry the whole answer. ~900 characters is about a minute of fluent
+    # speech, and ~1.4k is about 90s. Note which tier production actually uses:
+    # main.py has one entry into the brain (stream_turn) and stream_turn always
+    # calls create_live_plan, so typed web turns arrive live too — the non-live
+    # tier shapes only the non-streaming path that no route reaches today. Tighten
+    # it and nothing changes on his phone.
+    whole_answer_ceiling = 1_400 if live else 900
+    verbatim_cap = 1_400 if live else 900
+    distill_limit = 1_400 if live else 900
+    summary_limit = 1_200 if live else 900
+
     # Question: Hina asked the user something — never overwrite a question
-    # with a summary, that would erase the ask.
-    if spoken.endswith("?") or (not spoken and display.rstrip().endswith("?")):
+    # with a summary, that would erase the ask. Only while the question really
+    # is the whole answer. A 5,056-word report that happens to close with
+    # "Shall we examine the concurrency primitives?" is an executive summary
+    # with an offer on the end, and this branch used to flatten it to 380
+    # characters: measured on production as 398 spoken characters for what he
+    # asked to hear in full.
+    if len(display) <= whole_answer_ceiling and (
+        spoken.endswith("?") or (not spoken and display.rstrip().endswith("?"))
+    ):
         question = spoken or display
         if any(marker in question for marker in ("```", "\n", "•", "|", "###", "##", "- ")):
             # Falling back to the display text can pull in headings and bullets
@@ -485,17 +551,6 @@ def plan_voice_response(
         if len(question) <= 400:
             return VoiceResponseType.QUESTION, question
         return VoiceResponseType.QUESTION, _truncate_at_clause_boundary(question, 380)
-
-    # Two tiers, one reason: a call has no second surface, so her voice has to
-    # carry the whole answer. In chat he can scroll the document — but he asked
-    # out loud to *hear* her, and the chat tier used to be so tight that a
-    # 930-character summary (exactly what the report-depth prompt asks for) got
-    # thrown away for a 104-character teaser. ~900 characters is about a minute
-    # of fluent speech, and ~1.4k is about 90s.
-    whole_answer_ceiling = 1_400 if live else 900
-    verbatim_cap = 1_400 if live else 900
-    distill_limit = 1_400 if live else 900
-    summary_limit = 1_200 if live else 900
 
     if len(display) <= whole_answer_ceiling:
         # Short conversational turn: keep the model's own voice text when it
@@ -527,7 +582,16 @@ def plan_voice_response(
     # summary measured 187 characters, so any character gate high enough to
     # catch a warm-up also destroys genuine summaries — the sentence rules
     # below are what separate the two.
-    min_substantive_chars = int(summary_limit * 0.5) if live else 40
+    #
+    # That only holds for ordinary turns. For a report-length document the
+    # prompt asks for 600-1,400 characters of summary, and measured on
+    # production she returned 398 for a 5,056-word report: chat's 40-character
+    # floor waved it through and her voice covered 20s of a 40-minute read.
+    report_length_doc = len(display) > 12_000
+    chat_min_substantive_chars = 600 if report_length_doc else 40
+    min_substantive_chars = (
+        int(summary_limit * 0.5) if live else chat_min_substantive_chars
+    )
     min_substantive_sentences = 3 if live else 2
     # Announcing that she is about to read the document is not a summary of it.
     recitation_openers = (
@@ -537,17 +601,20 @@ def plan_voice_response(
         "i'll now read",
         "let me read",
     )
+    substantive_ceiling = 2_400 if live else 1_500
     is_substantive_spoken = (
         len(clean_spoken) >= min_substantive_chars
         and distinct_sentences >= min_substantive_sentences
         and sentence_ends >= min_substantive_sentences
-        and len(clean_spoken) <= (2_400 if live else 1_500)
+        and len(clean_spoken) <= substantive_ceiling
         and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", clean_spoken))
         and not any(marker in clean_spoken for marker in ("```", "\n", "•", "|", "###", "##"))
         and not clean_spoken.lower().startswith(recitation_openers)
     )
     if is_substantive_spoken:
-        return VoiceResponseType.EXECUTIVE_SUMMARY, clean_spoken
+        return VoiceResponseType.EXECUTIVE_SUMMARY, _with_closing_ask(
+            clean_spoken, display, substantive_ceiling
+        )
 
     summary = _plain_first_sentences(display, limit=summary_limit)
     if not summary:
@@ -556,12 +623,16 @@ def plan_voice_response(
         # Truncating here only made her shorter and still left the sentence
         # open, so the sign-off ran straight into it when spoken aloud.
         summary = summary.rstrip() + "."
-    sign_off = (
+    # Ask what she actually wrote at the end of the document; the canned line is
+    # only for when there was no question to keep.
+    sign_off = _closing_ask(display) or (
         "Want me to walk you through the whole thing?"
         if live
         else "The full document is in chat for you! ✨"
     )
-    return VoiceResponseType.EXECUTIVE_SUMMARY, f"{summary} {sign_off}"
+    return VoiceResponseType.EXECUTIVE_SUMMARY, _with_closing_ask(
+        f"{summary} {sign_off}".strip(), display, summary_limit
+    )
 
 
 def _apply_response_quality_guard(

@@ -74,7 +74,11 @@ def response_mode_layer(mode: ResponseMode) -> str:
             "requested report is a real deliverable: at least 5,000 words, and more where the subject "
             "carries it. Never pad to reach that — every section must carry information, and depth "
             "comes from covering sub-topics, evidence, examples and edge cases rather than "
-            "restating the same point."
+            "restating the same point. End the brief with one plain-prose question as the literal "
+            "last sentence, offering the next step he can choose — a walkthrough of a section, a "
+            "deep dive, or the changes applied. No heading, no bullet, no table row after it: her "
+            "voice reads the document from the top, so a closing line written anywhere else is one "
+            "he never hears."
         ),
         "technical": (
             "Act like a senior engineer writing the definitive answer: root cause first, then the "

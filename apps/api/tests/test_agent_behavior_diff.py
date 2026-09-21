@@ -56,6 +56,26 @@ class TestAgentBehaviorDiffHarness:
         assert not summary.startswith("यहाँ पुरा जानकारी छ")
         assert "कोशी" in summary
 
+    def test_short_summary_block_does_not_starve_the_spoken_budget(self) -> None:
+        """Measured on production: a 4,914-word report carried a ~250-character
+        TL;DR, so her voice recited that block and stopped — 15s of speech for a
+        40-minute document while 1,200 characters of budget went unused."""
+        body = " ".join(
+            f"The routing layer dispatches request {i} across the configured brains with measured fallbacks."
+            for i in range(20)
+        )
+        text = (
+            "# Report\n\n"
+            "## TL;DR\n\n"
+            "Hinaa is a routed multi-brain companion system.\n\n"
+            "## Architecture\n\n"
+            f"{body}\n"
+        )
+        summary = extract_executive_voice_summary(text, limit=1_200)
+        assert "routed multi-brain companion system" in summary
+        assert "routing layer dispatches" in summary
+        assert 600 <= len(summary) <= 1_200
+
     def test_adaptive_stream_decoder_prose_stream(self) -> None:
         """Invariant: Markdown prose deltas must stream directly without corruption."""
         decoder = AdaptiveStreamDecoder()
