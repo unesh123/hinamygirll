@@ -3322,20 +3322,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 stream_iter = service.stream_turn(
                     body, request.state.correlation_id, user_id=user_id
                 ).__aiter__()
-                deadline = (
-                    time.time() + agent_runtime.run_timeout
+                # Liveness decides, not wall clock. A documented report is a long
+                # generation, and a recovery chain that has to hand the turn to a
+                # second or third brain spends minutes doing it. The fixed deadline
+                # here killed that work mid-flight: measured on production, a report
+                # run died at exactly run_timeout (300s) while its claude fallback was
+                # returning HTTP 200s. The provider stream layer one level down already
+                # uses an idle timeout plus an absolute ceiling, so this layer matches it
+                # instead of running its own stricter wall clock.
+                run_budget = (
+                    agent_runtime.run_timeout
                     if (agent_run and agent_runtime and getattr(agent_runtime, "run_timeout", None))
+                    else None
+                )
+                idle_timeout = (
+                    min(run_budget, active_settings.llm_stream_idle_timeout_seconds)
+                    if run_budget is not None
+                    else None
+                )
+                ceiling_at = (
+                    time.time() + max(active_settings.llm_stream_ceiling_seconds, idle_timeout)
+                    if idle_timeout is not None
                     else None
                 )
                 while True:
                     try:
-                        if deadline is not None:
-                            remaining = deadline - time.time()
-                            if remaining <= 0:
-                                raise TimeoutError()
-                            event = await asyncio.wait_for(stream_iter.__anext__(), timeout=max(0.001, remaining))
-                        else:
+                        if idle_timeout is None:
                             event = await stream_iter.__anext__()
+                        else:
+                            time_left = ceiling_at - time.time()
+                            if time_left <= 0:
+                                raise TimeoutError()
+                            event = await asyncio.wait_for(
+                                stream_iter.__anext__(),
+                                timeout=max(0.001, min(idle_timeout, time_left)),
+                            )
                     except StopAsyncIteration:
                         break
                     except (TimeoutError, asyncio.TimeoutError):
