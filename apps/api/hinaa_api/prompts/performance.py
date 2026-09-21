@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from ..models import AssistantTurnPlan, CompanionId, Emotion, Language, Performance
+from ..providers.display_stream_decoder import strip_simulated_tool_calls
 from .models import ResponseDepth
 
 EMOTION_ALLOWLIST = (
@@ -276,10 +277,13 @@ def build_plan_from_text(
     valid_langs = {"en-US", "hi-IN", "ne-NP", "mixed"}
     lang_map = {"en": "en-US", "hi": "hi-IN", "ne": "ne-NP", "english": "en-US", "hindi": "hi-IN", "nepali": "ne-NP"}
     resolved_lang: Language = lang_map.get(str(language).lower(), language if language in valid_langs else "mixed")  # type: ignore[assignment]
+    # Drop invented tool-call markup with its contents: the real call runs
+    # through the tool pipeline, so keeping the text inside it would leave a
+    # second copy of the prompt where the result card already shows one.
     cleaned = re.sub(
         r"</?(?:spokenText|displayText|think|thought|content|message)[^>]*>",
         "",
-        text,
+        strip_simulated_tool_calls(text),
         flags=re.IGNORECASE,
     )
     cleaned = re.sub(

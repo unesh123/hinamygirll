@@ -39,6 +39,7 @@ __all__ = [
     "JsonDisplayTextLocator",
     "DisplayTextChain",
     "AdaptiveStreamDecoder",
+    "strip_simulated_tool_calls",
     "decode_display_field",
     "decode_all_display_fields",
     "DISPLAY_KEY_PATTERN",
@@ -456,3 +457,38 @@ class AdaptiveStreamDecoder:
             self._prefix_buffer = ""
             return out
         return ""
+
+
+# Markup a model writes when it pretends to call a tool in prose. The real call
+# goes through the tool pipeline, so anything of this shape in the answer is
+# noise that duplicates the card the user is already shown.
+_SIMULATED_TOOL_CALL_PATTERN = re.compile(
+    r"<\s*(tool_?calls?|function_calls?|antml:tool_use)\b[^>]*>.*?"
+    r"<\s*/\s*\1\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
+_STRAY_TOOL_TAG_PATTERN = re.compile(
+    r"<\s*/?\s*(?:tool_?calls?|function_calls?|antml:tool_use)\b[^>]*>?",
+    re.IGNORECASE,
+)
+
+
+def strip_simulated_tool_calls(text: str) -> str:
+    """Remove tool-call markup a model wrote into its answer.
+
+    Runs over the assembled answer, not a stream delta: an unbalanced tag
+    fragment cannot be told apart from real text until the text is complete.
+    Code fences are left alone — when the user asks for an example of this
+    markup, the markup is the answer.
+    """
+    if "<" not in text:
+        return text
+    parts = text.split("```")
+    # Even indexes sit outside a fence; odd indexes are fenced code samples.
+    scrubbed = [
+        part
+        if index % 2
+        else _STRAY_TOOL_TAG_PATTERN.sub("", _SIMULATED_TOOL_CALL_PATTERN.sub("", part))
+        for index, part in enumerate(parts)
+    ]
+    return "```".join(scrubbed)

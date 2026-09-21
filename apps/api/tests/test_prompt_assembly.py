@@ -508,6 +508,40 @@ def test_build_plan_from_text_validates() -> None:
     assert plan.performance.gesture == "wave" or plan.performance.gesture == "small_nod"
 
 
+def test_invented_tool_call_markup_never_reaches_his_eyes() -> None:
+    """Measured in production: the flash-tier brain that answered an image
+    request wrote its own ``<tool_calls>`` block repeating the prompt, right
+    next to the real image card. The real call goes through the tool pipeline,
+    so this markup is noise — but a code sample the user asked for is not."""
+    leaked = (
+        "Alright babe, let me create that image for you!\n\n"
+        "<tool_calls> A red fox sitting in the rain at night, cinematic "
+        "lighting, photorealistic, 8k </tool_calls>\n\n"
+        "The image is generating now — it will be a striking scene!"
+    )
+
+    plan = build_plan_from_text(
+        text=leaked,
+        companion_id="hinaa",
+        language="en-US",
+        depth="conversational",
+    )
+
+    for field in (plan.displayText, plan.spokenText):
+        assert "tool_calls" not in field
+        assert "A red fox sitting in the rain" not in field
+    assert plan.displayText.startswith("Alright babe, let me create that image")
+    assert "The image is generating now" in plan.displayText
+
+    sample = build_plan_from_text(
+        text="Here is the format:\n```xml\n<tool_calls>get_weather</tool_calls>\n```",
+        companion_id="hinaa",
+        language="en-US",
+        depth="explanatory",
+    )
+    assert "<tool_calls>get_weather</tool_calls>" in sample.displayText
+
+
 def test_hinaa_humanization_keeps_engaging_tone_and_safe_local_agency() -> None:
     assert "Ask smart, engaging follow-up questions to understand him better" in HINAA_IDENTITY
     assert "take the next useful step yourself" in HINAA_IDENTITY

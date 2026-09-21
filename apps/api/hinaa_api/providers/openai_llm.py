@@ -717,6 +717,8 @@ class OpenAILLMProvider:
     def _provider_label(self) -> str:
         if self._provider_id == "cx-gateway":
             return "CX gateway"
+        if self._provider_id == "codecraft":
+            return "CodeCraft"
         if self._provider_id == "custom":
             return "Custom model gateway"
         if self._provider_id == "claude":
