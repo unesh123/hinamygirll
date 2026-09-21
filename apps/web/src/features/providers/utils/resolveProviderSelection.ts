@@ -70,19 +70,32 @@ export function resolveVoiceRoute(
   };
 }
 
+/**
+ * Ranked by answer quality. Health comes from /api/v1/providers, which reports
+ * what live calls proved, so a brain its gateway rejects is skipped outright.
+ */
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "cx-gateway",
   "claude",
   "codecraft",
+  "custom",
   "real",
   "qwen",
   "openai",
-  "custom",
   "agent-router",
   "ollama",
   "local",
   "mock",
 ];
+
+function firstHealthyMode(
+  providers: ProvidersState,
+): ConcreteProviderMode | null {
+  for (const mode of AUTO_PRIORITY) {
+    if (providers.getHealth(mode) === "healthy") return mode;
+  }
+  return null;
+}
 
 function resolveCurrentModel(
   mode: ConcreteProviderMode,
@@ -122,17 +135,12 @@ export function resolveProviderSelection(
     // no longer configured on this deployment, recover to deterministic mock
     // mode rather than surfacing a provider-configuration error in chat.
     if (providers.loaded && (health === "unavailable" || health === "disabled")) {
-      // Recover to a live real brain when one exists (CX Gateway first) instead of
-      // the canned mock responder, so a persisted-but-now-unreachable provider
-      // still answers with a genuine model. Mock remains the last resort.
+      // Recover to the strongest brain whose live calls actually work (the same
+      // capability order `auto` uses) instead of the canned mock responder, so a
+      // persisted-but-now-unreachable provider still answers with a genuine model.
+      // Mock remains the last resort.
       const recoveryMode: ConcreteProviderMode =
-        providers.getHealth("claude") === "healthy"
-          ? "claude"
-          : providers.getHealth("cx-gateway") === "healthy"
-            ? "cx-gateway"
-            : providers.getHealth("real") === "healthy"
-              ? "real"
-              : "mock";
+        firstHealthyMode(providers) ?? "mock";
       const recoveryModel =
         recoveryMode !== "mock"
           ? resolveCurrentModel(
@@ -161,21 +169,20 @@ export function resolveProviderSelection(
 
   // 2. Automatic selection — only after providers have loaded
   if (providers.loaded) {
-    for (const mode of AUTO_PRIORITY) {
-      if (providers.getHealth(mode) === "healthy") {
-        const model = resolveCurrentModel(
-          mode,
-          models[mode as keyof typeof models],
-          providers,
-        );
-        return {
-          preferredMode: "auto",
-          activeMode: mode,
-          activeModel: model,
-          providersLoaded: true,
-          reason: mode === AUTO_PRIORITY[0] ? "automatic-primary" : "automatic-fallback",
-        };
-      }
+    const selected = firstHealthyMode(providers);
+    if (selected !== null) {
+      const model = resolveCurrentModel(
+        selected,
+        models[selected as keyof typeof models],
+        providers,
+      );
+      return {
+        preferredMode: "auto",
+        activeMode: selected,
+        activeModel: model,
+        providersLoaded: true,
+        reason: selected === AUTO_PRIORITY[0] ? "automatic-primary" : "automatic-fallback",
+      };
     }
   }
 
