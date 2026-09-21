@@ -238,12 +238,12 @@ export function MagnificImageStudio({ onClose, storageScope }: MagnificImageStud
         failures = 0;
         if (Array.isArray(result.slots)) setSlots(normalizeSlots(result.slots));
         if (typeof result.renderer === "string") setRenderer(result.renderer);
-        if (result.status === "success" || result.status === "partial") {
-          const done = Number(result.completed ?? result.images?.length ?? 0);
+        if (result.status === "completed" || result.status === "success" || result.status === "partial") {
+          const done = Array.isArray(result.images) ? result.images.length : Number(result.completed ?? 0);
           setWatching(false);
           setStatus(done > 0 ? "done" : "error");
-          setMessage(done === 0 ? "The job ended without a downloadable image." : result.status === "partial"
-            ? `${done} of ${result.total ?? done} images are ready — some slots failed.`
+          setMessage(done === 0 ? "The job ended without a downloadable image." : typeof result.error === "string" && result.error
+            ? `${done} of ${result.total ?? done} images are ready — ${result.error}.`
             : `${done} image${done === 1 ? "" : "s"} ready in your studio.`);
           return;
         }
@@ -254,7 +254,8 @@ export function MagnificImageStudio({ onClose, storageScope }: MagnificImageStud
           return;
         }
         const active = (result.slots as Slot[] | undefined)?.find((s) => s.status === "processing");
-        setMessage(active ? `Rendering image ${active.index} of ${result.total ?? "?"}…` : `Generating ${result.completed ?? 0}/${result.total ?? "?"}…`);
+        const ready = Array.isArray(result.images) ? result.images.length : Number(result.completed ?? 0);
+        setMessage(active ? `Rendering image ${active.index} of ${result.total ?? "?"}…` : `Generating ${ready}/${result.total ?? "?"}…`);
       } catch {
         if (controller.signal.aborted) return;
         failures += 1;

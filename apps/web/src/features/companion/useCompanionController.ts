@@ -692,16 +692,23 @@ export function useCompanionController({ conversationId, routing, languagePolicy
                 const pollResponse = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(payload.job_id)}`);
                 const progress = await pollResponse.json();
                 if (!pollResponse.ok) continue;
+                // The route answers "processing" | "completed" | "failed".
+                const phase = progress.status === "completed"
+                  ? "complete" as const
+                  : progress.status === "failed" ? "error" as const : "running" as const;
+                const reason = typeof progress.error === "string" && progress.error.trim()
+                  ? progress.error.trim()
+                  : request.toolName;
                 setMessages((current) => current.map((message) => message.id === messageId ? {
                   ...message,
                   toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: progress }],
                   toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
                     ...activity,
-                    status: progress.status === "success" ? "complete" : progress.status === "error" ? "error" : "running",
-                    label: progress.status === "success" ? `Completed: ${request.toolName}` : progress.status === "error" ? `Failed: ${request.toolName}` : `Working locally: ${request.toolName}`,
+                    status: phase,
+                    label: phase === "complete" ? `Completed: ${request.toolName}` : phase === "error" ? `Failed: ${reason}` : `Working locally: ${request.toolName}`,
                   } : activity),
                 } : message));
-                if (progress.status === "success" || progress.status === "error") return;
+                if (phase !== "running") return;
               } catch {
                 // Keep the last known progress visible; the next poll may recover.
               }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import time
 
@@ -79,6 +80,42 @@ def test_image_poll_is_owner_scoped(client):
         session.commit()
     assert client.get("/v1/tools/poll?job_id=private-job", headers={"X-HINAA-Dev-User": "alice"}).status_code == 200
     assert client.get("/v1/tools/poll?job_id=private-job", headers={"X-HINAA-Dev-User": "bob"}).status_code == 404
+
+
+def test_image_poll_completed_reports_its_images_prompt_and_mode(client, tmp_path):
+    """The web card re-renders from every poll body, so a finished job must keep
+    saying which prompt and mode it ran; without these fields the card claims a
+    placeholder prompt instead of the request it actually served."""
+    owner = client.get("/v1/workspace/identity", headers={"X-HINAA-Dev-User": "alice"}).json()["userId"]
+    image_file = tmp_path / "done.png"
+    image_file.write_bytes(base64.b64decode(PNG_DATA_URL.split(",", 1)[1]))
+    with get_session_factory(client.app.state.settings)() as session:
+        session.add(GenerationSet(id="done-job", user_id=owner, prompt="rainy Tokyo alley", workflow_mode="ultra"))
+        session.add(ImageJob(
+            id="img-done-1", generation_set_id="done-job", seed=7, status="completed",
+            file_path=str(image_file), width=1024, height=1536,
+        ))
+        session.commit()
+    body = client.get("/v1/tools/poll?job_id=done-job", headers={"X-HINAA-Dev-User": "alice"}).json()
+    assert body["status"] == "completed"
+    assert body["images"] == ["/api/v1/generated-images/img-done-1"]
+    assert body["prompt"] == "rainy Tokyo alley"
+    assert body["mode"] == "ultra"
+    assert body["error"] is None
+
+
+def test_image_poll_failure_names_the_job_that_broke(client):
+    """A failed set has to carry a real reason: the client surfaces this string so
+    a broken render says which image failed instead of restating the tool name."""
+    owner = client.get("/v1/workspace/identity", headers={"X-HINAA-Dev-User": "alice"}).json()["userId"]
+    with get_session_factory(client.app.state.settings)() as session:
+        session.add(GenerationSet(id="broken-job", user_id=owner, prompt="lighthouse", workflow_mode="fast"))
+        session.add(ImageJob(id="img-broken-1", generation_set_id="broken-job", seed=3, status="failed"))
+        session.commit()
+    body = client.get("/v1/tools/poll?job_id=broken-job", headers={"X-HINAA-Dev-User": "alice"}).json()
+    assert body["status"] == "failed"
+    assert body["images"] == []
+    assert body["error"] == "Image 1 failed"
 
 
 def test_runtime_project_resume_keeps_workspace_run_live(client):

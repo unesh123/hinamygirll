@@ -33,9 +33,12 @@ describe("MagnificImageStudio", () => {
       }
       if (url.includes("/api/v1/tools/poll?job_id=set-9")) {
         return jsonResponse({
-          status: "success",
-          completed: 1,
+          id: "set-9",
+          status: "completed",
           total: 1,
+          prompt: "a cat",
+          mode: "quality",
+          error: null,
           images: ["http://127.0.0.1:8000/v1/generated-images/abc"],
           slots: [
             { id: "abc", index: 1, status: "completed", seed: 7, url: "http://127.0.0.1:8000/v1/generated-images/abc" },
@@ -146,10 +149,32 @@ describe("MagnificImageStudio", () => {
   it("does not call a completed job without artifacts a successful generation", async () => {
     localStorage.setItem("hinaa.image-studio.job:alice", "empty-job");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).includes("tools/poll")
-      ? jsonResponse({ status: "success", completed: 0, slots: [], images: [] })
+      ? jsonResponse({ id: "empty-job", status: "completed", total: 0, images: [], slots: [], error: null })
       : jsonResponse({ renderer: "none", state: "offline", setup: [] })));
     render(<MagnificImageStudio storageScope="alice" />);
     expect(await screen.findByText("The job ended without a downloadable image.")).toBeInTheDocument();
     expect(screen.queryByText(/0 images ready/)).not.toBeInTheDocument();
+  });
+
+  it("stops watching a partially failed job and says which output broke", async () => {
+    localStorage.setItem("hinaa.image-studio.job:alice", "set-partial");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).includes("tools/poll")
+      ? jsonResponse({
+        id: "set-partial",
+        status: "completed",
+        total: 2,
+        images: ["/api/v1/generated-images/one"],
+        slots: [
+          { id: "one", index: 1, status: "completed", seed: 4, url: "/api/v1/generated-images/one" },
+          { id: "two", index: 2, status: "failed", seed: 5, url: null },
+        ],
+        error: "Image 2 failed",
+      })
+      : jsonResponse({ renderer: "none", state: "offline", setup: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MagnificImageStudio storageScope="alice" />);
+    expect(await screen.findByText("1 of 2 images are ready — Image 2 failed.")).toBeInTheDocument();
+    await new Promise((resolve) => window.setTimeout(resolve, 1_800));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("tools/poll"))).toHaveLength(1);
   });
 });

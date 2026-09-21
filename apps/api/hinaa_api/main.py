@@ -2170,6 +2170,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "images": images,
                 "slots": slots,
                 "total": len(jobs),
+                "prompt": gen_set.prompt,
+                "mode": gen_set.workflow_mode,
                 "error": " | ".join(failures) if failures else None,
             }
 

@@ -157,19 +157,20 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
         if (!poll.ok) throw new Error(result?.message || "Could not read image progress.");
         setImages(result.images || []);
         if (Array.isArray(result.slots)) setSlots(result.slots);
-        if (result.status === "success" || result.status === "partial") {
+        if (result.status === "completed" || result.status === "success" || result.status === "partial") {
           setState("complete");
-          const completed = Number(result.completed ?? result.images?.length ?? 0);
-          const total = Number(result.total ?? completed);
-          setMessage(result.status === "partial"
-            ? `${completed} of ${total} images are ready. ${result.error || "Some outputs did not finish."}`
+          const completed = Array.isArray(result.images) ? result.images.length : Number(result.completed ?? 0);
+          const total = Number(result.total ?? completed) || completed;
+          setMessage(typeof result.error === "string" && result.error
+            ? `${completed} of ${total} images are ready. ${result.error}`
             : `${completed} image${completed === 1 ? "" : "s"} ready.`);
           return;
         }
         if (result.status === "error" || result.status === "failed") throw new Error(result.error || "The local image workflow failed.");
         const activeSlot = Array.isArray(result.slots) ? result.slots.find((slot: ImageSlot) => slot.status === "processing") : undefined;
+        const ready = Array.isArray(result.images) ? result.images.length : 0;
         setMessage(result.total
-          ? `Generating ${Number(result.completed ?? result.images?.length ?? 0)} of ${result.total} image outputs${activeSlot ? ` — image ${activeSlot.index} is running` : ""}…`
+          ? `Generating ${ready} of ${result.total} image outputs${activeSlot ? ` — image ${activeSlot.index} is running` : ""}…`
           : "Generating image…");
       }
       if (!abortRef.current) throw new Error("The image job took too long. Check that ComfyUI is running locally.");
