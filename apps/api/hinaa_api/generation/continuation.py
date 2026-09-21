@@ -183,7 +183,12 @@ _MID_WORD_RE = re.compile(r"[A-Za-z\u0900-\u097F]$")
 _STRUCTURAL_TAIL_RE = re.compile(
     r"(?:\n#{1,6}\s+[^\n]*$|\n(?:[-*+]|\d+\.)\s*$|\n>\s*$)"
 )
-_TERMINAL_PUNCT_RE = re.compile(r"[.!?:;\u0964\u0965]\s*$")
+# A trailing wavy dash closes a sentence in the register she writes in. Without
+# it, "…for you right now~" read as truncated and cost three more provider
+# calls that each restarted with a fresh greeting.
+_TERMINAL_PUNCT_RE = re.compile(r"[.!?:;~〜～\u0964\u0965]\s*$")
+# Any sentence that ended properly anywhere in the answer, not just at its tail.
+_COMPLETE_SENTENCE_RE = re.compile(r"[.!?:;~〜～\u0964\u0965](?:\s|$)")
 
 
 def _count_unbalanced(text: str) -> tuple[int, int]:
@@ -386,7 +391,11 @@ def detect_continuation_need(
                 )
 
     # 7. Structural Incompleteness
-    if _MID_WORD_RE.search(tail):
+    # A chat turn with no length to chase that already contains a sentence which
+    # ended properly is finished, even where the tail carries no terminator:
+    # measured, this shape ran 9 segments and still ended "max segments reached".
+    casual_turn_finished = min_words <= 0 and bool(_COMPLETE_SENTENCE_RE.search(text))
+    if _MID_WORD_RE.search(tail) and not casual_turn_finished:
         evidence.mid_word = True
         reasons.append(
             ContinuationNeeded(ContinuationReason.INCOMPLETE_SENTENCE, "ends mid-word")
@@ -442,7 +451,7 @@ def detect_continuation_need(
     evidence.conversational_closing = is_closing
 
     has_terminal_punct = bool(cleaned_tail and _TERMINAL_PUNCT_RE.search(cleaned_tail))
-    if not has_terminal_punct and not evidence.mid_word:
+    if not has_terminal_punct and not evidence.mid_word and not casual_turn_finished:
         # If closing phrase matched, it can only confirm completion when NO stronger reason exists
         if is_closing:
             # Closing confirmed only when natural stop, no missing sections, no max tokens, no open fence

@@ -53,6 +53,71 @@ class TestDetectContinuationNeed:
         assert not decision.continue_needed
         assert decision.status == ContinuationStatus.COMPLETED
 
+    def test_a_wavy_dash_closes_a_casual_reply(self) -> None:
+        """Measured: a casual turn ended "…for you right now~", carried no
+        terminal punctuation by the old rule, and the orchestrator spent three
+        more provider calls writing a fresh greeting each time."""
+        for tail in (
+            "I'll get those Tokyo Ghoul pics for you right now~",
+            "今から探してくるね〜",
+            "One sec for the wallpapers～",
+        ):
+            decision = detect_continuation_need(
+                text=tail,
+                finish_reason="STOP",
+                char_budget=100_000,
+                segment_number=1,
+                max_segments=5,
+            )
+            assert not decision.continue_needed, tail
+
+    def test_a_word_cut_in_half_still_continues(self) -> None:
+        decision = detect_continuation_need(
+            text="Here are the Tokyo Ghoul pictur",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=5,
+        )
+        assert decision.continue_needed
+
+    def test_an_unfinished_casual_tail_does_not_buy_another_call(self) -> None:
+        """Measured: a 62-word chat reply ran 9 segments and ended TRUNCATED on
+        "max segments budget reached" because its tail never carried a full stop
+        while no length contract existed to satisfy."""
+        text = "Let me search that for you right now, babe!  Here are the pics for Tokyo Ghoul"
+        decision = detect_continuation_need(
+            text=text,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=5,
+        )
+        assert not decision.continue_needed
+
+    def test_the_same_tail_still_continues_when_a_contract_is_unmet(self) -> None:
+        text = "Let me search that for you right now, babe!  Here are the pics for Tokyo Ghoul"
+        decision = detect_continuation_need(
+            text=text,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=5,
+            min_words=4_900,
+        )
+        assert decision.continue_needed
+        assert ContinuationReason.INCOMPLETE_SENTENCE in decision.reason_ids
+
+    def test_a_casual_reply_with_no_finished_sentence_still_continues(self) -> None:
+        decision = detect_continuation_need(
+            text="Right so the reason that reply kept going was",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=5,
+        )
+        assert decision.continue_needed
+
     def test_finish_reason_max_tokens_triggers_continuation(self) -> None:
         text = "The architecture layer handles retrieval, and the memory subsystem"
         decision = detect_continuation_need(
