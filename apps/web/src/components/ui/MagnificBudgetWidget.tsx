@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { Sparkles, Calendar, Zap, RefreshCw, ShieldCheck, Layers, ExternalLink } from "lucide-react";
 
 interface BudgetStatus {
@@ -31,7 +32,7 @@ export function MagnificBudgetWidget() {
     setError(null);
     try {
       const res = await fetch("/api/v1/creative/budget", {
-        headers: { "X-HINAA-Dev-User": "local-web-user" },
+        headers: { "X-HINAA-Dev-User": HINAA_DEV_USER },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: BudgetStatus = await res.json();
@@ -58,7 +59,7 @@ export function MagnificBudgetWidget() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-HINAA-Dev-User": "local-web-user",
+          "X-HINAA-Dev-User": HINAA_DEV_USER,
         },
         body: JSON.stringify({ balance: val }),
       });

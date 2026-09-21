@@ -55,6 +55,15 @@ def test_remember_list_forget_and_isolation() -> None:
         )
 
 
+def test_privacy_routes_refuse_anonymous_callers() -> None:
+    """The public URL used to answer these as the owner with no credential at all."""
+    with _app_client() as client:
+        for path in ("/v1/privacy/status", "/v1/privacy/memories", "/v1/privacy/export"):
+            anonymous = client.get(path)
+            assert anonymous.status_code == 401, path
+            assert anonymous.json()["code"] == "AUTH_REQUIRED", path
+
+
 def test_sensitive_and_disabled_memory_blocked() -> None:
     with _app_client() as client:
         headers = {"X-HINAA-Dev-User": "carol"}

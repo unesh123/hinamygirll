@@ -59,5 +59,11 @@ def client(settings: Settings) -> TestClient:
     # tools/policy.py denies machine-touching tools to public-origin requests,
     # and "testserver" reads as one. tests/test_tool_policy.py passes an explicit
     # host header to cover both origins.
-    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as value:
+    # The dev identity header mirrors what the frontend sends: dev mode rejects
+    # anonymous callers, so private-data routes need a named subject.
+    with TestClient(
+        create_app(settings),
+        base_url="http://127.0.0.1:8000",
+        headers={"X-HINAA-Dev-User": "test-local-user"},
+    ) as value:
         yield value

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   ThumbsUp,
@@ -39,13 +39,6 @@ import { PowerUpMentions, type ContextItem, type CommandItem } from "../../compo
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
-
-
-const ActivityPanel = lazy(() =>
-  import("../../components/ui/ActivityPanel").then((m) => ({
-    default: m.ActivityPanel,
-  }))
-);
 
 
 /* Local command registry fallback - used when /api/v1/commands is unavailable.
@@ -352,17 +345,6 @@ export function WorkMode({
   const handleRemoveChip = useCallback((id: string) => {
     setContextChips((prev) => {
       const next = prev.filter((c) => c.id !== id);
-      try {
-        localStorage.setItem("hinaa_context_chips", JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }, []);
-
-  const handleAddChip = useCallback((chip: ContextChip) => {
-    setContextChips((prev) => {
-      if (prev.some((c) => c.id === chip.id)) return prev;
-      const next = [...prev, chip];
       try {
         localStorage.setItem("hinaa_context_chips", JSON.stringify(next));
       } catch {}
@@ -710,7 +692,9 @@ export function WorkMode({
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <SearchingLoader visible={Boolean(isSearching)} query={searchQuery} />
+          {/* Duplicate of the inline research card below, and the phone header
+              row cannot fit it without clipping it at the screen edge. */}
+          {!isMobile && <SearchingLoader visible={Boolean(isSearching)} query={searchQuery} />}
           {!isMobile && avatarModel && dockMode === "hidden" && (
             <button
               type="button"
@@ -1025,17 +1009,6 @@ export function WorkMode({
             </div>
           )}
 
-          {/* Activity */}
-          {agentSteps.length > 0 && (
-            <Suspense fallback={null}>
-              <ActivityPanel
-                steps={agentSteps}
-                title="Execution"
-                mode="execution"
-              />
-            </Suspense>
-          )}
-
           {/* Welcome */}
           {showWelcome && <WorkWelcome onAction={onWelcomeAction} />}
 
@@ -1044,6 +1017,18 @@ export function WorkMode({
             messages.map((msg) => (
               <WorkMessage key={msg.id} message={msg} />
             ))}
+
+          {/* Execution progress — inline in the thread, between the trigger and
+           * the answer it produced. */}
+          <AgentActivityCard
+            isActive={isThinking}
+            steps={convertedActivitySteps}
+            onCancel={currentAgentRunId ? onCancelAgentRun : onStop}
+            onResume={currentAgentRunId ? onResumeAgentRun : undefined}
+            onConfirm={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(true) : undefined}
+            onReject={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(false) : undefined}
+            onRecover={currentAgentRunId ? onRecoverAgentRun : undefined}
+          />
 
           {/* Web Search Live Research Animation Card */}
           {isSearching && (
@@ -1101,7 +1086,7 @@ export function WorkMode({
           <button
             type="button"
             data-testid="jump-to-bottom-button"
-            onClick={() => scrollToBottom("smooth")}
+            onClick={() => scrollToBottom()}
             style={{
               position: "absolute",
               bottom: 16,
@@ -1144,19 +1129,9 @@ export function WorkMode({
           background: "var(--bg-surface)",
         }}
       >
-        {/* Agent Activity Card (Pulsing multi-stage progress, animated spinner, elapsed timer) */}
-        <AgentActivityCard
-          isActive={isThinking}
-          steps={convertedActivitySteps}
-          onCancel={currentAgentRunId ? onCancelAgentRun : onStop}
-          onResume={currentAgentRunId ? onResumeAgentRun : undefined}
-          onConfirm={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(true) : undefined}
-          onReject={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(false) : undefined}
-          onRecover={currentAgentRunId ? onRecoverAgentRun : undefined}
-        />
-
-        {/* Provider micro-status */}
-        {(activeProviderMode || activeProviderModel) && (
+        {/* Provider micro-status — the composer's own model chip already shows
+            this on a phone, where 42px of transcript is worth more than a repeat. */}
+        {!isMobile && (activeProviderMode || activeProviderModel) && (
           <div
             data-testid="provider-micro-status"
             style={{
@@ -1294,6 +1269,7 @@ export function WorkMode({
 
         {/* Frontier V6 Composer */}
         <ComposerV6
+          compact={isMobile}
           value={input}
           onChange={(val) => {
             onInputChange(val);
@@ -1326,7 +1302,6 @@ export function WorkMode({
           onVoiceToggle={isVoiceActive ? onStopVoice : onStartVoice}
           contextChips={contextChips}
           onRemoveChip={handleRemoveChip}
-          onAddChip={handleAddChip}
           activeTopic={activeTopic}
           onClearTopic={() => setLocalTopic("")}
           activeModel={activeProviderModel || "gemini-2.5-flash"}
@@ -1351,15 +1326,7 @@ export function WorkMode({
             onImageAttach(dataUrl);
             if (onUpdateAttachmentRole && role) onUpdateAttachmentRole(role);
           }}
-          onSelectArtifact={(type) => {
-            if (type === "image") {
-              onInputChange("/image ");
-            } else if (type === "code") {
-              onInputChange("/code ");
-            } else {
-              onInputChange(`Create a comprehensive ${type} for: `);
-            }
-          }}
+          onSelectArtifact={(command) => onInputChange(`${command} `)}
         />
       </div>
         </>
@@ -1513,6 +1480,19 @@ function WorkMessage({
           wordBreak: "break-word",
         }}
       >
+        {isUser && message.imageUrl && (
+          <img
+            src={message.imageUrl}
+            alt="Your attached image"
+            style={{
+              display: "block",
+              maxWidth: 220,
+              width: "100%",
+              borderRadius: 10,
+              marginBottom: message.text ? 8 : 0,
+            }}
+          />
+        )}
         {isUser ? message.text : <ResponseEnvelopeRenderer rawText={message.text} />}
         {isStreaming && (
           <span

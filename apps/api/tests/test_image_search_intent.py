@@ -150,6 +150,17 @@ def test_mikasa_raw_command_noise_is_not_echoed_into_search_query():
     assert plan.displayText == "Found 6 relevant Mikasa Ackerman images."
 
 
+def test_slash_image_search_command_token_never_reaches_the_vendor():
+    """Measured before the fix: '/image_search sakura anime wallpaper' was
+    compiled into the vendor query '/Imagesearch Sakura Anime', so every
+    provider searched for the word 'imagesearch' instead of the subject.
+    """
+    assert browser.clean_image_query("/image_search sakura anime wallpaper") == "sakura anime wallpaper"
+    assert browser.clean_image_query("/imagesearch Vite logo transparent") == "Vite logo transparent"
+    assert browser.clean_image_query("/image search sakura") == "sakura"
+    assert browser.clean_image_query("sakura wallpaper") == "sakura wallpaper"
+
+
 def test_image_search_relevance_verifier_drops_unrelated_stock_results(monkeypatch):
     async def fake_safebooru(query: str, count: int = 6):
         return [

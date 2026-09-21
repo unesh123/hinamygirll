@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BackendConversationProvider } from "./backendConversationProvider";
+import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { buildMockPlan } from "./mockConversationProvider";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -126,5 +127,31 @@ describe("backend conversation provider", () => {
       language: "en-US",
     });
     expect("responseMode" in inferred).toBe(false);
+  });
+
+  it("identifies the owner on the turn request", async () => {
+    // The backend refuses anonymous private-data access, and turns are what
+    // attach durable memory, so an unnamed request silently recalls nothing.
+    const body = `${JSON.stringify({ type: "plan", plan: buildMockPlan("hello", "hinaa") })}\n`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "application/x-ndjson" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new BackendConversationProvider("claude");
+    for await (const _event of provider.streamTurn({
+      text: "hello",
+      companionId: "hinaa",
+      signal: new AbortController().signal,
+      language: "en-US",
+    })) {
+      // Consume the stream.
+    }
+
+    const headers = new Headers(fetchMock.mock.lastCall[1].headers);
+    expect(headers.get("X-HINAA-Dev-User")).toBe(HINAA_DEV_USER);
   });
 });

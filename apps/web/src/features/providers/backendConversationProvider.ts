@@ -1,4 +1,5 @@
 import { parseAssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import type {
   AgentRuntimeEvent,
   ConversationProvider,
@@ -121,6 +122,7 @@ export class BackendConversationProvider implements ConversationProvider {
         headers: {
           "Content-Type": "application/json",
           "bypass-tunnel-reminder": "true",
+          ...hinaaIdentityHeaders(),
         },
         body: JSON.stringify(payload),
         signal: request.signal,

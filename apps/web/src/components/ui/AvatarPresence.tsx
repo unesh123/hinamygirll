@@ -122,6 +122,15 @@ const VRM_PRESET: Record<MouthKey, VRMExpressionPresetName> = {
   oh: VRMExpressionPresetName.Oh,
 };
 
+// Older rigs spelled the same blend shapes with VRM 0.x authoring names. A
+// write only reaches the mesh through whichever spelling the file registered,
+// so the setter tries both. Module scope: the frame loop asks on every write.
+const PRESET_ALIASES: Record<string, string> = {
+  aa: "a", ih: "i", ou: "u", ee: "e", oh: "o",
+  happy: "joy", sad: "sorrow", relaxed: "fun",
+  blinkLeft: "blink_l", blinkRight: "blink_r",
+};
+
 /* ─── Emotion blends (always low intensity — never override mouth) */
 type EmotionBlend = Partial<Record<VRMExpressionPresetName, number>>;
 function emotionForIntent(intent: CompanionExpressionIntent): EmotionBlend {
@@ -213,6 +222,12 @@ function Model({
 }: ModelProps) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
+  // What a loaded rig actually registers is whatever its author named the
+  // blend shapes, not the spec strings three-vrm's enum exposes. This model
+  // registers `VRMExpression_Surprised` with a capital S, so every write to
+  // "surprised" landed nowhere and her upper face had nothing but blink.
+  const rigNamesRef  = useRef<Map<string, string>>(new Map());
+  const writeNameRef = useRef<Map<string, string | null>>(new Map());
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -258,6 +273,8 @@ function Model({
     chestBoneRef.current = null;
     chestRestQRef.current = null;
     availRef.current = new Set();
+    rigNamesRef.current = new Map();
+    writeNameRef.current = new Map();
     t.current = 0;
     mouthW.current = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
     smoothFace.current = { mouthOpen: 0, mouthA: 0, mouthI: 0, mouthU: 0, mouthE: 0, mouthO: 0, mouthSmile: 0, eyeBlinkL: 0, eyeBlinkR: 0, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0, cheekPuff: 0, angry: 0, sad: 0, relaxed: 0 };
@@ -349,10 +366,25 @@ function Model({
         const allNames = [
           ...Object.values(VRMExpressionPresetName),
           "a", "i", "u", "e", "o", "blink_l", "blink_r", "joy", "sorrow", "fun",
+          "happy", "angry", "sad", "relaxed", "surprised", "blinkLeft", "blinkRight",
         ];
         for (const name of allNames) {
           try { if (em.getExpression(name)) availRef.current.add(name); } catch {}
         }
+        // The spec probe above only proves the names three-vrm itself knows.
+        // Whatever else the file's author called a blend shape is reachable only
+        // by the literal name, so index those too for a case-insensitive match.
+        try {
+          for (const registered of (em as any).expressions ?? []) {
+            const literal: unknown = registered?.name;
+            if (typeof literal !== "string" || !literal) continue;
+            const bare = literal.replace(/^(VRMExpression_|VRM_v1_)/, "");
+            for (const form of [literal, bare]) {
+              const key = form.toLowerCase();
+              if (!rigNamesRef.current.has(key)) rigNamesRef.current.set(key, form);
+            }
+          }
+        } catch {}
       }
 
       // Cache normalized bone nodes and immutable rest quaternions once. The
@@ -408,6 +440,11 @@ function Model({
       }
 
       vrmRef.current = v;
+      // The render loop owns every morph each frame, so a face can only be
+      // verified by driving the real speech bridge and sampling the canvas.
+      if (typeof window !== "undefined") {
+        (window as any).__HINAA_PRESENCE_VRM = { vrm: v, speech: speechBridge };
+      }
       setLoaded(true);
     }, undefined, () => { if (mounted) setFailed(true); });
 
@@ -424,7 +461,12 @@ function Model({
   useFrame((_, dtRaw) => {
     const vrm = vrmRef.current;
     if (!vrm) return;
+    // Easing must survive a frame spike, but a rhythm counted in clamped frames
+    // slows to a crawl as soon as the render loop drops below 20 fps — measured
+    // at 4.2 fps the blink timer advances five times slower than wall clock and
+    // she stops blinking entirely. Cadence therefore runs on real elapsed time.
     const dt = Math.min(dtRaw, 0.05);
+    const realDt = Math.min(dtRaw, 0.5);
     t.current += dt;
 
     const em  = vrm.expressionManager;
@@ -440,16 +482,28 @@ function Model({
     }
     const expressionIntent = expressionIntentFor(expressionText, state);
     const directedEmotion = emotionForIntent(expressionIntent);
-    // Safe setter with VRM 1.0 alias fallback
+    // Writes go through the names this rig actually registers. Every frame the
+    // loop asks for spec presets; three-vrm resolves them case-sensitively, so a
+    // file that named its blend shape `VRMExpression_Surprised` silently dropped
+    // the whole surprised channel. Resolution is memoised per requested name —
+    // including the failures — so the hot loop pays a map lookup, not a probe.
+    const resolveWrite = (n: string): string | null => {
+      const cache = writeNameRef.current;
+      if (cache.has(n)) return cache.get(n) ?? null;
+      const rigName = availRef.current.has(n)
+        ? n
+        : rigNamesRef.current.get(n.toLowerCase()) ?? null;
+      const alias = PRESET_ALIASES[n];
+      const resolved = rigName
+        ?? (alias && (availRef.current.has(alias) || rigNamesRef.current.has(alias.toLowerCase())) ? alias : null);
+      cache.set(n, resolved);
+      return resolved;
+    };
     const set = (n: string, v: number) => {
       if (!em) return;
-      try { em.setValue(n, v); } catch {}
-      const alias: Record<string, string> = {
-        aa: "a", ih: "i", ou: "u", ee: "e", oh: "o",
-        happy: "joy", sad: "sorrow", relaxed: "fun",
-        blinkLeft: "blink_l", blinkRight: "blink_r",
-      };
-      if (alias[n]) { try { em.setValue(alias[n], v); } catch {} }
+      const name = resolveWrite(n);
+      if (!name) return;
+      try { em.setValue(name, v); } catch {}
     };
 
     /* ── LAYER 1 + 2: LIP-SYNC ────────────────────────────────────────
@@ -566,37 +620,40 @@ function Model({
         set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
       } else {
-        // Natural auto-blink
-        blinkTimer.current -= dt;
+        // Natural auto-blink: a quick shut, a softer open, and never a fully
+        // clamped closure. A symmetric sine peaking at 1.0 reads as a glitch
+        // frame; eyes at rest stay a fraction open.
+        blinkTimer.current -= realDt;
         let bv = 0;
+        const smooth = (u: number) => u * u * (3 - 2 * u);
+        // Each phase has to last at least one rendered frame. The curve is only
+        // sampled inside useFrame, so a fixed 170 ms blink falls entirely
+        // between two samples on a slow loop and she looks like she never blinks.
+        const CLOSE = Math.max(0.055, realDt);
+        const OPEN = Math.max(0.115, realDt);
         if (blinkTimer.current <= 0) {
-          if (blinkTimer.current < -0.14) {
-            if (doubleBlink.current) {
-              doubleBlink.current = false;
-              blinkTimer.current = 1.5 + Math.random() * 3.5;
-            } else if (Math.random() < 0.18) {
-              doubleBlink.current = true;
-              blinkTimer.current = -0.02;
-            } else {
-              blinkTimer.current = 2 + Math.random() * 4;
-            }
+          const t = -blinkTimer.current;
+          if (t < CLOSE) {
+            bv = 0.9 * smooth(t / CLOSE);
+          } else if (t < CLOSE + OPEN) {
+            bv = 0.9 * (1 - smooth((t - CLOSE) / OPEN));
+          } else if (doubleBlink.current) {
+            doubleBlink.current = false;
+            blinkTimer.current = 1.6 + Math.random() * 3.6;
+          } else if (Math.random() < 0.18) {
+            // A second beat one frame later. Restarting just above zero keeps the
+            // eye fully open in the gap instead of popping to mid-closure.
+            doubleBlink.current = true;
+            blinkTimer.current = Math.max(0.04, realDt);
           } else {
-            const phase = (blinkTimer.current + 0.14) / 0.14;
-            bv = Math.sin(Math.max(0, Math.min(1, phase)) * Math.PI);
+            blinkTimer.current = 2.2 + Math.random() * 4;
           }
         }
+        // Both the composite and the per-eye presets: rigs differ in which one
+        // actually drives the eyelid blend shape.
         set(VRMExpressionPresetName.Blink, bv);
-        set(VRMExpressionPresetName.BlinkLeft, 0);
-        set(VRMExpressionPresetName.BlinkRight, 0);
-
-        // Micro-brows: a soft rise rides the blink and a very slow idle
-        // wander keeps the upper face alive. Both stay under 0.12 so she
-        // never performs a permanent surprised face on rigs that map brows.
-        const browIdle = Math.max(0, Math.sin(t.current * 0.21 + 0.6)) * 0.05;
-        const brow = Math.min(0.12, bv * 0.08 + browIdle * (state === "listening" ? 1.35 : 1));
-        set("browRaise" as VRMExpressionPresetName, brow);
-        set("browUpLeft" as VRMExpressionPresetName, brow * 0.85);
-        set("browUpRight" as VRMExpressionPresetName, brow * 0.7);
+        set(VRMExpressionPresetName.BlinkLeft, bv);
+        set(VRMExpressionPresetName.BlinkRight, bv);
       }
 
       /* ── LAYER 4: EMOTION (always low weight, never overrides mouth) */
@@ -612,13 +669,25 @@ function Model({
         set(VRMExpressionPresetName.Relaxed,   capEmo(Math.max(face.relaxed, face.cheekPuff, directed(VRMExpressionPresetName.Relaxed))));
       } else {
         const tEmo = emotionFor(state);
+        // This rig has no brow blend shapes, so `surprised` (brow lift plus eye
+        // open) is the only channel that can move her upper face. It rides how
+        // wide her mouth is open, which decays to zero in silence, so she lifts
+        // a brow as she emphasises a word and settles when she stops talking.
+        const articulation = Math.max(mouthW.current.aa, mouthW.current.oh) * 0.14;
         const emoKeys = [
           VRMExpressionPresetName.Happy, VRMExpressionPresetName.Sad,
           VRMExpressionPresetName.Relaxed, VRMExpressionPresetName.Angry,
+          VRMExpressionPresetName.Surprised,
         ] as const;
         for (const key of emoKeys) {
-          const tgt = (tEmo as any)[key] ?? 0;
-          emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * dt * 2.5;
+          // The reply text is the only cue available without an external face
+          // sender, so it has to reach the rig here: the blend takes whichever
+          // cue is stronger, never the sum, and stays inside natural weights.
+          let tgt = Math.max(tEmo[key] ?? 0, directedEmotion[key] ?? 0);
+          if (key === VRMExpressionPresetName.Surprised) {
+            tgt = Math.min(0.2, tgt + articulation);
+          }
+          emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * Math.min(1, realDt * 2.5);
           set(key, emo.current[key]);
         }
       }

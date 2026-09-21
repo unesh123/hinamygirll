@@ -216,6 +216,10 @@ async def search_web(params: dict[str, Any]) -> dict[str, Any]:
         return await _legacy_search(query, count=count)
 
 
+_IMAGE_QUERY_SLASH = re.compile(
+    r"^\s*/\s*(?:image[\s_-]*search|find[\s_-]+images?)\b[ \t]*",
+    re.IGNORECASE,
+)
 _IMAGE_QUERY_COMMAND = re.compile(
     r"^\s*(?:(?:hey|hinaa|please|kindly|can|could|will|would|u|you)\b[ ,]*)*"
     r"(?:fetch|find|search(?:\s+for)?|look(?:\s+up|\s+for)?|show|display|get|give|pull\s+up|grab)\b[ ,]*"
@@ -237,10 +241,12 @@ def clean_image_query(query: str) -> str:
     """Strip command noise so the vendor query is the subject itself.
 
     'fetch me some images of Mikasa Ackerman in HD' → 'Mikasa Ackerman'.
+    '/image_search sakura anime wallpaper' → 'sakura anime wallpaper'.
     Relevance engines reward precise noun phrases; conversational filler was
     measurably degrading results.
     """
-    cleaned = _IMAGE_QUERY_COMMAND.sub("", query.strip(), count=1)
+    cleaned = _IMAGE_QUERY_SLASH.sub("", query.strip(), count=1)
+    cleaned = _IMAGE_QUERY_COMMAND.sub("", cleaned, count=1)
     cleaned = _IMAGE_QUERY_TAIL.sub(" ", cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" .,!?")
     return cleaned or query.strip()

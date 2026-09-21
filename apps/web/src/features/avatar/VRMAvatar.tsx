@@ -383,7 +383,7 @@ function VrmRig({
       speaking: isSpeaking,
       viseme: activeVisemeName,
       visemeWeight: activeVisemeWeight,
-      blinking: perf.blinking,
+      blinkWeight: perf.blinkWeight,
     };
 
     // Expressions — face presets + jaw lip-sync + blink.
@@ -393,7 +393,6 @@ function VrmRig({
     if (perf.lipSync.ou > 0) weights.ou = Math.max(weights.ou, perf.lipSync.ou);
     if (perf.lipSync.ee > 0) weights.ee = Math.max(weights.ee, perf.lipSync.ee);
     if (perf.lipSync.oh > 0) weights.oh = Math.max(weights.oh, perf.lipSync.oh);
-    if (perf.blinking) weights.blink = 1;
 
     const manager = vrm.expressionManager;
     if (manager) {
@@ -866,7 +865,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
     facePreset: props.plan?.performance.facePreset,
     intensity: props.plan?.emotion.intensity ?? 0.5,
     jawEnergy: resolvedJawEnergy,
-    blinking: performance.blinking,
+    blinkWeight: performance.blinkWeight,
     speaking: props.state === "speaking",
     reducedMotion: props.reducedMotion || Boolean(props.lowPerformance),
     gesture,

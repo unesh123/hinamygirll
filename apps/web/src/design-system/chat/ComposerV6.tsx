@@ -7,7 +7,6 @@ import {
   Plus,
   Globe,
   Sparkles,
-  Code,
   Square,
   X,
   Target,
@@ -20,16 +19,10 @@ import {
   FolderGit2,
   Image as ImageIcon,
   CheckCircle2,
-  FileSpreadsheet,
   Tv,
   Terminal,
   Zap,
-  Music,
-  Video,
-  Camera,
-  Link,
   Layout,
-  Network,
 } from "lucide-react";
 import { ModelSelectorV7 } from "./ModelSelectorV7";
 import type { DiscoveredModel, DiscoveredProvider } from "../../features/providers/hooks/useCapabilities";
@@ -63,7 +56,6 @@ export interface ComposerV6Props {
   // Context Chips V2
   contextChips?: ContextChip[];
   onRemoveChip?: (id: string) => void;
-  onAddChip?: (chip: ContextChip) => void;
   // Legacy aliases
   activeTopic?: string | null;
   onClearTopic?: () => void;
@@ -82,10 +74,8 @@ export interface ComposerV6Props {
   // Attachments
   attachedImage?: string | null;
   onImageAttach?: (dataUrl: string | null, role?: AttachmentRole) => void;
-  // Smart + menu triggers
-  onUploadFile?: (type?: string) => void;
+  // Smart + menu trigger
   onSelectArtifact?: (type: string) => void;
-  onAttachContext?: (type: string) => void;
   // Backend Capabilities & Real Models V7
   discoveredModels?: DiscoveredModel[];
   discoveredProviders?: DiscoveredProvider[];
@@ -95,6 +85,11 @@ export interface ComposerV6Props {
   onSelectAuto?: () => void;
   onSelectModel?: (model: DiscoveredModel) => void;
   backendConnected?: boolean;
+  /**
+   * Phone layout: drops the status badge row. Those three badges wrapped to two
+   * lines and left a 393px screen with ~230px of visible transcript.
+   */
+  compact?: boolean;
 }
 
 export const ComposerV6: React.FC<ComposerV6Props> = ({
@@ -104,11 +99,11 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onStop,
   isGenerating = false,
   disabled = false,
+  compact = false,
   isVoiceActive = false,
   onVoiceToggle,
   contextChips = [],
   onRemoveChip,
-  onAddChip,
   activeTopic,
   onClearTopic,
   activeModel,
@@ -122,9 +117,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onToggleGoalMode,
   attachedImage,
   onImageAttach,
-  onUploadFile,
   onSelectArtifact,
-  onAttachContext,
   discoveredModels = [],
   discoveredProviders = [],
   selectedModelId,
@@ -506,14 +499,28 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
+          gap: compact ? 8 : 12,
+          // Compact: one 40px line. Wrapping here cost the phone 141px of transcript.
+          flexWrap: compact ? "nowrap" : "wrap",
           paddingTop: 8,
           borderTop: "1px solid #f1f5f9",
         }}
       >
         {/* Left cluster: Badges [🔴 Command Center] [📎 N attached] [status from /v1/capabilities] */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            // Stacking this cluster cost the phone a second toolbar row.
+            flexWrap: compact ? "nowrap" : "wrap",
+            minWidth: 0,
+            overflowX: compact ? "auto" : undefined,
+            scrollbarWidth: "none",
+          }}
+        >
+          {!compact && (
+            <>
           <div
             data-testid="badge-command-center"
             style={{
@@ -572,6 +579,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusTone.dot }} />
             <span>{statusTone.label}</span>
           </div>
+            </>
+          )}
           {/* 1. `+` Menu Button */}
           <div style={{ position: "relative" }}>
             <button
@@ -582,7 +591,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 setShowIntelMenu(false);
                 setShowCreateMenu(false);
               }}
-              title="Attach, Upload, or Integrate"
+              title="Attach an image or start a deliverable"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -600,7 +609,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               <Plus size={15} />
             </button>
 
-            {/* Smart Plus Menu Dropdown (4 Categories: Files & Media, Attach Context, Create, Integrations) */}
+            {/* Smart Plus Menu Dropdown: the image attachment and the real deliverable commands */}
             {showPlusMenu && (
               <div
                 style={{
@@ -622,12 +631,10 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
                   FILES & MEDIA
                 </div>
+                {/* One attachment is real: the hidden input below accepts image/* and
+                    the turn payload carries a single imageUrl. */}
                 {[
                   { label: "Upload Image", icon: ImageIcon, action: () => fileInputRef.current?.click() },
-                  { label: "Upload Audio", icon: Music, action: () => onUploadFile?.("audio") },
-                  { label: "Upload Document", icon: FileText, action: () => onUploadFile?.("document") },
-                  { label: "Upload Video", icon: Video, action: () => onUploadFile?.("video") },
-                  { label: "Take Photo", icon: Camera, action: () => onUploadFile?.("camera") },
                 ].map((item) => (
                   <button
                     key={item.label}
@@ -652,88 +659,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                     }}
                   >
                     <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
-                    <span>{item.label}</span>
-                  </button>
-                ))}
-
-                {/* 2. Attach Context */}
-                <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
-                  ATTACH CONTEXT
-                </div>
-                {[
-                  {
-                    label: "Active Project",
-                    icon: FolderGit2,
-                    action: () =>
-                      onAddChip?.({
-                        id: `proj-${Date.now()}`,
-                        type: "project",
-                        label: "Project: HINAA",
-                        metadata: "HINAA Autonomous Operating System",
-                      }),
-                  },
-                  {
-                    label: "GitHub Repo",
-                    icon: Globe,
-                    action: () =>
-                      onAddChip?.({
-                        id: `repo-${Date.now()}`,
-                        type: "repo",
-                        label: "Repo: frontend",
-                        metadata: "apps/web codebase",
-                      }),
-                  },
-                  {
-                    label: "Paste URL",
-                    icon: Link,
-                    action: () => {
-                      const url = window.prompt("Enter Context URL:");
-                      if (url) {
-                        onAddChip?.({
-                          id: `url-${Date.now()}`,
-                          type: "topic",
-                          label: url.replace(/^https?:\/\//, "").slice(0, 20),
-                          metadata: url,
-                        });
-                      }
-                    },
-                  },
-                  {
-                    label: "Live Canvas",
-                    icon: Layout,
-                    action: () =>
-                      onAddChip?.({
-                        id: `canvas-${Date.now()}`,
-                        type: "artifact",
-                        label: "Canvas: Active Locus",
-                        metadata: "Real-time canvas context",
-                      }),
-                  },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => {
-                      item.action();
-                      setShowPlusMenu(false);
-                    }}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: "none",
-                      background: "transparent",
-                      fontSize: 12,
-                      color: "var(--text-primary, #1e191d)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    <item.icon size={13} style={{ color: "#0ea5e9" }} />
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -744,21 +669,18 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   CREATE
                 </div>
                 {[
-                  { type: "website", label: "Website", icon: Globe },
-                  { type: "document", label: "Document", icon: FileText },
-                  { type: "presentation", label: "Presentation", icon: Tv },
-                  { type: "spreadsheet", label: "Spreadsheet", icon: FileSpreadsheet },
-                  { type: "image", label: "Image", icon: ImageIcon },
-                  { type: "video", label: "Video", icon: Video },
-                  { type: "code", label: "Code", icon: Code },
-                  { type: "diagram", label: "Diagram", icon: Network },
-                  { type: "analysis", label: "Analysis", icon: Terminal },
+                  { cmd: "/image", label: "Image", icon: ImageIcon },
+                  { cmd: "/document", label: "Document", icon: FileText },
+                  { cmd: "/presentation", label: "Presentation", icon: Tv },
+                  { cmd: "/research", label: "Research", icon: Globe },
+                  { cmd: "/analyze", label: "Analysis", icon: Terminal },
+                  { cmd: "/plan", label: "Plan", icon: Layout },
                 ].map((item) => (
                   <button
-                    key={item.type}
+                    key={item.cmd}
                     type="button"
                     onClick={() => {
-                      onSelectArtifact?.(item.type);
+                      onSelectArtifact?.(item.cmd);
                       setShowPlusMenu(false);
                     }}
                     style={{
@@ -777,49 +699,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                     }}
                   >
                     <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
-                    <span>{item.label}</span>
-                  </button>
-                ))}
-
-                {/* 4. Integrations */}
-                <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
-                  INTEGRATIONS
-                </div>
-                {[
-                  { label: "Google Drive", icon: FolderGit2 },
-                  { label: "Notion", icon: FileText },
-                  { label: "GitHub", icon: Globe },
-                  { label: "Slack", icon: MessageSquare },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => {
-                      onAddChip?.({
-                        id: `integ-${Date.now()}`,
-                        type: "artifact",
-                        label: item.label,
-                        metadata: `${item.label} integration sync`,
-                      });
-                      setShowPlusMenu(false);
-                    }}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: "none",
-                      background: "transparent",
-                      fontSize: 12,
-                      color: "var(--text-primary, #1e191d)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    <item.icon size={13} style={{ color: "#10b981" }} />
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -928,21 +807,18 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   CREATE ARTIFACT
                 </div>
                 {[
-                  { type: "website", label: "Website", icon: Globe },
-                  { type: "document", label: "Document", icon: FileText },
-                  { type: "presentation", label: "Presentation", icon: Tv },
-                  { type: "spreadsheet", label: "Spreadsheet", icon: FileSpreadsheet },
-                  { type: "image", label: "Image", icon: ImageIcon },
-                  { type: "video", label: "Video", icon: Video },
-                  { type: "code", label: "Code", icon: Code },
-                  { type: "diagram", label: "Diagram", icon: Network },
-                  { type: "analysis", label: "Analysis", icon: Terminal },
+                  { cmd: "/image", label: "Image", icon: ImageIcon },
+                  { cmd: "/document", label: "Document", icon: FileText },
+                  { cmd: "/presentation", label: "Presentation", icon: Tv },
+                  { cmd: "/research", label: "Research", icon: Globe },
+                  { cmd: "/analyze", label: "Analysis", icon: Terminal },
+                  { cmd: "/plan", label: "Plan", icon: Layout },
                 ].map((item) => (
                   <button
-                    key={item.type}
+                    key={item.cmd}
                     type="button"
                     onClick={() => {
-                      onSelectArtifact?.(item.type);
+                      onSelectArtifact?.(item.cmd);
                       setShowCreateMenu(false);
                     }}
                     style={{

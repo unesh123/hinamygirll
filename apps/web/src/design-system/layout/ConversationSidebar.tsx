@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, Trash2, Pencil, Check, X, Search } from "lucide-react";
 
@@ -60,11 +61,13 @@ export function ConversationSidebar({
     setLoading(true);
     try {
       const res = await fetch("/api/v1/conversations?limit=50", {
-        headers: { "X-HINAA-Dev-User": "local-web-user" },
+        headers: { "X-HINAA-Dev-User": HINAA_DEV_USER },
       });
       if (res.ok) {
         const data = await res.json();
-        setConversations(data.conversations || []);
+        // GET /v1/conversations answers with a bare array, not an envelope.
+        const items: ConversationItem[] = Array.isArray(data) ? data : data?.conversations ?? [];
+        setConversations(items);
       }
     } catch (err) {
       console.error("Failed to fetch conversations:", err);
@@ -100,7 +103,7 @@ export function ConversationSidebar({
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "X-HINAA-Dev-User": "local-web-user",
+          "X-HINAA-Dev-User": HINAA_DEV_USER,
         },
         body: JSON.stringify({ title: editTitle.trim() }),
       });
@@ -117,7 +120,7 @@ export function ConversationSidebar({
     try {
       await fetch(`/api/v1/privacy/conversations/${id}`, {
         method: "DELETE",
-        headers: { "X-HINAA-Dev-User": "local-web-user" },
+        headers: { "X-HINAA-Dev-User": HINAA_DEV_USER },
       });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (onDeleteConversation) onDeleteConversation(id);
@@ -146,6 +149,7 @@ export function ConversationSidebar({
           />
           {/* Sidebar panel */}
           <motion.aside
+            data-testid="conversation-history-panel"
             initial={{ x: -320, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: -320, opacity: 0 }}
@@ -277,6 +281,7 @@ export function ConversationSidebar({
                         <motion.button
                           key={convo.id}
                           type="button"
+                          data-testid="conversation-row"
                           onClick={() => {
                             if (editingId !== convo.id && deleteConfirmId !== convo.id) {
                               onSelectConversation(convo.id);

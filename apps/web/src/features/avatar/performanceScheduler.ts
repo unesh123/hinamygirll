@@ -1,4 +1,5 @@
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+import { blinkEnvelope } from "./performanceSubstrate";
 import {
   SEMANTIC_RUNTIME_MAP,
   performanceSequenceSchema,
@@ -26,7 +27,8 @@ export interface ActivePerformanceFrame {
   semantic: SemanticMotion;
   intensity: number;
   jawEnergy: number;
-  blinking: boolean;
+  /** Eased eyelid closure for this frame, 0 open .. 1 shut. */
+  blinkWeight: number;
   reducedMotion: boolean;
   lipSyncLevel: "amplitude" | "viseme" | "phoneme";
 }
@@ -55,6 +57,11 @@ const TIER_SCALE: Record<
 const REPETITION_COOLDOWN_MS = 2_000;
 const REPETITION_HISTORY = 5;
 
+/** A real blink lasts ~150 ms; gaps are randomized so the cadence never ticks. */
+const BLINK_DURATION_MS = 150;
+const BLINK_GAP_MIN_MS = 2_600;
+const BLINK_GAP_SPAN_MS = 3_400;
+
 /**
  * Client-side Phase 4 performance clock.
  * Uses monotonic performance.now(); cancels stale generations.
@@ -70,6 +77,8 @@ export class PerformanceScheduler {
   private readonly rng: () => number;
   private recentSemantics: SemanticMotion[] = [];
   private lastSemanticAtMs = -Infinity;
+  /** Ms since the current sequence began when the next blink starts; -1 = unscheduled. */
+  private nextBlinkAtMs = -1;
 
   constructor(options: PerformanceSchedulerOptions = {}) {
     this.now = options.now ?? (() => performance.now());
@@ -94,6 +103,7 @@ export class PerformanceScheduler {
     this.generation += 1;
     this.sequence = null;
     this.jawEnergy = 0;
+    this.nextBlinkAtMs = -1;
     return this.generation;
   }
 
@@ -135,6 +145,7 @@ export class PerformanceScheduler {
       });
       this.sequence = sequence;
       this.originMs = this.now();
+      this.nextBlinkAtMs = -1;
       this.generation = gen;
       return sequence;
     }
@@ -220,6 +231,7 @@ export class PerformanceScheduler {
     });
     this.sequence = sequence;
     this.originMs = this.now();
+    this.nextBlinkAtMs = -1;
     this.generation = gen;
     return sequence;
   }
@@ -236,6 +248,25 @@ export class PerformanceScheduler {
       .sort((a, b) => b.priority - a.priority);
   }
 
+  /**
+   * Eased eyelid closure for a frame. The old square wave held the eyes shut
+   * for half of every cycle, which read as a stare rather than a blink.
+   */
+  private blinkWeightAt(elapsedMs: number): number {
+    if (this.reducedMotion) return 0;
+    if (this.nextBlinkAtMs < 0) {
+      this.nextBlinkAtMs = BLINK_GAP_MIN_MS + this.rng() * BLINK_GAP_SPAN_MS;
+      return 0;
+    }
+    if (elapsedMs < this.nextBlinkAtMs) return 0;
+    const progress = (elapsedMs - this.nextBlinkAtMs) / BLINK_DURATION_MS;
+    if (progress >= 1) {
+      this.nextBlinkAtMs = elapsedMs + BLINK_GAP_MIN_MS + this.rng() * BLINK_GAP_SPAN_MS;
+      return 0;
+    }
+    return blinkEnvelope(progress);
+  }
+
   sample(generation = this.generation): ActivePerformanceFrame {
     if (generation !== this.generation || !this.sequence) {
       return {
@@ -245,7 +276,7 @@ export class PerformanceScheduler {
         semantic: "neutral_idle",
         intensity: 0,
         jawEnergy: 0,
-        blinking: false,
+        blinkWeight: 0,
         reducedMotion: this.reducedMotion,
         lipSyncLevel: "amplitude",
       };
@@ -263,7 +294,7 @@ export class PerformanceScheduler {
       semantic,
       intensity: top?.intensity ?? 0,
       jawEnergy: this.reducedMotion ? 0 : this.jawEnergy,
-      blinking: !this.reducedMotion && Math.floor(elapsed / 3200) % 2 === 0,
+      blinkWeight: this.blinkWeightAt(elapsed),
       reducedMotion: this.reducedMotion,
       lipSyncLevel: this.sequence.lipSyncLevel,
     };

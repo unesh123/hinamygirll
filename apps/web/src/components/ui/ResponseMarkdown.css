@@ -28,6 +28,9 @@
 .response-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .hinaa-work-surface { min-width: 0; }
 .hinaa-work-transcript { min-width: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
+/* Flex children shrink by default, so in a column scroll container an overflowing
+   card was squashed and clipped instead of pushing the transcript's scroll height. */
+.hinaa-work-transcript > * { flex-shrink: 0; }
 .hinaa-work-composer { box-sizing: border-box; min-width: 0; }
 .hinaa-work-bubble { min-width: 0; box-sizing: border-box; }
 .hinaa-work-surface textarea { min-width: 0; }

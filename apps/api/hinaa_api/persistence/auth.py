@@ -24,6 +24,8 @@ def resolve_auth(
     memory: MemoryService,
     authorization: str | None = None,
     x_hinaa_dev_user: str | None = None,
+    *,
+    allow_default_subject: bool = False,
 ) -> AuthContext:
     """
     Dev/local mode: X-HINAA-Dev-User header when HINAA_AUTH_MODE=dev.
@@ -33,7 +35,12 @@ def resolve_auth(
     """
     mode = settings.auth_mode
     if mode == "dev":
-        subject = (x_hinaa_dev_user or settings.dev_auth_subject).strip()
+        subject = (x_hinaa_dev_user or "").strip()
+        if not subject and allow_default_subject:
+            subject = settings.dev_auth_subject.strip()
+        # A network caller has to name itself. Falling back to the configured
+        # subject made every anonymous request on the public URL the owner, and
+        # this API is tunneled to the internet even while it runs in dev mode.
         if not subject or len(subject) > 120:
             raise HinaaError("AUTH_REQUIRED", "Dev user identity is required.", 401, True)
         if settings.hinaa_allowed_user_ids:

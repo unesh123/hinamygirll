@@ -9,6 +9,8 @@ import {
   Sparkles,
   User,
   Circle,
+  History,
+  Mic,
 } from "lucide-react";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 
@@ -51,7 +53,8 @@ export function NavigationRail({
   isDark = false,
   onToggleTheme,
 }: NavigationRailProps) {
-  const isChatActive = active === "chat" || active === "talk" || active === "voice";
+  const isChatActive = active === "chat";
+  const isTalkActive = active === "talk" || active === "voice";
   const { capabilities, loading: capsLoading, error: capsError } = useCapabilities();
   const { runtime, features, providers } = capabilities;
   const configuredProviders = providers.filter((p) => p.configured).length;
@@ -94,6 +97,13 @@ export function NavigationRail({
   ];
 
   const navItems = [
+    {
+      id: "talk" as NavSection,
+      title: "Talk",
+      subtitle: "Voice and avatar",
+      icon: Mic,
+      active: isTalkActive,
+    },
     {
       id: "chat" as NavSection,
       title: "Chat",
@@ -293,6 +303,35 @@ export function NavigationRail({
           >
             ⌘N
           </span>
+        </button>
+      )}
+
+      {/* ── Conversation History: opens the saved-thread panel ── */}
+      {onToggleHistory && (
+        <button
+          type="button"
+          data-testid="history-sidebar-btn"
+          aria-pressed={historyOpen}
+          onClick={onToggleHistory}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            width: "100%",
+            padding: "8px 12px",
+            marginBottom: 14,
+            fontSize: 12,
+            fontWeight: 600,
+            color: historyOpen ? "#ffffff" : "#475569",
+            background: historyOpen ? "#1a232b" : "#ffffff",
+            border: `1px solid ${historyOpen ? "#1a232b" : "#e2e8f0"}`,
+            borderRadius: 12,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <History size={15} />
+          <span>History</span>
         </button>
       )}
 

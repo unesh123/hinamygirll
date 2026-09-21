@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 
 export interface MemoryEntry {
   id: string;
@@ -22,7 +23,7 @@ async function memoryFetch(path: string, init?: RequestInit) {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      "X-HINAA-Dev-User": "local-web-user",
+      "X-HINAA-Dev-User": HINAA_DEV_USER,
       ...(init?.headers ?? {}),
     },
   });

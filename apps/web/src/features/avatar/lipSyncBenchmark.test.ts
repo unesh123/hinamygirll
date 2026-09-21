@@ -6,6 +6,7 @@ import {
   type VrmExpressionWeights,
 } from "./vrmExpressionMap";
 import { textToVisemeEvents, getActiveViseme } from "../audio/textToViseme";
+import { blinkEnvelope } from "./performanceSubstrate";
 
 describe("1,000-Cycle VRM Lip Sync & Syllable Modulation Benchmark", () => {
   it("executes 1,000 consecutive speech frames with bounded, non-glitching visemes", () => {
@@ -32,7 +33,7 @@ describe("1,000-Cycle VRM Lip Sync & Syllable Modulation Benchmark", () => {
         emotion,
         intensity: 0.5 + 0.5 * Math.sin(cycle * 0.05),
         jawEnergy: isSpeaking ? jawEnergy : 0,
-        blinking: cycle % 180 >= 174, // Blink every ~3 seconds for 6 frames
+        blinkWeight: cycle % 180 >= 174 ? blinkEnvelope(((cycle % 180) - 174) / 6) : 0, // ~every 3s
         speaking: isSpeaking,
         reducedMotion: false,
       };
@@ -89,7 +90,7 @@ describe("1,000-Cycle VRM Lip Sync & Syllable Modulation Benchmark", () => {
         emotion: cycle % 2 === 0 ? "happy" : "surprised",
         intensity: extremeIntensity,
         jawEnergy: extremeJaw,
-        blinking: cycle % 5 === 0,
+        blinkWeight: (cycle % 5) / 4,
         speaking: cycle % 2 === 0,
         reducedMotion: cycle % 4 === 0,
       });

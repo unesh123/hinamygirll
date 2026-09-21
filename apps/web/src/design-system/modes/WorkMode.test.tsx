@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkMode } from "./WorkMode";
 import type { TranscriptMessage } from "../../features/companion/types";
@@ -58,6 +58,17 @@ describe("WorkMode voice controls", () => {
     expect(screen.getByText("## keep this literal")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message HINAA" })).toBeInTheDocument();
   });
+  it("shows the image a user attached inside their own bubble", () => {
+    const dataUrl = "data:image/png;base64,aGVsbG8=";
+    renderWorkMode({ messages: [
+      { id: "user", role: "user", text: "Use this as the face reference", createdAt: new Date().toISOString(), imageUrl: dataUrl },
+      { id: "answer", role: "assistant", text: "Got it, I can see the face.", createdAt: new Date().toISOString() },
+    ] });
+
+    const attached = screen.getByRole("img", { name: "Your attached image" });
+    expect(attached).toHaveAttribute("src", dataUrl);
+  });
+
   it("uses singular message grammar in the work header", () => {
     renderWorkMode();
     expect(screen.getByText(/1 message$/)).toBeInTheDocument();
@@ -249,6 +260,27 @@ describe("WorkMode voice controls", () => {
   });
 });
 
+describe("WorkMode execution progress placement", () => {
+  it("renders the running card inside the transcript instead of over the composer", () => {
+    renderWorkMode({
+      isThinking: true,
+      agentSteps: [
+        { id: "accepted", label: "Run accepted", status: "done" },
+        { id: "plan", label: "Plan ready", status: "done" },
+        { id: "answer", label: "Generate assistant response", status: "active" },
+      ],
+    });
+
+    const card = screen.getByTestId("agent-activity-card");
+    const transcript = document.querySelector(".hinaa-work-transcript");
+
+    // The transcript scrolls, the composer does not — a card in the latter
+    // floats over the middle of the chat on a phone.
+    expect(transcript?.contains(card)).toBe(true);
+    expect(screen.getByTestId("work-composer").contains(card)).toBe(false);
+  });
+});
+
 describe("WorkMode command palette", () => {
   it("replaces the slash token with the chosen command instead of sending it", async () => {
     const onSend = vi.fn();
@@ -269,11 +301,17 @@ describe("WorkMode command palette", () => {
     // WorkMode, so a plain findByText can resolve before the command registry
     // has loaded and leave the palette with an empty list.
     await waitFor(() => {
-      const popover = document.querySelector(".hinaa-command-popover");
-      if (!popover?.textContent?.includes("Web Search")) throw new Error("palette list not populated");
+      const selected = document.querySelector(
+        ".hinaa-command-popover [data-selected='true']",
+      );
+      if (!selected?.textContent?.includes("Web Search")) {
+        throw new Error("palette has no highlighted command yet");
+      }
     });
 
-    fireEvent.keyDown(composer, { key: "Enter" });
+    await act(async () => {
+      fireEvent.keyDown(composer, { key: "Enter" });
+    });
 
     expect(screen.getByRole("textbox", { name: "Message HINAA" })).toHaveValue("/search ");
     expect(onSend).not.toHaveBeenCalled();

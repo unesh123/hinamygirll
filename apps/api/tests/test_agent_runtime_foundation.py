@@ -749,14 +749,17 @@ async def test_runtime_feature_flag_fallback():
 
 def test_api_agent_runs_crud_and_isolation(client):
     runtime: AgentRuntime = client.app.state.agent_runtime
-    run = runtime.create_run("test run via api", "local-dev-user")
+    # Route handlers scope runs to the caller's identity, so the owner has to be
+    # the subject this client actually presents.
+    owner = client.headers["X-HINAA-Dev-User"]
+    run = runtime.create_run("test run via api", owner)
 
     # 1. GET /v1/agent/runs/{run_id}
     res = client.get(f"/v1/agent/runs/{run.run_id}")
     assert res.status_code == 200
     data = res.json()
     assert data["run_id"] == run.run_id
-    assert data["user_id"] == "local-dev-user"
+    assert data["user_id"] == owner
 
     # 2. GET /v1/agent/runs/{run_id}/steps
     res_steps = client.get(f"/v1/agent/runs/{run.run_id}/steps")
@@ -788,7 +791,7 @@ def test_api_agent_runs_crud_and_isolation(client):
     assert res_resume.json()["status"] == "executing"
 
     # 7. POST /v1/agent/runs/{run_id}/recover
-    recovery_run = runtime.create_run("recoverable run via api", "local-dev-user")
+    recovery_run = runtime.create_run("recoverable run via api", owner)
     recovery_run.status = RunStatus.EXECUTING
     res_recover = client.post(f"/v1/agent/runs/{recovery_run.run_id}/recover")
     assert res_recover.status_code == 200

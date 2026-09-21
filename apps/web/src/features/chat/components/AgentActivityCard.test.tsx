@@ -77,13 +77,18 @@ describe("AgentActivityCard", () => {
     expect(screen.queryByRole("button", { name: /cancel/i })).not.toBeInTheDocument();
   });
 
-  it("advances the elapsed timer while active", () => {
-    render(<AgentActivityCard isActive steps={[runningStep]} />);
+  it("advances the elapsed timer from the wall clock while active", () => {
+    const { rerender } = render(
+      <AgentActivityCard isActive steps={[runningStep]} />
+    );
     act(() => {
       vi.advanceTimersByTime(3000);
     });
-    // Timer increments should have advanced — just check the card is still there
-    expect(screen.getByTestId("agent-activity-card")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-activity-card").textContent).toMatch(/3\.0s elapsed/);
+
+    // A completed card must report how long the run took, not restart at zero.
+    rerender(<AgentActivityCard isActive={false} steps={[completedStep]} />);
+    expect(screen.getByTestId("agent-activity-card").textContent).toMatch(/3\.0s elapsed/);
   });
 
   it("renders multiple steps with different statuses", () => {

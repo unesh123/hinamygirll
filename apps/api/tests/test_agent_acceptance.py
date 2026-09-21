@@ -39,7 +39,13 @@ def client_and_runtime():
         _env_file=None,
     )
     app = create_app(settings)
-    client = TestClient(app, raise_server_exceptions=False)
+    # Dev mode refuses anonymous callers, so the client has to name itself with
+    # the same subject the runtime tests create their runs under.
+    client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        headers={"X-HINAA-Dev-User": "local-dev-user"},
+    )
     runtime: AgentRuntime = app.state.agent_runtime
     return client, runtime
 

@@ -136,7 +136,17 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
   }
 
   if (toolName === 'image_search') {
-    const images = Array.isArray(data.images) ? data.images.filter((image: any) => image && typeof image.imageUrl === 'string').slice(0, 12) : [];
+    const images = Array.isArray(data.images)
+      ? data.images
+          .map((image: any) => {
+            const src = [image?.imageUrl, image?.thumbnailUrl, image?.url].find(
+              (value: unknown) => typeof value === 'string' && value.length > 0,
+            );
+            return src ? { ...image, src } : null;
+          })
+          .filter(Boolean)
+          .slice(0, 12)
+      : [];
     if (data.error || result.status === 'error') {
       return (
         <section style={{ marginTop: 10, border: '1px solid rgba(251,191,36,.32)', borderRadius: 14, background: 'rgba(251,191,36,.07)', padding: 12 }} aria-label="Image search availability">
@@ -164,9 +174,9 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
         )}
         {images.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 9 }}>
           {images.map((image: any, index: number) => (
-            <div key={image.id || image.imageUrl || index} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border-subtle)', borderRadius: 12, background: 'var(--bg-surface-raised)', boxShadow: 'var(--shadow-xs)' }}>
-              <motion.a href={image.pageUrl || image.imageUrl} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: index * 0.025 }} whileHover={{ y: -2 }} style={{ overflow: 'hidden', color: 'var(--text-primary)', textDecoration: 'none' }}>
-                <img src={image.imageUrl} alt={image.title || 'Public image result'} loading="lazy" referrerPolicy="no-referrer" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: 'var(--bg-secondary)' }} />
+            <div key={image.id || image.src || index} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border-subtle)', borderRadius: 12, background: 'var(--bg-surface-raised)', boxShadow: 'var(--shadow-xs)' }}>
+              <motion.a href={image.pageUrl || image.src} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: index * 0.025 }} whileHover={{ y: -2 }} style={{ overflow: 'hidden', color: 'var(--text-primary)', textDecoration: 'none' }}>
+                <img src={image.src} alt={image.title || 'Public image result'} loading="lazy" referrerPolicy="no-referrer" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: 'var(--bg-secondary)' }} />
                 <span style={{ display: 'block', padding: '7px 8px 4px', fontSize: 11, fontWeight: 650, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{image.title || 'Open source page'}</span>
               </motion.a>
               <div style={{ padding: '0 8px 8px' }}>
@@ -185,7 +195,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
-                            assetId: image.id || image.imageUrl,
+                            assetId: image.id || image.src,
                             resultSetId: data.resultSet?.resultSetId,
                             canonicalSubject: data.canonicalSubject,
                           }),
@@ -590,9 +600,47 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
           ? 'Freepik AI Studio'
           : 'AI Image Generation';
 
+    const workflowDetail = `Workflow: ${workflow} · Mode: ${data.mode || 'Quality'}${
+      data.style && data.style !== 'custom' ? ` · Style: ${data.style}` : ''
+    }${
+      data.reference_applied
+        ? data.upscale
+          ? ' · Reference-guided · upscaled'
+          : ' · Reference-guided'
+        : ''
+    }`;
+    const promptDetail = data.enhanced_prompt
+      ? `Enhanced prompt: ${data.enhanced_prompt}`
+      : `Prompt: ${promptText}`;
+    const errorDetail = data.error || data.message || data.detail || workflowDetail;
+
     const nodes: WorkTreeNode[] = [
-      { id: '1', status: 'success', title: onMagnific ? 'Magnific FLUX cloud ready' : 'Connecting to AI Canvas', detail: `Workflow: ${workflow} | Mode: ${data.mode || 'Quality'}${data.style && data.style !== 'custom' ? ` | Style: ${data.style}` : ''}${data.reference_applied ? (data.upscale ? ' | Reference-guided · upscaled' : ' | Reference-guided') : ''}` },
-      { id: '2', status: hasImages ? 'success' : 'active', title: 'Rendering Image(s)', detail: data.enhanced_prompt ? `Enhanced prompt: ${data.enhanced_prompt}` : `Prompt: ${promptText}` }
+      {
+        id: 'prompt',
+        status: 'success',
+        title: 'Prompt sent to the image model',
+        detail: promptDetail,
+      },
+      hasImages
+        ? {
+            id: 'image',
+            status: 'success',
+            title: imageUrls.length > 1 ? `${imageUrls.length} images ready` : 'Image ready',
+            detail: workflowDetail,
+          }
+        : isProcessing
+          ? {
+              id: 'image',
+              status: 'active',
+              title: 'Generating the image',
+              detail: workflowDetail,
+            }
+          : {
+              id: 'image',
+              status: 'error',
+              title: 'No image came back',
+              detail: errorDetail,
+            },
     ];
 
 

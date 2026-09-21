@@ -225,13 +225,21 @@ export class BrowserSpeechTimingSource implements SpeechTimingSource {
     this.pauseOffsetMs = this.durationMs;
   }
 
-  onBoundaryWord(charIndex: number, length = 0): void {
-    // If browser supports SpeechSynthesisUtterance.onboundary, we can fine-tune start offset
-    const estimatedTime = this.getPlaybackTime();
-    const existing = findActiveTimedItem(this.words, estimatedTime);
-    if (!existing && length > 0) {
-      // Optional runtime dynamic calibration
+  /**
+   * Re-anchor the synthetic schedule to a measured word boundary. Browser TTS
+   * reports boundary timestamps but no phonemes, so the opening estimate drifts
+   * and the mouth falls out of step with the voice. Each measurement replaces
+   * the clock offset, the remaining viseme schedule, and the total duration
+   * that `getPlaybackTime`/`isPlaying` are judged against.
+   */
+  retarget(boundary: { startMs: number; visemes: VisemeEvent[]; durationMs: number }): void {
+    if (this.playing) {
+      this.startMs = this.clockFn() - boundary.startMs;
+    } else {
+      this.pauseOffsetMs = boundary.startMs;
     }
+    this.visemes = boundary.visemes;
+    this.durationMs = Math.max(boundary.startMs + 1, boundary.durationMs);
   }
 
   getPlaybackTime(): number {

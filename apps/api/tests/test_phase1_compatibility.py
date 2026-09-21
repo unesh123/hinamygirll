@@ -15,7 +15,8 @@ def _client(tmp_path):
                 HINAA_LOCAL_WORKSPACE_DIR=tmp_path,
                 _env_file=None,
             )
-        )
+        ),
+        headers={"X-HINAA-Dev-User": "phase1-test-user"},
     )
 
 
@@ -24,6 +25,14 @@ def test_conversation_compatibility_list_is_authenticated(tmp_path):
         response = client.get("/v1/conversations")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_conversation_list_refuses_anonymous_callers(tmp_path):
+    """A public URL must not answer as the owner just because nobody signed in."""
+    with _client(tmp_path) as client:
+        anonymous = client.get("/v1/conversations", headers={"X-HINAA-Dev-User": ""})
+    assert anonymous.status_code == 401
+    assert anonymous.json()["code"] == "AUTH_REQUIRED"
 
 
 def test_run_events_and_code_file_listing_are_scoped_routes(tmp_path):

@@ -11,7 +11,7 @@ from hinaa_api.config import get_settings
 @pytest.fixture
 def client():
     app = create_app()
-    return TestClient(app)
+    return TestClient(app, headers={"X-HINAA-Dev-User": "image-fabric-test-user"})
 
 
 def test_asset_upload_and_retrieve_lifecycle(client: TestClient):
@@ -96,3 +96,22 @@ def test_tool_execute_image_upscale_and_relight(client: TestClient, monkeypatch)
     assert rl_data.get("status") == "success"
     rl_inner = rl_data["data"]["data"] if isinstance(rl_data.get("data"), dict) and "data" in rl_data["data"] else rl_data.get("data", {})
     assert "asset_id" in rl_inner
+
+
+def test_resolve_upscale_follows_mode_and_setting(monkeypatch):
+    """The flag /image reports must be the pass run_image_job actually performs."""
+    from hinaa_api.tools import image_generate as tool
+
+    def params(mode: str, upscale=None):
+        return tool.ImageGenerateParams(prompt="a lantern-lit harbour", mode=mode, upscale=upscale)
+
+    monkeypatch.setattr(tool.settings, "magnific_upscale_default", True, raising=False)
+    assert tool.resolve_upscale(params("quality")) is True
+    assert tool.resolve_upscale(params("ultra")) is True
+    assert tool.resolve_upscale(params("fast")) is False
+    assert tool.resolve_upscale(params("quality", upscale=False)) is False
+    assert tool.resolve_upscale(params("fast", upscale=True)) is True
+
+    monkeypatch.setattr(tool.settings, "magnific_upscale_default", False, raising=False)
+    assert tool.resolve_upscale(params("quality")) is False
+    assert tool.resolve_upscale(params("ultra")) is True

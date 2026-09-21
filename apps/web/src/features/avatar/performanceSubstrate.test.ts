@@ -34,13 +34,20 @@ describe("Avatar Performance Substrate", () => {
     expect(working.x).toBeGreaterThan(0.3);
   });
 
-  it("BlinkRuntime triggers periodic blink and supports reset", () => {
+  it("BlinkRuntime ramps an eased blink instead of snapping shut", () => {
     const runtime = new BlinkRuntime();
     runtime.reset(0);
-    // At time 0, not blinking
-    expect(runtime.update(0.016, 0)).toBe(false);
-    // When reaching scheduled blink time, update returns true
-    expect(runtime.update(0.016, 6.0)).toBe(true);
+    // Before the scheduled blink time the lids stay open.
+    expect(runtime.update(0.016, 0)).toBe(0);
+
+    const frames: number[] = [];
+    for (let i = 0; i < 24; i++) {
+      frames.push(runtime.update(0.016, 6.0 + i * 0.016));
+    }
+    // Closure ramps past halfway and returns to open by the end of the blink.
+    expect(Math.max(...frames)).toBeGreaterThanOrEqual(0.5);
+    expect(frames[frames.length - 1]).toBe(0);
+    expect(runtime.update(0.016, 7.0, true)).toBe(0);
   });
 
   it("PostureRuntime updates head tilt and arm gestures", () => {

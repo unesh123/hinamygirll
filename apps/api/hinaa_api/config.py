@@ -251,7 +251,8 @@ class Settings(BaseSettings):
     magnific_model_fast: str = Field("flux-2-turbo", alias="MAGNIFIC_MODEL_FAST")
     magnific_model_quality: str = Field("flux-dev", alias="MAGNIFIC_MODEL_QUALITY")
     magnific_reference_strength: float = Field(0.7, alias="MAGNIFIC_REFERENCE_STRENGTH")
-    magnific_upscale_default: bool = Field(False, alias="MAGNIFIC_UPSCALE_DEFAULT")
+    # Drives the Magnific second pass for `quality`-tier /image requests.
+    magnific_upscale_default: bool = Field(True, alias="MAGNIFIC_UPSCALE_DEFAULT")
 
     azure_speech_female_voice: str = Field("hi-IN-SwaraNeural", alias="AZURE_SPEECH_FEMALE_VOICE")
     azure_speech_male_voice: str = Field("hi-IN-MadhurNeural", alias="AZURE_SPEECH_MALE_VOICE")
@@ -279,9 +280,17 @@ class Settings(BaseSettings):
     fish_audio_model_id: str = Field("fish-speech-1.5", alias="FISH_AUDIO_MODEL_ID")
     fish_audio_output_format: str = Field("mp3", alias="FISH_AUDIO_OUTPUT_FORMAT")
     fish_audio_timeout_seconds: float = Field(30.0, alias="HINAA_FISH_AUDIO_TIMEOUT_SECONDS")
-    # Deepgram — used for Hiro's voice (TTS) and STT transcription
-    deepgram_api_key: SecretStr | None = Field(None, alias="Deepgram_API_KEY")
-    deepgram_base_url: str = Field("https://api.deepgram.com", alias="Deepgram_BASE_URL")
+    # Deepgram — used for Hiro's voice (TTS) and STT transcription.
+    # Settings are case-sensitive, so every accepted spelling has to be listed:
+    # .env.local ships DEEPGRAM_API_KEY while the mixed-case spelling predates it.
+    deepgram_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("DEEPGRAM_API_KEY", "Deepgram_API_KEY"),
+    )
+    deepgram_base_url: str = Field(
+        "https://api.deepgram.com",
+        validation_alias=AliasChoices("DEEPGRAM_BASE_URL", "Deepgram_BASE_URL"),
+    )
     deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [

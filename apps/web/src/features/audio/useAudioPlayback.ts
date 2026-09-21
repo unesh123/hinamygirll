@@ -412,7 +412,7 @@ export function useAudioPlayback(): PlaybackController {
         visemeEvents.current = textToVisemeEvents(remaining, duration, elapsed);
         speech.current.events = visemeEvents.current;
         speech.current.timingSource = "browser-boundary";
-        browserTiming.onBoundaryWord(event.charIndex);
+        browserTiming.retarget({ startMs: elapsed, visemes: visemeEvents.current, durationMs: elapsed + duration });
       };
       utterance.onpause = () => {
         if (session !== sessionRef.current || finished) return;

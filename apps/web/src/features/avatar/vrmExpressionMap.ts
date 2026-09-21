@@ -40,8 +40,8 @@ export interface VrmExpressionInput {
   viseme?: string;
   /** Active viseme weight (0..1) */
   visemeWeight?: number;
-  /** True while the scheduler says the avatar should blink. */
-  blinking: boolean;
+  /** Eased eyelid closure for this frame, 0 open .. 1 shut. */
+  blinkWeight: number;
   /** True while the companion is in the speaking state. */
   speaking: boolean;
   /** Reduced-motion: calm expressions, no blink animation. */
@@ -132,8 +132,9 @@ export function buildVrmExpressionWeights(
 
   // Lip sync — jaw energy + visemes drive mouth articulation while speaking.
   if (input.speaking) {
-    // Attenuate smile/happy morph target so mouth can freely open and articulate phonemes
-    weights.happy = weights.happy * 0.22;
+    // Visemes move the mouth corners too, so ease the smile instead of erasing
+    // it; cutting it to a fifth left her face blank for every spoken sentence.
+    weights.happy = weights.happy * 0.72;
 
     const jaw = clamp01(input.jawEnergy);
     const vis = input.viseme;
@@ -167,8 +168,8 @@ export function buildVrmExpressionWeights(
     }
   }
 
-  // Blink — full closure on blink beats, none otherwise (VRM 1.0).
-  const blink = input.reducedMotion ? 0 : input.blinking ? 1 : 0;
+  // Blink — eased lid closure so the eyes fall shut and reopen.
+  const blink = input.reducedMotion ? 0 : clamp01(input.blinkWeight);
   weights.blink = blink;
   weights.blinkLeft = blink;
   weights.blinkRight = blink;

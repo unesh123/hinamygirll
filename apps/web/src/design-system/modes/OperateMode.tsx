@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Globe,
@@ -155,7 +156,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
     try {
       setIsLoadingDocs(true);
       const res = await fetch("/api/v1/generated-docs", {
-        headers: { "X-HINAA-Dev-User": "local-web-user" },
+        headers: { "X-HINAA-Dev-User": HINAA_DEV_USER },
       });
       if (res.ok) {
         const data = await res.json();

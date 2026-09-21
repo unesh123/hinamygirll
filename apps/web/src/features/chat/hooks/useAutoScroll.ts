@@ -2,62 +2,103 @@
  * useAutoScroll — smart auto-scroll for conversation transcripts.
  *
  * Rules:
- * - Auto-scroll to bottom only when user is already at/near the bottom.
- * - Never force-scroll a user who has scrolled up to read older messages.
- * - Show a "jump to latest" indicator when the user is not at bottom.
- * - Expose a manual scrollToBottom function for the jump button.
+ * - Follow the thread while the user is riding the bottom.
+ * - Only a real input gesture may release that follow.
+ * - Show a "jump to latest" control when the user is not at the bottom.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const SCROLL_THRESHOLD_PX = 80; // within this many px of bottom = "at bottom"
 
+function gapFromBottom(el: HTMLElement): number {
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
 export function useAutoScroll(deps: unknown[]) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const [showJump, setShowJump] = useState(false);
+  /** Whether the user is riding the bottom of the thread. */
+  const pinnedRef = useRef(true);
+  /** Set by wheel/touch/key only — content growth and our own jumps never touch it. */
+  const userScrolledRef = useRef(false);
 
   const isAtBottom = useCallback((): boolean => {
     const el = scrollRef.current;
     if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_THRESHOLD_PX;
+    // A phone transcript is short, so a fixed 80px margin let one new bubble
+    // read as "scrolled away" and the thread outran its own follow logic.
+    return gapFromBottom(el) <= Math.max(SCROLL_THRESHOLD_PX, el.clientHeight * 0.5);
   }, []);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    if (typeof endRef.current?.scrollIntoView === "function") {
-      endRef.current.scrollIntoView({ behavior, block: "end" });
-    } else if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+  const followToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    userScrolledRef.current = false;
+    pinnedRef.current = true;
     setShowJump(false);
+    // Instant on purpose: an animated jump that gets interrupted, or that lands
+    // while the thread is still growing, leaves the newest message out of view.
+    if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  // Track user scroll to detect whether they've scrolled up.
+  // Only an input gesture decides whether the user is reading history. A
+  // programmatic jump briefly reports a large gap while the thread keeps
+  // growing, and treating that as "scrolled away" silently killed the follow.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const handleScroll = () => {
-      setShowJump(!isAtBottom());
+    const markGesture = () => {
+      userScrolledRef.current = true;
     };
+    const handleScroll = () => {
+      if (!userScrolledRef.current) return;
+      const atBottom = isAtBottom();
+      pinnedRef.current = atBottom;
+      setShowJump(!atBottom);
+    };
+    el.addEventListener("wheel", markGesture, { passive: true });
+    el.addEventListener("touchmove", markGesture, { passive: true });
+    el.addEventListener("keydown", markGesture);
     el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
+    return () => {
+      el.removeEventListener("wheel", markGesture);
+      el.removeEventListener("touchmove", markGesture);
+      el.removeEventListener("keydown", markGesture);
+      el.removeEventListener("scroll", handleScroll);
+    };
   }, [isAtBottom]);
 
-  // Auto-scroll only when user is at the bottom.
+  // Follow whatever changes the thread's height — streamed text, a progress
+  // card, an image landing late — instead of trusting the caller to enumerate
+  // every source of growth in its dependency list.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof MutationObserver === "undefined") return;
+    let frame = 0;
+    const observer = new MutationObserver(() => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (pinnedRef.current) followToBottom();
+      });
+    });
+    observer.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [followToBottom]);
+
+  // Re-run whenever the conversation content changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (isAtBottom()) {
-      if (typeof endRef.current?.scrollIntoView === "function") {
-        endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-      } else if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
-    } else {
-      // User is reading — just show the jump indicator.
-      setShowJump(true);
-    }
-  // Re-run whenever the conversation content changes.
-  // deps is passed in from the caller to keep this hook generic.
+    if (pinnedRef.current) followToBottom();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 

@@ -10,7 +10,7 @@ function base(overrides: Partial<VrmExpressionInput> = {}): VrmExpressionInput {
     emotion: "neutral",
     intensity: 0.5,
     jawEnergy: 0,
-    blinking: false,
+    blinkWeight: 0,
     speaking: false,
     reducedMotion: false,
     ...overrides,
@@ -57,13 +57,27 @@ describe("buildVrmExpressionWeights", () => {
     expect(weights.ih).toBe(0);
   });
 
-  it("blinks fully on blink beats and not otherwise", () => {
-    const open = buildVrmExpressionWeights(base({ blinking: false }));
-    const closed = buildVrmExpressionWeights(base({ blinking: true }));
+  it("maps the eased blink weight through to the lids", () => {
+    const open = buildVrmExpressionWeights(base({ blinkWeight: 0 }));
+    const half = buildVrmExpressionWeights(base({ blinkWeight: 0.45 }));
+    const closed = buildVrmExpressionWeights(base({ blinkWeight: 1 }));
     expect(open.blink).toBe(0);
+    expect(half.blink).toBeCloseTo(0.45, 2);
+    expect(half.blinkLeft).toBeCloseTo(0.45, 2);
+    expect(half.blinkRight).toBeCloseTo(0.45, 2);
     expect(closed.blink).toBe(1);
     expect(closed.blinkLeft).toBe(1);
     expect(closed.blinkRight).toBe(1);
+  });
+
+  it("keeps the emotion visible while speaking instead of going blank", () => {
+    const idle = buildVrmExpressionWeights(base({ emotion: "happy", intensity: 1 }));
+    const talking = buildVrmExpressionWeights(
+      base({ emotion: "happy", intensity: 1, speaking: true, jawEnergy: 0.6 }),
+    );
+    expect(idle.happy).toBeCloseTo(0.55, 2);
+    expect(talking.happy).toBeCloseTo(0.396, 2);
+    expect(talking.happy).toBeGreaterThan(0.3);
   });
 
   it("applies face presets on top of the emotion", () => {
@@ -86,7 +100,7 @@ describe("buildVrmExpressionWeights", () => {
   it("calms every expression under reduced motion", () => {
     const full = buildVrmExpressionWeights(base({ emotion: "happy", intensity: 1 }));
     const calm = buildVrmExpressionWeights(
-      base({ emotion: "happy", intensity: 1, reducedMotion: true, blinking: true }),
+      base({ emotion: "happy", intensity: 1, reducedMotion: true, blinkWeight: 1 }),
     );
     expect(calm.happy).toBeLessThan(full.happy);
     expect(calm.happy).toBeGreaterThan(0);

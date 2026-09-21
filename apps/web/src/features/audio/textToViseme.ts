@@ -126,11 +126,48 @@ function charToMouth(char: string): VrmMouth | null {
   return "ih";
 }
 
+// ── Speaking time ────────────────────────────────────────────────────────────
+// Relative time each character occupies in speech, normalised to the audio
+// length. These are not pretty numbers — they are the reason the mouth lines up
+// with the voice: a vowel is held, a stop consonant is almost instantaneous,
+// and the silence inside a sentence is longer than most of the letters.
+const UNIT_INDEPENDENT_VOWEL = 1.2; // अ आ इ ई उ ऊ ए ऐ ओ औ
+const UNIT_DEVANAGARI_CONSONANT = 1.0; // carries a short inherent "a"
+const UNIT_VOWEL = 1.1; // a e i o u
+const UNIT_CONSONANT = 0.55; // other Latin letters
+const UNIT_DIACRITIC = 0.35; // matra / virama / nasal mark: belongs to its syllable
+const UNIT_SPACE = 0.45; // word boundary — relax, do not close
+const UNIT_CLAUSE_PAUSE = 1.4; // , ; : —
+const UNIT_SENTENCE_PAUSE = 2.4; // . ! ? and line breaks
+
+const CLAUSE_PUNCTUATION = new Set([",", ";", ":", "—", "–"]);
+const SENTENCE_PUNCTUATION = new Set([".", "!", "?", "\n"]);
+
+function isPauseChar(char: string): boolean {
+  return CLAUSE_PUNCTUATION.has(char) || SENTENCE_PUNCTUATION.has(char);
+}
+
+/** Speaking-time weight for one character; 0 means it occupies no time. */
+function speakingTime(char: string): number {
+  if (isDevanagariConsonant(char)) return UNIT_DEVANAGARI_CONSONANT;
+  if (DEVANAGARI_INDEPENDENT_VOWELS[char]) return UNIT_INDEPENDENT_VOWEL;
+  if (DEVANAGARI_MATRAS[char] || char === DEVANAGARI_VIRAMA || DEVANAGARI_NASALS.has(char)) {
+    return UNIT_DIACRITIC;
+  }
+  if ("aeiouAEIOU".includes(char)) return UNIT_VOWEL;
+  if (/[a-zA-Z]/.test(char)) return UNIT_CONSONANT;
+  if (char === " " || char === "\t") return UNIT_SPACE;
+  if (CLAUSE_PUNCTUATION.has(char)) return UNIT_CLAUSE_PAUSE;
+  if (SENTENCE_PUNCTUATION.has(char)) return UNIT_SENTENCE_PAUSE;
+  return 0;
+}
+
 /**
- * Convert plain text + estimated total duration into a stream of VisemeEvents.
+ * Convert plain text + measured audio duration into a stream of VisemeEvents.
  *
- * Since we don't have phoneme-level timing, we distribute events uniformly
- * weighted by character count, skipping whitespace and punctuation.
+ * This is the only lip-sync timeline HINAA ever has — no voice provider
+ * returns viseme timings on either the streaming or the synthesis path — so the
+ * distribution has to imitate real speech rhythm rather than letter counts.
  *
  * @param text        The text being spoken
  * @param durationMs  Total audio duration in ms
@@ -143,56 +180,91 @@ export function textToVisemeEvents(
 ): VisemeEvent[] {
   if (!text || durationMs <= 0) return [];
 
-  // Filter to speakable characters only (Latin + Devanagari)
-  const chars = Array.from(text).filter(isSpeakable);
-  if (chars.length === 0) return [];
+  const chars = Array.from(text);
+  // Nothing pronounceable → nothing to animate, pauses alone are silence.
+  if (!chars.some(isSpeakable)) return [];
+
+  const slots = chars.map(speakingTime);
+  const totalSlots = slots.reduce((sum, slot) => sum + slot, 0);
+  if (totalSlots <= 0) return [];
+  const msPerSlot = durationMs / totalSlots;
 
   const events: VisemeEvent[] = [];
-  const perChar = durationMs / chars.length;
+  let cursorMs = 0;
+  let pauseStartMs = 0;
+  let pauseMs = 0;
 
-  // Emit one event per speakable character. Devanagari matras and nasal marks
-  // retroactively reshape the syllable they follow instead of adding their own.
-  let charIdx = 0;
-  for (const char of chars) {
-    const timeMs = startMs + charIdx * perChar;
+  // Consecutive punctuation ("...", ".\n\n") is one breath, not four closures.
+  const flushPause = () => {
+    if (pauseMs <= 0) return;
+    pushOrMerge(events, {
+      timeMs: startMs + pauseStartMs,
+      durationMs: pauseMs,
+      mouth: "closed",
+      weight: 0.05,
+    });
+    pauseMs = 0;
+  };
+
+  chars.forEach((char, index) => {
+    const duration = slots[index] * msPerSlot;
+    const timeMs = startMs + cursorMs;
+    cursorMs += duration;
+    if (duration <= 0) return;
+
+    if (char === " " || char === "\t") return;
+
+    if (isPauseChar(char)) {
+      if (pauseMs === 0) pauseStartMs = cursorMs - duration;
+      pauseMs += duration;
+      return;
+    }
+
+    flushPause();
     const last = events[events.length - 1];
 
     if (isDevanagariConsonant(char)) {
       // Consonant carries an inherent "a" (schwa) → open mouth
-      pushOrMerge(events, { timeMs, durationMs: perChar, mouth: "aa", weight: 0.9 });
+      pushOrMerge(events, { timeMs, durationMs: duration, mouth: "aa", weight: 0.9 });
     } else if (char === DEVANAGARI_VIRAMA) {
       // Virama kills the inherent vowel → mouth closes
-      pushOrMerge(events, { timeMs, durationMs: perChar, mouth: "closed", weight: 0.05 });
+      pushOrMerge(events, { timeMs, durationMs: duration, mouth: "closed", weight: 0.05 });
     } else if (DEVANAGARI_MATRAS[char]) {
       // Matra reshapes the syllable it attaches to and its time slot belongs
       // to that syllable's vowel, so the event extends through both slots.
       if (last) {
         last.mouth = DEVANAGARI_MATRAS[char];
-        last.durationMs += perChar;
+        last.durationMs += duration;
       }
     } else if (DEVANAGARI_INDEPENDENT_VOWELS[char]) {
       pushOrMerge(events, {
         timeMs,
-        durationMs: perChar,
+        durationMs: duration,
         mouth: DEVANAGARI_INDEPENDENT_VOWELS[char],
         weight: 1.0,
       });
     } else if (DEVANAGARI_NASALS.has(char)) {
       // Nasal marks color the previous syllable; no separate opening
-      if (last && last.weight < 1) last.weight = Math.min(1, last.weight + 0.1);
+      if (last) {
+        last.weight = Math.min(1, last.weight + 0.1);
+        last.durationMs += duration;
+      }
     } else {
       const mouth = charToMouth(char);
       if (mouth) {
         pushOrMerge(events, {
           timeMs,
-          durationMs: perChar,
+          durationMs: duration,
           mouth,
           weight: mouth === "closed" ? 0.05 : mouth === "aa" ? 1.0 : 0.75,
         });
       }
     }
-    charIdx++;
-  }
+  });
+
+  // Trailing punctuation still occupies the end of the clip; let the mouth rest
+  // through it instead of pretending the audio stopped early.
+  flushPause();
 
   return events;
 }

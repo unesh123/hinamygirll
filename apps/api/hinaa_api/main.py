@@ -1677,7 +1677,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 userMessage=(
                     "Deepgram TTS and STT configured server-side for Hiro."
                     if active_settings.deepgram_configured
-                    else "Deepgram_API_KEY is not configured in backend."
+                    else "DEEPGRAM_API_KEY is not configured in backend."
                 ),
             ),
             ProviderStatus(

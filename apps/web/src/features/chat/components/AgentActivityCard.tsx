@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle, StopCircle, Sparkles, Wrench, FileSearch, Globe } from "lucide-react";
 
 export interface ActivityStep {
@@ -15,7 +15,6 @@ export interface AgentActivityCardProps {
   isActive: boolean;
   steps: ActivityStep[];
   currentAction?: string;
-  elapsedMs?: number;
   onCancel?: () => void;
   onResume?: () => void;
   onConfirm?: () => void;
@@ -27,22 +26,29 @@ export function AgentActivityCard({
   isActive,
   steps,
   currentAction = "Thinking & Planning...",
-  elapsedMs: initialElapsedMs,
   onCancel,
   onResume,
   onConfirm,
   onReject,
   onRecover,
 }: AgentActivityCardProps) {
-  const [timerSec, setTimerSec] = useState(0);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startedAtRef = useRef<number | null>(null);
 
+  // Wall clock, not tick accumulation: browsers throttle timers in hidden tabs,
+  // so a counted interval under-reports the very runs worth measuring.
   useEffect(() => {
     if (!isActive) {
-      setTimerSec(0);
+      if (startedAtRef.current !== null) {
+        setElapsedMs(Math.max(0, Date.now() - startedAtRef.current));
+        startedAtRef.current = null;
+      }
       return;
     }
+    startedAtRef.current = Date.now();
+    setElapsedMs(0);
     const interval = setInterval(() => {
-      setTimerSec((s) => s + 0.1);
+      setElapsedMs(Math.max(0, Date.now() - (startedAtRef.current ?? Date.now())));
     }, 100);
     return () => clearInterval(interval);
   }, [isActive]);
@@ -177,7 +183,7 @@ export function AgentActivityCard({
               )}
             </div>
             <div style={{ fontSize: 10, fontWeight: 500, color: "var(--text-muted, #64748b)" }}>
-              Step {stepNumber} of {totalSteps} • {timerSec.toFixed(1)}s elapsed
+              Step {stepNumber} of {totalSteps} • {(elapsedMs / 1000).toFixed(1)}s elapsed
             </div>
           </div>
         </div>

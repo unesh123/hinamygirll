@@ -51,6 +51,19 @@ def cloud_image_available() -> bool:
         return False
 
 
+def resolve_upscale(params: "ImageGenerateParams") -> bool:
+    """Whether the Magnific upscale second pass runs for this request.
+
+    An explicit `upscale` always wins; `ultra` upscales unconditionally; the
+    `quality` tier follows MAGNIFIC_UPSCALE_DEFAULT; `fast` stays single-pass.
+    """
+    if params.upscale is not None:
+        return params.upscale
+    if params.mode == "ultra":
+        return True
+    return params.mode == "quality" and settings.magnific_upscale_default
+
+
 # ─── style + prompt engineering ──────────────────────────────────────────────
 
 DEFAULT_NEGATIVE = (
@@ -316,7 +329,7 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
 
     try:
         reference_url, reference_b64 = (await _resolve_reference(params)) if use_cloud else (None, None)
-        should_upscale = params.upscale if params.upscale is not None else (params.mode == "ultra")
+        should_upscale = resolve_upscale(params)
 
         if use_cloud:
             with session_factory() as session:
@@ -506,7 +519,7 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
         "style": params.style,
         "mode": params.mode,
         "reference_applied": bool(params.reference_url or params.reference_image_b64 or params.reference_query or params.reference_images),
-        "upscale": bool(params.upscale or params.mode == "ultra"),
+        "upscale": resolve_upscale(params),
         "prompt": params.prompt,
         "enhanced_prompt": final_prompt,
     }

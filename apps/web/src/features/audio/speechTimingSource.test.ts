@@ -108,4 +108,61 @@ describe("SpeechTimingSource", () => {
     source.onUtteranceEnd();
     expect(source.isPlaying()).toBe(false);
   });
+
+  it("BrowserSpeechTimingSource.retarget re-anchors the mouth schedule to a measured boundary", () => {
+    let mockClock = 1000;
+    const source = new BrowserSpeechTimingSource({
+      durationMs: 600,
+      clock: () => mockClock,
+      visemes: [
+        { timeMs: 0, durationMs: 300, mouth: "aa", weight: 0.9 },
+        { timeMs: 300, durationMs: 300, mouth: "ih", weight: 0.8 },
+      ],
+    });
+
+    source.onUtteranceStart();
+    // Browser speech ran slower than the opening estimate: the schedule was
+    // exhausted 300 ms before the words were, so her mouth went still mid-
+    // sentence and the remaining syllables were silent-faced.
+    mockClock += 900;
+    expect(source.getPlaybackTime()).toBe(600);
+    expect(source.getVisemeAt(600)).toBeNull();
+    expect(source.isPlaying()).toBe(false);
+
+    source.retarget({
+      startMs: 900,
+      visemes: [
+        { timeMs: 900, durationMs: 310, mouth: "ou", weight: 0.7 },
+        { timeMs: 1210, durationMs: 310, mouth: "oh", weight: 0.75 },
+      ],
+      durationMs: 900 + 620,
+    });
+
+    expect(source.getPlaybackTime()).toBe(900);
+    expect(source.getVisemeAt(900)?.mouth).toBe("ou");
+    expect(source.isPlaying()).toBe(true);
+
+    mockClock += 350;
+    expect(source.getPlaybackTime()).toBe(1250);
+    expect(source.getVisemeAt(1250)?.mouth).toBe("oh");
+  });
+
+  it("BrowserSpeechTimingSource.retarget does not resume a paused utterance", () => {
+    let mockClock = 1000;
+    const source = new BrowserSpeechTimingSource({ durationMs: 900, clock: () => mockClock });
+
+    source.onUtteranceStart();
+    mockClock += 250;
+    source.onUtterancePause();
+    source.retarget({ startMs: 400, visemes: [], durationMs: 1400 });
+    mockClock += 500;
+
+    expect(source.getPlaybackTime()).toBe(400);
+    expect(source.isPlaying()).toBe(false);
+
+    source.onUtteranceResume();
+    mockClock += 100;
+    expect(source.getPlaybackTime()).toBe(500);
+    expect(source.isPlaying()).toBe(true);
+  });
 });

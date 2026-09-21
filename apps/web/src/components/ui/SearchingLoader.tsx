@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Globe, Search, Sparkles, CheckCircle2, ShieldCheck, Radio } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Globe, Search } from "lucide-react";
 
 export interface SearchingLoaderProps {
   visible: boolean;
@@ -61,32 +60,13 @@ export function SearchingLoader({ visible, query }: SearchingLoaderProps) {
   );
 }
 
-const SEARCH_STAGES = [
-  "Connecting to live 2026 search index…",
-  "Retrieving real-time news & authoritative sources…",
-  "Verifying facts against 2026 temporal grounding…",
-  "Synthesizing live search results for HINAA…",
-];
-
 export interface WebSearchLoaderProps {
   visible: boolean;
   query?: string;
 }
 
-/** Full-fidelity inline research card rendered directly inside the chat conversation stream */
+/** Inline card shown while the backend reports a real web search in flight. */
 export function WebSearchLoader({ visible, query }: WebSearchLoaderProps) {
-  const [stageIndex, setStageIndex] = useState(0);
-
-  useEffect(() => {
-    if (!visible) {
-      setStageIndex(0);
-      return;
-    }
-    const interval = setInterval(() => {
-      setStageIndex((prev) => (prev < SEARCH_STAGES.length - 1 ? prev + 1 : prev));
-    }, 1100);
-    return () => clearInterval(interval);
-  }, [visible]);
 
   return (
     <AnimatePresence>
@@ -208,36 +188,6 @@ export function WebSearchLoader({ visible, query }: WebSearchLoaderProps) {
                   >
                     Searching the Live Web
                   </span>
-                  {/* Live Pulsing Beacon */}
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "2px 7px",
-                      borderRadius: 999,
-                      background: "rgba(14, 165, 233, 0.15)",
-                      border: "1px solid rgba(14, 165, 233, 0.3)",
-                      color: "#38bdf8",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      letterSpacing: "0.02em",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    <motion.span
-                      animate={{ opacity: [0.4, 1, 0.4] }}
-                      transition={{ duration: 1.2, repeat: Infinity }}
-                      style={{
-                        width: 5,
-                        height: 5,
-                        borderRadius: "50%",
-                        background: "#38bdf8",
-                        boxShadow: "0 0 6px #38bdf8",
-                      }}
-                    />
-                    2026 Grounding
-                  </span>
                 </div>
 
                 {/* Animated typing dots */}
@@ -289,56 +239,6 @@ export function WebSearchLoader({ visible, query }: WebSearchLoaderProps) {
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>"{query}"</span>
                 </div>
               )}
-
-              {/* Multi-stage progressive status message */}
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: 12,
-                  color: "var(--text-secondary, #cbd5e1)",
-                  fontWeight: 500,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <Sparkles size={13} style={{ color: "#a855f7", flexShrink: 0 }} />
-                <motion.span
-                  key={stageIndex}
-                  initial={{ opacity: 0, x: -4 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.25 }}
-                >
-                  {SEARCH_STAGES[stageIndex]}
-                </motion.span>
-              </div>
-
-              {/* Verification Badges */}
-              <div
-                style={{
-                  marginTop: 10,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  flexWrap: "wrap",
-                  fontSize: 10,
-                  color: "var(--text-tertiary, #64748b)",
-                  fontWeight: 600,
-                }}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  <ShieldCheck size={12} style={{ color: "#10b981" }} />
-                  Cutoff Bypass Active
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  <Radio size={12} style={{ color: "#38bdf8" }} />
-                  Real-Time Web Feed
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  <CheckCircle2 size={12} style={{ color: "#a855f7" }} />
-                  Multi-Source Attributed
-                </span>
-              </div>
             </div>
           </div>
         </motion.div>

@@ -68,6 +68,35 @@ describe("textToVisemeEvents", () => {
     expect(getActiveViseme(601, events)).toBeNull();
   });
 
+  it("spends audio time on pauses so the mouth never leads the voice", () => {
+    const withPause = textToVisemeEvents("hello, world", 1_000);
+    const withoutPause = textToVisemeEvents("helloworld", 1_000);
+
+    // Identical letters, so the only difference is the time the comma and the
+    // space take. The last syllable has to arrive later when they do; uniform
+    // per-letter timing pushed it early and the mouth led the audio all way.
+    const lastStart = (events: typeof withPause) =>
+      events[events.length - 1].timeMs;
+    expect(lastStart(withPause)).toBeGreaterThan(lastStart(withoutPause));
+  });
+
+  it("rests the mouth at a pause and spans the whole clip", () => {
+    const events = textToVisemeEvents("Namaste. K cha?", 900);
+    const closures = events.filter((e) => e.mouth === "closed");
+    expect(closures.length).toBeGreaterThanOrEqual(2);
+    expect(closures.every((e) => e.weight < 0.2)).toBe(true);
+
+    const last = events[events.length - 1];
+    expect(last.timeMs + last.durationMs).toBeCloseTo(900, 5);
+  });
+
+  it("gives a held vowel more time than a stop consonant", () => {
+    const [vowel, consonant] = textToVisemeEvents("at", 100);
+    expect(vowel.mouth).toBe("aa");
+    expect(consonant.mouth).toBe("ih");
+    expect(vowel.durationMs).toBeGreaterThan(consonant.durationMs);
+  });
+
   it("prioritizes provider-timed visemes over text fallback when available", () => {
     const events = createLipSyncTimeline({
       text: "namaste",

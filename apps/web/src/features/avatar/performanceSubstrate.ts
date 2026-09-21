@@ -39,7 +39,8 @@ export interface PerformanceSubstrateOutput {
   gaze: GazeTarget;
   head: HeadRotation;
   arms: ArmPose;
-  blinking: boolean;
+  /** Eased eyelid closure for the current frame, 0..1. */
+  blinkWeight: number;
   lipSync: {
     aa: number;
     ih: number;
@@ -71,16 +72,30 @@ export class EmotionRuntime {
 }
 
 // ── 2. BlinkRuntime ──────────────────────────────────────────────────────────
+/**
+ * Eyelid envelope for one blink, given progress through it (0..1).
+ *
+ * A blink is asymmetric: the lid falls fast and lifts slower. Returning a
+ * weight instead of a boolean is what makes it read as a blink at all — a
+ * square wave slams the eyes shut and pops them open again.
+ */
+export function blinkEnvelope(progress: number): number {
+  if (progress <= 0 || progress >= 1) return 0;
+  if (progress < 0.35) return progress / 0.35;
+  if (progress < 0.5) return 1;
+  return Math.max(0, 1 - (progress - 0.5) / 0.5);
+}
+
 export class BlinkRuntime {
   private nextBlinkTime = 3.0;
   private blinkDuration = 0.15;
   private blinkProgress = -1; // -1 = not blinking, 0..1 = blinking
   private isDoubleBlink = false;
 
-  update(deltaSeconds: number, timeSeconds: number, isSuppressed = false): boolean {
+  update(deltaSeconds: number, timeSeconds: number, isSuppressed = false): number {
     if (isSuppressed) {
       this.blinkProgress = -1;
-      return false;
+      return 0;
     }
 
     if (this.blinkProgress >= 0) {
@@ -94,16 +109,16 @@ export class BlinkRuntime {
           this.scheduleNext(timeSeconds);
         }
       }
-      return true;
+      return this.blinkProgress >= 0 ? blinkEnvelope(this.blinkProgress) : 0;
     }
 
     if (timeSeconds >= this.nextBlinkTime) {
       this.blinkProgress = 0;
       this.isDoubleBlink = Math.random() < 0.18; // 18% chance of double blink
-      return true;
+      return blinkEnvelope(this.blinkProgress);
     }
 
-    return false;
+    return 0;
   }
 
   private scheduleNext(timeSeconds: number): void {
@@ -259,7 +274,7 @@ export class PerformanceDirector {
     const intensity = this.emotionRuntime.getIntensity();
 
     // 1. Blinking
-    const blinking = this.blinkRuntime.update(deltaSeconds, timeSeconds, false);
+    const blinkWeight = this.blinkRuntime.update(deltaSeconds, timeSeconds, false);
 
     // 2. Gaze
     const gaze = this.gazeRuntime.update(this.state, emotion, timeSeconds, options.codeMode);
@@ -287,7 +302,7 @@ export class PerformanceDirector {
       gaze,
       head,
       arms,
-      blinking,
+      blinkWeight,
       lipSync: lipSyncWeights,
       expressions: {
         aa: lipSyncWeights.aa,
@@ -295,7 +310,7 @@ export class PerformanceDirector {
         ou: lipSyncWeights.ou,
         ee: lipSyncWeights.ee,
         oh: lipSyncWeights.oh,
-        blink: blinking ? 1 : 0,
+        blink: blinkWeight,
       },
     };
   }

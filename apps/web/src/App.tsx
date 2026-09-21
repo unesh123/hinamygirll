@@ -416,7 +416,7 @@ export default function App() {
   };
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
-  const [sidebarExpanded, setSidebarExpanded] = useState<NavSection | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [operateTab, setOperateTab] = useState<OperateTab>("tasks");
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [contextMode, setContextMode] = useState<ContextMode>("hidden");
@@ -710,16 +710,16 @@ export default function App() {
       "deep-research": () => { setContextMode("research"); },
       "browser-navigate": () => setContextMode("browser"),
       "browser-read": () => setContextMode("browser"),
-      "write-code": () => { setNavSection("tools"); setSidebarExpanded(null); },
+      "write-code": () => setNavSection("tools"),
       "play-music": () => { setContextMode("music"); setMusicPlayerOpen(true); },
       "check-email": () => setContextMode("email"),
-      "show-calendar": () => { setNavSection("tools"); setSidebarExpanded(null); },
-      "search-files": () => { setNavSection("files"); setSidebarExpanded(null); },
+      "show-calendar": () => setNavSection("tools"),
+      "search-files": () => setNavSection("files"),
       "remember-this": () => setMemoryOpen(true),
-      "agent-mode": () => { setNavSection("tasks"); setSidebarExpanded(null); },
-      "automation": () => { setNavSection("tasks"); setSidebarExpanded(null); },
-      "system-open": () => { setNavSection("tools"); setSidebarExpanded(null); },
-      "export": () => { setNavSection("files"); setSidebarExpanded(null); },
+      "agent-mode": () => setNavSection("tasks"),
+      "automation": () => setNavSection("tasks"),
+      "system-open": () => setNavSection("tools"),
+      "export": () => setNavSection("files"),
       "open-humanizer": openHumanizerStudio,
     };
     map[p.action]?.();
@@ -728,11 +728,6 @@ export default function App() {
   const handleNav = useCallback((s: NavSection) => {
     if (s === "memory") { setMemoryOpen(v => !v); return; }
     setNavSection(s);
-    if (s === "tasks" || s === "files") {
-      setSidebarExpanded(null);
-      return;
-    }
-    setSidebarExpanded(prev => prev === s ? null : s);
   }, []);
 
   const openAvatarLab = () => {
@@ -801,26 +796,13 @@ export default function App() {
     }
 
     if (controller.state === "thinking") {
-      const latestUserText = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
-      const isResearch = /search|find|research|look up|source|citation|latest|current|news|today|tonight|recent|recently|weather|score|price|stock|update|2026|live|right now|happening/i.test(latestUserText);
-      const isChatOnly = /^(hi|hello|hey|babe|gm|gn|good morning|good evening|bye|thanks|thank you)\b/i.test(latestUserText.trim()) || /^\/(image|pdf|doc)/i.test(latestUserText.trim());
-      const shouldSearch = isResearch && !isChatOnly;
-      setSearching(shouldSearch);
-      if (shouldSearch) {
-        setContextMode("research");
-        const cleanQuery = latestUserText
-          .replace(/^(hinaa|hey hinaa|can you|please|could you|tell me|what is|what's|search for|look up|find|give me|check)\s+/i, "")
-          .trim();
-        setSearchQuery(cleanQuery || latestUserText.slice(0, 40));
-        setAgentSteps([
-          {
-            id: "web_search",
-            label: "Searching the live web…",
-            detail: `Looking up live 2026 data: "${(cleanQuery || latestUserText).slice(0, 36)}"`,
-            status: "active",
-          },
-        ]);
-      } else {
+      // The backend announces a real search with `search.started`. Guessing from
+      // keywords in the user's own message used to render the research card, and
+      // its "Cutoff Bypass Active" claim, for turns that never searched at all.
+      setSearching(controller.isSearching);
+      setSearchQuery(controller.searchQuery);
+      if (controller.isSearching) setContextMode("research");
+      if (controller.agentSteps.length === 0) {
         setAgentSteps([
           {
             id: "awaiting-live-progress",
@@ -844,7 +826,7 @@ export default function App() {
       const timer = window.setTimeout(() => setAgentSteps([]), 1800);
       return () => window.clearTimeout(timer);
     }
-  }, [controller.state, controller.messages, controller.agentSteps]);
+  }, [controller.state, controller.messages, controller.agentSteps, controller.isSearching, controller.searchQuery]);
 
   /* ─── Action chips ───────────────────────────────────── */
   useEffect(() => {
@@ -929,8 +911,8 @@ export default function App() {
             }}
             onNewChat={handleNewChat}
             onSelectConversation={handleSelectConversation}
-            onToggleHistory={() => setSidebarExpanded((prev) => (prev ? null : "chat"))}
-            historyOpen={Boolean(sidebarExpanded)}
+            onToggleHistory={() => setHistoryOpen((open) => !open)}
+            historyOpen={historyOpen}
             activeConversationId={activeConversationId}
           >
             {/* Unified Frontier TopBar V6 */}
@@ -944,7 +926,7 @@ export default function App() {
                   : null
               }
               activeProviderName={routing.activeModel || (routing.activeMode === "mock" ? "Mock Engine" : "Frontier Engine")}
-              onOpenSearch={() => setSidebarExpanded("chat")}
+              onOpenSearch={() => setHistoryOpen(true)}
               onOpenProjectSettings={openProjectWorkspace}
               onOpenGoalDetails={() => setSakuraView("work")}
               onSelectModel={(modelId, providerId) => {
@@ -984,6 +966,9 @@ export default function App() {
                 streamingText={controller.streamingText}
                 avatarModel={avatarModel}
                 avatarMode={avatarMode}
+                onCameraChange={changeAvatarMode}
+                languagePolicy={settings.language.activePolicy}
+                onLanguageChange={(policy) => setLanguage({ activePolicy: policy })}
                 jawEnergy={playback.jawEnergy}
                 speakingRef={playback.playingRef}
                 visemeEvents={playback.visemeEvents}
