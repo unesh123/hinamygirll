@@ -130,6 +130,17 @@ function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> 
     provider.preferredModelByProvider = models;
     migrated.provider = provider;
   }
+  if (version < 9) {
+    // Version 7 pinned installs to the CX Gateway, which only answers while the
+    // backend holds its credentials. "auto" already prefers cx-gateway whenever
+    // the health probe reports it healthy, so nothing is lost when the keys are
+    // absent and no turn can be sent to a brain that isn't configured.
+    const provider = isObject(migrated.provider) ? { ...migrated.provider } : {};
+    if (provider.preferredMode === "cx-gateway") {
+      provider.preferredMode = "auto";
+    }
+    migrated.provider = provider;
+  }
   migrated._version = SETTINGS_VERSION;
   return migrated;
 }

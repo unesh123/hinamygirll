@@ -2,29 +2,38 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SETTINGS_KEY } from "../types/settings";
 import { loadSettings } from "./settingsStore";
 
-describe("CX provider default", () => {
+describe("persisted brain preference", () => {
   beforeEach(() => localStorage.clear());
 
-  it("uses CX Gateway for a fresh local installation", () => {
-    expect(loadSettings().provider.preferredMode).toBe("cx-gateway");
+  it("defers to measured health on a fresh installation", () => {
+    expect(loadSettings().provider.preferredMode).toBe("auto");
   });
 
-  it("migrates a previously automatic installation to CX Gateway", () => {
+  it("keeps the CX Gateway model to use once that gateway is healthy", () => {
+    expect(loadSettings().provider.preferredModelByProvider["cx-gateway"]).toBe("cx/gpt-5.6-sol");
+  });
+
+  it("migrates an old automatic installation through the gateway pin back to auto", () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
       _version: 1,
       appearance: {},
       provider: { preferredMode: "auto", preferredModelByProvider: {} },
     }));
-    expect(loadSettings().provider.preferredMode).toBe("cx-gateway");
+    expect(loadSettings().provider.preferredMode).toBe("auto");
   });
 
-  it("moves a persisted rate-limited Claude choice to CX Gateway", () => {
+  it("un-pins the gateway choice written by the shipped version-8 build", () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-      _version: 6,
+      _version: 8,
       appearance: {},
-      provider: { preferredMode: "claude", preferredModelByProvider: {} },
+      provider: {
+        preferredMode: "cx-gateway",
+        preferredModelByProvider: { "cx-gateway": "cx/gpt-5.6-sol" },
+      },
     }));
-    expect(loadSettings().provider.preferredMode).toBe("cx-gateway");
+    const provider = loadSettings().provider;
+    expect(provider.preferredMode).toBe("auto");
+    expect(provider.preferredModelByProvider["cx-gateway"]).toBe("cx/gpt-5.6-sol");
   });
 
   it("does not overwrite an explicit existing provider choice", () => {
@@ -34,6 +43,15 @@ describe("CX provider default", () => {
       provider: { preferredMode: "local", preferredModelByProvider: {} },
     }));
     expect(loadSettings().provider.preferredMode).toBe("local");
+  });
+
+  it("leaves a Claude choice made on the current version alone", () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      _version: 9,
+      appearance: {},
+      provider: { preferredMode: "claude", preferredModelByProvider: { claude: "claude-opus-4-6" } },
+    }));
+    expect(loadSettings().provider.preferredMode).toBe("claude");
   });
 });
 

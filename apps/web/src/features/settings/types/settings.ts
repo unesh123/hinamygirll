@@ -15,9 +15,15 @@
  * Version 6 — automation autonomy. HINAA may execute her proposed tool actions
  * without a per-action approval click. The toggle stays user-visible and
  * reversible so consent remains an explicit, revocable choice.
+ *
+ * Version 7 — pinned the CX Gateway (it held the deployment's keys at the time).
+ *
+ * Version 9 — un-pins again. A stored preference is not a fact about the
+ * deployment: whichever gateway has credentials changes with the backend's
+ * .env.local, so routing defers to measured health instead of a hardcoded pin.
  */
 
-export const SETTINGS_VERSION = 8 as const;
+export const SETTINGS_VERSION = 9 as const;
 export const SETTINGS_KEY = "hinaa_settings_v1" as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -103,7 +109,7 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     avatarStyle: "auto",
   },
   provider: {
-    preferredMode: "cx-gateway",
+    preferredMode: "auto",
     preferredModelByProvider: {
       "cx-gateway": "cx/gpt-5.6-sol",
     },
