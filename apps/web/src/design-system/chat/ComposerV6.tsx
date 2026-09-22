@@ -774,12 +774,15 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               fontSize: 11,
               fontWeight: isGoalMode ? 700 : 500,
               cursor: "pointer",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
               transition: "all 0.15s ease",
             }}
+            aria-label="Toggle autonomous goal mode"
             title="Toggle Autonomous Goal Mode"
           >
             <Target size={12} />
-            <span>Goal Mode</span>
+            <span>Goal</span>
           </button>
 
           {/* 4. `Create ▾` Dropdown */}

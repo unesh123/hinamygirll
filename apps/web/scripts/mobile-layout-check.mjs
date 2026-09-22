@@ -2,19 +2,19 @@
  * Mobile layout check — verifies the HINAA stage fits phone-sized viewports.
  *
  * Runs headless Chromium against the dev server, forces the lightweight
- * procedural avatar + mock provider for a deterministic layout, then asserts:
- *   - no horizontal overflow
- *   - assistant avatar pane and welcome actions remain inside the viewport
- *   - composer and status pill remain visible
- *   - zero console errors
+ * procedural avatar + mock provider for a deterministic layout, then asserts
+ * against the components that actually mount today (topbar-v6, the work
+ * surface, composer-v6, the mobile nav).
  *
  * Usage (from apps/web): node scripts/mobile-layout-check.mjs
+ *   HINAA_CHROMIUM_PATH=<exe> to use a specific browser; by default Playwright
+ *   resolves its own bundled Chromium, which is what works on Windows.
  * Artifacts: screenshots written to <repo root>/.runtime/mobile-<name>.png
  *
  * Note: the check forces the lightweight procedural avatar so layout stays
- * deterministic — the VRM 3D stage uses the same absolute-inset container
- * (.vrm-stage), so overflow behaviour is equivalent, but the 3D stage itself
- * is not exercised at phone sizes here.
+ * deterministic — the VRM 3D stage uses the same absolute-inset container, so
+ * overflow behaviour is equivalent, but the 3D stage itself is not exercised
+ * at phone sizes here.
  */
 
 import { chromium } from "@playwright/test";
@@ -26,11 +26,12 @@ const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
+  "..",
 );
 const ARTIFACT_DIR = path.join(REPO_ROOT, ".runtime");
 fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 
-const BASE_URL = "http://127.0.0.1:5173/";
+const BASE_URL = process.env.HINAA_WEB_URL || "http://127.0.0.1:5173/";
 const VIEWPORTS = [
   { name: "pixel-5-393x851", width: 393, height: 851 },
   { name: "small-android-320x568", width: 320, height: 568 },
@@ -48,10 +49,20 @@ try {
   process.exit(2);
 }
 
-const browser = await chromium.launch({
-  executablePath: process.env.HINAA_CHROMIUM_PATH || "/usr/bin/chromium",
-  args: ["--no-sandbox", "--disable-dev-shm-usage", "--ignore-gpu-blocklist", "--enable-webgl", "--enable-unsafe-swiftshader"],
-});
+const launchOptions = {
+  args: [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--ignore-gpu-blocklist",
+    "--enable-webgl",
+    "--enable-unsafe-swiftshader",
+  ],
+};
+if (process.env.HINAA_CHROMIUM_PATH) {
+  launchOptions.executablePath = process.env.HINAA_CHROMIUM_PATH;
+}
+
+const browser = await chromium.launch(launchOptions);
 const results = [];
 
 for (const vp of VIEWPORTS) {
@@ -85,8 +96,8 @@ for (const vp of VIEWPORTS) {
     }
   });
 
-  await page.goto(BASE_URL, { waitUntil: "networkidle", timeout: 20_000 }).catch(() => {});
-  await page.waitForTimeout(1200);
+  await page.goto(BASE_URL, { waitUntil: "networkidle", timeout: 30_000 }).catch(() => {});
+  await page.waitForTimeout(1_500);
 
   const layout = await page.evaluate(() => {
     const rect = (sel) => {
@@ -103,42 +114,115 @@ for (const vp of VIEWPORTS) {
       };
     };
     const doc = document.documentElement;
-    const avatar = rect(".avatar-pane");
-    const composer = rect(".premium-composer-wrapper");
+    const viewport = { w: window.innerWidth, h: window.innerHeight };
+
+    const transcript = document.querySelector(".hinaa-work-transcript");
+    const transcriptStyle = transcript ? getComputedStyle(transcript) : null;
+    const composer = document.querySelector(".hinaa-work-composer");
+    const nav = document.querySelector(".sakura-mobile-nav");
+
+    // A control whose box is taller than one line of its own text is a
+    // wrapping pill. getClientRects() cannot tell: a <span> inside a flex
+    // button is blockified, so it reports one box no matter how many lines.
+    const wrappedControls = [];
+    const clippedControls = [];
+    const hiddenBehindScroll = [];
+    if (composer) {
+      for (const control of composer.querySelectorAll("button, [role='button']")) {
+        // Controls inside a closed dropdown are not on screen; measuring them
+        // reports clips nobody can see.
+        const own = control.getBoundingClientRect();
+        const visible = typeof control.checkVisibility === "function"
+          ? control.checkVisibility()
+          : own.width > 1 && own.height > 1;
+        if (!visible) continue;
+        const label = [...control.childNodes].find(
+          (n) => n.nodeType === 3 && n.textContent.trim(),
+        ) || control.querySelector("span");
+        const text = (label?.textContent || "").trim();
+        if (!text) continue;
+        const target = label?.nodeType === 3 ? label.parentElement : label;
+        const box = target.getBoundingClientRect();
+        const lineHeight =
+          parseFloat(getComputedStyle(target).lineHeight) ||
+          parseFloat(getComputedStyle(target).fontSize) * 1.2;
+        if (box.height > lineHeight * 1.5) {
+          wrappedControls.push(`${text.slice(0, 24)} (${Math.round(box.height)}px / ${Math.round(lineHeight)}px)`);
+        }
+        // The usual consequence of stopping a wrap is that an ancestor clips
+        // the label instead. The control's own box looks fine — it is the
+        // row around it that hides the tail, so compare against every
+        // clipping ancestor's client box.
+        const box2 = control.getBoundingClientRect();
+        for (let node = control.parentElement; node && node !== composer; node = node.parentElement) {
+          const overflow = getComputedStyle(node);
+          if (!/hidden|auto|scroll|clip/.test(overflow.overflowX)) continue;
+          const host = node.getBoundingClientRect();
+          if (box2.right <= host.right + 1 && box2.left >= host.left - 1) continue;
+          const detail = `${text.slice(0, 24)} (runs to ${Math.round(box2.right)}px, row ends ${Math.round(host.right)}px)`;
+          // A row that scrolls still lets him reach the control; a row that
+          // clips it leaves the affordance unreachable on a phone.
+          if (/auto|scroll/.test(overflow.overflowX)) {
+            hiddenBehindScroll.push(detail);
+          } else {
+            clippedControls.push(detail);
+          }
+          break;
+        }
+      }
+    }
+
     return {
-      viewport: { w: window.innerWidth, h: window.innerHeight },
+      viewport,
       scrollWidth: doc.scrollWidth,
       overflowX: doc.scrollWidth > window.innerWidth + 1,
-      avatar,
-      avatarVisible: !!avatar && avatar.height > 0,
-      composerVisible: !!composer && composer.bottom <= window.innerHeight + 1,
-      welcomeActionVisible: !!document.querySelector('[aria-label="Research"]'),
-      welcomeActions: ["Research", "Create", "Continue work", "Talk to HINAA"].map((label) => {
-        const button = document.querySelector(`[aria-label="${label}"]`);
-        if (!button) return false;
-        const rect = button.getBoundingClientRect();
-        return rect.top >= 0 && rect.bottom <= window.innerHeight + 1 && rect.left >= 0 && rect.right <= window.innerWidth + 1;
+      topbar: rect(".topbar-v6"),
+      workSurface: rect(".hinaa-work-surface"),
+      transcript: rect(".hinaa-work-transcript"),
+      composer: rect(".hinaa-work-composer"),
+      composerCard: rect(".composer-v6"),
+      mobileNav: rect(".sakura-mobile-nav"),
+      navButtons: [...document.querySelectorAll(".sakura-mobile-nav button")].map((b) => {
+        const r = b.getBoundingClientRect();
+        return {
+          label: (b.getAttribute("aria-label") || b.textContent || "").trim().slice(0, 16),
+          inside: r.top >= 0 && r.bottom <= window.innerHeight + 1 && r.left >= -1 && r.right <= window.innerWidth + 1,
+        };
       }),
-      statusPill: !!document.querySelector(".header-status"),
+      transcriptScrollable: !!transcriptStyle
+        ? /auto|scroll/.test(transcriptStyle.overflowY) &&
+          transcript.scrollHeight >= transcript.clientHeight
+        : false,
+      wrappedControls,
+      clippedControls,
+      hiddenBehindScroll,
+      canvasCount: document.querySelectorAll("canvas").length,
     };
   });
 
-  // Invariants
+  const inside = (r) =>
+    !!r && r.left >= -1 && r.right <= layout.viewport.w + 1 && r.top >= -1 && r.bottom <= layout.viewport.h + 1;
+
   const checks = {
     noHorizontalOverflow: layout.overflowX === false,
-    avatarPanePresent: !!layout.avatar,
-    avatarPaneInsideViewport: !!(
-      layout.avatar &&
-      layout.avatar.left >= 0 &&
-      layout.avatar.right <= layout.viewport.w &&
-      layout.avatar.top >= 0 &&
-      layout.avatar.bottom <= layout.viewport.h
-    ),
-    avatarPresent: layout.avatarVisible,
-    welcomeActionPresent: layout.welcomeActionVisible,
-    allWelcomeActionsInsideViewport: layout.welcomeActions.every(Boolean),
-    composerInsideViewport: layout.composerVisible,
-    statusPillPresent: layout.statusPill,
+    topbarPresentAndInside: inside(layout.topbar),
+    workSurfacePresent: !!layout.workSurface,
+    transcriptPresent: !!layout.transcript,
+    transcriptScrollsWithoutLibraries: layout.transcriptScrollable,
+    composerPresent: !!layout.composer,
+    composerInsideViewport: inside(layout.composer),
+    // The composer must sit clear of the tab bar, or the last row is untappable.
+    composerClearsMobileNav:
+      !!layout.composer && !!layout.mobileNav && layout.composer.bottom <= layout.mobileNav.top + 1,
+    mobileNavInside: inside(layout.mobileNav),
+    allNavButtonsReachable: layout.navButtons.length > 0 && layout.navButtons.every((b) => b.inside),
+    noWrappingComposerControls: layout.wrappedControls.length === 0,
+    noClippedComposerControls: layout.clippedControls.length === 0,
+    // Chrome above the transcript must not eat the screen: header + any band
+    // stay under a quarter of the viewport on a phone.
+    chromeWithinBudget:
+      !!layout.transcript &&
+      layout.transcript.top <= Math.round(layout.viewport.h * 0.25),
     noConsoleErrors: consoleErrors.length === 0,
   };
   const pass = Object.values(checks).every(Boolean);
@@ -149,11 +233,18 @@ for (const vp of VIEWPORTS) {
 
   results.push({
     viewport: vp.name,
-    checks,
     pass,
+    failed: Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k),
     consoleErrors,
     detail: {
-        avatar: layout.avatar,
+      topbar: layout.topbar,
+      transcriptTop: layout.transcript?.top ?? null,
+      composer: layout.composer,
+      mobileNav: layout.mobileNav,
+      wrappedControls: layout.wrappedControls,
+      clippedControls: layout.clippedControls,
+      hiddenBehindScroll: layout.hiddenBehindScroll,
+      canvasCount: layout.canvasCount,
       scrollWidth: layout.scrollWidth,
     },
   });
@@ -161,5 +252,6 @@ for (const vp of VIEWPORTS) {
 }
 
 await browser.close();
+
 console.log(JSON.stringify(results, null, 2));
-process.exit(results.some((r) => !r.pass) ? 1 : 0);
+process.exit(results.every((r) => r.pass) ? 0 : 1);
