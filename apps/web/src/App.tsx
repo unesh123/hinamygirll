@@ -84,6 +84,20 @@ function ClerkAuthWrapper() {
   );
 }
 
+const API_BASE = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
+
+export function isHinaApiUrl(url: string): boolean {
+  if (!/^https?:\/\//i.test(url)) {
+    return url.startsWith("/api") || url.startsWith("/v1");
+  }
+  // An absolute URL is only ours if it is this origin or the configured API base.
+  // Matching on pathname alone would hand the token to any host exposing /api/*.
+  const isOurs = url.startsWith(window.location.origin) || (API_BASE !== "" && url.startsWith(API_BASE));
+  if (!isOurs) return false;
+  const { pathname } = new URL(url);
+  return pathname.startsWith("/api") || pathname.startsWith("/v1");
+}
+
 export function ClerkFetchInterceptor() {
   const { getToken } = useAuth();
   useEffect(() => {
@@ -91,7 +105,7 @@ export function ClerkFetchInterceptor() {
     window.fetch = async (...args) => {
       let [resource, config] = args;
       const url = typeof resource === 'string' ? resource : resource instanceof URL ? resource.toString() : (resource as Request).url;
-      if (url.startsWith('/api') || url.startsWith('/v1') || url.startsWith('http://localhost:8000/v1')) {
+      if (isHinaApiUrl(url)) {
         try {
           const token = await getToken();
           if (token) {

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App, { isHinaApiUrl } from "./App";
 
 class FakeUtterance {
   lang = "";
@@ -98,4 +98,25 @@ describe("HINAA assistant workspace", () => {
 
   it.todo("starts live voice only after the user grants microphone permission");
   it.todo("offers a visible confirmation before executing an external assistant action");
+});
+
+describe("URLs that earn the Clerk token", () => {
+  const origin = window.location.origin;
+
+  it("matches the relative paths every call site uses today", () => {
+    expect(isHinaApiUrl("/api/v1/conversations/turns:stream")).toBe(true);
+    expect(isHinaApiUrl("/v1/providers")).toBe(true);
+    expect(isHinaApiUrl("/health")).toBe(false);
+  });
+
+  it("matches absolute URLs to this origin, the shape a tunnelled API base takes", () => {
+    expect(isHinaApiUrl(`${origin}/api/v1/capabilities`)).toBe(true);
+    expect(isHinaApiUrl(`${origin}/v1/tasks/abc/events`)).toBe(true);
+    expect(isHinaApiUrl(`${origin}/health`)).toBe(false);
+  });
+
+  it("never matches a foreign host, whatever path it exposes", () => {
+    expect(isHinaApiUrl("https://third-party.example.com/api/v1/turns:stream")).toBe(false);
+    expect(isHinaApiUrl("https://third-party.example.com/v1/providers")).toBe(false);
+  });
 });

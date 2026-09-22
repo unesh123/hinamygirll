@@ -46,6 +46,28 @@ const report = await page.evaluate(() => {
     return { h: Math.round(r.height), w: Math.round(r.width), top: Math.round(r.top) };
   });
   const section = document.querySelector("section[aria-label='Research sources']");
+  const BRAIN_TEXT = /^(auto\s*\(router\)|auto|hina\s*brain|claude|gpt|gemini|deepseek|qwen|llama|agnes|omni|groq)/i;
+  const bandOf = (el) => {
+    for (const band of ["topbar-v6", "hinaa-work-composer", "sakura-mobile-nav", "hinaa-stage"]) {
+      if (el.closest(`.${band}`)) return band;
+    }
+    return "other";
+  };
+  const modelControls = [];
+  for (const el of document.querySelectorAll("button, [role='button'], select, [aria-haspopup]")) {
+    const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+    const aria = (el.getAttribute("aria-label") || "").trim();
+    if (!BRAIN_TEXT.test(text) && !BRAIN_TEXT.test(aria)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    modelControls.push({
+      text: text.slice(0, 42) || aria.slice(0, 42),
+      band: bandOf(el),
+      top: Math.round(r.top),
+      h: Math.round(r.height),
+      w: Math.round(r.width),
+    });
+  }
   return {
     windowScrollY: Math.round(window.scrollY),
     docScrollTop: Math.round(document.documentElement.scrollTop),
@@ -57,6 +79,7 @@ const report = await page.evaluate(() => {
     transcript: rect(".hinaa-work-transcript"),
     composer: rect(".hinaa-work-composer"),
     mobileNav: rect(".sakura-mobile-nav"),
+    modelControls,
     researchSection: section ? { h: Math.round(section.getBoundingClientRect().height) } : null,
     cardCount: cards.length,
     cards: cards.slice(0, 4),
