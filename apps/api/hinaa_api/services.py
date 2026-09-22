@@ -1817,13 +1817,13 @@ class ConversationService:
                     final_query = CHARACTER_ENTITY_MAP[final_query.lower()]
                 canonical_subject = final_query.title()
 
-                # The compiler is what turns a sentence into a subject, and it
-                # declined above because the utterance repeated the active topic.
-                # Ask it about the candidate on its own, or the vendor receives
-                # "i want pics of tokyo ghoul" as the search query.
-                compiled = compiled_image_query_parameters({"query": final_query, "count": 6})
-                final_query = str(compiled.get("query") or final_query)
-                canonical_subject = str(compiled.get("canonicalSubject") or canonical_subject)
+            # Whatever named this subject, a sentence is not one: measured in the
+            # browser with an existing conversation, the compiler resolved the
+            # turn to the user's own echoed words and the caption read
+            # "Found 6 relevant i want pics of tokyo ghoul images.".
+            compiled = compiled_image_query_parameters({"query": final_query, "count": 6})
+            final_query = str(compiled.get("query") or final_query)
+            canonical_subject = str(compiled.get("canonicalSubject") or canonical_subject)
 
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
