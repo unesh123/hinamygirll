@@ -27,7 +27,12 @@ from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptRespon
 from .creative import CreativeJobStore, CreativeModelRegistry, MagnificBudgetManager
 from .media import AssetSource, get_asset_store
 from .persistence import MemoryService, TaskService, init_db
-from .persistence.auth import AuthContext, auth_dependency_factory, resolve_auth
+from .persistence.auth import (
+    AuthContext,
+    auth_dependency_factory,
+    reached_through_edge,
+    resolve_auth,
+)
 from .persistence.db import get_session_factory, reset_session_factory
 from .persistence.project_service import LocalProjectService
 from .dialogue_state import AssetReferenceResolver, AssetSelectionSource, ConversationTurnState
@@ -2744,15 +2749,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return run
 
     def _agent_user_ids(request: Request) -> set[str]:
+        # Owner ids whose runs this caller may read. An anonymous caller gets an
+        # empty set, not the dev subject: his runs and a stranger's would
+        # otherwise land in one bucket that both sides can list.
         ids: set[str] = set()
-        dev_hdr = request.headers.get("X-HINAA-Dev-User")
-        if dev_hdr:
-            ids.add(dev_hdr)
-        else:
-            ids.add(active_settings.dev_auth_subject)
         uid = _resolve_user_id(request)
         if uid:
             ids.add(uid)
+        if not reached_through_edge(request):
+            ids.add(active_settings.dev_auth_subject)
+            dev_hdr = request.headers.get("X-HINAA-Dev-User")
+            if dev_hdr:
+                ids.add(dev_hdr)
         return ids
 
     @app.get("/v1/agent/runs/{run_id}")
@@ -3481,11 +3489,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = _resolve_user_id(request)
 
         agent_run = None
-        if active_settings.agent_runtime_enabled and agent_runtime is not None:
-            effective_user_id = user_id or active_settings.dev_auth_subject
+        # The dev subject is a local-only owner. Filing an unidentified public
+        # turn under it put strangers' runs in the same bucket as his own.
+        owner_id = user_id or (
+            active_settings.dev_auth_subject if not reached_through_edge(request) else None
+        )
+        if active_settings.agent_runtime_enabled and agent_runtime is not None and owner_id:
             agent_run = agent_runtime.create_run(
                 goal=body.text,
-                user_id=effective_user_id,
+                user_id=owner_id,
                 conversation_id=body.conversationId or body.sessionId,
             )
 

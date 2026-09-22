@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from hinaa_api.config import Settings
 from hinaa_api.creative.registry import CreativeModelRegistry
@@ -83,7 +84,15 @@ def test_single_owner_auth_gate():
         HINAA_AUTH_MODE="dev",
         HINAA_ALLOWED_USER_IDS="owner_hinaa,backup_admin",
     )
-    mock_req = MagicMock()
+    # A local caller: resolve_auth reads the Host to tell this off the internet.
+    mock_req = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/v1/privacy/memories",
+            "headers": [(b"host", b"127.0.0.1:8000")],
+        }
+    )
 
     # Authorized user should succeed
     auth = resolve_auth(mock_req, settings, mock_memory, x_hinaa_dev_user="owner_hinaa")

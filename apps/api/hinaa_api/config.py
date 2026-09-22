@@ -395,6 +395,9 @@ class Settings(BaseSettings):
     # the host until a verified session can replace the origin check. See tools/policy.py.
     allow_remote_local_tools: bool = Field(False, alias="HINAA_ALLOW_REMOTE_LOCAL_TOOLS")
     clerk_jwt_key: str | None = Field(None, alias="CLERK_JWT_KEY")
+    # Without a PEM, the Clerk SDK fetches this instance's public keys over the
+    # network to verify session JWTs, so a secret key alone is enough to authenticate.
+    clerk_secret_key: SecretStr | None = Field(None, alias="CLERK_SECRET_KEY")
     clerk_authorized_parties: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"],
         alias="CLERK_AUTHORIZED_PARTIES",
