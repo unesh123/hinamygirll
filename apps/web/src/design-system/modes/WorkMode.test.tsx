@@ -328,4 +328,136 @@ describe("WorkMode command palette", () => {
     expect(screen.getByRole("textbox", { name: "Message HINAA" })).toHaveValue("/search ");
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  it("opens a browser-served command surface instead of leaving its token behind", async () => {
+    const onCommand = vi.fn();
+    const onSend = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/v1/commands")) {
+        return {
+          ok: true,
+          json: async () => ({
+            commands: [
+              {
+                name: "settings",
+                label: "Settings",
+                description: "Open or modify settings",
+                descriptionShort: "Open settings",
+                capability: "settings",
+                executionLocation: "browser",
+                availability: "available",
+              },
+            ],
+          }),
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function Controlled() {
+      const [value, setValue] = useState("");
+      return (
+        <WorkMode
+          {...defaultProps()}
+          input={value}
+          onInputChange={setValue}
+          onSend={onSend}
+          onCommand={onCommand}
+        />
+      );
+    }
+
+    try {
+      render(<Controlled />);
+      const composer = screen.getByRole("textbox", { name: "Message HINAA" });
+      fireEvent.change(composer, { target: { value: "/set" } });
+
+      await waitFor(() => {
+        const selected = document.querySelector(".hinaa-command-popover [data-selected='true']");
+        if (!selected?.textContent?.includes("Settings")) {
+          throw new Error("the settings command is not highlighted yet");
+        }
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(composer, { key: "Enter" });
+      });
+
+      expect(onCommand).toHaveBeenCalledWith("open-settings");
+      expect(composer).toHaveValue("");
+      expect(onSend).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("prefers the command named by the typed word over one that only mentions it", async () => {
+    const onCommand = vi.fn();
+    // Mirrors the live registry order, where voice is listed first and its
+    // description contains the word "settings".
+    const rows = [
+      {
+        name: "voice",
+        label: "Voice",
+        description: "Configure voice settings or test TTS",
+        descriptionShort: "Voice settings",
+        capability: "voice-config",
+        executionLocation: "api",
+        availability: "available",
+      },
+      {
+        name: "settings",
+        label: "Settings",
+        description: "Open or modify settings",
+        descriptionShort: "Open settings",
+        capability: "settings",
+        executionLocation: "browser",
+        availability: "available",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/v1/commands")) {
+          return { ok: true, json: async () => ({ commands: rows }) };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      }),
+    );
+
+    function Controlled() {
+      const [value, setValue] = useState("");
+      return (
+        <WorkMode
+          {...defaultProps()}
+          input={value}
+          onInputChange={setValue}
+          onCommand={onCommand}
+        />
+      );
+    }
+
+    try {
+      render(<Controlled />);
+      const composer = screen.getByRole("textbox", { name: "Message HINAA" });
+      fireEvent.change(composer, { target: { value: "/settings" } });
+
+      await waitFor(() => {
+        const selected = document.querySelector(".hinaa-command-popover [data-selected='true']");
+        if (!selected?.textContent?.includes("Settings")) {
+          throw new Error(`wrong row is highlighted: ${selected?.textContent ?? "none"}`);
+        }
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(composer, { key: "Enter" });
+      });
+
+      expect(onCommand).toHaveBeenCalledWith("open-settings");
+      expect(composer).toHaveValue("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

@@ -297,15 +297,30 @@ export function PowerUpMentions({
   const filteredCommands = useMemo(() => {
     const q = filter.toLowerCase();
     if (!q) return commands;
-    return commands.filter(
-      (c) =>
-        (c.label?.toLowerCase() || "").includes(q) ||
-        (c.name?.toLowerCase() || "").includes(q) ||
-        (c.aliases || []).some((a) => a?.toLowerCase().includes(q)) ||
-        (c.description?.toLowerCase() || "").includes(q) ||
-        (c.descriptionShort?.toLowerCase() || "").includes(q) ||
-        ((c.group || COMMAND_GROUPS[c.name])?.toLowerCase() || "").includes(q),
-    );
+    // The highlighted row is index 0, so the command whose *name* carries the
+    // typed word must outrank one that merely mentions it in prose. Without
+    // this, "/settings" selects Voice ("Configure voice settings...").
+    const rank = (c: CommandItem) => {
+      const names = [
+        (c.name || "").toLowerCase(),
+        ...(c.aliases || []).map((a) => (a || "").toLowerCase()),
+      ];
+      if (names.includes(q)) return 0;
+      if (names.some((n) => n.startsWith(q))) return 1;
+      if (names.some((n) => n.includes(q))) return 2;
+      return 3;
+    };
+    return commands
+      .filter(
+        (c) =>
+          (c.label?.toLowerCase() || "").includes(q) ||
+          (c.name?.toLowerCase() || "").includes(q) ||
+          (c.aliases || []).some((a) => a?.toLowerCase().includes(q)) ||
+          (c.description?.toLowerCase() || "").includes(q) ||
+          (c.descriptionShort?.toLowerCase() || "").includes(q) ||
+          ((c.group || COMMAND_GROUPS[c.name])?.toLowerCase() || "").includes(q),
+      )
+      .sort((a, b) => rank(a) - rank(b));
   }, [filter, commands]);
 
   const activeItems = isLegacyMode ? (filteredLegacy as any as (ContextItem | CommandItem)[]) : (activeTab === "contexts" ? filteredContexts : filteredCommands);

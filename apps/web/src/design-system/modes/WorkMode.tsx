@@ -42,7 +42,7 @@ import { useCapabilities, type DiscoveredModel } from "../../features/providers/
 
 
 /* Local command registry fallback - used when /api/v1/commands is unavailable.
- * The capability field carries the frontend action routed through onCommand. */
+ * Rows listed in LOCAL_COMMAND_ACTIONS below are opened in this tab. */
 const DEFAULT_COMMANDS: CommandItem[] = [
   { name: "goal", aliases: ["task", "objective"], label: "Goal Mode", description: "Autonomous multi-step goal execution with verification", descriptionShort: "Autonomous goal runner", icon: Target, color: "#e06c75", group: "agent", inputSchema: {}, capability: "agent-mode", riskLevel: "low-mutation", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/goal build a modern hero section"] },
   { name: "search", aliases: ["web", "research"], label: "Web Search", description: "Research a question with attributed sources", descriptionShort: "Research with sources", icon: Search, color: "#4FB989", group: "research", inputSchema: {}, capability: "search-web", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/search best coffee in Kathmandu"] },
@@ -50,6 +50,14 @@ const DEFAULT_COMMANDS: CommandItem[] = [
   { name: "humanize", aliases: ["rewrite", "tone"], label: "Humanizer", description: "Open Humanizer Studio to rewrite text naturally", descriptionShort: "Rewrite text naturally", icon: Wand2, color: "#5B9DCF", group: "writing", inputSchema: {}, capability: "open-humanizer", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/humanize"] },
   { name: "memory", aliases: ["remember"], label: "Memory", description: "Open your saved memories", descriptionShort: "Open memories", icon: Brain, color: "#B8A7F2", group: "personal", inputSchema: {}, capability: "remember-this", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/memory"] },
 ];
+
+/* Palette rows whose handler is a surface in this browser tab. Selecting one
+ * opens it through onCommand; the rest keep their /token for the composer. */
+const LOCAL_COMMAND_ACTIONS: Record<string, string> = {
+  memory: "remember-this",
+  settings: "open-settings",
+  avatar: "open-avatar-lab",
+};
 
 import { GenericResultRenderer } from "../../features/chat/components/GenericResultRenderer";
 import { ResponseRenderer } from "../../components/ui/ResponseRenderer";
@@ -499,9 +507,15 @@ export function WorkMode({
 
   const handleCommandSelect = useCallback(
     (command: CommandItem) => {
+      const action = LOCAL_COMMAND_ACTIONS[command.name];
+      if (action) {
+        replacePaletteToken("");
+        onCommand?.(action);
+        return;
+      }
       replacePaletteToken(`/${command.name} `);
     },
-    [replacePaletteToken],
+    [replacePaletteToken, onCommand],
   );
 
   // Find tool approval requests

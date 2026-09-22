@@ -728,6 +728,8 @@ export default function App() {
       "show-calendar": () => setNavSection("tools"),
       "search-files": () => setNavSection("files"),
       "remember-this": () => setMemoryOpen(true),
+      "open-settings": () => setSettingsOpen(true),
+      "open-avatar-lab": openAvatarLab,
       "agent-mode": () => setNavSection("tasks"),
       "automation": () => setNavSection("tasks"),
       "system-open": () => setNavSection("tools"),
