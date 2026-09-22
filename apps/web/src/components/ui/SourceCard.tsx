@@ -16,9 +16,15 @@ interface SourceCardProps {
   source: SourceItem;
   index?: number;
   onSave?: (source: SourceItem) => void;
+  /**
+   * Phone shape: the reply is what the user asked for, so the evidence behind it
+   * has to stay scannable. A full card measured ~200px tall, and 17 of them in a
+   * single column pushed the actual answer off the screen.
+   */
+  compact?: boolean;
 }
 
-export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
+export function SourceCard({ source, index = 0, onSave, compact = false }: SourceCardProps) {
   const [imgError, setImgError] = useState(false);
 
   const parsedDomain = React.useMemo(() => {
@@ -63,12 +69,12 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
         background: 'linear-gradient(145deg, rgba(28, 22, 34, 0.75), rgba(18, 16, 24, 0.85))',
         border: '1px solid rgba(244, 114, 182, 0.16)',
         borderRadius: 14,
-        padding: '12px 14px',
+        padding: compact ? '9px 11px' : '12px 14px',
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
         backdropFilter: 'blur(12px)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: compact ? 4 : 8,
         cursor: 'pointer',
         transition: 'border-color 0.2s, box-shadow 0.2s',
       }}
@@ -168,7 +174,7 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
           color: '#f8fafc',
           lineHeight: 1.35,
           display: '-webkit-box',
-          WebkitLineClamp: 2,
+          WebkitLineClamp: compact ? 1 : 2,
           WebkitBoxOrient: 'vertical',
           overflow: 'hidden',
         }}
@@ -176,20 +182,22 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
         {source.title}
       </div>
 
-      <div
-        className="source-snippet"
-        style={{
-          fontSize: '0.78rem',
-          color: '#94a3b8',
-          lineHeight: 1.45,
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-      >
-        {source.snippet}
-      </div>
+      {!compact && (
+        <div
+          className="source-snippet"
+          style={{
+            fontSize: '0.78rem',
+            color: '#94a3b8',
+            lineHeight: 1.45,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {source.snippet}
+        </div>
+      )}
 
       {onSave && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
@@ -210,7 +218,7 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
               background: 'rgba(244, 114, 182, 0.08)',
               border: '1px solid rgba(244, 114, 182, 0.2)',
               borderRadius: 6,
-              padding: '4px 9px',
+              padding: compact ? '3px 6px' : '4px 9px',
               cursor: 'pointer',
               transition: 'background 0.2s',
             }}
@@ -218,7 +226,7 @@ export function SourceCard({ source, index = 0, onSave }: SourceCardProps) {
             onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(244, 114, 182, 0.08)')}
           >
             <BookmarkPlus size={12} />
-            Save source
+            {!compact && 'Save source'}
           </button>
         </div>
       )}

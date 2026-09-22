@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTriangle, Network, Globe, FileText, Download, ExternalLink } from 'lucide-react';
 import { ImageGeneration } from '@/components/ui/image-generation';
@@ -18,6 +18,17 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
   const [sourceSaveState, setSourceSaveState] = useState<Record<string, string>>({});
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [selectionStatus, setSelectionStatus] = useState<string | null>(null);
+  // Same phone breakpoint the rest of the design system uses for this decision.
+  const [isNarrow, setIsNarrow] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false,
+  );
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => setIsNarrow(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const saveSourceToProject = async (source: SourceItem) => {
     const projectId = localStorage.getItem("hinaa-active-project-id");
@@ -113,13 +124,13 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: 10,
+              gridTemplateColumns: isNarrow ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: isNarrow ? 6 : 10,
             }}
           >
-            {sources.map((source, index) => (
+            {(isNarrow && !sourcesExpanded ? sources.slice(0, 4) : sources).map((source, index) => (
               <div key={source.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <SourceCard source={source} index={index} onSave={saveSourceToProject} />
+                <SourceCard source={source} index={index} onSave={saveSourceToProject} compact={isNarrow} />
                 {sourceSaveState[source.id] && (
                   <small style={{ color: sourceSaveState[source.id].startsWith('Saved') ? '#86efac' : '#cbbca8', fontSize: 11 }}>
                     {sourceSaveState[source.id]}
@@ -131,6 +142,31 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
         ) : (
           <div style={{ color: '#cbbca8', fontSize: 12 }}>No attributable sources were returned for this query.</div>
         )}
+        {isNarrow && sources.length > 4 ? (
+          <button
+            type="button"
+            aria-expanded={sourcesExpanded}
+            onClick={() => setSourcesExpanded((open) => !open)}
+            style={{
+              justifySelf: 'start',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              marginTop: 4,
+              padding: '6px 10px',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              color: '#f472b6',
+              background: 'rgba(244, 114, 182, 0.08)',
+              border: '1px solid rgba(244, 114, 182, 0.22)',
+              borderRadius: 8,
+              cursor: 'pointer',
+            }}
+          >
+            {sourcesExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {sourcesExpanded ? 'Show fewer sources' : `Show all ${sources.length} sources`}
+          </button>
+        ) : null}
       </section>
     );
   }
