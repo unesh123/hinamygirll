@@ -179,8 +179,8 @@ def test_a_rejected_brain_is_reported_by_what_its_calls_did() -> None:
         assert _brain(value, "claude")["state"] == "healthy"
 
 
-def test_fallback_candidates_rank_brains_by_answer_quality() -> None:
-    candidates = ConversationService(MULTI_BRAIN)._fallback_candidate_modes("claude")
+async def test_fallback_candidates_rank_brains_by_answer_quality() -> None:
+    candidates = await ConversationService(MULTI_BRAIN)._fallback_candidate_modes("claude")
     modes = [mode for mode, _model in candidates]
 
     # The pinned brain never competes with itself, the strongest remaining
@@ -190,13 +190,13 @@ def test_fallback_candidates_rank_brains_by_answer_quality() -> None:
     assert all(model for _mode, model in candidates), "every candidate needs a model to call"
 
 
-def test_a_brain_in_cooldown_yields_to_one_that_can_answer() -> None:
+async def test_a_brain_in_cooldown_yields_to_one_that_can_answer() -> None:
     service = ConversationService(MULTI_BRAIN)
     get_circuit_breaker("codecraft").record_failure(
         "PROVIDER_RATE_LIMIT", "CodeCraft is rate limited right now.", retry_after=30.0
     )
 
-    modes = [mode for mode, _model in service._fallback_candidate_modes("claude")]
+    modes = [mode for mode, _model in await service._fallback_candidate_modes("claude")]
 
     # Demoted, not dropped: a throttled brain still beats ending the turn.
     assert modes == ["custom", "qwen", "real", "codecraft"]

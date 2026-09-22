@@ -206,6 +206,14 @@ def _custom_text_from_raw(raw: str) -> str:
     return cleaned.strip()
 
 
+# Gateways that answer with whichever third-party model they route to, so they
+# may not implement OpenAI-only request fields and may reply in prose. Failing
+# to treat them as such costs the owner a clipped or canned reply:
+# `response_format: json_object` is a 400 on several of them, and
+# `max_completion_tokens` is ignored, which silently drops the output budget.
+_GATEWAY_PROVIDERS = {"custom", "cx-gateway", "claude", "ollama", "omniroute"}
+
+
 class OpenAILLMProvider:
     """Official OpenAI chat-completions adapter for HINAA's structured brain."""
 
@@ -255,7 +263,7 @@ class OpenAILLMProvider:
             plan = validate_or_none(raw)
             if (
                 plan is None
-                and self._provider_id in {"custom", "cx-gateway", "claude", "ollama"}
+                and self._provider_id in _GATEWAY_PROVIDERS
                 and raw.strip()
             ):
                 # Reasoning/gateway/local models often answer in plain prose even when
@@ -285,7 +293,7 @@ class OpenAILLMProvider:
                                     plan.memoryCandidates.append(MemoryCandidate(**mc))
                 except Exception:
                     pass
-            if plan is None and self._provider_id in {"custom", "cx-gateway", "claude", "ollama"}:
+            if plan is None and self._provider_id in _GATEWAY_PROVIDERS:
                 # Prose-recovery is the real path for gateway models; a schema
                 # repair round trip would send response_format these gateways
                 # may reject. Fail typed instead of burning a second call.
@@ -460,7 +468,7 @@ class OpenAILLMProvider:
         return self._model
 
     async def _chat_json(self, prompt: PromptPackage) -> str:
-        if self._provider_id in {"custom", "cx-gateway", "claude", "ollama"}:
+        if self._provider_id in _GATEWAY_PROVIDERS:
             return await self._chat_text(prompt)
         payload: dict[str, object] = {
             "model": self._model_for_payload(),
@@ -470,7 +478,7 @@ class OpenAILLMProvider:
         }
         # QwenCloud & custom gateways document `max_tokens`; standard
         # OpenAI uses `max_completion_tokens`. Both get the full budget.
-        payload["max_tokens" if self._provider_id in {"qwen", "custom", "agent-router", "codecraft"} else "max_completion_tokens"] = _llm_budget_tokens()
+        payload["max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"] = _llm_budget_tokens()
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 self._chat_url(),
@@ -538,7 +546,7 @@ class OpenAILLMProvider:
         Metadata only — continuation POLICY lives in the shared
         GenerationOrchestrator (Phase B1.1).
         """
-        if self._provider_id in {"custom", "cx-gateway", "claude", "qwen", "codecraft", "agent-router", "ollama"}:
+        if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:
             # Gateways host reasoning models (e.g. Kimi, Claude Fable, cx/gpt-5.6-sol)
             # that spend tokens on hidden reasoning_content before any visible content.
             # A generous token budget guarantees comprehensive, unclipped output.

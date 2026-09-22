@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from .config import Settings
 from .circuit_breaker import peek_circuit_breaker
 from .errors import HinaaError
+from .reachability import probe_gateway_models
 from .memory import SessionMemory
 from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest, ToolRequest, Emotion
 
@@ -1141,6 +1142,23 @@ class ProviderRouter:
                 model=model,
                 base_url=base_url,
                 provider_id="ollama",
+            )
+        if mode == "omniroute":
+            if not self.settings.omniroute_configured:
+                raise HinaaError(
+                    "PROVIDER_CONFIGURATION_MISSING",
+                    "OmniRoute is not enabled. Set HINAA_OMNIROUTE_ENABLED=true and start the "
+                    f"local gateway on {self.settings.omniroute_base_url}.",
+                    503,
+                    user_action_required=True,
+                )
+            # The gateway stores its own upstream keys and needs no bearer token
+            # for loopback access, so an empty key is the expected local case.
+            return OpenAILLMProvider(
+                key=self.settings.active_omniroute_key,
+                model=self.settings.omniroute_model,
+                base_url=self.settings.active_omniroute_base_url,
+                provider_id="omniroute",
             )
         if mode == "real":
             # The historical "real" mode means Gemini brain + a voice provider.
@@ -2417,13 +2435,15 @@ class ConversationService:
                     ))
                 break
 
-    def _fallback_candidate_modes(self, primary_mode: str) -> list[tuple[str, str | None]]:
+    async def _fallback_candidate_modes(self, primary_mode: str) -> list[tuple[str, str | None]]:
         """Configured brains that can take this turn, strongest answer first.
 
         The point of falling back is to keep the conversation intelligent, so
         order follows answer quality rather than ease of reaching a gateway.
-        Gemini stays last: it is the always-configured closer, and when the
-        frontier brains are down a weaker real answer still beats no answer.
+        Gemini stays last among the configured brains: it is the always-ready
+        closer, and when the frontier brains are down a weaker real answer still
+        beats no answer. Behind all of them sits the measured OmniRoute gateway,
+        which only earns a slot while its ``/v1/models`` endpoint answers.
         """
         configured: dict[str, tuple[bool, str | None]] = {
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
@@ -2451,8 +2471,25 @@ class ConversationService:
                 cooling.append((mode, model))
             else:
                 ready.append((mode, model))
+
+        last_resort: list[tuple[str, str | None]] = []
+        if primary != "omniroute" and self.settings.omniroute_configured:
+            # Inline on a live turn, so it gets a sub-second budget rather than
+            # the reporting default: this machine takes ~2s to report a refused
+            # loopback connection, and a stopped fallback container must not
+            # cost a spoken turn that time.
+            probe = await probe_gateway_models(
+                self.settings.active_omniroute_base_url,
+                api_key=self.settings.active_omniroute_key,
+                timeout=0.6,
+            )
+            if probe.serving:
+                last_resort.append(("omniroute", self.settings.omniroute_model))
+            else:
+                logger.info("OmniRoute fallback skipped: %s", probe.detail)
+
         # A brain in cooldown is still better than no candidate at all.
-        return ready + cooling
+        return ready + cooling + last_resort
 
     async def _resolve_turn_media(self, request: TurnRequest) -> list[Any]:
         from .media import MediaResolver
@@ -3063,7 +3100,7 @@ class ConversationService:
                     raise error
                 if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
                     fallback_result = None
-                    for fb_mode, fb_model in self._fallback_candidate_modes(request.providerMode):
+                    for fb_mode, fb_model in await self._fallback_candidate_modes(request.providerMode):
                         try:
                             logger.info(
                                 "Primary brain %s failed with %s; falling back to %s (%s)",
@@ -3581,7 +3618,7 @@ class ConversationService:
                     raise error
                 if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
                     fallback_live_result = None
-                    for fb_mode, fb_model in self._fallback_candidate_modes(request.providerMode):
+                    for fb_mode, fb_model in await self._fallback_candidate_modes(request.providerMode):
                         try:
                             logger.info(
                                 "Live primary %s failed with %s; attempting fallback to %s (%s)",

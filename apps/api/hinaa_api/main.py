@@ -33,7 +33,7 @@ from .persistence.project_service import LocalProjectService
 from .dialogue_state import AssetReferenceResolver, AssetSelectionSource, ConversationTurnState
 from .prompts import PROMPT_VERSION
 from .circuit_breaker import measured_state
-from .reachability import is_ephemeral_tunnel, probe_gateway
+from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .realtime import RealtimeGateway
 from .services import ConversationService
 from .tools import policy as tool_policy, registry
@@ -1150,6 +1150,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             or os.environ.get("YDC_API_KEY")
         )
 
+        # OmniRoute is a local fallback gateway, so "configured" here is a
+        # measurement, not an environment lookup: a stopped container keeps its
+        # env vars, and a green badge for it would be the exact theatre this
+        # endpoint used to sell. Listing models costs no tokens and no quota.
+        omniroute_declared = bool(getattr(active_settings, "omniroute_configured", False))
+        omniroute_serving = 0
+        if omniroute_declared:
+            omniroute_probe = await probe_gateway_models(
+                active_settings.active_omniroute_base_url,
+                api_key=active_settings.active_omniroute_key,
+            )
+            omniroute_serving = omniroute_probe.model_count
+        omniroute_live = omniroute_serving > 0
+
         providers = [
             {
                 "id": "claude",
@@ -1242,6 +1256,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowedModels": [active_settings.groq_model],
                 "protocol": "groq-sdk",
             },
+            # Local fallback gateway, measured rather than assumed. `declared`
+            # says the operator opted in; `configured` says the container is
+            # answering right now, which is the only combination the ladder
+            # will actually route a turn to.
+            {
+                "id": "omniroute",
+                "name": "OmniRoute local fallback",
+                "configured": omniroute_live,
+                "declared": omniroute_declared,
+                "role": "fallback",
+                "endpoint": active_settings.active_omniroute_base_url or None,
+                "defaultModel": active_settings.omniroute_model,
+                "allowedModels": [active_settings.omniroute_model] if omniroute_live else [],
+                "servingModels": omniroute_serving,
+                "protocol": "openai-compatible",
+            },
         ]
 
         models = []
@@ -1272,8 +1302,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         for provider in providers:
             provider_id = provider["id"]
-            if provider_id == "you":
-                continue  # research provider, not a chat brain
+            if provider_id in {"you", "omniroute"}:
+                continue  # research lane and last-resort gateway, not pickable brains
             if not provider.get("configured"):
                 # An unconfigured brain cannot answer; listing it would be the
                 # same "fake model list" defect the audit flagged.
@@ -1420,6 +1450,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         f"Ollama is configured at {active_settings.active_ollama_base_url} but unreachable. "
                         "Ensure Ollama is running (`ollama serve`)."
                     )
+
+        # OmniRoute is a stopped-or-running fact about a local container, and a
+        # stopped one keeps its environment, so only a live /v1/models answer can
+        # move it off "unavailable".
+        omni_state = "disabled"
+        omni_message = (
+            "OmniRoute is not enabled. Set HINAA_OMNIROUTE_ENABLED=true to let a local "
+            "gateway answer a turn after every configured brain has failed."
+        )
+        if active_settings.omniroute_configured:
+            omni_probe = await probe_gateway_models(
+                active_settings.active_omniroute_base_url,
+                api_key=active_settings.active_omniroute_key,
+            )
+            if omni_probe.serving:
+                omni_state = "healthy"
+                omni_message = (
+                    f"OmniRoute is serving {omni_probe.model_count} models at "
+                    f"{active_settings.active_omniroute_base_url}. It is a fallback: it "
+                    "answers only after the configured brains fail."
+                )
+            else:
+                omni_state = "unavailable"
+                omni_message = (
+                    f"OmniRoute is enabled but not answering: {omni_probe.detail} "
+                    "Start the container (`docker start omniroute`) to arm the fallback."
+                )
+        elif active_settings.omniroute_enabled:
+            omni_state = "unavailable"
+            omni_message = (
+                "OmniRoute is enabled but its OMNIROUTE_BASE_URL is not a loopback "
+                "gateway. This backend only routes to a local fallback, so the "
+                "owner's prompts never leave the machine through it."
+            )
 
         statuses = [
             ProviderStatus(
@@ -1606,6 +1670,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ],
                 state=ollama_state,
                 userMessage=ollama_message,
+            ),
+            ProviderStatus(
+                id="omniroute",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    "local",
+                    "fallback-only",
+                    f"default-model:{active_settings.omniroute_model}",
+                ],
+                state=omni_state,
+                userMessage=omni_message,
             ),
             ProviderStatus(
                 id="gemini-live",

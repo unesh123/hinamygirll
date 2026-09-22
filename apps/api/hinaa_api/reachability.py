@@ -27,11 +27,14 @@ from time import monotonic
 from urllib.parse import urlsplit
 
 __all__ = [
+    "GatewayModelsOutcome",
     "ProbeOutcome",
     "ThreeStageHealthOutcome",
     "is_ephemeral_tunnel",
     "probe_gateway",
     "probe_gateway_3stage",
+    "probe_gateway_models",
+    "reset_models_cache",
     "reset_probe_cache",
     "reset_inference_cache",
 ]
@@ -434,3 +437,107 @@ async def probe_gateway_3stage(
         )
         _inference_cache[cache_key] = (monotonic() + 15.0, outcome)
         return outcome
+
+
+@dataclass(frozen=True)
+class GatewayModelsOutcome:
+    """Result of asking an OpenAI-compatible gateway for its model catalogue."""
+
+    serving: bool
+    """True only when the gateway answered ``GET /v1/models`` with a list."""
+
+    model_count: int
+    reason: str
+    """``ok``, ``refused``, ``timeout``, ``http_<code>``, ``malformed``, ``no_url``."""
+
+    detail: str
+
+
+_models_cache: dict[str, tuple[float, GatewayModelsOutcome]] = {}
+
+_MODELS_PROBE_TIMEOUT_SECONDS = 1.5
+
+
+def reset_models_cache() -> None:
+    """Clear cached model-catalogue probe results."""
+    _models_cache.clear()
+
+
+async def probe_gateway_models(
+    base_url: str | None,
+    *,
+    api_key: str | None = None,
+    timeout: float = _MODELS_PROBE_TIMEOUT_SECONDS,
+    use_cache: bool = True,
+) -> GatewayModelsOutcome:
+    """Ask a gateway for ``GET /v1/models`` and report whether it is serving.
+
+    This is the health proof for the local OmniRoute fallback. A stopped
+    container keeps its environment variables, so configuration presence can
+    never answer "is the gateway up?" — a request to it can. Listing models
+    spends no completion tokens and consumes no upstream quota, so it is safe to
+    run on every capabilities poll (results are cached briefly either way).
+    """
+    cleaned = (base_url or "").strip().rstrip("/")
+    if not cleaned:
+        return GatewayModelsOutcome(False, 0, "no_url", "No gateway URL is configured.")
+    if not cleaned.endswith("/v1"):
+        cleaned = f"{cleaned}/v1"
+    url = f"{cleaned}/models"
+
+    if use_cache:
+        cached = _models_cache.get(url)
+        if cached is not None:
+            expires_at, outcome = cached
+            if monotonic() < expires_at:
+                return outcome
+
+    headers = {"Accept": "application/json"}
+    if api_key and api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers)
+    except httpx.TimeoutException:
+        outcome = GatewayModelsOutcome(
+            False, 0, "timeout", f"{url} did not answer within {timeout:g}s."
+        )
+    except Exception as exc:
+        kind = exc.__class__.__name__
+        outcome = GatewayModelsOutcome(
+            False, 0, "refused", f"{url} is not answering ({kind})."
+        )
+    else:
+        if resp.status_code == 200:
+            try:
+                payload = resp.json()
+            except ValueError:
+                payload = None
+            entries = payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(payload, list):
+                entries = payload
+            if not isinstance(entries, list):
+                outcome = GatewayModelsOutcome(
+                    False, 0, "malformed", f"{url} returned 200 without a model list."
+                )
+            else:
+                outcome = GatewayModelsOutcome(
+                    True,
+                    len(entries),
+                    "ok",
+                    f"{url} is serving {len(entries)} models.",
+                )
+        else:
+            outcome = GatewayModelsOutcome(
+                False,
+                0,
+                f"http_{resp.status_code}",
+                f"{url} returned HTTP {resp.status_code}.",
+            )
+
+    ttl = _CACHE_TTL_SECONDS if outcome.serving else _FAILURE_CACHE_TTL_SECONDS
+    _models_cache[url] = (monotonic() + ttl, outcome)
+    return outcome

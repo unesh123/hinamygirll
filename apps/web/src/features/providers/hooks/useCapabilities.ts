@@ -16,6 +16,10 @@ export interface DiscoveredProvider {
   defaultModel: string;
   allowedModels: string[];
   protocol: string;
+  /** "fallback" for gateways that take a turn only after every brain fails. */
+  role?: "fallback";
+  /** Models the gateway reported on its live /v1/models answer, if it was probed. */
+  servingModels?: number;
 }
 
 export interface RuntimeCapabilities {

@@ -24,6 +24,7 @@ ProviderMode = Literal[
     "gemini-live",
     "codecraft",
     "ollama",
+    "omniroute",
 ]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal[

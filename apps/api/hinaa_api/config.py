@@ -231,6 +231,33 @@ class Settings(BaseSettings):
         120.0,
         validation_alias=AliasChoices("OLLAMA_TIMEOUT_SECONDS", "HINAA_OLLAMA_TIMEOUT_SECONDS"),
     )
+    # OmniRoute is a *local* fallback gateway (diegosouzapw/omniroute in a
+    # container on this machine). It is opt-in and it is never a primary brain:
+    # the ladder reaches it only after every configured premium brain has failed.
+    omniroute_enabled: bool = Field(
+        False,
+        validation_alias=AliasChoices("HINAA_OMNIROUTE_ENABLED", "OMNIROUTE_ENABLED"),
+    )
+    omniroute_base_url: str = Field(
+        "http://127.0.0.1:20128/v1",
+        validation_alias=AliasChoices("HINAA_OMNIROUTE_BASE_URL", "OMNIROUTE_BASE_URL"),
+    )
+    # "auto" is OmniRoute's own selector: the gateway picks a live route for the
+    # request instead of the app pinning one of the models behind it.
+    omniroute_model: str = Field(
+        "auto",
+        validation_alias=AliasChoices("HINAA_OMNIROUTE_MODEL", "OMNIROUTE_MODEL"),
+    )
+    # The gateway keeps its upstream keys in its own local store and needs no
+    # bearer token for loopback access, so this stays optional.
+    omniroute_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("HINAA_OMNIROUTE_API_KEY", "OMNIROUTE_API_KEY"),
+    )
+    omniroute_timeout_seconds: float = Field(
+        120.0,
+        validation_alias=AliasChoices("HINAA_OMNIROUTE_TIMEOUT_SECONDS", "OMNIROUTE_TIMEOUT_SECONDS"),
+    )
     # You.com — private, server-side real-time web intelligence. Keep the key
     # in apps/api/.env.local as YDC_API_KEY; never expose it to Vite/browser code.
     youcom_api_key: SecretStr | None = Field(None, alias="YDC_API_KEY")
@@ -909,6 +936,40 @@ class Settings(BaseSettings):
             allowed = ", ".join(self.ollama_allowed_models)
             raise ValueError(f"Ollama model is not in OLLAMA_ALLOWED_MODELS: {allowed}")
         return model
+
+    @property
+    def active_omniroute_base_url(self) -> str:
+        value = (self.omniroute_base_url or "").strip().rstrip("/")
+        if not value:
+            return ""
+        if "://" not in value:
+            value = f"http://{value}"
+        if not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value
+
+    @property
+    def omniroute_is_local(self) -> bool:
+        """Only a loopback gateway counts as this deployment's fallback.
+
+        The brief for OmniRoute is a local gateway that keeps her talking when
+        the paid brains are down. A remote URL would route the owner's prompts
+        through somebody else's server, so it is refused here rather than warned
+        about.
+        """
+        host = (urlparse(self.active_omniroute_base_url).hostname or "").lower()
+        return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+    @property
+    def omniroute_configured(self) -> bool:
+        """Declared, not proven. Whether the gateway answers is measured live."""
+        return bool(self.omniroute_enabled and self.omniroute_is_local)
+
+    @property
+    def active_omniroute_key(self) -> str:
+        if self.omniroute_api_key and self.omniroute_api_key.get_secret_value().strip():
+            return self.omniroute_api_key.get_secret_value().strip()
+        return ""
 
     @property
     def active_openai_key_label(self) -> Literal["primary", "codex", "none"]:

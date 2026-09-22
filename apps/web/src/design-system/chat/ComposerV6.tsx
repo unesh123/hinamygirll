@@ -139,7 +139,11 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
 
   // Footer status is measured from /v1/capabilities via props, never asserted:
   // the previous literals read "6 nodes online" green straight through an outage.
-  const readyProviders = discoveredProviders.filter((p) => p.configured).length;
+  // Fallback-role gateways are excluded: this badge answers how many brains he
+  // can pick, and the selector deliberately never offers the local fallback.
+  const readyProviders = discoveredProviders.filter(
+    (p) => p.configured && p.role !== "fallback",
+  ).length;
   const readyModels = discoveredModels.filter((m) => m.configured).length;
   const contextCount = contextChips.length + (attachedImage ? 1 : 0);
   const statusTone = !backendConnected
