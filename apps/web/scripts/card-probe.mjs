@@ -12,6 +12,8 @@ const HEIGHT = Number(process.env.PROBE_H || 900);
 const PROMPT =
   process.env.PROBE_PROMPT ||
   "hinaa please search who is mikasa ackerman for me";
+const BASE_URL = process.env.PROBE_URL || "http://127.0.0.1:5173/";
+const TAG = process.env.PROBE_TAG ? `-${process.env.PROBE_TAG}` : "";
 
 const browser = await chromium.launch({
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -39,8 +41,13 @@ await page.addInitScript((hideAvatar) => {
   );
 }, !process.env.HINAA_KEEP_AVATAR);
 
-await page.goto("http://127.0.0.1:5173/", { waitUntil: "networkidle", timeout: 60_000 });
-await page.waitForTimeout(2_000);
+// The deployed app keeps a live turn stream open, so `networkidle` never fires
+// there. Both the condition and the settle window are overridable per target.
+await page.goto(BASE_URL, {
+  waitUntil: process.env.PROBE_WAIT || "networkidle",
+  timeout: 60_000,
+});
+await page.waitForTimeout(Number(process.env.PROBE_SETTLE || 2_000));
 
 const surface = await page.evaluate(() => {
   const bubble = document.querySelector(".hinaa-work-bubble");
@@ -60,7 +67,7 @@ const editor =
   (await page.$("div[contenteditable='true']")) || (await page.$("textarea"));
 if (!editor) {
   console.log("NO COMPOSER FOUND");
-  await page.screenshot({ path: path.join(OUT, "card-probe-no-composer.png") });
+  await page.screenshot({ path: path.join(OUT, `card-probe${TAG}-no-composer.png`) });
   await browser.close();
   process.exit(2);
 }
@@ -196,10 +203,10 @@ const hostEl = hit ? await page.$(hit) : null;
 if (hostEl) {
   await hostEl.scrollIntoViewIfNeeded().catch(() => {});
   await page.waitForTimeout(600);
-  await hostEl.screenshot({ path: path.join(OUT, `card-probe-${WIDTH}.png`) });
+  await hostEl.screenshot({ path: path.join(OUT, `card-probe${TAG}-${WIDTH}.png`) });
 }
 await page.screenshot({
-  path: path.join(OUT, `card-probe-full-${WIDTH}.png`),
+  path: path.join(OUT, `card-probe-full${TAG}-${WIDTH}.png`),
   fullPage: false,
 });
 console.log("consoleErrors:", errors.slice(0, 5));
