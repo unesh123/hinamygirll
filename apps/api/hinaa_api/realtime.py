@@ -17,6 +17,7 @@ from pydantic import Field, ValidationError
 
 from .config import Settings
 from .errors import HinaaError
+from . import realtime_tickets
 from .models import CompanionId, Language, ProviderMode, StrictModel, TurnRequest
 from .services import ConversationService
 from .voice_performance import plan_voice_performance, speech_text_for_tts
@@ -37,6 +38,7 @@ class ClientHello(StrictModel):
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
     ] = None
+    authTicket: Annotated[str | None, Field(min_length=16, max_length=64)] = None
 
 
 class FrameDescriptor(StrictModel):
@@ -146,6 +148,22 @@ class RealtimeGateway:
         self.settings = settings
         self.service = service
 
+    @staticmethod
+    def _resolve_identity(hello: ClientHello, handshake_user_id: str | None) -> str | None:
+        """Owner of this voice session, or None when nobody proved who they are.
+
+        The handshake header cannot be trusted from a browser, so the ticket the
+        client bought over authenticated HTTP is the only real identity here. A
+        ticket that no longer resolves spends the connection's claim to one
+        rather than letting it inherit whatever the handshake offered.
+        """
+        if hello.authTicket is None:
+            return handshake_user_id
+        owner = realtime_tickets.consume(hello.authTicket)
+        if owner is None:
+            logger.warning("realtime: an identity ticket was spent, expired, or never existed")
+        return owner
+
     async def handle(self, websocket: WebSocket, *, user_id: str | None = None) -> None:
         await websocket.accept()
         session: LiveSession | None = None
@@ -154,8 +172,13 @@ class RealtimeGateway:
                 websocket.receive_json(), timeout=self.settings.realtime_idle_timeout_seconds
             )
             hello = ClientHello.model_validate(first)
-            session = LiveSession(hello=hello, user_id=user_id)
-            logger.info("realtime: <<< session.hello mode=%s companion=%s", hello.providerMode, hello.companionId)
+            session = LiveSession(hello=hello, user_id=self._resolve_identity(hello, user_id))
+            logger.info(
+                "realtime: <<< session.hello mode=%s companion=%s identified=%s",
+                hello.providerMode,
+                hello.companionId,
+                session.user_id is not None,
+            )
             await self._send(
                 websocket,
                 session,

@@ -7,6 +7,7 @@ import { LatencyClock } from "./latencyClock";
 import { PhraseDetector } from "./phraseDetector";
 import { TurnTakingController } from "./turnTakingController";
 import type { ActiveLanguagePolicy } from "../settings/types/settings";
+import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import { recognitionLocale, browserSpeechLocale } from "./languagePolicy";
 
 function parseTurnId(turnId: string): { turn: number; generation: number } {
@@ -172,6 +173,33 @@ async function resolveWebsocketUrl(): Promise<string> {
     // Backend unreachable over HTTP too; same-origin is the only attempt left.
   }
   return sameOriginWebsocketUrl();
+}
+
+/**
+ * Proof of who is opening the voice socket.
+ *
+ * A browser cannot put an Authorization header on a WebSocket handshake, so the
+ * socket alone can never learn who opened it and she answers with no memory of
+ * him. This buys a short-lived, single-use ticket over an ordinary request that
+ * can be authorized, and the caller spends it in the socket's first frame.
+ * Returning null on a refusal keeps voice opening for someone whose identity
+ * this deployment cannot verify yet.
+ */
+async function fetchRealtimeTicket(): Promise<string | null> {
+  const apiBase = import.meta.env.VITE_HINAA_API_BASE_URL
+    ? String(import.meta.env.VITE_HINAA_API_BASE_URL).replace(/\/+$/, "")
+    : "";
+  try {
+    const response = await fetch(`${apiBase}/api/v1/realtime/ticket`, {
+      method: "POST",
+      headers: { accept: "application/json", ...hinaaIdentityHeaders() },
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { ticket?: unknown };
+    return typeof payload.ticket === "string" ? payload.ticket : null;
+  } catch {
+    return null;
+  }
 }
 
 const liveLocaleForPolicy = recognitionLocale;
@@ -1084,7 +1112,12 @@ export function useLiveConversation({
   }, [teardownSession, updateQueueDiagnostics]);
 
   const connect = useCallback(async () => {
-    const url = await resolveWebsocketUrl();
+    // The ticket has to be in hand before the socket opens; onopen cannot wait.
+    // A reconnect lands here again, so every socket spends a fresh one.
+    const [url, authTicket] = await Promise.all([
+      resolveWebsocketUrl(),
+      fetchRealtimeTicket(),
+    ]);
     // The user can stop while the URL request is still in flight.
     if (!active.current) return;
     const next = new WebSocket(url);
@@ -1116,6 +1149,7 @@ export function useLiveConversation({
         language: liveLocaleForPolicy(activeLanguagePolicy),
         languageMode: recognitionLocale(activeLanguagePolicy) === "mixed" ? "auto" : "fixed",
         calibration,
+        authTicket: authTicket ?? undefined,
       });
       // Populate the voice route diagnostics with the actual providers in use
       setDiagnostics((prev) => ({

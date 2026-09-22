@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import __version__
+from . import __version__, realtime_tickets
 from .audio import validate_wav
 from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
@@ -1953,6 +1953,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             active_settings.azure_speech_female_voice,
             active_settings.azure_speech_male_voice,
         )
+
+    @app.post("/v1/realtime/ticket")
+    async def realtime_ticket(request: Request) -> dict[str, object]:
+        """Buy the identity a WebSocket handshake cannot carry.
+
+        A browser cannot set an Authorization header when it opens a socket, so
+        the voice route would otherwise never learn who it is talking to and
+        would answer with no memory of him. He asks here instead, over a request
+        that does prove who he is, and spends the result in the socket's first
+        frame. The ticket is short lived and single use, and it never rides in a
+        URL where a proxy or an access log could keep it.
+        """
+        auth = await conversation_auth(request)
+        if auth is None:
+            raise HinaaError(
+                "PERSISTENCE_DISABLED",
+                "This instance keeps no user records, so a voice session has no "
+                "identity to bind to.",
+                503,
+                True,
+            )
+        return {
+            "ticket": realtime_tickets.issue(auth.user_id),
+            "expiresInSeconds": realtime_tickets.TICKET_TTL_SECONDS,
+        }
 
     @app.websocket("/v1/realtime")
     async def realtime_session(websocket: WebSocket) -> None:
