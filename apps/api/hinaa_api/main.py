@@ -1418,7 +1418,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         is_loopback = "127.0.0.1" in base or "localhost" in base or "0.0.0.0" in base
         if active_settings.ollama_configured:
             if is_server_remote and is_loopback:
-                ollama_state = "desktop_bridge"
+                # `desktop_bridge` is not a legal ProviderStatus.state, so it is
+                # kept out of the status field and named in the message instead.
+                ollama_state = "unavailable"
                 ollama_message = (
                     "Ollama is configured as a Desktop Bridge (127.0.0.1:11434). "
                     "Desktop models require client bridge when connecting to remote server."
