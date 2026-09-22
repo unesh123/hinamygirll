@@ -28,7 +28,8 @@ async function memoryFetch(path: string, init?: RequestInit) {
     },
   });
   if (!response?.ok) {
-    throw new Error("Memory API failed");
+    const body = (await response?.json().catch(() => ({}))) as { message?: string } | undefined;
+    throw new Error(body?.message ?? `Memory request failed (${response?.status}).`);
   }
   return response.json();
 }
@@ -36,13 +37,16 @@ async function memoryFetch(path: string, init?: RequestInit) {
 export function useMemory() {
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchMemories = useCallback(async () => {
     try {
       setLoading(true);
       const data = await memoryFetch("/v1/privacy/memories");
       setEntries(data.memories || []);
+      setError(null);
     } catch (err) {
+      setError(err instanceof Error ? err.message : "Memory store unavailable.");
       console.error("Failed to load memories", err);
     } finally {
       setLoading(false);
@@ -61,7 +65,9 @@ export function useMemory() {
           body: JSON.stringify({ content, category, sourceTurnRef }),
         });
         setEntries((prev) => [result as MemoryEntry, ...prev]);
+        setError(null);
       } catch (err) {
+        setError(err instanceof Error ? err.message : "Memory store unavailable.");
         console.error("Failed to add memory", err);
       }
     },
@@ -109,6 +115,7 @@ export function useMemory() {
   return {
     entries,
     loading,
+    error,
     addMemory,
     removeMemory,
     updateMemory,

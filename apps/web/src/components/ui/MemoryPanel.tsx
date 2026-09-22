@@ -30,7 +30,7 @@ interface MemoryPanelProps {
 }
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
-  const { entries, loading, removeMemory, updateMemory, clearAll, searchMemory } = useMemory();
+  const { entries, loading, error, removeMemory, updateMemory, clearAll, searchMemory } = useMemory();
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -150,6 +150,10 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
           <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 20px" }}>
             {loading ? (
               <div style={{ textAlign: "center", padding: 40, color: "#a89eb0", fontSize: "0.9rem" }}>Loading memories...</div>
+            ) : error && entries.length === 0 ? (
+              <div role="status" style={{ textAlign: "center", padding: 40, color: "#f0a6a6", fontSize: "0.9rem" }}>
+                Memories unavailable: {error}
+              </div>
             ) : filtered.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "#a89eb0", fontSize: "0.9rem" }}>
                 {entries.length === 0 ? "No local memories stored yet. HINAA learns your preferences automatically." : "No matching memories."}

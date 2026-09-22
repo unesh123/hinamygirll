@@ -54,7 +54,6 @@ import { SidebarPanel } from "./components/ui/SidebarPanel";
 import { VmcControlPanel } from "./components/ui/VmcControlPanel";
 
 import type { PowerUp } from "./components/ui/PowerUpMentions";
-import useMemory from "./features/memory/useMemory";
 
 const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
 const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
@@ -513,7 +512,6 @@ export default function App() {
   // This is HINAA's own text only. The avatar director uses it for a subtle
   // deterministic expression accent; it never classifies webcam/user emotion.
   const latestAssistantExpressionText = [...controller.messages].reverse().find((message) => message.role === "assistant")?.text;
-  useMemory();
 
   // Keep the first interactive paint light, then warm the local-only panels in
   // the background so opening Projects or Image Studio feels immediate.
