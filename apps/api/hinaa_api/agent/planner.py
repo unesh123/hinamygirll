@@ -1,8 +1,29 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 from .state import AgentGoal, GoalType, PlanStep, StepStatus, VerificationReport
+
+logger = logging.getLogger("hinaa.agent.planner")
+
+
+def normalized_web_query(text: str) -> str:
+    """Ask the search provider his question, not his whole sentence.
+
+    The utterance still carries the addressee and the command verb — "hinaa
+    please search who is Mikasa Ackerman" — and a relevance engine treats every
+    one of those words as a term to match. If the compile cannot improve the
+    query, the plan keeps the text he typed rather than losing the request.
+    """
+    try:
+        from ..media.search_intelligence import compiled_web_query_parameters
+
+        compiled = compiled_web_query_parameters({"query": text})
+        return str(compiled.get("query") or text)
+    except Exception:
+        logger.warning("web_search query normalization failed; using the raw goal text", exc_info=True)
+        return text
 
 
 class AgentPlanner:
@@ -30,11 +51,12 @@ class AgentPlanner:
 
         if is_comparison_research or is_deep_research_report:
             goal.goal_type = GoalType.MULTI_STEP_RESEARCH
+            search_query = normalized_web_query(text)
             # Step 1: Search market candidates
             step1 = PlanStep(
-                title=f"Market Search: {text[:40]}...",
+                title=f"Market Search: {search_query[:40]}...",
                 skill_id="web_search",
-                parameters={"query": text},
+                parameters={"query": search_query},
                 risk_tier=0,
                 depends_on=[],
             )
@@ -97,10 +119,11 @@ class AgentPlanner:
         )
         if is_web_query:
             goal.goal_type = GoalType.INFORMATIONAL
+            search_query = normalized_web_query(text)
             steps.append(PlanStep(
-                title=f"Web Knowledge Retrieval: {text[:35]}",
+                title=f"Web Knowledge Retrieval: {search_query[:35]}",
                 skill_id="web_search",
-                parameters={"query": text},
+                parameters={"query": search_query},
                 risk_tier=0,
             ))
             return steps

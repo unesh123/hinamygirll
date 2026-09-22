@@ -2501,6 +2501,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 except Exception:
                     pass  # Never block a tool call over state-recovery failure
 
+            if tool_def.name == "web_search" and parsed_params.get("query"):
+                # The request edge is where his utterance turns into a vendor
+                # query, so this is the last gate that can strip the addressee
+                # and the command verb before the search actually runs.
+                from hinaa_api.media.search_intelligence import compiled_web_query_parameters
+
+                parsed_params = compiled_web_query_parameters(dict(parsed_params))
+
             # Validate required parameters before invoking handler
             missing = [name for name in tool_def.required_parameters if name not in parsed_params or parsed_params[name] is None]
             if missing:

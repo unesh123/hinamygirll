@@ -37,6 +37,21 @@ def _compiled_visual_query(parameters: dict[str, Any]) -> dict[str, Any]:
         return parameters
 
 
+def _compiled_web_query(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Compile the web step's query through the shared intent normalizer.
+
+    Same reason as the visual step: a plan written by a model echoes the whole
+    utterance — addressee, command verb, pleasantry and all — into `query`.
+    """
+    try:
+        from ..media.search_intelligence import compiled_web_query_parameters
+
+        return compiled_web_query_parameters(parameters)
+    except Exception:
+        logger.warning("web_search query compilation failed; using planner value", exc_info=True)
+        return parameters
+
+
 def _safe_error_text(value: object) -> str:
     """Keep provider/transport errors useful without echoing credentials."""
     text = str(value)
@@ -171,6 +186,8 @@ class HinaaAgent:
                 if self.executor_func:
                     if ready_step.skill_id == "image_search":
                         ready_step.parameters = _compiled_visual_query(dict(ready_step.parameters))
+                    elif ready_step.skill_id == "web_search":
+                        ready_step.parameters = _compiled_web_query(dict(ready_step.parameters))
                     # Pass dependency results explicitly as untrusted context so
                     # later steps (for example PDF compilation) can consume
                     # verified upstream material without hidden global state.

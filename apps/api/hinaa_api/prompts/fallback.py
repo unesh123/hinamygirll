@@ -273,12 +273,17 @@ def normalize_gateway_turn_payload(payload: object) -> object:
                     }
                     if other_keys:
                         entry["parameters"] = other_keys
-                if entry.get("toolName") == "image_search" and isinstance(entry.get("parameters"), dict):
+                if entry.get("toolName") in {"image_search", "web_search"} and isinstance(entry.get("parameters"), dict):
                     # A model writing its own plan searches for his whole sentence.
                     try:
-                        from ..media.search_intelligence import compiled_image_query_parameters
+                        if entry["toolName"] == "image_search":
+                            from ..media.search_intelligence import compiled_image_query_parameters
 
-                        entry["parameters"] = compiled_image_query_parameters(entry["parameters"])
+                            entry["parameters"] = compiled_image_query_parameters(entry["parameters"])
+                        else:
+                            from ..media.search_intelligence import compiled_web_query_parameters
+
+                            entry["parameters"] = compiled_web_query_parameters(entry["parameters"])
                     except Exception:
                         pass
                 cleaned_tools.append(entry)

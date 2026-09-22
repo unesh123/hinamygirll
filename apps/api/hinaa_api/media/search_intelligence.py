@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger("hinaa.media.search_intelligence")
 
 
 class TopicTransition(str, Enum):
@@ -594,3 +597,121 @@ def compiled_image_query_parameters(parameters: dict[str, Any]) -> dict[str, Any
 
 def new_result_set_id() -> str:
     return f"rs_{uuid.uuid4().hex[:12]}"
+
+
+# ── Web search intent normalization ─────────────────────────────────────────
+# The same defect the image path had: every planner handed the search provider
+# the utterance verbatim, so "hinaa search who is mikasa ackerman please" was
+# one query for a person named "hinaa". Web queries keep their question words —
+# "who is X" narrows to a biography, and stripping it would lose what he asked —
+# but the addressee, the command verb and the trailing pleasantry are noise.
+_WEB_LEAD_NOISE_RE = re.compile(
+    r"^\s*(?:(?:hey|hi|hello|yo|so|now|okay|ok|alright|right)\b[\s,]+)?"
+    r"(?:(?:hinaa|hina|babe|bro|girl|please|pls|kindly|can\s+you|could\s+you|would\s+you|will\s+you)\b[\s,]*)*",
+    re.I,
+)
+_WEB_COMMAND_RE = re.compile(
+    r"^\s*(?:search(?:\s+(?:the\s+)?web(?:\s+search)?)?|web\s+search|look\s+up|lookup|google|"
+    r"find|locate|research|investigate|check|browse|fetch|pull\s+up|tell\s+me|give\s+me|show\s+me)\b"
+    r"(?:\s+(?:for|about|on|up|me|some|any|info(?:rmation)?|details?))?\b[,\s]*"
+    r"(?:about|on|for|regarding)?[,\s]*",
+    re.I,
+)
+_WEB_ARTICLE_RE = re.compile(r"^\s*(?:the|this|that)\s+(?=\S)", re.I)
+_WEB_TRAIL_NOISE_RE = re.compile(
+    r"(?:\s+(?:for\s+me|please|pls|thanks|thank\s+you|online|on\s+the\s+(?:web|internet)|hinaa|hina|babe|bro))+[,.!?]*\s*$",
+    re.I,
+)
+# A query that asks nothing beyond the character's name should search the
+# character; "eren yeager's death" still has to keep asking about his death.
+_WEB_ENTITY_FILLER_RE = re.compile(r"(?:a|an|the|about|of|on|for|is|are|his|her|its|in|to|and|me|just|s)$", re.I)
+
+
+def _only_names_the_entity(cleaned: str, profile: EntityProfile) -> bool:
+    residue = cleaned
+    for alias in sorted((profile.canonical_name, *profile.aliases), key=len, reverse=True):
+        residue = re.sub(rf"(?i)\b{re.escape(alias)}\b", " ", residue)
+    return all(_WEB_ENTITY_FILLER_RE.fullmatch(tok) for tok in re.findall(r"[A-Za-z0-9']+", residue))
+
+
+# Operator-driven or already-precise queries must pass through untouched.
+_WEB_PRESERVE_RE = re.compile(r"(?:\bsite:|\bintitle:|\binurl:|^https?://|\"[^\"]{4,}\")", re.I)
+
+
+def clean_web_query(text: str) -> str:
+    """Strip the addressee and the command verb, keeping the substance he asked about."""
+    cleaned = normalize_space(text).strip("\"'")
+    if _WEB_PRESERVE_RE.search(cleaned):
+        return cleaned
+    cleaned = _WEB_LEAD_NOISE_RE.sub("", cleaned, count=1)
+    cleaned = _WEB_COMMAND_RE.sub("", cleaned, count=1)
+    cleaned = _WEB_ARTICLE_RE.sub("", cleaned, count=1)
+    cleaned = _WEB_TRAIL_NOISE_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" \t\r\n.,!?;:")
+    return cleaned or normalize_space(text)
+
+
+def _canonicalize_alias(text: str, profile: EntityProfile) -> str:
+    for alias in sorted((profile.canonical_name, *profile.aliases), key=len, reverse=True):
+        replaced, hits = re.subn(rf"(?i)\b{re.escape(alias)}\b", profile.canonical_name, text)
+        if hits:
+            return replaced
+    return text
+
+
+def compile_web_search_query(text: str) -> SearchQuerySpec:
+    cleaned = clean_web_query(text)
+    profile = canonical_entity_from_text(text)
+    if profile is None:
+        return SearchQuerySpec(
+            primary_query=cleaned,
+            provider_profile="general_web_search",
+        )
+
+    expected = (profile.canonical_name, *((profile.franchise,) if profile.franchise else ()))
+    if _only_names_the_entity(cleaned, profile):
+        primary = f"{profile.canonical_name} {profile.franchise}".strip() if profile.franchise else profile.canonical_name
+        return SearchQuerySpec(
+            primary_query=primary,
+            alternate_queries=(profile.canonical_name, f"{profile.canonical_name} explained"),
+            expected_entities=expected,
+            provider_profile="general_web_named_character",
+        )
+
+    return SearchQuerySpec(
+        primary_query=_canonicalize_alias(cleaned, profile),
+        alternate_queries=(f"{profile.canonical_name} {profile.franchise or ''}".strip(),),
+        expected_entities=expected,
+        provider_profile="general_web_named_character",
+    )
+
+
+def compiled_web_query_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a web_search request so the provider gets his question, not his sentence.
+
+    Mirrors `compiled_image_query_parameters`: every path that can produce this
+    tool call funnels through here, because a plan written by a model echoes the
+    utterance — addressee, command verb and all — into `query`. Only `query` is
+    rewritten; the tool schema accepts no other free-text field, and a value the
+    compile cannot improve leaves the caller's parameters untouched.
+    """
+    raw = str(
+        parameters.get("query")
+        or parameters.get("q")
+        or parameters.get("search_query")
+        or parameters.get("topic")
+        or parameters.get("text")
+        or ""
+    ).strip()
+    if not raw:
+        return parameters
+    try:
+        compiled_query = compile_web_search_query(raw).primary_query
+    except Exception:
+        logger.warning("web_search query compilation failed; using the planner value", exc_info=True)
+        return parameters
+    if not compiled_query or compiled_query == normalize_space(raw):
+        return parameters
+    compiled = dict(parameters)
+    compiled["query"] = compiled_query
+    return compiled

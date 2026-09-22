@@ -3908,12 +3908,20 @@ class ConversationService:
         # Emit tool events for each tool request
         total_tools = len(result.value.toolRequests)
         for idx, tool_req in enumerate(result.value.toolRequests, 1):
-            if tool_req.toolName == "image_search" and isinstance(tool_req.parameters, dict):
+            if tool_req.toolName in {"image_search", "web_search"} and isinstance(tool_req.parameters, dict):
                 # Whatever planned this call, the vendor gets a subject rather
                 # than the sentence he typed, and the card shows the same thing.
-                from hinaa_api.media.search_intelligence import compiled_image_query_parameters
+                from hinaa_api.media.search_intelligence import (
+                    compiled_image_query_parameters,
+                    compiled_web_query_parameters,
+                )
 
-                tool_req.parameters = compiled_image_query_parameters(tool_req.parameters)
+                compile_query = (
+                    compiled_image_query_parameters
+                    if tool_req.toolName == "image_search"
+                    else compiled_web_query_parameters
+                )
+                tool_req.parameters = compile_query(tool_req.parameters)
             tool_run_id = str(uuid.uuid4())
             yield self._event("tool.started", {
                 "toolRunId": tool_run_id,
