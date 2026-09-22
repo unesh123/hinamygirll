@@ -1563,7 +1563,7 @@ class ConversationService:
         
         # If there's an explicit command, map it to a tool request
         if parsed_command:
-            self._map_explicit_command(parsed_command, plan)
+            self._map_explicit_command(parsed_command, plan, user_id=uid)
         
         # Detect artifact follow-up questions (e.g., "where is the pdf file?")
         self._detect_artifact_lookup(plain_text, plan)
@@ -2253,7 +2253,9 @@ class ConversationService:
                 parameters={"query": prompt_str or text},
             ))
 
-    def _map_explicit_command(self, parsed_command: ParsedCommand, plan: AssistantTurnPlan) -> None:
+    def _map_explicit_command(
+        self, parsed_command: ParsedCommand, plan: AssistantTurnPlan, user_id: str | None = None
+    ) -> None:
         """Map an explicit /command to a tool request."""
         cmd = parsed_command.command.lower()
         args = parsed_command.args.strip()
@@ -2269,6 +2271,13 @@ class ConversationService:
             else:
                 clean_tokens.append(token)
         clean_args = " ".join(clean_tokens).strip()
+
+        # 0a. /memory is consent to write the store the memories panel reads. It is
+        # resolved here, against the durable service, rather than proposed as a tool
+        # call that no handler implements.
+        if cmd in {"memory", "remember", "recall"}:
+            self._apply_memory_command(clean_args, plan, user_id)
+            return
 
         # 0. Character lookup shortcut (e.g. "/image gojo" or "/image mikasa")
         if clean_args.lower() in CHARACTER_ENTITY_MAP and not flags and cmd in {"image", "images", "img", "pics", "pictures", "search", "find"}:
@@ -2405,8 +2414,7 @@ class ConversationService:
             "analyze": ("analyze_text", {"target": clean_args, "focus": "summary"}),
             "summarize": ("summarize_text", {"target": clean_args, "length": "standard"}),
             "plan": ("create_plan", {"goal": clean_args, "horizon": "week"}),
-            "play": ("play_music", {"query": clean_args}),
-            "memory": ("memory_manage", {"action": "save", "content": clean_args}),
+            "play": ("youtube_playback_request", {"query": clean_args}),
             "files": ("search_files", {"query": clean_args}),
             "model": ("switch_model", {"model": clean_args}),
             "voice": ("voice_config", {"action": "test", "provider": clean_args}),
@@ -2420,7 +2428,13 @@ class ConversationService:
         }
         
         if cmd in command_to_tool:
+            from hinaa_api.tools.registry import registry as tool_registry
+
             tool_name, base_params = command_to_tool[cmd]
+            if tool_registry.get_tool(tool_name) is None:
+                # No handler implements this action, so proposing it can only end
+                # in a failed card. The turn stays conversational instead.
+                return
             existing_req = next((t for t in plan.toolRequests if t.toolName == tool_name), None)
             if existing_req:
                 for k, v in base_params.items():
@@ -2431,6 +2445,120 @@ class ConversationService:
                     toolName=tool_name,
                     parameters=base_params,
                 ))
+
+    _MEMORY_WRITE_ACTIONS = {"save", "remember", "store", "keep"}
+    _MEMORY_READ_ACTIONS = {"recall", "list", "show"}
+    _MEMORY_FORGET_ACTIONS = {"delete", "forget", "remove"}
+
+    @staticmethod
+    def _set_command_text(plan: AssistantTurnPlan, text: str, spoken: str | None = None) -> None:
+        plan.displayText = text
+        plan.spokenText = spoken or text
+        plan.language = "en-US"
+
+    def _apply_memory_command(
+        self, args: str, plan: AssistantTurnPlan, user_id: str | None
+    ) -> None:
+        """Resolve an explicit /memory command against the durable store.
+
+        The reply carries what the service reported -- a stored entry, a real
+        listing, or the refusal reason -- never what the wording implied.
+        """
+        plan.toolRequests = [t for t in plan.toolRequests if t.toolName != "memory_manage"]
+
+        head, _, tail = args.partition(" ")
+        lead = head.lower()
+        if lead in self._MEMORY_WRITE_ACTIONS:
+            action, body = "save", tail.strip()
+        elif lead in self._MEMORY_READ_ACTIONS:
+            action, body = "recall", tail.strip()
+        elif lead in self._MEMORY_FORGET_ACTIONS:
+            action, body = "forget", tail.strip()
+        else:
+            action, body = "save", args.strip()
+
+        if self.memory_service is None:
+            self._set_command_text(
+                plan,
+                "Memories are not stored on this HINAA instance, so I could not do that.",
+            )
+            return
+        if not user_id:
+            self._set_command_text(
+                plan,
+                "I did not touch your memories: this turn has no signed-in owner to store them under.",
+            )
+            return
+
+        if action == "save":
+            if not body:
+                self._set_command_text(
+                    plan, "Tell me what to keep, for example: /memory save my favourite colour is teal."
+                )
+                return
+            try:
+                saved = self.memory_service.remember(
+                    user_id=user_id, content=body, category="preference"
+                )
+            except HinaaError as err:
+                self._set_command_text(plan, f"I did not save that: {err.message}")
+                return
+            self._set_command_text(
+                plan,
+                f"Saved to your memories: {saved['content']}",
+                "That is saved in your memories.",
+            )
+            return
+
+        try:
+            stored = self.memory_service.list_memories(user_id)
+        except HinaaError as err:
+            self._set_command_text(plan, f"I could not read your memories: {err.message}")
+            return
+
+        needle = body.casefold()
+        hits = [m for m in stored if not needle or needle in str(m.get("content", "")).casefold()]
+
+        if action == "recall":
+            if not hits:
+                self._set_command_text(
+                    plan,
+                    f'None of your {len(stored)} saved memories mention "{body}".'
+                    if needle
+                    else "You have no saved memories yet.",
+                )
+                return
+            listing = "\n".join(f"- {m.get('content')}" for m in hits[:8])
+            self._set_command_text(
+                plan,
+                f"From your saved memories:\n{listing}",
+                f"I found {len(hits)} of your saved memories.",
+            )
+            return
+
+        if not hits:
+            self._set_command_text(
+                plan, f'I have no saved memory matching "{body}", so nothing was removed.'
+            )
+            return
+        if len(hits) > 1:
+            listing = "\n".join(f"- {m.get('content')}" for m in hits[:8])
+            self._set_command_text(
+                plan,
+                f"More than one memory matches, so I removed none:\n{listing}\nName one of them exactly.",
+                "Several memories match, so I removed none. Name one of them exactly.",
+            )
+            return
+        try:
+            self.memory_service.forget(user_id, str(hits[0]["id"]))
+        except HinaaError as err:
+            self._set_command_text(plan, f"I could not remove that memory: {err.message}")
+            return
+        self._set_command_text(
+            plan,
+            f"Removed from your memories: {hits[0].get('content')}",
+            "That memory is removed.",
+        )
 
     def _detect_artifact_lookup(self, text: str, plan: AssistantTurnPlan) -> None:
         """Detect artifact follow-up questions and add lookup tool requests.
