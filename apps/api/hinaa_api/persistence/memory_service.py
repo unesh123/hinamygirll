@@ -89,6 +89,18 @@ class MemoryService:
     def __init__(self, factory: sessionmaker[Session]) -> None:
         self._factory = factory
 
+    def resolve_user(self, auth_subject_or_id: str) -> User:
+        """Accept either a users.id or an auth subject.
+
+        `ensure_user` keys on the auth subject, so feeding it a uuid would mint a
+        second row for the same person and split their memory in two.
+        """
+        with self._factory() as session:
+            by_id = session.scalar(select(User).where(User.id == auth_subject_or_id))
+        if by_id is not None:
+            return by_id
+        return self.ensure_user(auth_subject_or_id)
+
     def ensure_user(self, auth_subject: str) -> User:
         with self._factory() as session:
             user = session.scalar(select(User).where(User.auth_subject == auth_subject))

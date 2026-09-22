@@ -2363,7 +2363,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
                     parsed_params = param_type(**parsed_params)
 
-            owner = server_user_id or active_settings.dev_auth_subject
+            owner = _resolved_tool_owner(server_user_id)
             return await _execute_registered_tool(tool_def, handler, parsed_params, body, owner)
         except HinaaError:
             raise
@@ -2376,6 +2376,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 True,
                 False,
             ) from None
+
+    def _resolved_tool_owner(server_user_id: str | None) -> str:
+        """Map an auth subject to the users.id a durable task may reference.
+
+        The dev fallback is a subject, not a row id, and `durable_tasks.owner_id`
+        has a foreign key to `users.id`: measured on production, the insert
+        raised IntegrityError and /tools/execute answered 502, so images she had
+        genuinely found never reached the screen.
+        """
+        candidate = server_user_id or active_settings.dev_auth_subject
+        if memory_service is None:
+            return candidate
+        try:
+            return memory_service.resolve_user(candidate).id
+        except Exception:
+            logger.warning("could not resolve tool owner identity", exc_info=True)
+            return candidate
 
     def _workspace_user_id(request: Request) -> str:
         return _resolve_user_id(request) or active_settings.dev_auth_subject

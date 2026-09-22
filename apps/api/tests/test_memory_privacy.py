@@ -199,3 +199,28 @@ def test_disabled_memory_does_not_break_turns_or_store_facts() -> None:
         assert response.status_code == 200
         listed = client.get("/v1/privacy/memories", headers=headers)
         assert listed.json()["memories"] == []
+
+
+def test_resolve_user_accepts_an_id_without_minting_a_second_identity() -> None:
+    """durable_tasks.owner_id references users.id, and an unauthenticated tool
+    call supplies the auth subject instead — the insert failed its foreign key
+    and /tools/execute answered 502, so searched images never rendered. The
+    resolver must take either form without splitting one person in two."""
+    reset_session_factory()
+    factory = init_db(
+        Settings(
+            HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+            _env_file=None,
+        )
+    )
+    service = MemoryService(factory)
+
+    resolved = service.resolve_user("local-dev-user")
+    assert service.resolve_user(resolved.id).id == resolved.id
+    assert service.resolve_user("local-dev-user").id == resolved.id
+
+    from sqlalchemy import func, select
+    from hinaa_api.persistence.orm import User
+
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(User)) == 1
