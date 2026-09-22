@@ -1901,6 +1901,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         persistence_on = bool(active_settings.persistence_enabled)
         runtime_on = bool(active_settings.agent_runtime_enabled)
 
+        # Configuration and providers are not the only precondition: something has
+        # to answer the tool call the command produces. `_map_explicit_command`
+        # refuses to propose a tool no handler owns, so a command whose handler is
+        # missing can only ever return plain chat that still carries the "/command"
+        # token — not the feature its palette row advertises.
+        #
+        # Deliberately absent from this map: `avatar_config` and `settings` are
+        # served by browser surfaces this tab opens, `memory` writes through
+        # MemoryService rather than a tool call, `agent_goal` runs on the agent
+        # kernel's planner, and the web, image, document and playback rows resolve
+        # to handlers the registry actually owns.
+        from .tools.registry import registry as tool_registry
+
+        _TOOL_DELIVERED = {
+            "analysis": "analyze_text",
+            "summarization": "summarize_text",
+            "planning": "create_plan",
+            "file_search": "search_files",
+            "model_selection": "switch_model",
+            "voice_config": "voice_config",
+            "automation": "create_automation",
+        }
+        unhandled = {
+            capability
+            for capability, handler in _TOOL_DELIVERED.items()
+            if tool_registry.get_tool(handler) is None
+        }
+
         result = []
         for cmd in commands:
             # Determine availability based on provider configuration
@@ -1930,6 +1958,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             elif cmd.capability == "media_playback":
                 availability = CapabilityStatus.DEGRADED  # Requires browser YouTube
             
+            # A ceiling, never a rewrite: a row that already reports a missing
+            # dependency keeps that more specific reason, so only an over-claim
+            # of readiness is corrected here.
+            if cmd.capability in unhandled and availability in {
+                CapabilityStatus.AVAILABLE,
+                CapabilityStatus.CONFIGURED,
+            }:
+                availability = CapabilityStatus.UNAVAILABLE
+
             result.append({
                 "name": cmd.name,
                 "aliases": cmd.aliases,

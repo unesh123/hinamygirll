@@ -7,6 +7,7 @@ from hinaa_api.brain_ledger import fingerprint_for, record_call
 from hinaa_api.circuit_breaker import get_circuit_breaker, reset_circuit_breakers
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
+from hinaa_api.models import AssistantTurnPlan
 from hinaa_api.services import ConversationService
 
 DISABLED_RUNTIME = Settings(
@@ -206,3 +207,87 @@ async def test_a_brain_in_cooldown_yields_to_one_that_can_answer() -> None:
 
     # Demoted, not dropped: a throttled brain still beats ending the turn.
     assert modes == ["custom", "qwen", "real", "codecraft"]
+
+
+# Every dependency these rows name is satisfied, so only a missing handler can
+# explain a badge that withholds them.
+WIRED_UP = Settings(
+    **{
+        **MULTI_BRAIN.model_dump(),
+        "HINAA_PERSISTENCE_ENABLED": True,
+        "HINAA_AGENT_RUNTIME_ENABLED": True,
+        "elevenlabs_api_key": "elevenlabs-key-for-tests",
+        "_env_file": None,
+    }
+)
+
+
+def _fresh_plan() -> AssistantTurnPlan:
+    return AssistantTurnPlan(
+        spokenText="Ready when you are.",
+        displayText="Ready when you are.",
+        language="en-US",
+        emotion={"primary": "neutral", "intensity": 0.3, "valence": 0.3, "arousal": 0.2},
+        performance={
+            "facePreset": "neutral",
+            "gesture": "none",
+            "gazeTarget": "camera",
+            "headMotion": "none",
+            "blinkRate": 0.45,
+        },
+        memoryCandidates=[],
+        toolRequests=[],
+    )
+
+
+def test_no_row_claims_ready_for_a_tool_call_no_handler_owns() -> None:
+    """A palette row promises that something will act on the request. These
+    capabilities are delivered purely by a tool request, and the turn builder
+    refuses to propose a tool the registry does not own, so a ready badge here
+    would advertise a command that can only answer with plain chat."""
+    with TestClient(create_app(WIRED_UP)) as value:
+        rows = {
+            entry["capability"]: entry["availability"]
+            for entry in value.get("/api/v1/commands").json()["commands"]
+        }
+
+    service = ConversationService(WIRED_UP)
+    for command, capability in (
+        ("/analyze this code for bugs", "analysis"),
+        ("/summarize the last 10 messages", "summarization"),
+        ("/plan a launch week", "planning"),
+        ("/files find all TypeScript configs", "file_search"),
+        ("/model gemini", "model_selection"),
+        ("/voice test elevenlabs", "voice_config"),
+        ("/automate a daily summary", "automation"),
+    ):
+        plan = _fresh_plan()
+        service._inject_deterministic_tool_intents(command, plan, user_id="user-1")
+
+        assert plan.toolRequests == [], command
+        assert rows[capability] == "unavailable", capability
+
+
+def test_the_handler_gate_leaves_rows_that_reach_a_real_surface_alone() -> None:
+    """Reverse guard: the capabilities the gate deliberately does not judge must
+    keep the readiness they earned, or the gate has quietly widened into hiding
+    commands that work."""
+    with TestClient(create_app(WIRED_UP)) as value:
+        rows = {
+            entry["capability"]: entry["availability"]
+            for entry in value.get("/api/v1/commands").json()["commands"]
+        }
+
+    service = ConversationService(WIRED_UP)
+
+    # Served by a browser surface or by a service rather than a tool call.
+    assert rows["agent_goal"] == "available"
+    assert rows["memory"] == "available"
+    assert rows["settings"] == "available"
+    assert rows["avatar_config"] == "available"
+    assert rows["media_playback"] == "degraded"
+
+    # `play` is the media_playback row, and its handler is registered.
+    plan = _fresh_plan()
+    service._inject_deterministic_tool_intents("/play lofi beats", plan, user_id="user-1")
+    assert [t.toolName for t in plan.toolRequests] == ["youtube_playback_request"]
