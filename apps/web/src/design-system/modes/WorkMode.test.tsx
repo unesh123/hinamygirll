@@ -100,6 +100,18 @@ describe("WorkMode voice controls", () => {
     expect(statusLine).toHaveTextContent("Ready · 480ms");
   });
 
+  it("reports an unmeasured brain as untested instead of ready", () => {
+    renderWorkMode({
+      activeProviderMode: "claude",
+      activeProviderModel: "claude-sonnet-4-6",
+      providerHealth: "untested",
+    });
+
+    const statusLine = screen.getByTestId("provider-micro-status");
+    expect(statusLine).toHaveTextContent("Not tested yet");
+    expect(statusLine).not.toHaveTextContent("Ready");
+  });
+
   it("renders fallback switch button when provider is unavailable", () => {
     const onSelectProvider = vi.fn();
     renderWorkMode({

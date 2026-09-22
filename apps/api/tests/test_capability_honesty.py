@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from hinaa_api.brain_ledger import fingerprint_for, record_call
 from hinaa_api.circuit_breaker import get_circuit_breaker, reset_circuit_breakers
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
@@ -148,8 +149,9 @@ MULTI_BRAIN = Settings(
 
 @pytest.fixture(autouse=True)
 def _clean_live_outcomes():
-    """Reported brain health is learned from real calls, so each test starts
-    from a process that has not made any."""
+    """Breakers no longer feed the health badges — the brain ledger does, and
+    every test already gets a fresh ledger file. They still cool down the
+    fallback ladder, so a cooldown must not leak between tests."""
     reset_circuit_breakers()
     yield
     reset_circuit_breakers()
@@ -161,21 +163,25 @@ def _brain(client: TestClient, provider_id: str) -> dict[str, object]:
 
 def test_a_rejected_brain_is_reported_by_what_its_calls_did() -> None:
     with TestClient(create_app(MULTI_BRAIN)) as value:
-        # Configuration alone may claim readiness — that is the honest starting
-        # point, and the message says so.
+        # A key nobody has called with yet is not ready — it is untested.
         configured = _brain(value, "claude")
-        assert configured["state"] == "healthy"
+        assert configured["state"] == "untested"
         assert "no live call" in configured["userMessage"]
 
-        get_circuit_breaker("claude").record_failure(
-            "PROVIDER_KEY_INVALID", "Claude gateway rejected the request (HTTP 403)."
+        fingerprint = fingerprint_for(MULTI_BRAIN, "claude")
+        record_call(
+            "claude",
+            ok=False,
+            code="PROVIDER_KEY_INVALID",
+            detail="Claude gateway rejected the request (HTTP 403).",
+            fingerprint=fingerprint,
         )
         rejected = _brain(value, "claude")
         assert rejected["state"] == "unavailable"
         assert "403" in rejected["userMessage"]
 
         # A later call that answers is the only thing that clears the verdict.
-        get_circuit_breaker("claude").record_success(latency_ms=900)
+        record_call("claude", ok=True, fingerprint=fingerprint)
         assert _brain(value, "claude")["state"] == "healthy"
 
 

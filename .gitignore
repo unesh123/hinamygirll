@@ -56,6 +56,7 @@ apps/api/data/images/
 apps/api/data/documents/
 apps/api/data/freepik_usage.json
 apps/api/hinaa_api/data/documents/
+apps/api/hinaa_api/data/brain_outcomes.json
 .cert/
 .runtime/
 logs/

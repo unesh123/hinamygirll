@@ -5,8 +5,12 @@
  * Keep in sync with apps/api/hinaa_api/main.py ProviderStatus model.
  */
 
-/** Health state reported by the backend for each provider. */
-export type ProviderHealth = "healthy" | "degraded" | "unavailable" | "disabled" | "checking" | "unknown";
+/**
+ * Health state reported by the backend for each provider.
+ * For a brain, "healthy" requires a live call that answered. A configured
+ * credential nobody has watched answer yet is "untested".
+ */
+export type ProviderHealth = "healthy" | "degraded" | "unavailable" | "untested" | "disabled" | "checking" | "unknown";
 
 /** Normalized provider status (adapted from audio/api ProviderStatus). */
 export interface ProviderStatus {

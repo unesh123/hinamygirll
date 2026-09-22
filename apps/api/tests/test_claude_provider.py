@@ -38,13 +38,13 @@ def test_provider_router_selects_claude_adapter_without_live_call() -> None:
     assert provider.id == "claude"
 
 
-def test_provider_status_reports_claude_readiness_without_key_material() -> None:
+def test_provider_status_reports_claude_without_key_material() -> None:
     with TestClient(create_app(_settings())) as client:
         response = client.get("/v1/providers")
 
     assert response.status_code == 200
     claude = next(item for item in response.json() if item["id"] == "claude")
-    assert claude["state"] == "healthy"
+    assert claude["state"] == "untested"
     assert "model:claude-sonnet-4-20250514" in claude["capabilities"]
     assert "test-claude-key" not in str(claude)
 

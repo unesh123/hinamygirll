@@ -6,8 +6,6 @@ from hinaa_api.circuit_breaker import (
     CircuitBreakerState,
     ProviderCircuitBreaker,
     get_circuit_breaker,
-    measured_state,
-    peek_circuit_breaker,
     reset_circuit_breakers,
 )
 from hinaa_api.reachability import probe_gateway_3stage, reset_inference_cache
@@ -96,47 +94,3 @@ async def test_3stage_health_rate_limited_circuit_breaker():
     assert outcome.inference is False
     assert outcome.state == "rate_limited"
     assert outcome.retry_after_seconds > 0
-
-
-def test_measured_state_says_nothing_about_a_brain_never_called():
-    assert measured_state("claude") is None
-    # Reading health must not leave an entry behind and imply a verdict.
-    assert peek_circuit_breaker("claude") is None
-
-
-def test_measured_state_reports_a_rejected_brain_as_unavailable():
-    get_circuit_breaker("claude").record_failure(
-        "PROVIDER_KEY_INVALID", "Claude gateway rejected the request (HTTP 403)."
-    )
-
-    state, message = measured_state("claude")
-    assert state == "unavailable"
-    assert "HTTP 403" in message
-
-
-def test_measured_state_clears_once_a_later_live_call_succeeds():
-    breaker = get_circuit_breaker("claude")
-    breaker.record_failure("PROVIDER_KEY_INVALID", "Claude gateway rejected the request.")
-    assert measured_state("claude") is not None
-
-    breaker.record_success(latency_ms=900)
-    assert measured_state("claude") is None
-
-
-def test_measured_state_ignores_outcomes_older_than_the_window():
-    breaker = get_circuit_breaker("qwen")
-    breaker.record_failure("PROVIDER_UNAVAILABLE", "Qwen is unavailable safely.")
-    breaker.last_failure_timestamp = monotonic() - 901.0
-
-    assert measured_state("qwen") is None
-    assert measured_state("qwen", window_seconds=3600.0) is not None
-
-
-def test_measured_state_keeps_a_throttled_brain_available():
-    get_circuit_breaker("codecraft").record_failure(
-        "PROVIDER_RATE_LIMIT", "CodeCraft is rate limited right now.", retry_after=30.0
-    )
-
-    state, message = measured_state("codecraft")
-    assert state == "degraded"
-    assert "rate limited" in message

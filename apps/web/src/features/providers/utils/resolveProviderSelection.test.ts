@@ -187,21 +187,93 @@ describe("resolveProviderSelection", () => {
     });
   });
 
-  it("replaces a stale Claude model with the refreshed gateway default", () => {
+  it("ranks a proven brain above a higher-ranked brain nobody has measured", () => {
+    // CX Gateway sits first in the priority list but its credential has never
+    // been watched answering, so auto must use Claude — the brain that did.
     const preferences: ProviderPreferences = {
-      preferredMode: "claude",
-      preferredModelByProvider: { claude: "claude-sonnet-4-20250514" },
+      preferredMode: "auto",
+      preferredModelByProvider: {},
     };
 
     const selection = resolveProviderSelection(
       preferences,
       providersWith(
-        { claude: "healthy", mock: "healthy" },
-        { claude: ["claude-sonnet-4-6", "claude-opus-4-6"] },
+        { "cx-gateway": "untested", claude: "healthy", mock: "healthy" },
+        { claude: ["claude-sonnet-4-6"] },
       ),
     );
 
     expect(selection.activeMode).toBe("claude");
     expect(selection.activeModel).toBe("claude-sonnet-4-6");
+  });
+
+  it("uses an untested real brain rather than the in-process fallback", () => {
+    // After a restart nothing is measured yet. `local` and `mock` always report
+    // healthy because they answer from this process, so without the untested
+    // pass every fresh turn would silently go to the zero-credit stand-in.
+    const preferences: ProviderPreferences = {
+      preferredMode: "auto",
+      preferredModelByProvider: {},
+    };
+
+    const selection = resolveProviderSelection(
+      preferences,
+      providersWith({ "agent-router": "untested", local: "healthy", mock: "healthy" }),
+    );
+
+    expect(selection).toEqual({
+      preferredMode: "auto",
+      activeMode: "agent-router",
+      activeModel: null,
+      providersLoaded: true,
+      reason: "automatic-fallback",
+    });
+  });
+
+  it("honours an explicit pick of an untested brain", () => {
+    // Untested means unmeasured, not broken — sending the turn is how it gets
+    // measured, so this must not be treated like a rejected credential.
+    const preferences: ProviderPreferences = {
+      preferredMode: "claude",
+      preferredModelByProvider: { claude: "claude-sonnet-4-6" },
+    };
+
+    const selection = resolveProviderSelection(
+      preferences,
+      providersWith({ claude: "untested", mock: "healthy" }),
+    );
+
+    expect(selection.activeMode).toBe("claude");
+    expect(selection.reason).toBe("explicit-user-choice");
+  });
+
+  it("recovers a rejected pin to an untested brain before falling back to mock", () => {
+    const preferences: ProviderPreferences = {
+      preferredMode: "claude",
+      preferredModelByProvider: { claude: "claude-sonnet-4-6" },
+    };
+
+    const selection = resolveProviderSelection(
+      preferences,
+      providersWith(
+        { claude: "unavailable", codecraft: "untested", local: "healthy", mock: "healthy" },
+        { codecraft: ["claude-fable-5"] },
+      ),
+    );
+
+    expect(selection.activeMode).toBe("codecraft");
+    expect(selection.activeModel).toBe("claude-fable-5");
+    expect(selection.reason).toBe("recovery");
+  });
+
+  it("falls back to mock when no brain reports any state at all", () => {
+    const preferences: ProviderPreferences = {
+      preferredMode: "auto",
+      preferredModelByProvider: {},
+    };
+
+    const selection = resolveProviderSelection(preferences, providersWith({}));
+
+    expect(selection.activeMode).toBe("mock");
   });
 });

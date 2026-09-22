@@ -233,7 +233,7 @@ export function BrainSelector({
                       </span>
                     </div>
                     <div style={{ fontSize: 11, color: "var(--text-tertiary, #6b7280)" }}>
-                      Automatically selects the fastest healthy provider
+                      Automatically uses the highest-ranked brain whose live calls answered
                     </div>
                   </div>
                 </div>
@@ -251,6 +251,7 @@ export function BrainSelector({
                 const isSelected = opt.mode === currentMode;
                 const meta = FEATURED_PROVIDERS[opt.mode] || { label: opt.label, desc: opt.description, icon: "🤖" };
                 const isDegraded = opt.health === "degraded";
+                const isUntested = opt.health === "untested";
                 const isOffline = !opt.available;
                 const isRateLimited = (opt.health as string) === "rate_limited" || Boolean(opt.healthReason?.toLowerCase().includes("rate"));
                 const models = getModelOptions(opt.mode);
@@ -302,11 +303,19 @@ export function BrainSelector({
                               {opt.label}
                             </span>
 
-                            {/* Status Dot / Badge */}
-                            {opt.available && !isDegraded && (
+                            {/* Status Dot / Badge — "Ready" means a live call answered. */}
+                            {opt.available && !isDegraded && !isUntested && (
                               <span style={{ fontSize: 10, color: "var(--success, #059669)", display: "flex", alignItems: "center", gap: 3 }}>
                                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--success, #10b981)" }} />
                                 Ready
+                              </span>
+                            )}
+                            {isUntested && (
+                              <span
+                                title={opt.healthReason ?? "Configured, but no live call has been measured yet."}
+                                style={{ fontSize: 10, color: "var(--text-tertiary, #6b7280)", background: "rgba(107, 114, 128, 0.12)", padding: "1px 4px", borderRadius: 4 }}
+                              >
+                                Untested
                               </span>
                             )}
                             {isDegraded && (

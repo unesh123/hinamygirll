@@ -249,9 +249,12 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
                     f"{self._provider_label()} rejected the request (HTTP {status}).",
                 )
                 return HinaaError(
-                    code="PROVIDER_UNAVAILABLE",
+                    code="PROVIDER_KEY_INVALID",
                     status_code=500,
-                    message=f"{self._provider_label()} rejected the request.",
+                    message=(
+                        f"{self._provider_label()} rejected this credential "
+                        f"(HTTP {status}). Check the key and its billing."
+                    ),
                 )
             self._circuit_breaker.record_failure(
                 "PROVIDER_UNAVAILABLE",

@@ -137,23 +137,44 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [previewChip, setPreviewChip] = useState<ContextChip | null>(null);
 
-  // Footer status is measured from /v1/capabilities via props, never asserted:
-  // the previous literals read "6 nodes online" green straight through an outage.
-  // Fallback-role gateways are excluded: this badge answers how many brains he
-  // can pick, and the selector deliberately never offers the local fallback.
-  const readyProviders = discoveredProviders.filter(
+  // Footer status is measured, never asserted. `configured` only proves a
+  // credential exists, which is how this chip stayed green straight through a
+  // gateway rejecting every call; `health` carries the outcome of the last live
+  // call the backend actually made. Fallback-role gateways are excluded because
+  // the selector never offers them — this chip answers how many brains he can
+  // pick, and green answers "one of them just answered".
+  const pickableBrains = discoveredProviders.filter(
     (p) => p.configured && p.role !== "fallback",
-  ).length;
+  );
+  const measuredBrains = pickableBrains.filter((p) => p.health !== undefined);
+  const liveBrains = measuredBrains.filter((p) => p.health === "healthy").length;
+  const untestedBrains = measuredBrains.filter((p) => p.health === "untested").length;
   const readyModels = discoveredModels.filter((m) => m.configured).length;
   const contextCount = contextChips.length + (attachedImage ? 1 : 0);
   const statusTone = !backendConnected
     ? { dot: "#ef4444", label: "Backend offline" }
-    : readyProviders === 0
+    : pickableBrains.length === 0
       ? { dot: "#f59e0b", label: "No providers configured" }
-      : {
-          dot: "#10b981",
-          label: `${readyProviders} provider${readyProviders === 1 ? "" : "s"} · ${readyModels} models`,
-        };
+      : liveBrains > 0
+        ? {
+            dot: "#10b981",
+            label: `${liveBrains} brain${liveBrains === 1 ? "" : "s"} live · ${readyModels} models`,
+          }
+        : measuredBrains.length === 0
+          ? {
+              // No health data at all: say "unverified", never green and never red.
+              dot: "#64748b",
+              label: `${pickableBrains.length} configured · health unverified`,
+            }
+          : untestedBrains === measuredBrains.length
+            ? {
+                dot: "#64748b",
+                label: `${untestedBrains} configured · no live call yet`,
+              }
+            : {
+                dot: "#ef4444",
+                label: `${measuredBrains.length - untestedBrains} brains failed their last call`,
+              };
 
   // Auto-grow textarea
   const adjustHeight = useCallback(() => {

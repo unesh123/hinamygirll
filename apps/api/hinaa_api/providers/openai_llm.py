@@ -640,7 +640,10 @@ class OpenAILLMProvider:
             raise HinaaError("ENDPOINT_MISMATCH", msg, 404, user_action_required=True)
 
         if response.status_code in {401, 403}:
-            msg = f"{self._provider_label()} needs its backend connection fixed."
+            msg = (
+                f"{self._provider_label()} rejected this credential "
+                f"(HTTP {response.status_code}). Check the key and its billing."
+            )
             self._circuit_breaker.record_failure("PROVIDER_KEY_INVALID", msg)
             raise HinaaError(
                 "PROVIDER_KEY_INVALID",
@@ -698,7 +701,15 @@ class OpenAILLMProvider:
             msg = f"{self._provider_label()} declined to generate content due to safety policy."
             return HinaaError("SAFETY_REFUSAL", msg, 400, False)
         if "api key" in redacted or "401" in redacted or "403" in redacted:
-            msg = f"{self._provider_label()} needs its backend connection fixed."
+            # The branch above matches text, so the status code has to come from
+            # the exception itself rather than from the marker that matched.
+            status = getattr(error, "status_code", None)
+            rejected = (
+                f"rejected this credential (HTTP {status})."
+                if isinstance(status, int)
+                else "rejected this credential."
+            )
+            msg = f"{self._provider_label()} {rejected} Check the key and its billing."
             self._circuit_breaker.record_failure("PROVIDER_KEY_INVALID", msg)
             return HinaaError(
                 "PROVIDER_KEY_INVALID",

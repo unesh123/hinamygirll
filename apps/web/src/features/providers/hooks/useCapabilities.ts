@@ -20,6 +20,12 @@ export interface DiscoveredProvider {
   role?: "fallback";
   /** Models the gateway reported on its live /v1/models answer, if it was probed. */
   servingModels?: number;
+  /**
+   * What the last live call proved, derived from the brain ledger. `configured`
+   * only answers "does a credential exist?"; this answers "will it answer me?".
+   */
+  health?: "healthy" | "degraded" | "unavailable" | "untested";
+  healthMessage?: string;
 }
 
 export interface RuntimeCapabilities {

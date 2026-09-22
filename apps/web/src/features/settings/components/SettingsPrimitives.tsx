@@ -141,6 +141,7 @@ const HEALTH_LABELS: Record<ProviderHealth, string> = {
   healthy:     "Available",
   degraded:    "Degraded",
   unavailable: "Unavailable",
+  untested:    "Not tested yet",
   disabled:    "Disabled",
   checking:    "Checking…",
   unknown:     "Unknown",

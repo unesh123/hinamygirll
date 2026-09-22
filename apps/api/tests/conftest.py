@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import os
 import wave
 
 import pytest
 from fastapi.testclient import TestClient
 
+from hinaa_api.brain_ledger import reset_ledger
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
 from hinaa_api.vmc_bridge import vmc_bridge
@@ -51,6 +53,20 @@ def _reset_vmc_bridge():
     vmc_bridge.reset()
     yield
     vmc_bridge.reset()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_brain_ledger(tmp_path):
+    """Brain verdicts outlive the process by design, so the default ledger path
+    is the file the running backend reads. A test must never write it."""
+    previous = os.environ.get("HINAA_BRAIN_LEDGER_PATH")
+    reset_ledger(tmp_path / "brain_outcomes.json")
+    yield
+    if previous is None:
+        os.environ.pop("HINAA_BRAIN_LEDGER_PATH", None)
+    else:
+        os.environ["HINAA_BRAIN_LEDGER_PATH"] = previous
+    reset_ledger()
 
 
 @pytest.fixture

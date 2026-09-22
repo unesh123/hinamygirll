@@ -247,9 +247,12 @@ class TranscriptResponse(StrictModel):
 
 
 class ProviderStatus(StrictModel):
+    """`state` is derived per capability: for a brain, "healthy" requires a live
+    call that answered — configuration alone can only ever earn "untested"."""
+
     id: str
     capabilities: list[str]
-    state: Literal["healthy", "degraded", "unavailable", "disabled"]
+    state: Literal["healthy", "degraded", "unavailable", "untested", "disabled"]
     userMessage: str
 
 

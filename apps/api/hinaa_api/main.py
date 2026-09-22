@@ -32,7 +32,11 @@ from .persistence.db import get_session_factory, reset_session_factory
 from .persistence.project_service import LocalProjectService
 from .dialogue_state import AssetReferenceResolver, AssetSelectionSource, ConversationTurnState
 from .prompts import PROMPT_VERSION
-from .circuit_breaker import measured_state
+from .brain_ledger import (
+    aliases_for,
+    fingerprints_for,
+    newest_verdict,
+)
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .realtime import RealtimeGateway
 from .services import ConversationService
@@ -253,6 +257,26 @@ def _correlation_id(value: str | None) -> str:
         return str(UUID(value)) if value else str(uuid4())
     except ValueError:
         return str(uuid4())
+
+
+# Capability records that name a chat brain. "you" is a research lane and speech
+# providers are not brains, so neither gets a live-call verdict.
+_BRAIN_PROVIDER_IDS = frozenset(
+    {
+        "agent-router",
+        "claude",
+        "codecraft",
+        "custom",
+        "cx-gateway",
+        "deepseek",
+        "gemini",
+        "groq",
+        "ollama",
+        "omniroute",
+        "openai",
+        "qwen",
+    }
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -1274,6 +1298,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         ]
 
+        # `configured` answers "does the backend hold a credential?". The chip has
+        # to answer "will this brain answer me?", and only a real call knows that.
+        for provider in providers:
+            row_id = str(provider.get("id") or "")
+            if row_id not in _BRAIN_PROVIDER_IDS:
+                continue
+            verdict = newest_verdict(
+                aliases_for(row_id),
+                fingerprints=fingerprints_for(active_settings, row_id),
+            )
+            provider_name = str(provider.get("name") or row_id)
+            if verdict:
+                provider["health"] = verdict.state
+                provider["healthMessage"] = verdict.message
+            elif provider.get("configured"):
+                provider["health"] = "untested"
+                provider["healthMessage"] = (
+                    f"{provider_name} is configured; no live call has been measured yet."
+                )
+            else:
+                provider["health"] = "unavailable"
+                provider["healthMessage"] = (
+                    f"{provider_name} is not configured; add its key in apps/api/.env.local."
+                )
+
         models = []
         # Derive the advertised model list from the SAME provider records above.
         # A hardcoded list drifts from the real allow-lists (it advertised model
@@ -1368,29 +1417,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         }
 
-    # Worst-to-best is what the overlay compares against: a live outcome may
-    # only ever make a brain look worse than configuration already proved.
-    _PROVIDER_STATE_RANK = {
-        "healthy": 0,
-        "degraded": 1,
-        "unavailable": 2,
-        "disabled": 3,
-    }
-
     @app.get("/v1/providers", response_model=list[ProviderStatus])
     @app.get("/api/v1/providers", response_model=list[ProviderStatus])
     async def provider_status() -> list[ProviderStatus]:
-        # A provider on an ephemeral quick tunnel can keep valid-looking config
-        # long after the tunnel has died. Probe those hosts so the UI never shows
-        # a green "Ready" badge for a brain that cannot answer a single turn.
+        # A health badge built from configuration outlives the truth, so the
+        # brain ledger below overrides it with what recent live calls did.
+        # `probe_measured` names the rows whose state this request derived from a
+        # socket that actually answered — a /v1/models or /api/tags reply is a
+        # live call too, and must not be flattened to "untested".
+        probe_measured: set[str] = set()
         cx_state = "unavailable"
         cx_message = "CX Gateway needs CX_GATEWAY_API_KEY and CX_GATEWAY_BASE_URL."
         if active_settings.cx_gateway_configured:
             cx_base = active_settings.cx_gateway_base_url
             if is_ephemeral_tunnel(cx_base):
+                # A quick tunnel keeps valid-looking config after the tunnel
+                # process dies, so only a live answer can call it reachable.
                 probe = await probe_gateway(cx_base)
                 if probe.reachable:
                     cx_state = "healthy"
+                    probe_measured.add("cx-gateway")
                     cx_message = (
                         f"CX Gateway ({active_settings.cx_gateway_model}) is reachable and ready."
                     )
@@ -1439,6 +1485,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 if name and name not in ollama_models:
                                     ollama_models.append(name)
                             ollama_state = "healthy"
+                            probe_measured.add("ollama")
                             def_model = active_settings.active_ollama_model
                             if def_model not in ollama_models and ollama_models:
                                 def_model = ollama_models[0]
@@ -1468,6 +1515,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             if omni_probe.serving:
                 omni_state = "healthy"
+                probe_measured.add("omniroute")
                 omni_message = (
                     f"OmniRoute is serving {omni_probe.model_count} models at "
                     f"{active_settings.active_omniroute_base_url}. It is a fallback: it "
@@ -1786,29 +1834,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         ]
 
-        # The badges above answer "is this configured?". Configuration presence
-        # outlives availability: a gateway can keep its key and URL and reject
-        # every request. Overlay the outcomes of real calls so a badge is never
-        # greener than the last turn that actually went to that brain.
+        # Configuration proves a credential exists, not that it is accepted. The
+        # ledger holds the outcomes of calls that actually ran, so a badge can
+        # never be greener than the last turn that went to that brain — and a
+        # brain nobody has watched answer is untested, not healthy. Rows outside
+        # this set are excluded on purpose: `gemini-live` speaks through the
+        # Gemini credential, so no brain ever reports to it and "untested" would
+        # be a permanent false alarm rather than an honest gap.
         for status in statuses:
-            if "llm" not in status.capabilities:
+            if status.id not in _BRAIN_PROVIDER_IDS:
                 continue
-            breaker_ids = [status.id]
-            if status.id == "agent-router":
-                breaker_ids.append("agent-router-openai")
-                breaker_ids.append("agent-router-anthropic")
-            outcome = None
-            for breaker_id in breaker_ids:
-                outcome = measured_state(breaker_id)
-                if outcome is not None:
-                    break
-            if outcome is None:
-                continue
-            measured_state_name, measured_message = outcome
-            if _PROVIDER_STATE_RANK[measured_state_name] <= _PROVIDER_STATE_RANK[status.state]:
-                continue
-            status.state = measured_state_name
-            status.userMessage = measured_message
+            measured = newest_verdict(
+                aliases_for(status.id),
+                fingerprints=fingerprints_for(active_settings, status.id),
+            )
+            if measured is not None:
+                status.state = measured.state
+                status.userMessage = measured.message
+            elif status.state == "healthy" and status.id not in probe_measured:
+                status.state = "untested"
+                if "no live call" not in status.userMessage.lower():
+                    status.userMessage = (
+                        f"{status.userMessage} No live call has been made yet."
+                    )
 
         return statuses
 

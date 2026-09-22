@@ -16,7 +16,12 @@ export type ProviderMode =
 export interface ProviderStatus {
   id: string;
   capabilities: string[];
-  state: "healthy" | "degraded" | "unavailable" | "disabled";
+  /**
+   * `healthy` for a brain means a live call answered — see
+   * apps/api/hinaa_api/brain_ledger.py. `untested` means the credential is
+   * configured but no live call has proven it recently.
+   */
+  state: "healthy" | "degraded" | "unavailable" | "untested" | "disabled";
   userMessage: string;
 }
 

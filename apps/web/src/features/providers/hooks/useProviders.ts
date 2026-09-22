@@ -47,6 +47,7 @@ function adaptStatus(api: ApiStatus): ProviderStatus {
   const state: ProviderHealth =
     api.state === "healthy"     ? "healthy"     :
     api.state === "degraded"    ? "degraded"    :
+    api.state === "untested"    ? "untested"    :
     api.state === "disabled"    ? "unavailable" :
     api.state === "unavailable" ? "unavailable" :
     "unknown";

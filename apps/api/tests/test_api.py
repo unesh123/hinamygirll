@@ -227,7 +227,7 @@ def test_custom_provider_uses_codex_gateway_key_without_exposing_secret() -> Non
     openai = next(provider for provider in providers if provider["id"] == "openai")
     custom = next(provider for provider in providers if provider["id"] == "custom")
     assert openai["state"] == "unavailable"
-    assert custom["state"] == "healthy"
+    assert custom["state"] == "untested"
     assert "codex-placeholder" not in openai["userMessage"]
     assert "codex-placeholder" not in custom["userMessage"]
 
@@ -252,7 +252,7 @@ def test_openai_and_custom_gateway_keys_are_separate_without_exposing_secret() -
     openai = next(provider for provider in providers if provider["id"] == "openai")
     custom = next(provider for provider in providers if provider["id"] == "custom")
     assert "Key source: primary" in openai["userMessage"]
-    assert custom["state"] == "healthy"
+    assert custom["state"] == "untested"
     assert "primary-placeholder" not in openai["userMessage"]
     assert "codex-placeholder" not in openai["userMessage"]
     assert "codex-placeholder" not in custom["userMessage"]

@@ -1057,7 +1057,7 @@ export default function App() {
                 // Provider micro-status & fallback props
                 activeProviderMode={routing.activeMode ?? "mock"}
                 activeProviderModel={routing.activeModel}
-                providerHealth={routing.activeMode ? providers.getHealth(routing.activeMode as any) : "healthy"}
+                providerHealth={routing.activeMode ? providers.getHealth(routing.activeMode as any) : "checking"}
                 providerLatencyMs={null}
                 onSelectProvider={(mode, modelId) => {
                   setProvider({

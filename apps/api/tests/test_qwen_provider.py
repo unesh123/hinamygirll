@@ -63,7 +63,7 @@ def test_qwen_status_is_secret_safe_and_lists_models() -> None:
 
     assert response.status_code == 200
     qwen = next(item for item in response.json() if item["id"] == "qwen")
-    assert qwen["state"] == "healthy"
+    assert qwen["state"] == "untested"
     assert "openai-compatible" in qwen["capabilities"]
     assert "default-model:qwen3.7-plus" in qwen["capabilities"]
     assert "test-qwen-key" not in str(qwen)

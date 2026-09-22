@@ -193,7 +193,10 @@
   border-color: rgba(245, 158, 11, 0.25);
 }
 
+/* "untested" is neutral, not amber: nothing is wrong with the credential, it
+   just has not answered a live call yet. */
 .statusPill[data-health="unavailable"],
+.statusPill[data-health="untested"],
 .statusPill[data-health="unknown"] {
   background: rgba(255, 255, 255, 0.05);
   color: rgba(216, 195, 205, 0.55);

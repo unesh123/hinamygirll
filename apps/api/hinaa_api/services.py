@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from .config import Settings
 from .circuit_breaker import peek_circuit_breaker
+from .brain_ledger import fingerprint_for, record_call, row_for_brain
 from .errors import HinaaError
 from .reachability import probe_gateway_models
 from .memory import SessionMemory
@@ -1297,6 +1298,38 @@ class ConversationService:
         # 10-minute negative cache: a dead key is retried only after the window
         # lapses (in case the user fixes their account mid-session).
         self._fast_key_bad_until[provider_id] = time.monotonic() + 600
+
+    def _record_brain_call(
+        self,
+        brain_id: str | None,
+        *,
+        ok: bool,
+        error: Exception | None = None,
+        model: str = "",
+    ) -> None:
+        """Note what a real attempt proved, for the health badges.
+
+        Every provider class answers for itself: some hold a circuit breaker,
+        others raise straight through. Recording at the turn layer is the one
+        place that sees the outcome of every brain, so the badge can never be
+        greener than the call that actually happened.
+        """
+        if not brain_id:
+            return
+        try:
+            code = str(getattr(error, "code", "") or "")
+            detail = str(getattr(error, "message", "") or error or "")[:300]
+            row_id = row_for_brain(brain_id)
+            record_call(
+                brain_id,
+                ok=ok,
+                code=code,
+                detail=detail,
+                model=model,
+                fingerprint=fingerprint_for(self.settings, row_id),
+            )
+        except Exception:  # a badge is never worth failing a turn over
+            logger.debug("Brain ledger write refused", exc_info=True)
 
     def _mark_persisted(self, user_id: str, session_id: str, fact: str) -> None:
         key = (user_id, session_id)
@@ -3007,6 +3040,7 @@ class ConversationService:
         # too short for mwapi.dev (which needs 3-8s cold) and caused constant
         # timeouts. HINAA_LLM_TIMEOUT_SECONDS=90 from .env.local applies here.
         primary_plan_timeout = self.settings.llm_timeout_seconds
+        attempted_brain = request.providerMode
 
         try:
             async with asyncio.timeout(primary_plan_timeout):
@@ -3018,12 +3052,16 @@ class ConversationService:
                     provider = self.router.llm(
                         request.providerMode, request.brainModel
                     )
+                attempted_brain = getattr(provider, "id", None) or request.providerMode
                 result = await provider.create_plan(
                     request.text,
                     request.companionId,
                     request.language,
                     history,
                     prompt,
+                )
+                self._record_brain_call(
+                    attempted_brain, ok=True, model=request.brainModel or ""
                 )
                 if request.providerMode == "mock" and self.cross_session_retriever and user_id:
                     try:
@@ -3055,6 +3093,8 @@ class ConversationService:
                     True,
                 )
 
+            self._record_brain_call(attempted_brain, ok=False, error=error)
+
             if getattr(error, "code", None) == "SAFETY_REFUSAL":
                 logger.warning("Primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
                 raise error
@@ -3078,6 +3118,7 @@ class ConversationService:
                 provider = self.router.llm(
                     request.providerMode, request.brainModel
                 )
+                attempted_brain = getattr(provider, "id", None) or request.providerMode
                 try:
                     async with asyncio.timeout(primary_plan_timeout):
                         result = await provider.create_plan(
@@ -3087,12 +3128,16 @@ class ConversationService:
                             history,
                             prompt,
                         )
+                    self._record_brain_call(
+                        attempted_brain, ok=True, model=request.brainModel or ""
+                    )
                     retry_succeeded = True
                 except Exception as retry_err:
                     if isinstance(retry_err, HinaaError):
                         error = retry_err
                     else:
                         error = HinaaError("PROVIDER_UNAVAILABLE", str(retry_err), 503, True)
+                    self._record_brain_call(attempted_brain, ok=False, error=error)
 
             if not retry_succeeded:
                 if getattr(error, "code", None) == "SAFETY_REFUSAL":
@@ -3109,7 +3154,9 @@ class ConversationService:
                                 fb_mode,
                                 fb_model,
                             )
+                            fb_brain = fb_mode
                             fb_provider = self.router.llm(fb_mode, fb_model)
+                            fb_brain = getattr(fb_provider, "id", None) or fb_mode
                             async with asyncio.timeout(max(45.0, primary_plan_timeout)):  # Enough for Gemini/other fallbacks
                                 fallback_result = await fb_provider.create_plan(
                                     request.text,
@@ -3118,6 +3165,7 @@ class ConversationService:
                                     history,
                                     prompt,
                                 )
+                            self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
                             logger.info("Fallback to %s succeeded", fb_mode)
                             is_fallback = True
                             fallback_reason = f"Primary {request.providerMode} failed: {error.code}"
@@ -3125,6 +3173,7 @@ class ConversationService:
                             resolved_model = fb_model
                             break
                         except Exception as fb_exc:
+                            self._record_brain_call(fb_brain, ok=False, error=fb_exc)
                             logger.warning("Fallback provider %s failed: %r", fb_mode, fb_exc)
                     if fallback_result is not None:
                         result = fallback_result
@@ -3435,6 +3484,7 @@ class ConversationService:
         )
         primary_text: list[str] = []
         primary_idle_expired: Callable[[], bool] = lambda: False
+        attempted_brain = request.providerMode
 
         try:
             async with live_generation_window(
@@ -3452,6 +3502,7 @@ class ConversationService:
                     provider = self.router.llm(
                         request.providerMode, request.brainModel
                     )
+                attempted_brain = getattr(provider, "id", None) or request.providerMode
                 if isinstance(provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                     result = await provider.create_live_plan(
                         request.text,
@@ -3515,6 +3566,9 @@ class ConversationService:
                         result.latency_ms,
                         stages=timing.snapshot(),
                     )
+            self._record_brain_call(
+                attempted_brain, ok=True, model=request.brainModel or ""
+            )
         except (HinaaError, TimeoutError, Exception) as raw_error:
             if isinstance(raw_error, TimeoutError):
                 timed_out_idle = primary_idle_expired()
@@ -3539,6 +3593,8 @@ class ConversationService:
                     503,
                     True,
                 )
+
+            self._record_brain_call(attempted_brain, ok=False, error=error)
 
             if getattr(error, "code", None) == "SAFETY_REFUSAL":
                 logger.warning("Live primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
@@ -3581,6 +3637,7 @@ class ConversationService:
             ):
                 self._mark_fast_key_bad(fast_provider_id)
                 selected_provider = self.router.llm(request.providerMode, request.brainModel)
+                attempted_brain = getattr(selected_provider, "id", None) or attempted_brain
                 if getattr(selected_provider, "id", None) != fast_provider_id:
                     try:
                         async with asyncio.timeout(primary_live_timeout):
@@ -3601,9 +3658,13 @@ class ConversationService:
                                     history,
                                     prompt,
                                 )
+                            self._record_brain_call(
+                                attempted_brain, ok=True, model=request.brainModel or ""
+                            )
                             live_retry_succeeded = True
                     except HinaaError as retry_err:
                         error = retry_err
+                        self._record_brain_call(attempted_brain, ok=False, error=error)
                     except Exception as retry_error:
                         error = HinaaError(
                             "PROVIDER_UNAVAILABLE",
@@ -3611,6 +3672,7 @@ class ConversationService:
                             503,
                             True,
                         )
+                        self._record_brain_call(attempted_brain, ok=False, error=error)
 
             if not live_retry_succeeded and not keep_streamed_text:
                 if getattr(error, "code", None) == "SAFETY_REFUSAL":
@@ -3627,7 +3689,9 @@ class ConversationService:
                                 fb_mode,
                                 fb_model,
                             )
+                            fb_brain = fb_mode
                             fb_provider = self.router.llm(fb_mode, fb_model)
+                            fb_brain = getattr(fb_provider, "id", None) or fb_mode
                             async with live_generation_window(
                                 ceiling_s=primary_live_timeout,
                                 idle_s=primary_idle_timeout,
@@ -3650,6 +3714,7 @@ class ConversationService:
                                         history,
                                         prompt,
                                     )
+                            self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
                             logger.info("Live fallback to %s succeeded", fb_mode)
                             is_fallback = True
                             fallback_reason = f"Primary {request.providerMode} failed: {error.code}"
@@ -3657,6 +3722,7 @@ class ConversationService:
                             resolved_model = fb_model
                             break
                         except Exception as fb_exc:
+                            self._record_brain_call(fb_brain, ok=False, error=fb_exc)
                             logger.warning("Live fallback provider %s failed: %r", fb_mode, fb_exc)
                     if fallback_live_result is not None:
                         result = fallback_live_result

@@ -256,6 +256,17 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
             const providerName = getProviderName(providerKey);
             const providerConfig = providers.find((p) => p.id === providerKey);
             const isConfigured = providerConfig ? providerConfig.configured : groupModels.some((m) => m.configured);
+            // Green has to mean a live call answered, not that a key exists.
+            const health = providerConfig?.health;
+            const healthBadge = !isConfigured
+              ? { label: "Unconfigured", background: "rgba(100, 116, 139, 0.1)", color: "#64748b" }
+              : health === "healthy"
+                ? { label: "Live", background: "rgba(16, 185, 129, 0.1)", color: "#059669" }
+                : health === "degraded"
+                  ? { label: "Throttled", background: "rgba(245, 158, 11, 0.12)", color: "#b45309" }
+                  : health === "unavailable"
+                    ? { label: "Failing", background: "rgba(239, 68, 68, 0.1)", color: "#dc2626" }
+                    : { label: "Untested", background: "rgba(100, 116, 139, 0.1)", color: "#64748b" };
 
             return (
               <div key={providerKey} style={{ marginTop: 6, marginBottom: 4 }}>
@@ -274,16 +285,17 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                 >
                   <span>{providerName}</span>
                   <span
+                    title={providerConfig?.healthMessage}
                     style={{
                       fontSize: 9,
                       padding: "1px 5px",
                       borderRadius: 4,
-                      background: isConfigured ? "rgba(16, 185, 129, 0.1)" : "rgba(100, 116, 139, 0.1)",
-                      color: isConfigured ? "#059669" : "#64748b",
+                      background: healthBadge.background,
+                      color: healthBadge.color,
                       fontWeight: 600,
                     }}
                   >
-                    {isConfigured ? "Configured" : "Unconfigured"}
+                    {healthBadge.label}
                   </span>
                 </div>
 

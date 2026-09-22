@@ -226,52 +226,6 @@ def peek_circuit_breaker(provider_id: str) -> ProviderCircuitBreaker | None:
     return _REGISTRY.get(provider_id)
 
 
-# A rejected key stays rejected, but outcomes this old describe a connection the
-# deployment may no longer have (restarted tunnel, new key, different model).
-# Keep the verdict long enough that every turn in a session agrees, short enough
-# that a fixed configuration is not punished for the rest of the process.
-LIVE_OUTCOME_WINDOW_SECONDS = 900.0
-
-
-def measured_state(
-    provider_id: str,
-    *,
-    window_seconds: float = LIVE_OUTCOME_WINDOW_SECONDS,
-) -> tuple[str, str] | None:
-    """What recent *live* calls proved about this provider, if anything.
-
-    Returns ``(state, user_message)`` where state is ``"unavailable"`` for a
-    brain whose real requests were rejected, or ``"degraded"`` for one that is
-    throttled but intact. Returns None when live outcomes say nothing, so the
-    caller falls back to its configuration-derived badge.
-
-    Configuration presence is not availability: a brain can hold a valid-looking
-    key and answer nothing but HTTP 403. Reported health follows the calls that
-    actually happened instead of claiming a verdict nobody measured.
-    """
-    breaker = peek_circuit_breaker(provider_id)
-    if breaker is None or breaker.consecutive_failures == 0:
-        return None
-    if not breaker.last_failure_code:
-        return None
-    now = monotonic()
-    if breaker.last_success_timestamp > breaker.last_failure_timestamp:
-        return None
-    if now - breaker.last_failure_timestamp > window_seconds:
-        return None
-
-    detail = breaker.last_failure_message or breaker.last_failure_code
-    if breaker.state is CircuitBreakerState.RATE_LIMITED:
-        remaining = breaker.cooldown_remaining()
-        return (
-            "degraded",
-            f"{detail} Live calls are rate limited; retry in {int(remaining) + 1}s.",
-        )
-    if breaker.state is CircuitBreakerState.DEGRADED:
-        return ("degraded", f"{detail} The last live call failed; a retry is allowed now.")
-    return ("unavailable", f"{detail} The last live call was rejected.")
-
-
 def reset_circuit_breakers() -> None:
     """Reset all circuit breakers (for testing)."""
     _REGISTRY.clear()

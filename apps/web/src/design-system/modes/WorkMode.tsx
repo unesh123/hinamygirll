@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
 import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
+import type { ProviderHealth } from "../../features/providers/types/provider";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
 import { ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel, type ContextChip } from "../chat/ComposerV6";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
@@ -132,7 +133,7 @@ interface WorkModeProps {
   // Provider micro-status & fallback props
   activeProviderMode?: string;
   activeProviderModel?: string | null;
-  providerHealth?: string;
+  providerHealth?: ProviderHealth;
   providerLatencyMs?: number | null;
   onSelectProvider?: (mode: string, modelId?: string) => void;
   onRetry?: () => void;
@@ -198,7 +199,7 @@ export function WorkMode({
   speechBridge,
   activeProviderMode,
   activeProviderModel,
-  providerHealth = "healthy",
+  providerHealth = "unknown",
   providerLatencyMs,
   onSelectProvider,
   onRetry,
@@ -1170,7 +1171,10 @@ export function WorkMode({
                   width: 6,
                   height: 6,
                   borderRadius: "50%",
-                  background: providerHealth === "unavailable" ? "var(--danger, #ef4444)" : "var(--success, #10b981)",
+                  background:
+                    providerHealth === "unavailable" ? "var(--danger, #ef4444)"
+                    : providerHealth === "healthy" ? "var(--success, #10b981)"
+                    : "var(--text-tertiary, #64748b)",
                 }}
               />
               <span style={{ fontWeight: 650, color: "var(--text-secondary)" }}>
@@ -1194,7 +1198,13 @@ export function WorkMode({
               <span>
                 {providerHealth === "unavailable"
                   ? "Offline"
-                  : `Ready${providerLatencyMs ? ` · ${providerLatencyMs}ms` : ""}`}
+                  : providerHealth === "degraded"
+                    ? "Throttled"
+                    : providerHealth === "healthy"
+                      ? `Ready${providerLatencyMs ? ` · ${providerLatencyMs}ms` : ""}`
+                      : providerHealth === "checking"
+                        ? "Checking…"
+                        : "Not tested yet"}
               </span>
             </div>
 
