@@ -739,22 +739,27 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             />
           </div>
 
-          {/* 2. `Auto ▾` Real Model / Intelligence Selector V7 */}
-          <ModelSelectorV7
-            models={discoveredModels}
-            providers={discoveredProviders}
-            selectedModelId={selectedModelId}
-            selectedProviderId={selectedProviderId}
-            isAutoRouter={isAutoRouter}
-            onSelectAuto={() => {
-              onSelectAuto?.();
-              onChangeIntelligence?.("auto");
-            }}
-            onSelectModel={(model) => {
-              onSelectModel?.(model);
-            }}
-            backendConnected={backendConnected}
-          />
+          {/* 2. `Auto ▾` Real Model / Intelligence Selector V7.
+              Compact means a phone, where the top bar already carries this
+              control — two chips disagreed and the second one pushed the
+              toolbar past its row. */}
+          {!compact && (
+            <ModelSelectorV7
+              models={discoveredModels}
+              providers={discoveredProviders}
+              selectedModelId={selectedModelId}
+              selectedProviderId={selectedProviderId}
+              isAutoRouter={isAutoRouter}
+              onSelectAuto={() => {
+                onSelectAuto?.();
+                onChangeIntelligence?.("auto");
+              }}
+              onSelectModel={(model) => {
+                onSelectModel?.(model);
+              }}
+              backendConnected={backendConnected}
+            />
+          )}
 
           {/* 3. `Goal Mode` Toggle Button */}
           <button

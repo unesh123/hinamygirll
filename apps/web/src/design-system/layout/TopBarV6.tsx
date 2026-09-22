@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   MessageSquare,
   Brain,
@@ -46,7 +46,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   onExecutiveModeChange,
 }) => {
   const { models, providers, runtime } = useCapabilities();
-  const [isAuto, setIsAuto] = useState(!selectedModelId);
+  // Derived, not copied: a local snapshot kept showing "Auto (Router)" after
+  // the model had been chosen somewhere else.
+  const isAuto = !selectedModelId;
 
   const handleModeClick = (mode: ExecutiveMode) => {
     onExecutiveModeChange(mode);
@@ -206,14 +208,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           providers={providers}
           selectedModelId={selectedModelId}
           isAutoRouter={isAuto}
-          onSelectAuto={() => {
-            setIsAuto(true);
-            onSelectModel?.("auto", "auto");
-          }}
-          onSelectModel={(model) => {
-            setIsAuto(false);
-            onSelectModel?.(model.id, model.provider);
-          }}
+          onSelectAuto={() => onSelectModel?.("auto", "auto")}
+          onSelectModel={(model) => onSelectModel?.(model.id, model.provider)}
           backendConnected={runtime.backendConnected}
         />
 

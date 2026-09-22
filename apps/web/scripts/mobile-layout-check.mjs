@@ -197,11 +197,28 @@ for (const vp of VIEWPORTS) {
       clippedControls,
       hiddenBehindScroll,
       canvasCount: document.querySelectorAll("canvas").length,
+      modelControlRects: [...document.querySelectorAll("[data-testid='composer-model-selector-btn']")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+          left: Math.round(r.left),
+          right: Math.round(r.right),
+          top: Math.round(r.top),
+          visible: typeof el.checkVisibility === "function" ? el.checkVisibility() : r.width > 1,
+        };
+      }),
     };
   });
 
   const inside = (r) =>
     !!r && r.left >= -1 && r.right <= layout.viewport.w + 1 && r.top >= -1 && r.bottom <= layout.viewport.h + 1;
+
+  // Visible, sized, and actually on screen — a chip pushed past the right edge
+  // or scrolled out of view is not a control he can reach.
+  const reachableModelControls = layout.modelControlRects.filter(
+    (r) => r.visible && r.w > 1 && r.h > 1 && r.top >= 0 && r.top < layout.viewport.h && r.right > 1 && r.left <= layout.viewport.w - 1,
+  );
 
   const checks = {
     noHorizontalOverflow: layout.overflowX === false,
@@ -218,6 +235,9 @@ for (const vp of VIEWPORTS) {
     allNavButtonsReachable: layout.navButtons.length > 0 && layout.navButtons.every((b) => b.inside),
     noWrappingComposerControls: layout.wrappedControls.length === 0,
     noClippedComposerControls: layout.clippedControls.length === 0,
+    // One chip moved to the top bar on a phone; the check fails if that ever
+    // leaves him with no way to pick a brain.
+    brainControlReachable: reachableModelControls.length >= 1,
     // Chrome above the transcript must not eat the screen: header + any band
     // stay under a quarter of the viewport on a phone.
     chromeWithinBudget:
@@ -245,6 +265,7 @@ for (const vp of VIEWPORTS) {
       clippedControls: layout.clippedControls,
       hiddenBehindScroll: layout.hiddenBehindScroll,
       canvasCount: layout.canvasCount,
+      modelControls: layout.modelControlRects,
       scrollWidth: layout.scrollWidth,
     },
   });
