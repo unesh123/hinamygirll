@@ -450,7 +450,8 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
       ? `${baseDownloadUrl}${baseDownloadUrl.includes('?') ? '&' : '?'}filename=${encodeURIComponent(filename)}`
       : '#';
     const pageCount = data.pageCount;
-    const fileSizeKb = data.fileSizeKb || 12;
+    const fileSizeKb: number | null =
+      typeof data.fileSizeKb === 'number' ? data.fileSizeKb : null;
     const pythonSnippet = data.pythonSnippet;
 
     return (
@@ -504,8 +505,12 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
                     <span>{pageCount} Pages</span>
                   </>
                 )}
-                <span>•</span>
-                <span>{fileSizeKb} KB</span>
+                {typeof fileSizeKb === 'number' && (
+                  <>
+                    <span>•</span>
+                    <span>{fileSizeKb} KB</span>
+                  </>
+                )}
               </div>
             </div>
           </div>

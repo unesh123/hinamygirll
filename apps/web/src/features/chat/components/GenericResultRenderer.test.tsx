@@ -126,6 +126,27 @@ describe("research sources on a phone", () => {
   });
 });
 
+describe("document download card", () => {
+  it("reports only the size the server actually measured", () => {
+    const { rerender } = render(
+      <GenericResultRenderer
+        toolName="pdf_generate"
+        result={{ title: "Field Report", filename: "report.pdf", downloadUrl: "/api/v1/generated-docs/D1", pageCount: 7, fileSizeKb: 248 }}
+      />,
+    );
+    expect(screen.getByText("248 KB")).toBeInTheDocument();
+
+    rerender(
+      <GenericResultRenderer
+        toolName="pdf_generate"
+        result={{ title: "Field Report", filename: "report.pdf", downloadUrl: "/api/v1/generated-docs/D1" }}
+      />,
+    );
+    expect(screen.queryByText(/KB$/)).not.toBeInTheDocument();
+    expect(screen.getByText("report.pdf")).toBeInTheDocument();
+  });
+});
+
 
 describe("detailed research presentation", () => {
   it("renders a cited answer with readable findings and attributed source cards", () => {

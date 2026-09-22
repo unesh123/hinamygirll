@@ -31,7 +31,6 @@ import type { ProviderHealth } from "../../features/providers/types/provider";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
 import { ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel, type ContextChip } from "../chat/ComposerV6";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
-import { MediaGalleryV6, type MediaGalleryItem } from "../components/media/MediaGalleryV6";
 import { CodingTaskCard } from "../components/task/CodingTaskCard";
 import { ArtifactCardV6 } from "../components/artifact/ArtifactCardV6";
 import { ResponseEnvelopeRenderer } from "../components/response/ResponseEnvelopeRenderer";
