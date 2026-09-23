@@ -3944,11 +3944,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from datetime import datetime, timezone
         from pathlib import Path
 
+        # Every root resolves from __file__. Two cwd-relative entries used to
+        # sit here: launched from the repo root they duplicated these paths,
+        # launched from apps/api they pointed at a relocated directory.
         roots = [
             (Path(__file__).resolve().parent / "data" / "documents").resolve(),
             (Path(__file__).resolve().parent.parent / "data" / "documents").resolve(),
-            Path("apps/api/data/documents").resolve(),
-            Path("apps/api/hinaa_api/data/documents").resolve(),
         ]
         docs: list[dict[str, object]] = []
         seen: set[str] = set()

@@ -294,6 +294,10 @@ def _generate_reportlab_pdf(
         rightMargin=margin,
         topMargin=margin,
         bottomMargin=margin,
+        title=title,
+        author=author,
+        subject=category,
+        creator="HINAA",
     )
 
     styles = getSampleStyleSheet()
@@ -457,9 +461,13 @@ def _generate_reportlab_pdf(
             render_block(content)
         story.append(Spacer(1, 4))
 
+    pages_rendered = 0
+
     def _draw_page_decorations(canvas, d):
+        nonlocal pages_rendered
         canvas.saveState()
         page_num = canvas.getPageNumber()
+        pages_rendered = max(pages_rendered, page_num)
         # Running header on page 2+
         if page_num > 1:
             canvas.setFont("Helvetica", 8)
@@ -481,15 +489,7 @@ def _generate_reportlab_pdf(
 
     doc.build(story, onFirstPage=_draw_page_decorations, onLaterPages=_draw_page_decorations)
 
-    page_count = 2
-    try:
-        with open(output_path, "rb") as f:
-            pdf_bytes = f.read()
-            page_count = max(1, pdf_bytes.count(b"/Type /Page\n") + pdf_bytes.count(b"/Type/Page\n") + pdf_bytes.count(b"/Type /Page "))
-    except Exception:
-        page_count = 2
-
-    return output_path, page_count
+    return output_path, pages_rendered or 1
 
 
 async def pdf_generate_handler(params: GeneratePDFParams) -> dict[str, Any]:
@@ -562,10 +562,12 @@ async def pdf_generate_handler(params: GeneratePDFParams) -> dict[str, Any]:
         "summary": f"Compiled '{title}' into a {page_count}-page PDF ({file_size_kb} KB) from {provenance.replace('-', ' ')} content.",
         "pythonSnippet": python_snippet,
     }
-    if params.userId:
-        file_path.with_suffix(".metadata.json").write_text(
-            json.dumps({**result, "ownerId": params.userId}), encoding="utf-8"
-        )
+    # /v1/generated-docs lists the sidecars, not the PDFs: gated on a caller
+    # supplied userId it was never written on the browser path, so 150 rendered
+    # documents were invisible in the library while their downloads worked.
+    file_path.with_suffix(".metadata.json").write_text(
+        json.dumps({**result, "ownerId": params.userId or "unattributed"}), encoding="utf-8"
+    )
     return result
 
 

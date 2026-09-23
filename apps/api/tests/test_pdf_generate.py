@@ -96,3 +96,65 @@ async def test_pdf_generator_real_render_is_downloadable(monkeypatch, tmp_path: 
     assert result["status"] == "success"
     assert output.read_bytes().startswith(b"%PDF-")
     assert result["fileSizeBytes"] == output.stat().st_size
+
+
+@pytest.mark.asyncio
+async def test_pdf_generator_leaves_the_library_sidecar(monkeypatch, tmp_path: Path) -> None:
+    """/v1/generated-docs lists sidecars, not PDFs. The browser sends no userId
+    in a tool request, so a userId-gated write left every rendered document out
+    of the library while its download link kept working."""
+    import json
+
+    monkeypatch.setattr(pdf_generate, "DOCS_DIR", tmp_path)
+    result = await pdf_generate.pdf_generate_handler(
+        pdf_generate.GeneratePDFParams(
+            topic="coastal erosion", title="Coastal Erosion Report", content="Wave energy cuts the bluff."
+        )
+    )
+    assert result["status"] == "success"
+
+    sidecar = tmp_path / f"{result['docId']}.metadata.json"
+    meta = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert meta["docId"] == result["docId"]
+    assert meta["title"] == result["title"]
+    assert meta["downloadUrl"] == result["downloadUrl"]
+    assert meta["pageCount"] == result["pageCount"]
+    assert meta["ownerId"] == "unattributed"
+    assert (tmp_path / f"{result['docId']}.pdf").exists()
+
+
+@pytest.mark.asyncio
+async def test_rendered_pdf_states_its_own_title_and_page_count(monkeypatch, tmp_path: Path) -> None:
+    """The file used to open as `(anonymous)` and report a pageCount scraped by
+    counting `/Type /Page` bytes — a pattern that also matches `/Type /Pages`.
+    Both are now read back against what the PDF itself declares."""
+    import re
+
+    monkeypatch.setattr(pdf_generate, "DOCS_DIR", tmp_path)
+    body = "\n\n".join(
+        f"Paragraph {index}: salinity gradients and cooling at the surface drive dense water "
+        "to sink, and the resulting gradient sets the deep current in motion across basins."
+        for index in range(1, 41)
+    )
+    result = await pdf_generate.pdf_generate_handler(
+        pdf_generate.GeneratePDFParams(
+            title="Thermohaline Circulation Brief",
+            author="Mikasa",
+            category="Research Report",
+            content=body,
+        )
+    )
+    assert result["status"] == "success"
+    pdf_bytes = (tmp_path / f"{result['docId']}.pdf").read_bytes()
+
+    declared = re.search(rb"/Count (\d+)", pdf_bytes)
+    assert declared is not None
+    assert result["pageCount"] == int(declared.group(1))
+    assert result["pageCount"] >= 2
+
+    title = re.search(rb"/Title \((.*?)\)", pdf_bytes, re.DOTALL)
+    assert title is not None
+    assert b"Thermohaline Circulation Brief" in title.group(1)
+    assert b"anonymous" not in title.group(1)
+    author = re.search(rb"/Author \((.*?)\)", pdf_bytes, re.DOTALL)
+    assert author is not None and b"Mikasa" in author.group(1)
