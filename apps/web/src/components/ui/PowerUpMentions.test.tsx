@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { act, useState } from "react";
+import { flushSync } from "react-dom";
 import { describe, expect, it, vi } from "vitest";
 import { PowerUpMentions, type CommandItem } from "./PowerUpMentions";
 
@@ -96,6 +98,52 @@ describe("PowerUpMentions keyboard priority", () => {
 
     expect(onSelectCommand).not.toHaveBeenCalled();
     expect(onSend).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * The registry can resolve after the palette is already open, so the first
+   * frame showing a highlighted command may be the frame Enter lands on. Enter
+   * must still select there rather than fall through and send the chat.
+   */
+  it("selects a command the registry added in the same frame Enter lands", () => {
+    const onSelectCommand = vi.fn();
+    const onSend = vi.fn();
+    let pushCommands: (commands: CommandItem[]) => void = () => {};
+
+    function LateRegistryHarness() {
+      const [commands, setCommands] = useState<CommandItem[]>([]);
+      pushCommands = setCommands;
+      return (
+        <>
+          <textarea
+            data-testid="composer"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) onSend();
+            }}
+          />
+          <PowerUpMentions
+            visible
+            filter=""
+            trigger="/"
+            contexts={[]}
+            commands={commands}
+            onSelectCommand={onSelectCommand}
+            onClose={() => undefined}
+          />
+        </>
+      );
+    }
+
+    render(<LateRegistryHarness />);
+    const composer = screen.getByTestId("composer");
+
+    act(() => {
+      flushSync(() => pushCommands(COMMANDS));
+      composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+
+    expect(onSelectCommand).toHaveBeenCalledWith(expect.objectContaining({ name: "research" }));
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
 

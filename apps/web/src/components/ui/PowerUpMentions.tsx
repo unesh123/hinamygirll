@@ -7,7 +7,7 @@
  * Keyboard navigation: ↑↓ to move, Enter to select, Esc to close, Tab to switch tabs.
  */
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Image, Sparkles, Globe, ExternalLink, Code, Music,
@@ -328,10 +328,44 @@ export function PowerUpMentions({
   // Reset selection when filter or tab changes
   useEffect(() => { setSelectedIndex(0); }, [filter, activeTab]);
 
-  // Keyboard navigation
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (!visible) return;
+  // Keyboard navigation.
+  //
+  // The live values are read through a ref instead of captured in the handler's
+  // closure. The old shape rebuilt the handler from the current `activeItems`
+  // and re-registered it from a passive effect, which runs after the commit that
+  // paints the rows — so a key arriving in between was handled by a listener
+  // built from the previous list.
+  const keyStateRef = useRef({
+    visible,
+    activeItems,
+    selectedIndex,
+    activeTab,
+    isLegacyMode,
+    filteredLegacy,
+    onSelect,
+    onSelectContext,
+    onSelectCommand,
+    onClose,
+  });
+  useLayoutEffect(() => {
+    keyStateRef.current = {
+      visible,
+      activeItems,
+      selectedIndex,
+      activeTab,
+      isLegacyMode,
+      filteredLegacy,
+      onSelect,
+      onSelectContext,
+      onSelectCommand,
+      onClose,
+    };
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const state = keyStateRef.current;
+      if (!state.visible) return;
 
       // Consume the key so it never reaches the composer's React handler.
       const own = () => {
@@ -348,40 +382,37 @@ export function PowerUpMentions({
 
       if (e.key === "ArrowDown") {
         own();
-        setSelectedIndex((i) => Math.min(i + 1, activeItems.length - 1));
+        setSelectedIndex((i) => Math.min(i + 1, state.activeItems.length - 1));
       } else if (e.key === "ArrowUp") {
         own();
         setSelectedIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
-        if (isLegacyMode) {
-          if (!filteredLegacy[selectedIndex]) return;
+        if (state.isLegacyMode) {
+          if (!state.filteredLegacy[state.selectedIndex]) return;
           own();
-          onSelect?.(filteredLegacy[selectedIndex]);
+          state.onSelect?.(state.filteredLegacy[state.selectedIndex]);
           return;
         }
-        if (!activeItems[selectedIndex]) return;
+        if (!state.activeItems[state.selectedIndex]) return;
         own();
-        const item = activeItems[selectedIndex];
-        if (activeTab === "contexts") {
-          onSelectContext?.(item as ContextItem);
+        const item = state.activeItems[state.selectedIndex];
+        if (state.activeTab === "contexts") {
+          state.onSelectContext?.(item as ContextItem);
         } else {
-          onSelectCommand?.(item as CommandItem);
+          state.onSelectCommand?.(item as CommandItem);
         }
       } else if (e.key === "Escape") {
         own();
-        onClose();
+        state.onClose();
       }
-    },
-    [visible, activeItems, selectedIndex, activeTab, isLegacyMode, filteredLegacy, onSelect, onSelectContext, onSelectCommand, onClose],
-  );
+    };
 
-  useEffect(() => {
     // Capture phase, deliberately. React attaches its synthetic handler to the
     // root container, so a bubble-phase listener on `window` only sees the key
     // after the textarea has already handled Enter and submitted the chat.
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [handleKeyDown]);
+  }, []);
 
   // Scroll selected into view
   useEffect(() => {
