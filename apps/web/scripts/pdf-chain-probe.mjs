@@ -114,6 +114,14 @@ const snapshot = () =>
       horizontalOverflow: doc.scrollWidth > viewport,
       fit,
       approvalButtons: buttons.slice(0, 8),
+      statusText: (() => {
+        const live = [...document.querySelectorAll("[role='status'], [aria-live]")];
+        const claims = [...document.querySelectorAll("div,span,p")]
+          .filter((n) => /\b(running|processing|thinking|working|hold(ing)?|one moment|ek chin)\b/i.test(n.textContent || "") && n.children.length === 0)
+          .map((n) => (n.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80));
+        const text = [...live.map((n) => (n.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean), ...claims];
+        return [...new Set(text)].slice(0, 5).join(" | ") || null;
+      })(),
       activityRows: [...document.querySelectorAll("[class*='toolActivity'], [data-tool-activity]")]
         .map((n) => (n.textContent || "").trim().slice(0, 90))
         .slice(0, 6),
@@ -129,9 +137,17 @@ const snapshot = () =>
   });
 
 let seen = null;
+const timeline = [];
+const sentAt = Date.now();
 for (let elapsed = 0; elapsed < 240_000; elapsed += 4_000) {
   await page.waitForTimeout(4_000);
   seen = await snapshot();
+  timeline.push({
+    t: Math.round((Date.now() - sentAt) / 1000),
+    anchors: seen.downloadAnchors,
+    status: seen.statusText,
+    tail: (seen.bubbleTail || "").slice(-90),
+  });
   if (seen.downloadAnchors > 0) {
     console.log(`card appeared after ~${(elapsed + 4_000) / 1_000}s`);
     break;
@@ -140,6 +156,11 @@ for (let elapsed = 0; elapsed < 240_000; elapsed += 4_000) {
     console.log(`approval affordance at ~${(elapsed + 4_000) / 1_000}s: ${JSON.stringify(seen.approvalButtons)}`);
     break;
   }
+}
+
+console.log("--- what the thread showed while the tool ran ---");
+for (const row of timeline) {
+  console.log(`t=${row.t}s anchors=${row.anchors} status=${JSON.stringify(row.status)} tail=${JSON.stringify(row.tail)}`);
 }
 
 console.log(JSON.stringify({ prompt: PROMPT, finalDom: seen }, null, 2));
