@@ -37,6 +37,7 @@ __all__ = [
     "ContinuationDecision",
     "GenerationContinuationState",
     "strip_trailing_completion_decorations",
+    "ends_inside_invented_call",
     "detect_continuation_need",
     "normalize_for_comparison",
     "seam_dedup",
@@ -101,6 +102,7 @@ class ContinuationEvidence:
     trailing_decorations: str = ""
     shallow_vs_contract: bool = False
     words_short: int = 0
+    no_progress_resume: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -116,6 +118,7 @@ class ContinuationEvidence:
             "trailing_decorations": self.trailing_decorations,
             "shallow_vs_contract": self.shallow_vs_contract,
             "words_short": self.words_short,
+            "no_progress_resume": self.no_progress_resume,
         }
 
 
@@ -223,6 +226,32 @@ def _looks_like_incomplete_table(text: str) -> bool:
     return has_header_sep and not last.endswith("|")
 
 
+# A model that invents its own tool-call markup opens a block it may never
+# close. Measured, one flash-tier brain wrote `<|tool_call_section_begin|>`
+# `<|tool_call|>function_call[name="pdf_generate"]` and then 6,840 words of
+# document, and stopped there of its own accord. Everything after such an
+# opener is an argument payload, so no continuation can close it.
+_INVENTED_CALL_OPENER_RE = re.compile(
+    r"<\|?\s*(?:(?:tool|function)[_.:-]?calls?|calls?|invokes?)[^<>|]*\|?\s*>",
+    re.IGNORECASE,
+)
+_INVENTED_CALL_CLOSER_RE = re.compile(
+    r"<\|" + r"\s*/\s*[\w:.-]+\s*\|" + r">"
+    r"|<\|[^|<>]*(?:end|finish|complete)[^|<>]*\|>"
+    r"|<\s*/\s*(?:(?:tool|function|antml)[_.:-][\w:.-]+|calls?|invokes?)\s*>",
+    re.IGNORECASE,
+)
+
+
+def ends_inside_invented_call(text: str) -> bool:
+    """True when the last invented tool-call block is still open at the tail."""
+    openers = list(_INVENTED_CALL_OPENER_RE.finditer(text))
+    if not openers:
+        return False
+    after_opener = text[openers[-1].start() :]
+    return _INVENTED_CALL_CLOSER_RE.search(after_opener) is None
+
+
 _DECORATIVE_TRAILING_RE = re.compile(
     r"[\s\"'”’\)\]\}*_`\uFE0F\u2600-\u27BF\U0001F300-\U0001FAFF]+$"
 )
@@ -255,6 +284,7 @@ def detect_continuation_need(
     planned_sections: tuple[str, ...] = (),
     remaining_sections: tuple[str, ...] = (),
     min_words: int = 0,
+    previous_evidence: ContinuationEvidence | None = None,
 ) -> ContinuationDecision:
     """Decide whether generation must continue using strict finish-reason precedence (P0.14 §1–§5).
 
@@ -272,6 +302,10 @@ def detect_continuation_need(
         report is a finished-looking outline, not a deliverable — expand it.
     8. Terminal Punctuation / Conversational Closing: LOW-STRENGTH evidence; confirms
        completion only if natural stop, no open structures, and all planned sections exist.
+    9. No-progress guard: when the only complaints left are an unclosed code fence
+       or unbalanced braces that the previous resume ALSO reported open, another
+       resume cannot close them (``run_consistency_pass`` repairs the fence
+       deterministically). Stop rather than burn the segment budget.
     """
     evidence = ContinuationEvidence()
     reasons: list[ContinuationNeeded] = []
@@ -402,12 +436,18 @@ def detect_continuation_need(
         )
 
     open_fences, brace_depth = _count_unbalanced(text)
-    if open_fences:
+    # A block the model wrote for itself is argument payload, not prose: the
+    # braces and fences inside it say nothing about whether the reply is
+    # finished, so they cannot justify resuming it. Measured on a live PDF turn,
+    # a gateway model left that block open at 127,191 characters and the pass
+    # ran nine segments and eight minutes to end "max segments budget reached".
+    inside_invented_call = ends_inside_invented_call(text)
+    if open_fences and not inside_invented_call:
         evidence.open_fence = True
         reasons.append(
             ContinuationNeeded(ContinuationReason.OPEN_CODE_FENCE, "odd number of ``` fences")
         )
-    if brace_depth > 0:
+    if brace_depth > 0 and not inside_invented_call:
         evidence.open_json = True
         reasons.append(
             ContinuationNeeded(
@@ -470,13 +510,34 @@ def detect_continuation_need(
     if finish_reason in {"STOP", "stop"}:
         evidence.natural_stop = True
 
+    # 9. No-progress guard. A gateway model writing a long report opens a code
+    # fence to quote something and never closes it; every resume then reported
+    # the identical structural reason while adding thousands of finished words.
+    # Resuming cannot close what the model chose not to close, and the
+    # consistency pass already appends the missing fence, so the extra provider
+    # calls only burn the segment budget. The depth contract outranks this: a
+    # reply still short of the promised length is unfinished for a real reason.
+    structural_only = bool(reasons) and all(
+        r.reason
+        in {ContinuationReason.OPEN_CODE_FENCE, ContinuationReason.OPEN_JSON_STRUCTURE}
+        for r in reasons
+    )
+    still_open = previous_evidence is not None and (
+        (bool(open_fences) and previous_evidence.open_fence)
+        or (brace_depth > 0 and previous_evidence.open_json)
+    )
+    depth_owed = min_words > 0 and word_count(text) < min_words
+    if structural_only and still_open and not depth_owed:
+        evidence.no_progress_resume = True
+        reasons = []
+        reason_desc = "unclosed structure survived a resume; closing it is a repair, not a continuation"
+    else:
+        reason_desc = "; ".join(r.detail for r in reasons) or (
+            "all planned sections and structures complete with natural stop"
+        )
+
     should_continue = bool(reasons)
     status = ContinuationStatus.ACTIVE if should_continue else ContinuationStatus.COMPLETED
-    reason_desc = (
-        "; ".join(r.detail for r in reasons)
-        if reasons
-        else "all planned sections and structures complete with natural stop"
-    )
     confidence = 0.95 if should_continue else 1.0
 
     return ContinuationDecision(

@@ -15,6 +15,7 @@ from hinaa_api.providers.display_stream_decoder import (
     JsonDisplayTextLocator,
     decode_all_display_fields,
     decode_display_field,
+    strip_simulated_tool_calls,
 )
 
 
@@ -449,3 +450,39 @@ def test_a_third_spelling_of_the_same_invented_call_is_dropped() -> None:
     assert out.endswith("Give me one sec~")
     for noise in ("tool_argument", "tool_arguments", "count", "8"):
         assert noise not in out
+
+
+# Measured on a live "make me a pdf about quantum computing" turn: the gateway
+# wrote the call in ChatML delimiters and then 6,840 words of document body as
+# its argument, never closing the block. The pipeline makes the real call, so
+# everything from her opener down is payload nobody asked to read out loud.
+_CHATML_CALL_REPLY = (
+    "\n\nI'd love to help you with that, babe! Let me create a comprehensive "
+    "PDF on quantum computing for you right away.\n\n"
+    "<|" + "tool_call_section_begin|" + "><|" + "tool_call|" + ">"
+    'function_call[name="pdf_generate"]'
+    '<arg_param>title="Quantum Computing: A Comprehensive Guide"</arg_param>'
+    "<arg_key>content</arg_key><arg_value>## Quantum Computing\n\n"
+    + "# Table of Contents\n\n1. Introduction to Quantum Computing\n"
+    + "Quantum bits {" "superpose}, and the field keeps moving.\n"
+)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 7, 64, 4000])
+def test_the_chatml_spelling_of_an_invented_call_is_dropped_too(chunk_size: int) -> None:
+    out = _stream_prose(_CHATML_CALL_REPLY, chunk_size)
+    assert out.strip() == (
+        "I'd love to help you with that, babe! Let me create a comprehensive "
+        "PDF on quantum computing for you right away."
+    )
+    for noise in ("tool_call", "function_call", "pdf_generate", "arg_value", "Table of Contents"):
+        assert noise not in out
+
+
+def test_the_chatml_payload_never_reaches_the_written_answer() -> None:
+    """The answer is what gets stored, spoken and handed to the report builder."""
+    cleaned = strip_simulated_tool_calls(_CHATML_CALL_REPLY)
+    assert cleaned.strip() == (
+        "I'd love to help you with that, babe! Let me create a comprehensive "
+        "PDF on quantum computing for you right away."
+    )

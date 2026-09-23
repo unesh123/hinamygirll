@@ -331,6 +331,7 @@ class GenerationOrchestrator:
         emitted_chunks: list[str] = []
         segment_chars = 0
         segment_no = 0
+        last_evidence = None
         seam_guard = SeamGuard()
 
         while True:
@@ -407,7 +408,9 @@ class GenerationOrchestrator:
                 max_segments=self.state.max_segments,
                 planned_sections=self.planned_sections,
                 min_words=self.min_words,
+                previous_evidence=last_evidence,
             )
+            last_evidence = decision.evidence
 
             explanation = (
                 f"WHY DID HINA CONTINUE? -> {decision.reason}"

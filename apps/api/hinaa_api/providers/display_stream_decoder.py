@@ -475,6 +475,16 @@ _STRAY_TOOL_TAG_PATTERN = re.compile(
     r"<\s*/?\s*(?:" + TOOLISH_TAG_SOURCE + r")[^>]*>?",
     re.IGNORECASE,
 )
+# The same invented call in ChatML delimiters. Measured on a live PDF turn: a
+# gateway model wrote `<|tool_call_section_begin|><|tool_call|>` plus 6,840
+# words of document body and no closer, because the pipeline — not the model —
+# makes the real call. Everything from such a marker to its end (or the end of
+# the answer) is an argument payload the reader never asked for.
+_SPECIAL_TOKEN_CALL_PATTERN = re.compile(
+    r"<\|[^|<>]*(?:tool|function)[^|<>]*\|>[\s\S]*?"
+    r"(?:<\|[^|<>]*(?:end|finish|complete)[^|<>]*\|>|\Z)",
+    re.IGNORECASE,
+)
 
 
 def strip_simulated_tool_calls(text: str) -> str:
@@ -492,7 +502,12 @@ def strip_simulated_tool_calls(text: str) -> str:
     scrubbed = [
         part
         if index % 2
-        else _STRAY_TOOL_TAG_PATTERN.sub("", _SIMULATED_TOOL_CALL_PATTERN.sub("", part))
+        else _STRAY_TOOL_TAG_PATTERN.sub(
+            "",
+            _SIMULATED_TOOL_CALL_PATTERN.sub(
+                "", _SPECIAL_TOKEN_CALL_PATTERN.sub("", part)
+            ),
+        )
         for index, part in enumerate(parts)
     ]
     return "```".join(scrubbed)

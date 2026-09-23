@@ -22,6 +22,7 @@ from hinaa_api.generation.continuation import (
     ContinuationStatus,
     GenerationContinuationState,
     SeamGuard,
+    _count_unbalanced,
     detect_continuation_need,
     run_consistency_pass,
     seam_dedup,
@@ -176,6 +177,182 @@ class TestDetectContinuationNeed:
             max_segments=5,
         )
         assert ContinuationReason.OPEN_JSON_STRUCTURE not in decision.reason_ids
+
+    def test_an_unclosed_invented_call_does_not_buy_another_segment(self) -> None:
+        """Measured live: the model wrote `<|tool_call_section_begin|>`
+        `<|tool_call|>function_call[name="pdf_generate"]` plus a whole document
+        as its argument and stopped of its own accord. The pass resumed it
+        eight times — every segment reporting "unbalanced braces outside code
+        fences (depth 1)" — and the browser had given up minutes earlier."""
+        text = (
+            "I'd love to help you with that! Let me create a comprehensive PDF "
+            "on quantum computing for you right away.\n\n"
+            "<|" + "tool_call_section_begin|" + "><|" + "tool_call|" + ">"
+            'function_call[name="pdf_generate"]<arg_key>content</arg_key>'
+            "<arg_value># Quantum Computing\n\nQubits superpose.\n\nRegister: {" "alpha\n"
+        )
+        assert _count_unbalanced(text)[1] > 0  # the runaway evidence, still there
+        decision = detect_continuation_need(
+            text=text,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=9,
+        )
+        assert not decision.continue_needed
+        assert decision.status == ContinuationStatus.COMPLETED
+
+    def test_a_call_cut_off_by_the_token_cap_still_continues(self) -> None:
+        """Same shape, but the provider says it ran out of room: here the call
+        really was interrupted mid-argument and resuming it is correct."""
+        text = (
+            "One sec!\n\n<|" + "tool_call|" + ">"
+            'function_call[name="pdf_generate"]<arg_key>content</arg_key><arg_value>{"a":'
+        )
+        decision = detect_continuation_need(
+            text=text,
+            finish_reason="MAX_TOKENS",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=5,
+        )
+        assert decision.continue_needed
+        assert ContinuationReason.FINISH_REASON_MAX_TOKENS in decision.reason_ids
+
+    def test_a_closed_invented_call_leaves_the_brace_rule_alone(self) -> None:
+        text = (
+            "Here is the manifest:\n\n"
+            "<tool_call>" + 'name="pdf_generate"' + "</tool_" + "call" + ">\n\n"
+            'It reads {"name": "hinaa", "sections": ['
+        )
+        decision = detect_continuation_need(
+            text=text,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=5,
+            min_words=4_900,
+        )
+        assert ContinuationReason.OPEN_JSON_STRUCTURE in decision.reason_ids
+
+    def test_a_fence_surviving_a_resume_does_not_buy_another_one(self) -> None:
+        """Measured live on "write me a pdf about black holes": segments 1-8 each
+        resumed for nothing but "odd number of ``` fences", adding 86,384
+        characters before the budget ran out, while the browser's connection had
+        already died. A model that quoted something and never closed the fence is
+        not interrupted -- and the consistency pass appends the missing fence."""
+        first = "# Black Holes\n\nA star collapses.\n\n```text\nSpaghettification is real.\n"
+        opening = detect_continuation_need(
+            text=first,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=9,
+        )
+        assert ContinuationReason.OPEN_CODE_FENCE in opening.reason_ids
+
+        second = detect_continuation_need(
+            text=first + "\nTidal forces stretch the body. Done.\n",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=2,
+            max_segments=9,
+            previous_evidence=opening.evidence,
+        )
+        assert not second.continue_needed
+        assert second.status == ContinuationStatus.COMPLETED
+        assert second.evidence.no_progress_resume
+        assert "repair" in second.reason
+
+    def test_unbalanced_braces_surviving_a_resume_also_stop(self) -> None:
+        """The other half of the same nine-segment turn: once a resume proved it
+        cannot close the block, the eighth resume proves nothing new."""
+        first = "Manifest:\n\n{\"name\": \"hinaa\", \"sections\": [\n"
+        opening = detect_continuation_need(
+            text=first,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=9,
+        )
+        assert ContinuationReason.OPEN_JSON_STRUCTURE in opening.reason_ids
+
+        again = detect_continuation_need(
+            text=first + "{\"title\": \"Intro\"},\n",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=2,
+            max_segments=9,
+            previous_evidence=opening.evidence,
+        )
+        assert not again.continue_needed
+        assert again.evidence.no_progress_resume
+
+    def test_the_depth_contract_outranks_a_stuck_fence(self) -> None:
+        text = "# Report\n\nIntro.\n\n```text\nQuoted.\n\nMore prose.\n"
+        opening = detect_continuation_need(
+            text=text,
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=9,
+            min_words=4_900,
+        )
+        again = detect_continuation_need(
+            text=text + "A further paragraph.\n",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=2,
+            max_segments=9,
+            min_words=4_900,
+            previous_evidence=opening.evidence,
+        )
+        assert again.continue_needed
+        assert not again.evidence.no_progress_resume
+
+    def test_a_cap_cut_is_never_no_progress(self) -> None:
+        text = "# Black Holes\n\nA star collapses.\n\n```text\nSpaghettificatio"
+        opening = detect_continuation_need(
+            text=text,
+            finish_reason="MAX_TOKENS",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=9,
+        )
+        again = detect_continuation_need(
+            text=text + "n is real.\n\nMore abo",
+            finish_reason="MAX_TOKENS",
+            char_budget=100_000,
+            segment_number=2,
+            max_segments=9,
+            previous_evidence=opening.evidence,
+        )
+        assert again.continue_needed
+        assert ContinuationReason.FINISH_REASON_MAX_TOKENS in again.reason_ids
+
+    def test_the_guard_tracks_the_construct_that_stayed_open(self) -> None:
+        """Fence closed and braces opened in the same resume: that IS progress,
+        so the guard must not fire on it."""
+        opening = detect_continuation_need(
+            text="Config:\n\n```json\n{\"a\": 1}\n\nEnds here.\n",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=1,
+            max_segments=9,
+        )
+        assert opening.evidence.open_fence
+        assert not opening.evidence.open_json
+
+        again = detect_continuation_need(
+            text="Config:\n\n```json\n{\"a\": 1}\n\nEnds here.\n```\n\nIt reads {\"x\": 1\n",
+            finish_reason="STOP",
+            char_budget=100_000,
+            segment_number=2,
+            max_segments=9,
+            previous_evidence=opening.evidence,
+        )
+        assert again.continue_needed
+        assert ContinuationReason.OPEN_JSON_STRUCTURE in again.reason_ids
 
     def test_incomplete_table_row_continues(self) -> None:
         text = (

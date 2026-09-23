@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import re
 
-_TAG_HEAD_PATTERN = re.compile(r"<\s*(/?)\s*([A-Za-z][\w:.-]*)")
+_TAG_HEAD_PATTERN = re.compile(r"<\s*(/?)\s*(?:\|)?\s*([A-Za-z][\w:.-]*)")
+# ChatML delimiters are a spelling of the same invented markup: `<|tool_call|>`.
+_SPECIAL_TOKEN_PATTERN = re.compile(r"<\|([A-Za-z][\w:.-]*)\|>")
 # One structural rule, exported so the final-answer scrubber uses the same
 # definition. Three live turns in a row invented the same call in a different
 # spelling, and an enumeration loses one every time.
@@ -49,9 +51,13 @@ class SimulatedToolCallFilter:
         self._held = ""
         self._closer: re.Pattern[str] | None = None
         self._swallowed = 0
+        self._to_end = False
 
     def feed(self, chunk: str) -> str:
         if not chunk:
+            return ""
+        if self._to_end:
+            self._held = ""
             return ""
         self._held += chunk
         emitted: list[str] = []
@@ -92,6 +98,18 @@ class SimulatedToolCallFilter:
                 break  # provider deltas split tag names anywhere
 
             tag = self._held[: end + 1]
+            special = _SPECIAL_TOKEN_PATTERN.fullmatch(tag)
+            if special is not None:
+                if not _is_toolish(special.group(1)):
+                    emitted.append(tag)
+                    self._held = self._held[len(tag) :]
+                    continue
+                # A model that is role-playing a call closes its own block; a
+                # model writing a real one never emits the closer, so what
+                # follows is the arguments of a call the pipeline makes itself.
+                self._to_end = True
+                self._held = ""
+                break
             head = _TAG_HEAD_PATTERN.match(tag)
             if head is None or not _is_toolish(head.group(2)):
                 emitted.append(tag)
