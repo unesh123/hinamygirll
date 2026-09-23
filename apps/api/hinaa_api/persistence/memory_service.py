@@ -171,16 +171,51 @@ class MemoryService:
                     True,
                 )
             digest = _hash(text)
+            # Deliberately not filtered on liveness. ``forget`` soft-deletes, so
+            # the row stays and the unique index on (user_id, normalized_hash)
+            # keeps claiming it. Looking only for live rows made this INSERT a
+            # second row for the same hash and raise IntegrityError, which meant
+            # a fact he had once asked her to forget could never be learned
+            # again, no matter how many times he repeated it.
             existing = session.scalar(
                 select(ExplicitMemory).where(
                     ExplicitMemory.user_id == user.id,
                     ExplicitMemory.normalized_hash == digest,
-                    ExplicitMemory.deleted_at.is_(None),
                 )
             )
             if existing is not None:
                 existing.updated_at = datetime.now(UTC)
+                revived = existing.deleted_at is not None or existing.status in {
+                    "revoked",
+                    "superseded",
+                }
+                if revived:
+                    existing.deleted_at = None
+                    existing.status = "approved" if explicit else "pending"
+                    existing.consent_state = "explicit" if explicit else "pending"
+                    if source_turn_ref:
+                        existing.source_turn_ref = source_turn_ref
+                    # Re-storing something he had deleted is fresh consent, and
+                    # the audit trail should show that, not silently reuse the
+                    # original row.
+                    session.add(
+                        MemoryConsent(
+                            user_id=user.id,
+                            purpose="explicit_memory",
+                            action="remember",
+                        )
+                    )
+                    session.add(
+                        AuditEvent(
+                            user_id=user.id,
+                            action="memory.remember",
+                            resource_type="memory",
+                            resource_id=existing.id,
+                            result="ok",
+                        )
+                    )
                 session.commit()
+                session.refresh(existing)
                 return self._public_memory(existing)
             status = "approved" if explicit else "pending"
             memory = ExplicitMemory(

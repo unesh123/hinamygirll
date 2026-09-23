@@ -293,6 +293,26 @@ def test_approved_durable_memories_are_injected_as_trusted_layer() -> None:
     assert "no approved long-term memories" in empty_layer.text
 
 
+def test_a_turn_with_nowhere_to_keep_says_so() -> None:
+    """An anonymous public turn has no owner to store under, so nothing it
+    learns survives it. Measured before the fix: it answered "I've got that
+    locked away in my memory" while the store gained zero rows."""
+    blocks = ("memory:abc123: User's name: Prabin",)
+    package = assemble_prompt(
+        _input(approved_memory_blocks=blocks, durable_memory=False)
+    )
+    layer = next(layer for layer in package.layers if layer.name == "approved_memory")
+    assert "MEMORY IS NOT ATTACHED TO THIS CONVERSATION" in layer.text
+    assert "Prabin" in layer.text, "his real memories must not be dropped"
+    assert layer.text in package.system_instruction
+
+    signed_in = assemble_prompt(_input(approved_memory_blocks=blocks))
+    assert (
+        "MEMORY IS NOT ATTACHED TO THIS CONVERSATION"
+        not in signed_in.system_instruction
+    )
+
+
 def test_session_memories_are_validated_and_bounded() -> None:
     many = tuple(f"fact-{index}" for index in range(20))
     inp = _input(session_memories=many)

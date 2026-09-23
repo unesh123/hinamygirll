@@ -103,6 +103,31 @@ def test_session_self_learning_avoids_false_positive_names() -> None:
     assert all("name" not in fact.lower() for fact in facts)
 
 
+def test_a_plain_worded_ask_to_remember_becomes_a_fact() -> None:
+    """He says "remember that ..." and means it as an instruction. Waiting for
+    the brain to notice was the failure: a turn whose brain 403s never got to
+    emit memory candidates at all, so the request was read and then dropped."""
+    memory = SessionMemory(session_limit=2, turn_limit=8)
+    memory.learn_from_message("one", "Remember that my cat's name is Momo")
+    memory.learn_from_message("one", "don't forget that I have a meeting every Monday")
+    facts = memory.learned_memories("one")
+    assert any("Momo" in fact for fact in facts), facts
+    assert any("meeting every Monday" in fact for fact in facts), facts
+
+
+def test_asks_to_recall_are_not_stored_as_new_facts() -> None:
+    memory = SessionMemory(session_limit=2, turn_limit=8)
+    for text in (
+        "Do you remember that my cat's name is Momo?",
+        "I remember that we talked about this yesterday",
+        "Remember that time we went to Pokhara?",
+        "Remember when I was stuck in Bhaktapur?",
+        "Remember to close the studio at nine",
+    ):
+        memory.learn_from_message("one", text)
+    assert memory.learned_memories("one") == (), memory.learned_memories("one")
+
+
 @pytest.mark.asyncio
 async def test_timeout_fixture_does_not_retry_after_visible_output() -> None:
     with pytest.raises(TimeoutError):

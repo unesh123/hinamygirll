@@ -223,6 +223,8 @@ def _fact_category(fact: str) -> str:
         return "preference"
     if lowered.startswith("user context"):
         return "context"
+    if lowered.startswith("asked to remember"):
+        return "fact"
     return "other"
 
 
@@ -1508,6 +1510,30 @@ class ConversationService:
                 )
                 continue
             self._mark_persisted(user_id, session_id, fact)
+
+    def _capture_turn_facts(self, request: TurnRequest, user_id: str | None) -> bool:
+        """Learn from what he said before asking a brain to answer it.
+
+        Self-learned facts used to be extracted and written only after the
+        provider returned, so a turn whose brain 403s -- or a phone that drops
+        the stream mid-reply -- silently discarded everything it was told. That
+        is the "she cannot lock and learn" report. His message is a complete
+        input on its own; nothing here needs her answer.
+
+        Returns whether what she learns can be kept. Without an owner there is
+        no row to write -- an anonymous public turn resolves to no user id,
+        because the dev identity header is refused through the edge -- and
+        without a store there is nowhere to write it either. The caller passes
+        this to the prompt so she says she cannot keep it, rather than
+        measuring a stored fact she never stored.
+        """
+        can_keep = user_id is not None and self.memory_service is not None
+        try:
+            self.memory.learn_from_message(request.sessionId, request.text)
+            self._persist_learned_memories(user_id, request.sessionId)
+        except Exception:  # pragma: no cover - a memory failure must not cost the turn
+            logger.warning("Failed to capture facts from the incoming turn", exc_info=True)
+        return can_keep
 
     def _handle_continuity_promotions(self, user_id: str, convo_id: str | None, text: str) -> None:
         """Promote approved assets and project architecture facts to cross-session continuity."""
@@ -3294,6 +3320,7 @@ class ConversationService:
             except Exception:
                 pass
 
+        durable_memory = self._capture_turn_facts(request, user_id)
         history = self.memory.context(request.sessionId)
         approved = self._approved_blocks(user_id)
         session_memories = _dedupe_session_facts(
@@ -3319,6 +3346,7 @@ class ConversationService:
             interaction_mode="rest",
             session_memories=session_memories,
             approved_memory_blocks=approved,
+            durable_memory=durable_memory,
             attachments=tuple(resolved_media),
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
@@ -3751,6 +3779,7 @@ class ConversationService:
             except Exception:
                 pass
 
+        durable_memory = self._capture_turn_facts(request, user_id)
         timing = ProviderTiming()
         history = self.memory.context(request.sessionId)
         approved = self._approved_blocks(user_id)
@@ -3776,6 +3805,7 @@ class ConversationService:
             interaction_mode="realtime",
             session_memories=session_memories,
             approved_memory_blocks=approved,
+            durable_memory=durable_memory,
             attachments=tuple(resolved_media),
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,

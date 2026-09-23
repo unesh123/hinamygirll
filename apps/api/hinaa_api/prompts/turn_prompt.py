@@ -33,6 +33,7 @@ def build_turn_prompt(
     dialogue_state_block: str = "",
     live_search_block: str = "",
     history_preselected: bool = False,
+    durable_memory: bool = True,
 ) -> PromptPackage:
     inp = PromptInput(
         companion_id=request.companionId,
@@ -46,6 +47,7 @@ def build_turn_prompt(
         max_history_chars=settings.session_history_char_limit,
         session_memories=session_memories,
         approved_memory_blocks=approved_memory_blocks,
+        durable_memory=durable_memory,
         visible_actions=request.visibleActions,
         attachments=attachments,
         dialogue_state_block=dialogue_state_block,

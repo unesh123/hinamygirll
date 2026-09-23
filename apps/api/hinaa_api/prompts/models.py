@@ -74,6 +74,9 @@ class PromptInput(StrictModel):
     # application-trusted state (bounded, never raw untrusted text) and are
     # injected as a dedicated prompt layer like approved memory.
     session_memories: tuple[str, ...] = ()
+    # Whether what she learns on this turn can be kept at all. A turn with no
+    # signed-in owner, or on an instance with no store, has nowhere to write.
+    durable_memory: bool = True
     visible_actions: list[str] = Field(default_factory=list)
     attachments: tuple[Any, ...] = ()
     # P0: live dialogue state block — injected as highest-priority context

@@ -45,6 +45,28 @@ _TOPIC_PATTERNS = (
     ),
 )
 
+# His plain-worded ask to keep something. Until now the only thing that turned
+# "remember that ..." into a durable fact was the brain's own memoryCandidates,
+# so every turn whose brain failed threw the request away unread.
+_EXPLICIT_PATTERNS = (
+    re.compile(
+        r"\b(?<!you\s)(?<!i\s)(?:remember|note|memorize|memorise|keep in mind"
+        r"|don'?t forget|dont forget|mna raknu|mnma rakhnu)"
+        r"\s+(?:that\s+|ki\s+)?([^.!?]{4,120})\b",
+        re.IGNORECASE,
+    ),
+)
+
+# ... but only when the clause asserts something. A stored fact that reads
+# "that time we went to Pokhara" or "to breathe" is not a fact -- he is
+# reminiscing or nudging -- and half-sentences in the memory list come back in
+# her speech as if they were durable.
+_NON_FACT_OPENING = re.compile(r"^(?:to\s|that\s+time|the\s+time|when\b)", re.IGNORECASE)
+_DURABLE_CLAUSE = re.compile(
+    r"\b(?:be|been|being|is|are|was|were|am|has|have|had)\b|\bi'?m\b",
+    re.IGNORECASE,
+)
+
 _STOP_WORDS = {
     "and",
     "or",
@@ -103,12 +125,15 @@ class SessionMemory:
         """Bounded tuple of self-learned facts for this session (newest first)."""
         return tuple(self._user_memories.get(session_id, [])[: _MAX_LEARNED_MEMORIES])
 
-    def append_turn(self, session_id: str, user_text: str, assistant_text: str) -> None:
-        entries = self._sessions.setdefault(session_id, deque(maxlen=self._turn_limit))
-        entries.extend((("user", user_text), ("assistant", assistant_text)))
-        self._sessions.move_to_end(session_id)
+    def learn_from_message(self, session_id: str, user_text: str) -> None:
+        """Pull durable facts out of one of his messages (name, likes, dislikes,
+        work, and anything he flatly asks her to remember).
 
-        # Real-time self-learning: extract name, preferences, work/study topics.
+        The service calls this before asking a brain to answer, so a turn whose
+        provider fails or whose stream is dropped mid-reply still keeps what it
+        was told. ``append_turn`` runs it again once the reply exists; the dedupe
+        below makes that second pass a no-op.
+        """
         memories = self._user_memories.setdefault(session_id, [])
 
         for pattern in _NAME_PATTERNS:
@@ -141,6 +166,14 @@ class SessionMemory:
                 memories.append(_clean_fact(match.group(1), "User context"))
                 break
 
+        for pattern in _EXPLICIT_PATTERNS:
+            match = pattern.search(user_text)
+            if match:
+                clause = match.group(1)
+                if _DURABLE_CLAUSE.search(clause) and not _NON_FACT_OPENING.match(clause):
+                    memories.append(_clean_fact(clause, "Asked to remember"))
+                break
+
         # Deduplicate exact facts (case-insensitive), keeping newest; bound list.
         seen: set[str] = set()
         deduped: list[str] = []
@@ -155,6 +188,13 @@ class SessionMemory:
             if len(deduped) >= _MAX_LEARNED_MEMORIES:
                 break
         memories[:] = deduped
+
+    def append_turn(self, session_id: str, user_text: str, assistant_text: str) -> None:
+        entries = self._sessions.setdefault(session_id, deque(maxlen=self._turn_limit))
+        entries.extend((("user", user_text), ("assistant", assistant_text)))
+        self._sessions.move_to_end(session_id)
+
+        self.learn_from_message(session_id, user_text)
 
         while len(self._sessions) > self._session_limit:
             evicted_session_id, _ = self._sessions.popitem(last=False)
