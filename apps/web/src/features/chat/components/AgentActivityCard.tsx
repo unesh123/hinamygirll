@@ -282,8 +282,15 @@ export function AgentActivityCard({
         </div>
       </div>
 
-      {/* Step items with status icons and clean styling */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
+      {/* Step items with status icons and clean styling. The list is the live
+       * region, not the header: the header carries an elapsed timer that ticks
+       * every 100ms, so announcing it would drown out the step changes. */}
+      <div
+        data-tool-activity="true"
+        role="status"
+        aria-live="polite"
+        style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}
+      >
         {effectiveSteps.map((st) => {
           const isDone = st.status === "completed";
           const isFail = st.status === "failed";

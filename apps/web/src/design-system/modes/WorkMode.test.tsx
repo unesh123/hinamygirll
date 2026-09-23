@@ -2,6 +2,7 @@ import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkMode } from "./WorkMode";
+import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { TranscriptMessage } from "../../features/companion/types";
 
 const messages: TranscriptMessage[] = [
@@ -290,6 +291,54 @@ describe("WorkMode execution progress placement", () => {
     // floats over the middle of the chat on a phone.
     expect(transcript?.contains(card)).toBe(true);
     expect(screen.getByTestId("work-composer").contains(card)).toBe(false);
+  });
+});
+
+function assistantWithActivity(status: string, withPlan = false) {
+  return [
+    { id: "u1", role: "user" as const, text: "make me a pdf", createdAt: new Date().toISOString() },
+    {
+      id: "a1",
+      role: "assistant" as const,
+      text: "Your PDF is ready to build.",
+      createdAt: new Date().toISOString(),
+      ...(withPlan
+        ? { plan: { toolRequests: [{ toolName: "pdf_generate", parameters: {} }] } as unknown as AssistantTurnPlan }
+        : {}),
+      toolActivity: [{ id: "pdf_generate", status, label: `Working locally: pdf_generate` }],
+    },
+  ];
+}
+
+describe("WorkMode progress while a tool runs", () => {
+  it("keeps a running action visible after the turn stream closes", () => {
+    renderWorkMode({ isThinking: false, messages: assistantWithActivity("running") });
+
+    expect(screen.getByTestId("agent-activity-card")).toBeInTheDocument();
+    expect(screen.getByTestId("activity-step-pdf_generate")).toHaveTextContent(
+      "Working locally: pdf_generate",
+    );
+  });
+
+  it("publishes the running action as a polite live region", () => {
+    renderWorkMode({ isThinking: false, messages: assistantWithActivity("running") });
+
+    const live = screen.getByTestId("agent-activity-card").querySelector("[data-tool-activity]");
+    expect(live).toHaveAttribute("role", "status");
+    expect(live).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("clears the card once the action settles", () => {
+    renderWorkMode({ isThinking: false, messages: assistantWithActivity("complete") });
+
+    expect(screen.queryByTestId("agent-activity-card")).not.toBeInTheDocument();
+  });
+
+  it("does not call an unapproved proposal active execution", () => {
+    renderWorkMode({ isThinking: false, messages: assistantWithActivity("pending", true) });
+
+    expect(screen.queryByTestId("agent-activity-card")).not.toBeInTheDocument();
+    expect(screen.getByTestId("tool-approval")).toBeInTheDocument();
   });
 });
 

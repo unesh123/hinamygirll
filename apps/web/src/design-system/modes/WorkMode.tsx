@@ -392,20 +392,44 @@ export function WorkMode({
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
   const currentModelName = currentAvatarDef?.name || "Hinaa (Original)";
 
-  const convertedActivitySteps: ActivityStep[] = useMemo(() => {
+  const toolActivitySteps: ActivityStep[] = useMemo(() => {
     // Only inspect the assistant message of the current active turn to avoid leaking previous turns' completed tools
     const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-    if (isThinking && lastMessage && lastMessage.role === "assistant" && lastMessage.toolActivity && lastMessage.toolActivity.length > 0) {
-      return lastMessage.toolActivity.map((act, index, arr) => ({
-        id: act.id,
-        toolName: act.id,
-        title: act.label || `Running ${act.id}`,
-        status: act.status === "complete" || act.status === "completed" ? ("completed" as const) : act.status === "error" || act.status === "failed" ? ("failed" as const) : ("running" as const),
-        message: act.label,
-        stepNumber: index + 1,
-        totalSteps: arr.length,
-      }));
+    const activity =
+      lastMessage && lastMessage.role === "assistant" ? lastMessage.toolActivity || [] : [];
+
+    const toStep = (act: (typeof activity)[number], index: number): ActivityStep => ({
+      id: act.id,
+      toolName: act.id,
+      title: act.label || `Running ${act.id}`,
+      status:
+        act.status === "complete" || act.status === "completed"
+          ? ("completed" as const)
+          : act.status === "error" || act.status === "failed"
+            ? ("failed" as const)
+            : act.status === "cancelled"
+              ? ("cancelled" as const)
+              : act.status === "pending"
+                ? ("pending" as const)
+                : ("running" as const),
+      stepNumber: index + 1,
+      totalSteps: activity.length,
+    });
+
+    // The turn stream closes long before the action it proposed finishes: a
+    // PDF keeps being built against /tools/execute for tens of seconds while
+    // `isThinking` is already false. Gating these rows on the turn made a
+    // genuinely running tool invisible. Pending proposals are excluded — they
+    // have their own ApprovalCard, and "Active Execution" would over-claim an
+    // action that has not been allowed yet.
+    if (!isThinking) {
+      return activity.filter((act) => act.status === "running").map(toStep);
     }
+    return activity.map(toStep);
+  }, [isThinking, messages]);
+
+  const convertedActivitySteps: ActivityStep[] = useMemo(() => {
+    if (toolActivitySteps.length > 0) return toolActivitySteps;
 
     if (agentSteps.length > 0) {
       return agentSteps.map((step, index, arr) => ({
@@ -427,7 +451,9 @@ export function WorkMode({
     }
 
     return [];
-  }, [isThinking, messages, agentSteps]);
+  }, [toolActivitySteps, agentSteps]);
+
+  const isExecutionLive = isThinking || toolActivitySteps.length > 0;
 
   const [commandRegistryLoaded, setCommandRegistryLoaded] = useState(false);
   const showWelcome =
@@ -1035,9 +1061,9 @@ export function WorkMode({
           {/* Execution progress — inline in the thread, between the trigger and
            * the answer it produced. */}
           <AgentActivityCard
-            isActive={isThinking}
+            isActive={isExecutionLive}
             steps={convertedActivitySteps}
-            onCancel={currentAgentRunId ? onCancelAgentRun : onStop}
+            onCancel={currentAgentRunId || isThinking ? onCancelAgentRun ?? onStop : undefined}
             onResume={currentAgentRunId ? onResumeAgentRun : undefined}
             onConfirm={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(true) : undefined}
             onReject={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(false) : undefined}
