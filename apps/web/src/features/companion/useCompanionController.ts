@@ -144,6 +144,21 @@ function runtimeEventToSteps(
   return previous;
 }
 
+/** What a caller may attach to one turn. Declared once: the interface and the
+ * implementation used to repeat this shape, and a field added to only one of
+ * them passed the local typecheck and failed the production build. */
+export interface SendTextOptions {
+  forceBackend?: boolean;
+  responseMode?: ResponseMode;
+  imageUrl?: string;
+  attachment_ids?: string[];
+  /** Data URIs to feed as image-to-image references for this turn's drawing. */
+  reference_images?: string[];
+  attachments?: import("./types").MessageAttachment[];
+  imageEngine?: string;
+  voiceEngine?: string;
+}
+
 export interface CompanionController {
   companionId: CompanionId;
   switchCompanion: (id: CompanionId) => void;
@@ -166,15 +181,7 @@ export interface CompanionController {
   recoverCurrentAgentRun: () => Promise<void>;
   sendText: (
     text: string,
-    options?: {
-      forceBackend?: boolean;
-      responseMode?: ResponseMode;
-      imageUrl?: string;
-      attachment_ids?: string[];
-      attachments?: import("./types").MessageAttachment[];
-      imageEngine?: string;
-      voiceEngine?: string;
-    },
+    options?: SendTextOptions,
   ) => Promise<
     { turnId: string; plan: AssistantTurnPlan; providerLatencyMs?: number } | undefined
   >;
