@@ -25,6 +25,7 @@ import {
   loadConversationMessages,
   saveConversationMessages,
 } from "./sessionManager";
+import { singleLine } from "../../lib/turnFailure";
 
 function createId(): string {
   return (
@@ -598,31 +599,36 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           finalizeTurn(turnId);
           return undefined;
         }
-        const message = error instanceof Error ? error.message : "";
+        const code =
+          typeof (error as any)?.code === "string"
+            ? String((error as any).code).toUpperCase()
+            : "";
+        const message = error instanceof Error ? singleLine(error.message) : "";
         const isSchemaError =
           (error as any)?.name === "ZodError" ||
+          code === "VALIDATION_ERROR" ||
           message.includes("unrecognized_keys") ||
           message.includes("validation_error") ||
           message.includes("Invalid input");
         const isRateLimit =
-          message.includes("PROVIDER_RATE_LIMIT") ||
+          code === "PROVIDER_RATE_LIMIT" ||
           message.includes("429") ||
           message.includes("rate_limit_exceeded") ||
-          message.includes("temporarily rate limited");
+          message.includes("rate limited");
         const friendly = isSchemaError
           ? "HINAA encountered a plan formatting error while generating this response. Your prompt is preserved."
           : isRateLimit
           ? "The brain gateway is temporarily rate limited. Your prompt is preserved, and Hinaa will auto-route to an available brain."
-          : message.includes("PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE") || message.includes("capacity")
+          : code === "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE" || message.includes("capacity")
             ? "The gateway is temporarily at capacity. Your prompt is preserved."
-            : message.includes("PROVIDER_KEY_INVALID") || message.includes("PROVIDER_AUTH_FAILED")
+            : code === "PROVIDER_KEY_INVALID" || code === "PROVIDER_AUTH_FAILED"
             ? routing.activeMode === "claude"
               ? "Claude could not authenticate. Please verify your Claude gateway key and endpoint."
               : "The selected brain could not authenticate. Check its configuration and retry."
-            : message.includes("PROVIDER_UNAVAILABLE") || message.includes("cooldown") || message.includes("timeout")
+            : code === "PROVIDER_UNAVAILABLE" || message.includes("cooldown") || message.includes("timeout")
             ? "The primary brain is reconnecting. You can send your message again or switch to Gemini in brain settings."
-            : `Execution paused safely. ${message} Try another brain model or text mode.`;
-        finalizeTurn(turnId, { errorText: friendly });
+            : message || "HINAA could not finish this turn. Your prompt is preserved.";
+        finalizeTurn(turnId, { errorText: singleLine(friendly, "HINAA could not finish this turn.") });
         return undefined;
       } finally {
         if (streamRafId) {

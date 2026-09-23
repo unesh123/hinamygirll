@@ -1,5 +1,6 @@
 import { parseAssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
+import { describeCode, describeResponseFailure, describeThrownFailure, singleLine, TurnFailure } from "../../lib/turnFailure";
 import type {
   AgentRuntimeEvent,
   ConversationProvider,
@@ -15,6 +16,7 @@ interface StreamEvent {
   plan?: unknown;
   code?: string;
   message?: string;
+  retryable?: boolean;
   latencyMs?: number;
   event?: unknown;
   runId?: string;
@@ -129,15 +131,23 @@ export class BackendConversationProvider implements ConversationProvider {
       });
     } catch (netErr: any) {
       if (request.signal?.aborted) throw netErr;
-      throw new Error(
-        `BACKEND_UNAVAILABLE: Could not connect to HINAA API at ${streamUrl}. (${netErr?.message || "Network Error"})`
+      throw new TurnFailure(
+        describeThrownFailure(netErr, "HINAA's API never answered"),
       );
     }
 
-    if (!response.ok || !response.body) {
-      const errText = await response.text().catch(() => "");
-      throw new Error(
-        `BACKEND_UNAVAILABLE: Backend request returned HTTP ${response.status} (${errText || response.statusText || "Request failed"})`
+    const contentType = response.headers.get("content-type");
+    // A 200 whose body is HTML is an edge error page: the tunnel or a proxy
+    // answered, not HINAA, and only the content type proves it.
+    if (!response.ok || !response.body || (contentType ?? "").toLowerCase().includes("text/html")) {
+      const errText = response.body ? await response.text().catch(() => "") : "";
+      throw new TurnFailure(
+        describeResponseFailure({
+          status: response.status,
+          body: errText,
+          contentType,
+        }),
+        { status: response.status },
       );
     }
     const reader = response.body.getReader();
@@ -152,7 +162,21 @@ export class BackendConversationProvider implements ConversationProvider {
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          const event = JSON.parse(line) as StreamEvent;
+          let event: StreamEvent;
+          try {
+            event = JSON.parse(line) as StreamEvent;
+          } catch {
+            // The stream is NDJSON by contract, so anything else was written by
+            // something between here and HINAA. Report the layer, not the bytes.
+            throw new TurnFailure(
+              describeResponseFailure({
+                status: response.status,
+                body: line,
+                contentType,
+              }),
+              { status: response.status },
+            );
+          }
           const agentEvent = normalizeAgentEvent(event);
           if (agentEvent) yield { type: "agent.event", event: agentEvent };
           if (event.type === "thinking") yield { type: "thinking" };
@@ -192,10 +216,14 @@ export class BackendConversationProvider implements ConversationProvider {
           }
           if (event.type === "usage" && Number.isFinite(event.latencyMs))
             yield { type: "usage", latencyMs: event.latencyMs ?? 0 };
-          if (event.type === "error")
-            throw new Error(
-              `${event.code ?? "BACKEND_ERROR"}: ${event.message ?? "Request failed"}`,
+          if (event.type === "error") {
+            // The code routes recovery; only the sentence belongs in the bubble.
+            throw new TurnFailure(
+              describeCode(event.code, event.message) ||
+                singleLine(event.message, "HINAA reported an error on this turn."),
+              { code: event.code, retryable: event.retryable },
             );
+          }
         }
         if (done) break;
       }

@@ -60,14 +60,14 @@ describe("backend conversation provider", () => {
     });
   });
 
-  it("rejects a backend error event without exposing a vendor body", async () => {
+  it("rejects a backend error event with a human line, keeping the code for routing", async () => {
     vi.stubGlobal(
       "fetch",
       vi
         .fn()
         .mockResolvedValue(
           new Response(
-            `${JSON.stringify({ type: "error", code: "PROVIDER_TIMEOUT", message: "Service timed out" })}\n`,
+            `${JSON.stringify({ type: "error", code: "PROVIDER_TIMEOUT", message: "Service timed out", retryable: true })}\n`,
             { status: 200 },
           ),
         ),
@@ -83,9 +83,102 @@ describe("backend conversation provider", () => {
         // Consume the stream.
       }
     };
-    await expect(consume()).rejects.toThrow(
-      "PROVIDER_TIMEOUT: Service timed out",
+    const failure = await consume().catch((error) => error);
+    expect(failure.message).toBe(
+      "The selected brain did not answer before the live safety timeout.",
     );
+    expect(failure.code).toBe("PROVIDER_TIMEOUT");
+    expect(failure.retryable).toBe(true);
+  });
+
+  it("collapses an edge error page into one line", async () => {
+    const cloudflarePage = [
+      "<!DOCTYPE html>",
+      '<html><head><title>502: Bad gateway</title></head>',
+      "<body><h1>Error 502: Bad gateway</h1><p>The origin web server does not return a valid response.</p></body></html>",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(cloudflarePage, {
+          status: 502,
+          statusText: "Bad Gateway",
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+      ),
+    );
+    const consume = async () => {
+      for await (const _event of new BackendConversationProvider(
+        "claude",
+      ).streamTurn({
+        text: "hello",
+        companionId: "hinaa",
+        signal: new AbortController().signal,
+      })) {
+        // Consume the stream.
+      }
+    };
+    const failure = await consume().catch((error) => error);
+    expect(failure.status).toBe(502);
+    expect(failure.message).toContain("502");
+    expect(failure.message).not.toContain("<");
+    expect(failure.message.split("\n")).toHaveLength(1);
+  });
+
+  it("refuses a 200 whose body is an edge error page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("<html><body>Gateway Timeout</body></html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    );
+    const consume = async () => {
+      for await (const _event of new BackendConversationProvider(
+        "claude",
+      ).streamTurn({
+        text: "hello",
+        companionId: "hinaa",
+        signal: new AbortController().signal,
+      })) {
+        // Consume the stream.
+      }
+    };
+    const failure = await consume().catch((error) => error);
+    expect(failure.message).not.toContain("<");
+    expect(failure.message).toContain("200");
+  });
+
+  it("reports a mid-stream non-JSON line without quoting it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          `${JSON.stringify({ type: "thinking" })}\n<tr><td>upstream broke off here</td></tr>\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        ),
+      ),
+    );
+    const consume = async () => {
+      const seen = [];
+      for await (const event of new BackendConversationProvider(
+        "claude",
+      ).streamTurn({
+        text: "hello",
+        companionId: "hinaa",
+        signal: new AbortController().signal,
+      })) {
+        seen.push(event);
+      }
+      return seen;
+    };
+    const failure = await consume().catch((error) => error);
+    expect(failure.message).not.toContain("upstream broke off here");
+    expect(failure.message).toContain("200");
+    expect(failure.message.split("\n")).toHaveLength(1);
+    expect(failure.message.length).toBeGreaterThan(0);
   });
 
   it("sends the selected response mode and omits it when unset", async () => {

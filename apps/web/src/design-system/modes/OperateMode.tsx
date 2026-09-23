@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import { AlertTriangle } from "lucide-react";
+import { describeResponseFailure, describeThrownFailure, singleLine } from "../../lib/turnFailure";
 import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -113,6 +115,48 @@ function getCategoryIcon(category: string) {
   }
 }
 
+/* ── Fault reporting ────────────────────────────────── */
+
+/**
+ * One line naming the layer that failed. The response body is read only to
+ * classify it: with the API behind a tunnel, the body of a failed request is an
+ * edge HTML error page, and panels used to swallow it and render a stale list.
+ */
+async function faultLine(res: Response, subject: string): Promise<string> {
+  const body = await res.text().catch(() => "");
+  return singleLine(
+    describeResponseFailure({
+      status: res.status,
+      body,
+      contentType: res.headers.get("content-type"),
+    }),
+    `${subject} could not load.`,
+  );
+}
+
+function LoadFault({ line }: { line: string }) {
+  return (
+    <div
+      role="status"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "10px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(248, 113, 113, 0.3)",
+        background: "rgba(248, 113, 113, 0.08)",
+        color: "#fca5a5",
+        fontSize: "12px",
+        lineHeight: 1.45,
+      }}
+    >
+      <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+      <span>{line}</span>
+    </div>
+  );
+}
+
 /* ── Main Component ─────────────────────────────────── */
 export type OperateTab = "tasks" | "capabilities" | "approvals" | "reports";
 
@@ -149,6 +193,19 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
     return false;
   });
 
+  // One sentence per panel. A list that failed to refresh must not present its
+  // stale contents as the current truth.
+  const [loadFaults, setLoadFaults] = useState<{
+    tasks: string | null;
+    tools: string | null;
+    docs: string | null;
+  }>({ tasks: null, tools: null, docs: null });
+  const noteFault = useCallback(
+    (key: "tasks" | "tools" | "docs", line: string | null) =>
+      setLoadFaults((current) => (current[key] === line ? current : { ...current, [key]: line })),
+    [],
+  );
+
   const [docs, setDocs] = useState<GeneratedDocSummary[]>([]);
   const [isLoadingDocs, setIsLoadingDocs] = useState(false);
 
@@ -161,13 +218,18 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
       if (res.ok) {
         const data = await res.json();
         setDocs(Array.isArray(data.documents) ? data.documents : []);
+        noteFault("docs", null);
+      } else {
+        noteFault("docs", await faultLine(res, "The reports list"));
       }
-    } catch {
-      // Reports are non-critical; keep previous state on failure
+    } catch (err) {
+      // Reports are non-critical, but "we could not look" is not the same claim
+      // as "there is nothing here", so the panel still has to say which happened.
+      noteFault("docs", describeThrownFailure(err, "The reports list could not load"));
     } finally {
       setIsLoadingDocs(false);
     }
-  }, []);
+  }, [noteFault]);
 
   useEffect(() => {
     if (activeTab === "reports") void loadDocs();
@@ -194,13 +256,16 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
       if (res.ok) {
         const data = await res.json();
         setTasks(Array.isArray(data) ? data : []);
+        noteFault("tasks", null);
+      } else {
+        noteFault("tasks", await faultLine(res, "The task list"));
       }
     } catch (err) {
-      console.warn("Failed to fetch runtime tasks", err);
+      noteFault("tasks", describeThrownFailure(err, "The task list could not load"));
     } finally {
       setIsLoadingTasks(false);
     }
-  }, []);
+  }, [noteFault]);
 
   /* ── Fetch Tools ───────────────────────────────────── */
   const fetchTools = useCallback(async () => {
@@ -214,13 +279,16 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
           category: categorizeTool(t.name),
         }));
         setTools(mapped);
+        noteFault("tools", null);
+      } else {
+        noteFault("tools", await faultLine(res, "The tool registry"));
       }
     } catch (err) {
-      console.warn("Failed to fetch tools registry", err);
+      noteFault("tools", describeThrownFailure(err, "The tool registry could not load"));
     } finally {
       setIsLoadingTools(false);
     }
-  }, []);
+  }, [noteFault]);
 
   /* ── Fetch Task Events ─────────────────────────────── */
   const fetchTaskEvents = useCallback(async (taskId: string) => {
@@ -687,7 +755,10 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                 </span>
               </div>
 
+              {loadFaults.tasks && <LoadFault line={loadFaults.tasks} />}
+
               {filteredTasks.length === 0 ? (
+                loadFaults.tasks ? null : (
                 <div style={{
                   padding: "48px 16px",
                   textAlign: "center",
@@ -697,6 +768,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                   <Activity size={32} style={{ margin: "0 auto 8px", opacity: 0.3 }} />
                   <p>No durable tasks found matching filter.</p>
                 </div>
+                )
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {filteredTasks.map((task) => {
@@ -1087,7 +1159,9 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
               </div>
             )}
 
-            {!isLoadingDocs && docs.length === 0 && (
+            {loadFaults.docs && <LoadFault line={loadFaults.docs} />}
+
+            {!isLoadingDocs && docs.length === 0 && !loadFaults.docs && (
               <div style={{
                 display: "flex",
                 flexDirection: "column",
@@ -1201,6 +1275,8 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                   {filteredTools.length} tools registered
                 </span>
               </div>
+
+              {loadFaults.tools && <LoadFault line={loadFaults.tools} />}
 
               {/* Tools Grid */}
               <div style={{
