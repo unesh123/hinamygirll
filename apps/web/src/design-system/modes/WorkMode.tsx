@@ -28,6 +28,7 @@ import {
 import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
 import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { ProviderHealth } from "../../features/providers/types/provider";
+import type { RecoveryBrain } from "../../features/providers/utils/resolveProviderSelection";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
 import { ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel, type ContextChip } from "../chat/ComposerV6";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
@@ -142,6 +143,8 @@ interface WorkModeProps {
   activeProviderModel?: string | null;
   providerHealth?: ProviderHealth;
   providerLatencyMs?: number | null;
+  /** Brain a recovery button may offer: the strongest one whose last live call answered. */
+  brainRecovery?: RecoveryBrain | null;
   onSelectProvider?: (mode: string, modelId?: string) => void;
   onRetry?: () => void;
   attachedAttachments?: any[];
@@ -208,6 +211,7 @@ export function WorkMode({
   activeProviderModel,
   providerHealth = "unknown",
   providerLatencyMs,
+  brainRecovery,
   onSelectProvider,
   onRetry,
   providerOptions,
@@ -454,6 +458,10 @@ export function WorkMode({
   }, [toolActivitySteps, agentSteps]);
 
   const isExecutionLive = isThinking || toolActivitySteps.length > 0;
+
+  // What a recovery button may promise. `null` means no gateway answered its
+  // last live call, and the honest UI then says so rather than naming a model.
+  const recoveryLabel = brainRecovery ? getProviderDisplayName(brainRecovery.mode) : null;
 
   const [commandRegistryLoaded, setCommandRegistryLoaded] = useState(false);
   const showWelcome =
@@ -1010,25 +1018,32 @@ export function WorkMode({
                 Brain Model Rate Limit / Cooldown Active
               </div>
               <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
-                The selected brain model is temporarily rate limited. Please wait a moment or switch to Gemini.
+                {recoveryLabel
+                  ? `The selected brain model is temporarily rate limited. Wait a moment, or switch to ${recoveryLabel} — the last brain to answer a live call.`
+                  : "The selected brain model is temporarily rate limited, and no other brain has answered a live call yet. Retry is the only honest option."}
               </div>
               <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-1)" }}>
-                <button
-                  type="button"
-                  onClick={() => onSelectProvider?.("real", "gemini-2.5-flash")}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: "var(--radius-sm, 6px)",
-                    background: "var(--accent)",
-                    color: "#ffffff",
-                    border: "none",
-                    fontWeight: 600,
-                    fontSize: "var(--text-xs)",
-                    cursor: "pointer",
-                  }}
-                >
-                  Switch to Gemini 2.5 Flash
-                </button>
+                {brainRecovery && (
+                  <button
+                    type="button"
+                    data-testid="brain-recovery-switch"
+                    onClick={() =>
+                      onSelectProvider?.(brainRecovery.mode, brainRecovery.model ?? undefined)
+                    }
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "var(--radius-sm, 6px)",
+                      background: "var(--accent)",
+                      color: "#ffffff",
+                      border: "none",
+                      fontWeight: 600,
+                      fontSize: "var(--text-xs)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Switch to {recoveryLabel}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onRetry?.()}
@@ -1247,10 +1262,13 @@ export function WorkMode({
               </span>
             </div>
 
-            {providerHealth === "unavailable" && (
+            {providerHealth === "unavailable" && brainRecovery && (
               <button
                 type="button"
-                onClick={() => onSelectProvider?.("real", "gemini-2.5-flash")}
+                data-testid="micro-status-recovery"
+                onClick={() =>
+                  onSelectProvider?.(brainRecovery.mode, brainRecovery.model ?? undefined)
+                }
                 style={{
                   padding: "2px 8px",
                   borderRadius: 4,
@@ -1262,7 +1280,7 @@ export function WorkMode({
                   cursor: "pointer",
                 }}
               >
-                Switch to Gemini
+                Switch to {recoveryLabel}
               </button>
             )}
           </div>
@@ -1353,8 +1371,6 @@ export function WorkMode({
           onRemoveChip={handleRemoveChip}
           activeTopic={activeTopic}
           onClearTopic={() => setLocalTopic("")}
-          activeModel={activeProviderModel || "gemini-2.5-flash"}
-          activeProvider={getProviderDisplayName(activeProviderMode)}
           onOpenModelSelector={onOpenSettings}
           discoveredModels={discoveredModels}
           discoveredProviders={discoveredProviders}

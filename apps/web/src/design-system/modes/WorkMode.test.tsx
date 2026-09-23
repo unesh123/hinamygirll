@@ -113,18 +113,32 @@ describe("WorkMode voice controls", () => {
     expect(statusLine).not.toHaveTextContent("Ready");
   });
 
-  it("renders fallback switch button when provider is unavailable", () => {
+  it("switches to the brain the backend measured as answering", () => {
     const onSelectProvider = vi.fn();
     renderWorkMode({
       activeProviderMode: "cx-gateway",
       providerHealth: "unavailable",
+      brainRecovery: { mode: "real", model: "gemini-2.5-flash" },
       onSelectProvider,
     });
 
-    const fallbackBtn = screen.getByRole("button", { name: /Switch to Gemini/i });
-    expect(fallbackBtn).toBeInTheDocument();
+    const fallbackBtn = screen.getByTestId("micro-status-recovery");
+    expect(fallbackBtn).toHaveTextContent("Switch to Gemini");
     fireEvent.click(fallbackBtn);
     expect(onSelectProvider).toHaveBeenCalledWith("real", "gemini-2.5-flash");
+  });
+
+  it("offers no switch when no brain has answered a live call", () => {
+    renderWorkMode({
+      activeProviderMode: "cx-gateway",
+      providerHealth: "unavailable",
+      brainRecovery: null,
+      onSelectProvider: vi.fn(),
+    });
+
+    // The row used to name Gemini whatever the backend had actually proved.
+    expect(screen.queryByTestId("micro-status-recovery")).not.toBeInTheDocument();
+    expect(screen.getByTestId("provider-micro-status")).toHaveTextContent("Offline");
   });
 
   it("renders rate limit recovery card when message contains rate limit error", () => {
@@ -145,6 +159,7 @@ describe("WorkMode voice controls", () => {
 
     renderWorkMode({
       messages: [userMsg, rateLimitedMessage],
+      brainRecovery: { mode: "real", model: "gemini-2.5-flash" },
       onSelectProvider,
       onRetry,
     });
@@ -153,13 +168,41 @@ describe("WorkMode voice controls", () => {
     expect(recoveryCard).toBeInTheDocument();
     expect(screen.getByText(/Brain Model Rate Limit \/ Cooldown Active/i)).toBeInTheDocument();
 
-    const switchBtn = screen.getByRole("button", { name: /Switch to Gemini 2.5 Flash/i });
+    const switchBtn = screen.getByTestId("brain-recovery-switch");
+    expect(switchBtn).toHaveTextContent("Switch to Gemini");
     fireEvent.click(switchBtn);
     expect(onSelectProvider).toHaveBeenCalledWith("real", "gemini-2.5-flash");
 
     const retryBtn = screen.getByRole("button", { name: /Retry Prompt/i });
     fireEvent.click(retryBtn);
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not name a brain the backend has not proven during a rate limit", () => {
+    const userMsg: TranscriptMessage = {
+      id: "u-1",
+      role: "user",
+      text: "Write a high-frequency trading bot in Python",
+      createdAt: new Date().toISOString(),
+    };
+    const rateLimitedMessage: TranscriptMessage = {
+      id: "err-1",
+      role: "assistant",
+      text: "Rate limit exceeded on the selected model.",
+      createdAt: new Date().toISOString(),
+    };
+
+    renderWorkMode({
+      messages: [userMsg, rateLimitedMessage],
+      brainRecovery: null,
+      onSelectProvider: vi.fn(),
+    });
+
+    expect(screen.getByTestId("rate-limit-recovery-card")).toHaveTextContent(
+      "no other brain has answered a live call yet",
+    );
+    expect(screen.queryByTestId("brain-recovery-switch")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry Prompt/i })).toBeInTheDocument();
   });
 
   it("renders avatar model switcher in companion panel header and allows model selection", () => {

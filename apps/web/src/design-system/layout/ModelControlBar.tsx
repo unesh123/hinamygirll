@@ -246,7 +246,7 @@ export function ModelControlBar({
               >
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary, #111827)" }}>✨ Auto (Smart Router)</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted, #6b7280)" }}>Fastest healthy model automatically</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted, #6b7280)" }}>Strongest brain that answered its last live call</div>
                 </div>
                 {currentMode === "auto" && <Check size={14} style={{ color: "#6366f1" }} />}
               </button>

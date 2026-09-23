@@ -44,6 +44,7 @@ import {
 import { useProviders } from "./features/providers/hooks/useProviders";
 import { useEntranceStagger } from "./features/motion/useEntranceStagger";
 import { useProviderRouting } from "./features/providers/hooks/useProviderRouting";
+import { pickRecoveryBrain } from "./features/providers/utils/resolveProviderSelection";
 import { SettingsV6, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
 import type { NavSection } from "./design-system/layout/NavigationRail";
 
@@ -488,6 +489,9 @@ export default function App() {
   const facialSignalActive = faceActive && faceTrack.hasFacialSignal;
 
   const routing = useProviderRouting(settings.provider, providers);
+  // What a "switch to a working model" button may honestly offer: the strongest
+  // gateway whose last live call answered, per the outcomes /v1/providers reports.
+  const brainRecovery = pickRecoveryBrain(providers);
   const [activeConversationId, setActiveConversationId] = useState<string>(() => getOrCreateActiveConversationId());
 
   const controller = useCompanionController({
@@ -1073,6 +1077,7 @@ export default function App() {
                 activeProviderModel={routing.activeModel}
                 providerHealth={routing.activeMode ? providers.getHealth(routing.activeMode as any) : "checking"}
                 providerLatencyMs={null}
+                brainRecovery={brainRecovery}
                 onSelectProvider={(mode, modelId) => {
                   setProvider({
                     preferredMode: mode as any,

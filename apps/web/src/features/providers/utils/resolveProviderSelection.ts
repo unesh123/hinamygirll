@@ -122,6 +122,31 @@ function firstUsableMode(
   );
 }
 
+export interface RecoveryBrain {
+  mode: ConcreteProviderMode;
+  model: string | null;
+}
+
+/**
+ * The brain a "switch to a working model" button may honestly name.
+ *
+ * Only `healthy` qualifies — the state the backend gives a gateway after a live
+ * call answered through it. A brain that is merely configured, untested, or
+ * already refused this credential stays out of the list, so the button can never
+ * move him from one broken brain to another and still claim it works. Null means
+ * nothing measured is left to switch to, and the caller must say so instead of
+ * offering a canned model id.
+ */
+export function pickRecoveryBrain(providers: ProvidersState): RecoveryBrain | null {
+  if (!providers.loaded) return null;
+  for (const mode of AUTO_PRIORITY) {
+    if (IN_PROCESS_MODES.includes(mode)) continue;
+    if (providers.getHealth(mode) !== "healthy") continue;
+    return { mode, model: providers.getDefaultModel(mode) };
+  }
+  return null;
+}
+
 function resolveCurrentModel(
   mode: ConcreteProviderMode,
   savedModel: string | null | undefined,

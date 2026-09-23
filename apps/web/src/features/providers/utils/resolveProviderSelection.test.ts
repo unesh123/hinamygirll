@@ -5,7 +5,7 @@ import type {
   ProviderMode,
   ProvidersState,
 } from "../types/provider";
-import { resolveProviderSelection } from "./resolveProviderSelection";
+import { pickRecoveryBrain, resolveProviderSelection } from "./resolveProviderSelection";
 
 function providersWith(
   healthByMode: Partial<Record<ProviderMode, ProviderHealth>>,
@@ -275,5 +275,55 @@ describe("resolveProviderSelection", () => {
     const selection = resolveProviderSelection(preferences, providersWith({}));
 
     expect(selection.activeMode).toBe("mock");
+  });
+});
+
+describe("pickRecoveryBrain", () => {
+  it("names the gateway that answered its last live call", () => {
+    const brain = pickRecoveryBrain(
+      providersWith(
+        { "cx-gateway": "unavailable", real: "healthy", mock: "healthy" },
+        { real: ["gemini-2.5-flash"], mock: ["mock-llm-v3"] },
+      ),
+    );
+
+    expect(brain).toEqual({ mode: "real", model: "gemini-2.5-flash" });
+  });
+
+  it("refuses to offer the in-process brains that report healthy without a call", () => {
+    const brain = pickRecoveryBrain(
+      providersWith(
+        { mock: "healthy", local: "healthy", claude: "unavailable" },
+        { mock: ["mock-llm-v3"], local: ["local-zero-credit-llm-v1"] },
+      ),
+    );
+
+    expect(brain).toBeNull();
+  });
+
+  it("offers nothing while every real brain is unproven", () => {
+    // Configured is not working: a badge built from credentials alone used to
+    // render "Switch to Gemini" here, pointing at a gateway that never answered.
+    const brain = pickRecoveryBrain(
+      providersWith({ claude: "untested", codecraft: "unavailable", "agent-router": "unknown" }),
+      { claude: ["claude-sonnet-4-6"] },
+    );
+
+    expect(brain).toBeNull();
+  });
+
+  it("selects the brain itself when its catalog has no default to name", () => {
+    const brain = pickRecoveryBrain(providersWith({ "cx-gateway": "healthy" }));
+
+    expect(brain).toEqual({ mode: "cx-gateway", model: null });
+  });
+
+  it("stays silent until health has loaded from the backend", () => {
+    const providers = {
+      ...providersWith({ real: "healthy" }, { real: ["gemini-2.5-flash"] }),
+      loaded: false,
+    };
+
+    expect(pickRecoveryBrain(providers)).toBeNull();
   });
 });

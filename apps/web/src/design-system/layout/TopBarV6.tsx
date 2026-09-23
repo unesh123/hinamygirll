@@ -21,7 +21,6 @@ export interface TopBarV6Props {
   onModeChange: (mode: WorkspaceMode) => void;
   activeProject?: { id: string; name: string; repo?: string } | null;
   activeGoal?: { id: string; title: string; criteriaCount?: number } | null;
-  activeProviderName?: string;
   isDark?: boolean;
   onToggleTheme?: () => void;
   onOpenSearch?: () => void;

@@ -59,8 +59,6 @@ export interface ComposerV6Props {
   // Legacy aliases
   activeTopic?: string | null;
   onClearTopic?: () => void;
-  activeModel?: string | null;
-  activeProvider?: string | null;
   onOpenModelSelector?: () => void;
   // Intelligence
   intelligenceLevel?: IntelligenceLevel;
@@ -106,8 +104,6 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onRemoveChip,
   activeTopic,
   onClearTopic,
-  activeModel,
-  activeProvider,
   onOpenModelSelector,
   intelligenceLevel = "auto",
   onChangeIntelligence,
