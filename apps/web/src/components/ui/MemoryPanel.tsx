@@ -152,7 +152,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
               <div style={{ textAlign: "center", padding: 40, color: "#a89eb0", fontSize: "0.9rem" }}>Loading memories...</div>
             ) : error && entries.length === 0 ? (
               <div role="status" style={{ textAlign: "center", padding: 40, color: "#f0a6a6", fontSize: "0.9rem" }}>
-                Memories unavailable: {error}
+                {error}
               </div>
             ) : filtered.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "#a89eb0", fontSize: "0.9rem" }}>

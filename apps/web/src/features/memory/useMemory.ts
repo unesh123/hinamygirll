@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
+import { describeResponseFailure, describeThrownFailure } from "../../lib/turnFailure";
 
 export interface MemoryEntry {
   id: string;
@@ -19,17 +20,27 @@ export interface MemoryEntry {
 }
 
 async function memoryFetch(path: string, init?: RequestInit) {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-HINAA-Dev-User": HINAA_DEV_USER,
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!response?.ok) {
-    const body = (await response?.json().catch(() => ({}))) as { message?: string } | undefined;
-    throw new Error(body?.message ?? `Memory request failed (${response?.status}).`);
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        "X-HINAA-Dev-User": HINAA_DEV_USER,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (err) {
+    throw new Error(describeThrownFailure(err, "HINAA's memory store never answered"));
+  }
+  const contentType = response.headers.get("content-type");
+  // A 200 carrying HTML is the network edge answering, not the store. Parsing it
+  // as JSON would throw a SyntaxError that quotes the page.
+  if (!response.ok || (contentType ?? "").toLowerCase().includes("text/html")) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      describeResponseFailure({ status: response.status, body, contentType }),
+    );
   }
   return response.json();
 }
