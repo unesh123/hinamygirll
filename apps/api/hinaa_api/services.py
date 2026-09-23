@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from .config import Settings
 from .circuit_breaker import peek_circuit_breaker
 from .brain_ledger import fingerprint_for, record_call, row_for_brain
+from .capabilities import brain_accepts_images
 from .errors import HinaaError
 from .reachability import probe_gateway_models
 from .memory import SessionMemory
@@ -815,6 +816,7 @@ _DEEP_TASK_HINTS = (
     "install",
     "configure",
     "analyze",
+    "analyse",
     "review",
     "generate",
     "implement",
@@ -909,6 +911,20 @@ def is_casual_chat(
     if len(lowered) <= 60:
         return True
     return _CASUAL_HINT_RE.search(lowered) is not None
+
+
+def _turn_has_image(resolved_media: list[Any]) -> bool:
+    """Whether a picture's bytes actually reached this turn's prompt.
+
+    Keyed on the same two facts the adapters use to decide whether to emit an
+    image part (an ``image/*`` mime and non-empty bytes), so the routing
+    decision here cannot drift from what the provider will really send.
+    """
+    return any(
+        str(getattr(item, "mime_type", "")).startswith("image/")
+        and getattr(item, "bytes_data", None)
+        for item in resolved_media
+    )
 
 
 class ProviderRouter:
@@ -2665,7 +2681,75 @@ class ConversationService:
                     ))
                 break
 
-    async def _fallback_candidate_modes(self, primary_mode: str) -> list[tuple[str, str | None]]:
+    def _brain_model(self, mode: str | None, model: str | None) -> str | None:
+        """The model a turn will really use when the caller named none.
+
+        Capability questions have to be asked about this value, not about
+        ``request.brainModel``: a turn that names no model still runs on the
+        mode's configured default, and treating an unnamed model as unknowable
+        would refuse a brain that sees perfectly well.
+        """
+        if model:
+            return model
+        return {
+            "real": self.settings.gemini_model,
+            "gemini": self.settings.gemini_model,
+            "claude": self.settings.active_claude_model,
+            "openai": self.settings.active_openai_model,
+            "qwen": self.settings.qwen_model,
+            "custom": self.settings.active_custom_model,
+            "cx-gateway": self.settings.cx_gateway_model,
+            "codecraft": self.settings.active_codecraft_model,
+            "agent-router": self.settings.active_agent_router_model,
+            "groq": self.settings.groq_model,
+        }.get(mode or "")
+
+    async def _apply_vision_gate(
+        self, request: TurnRequest, resolved_media: list[Any]
+    ) -> tuple[bool, str | None]:
+        """Put an image turn on a brain that can actually look at it.
+
+        Returns ``(carries_image, moved_off)``. ``moved_off`` names the brain the
+        turn was taken away from, which the caller reports as the turn's
+        fallback reason so the answer visibly came from somewhere other than
+        what was asked for.
+
+        ``providers/openai_llm.py`` will serialise an ``image_url`` part to any
+        endpoint it is pointed at, so a text-only brain does not fail on a photo
+        turn. It answers from the caption line in the prompt instead, which is
+        how a blind turn comes back as a confident description of a dashboard
+        nobody showed her. When nothing configured can see, that is said out loud
+        rather than papered over with an invention.
+        """
+        if not _turn_has_image(resolved_media):
+            return False, None
+        mode = request.providerMode
+        model = self._brain_model(mode, request.brainModel)
+        if brain_accepts_images(mode, model):
+            return True, None
+
+        seeing = await self._fallback_candidate_modes(mode, requires_vision=True)
+        if not seeing:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "You sent a picture and none of the configured brains can look at "
+                "one, so I will not guess at what it shows.",
+                status_code=503,
+                user_action_required=True,
+            )
+        request.providerMode, request.brainModel = seeing[0]
+        logger.info(
+            "Image turn moved off %s:%s (cannot take image input) to %s:%s",
+            mode,
+            model,
+            request.providerMode,
+            request.brainModel,
+        )
+        return True, f"{mode}:{model}"
+
+    async def _fallback_candidate_modes(
+        self, primary_mode: str, *, requires_vision: bool = False
+    ) -> list[tuple[str, str | None]]:
         """Configured brains that can take this turn, strongest answer first.
 
         The point of falling back is to keep the conversation intelligent, so
@@ -2674,6 +2758,12 @@ class ConversationService:
         closer, and when the frontier brains are down a weaker real answer still
         beats no answer. Behind all of them sits the measured OmniRoute gateway,
         which only earns a slot while its ``/v1/models`` endpoint answers.
+
+        ``requires_vision`` narrows that list to brains that will actually look
+        at an attached picture. Without it a fallback lands on whichever brain
+        answers, and a text-only endpoint silently discards the image part and
+        replies from the caption instead, which reads to the user as invention
+        rather than as a failure.
         """
         configured: dict[str, tuple[bool, str | None]] = {
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
@@ -2719,7 +2809,22 @@ class ConversationService:
                 logger.info("OmniRoute fallback skipped: %s", probe.detail)
 
         # A brain in cooldown is still better than no candidate at all.
-        return ready + cooling + last_resort
+        candidates = ready + cooling + last_resort
+        if requires_vision:
+            seeing = [
+                pair for pair in candidates if brain_accepts_images(pair[0], pair[1])
+            ]
+            skipped = [
+                f"{mode}:{model}" for mode, model in candidates if (mode, model) not in seeing
+            ]
+            if skipped:
+                logger.info(
+                    "Image turn: fallback candidates excluded because they cannot take "
+                    "image input: %s",
+                    ", ".join(skipped),
+                )
+            return seeing
+        return candidates
 
     async def _resolve_turn_media(self, request: TurnRequest) -> list[Any]:
         from .media import MediaResolver
@@ -3232,6 +3337,17 @@ class ConversationService:
         is_fallback = False
         fallback_reason: str | None = None
 
+        vision_required, moved_off = await self._apply_vision_gate(
+            request, resolved_media
+        )
+        if moved_off:
+            is_fallback = True
+            fallback_reason = (
+                f"{moved_off} cannot look at images, so a seeing brain answered"
+            )
+            resolved_provider = request.providerMode
+            resolved_model = request.brainModel
+
         is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
         # Use the configured LLM timeout for all providers. The old 2.5s was far
         # too short for mwapi.dev (which needs 3-8s cold) and caused constant
@@ -3241,8 +3357,12 @@ class ConversationService:
 
         try:
             async with asyncio.timeout(primary_plan_timeout):
-                provider = self._fast_casual_provider(
-                    request.providerMode, request.text, history
+                provider = (
+                    None
+                    if vision_required
+                    else self._fast_casual_provider(
+                        request.providerMode, request.text, history
+                    )
                 )
                 fast_provider_id = getattr(provider, "id", None)
                 if provider is None:
@@ -3342,7 +3462,9 @@ class ConversationService:
                     raise error
                 if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
                     fallback_result = None
-                    for fb_mode, fb_model in await self._fallback_candidate_modes(request.providerMode):
+                    for fb_mode, fb_model in await self._fallback_candidate_modes(
+                        request.providerMode, requires_vision=vision_required
+                    ):
                         try:
                             logger.info(
                                 "Primary brain %s failed with %s; falling back to %s (%s)",
@@ -3674,6 +3796,17 @@ class ConversationService:
         is_fallback = False
         fallback_reason: str | None = None
 
+        vision_required, moved_off = await self._apply_vision_gate(
+            request, resolved_media
+        )
+        if moved_off:
+            is_fallback = True
+            fallback_reason = (
+                f"{moved_off} cannot look at images, so a seeing brain answered"
+            )
+            resolved_provider = request.providerMode
+            resolved_model = request.brainModel
+
         is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
         primary_idle_timeout = self.settings.llm_stream_idle_timeout_seconds
         primary_live_timeout = max(
@@ -3691,8 +3824,15 @@ class ConversationService:
                 sink=primary_text,
             ) as (primary_emit, idle_expired):
                 primary_idle_expired = idle_expired
-                provider = self._fast_casual_provider(
-                    request.providerMode, request.text, history
+                # The fast path shaves latency off short social chat. A turn
+                # carrying a photo is not that, and a fast brain that cannot see
+                # would answer it from the caption alone.
+                provider = (
+                    None
+                    if vision_required
+                    else self._fast_casual_provider(
+                        request.providerMode, request.text, history
+                    )
                 )
                 fast_provider_id = getattr(provider, "id", None)
                 if provider is None:
@@ -3877,7 +4017,9 @@ class ConversationService:
                     raise error
                 if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
                     fallback_live_result = None
-                    for fb_mode, fb_model in await self._fallback_candidate_modes(request.providerMode):
+                    for fb_mode, fb_model in await self._fallback_candidate_modes(
+                        request.providerMode, requires_vision=vision_required
+                    ):
                         try:
                             logger.info(
                                 "Live primary %s failed with %s; attempting fallback to %s (%s)",

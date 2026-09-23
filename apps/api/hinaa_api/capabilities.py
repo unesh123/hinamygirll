@@ -349,3 +349,57 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         default_image="gemini-3.1-flash-image" if has_gemini else "comfyui",
         default_voice="gemini-live" if has_gemini else "browser-native",
     )
+
+
+# Adapters that put image bytes into the outbound request. ``groq``, ``local``
+# and ``mock`` are absent on purpose: ``providers/groq.py::_messages`` builds a
+# ``list[dict[str, str]]`` and never reads ``prompt.attachments``, so sending an
+# image turn there is a text turn with a claim attached that nothing backs.
+_IMAGE_CAPABLE_ADAPTERS = frozenset(
+    {
+        "real",
+        "gemini",
+        "claude",
+        "openai",
+        "custom",
+        "qwen",
+        "cx-gateway",
+        "codecraft",
+        "agent-router",
+        "agent-router-anthropic",
+        "omniroute",
+    }
+)
+
+# Model-id markers naming a multimodal family.
+_VISION_MODEL_MARKERS = (
+    "gemini",
+    "claude",
+    "gpt-4o",
+    "gpt-5",
+    "gpt-6",
+    "vision",
+    "-vl",
+    "qvq",
+)
+
+
+def brain_accepts_images(mode: str | None, model: str | None = None) -> bool:
+    """Whether this brain can be handed a picture and will actually look at it.
+
+    Deny-by-default, and the model name matters as much as the adapter: an
+    OpenAI-compatible adapter will serialise an ``image_url`` part to *any*
+    endpoint it is pointed at, so a text-only model like ``agnes-2.5-flash``
+    receives the bytes, drops them, and answers from the caption line in the
+    prompt. That is what makes a blind turn read as confident invention instead
+    of as a failure, so the check has to reject the model rather than trust the
+    transport.
+    """
+    if not mode or mode not in _IMAGE_CAPABLE_ADAPTERS:
+        return False
+    lowered = (model or "").lower()
+    if not lowered:
+        # No model named means the provider default, which cannot be verified
+        # from here, so an image turn does not get to bet on it.
+        return False
+    return any(marker in lowered for marker in _VISION_MODEL_MARKERS)
