@@ -943,7 +943,6 @@ export default function App() {
                   ? { id: "current-goal", title: typeof controller.activePlan.topic === "string" ? controller.activePlan.topic : String(controller.activePlan.topic) }
                   : null
               }
-              activeProviderName={routing.activeModel || (routing.activeMode === "mock" ? "Mock Engine" : "Frontier Engine")}
               onOpenSearch={() => setHistoryOpen(true)}
               onOpenProjectSettings={openProjectWorkspace}
               onOpenGoalDetails={() => setSakuraView("work")}
