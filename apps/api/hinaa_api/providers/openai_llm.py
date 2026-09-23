@@ -96,9 +96,9 @@ def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
 
     # Use native multi-turn messages if raw_user_text is available
     if raw_user_text:
-        from ..prompts.assembly import describe_attachment_roles
+        from ..prompts.assembly import attachment_directives
 
-        role_note = describe_attachment_roles(attachments)
+        role_note = attachment_directives(attachments)
         if recent_turns:
             # B2.1 §5: prompt.recent_turns is ALREADY selected and budgeted by
             # the canonical ContextCompiler. Providers serialize; they never

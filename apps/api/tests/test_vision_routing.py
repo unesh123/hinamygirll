@@ -20,7 +20,7 @@ from hinaa_api.media import ResolvedMedia
 from hinaa_api.media.models import AssetKind
 from hinaa_api.models import TurnRequest
 from hinaa_api.prompts import PromptInput, assemble_prompt
-from hinaa_api.prompts.assembly import describe_attachment_roles
+from hinaa_api.prompts.assembly import attachment_directives
 from hinaa_api.providers.agent_router import _anthropic_messages
 from hinaa_api.providers.openai_llm import _messages
 from hinaa_api.services import ConversationService, _turn_has_image, is_casual_chat
@@ -278,22 +278,51 @@ def test_the_gemini_prompt_text_names_the_role_it_always_had() -> None:
     assert "the picture to look at" in package.user_contents
 
 
-def test_a_document_before_a_photo_does_not_renumber_the_photo() -> None:
-    note = describe_attachment_roles([CSV, FACE])
+def test_the_label_is_printed_verbatim_so_she_can_quote_it_back() -> None:
+    final = _final_user_text(_messages(_photo_package((FACE,), "what did I label this as?"))[-1])
 
-    assert "Attached image #1" in note
+    assert 'Image #1 is labelled "face_reference"' in final
+    assert "A label outranks what you think the picture shows" in final
+
+
+def test_the_directive_sits_beside_his_words_not_only_in_the_reference_list() -> None:
+    # Measured failure: buried in the list, flash-lite answered from its own read
+    # of the pixels and overrode the label. Adjacent to the ask is the position
+    # that has to hold.
+    text = _photo_package((FACE,)).user_contents
+
+    directive_at = text.index('Image #1 is labelled "face_reference"')
+    ask_at = text.index("<user_message")
+    refs_at = text.index("Attached Image References:")
+    assert refs_at < directive_at < ask_at
+    assert text.index("make it like this") > directive_at
+
+
+def test_the_companion_persona_token_is_not_in_the_turn_she_reads() -> None:
+    # "Companion style marker: hinaa-warm-loving-caring" headed the turn text and
+    # two of three live probe turns answered that the picture WAS that style.
+    text = _photo_package((STYLE,)).user_contents
+
+    assert "hinaa-warm-loving-caring" not in text
+    assert "style marker" not in text
+
+
+def test_a_document_before_a_photo_does_not_renumber_the_photo() -> None:
+    note = attachment_directives([CSV, FACE])
+
+    assert 'Image #1 is labelled "face_reference"' in note
     assert "#2" not in note
 
 
 def test_an_unknown_role_is_named_instead_of_vanishing() -> None:
     odd = ResolvedMedia("asset-x", b"\x89PNG", "image/png", "sha-x", role="vibe")
 
-    assert 'marked by the user as "vibe"' in describe_attachment_roles([odd])
+    assert 'marked by the user as "vibe"' in attachment_directives([odd])
 
 
 def test_no_note_without_an_attachment_role() -> None:
     unlabelled = ResolvedMedia("asset-n", b"\x89PNG", "image/png", "sha-n")
 
-    assert describe_attachment_roles([]) == ""
-    assert describe_attachment_roles([CSV]) == ""
-    assert describe_attachment_roles([unlabelled]) == ""
+    assert attachment_directives([]) == ""
+    assert attachment_directives([CSV]) == ""
+    assert attachment_directives([unlabelled]) == ""

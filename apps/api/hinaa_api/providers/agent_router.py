@@ -113,9 +113,9 @@ def _anthropic_messages(prompt: PromptPackage) -> list[dict[str, Any]]:
     attachments = getattr(prompt, "attachments", None)
 
     if raw_user_text:
-        from ..prompts.assembly import describe_attachment_roles
+        from ..prompts.assembly import attachment_directives
 
-        role_note = describe_attachment_roles(attachments or [])
+        role_note = attachment_directives(attachments or [])
         messages: list[dict[str, Any]] = []
         if recent_turns:
             # B2.1 §5: prompt.recent_turns is ALREADY selected and budgeted by

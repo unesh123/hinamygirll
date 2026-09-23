@@ -85,7 +85,3 @@ def companion_identity_layer(companion_id: CompanionId) -> str:
     if companion_id == "hiro":
         return HIRO_IDENTITY
     raise ValueError(f"Unsupported companion_id: {companion_id}")
-
-
-def companion_style_marker(companion_id: CompanionId) -> str:
-    return "hinaa-warm-loving-caring" if companion_id == "hinaa" else "hiro-calm-direct"
