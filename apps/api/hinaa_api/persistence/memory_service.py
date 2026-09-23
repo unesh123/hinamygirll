@@ -142,6 +142,34 @@ class MemoryService:
             session.commit()
             return {"memoryEnabled": user.memory_enabled}
 
+    @staticmethod
+    def _hash_owner(session, user_pk: str, digest: str) -> ExplicitMemory | None:
+        """The row that owns this content hash for this user, live or not.
+
+        ``uq_user_memory_hash`` carries no liveness filter, and ``forget`` only
+        soft-deletes, so a row she no longer shows still blocks an INSERT of the
+        same text. Every write that picks a hash has to find its owner first.
+        """
+        return session.scalar(
+            select(ExplicitMemory).where(
+                ExplicitMemory.user_id == user_pk,
+                ExplicitMemory.normalized_hash == digest,
+            )
+        )
+
+    @staticmethod
+    def _is_dormant(row: ExplicitMemory) -> bool:
+        return row.deleted_at is not None or row.status in {"revoked", "superseded"}
+
+    @staticmethod
+    def _restore(row: ExplicitMemory, *, explicit: bool, source_turn_ref: str | None) -> None:
+        """Bring a forgotten row back, rather than inserting a second owner."""
+        row.deleted_at = None
+        row.status = "approved" if explicit else "pending"
+        row.consent_state = "explicit" if explicit else "pending"
+        if source_turn_ref:
+            row.source_turn_ref = source_turn_ref
+
     def remember(
         self,
         user_id: str,
@@ -171,30 +199,12 @@ class MemoryService:
                     True,
                 )
             digest = _hash(text)
-            # Deliberately not filtered on liveness. ``forget`` soft-deletes, so
-            # the row stays and the unique index on (user_id, normalized_hash)
-            # keeps claiming it. Looking only for live rows made this INSERT a
-            # second row for the same hash and raise IntegrityError, which meant
-            # a fact he had once asked her to forget could never be learned
-            # again, no matter how many times he repeated it.
-            existing = session.scalar(
-                select(ExplicitMemory).where(
-                    ExplicitMemory.user_id == user.id,
-                    ExplicitMemory.normalized_hash == digest,
-                )
-            )
+            existing = self._hash_owner(session, user.id, digest)
             if existing is not None:
                 existing.updated_at = datetime.now(UTC)
-                revived = existing.deleted_at is not None or existing.status in {
-                    "revoked",
-                    "superseded",
-                }
+                revived = self._is_dormant(existing)
                 if revived:
-                    existing.deleted_at = None
-                    existing.status = "approved" if explicit else "pending"
-                    existing.consent_state = "explicit" if explicit else "pending"
-                    if source_turn_ref:
-                        existing.source_turn_ref = source_turn_ref
+                    self._restore(existing, explicit=explicit, source_turn_ref=source_turn_ref)
                     # Re-storing something he had deleted is fresh consent, and
                     # the audit trail should show that, not silently reuse the
                     # original row.
@@ -311,7 +321,26 @@ class MemoryService:
             )
             if memory is None:
                 raise HinaaError("MEMORY_NOT_FOUND", "That memory was not found.", 404, False)
+            digest = _hash(text)
+            owner = self._hash_owner(session, memory.user_id, digest)
+            if owner is not None and owner.id != memory.id:
+                # Leaving the old hash behind while changing the content detached
+                # this row from the dedupe index, so the edited text could be
+                # stored a second time later. Carrying the new hash instead needs
+                # its current owner settled first, or the unique index rejects it.
+                if self._is_dormant(owner):
+                    # A row he already forgot still holds the hash. He cannot see
+                    # or recall it, so it must not block this edit forever.
+                    session.delete(owner)
+                else:
+                    raise HinaaError(
+                        "MEMORY_DUPLICATE",
+                        "She already remembers it exactly that way.",
+                        409,
+                        True,
+                    )
             memory.content = text
+            memory.normalized_hash = digest
             memory.expires_at = expires_at
             memory.updated_at = datetime.now(UTC)
             session.add(
@@ -365,21 +394,47 @@ class MemoryService:
             if old_mem is None:
                 raise HinaaError("MEMORY_NOT_FOUND", "That memory was not found.", 404, False)
 
-            old_mem.status = "superseded"
-            old_mem.updated_at = datetime.now(UTC)
-
             new_digest = _hash(text)
-            new_mem = ExplicitMemory(
-                user_id=user.id,
-                content=text,
-                normalized_hash=new_digest,
-                category=category or old_mem.category,
-                status="approved",
-                consent_state="explicit",
-                source_turn_ref=source_turn_ref or f"supersedes:{old_mem.id}",
-            )
-            session.add(new_mem)
-            session.flush()
+            owner = self._hash_owner(session, user.id, new_digest)
+            if owner is not None and owner.id == old_mem.id:
+                # He restated the memory exactly as it already reads. There is
+                # nothing to replace, and writing a second row for the same hash
+                # would fail the unique index.
+                owner.updated_at = datetime.now(UTC)
+                session.commit()
+                session.refresh(owner)
+                unchanged = self._public_memory(owner)
+                return unchanged, unchanged
+            if owner is not None:
+                # Another row owns this text, so the old memory retires in favour
+                # of it. Inserting a second row for the same hash raised
+                # IntegrityError straight out of the endpoint: editing one memory
+                # into text she had held before, or into text another memory
+                # already says, failed as a 500 and left both rows as they were.
+                new_mem = owner
+                if self._is_dormant(new_mem):
+                    self._restore(
+                        new_mem,
+                        explicit=True,
+                        source_turn_ref=source_turn_ref or f"supersedes:{old_mem.id}",
+                    )
+                new_mem.updated_at = datetime.now(UTC)
+            else:
+                new_mem = ExplicitMemory(
+                    user_id=user.id,
+                    content=text,
+                    normalized_hash=new_digest,
+                    category=category or old_mem.category,
+                    status="approved",
+                    consent_state="explicit",
+                    source_turn_ref=source_turn_ref or f"supersedes:{old_mem.id}",
+                )
+                session.add(new_mem)
+                session.flush()
+
+            old_mem.status = "superseded"
+            old_mem.superseded_by_id = new_mem.id
+            old_mem.updated_at = datetime.now(UTC)
 
             session.add(
                 AuditEvent(

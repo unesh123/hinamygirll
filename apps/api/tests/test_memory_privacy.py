@@ -210,6 +210,97 @@ def test_a_dead_brain_still_learns_what_he_told_her() -> None:
     assert any("studio rent is due on the 3rd" in content for content in contents), contents
 
 
+def test_restating_a_memory_never_crashes_the_store() -> None:
+    """Measured through the real endpoints: rewording one memory into text she
+    had held before, or into text another memory already says, raised
+    IntegrityError out of the unique index on (user_id, normalized_hash) and the
+    request died as a 500 with both rows left as they were."""
+    with _app_client() as client:
+        headers = {"X-HINAA-Dev-User": "restate"}
+        held = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My cat is called Momo", "category": "fact"},
+        ).json()
+        live = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My cat is called Kiko", "category": "fact"},
+        ).json()
+        current = [m["content"] for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]]
+        assert sorted(current) == sorted(["My cat is called Momo", "My cat is called Kiko"])
+
+        # She forgot one wording, then he restates the other memory as it.
+        client.delete(f"/v1/privacy/memories/{held['id']}", headers=headers)
+        back = client.post(
+            f"/v1/privacy/memories/{live['id']}/supersede",
+            headers=headers,
+            json={"content": "My cat is called Momo", "category": "fact"},
+        )
+        assert back.status_code == 200, back.text
+        revived = [
+            m
+            for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]
+            if "Momo" in m["content"]
+        ]
+        assert len(revived) == 1, revived
+        assert revived[0]["id"] == held["id"], "the row she already owned must be reused"
+        assert revived[0]["status"] == "approved", revived[0]
+
+        # Rewording a memory into text another live memory says must not insert
+        # a second owner of that hash either.
+        third = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "I study in the library", "category": "goal"},
+        ).json()
+        merged = client.post(
+            f"/v1/privacy/memories/{third['id']}/supersede",
+            headers=headers,
+            json={"content": "My cat is called Momo", "category": "fact"},
+        )
+        assert merged.status_code == 200, merged.text
+        momo = [
+            m
+            for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]
+            if "Momo" in m["content"]
+        ]
+        assert len(momo) == 1, momo
+
+
+def test_an_edited_memory_is_found_by_its_new_words() -> None:
+    """Editing a memory in place used to leave its dedupe hash pointing at the
+    old sentence, so telling her the new wording afterwards stored a second copy
+    of the same fact."""
+    with _app_client() as client:
+        headers = {"X-HINAA-Dev-User": "rehash"}
+        created = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My favourite fruit is mango", "category": "preference"},
+        ).json()
+        edited = client.put(
+            f"/v1/privacy/memories/{created['id']}",
+            headers=headers,
+            json={"content": "My favourite fruit is jackfruit"},
+        )
+        assert edited.status_code == 200, edited.text
+
+        again = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My favourite fruit is jackfruit", "category": "preference"},
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["id"] == edited.json()["id"], "the edit must be findable by its new text"
+        rows = [
+            m
+            for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]
+            if "fruit" in m["content"]
+        ]
+        assert len(rows) == 1, rows
+
+
 def test_a_forgotten_fact_can_be_learned_again() -> None:
     """The other half of "she cannot lock and learn". He told her the same thing
     twice with a delete in between and the second time nothing was stored:
