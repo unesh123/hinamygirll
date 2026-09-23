@@ -2167,11 +2167,27 @@ class ConversationService:
             else:
                 doc_title = f"{clean_display_title} Report"
 
-            body_source = (
-                "the write-up already in our conversation"
-                if extracted_content
-                else "a live multi-source research pass I am running now"
-            )
+            # A proposal is not a progress report. This copy used to read
+            # "I'm typesetting ... from a pass I am running now" while the
+            # execute call had already answered DOCUMENT_NO_SOURCE, so the
+            # bubble contradicted the refusal card next to it.
+            if extracted_content:
+                body_clause = (
+                    "Its pages will be the write-up already in our conversation, so nothing new "
+                    "has to be researched."
+                )
+                closing = "The card shows up here only once the file actually exists."
+                spoken_source = "from what we already wrote here"
+            else:
+                body_clause = (
+                    "Its pages have to come from a live research pass, which starts the moment this "
+                    "action runs."
+                )
+                closing = (
+                    "If that pass finds nothing usable, no file gets written and you will see that "
+                    "here instead of a filled template."
+                )
+                spoken_source = "but its pages have to come from a live research pass first"
 
             plan.toolRequests.append(ToolRequest(
                 toolName="pdf_generate",
@@ -2185,17 +2201,16 @@ class ConversationService:
 
             plan.displayText = (
                 f"### 📄 PDF: {clean_display_title}\n\n"
-                f"I'm typesetting **{doc_title}** from {body_source}. The document builder only lays "
-                f"that material out — it does not add sections, facts, or references of its own.\n\n"
+                f"**{doc_title}** is ready to build. {body_clause} The document builder only lays "
+                f"material out — it adds no sections, facts, or references of its own.\n\n"
                 f"• **Title**: {doc_title}\n"
                 f"• **Category**: Research Report\n"
                 f"• **Layout**: ReportLab PDF with running header and page numbers\n\n"
-                f"If the sources behind it don't answer, I'll tell you straight instead of handing over a filled template."
+                f"{closing}"
             )
             plan.spokenText = (
-                f"Babe, I'm building your {final_topic} PDF right now from "
-                f"{'what we already wrote here' if extracted_content else 'live research'} — "
-                f"the download card appears here as soon as the file is really ready."
+                f"Babe, your {final_topic} PDF is ready to build {spoken_source} — "
+                f"the card shows up here only if the file really gets written."
             )
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)

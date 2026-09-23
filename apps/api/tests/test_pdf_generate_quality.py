@@ -230,6 +230,48 @@ def test_pdf_trigger_does_not_claim_content_it_did_not_write():
     assert re.search(r"(?i)typesetting|lays? .{0,20}out", plan.displayText), plan.displayText
 
 
+IN_PROGRESS_CLAIM = re.compile(
+    r"(?i)\b(?:i'?m|i am|we'?re|we are)\s+(?:typesetting|building|running|generating|compiling)\b"
+    r"|\b(?:running|underway)\s+right\s+now\b"
+    r"|\bas\s+soon\s+as\s+the\s+file\b"
+)
+
+
+def _pdf_plan_for(service: ConversationService, session_id: str, text: str) -> AssistantTurnPlan:
+    return _run(service.create_plan(TurnRequest(sessionId=session_id, userId="user-1", text=text))).value
+
+
+@pytest.mark.parametrize(
+    "session_id,text,expect_no_file_clause",
+    [
+        ("s-pdf-tense-bare", "make me a pdf about thermohaline circulation", True),
+        ("s-pdf-tense-supplied", "make a pdf based on that assignment", False),
+    ],
+)
+def test_pdf_trigger_describes_a_proposal_not_work_in_progress(
+    session_id: str, text: str, expect_no_file_clause: bool
+) -> None:
+    """A request the guard can still refuse may not be phrased as already running."""
+    settings = Settings(provider_mode="mock")
+    service = ConversationService(settings)
+    if session_id.endswith("supplied"):
+        service.memory.append_turn(
+            session_id,
+            "Explain the thermohaline circulation.",
+            '{"displayText": "# Thermohaline Circulation Analysis\\n\\nDense polar water sinks and drives the '
+            'global conveyor, moving heat toward the equator and returning upwelling water at depth.", '
+            '"spokenText": "Here is the breakdown babe."}',
+        )
+
+    plan = _pdf_plan_for(service, session_id, text)
+    assert any(t.toolName == "pdf_generate" for t in plan.toolRequests), plan.toolRequests
+
+    prose = f"{plan.displayText} {plan.spokenText}"
+    assert not IN_PROGRESS_CLAIM.search(prose), prose
+    if expect_no_file_clause:
+        assert re.search(r"(?i)if .{0,60}no file gets written", plan.displayText), plan.displayText
+
+
 FABRICATED_SUMMARY = (
     "I have compiled your complete academic assignment and research report on "
     "**Quantum Computing** into a publication-grade PDF with structured foundations, "
