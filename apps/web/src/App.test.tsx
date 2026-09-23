@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App, { isHinaApiUrl } from "./App";
+import { buildMockPlan } from "./features/providers/mockConversationProvider";
 
 class FakeUtterance {
   lang = "";
@@ -95,6 +96,77 @@ describe("HINAA assistant workspace", () => {
     expect(utterance.text).not.toContain("```");
     utterance.onend?.();
   }, 10_000);
+
+  async function sendAttachedPicture(roleLabel: string): Promise<any> {
+    localStorage.setItem("hinaa_settings_v1", JSON.stringify({
+      _version: 7,
+      appearance: { theme: "system", motion: "system", avatarVisible: true, avatarStyle: "procedural" },
+      provider: { preferredMode: "claude", preferredModelByProvider: {} },
+      language: { activePolicy: "en-US" },
+      automation: { autoRunTools: false },
+    }));
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak: vi.fn(), cancel: vi.fn() });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+
+    const turns: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/conversations/turns:stream")) {
+          const body = JSON.parse(String(init?.body));
+          turns.push(body);
+          const plan = buildMockPlan("Reference locked.", "hinaa");
+          return new Response(`${JSON.stringify({ type: "plan", plan })}\n`, {
+            status: 200,
+            headers: { "Content-Type": "application/x-ndjson" },
+          });
+        }
+        return new Response("{}", { status: 404, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+
+    render(<App />);
+
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    fireEvent.change(fileInput as HTMLInputElement, {
+      target: { files: [new File([new Uint8Array([137, 80, 78, 71])], "face.png", { type: "image/png" })] },
+    });
+
+    const chip = await screen.findByText("Role: Style");
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByText(roleLabel));
+
+    const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
+    fireEvent.change(composer, { target: { value: "make it like this" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(turns.length).toBeGreaterThan(0), { timeout: 8_000 });
+    return turns[0];
+  }
+
+  it("sends an attached picture and the role chosen for it in the same turn", async () => {
+    const turnBody = await sendAttachedPicture("Face Identity");
+
+    expect(turnBody.text).toBe("make it like this");
+    expect(String(turnBody.imageUrl)).toMatch(/^data:image\/png;base64,/);
+    expect(turnBody.attachments).toEqual([
+      { kind: "image", role: "face_reference", url: turnBody.imageUrl },
+    ]);
+    // The image workflow only takes a reference from this field, so a face
+    // reference that never reaches it cannot be honoured by a draw.
+    expect(turnBody.reference_images).toEqual([turnBody.imageUrl]);
+  }, 20_000);
+
+  it("keeps a look-at-this picture out of the reference-editing path", async () => {
+    const turnBody = await sendAttachedPicture("General Inspection");
+
+    expect(turnBody.attachments).toEqual([
+      { kind: "image", role: "inspection", url: turnBody.imageUrl },
+    ]);
+    expect(turnBody.reference_images).toBeUndefined();
+  }, 20_000);
 
   it.todo("starts live voice only after the user grants microphone permission");
   it.todo("offers a visible confirmation before executing an external assistant action");

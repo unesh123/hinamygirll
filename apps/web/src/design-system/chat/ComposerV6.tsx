@@ -31,6 +31,18 @@ export type ActionMode = "chat" | "research" | "create" | "code" | "goal";
 export type IntelligenceLevel = "auto" | "fast" | "deep" | "max";
 export type AttachmentRole = "face_reference" | "style_reference" | "inspection";
 
+/** What an attached picture is for. `chip` fits the composer's compact toggle. */
+export const ATTACHMENT_ROLES: Array<{
+  role: AttachmentRole;
+  label: string;
+  chip: string;
+  icon: typeof User;
+}> = [
+  { role: "face_reference", label: "Face Identity", chip: "Face ID", icon: User },
+  { role: "style_reference", label: "Style Reference", chip: "Style", icon: Palette },
+  { role: "inspection", label: "General Inspection", chip: "Inspect", icon: Eye },
+];
+
 export interface ContextChip {
   id: string;
   type: "project" | "repo" | "file" | "image" | "artifact" | "task" | "goal" | "topic";
@@ -431,7 +443,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               }}
             >
               <span>
-                Role: {selectedRole === "face_reference" ? "Face ID" : selectedRole === "style_reference" ? "Style" : "Inspect"}
+                Role: {ATTACHMENT_ROLES.find((item) => item.role === selectedRole)?.chip}
               </span>
               <ChevronDown size={11} />
             </button>
@@ -451,11 +463,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   zIndex: 50,
                 }}
               >
-                {[
-                  { role: "face_reference" as AttachmentRole, label: "Face Identity", icon: User },
-                  { role: "style_reference" as AttachmentRole, label: "Style Reference", icon: Palette },
-                  { role: "inspection" as AttachmentRole, label: "General Inspection", icon: Eye },
-                ].map((item) => (
+                {ATTACHMENT_ROLES.map((item) => (
                   <button
                     key={item.role}
                     type="button"

@@ -113,6 +113,9 @@ def _anthropic_messages(prompt: PromptPackage) -> list[dict[str, Any]]:
     attachments = getattr(prompt, "attachments", None)
 
     if raw_user_text:
+        from ..prompts.assembly import describe_attachment_roles
+
+        role_note = describe_attachment_roles(attachments or [])
         messages: list[dict[str, Any]] = []
         if recent_turns:
             # B2.1 §5: prompt.recent_turns is ALREADY selected and budgeted by
@@ -133,7 +136,10 @@ def _anthropic_messages(prompt: PromptPackage) -> list[dict[str, Any]]:
                 else:
                     messages.append({"role": role, "content": clean_content})
 
-        final_content = build_anthropic_content(raw_user_text.strip(), attachments)
+        user_text = raw_user_text.strip()
+        if role_note:
+            user_text = f"{role_note}\n\n{user_text}"
+        final_content = build_anthropic_content(user_text, attachments)
 
         if messages and messages[-1]["role"] == "user":
             prev = messages[-1]["content"]

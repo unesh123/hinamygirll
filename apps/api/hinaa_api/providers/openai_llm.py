@@ -96,6 +96,9 @@ def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
 
     # Use native multi-turn messages if raw_user_text is available
     if raw_user_text:
+        from ..prompts.assembly import describe_attachment_roles
+
+        role_note = describe_attachment_roles(attachments)
         if recent_turns:
             # B2.1 §5: prompt.recent_turns is ALREADY selected and budgeted by
             # the canonical ContextCompiler. Providers serialize; they never
@@ -108,6 +111,8 @@ def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
                     messages.append({"role": role, "content": clean_content})
 
         final_text = raw_user_text.strip()
+        if role_note:
+            final_text = f"{role_note}\n\n{final_text}"
         if not image_parts:
             messages.append({"role": "user", "content": final_text})
         else:

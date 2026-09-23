@@ -26,6 +26,52 @@ from .versioning import (
 )
 
 
+ATTACHMENT_ROLE_GUIDANCE = {
+    "face_reference": (
+        "the face to keep consistent — match this person's face, hair and proportions in "
+        "anything you draw, and ignore the scene around them"
+    ),
+    "style_reference": (
+        "the style to match — copy this image's art style, palette, linework and lighting, "
+        "not its subject, characters or composition"
+    ),
+    "inspection": (
+        "the picture to look at — read its visible content and answer about this image itself "
+        "rather than treating it as a generation reference"
+    ),
+}
+
+
+def _role_phrase(role: str) -> str:
+    """Expand a role id into the instruction it means, or name it if it is unknown."""
+    guidance = ATTACHMENT_ROLE_GUIDANCE.get(role)
+    return guidance or f"marked by the user as \"{role}\""
+
+
+def describe_attachment_roles(attachments: list) -> str:
+    """The lines saying what an attached picture is FOR, as plain text.
+
+    ``openai_llm`` and ``agent_router`` rebuild the turn from ``raw_user_text`` and skip
+    ``user_contents`` entirely, so the role caption assembled here never reaches those
+    brains. They call this to get the same note the Gemini path already receives.
+    """
+    lines: list[str] = []
+    idx = 0
+    for att in attachments or ():
+        mime = getattr(att, "mime_type", "") or ""
+        role = getattr(att, "role", None)
+        if not role or not mime.startswith("image/") or not getattr(att, "bytes_data", None):
+            continue
+        idx += 1
+        lines.append(f"- Attached image #{idx} is {_role_phrase(str(role).strip())}.")
+    if not lines:
+        return ""
+    return (
+        "ATTACHMENT ROLES (set by the user on the attached pictures):\n"
+        + "\n".join(lines)
+    )
+
+
 def _self_state_layer() -> str:
     """Her measured runtime state, so questions about herself are read, not guessed.
 
@@ -313,13 +359,16 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
         )
 
     image_refs: list[str] = []
-    for idx, att in enumerate(inp.attachments or (), 1):
+    image_no = 0
+    for att in inp.attachments or ():
         mime = getattr(att, "mime_type", "")
         role = getattr(att, "role", None)
-        fn = getattr(att, "filename", None) or f"Reference #{idx}"
-        if mime.startswith("image/"):
-            role_desc = f" (Role: {role})" if role else ""
-            image_refs.append(f"- Image #{idx}: {fn}{role_desc}")
+        if not mime.startswith("image/"):
+            continue
+        image_no += 1
+        fn = getattr(att, "filename", None) or f"Reference #{image_no}"
+        role_desc = f" ({_role_phrase(str(role).strip())})" if role else ""
+        image_refs.append(f"- Image #{image_no}: {fn}{role_desc}")
     if image_refs:
         attachment_context += "\nAttached Image References:\n" + "\n".join(image_refs) + "\n"
 

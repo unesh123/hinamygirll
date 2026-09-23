@@ -454,6 +454,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         responseMode?: ResponseMode;
         imageUrl?: string;
         attachment_ids?: string[];
+        reference_images?: string[];
         attachments?: import("./types").MessageAttachment[];
         imageEngine?: string;
         voiceEngine?: string;
@@ -517,6 +518,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           conversationId: conversationId || undefined,
           imageUrl: options?.imageUrl,
           attachment_ids: options?.attachment_ids,
+          reference_images: options?.reference_images,
           attachments: options?.attachments,
         })) {
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;

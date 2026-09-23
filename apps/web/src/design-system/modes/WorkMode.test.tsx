@@ -70,6 +70,76 @@ describe("WorkMode voice controls", () => {
     expect(attached).toHaveAttribute("src", dataUrl);
   });
 
+  it("sends the chosen role with the message that carries the picture", () => {
+    const dataUrl = "data:image/png;base64,aGVsbG8=";
+    const onSend = vi.fn();
+    // The picker keeps its own state inside ComposerV6, so the send has to be
+    // triggered by a real click on the send button, not by calling onSend.
+    function Controlled() {
+      const [value, setValue] = useState("");
+      return (
+        <WorkMode
+          {...defaultProps()}
+          input={value}
+          onInputChange={setValue}
+          onSend={onSend}
+          attachedImage={dataUrl}
+        />
+      );
+    }
+
+    render(<Controlled />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Message HINAA" }), {
+      target: { value: "make it like this" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Role: Style" }));
+    fireEvent.click(screen.getByText("Face Identity"));
+    fireEvent.click(screen.getByTestId("composer-send-btn"));
+
+    expect(onSend).toHaveBeenCalledWith("make it like this", "face_reference");
+  });
+
+  it("labels the attached picture with the role it was sent as", () => {
+    const dataUrl = "data:image/png;base64,aGVsbG8=";
+    renderWorkMode({
+      messages: [
+        {
+          id: "user",
+          role: "user",
+          text: "make it like this",
+          createdAt: new Date().toISOString(),
+          imageUrl: dataUrl,
+          attachments: [{ kind: "image", role: "face_reference", url: dataUrl }],
+        },
+        { id: "answer", role: "assistant", text: "On it — face locked.", createdAt: new Date().toISOString() },
+      ],
+    });
+
+    expect(screen.getByRole("img", { name: "Your attached image" })).toBeInTheDocument();
+    expect(screen.getByText("Face Identity")).toBeInTheDocument();
+  });
+
+  it("does not invent a role label for an unlabelled picture", () => {
+    const dataUrl = "data:image/png;base64,aGVsbG8=";
+    renderWorkMode({
+      messages: [
+        {
+          id: "user",
+          role: "user",
+          text: "look at this",
+          createdAt: new Date().toISOString(),
+          imageUrl: dataUrl,
+          attachments: [{ kind: "image", url: dataUrl }],
+        },
+        { id: "answer", role: "assistant", text: "I see a terminal.", createdAt: new Date().toISOString() },
+      ],
+    });
+
+    expect(screen.getByRole("img", { name: "Your attached image" })).toBeInTheDocument();
+    expect(screen.queryByText("Face Identity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Style Reference")).not.toBeInTheDocument();
+  });
+
   it("uses singular message grammar in the work header", () => {
     renderWorkMode();
     expect(screen.getByText(/1 message$/)).toBeInTheDocument();

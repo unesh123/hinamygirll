@@ -30,7 +30,7 @@ import type { CompanionId, CompanionState, TranscriptMessage } from "../../featu
 import type { ProviderHealth } from "../../features/providers/types/provider";
 import type { RecoveryBrain } from "../../features/providers/utils/resolveProviderSelection";
 import type { PowerUp, PowerUpId } from "../chat/ChatComposer";
-import { ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel, type ContextChip } from "../chat/ComposerV6";
+import { ATTACHMENT_ROLES, ComposerV6, type ActionMode, type AttachmentRole, type IntelligenceLevel, type ContextChip } from "../chat/ComposerV6";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
 import { CodingTaskCard } from "../components/task/CodingTaskCard";
 import { ArtifactCardV6 } from "../components/artifact/ArtifactCardV6";
@@ -97,7 +97,7 @@ interface WorkModeProps {
   searchQuery?: string;
   input: string;
   onInputChange: (value: string) => void;
-  onSend: (customText?: string) => void;
+  onSend: (customText?: string, attachmentRole?: AttachmentRole) => void;
   onStop: () => void;
   disabled: boolean;
   isVoiceActive: boolean;
@@ -147,11 +147,6 @@ interface WorkModeProps {
   brainRecovery?: RecoveryBrain | null;
   onSelectProvider?: (mode: string, modelId?: string) => void;
   onRetry?: () => void;
-  attachedAttachments?: any[];
-  onUpdateAttachmentRole?: any;
-  onRemoveAttachment?: any;
-  onReorderAttachment?: any;
-  onReuseAsReference?: any;
   onOpenLibrary?: () => void;
   onOpenImages?: () => void;
   providerOptions?: any[];
@@ -221,7 +216,6 @@ export function WorkMode({
   voiceEngine,
   onSelectVoiceEngine,
   onOpenSettings,
-  onUpdateAttachmentRole,
 }: WorkModeProps) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText]);
   // Real capability discovery: providers + models actually configured on the
@@ -371,12 +365,17 @@ export function WorkMode({
   const activeTopic = localTopic !== null ? (localTopic || null) : (searchQuery || (plan as any)?.topic || null);
 
   const handleComposerSend = useCallback(
-    (options?: { mode?: ActionMode; intelligence?: IntelligenceLevel; attachmentRole?: AttachmentRole; isGoalMode?: boolean } | ActionMode, role?: AttachmentRole) => {
+    (options?: {
+      mode?: ActionMode;
+      intelligence?: IntelligenceLevel;
+      attachmentRole?: AttachmentRole;
+      isGoalMode?: boolean;
+    }) => {
       let text = input.trim();
       if (!text && !attachedImage) return;
 
-      const mode = typeof options === "object" ? options?.mode : options;
-      const isGoal = typeof options === "object" ? options?.isGoalMode : goalModeEnabled;
+      const mode = options?.mode;
+      const isGoal = options?.isGoalMode ?? goalModeEnabled;
 
       if ((isGoal || mode === "goal") && !text.startsWith("/goal")) {
         text = `/goal ${text}`;
@@ -388,7 +387,7 @@ export function WorkMode({
         text = `/code ${text}`;
       }
 
-      onSend(text);
+      onSend(text, options?.attachmentRole);
     },
     [input, attachedImage, goalModeEnabled, onSend]
   );
@@ -1387,10 +1386,7 @@ export function WorkMode({
           isGoalMode={goalModeEnabled}
           onToggleGoalMode={toggleGoalMode}
           attachedImage={attachedImage}
-          onImageAttach={(dataUrl, role) => {
-            onImageAttach(dataUrl);
-            if (onUpdateAttachmentRole && role) onUpdateAttachmentRole(role);
-          }}
+          onImageAttach={onImageAttach}
           onSelectArtifact={(command) => onInputChange(`${command} `)}
         />
       </div>
@@ -1409,6 +1405,9 @@ function WorkMessage({
   isStreaming?: boolean;
 }) {
   const isUser = message.role === "user";
+  const attachmentRole = ATTACHMENT_ROLES.find(
+    (item) => item.role === message.attachments?.[0]?.role,
+  );
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
 
@@ -1546,17 +1545,32 @@ function WorkMessage({
         }}
       >
         {isUser && message.imageUrl && (
-          <img
-            src={message.imageUrl}
-            alt="Your attached image"
-            style={{
-              display: "block",
-              maxWidth: 220,
-              width: "100%",
-              borderRadius: 10,
-              marginBottom: message.text ? 8 : 0,
-            }}
-          />
+          <>
+            <img
+              src={message.imageUrl}
+              alt="Your attached image"
+              style={{
+                display: "block",
+                maxWidth: 220,
+                width: "100%",
+                borderRadius: 10,
+                marginBottom: attachmentRole || message.text ? 8 : 0,
+              }}
+            />
+            {attachmentRole && (
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: "0.02em",
+                  opacity: 0.7,
+                  marginBottom: message.text ? 8 : 0,
+                }}
+              >
+                {attachmentRole.label}
+              </div>
+            )}
+          </>
         )}
         {isUser ? message.text : <ResponseEnvelopeRenderer rawText={message.text} />}
         {isStreaming && (

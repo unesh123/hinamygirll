@@ -19,6 +19,10 @@ from hinaa_api.errors import HinaaError
 from hinaa_api.media import ResolvedMedia
 from hinaa_api.media.models import AssetKind
 from hinaa_api.models import TurnRequest
+from hinaa_api.prompts import PromptInput, assemble_prompt
+from hinaa_api.prompts.assembly import describe_attachment_roles
+from hinaa_api.providers.agent_router import _anthropic_messages
+from hinaa_api.providers.openai_llm import _messages
 from hinaa_api.services import ConversationService, _turn_has_image, is_casual_chat
 
 BASE = {
@@ -177,3 +181,119 @@ async def test_photo_turn_says_it_cannot_see_instead_of_inventing() -> None:
     assert "will not guess" in refused.value.message
     assert refused.value.user_action_required is True
     assert refused.value.retryable is False, "a missing capability is not fixed by retrying"
+
+
+# ─── What the attached picture is FOR ────────────────────────────────────────
+#
+# The composer has always had a Face ID / Style / Inspect picker, and the chosen
+# role was written into ``user_contents`` -- which two of the three brains never
+# read, because ``openai_llm`` and ``agent_router`` rebuild the turn from
+# ``raw_user_text``. So "make it like this" arrived as a bare caption, and a face
+# reference got treated as a style reference. These tests pin the instruction to
+# each prompt shape, not just to the field that happens to be easiest to fill.
+
+FACE = ResolvedMedia(
+    "asset-face", b"\x89PNG\r\n\x1a\nface", "image/png", "sha-face", role="face_reference"
+)
+STYLE = ResolvedMedia(
+    "asset-style", b"\x89PNG\r\n\x1a\nstyle", "image/png", "sha-style", role="style_reference"
+)
+
+
+def _photo_package(attachments: tuple, text: str = "make it like this"):
+    return assemble_prompt(
+        PromptInput(
+            companion_id="hinaa",
+            interaction_mode="rest",
+            user_text=text,
+            language="mixed",
+            attachments=attachments,
+        )
+    )
+
+
+def _final_user_text(message) -> str:
+    content = message["content"]
+    if isinstance(content, str):
+        return content
+    return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+
+
+async def test_the_role_on_the_request_is_what_reaches_the_resolved_media(monkeypatch) -> None:
+    from hinaa_api import media as media_pkg
+
+    seen: list[str | None] = []
+
+    async def fake_resolve(self, reference: str, role: str | None = None):
+        seen.append(role)
+        return FACE
+
+    monkeypatch.setattr(media_pkg.MediaResolver, "resolve", fake_resolve)
+    service = ConversationService(ROUTER_AND_GEMINI)
+    request = TurnRequest.model_validate(
+        {
+            "sessionId": "session-vision",
+            "text": "make it like this",
+            "companionId": "hinaa",
+            "imageUrl": "data:image/png;base64,aW1hZ2U=",
+            "attachments": [
+                {"kind": "image", "role": "face_reference", "url": "data:image/png;base64,aW1hZ2U="}
+            ],
+        }
+    )
+
+    resolved = await service._resolve_turn_media(request)
+
+    assert seen == ["face_reference"], "the picker's value must be the value the resolver gets"
+    assert resolved[0].role == "face_reference"
+
+
+def test_the_face_role_reaches_the_openai_style_prompt() -> None:
+    package = _photo_package((FACE,))
+
+    final = _final_user_text(_messages(package)[-1])
+
+    assert "face to keep consistent" in final
+    # The instruction is added beside his sentence, never in place of it.
+    assert "make it like this" in final
+
+
+def test_a_style_reference_is_not_read_as_a_face_reference() -> None:
+    final = _final_user_text(_messages(_photo_package((STYLE,)))[-1])
+
+    assert "art style" in final
+    assert "face to keep consistent" not in final
+
+
+def test_the_router_anthropic_shape_carries_the_role_too() -> None:
+    final = _final_user_text(_anthropic_messages(_photo_package((FACE,)))[-1])
+
+    assert "face to keep consistent" in final
+    assert "make it like this" in final
+
+
+def test_the_gemini_prompt_text_names_the_role_it_always_had() -> None:
+    package = _photo_package((PHOTO,))
+
+    assert "the picture to look at" in package.user_contents
+
+
+def test_a_document_before_a_photo_does_not_renumber_the_photo() -> None:
+    note = describe_attachment_roles([CSV, FACE])
+
+    assert "Attached image #1" in note
+    assert "#2" not in note
+
+
+def test_an_unknown_role_is_named_instead_of_vanishing() -> None:
+    odd = ResolvedMedia("asset-x", b"\x89PNG", "image/png", "sha-x", role="vibe")
+
+    assert 'marked by the user as "vibe"' in describe_attachment_roles([odd])
+
+
+def test_no_note_without_an_attachment_role() -> None:
+    unlabelled = ResolvedMedia("asset-n", b"\x89PNG", "image/png", "sha-n")
+
+    assert describe_attachment_roles([]) == ""
+    assert describe_attachment_roles([CSV]) == ""
+    assert describe_attachment_roles([unlabelled]) == ""

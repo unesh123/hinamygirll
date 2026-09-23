@@ -14,6 +14,7 @@ import type { ResponseMode } from "./features/providers/conversationProvider";
 import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
+import type { AttachmentRole } from "./design-system/chat/ComposerV6";
 import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
 import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
@@ -593,7 +594,7 @@ export default function App() {
   }, [playback.playing, playbackSession]);
 
   /* ─── Submit ─────────────────────────────────────────── */
-  const submit = useCallback((event?: any, overrideText?: string) => {
+  const submit = useCallback((event?: any, overrideText?: string, attachmentRole?: AttachmentRole) => {
     if (event && "preventDefault" in event) event.preventDefault();
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
     if ((!textToSend && !attachedImage) || live.active) return;
@@ -606,6 +607,11 @@ export default function App() {
     void (async () => {
       const result = await controller.sendText(text, {
         imageUrl: imageData || undefined,
+        attachments: imageData
+          ? [{ kind: "image", role: attachmentRole ?? "inspection", url: imageData }]
+          : undefined,
+        reference_images:
+          imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
         responseMode: requestResponseMode,
       });
       const plan = result?.plan;
@@ -1026,7 +1032,9 @@ export default function App() {
                 searchQuery={controller.searchQuery || searchQuery}
                 input={input}
                 onInputChange={setInput}
-                onSend={(customText?: string) => submit(undefined, customText)}
+                onSend={(customText?: string, attachmentRole?: AttachmentRole) =>
+                  submit(undefined, customText, attachmentRole)
+                }
                 onStop={handleStop}
                 disabled={controller.state !== "idle" && controller.state !== "thinking"}
                 isVoiceActive={live.active}
