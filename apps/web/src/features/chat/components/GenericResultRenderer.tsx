@@ -462,6 +462,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'wrap',
           gap: 14,
           padding: '14px 18px',
           borderRadius: 14,
@@ -498,8 +499,8 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
               }}>
                 {title}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
-                <span style={{ fontFamily: 'monospace', color: 'var(--accent, #f472b6)' }}>{filename}</span>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 8, rowGap: 2, minWidth: 0, fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                <span style={{ fontFamily: 'monospace', color: 'var(--accent, #f472b6)', overflowWrap: 'anywhere' }}>{filename}</span>
                 {typeof pageCount === 'number' && (
                   <>
                     <span>•</span>

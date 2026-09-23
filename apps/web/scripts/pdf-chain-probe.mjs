@@ -94,8 +94,25 @@ const snapshot = () =>
       .filter((t) => /pdf|confirm|approve|allow|run|download/i.test(t));
     const bubbles = [...document.querySelectorAll(".hinaa-work-bubble")];
     const last = bubbles[bubbles.length - 1];
+    const viewport = window.innerWidth;
+    const doc = document.documentElement;
+    // A card that is wider than the screen is invisible to a DOM query that only
+    // counts anchors, so measure how far right anything actually reaches.
+    const fit = (() => {
+      if (!last) return null;
+      const edges = [...last.querySelectorAll("*")].map((n) => n.getBoundingClientRect().right);
+      return {
+        bubbleScrollWidth: last.scrollWidth,
+        bubbleClientWidth: last.clientWidth,
+        widestDescendantRight: edges.length ? Math.round(Math.max(...edges)) : null,
+      };
+    })();
     return {
       downloadAnchors: document.querySelectorAll("a[download]").length,
+      viewport,
+      pageScrollWidth: doc.scrollWidth,
+      horizontalOverflow: doc.scrollWidth > viewport,
+      fit,
       approvalButtons: buttons.slice(0, 8),
       activityRows: [...document.querySelectorAll("[class*='toolActivity'], [data-tool-activity]")]
         .map((n) => (n.textContent || "").trim().slice(0, 90))
@@ -116,11 +133,11 @@ for (let elapsed = 0; elapsed < 240_000; elapsed += 4_000) {
   await page.waitForTimeout(4_000);
   seen = await snapshot();
   if (seen.downloadAnchors > 0) {
-    console.log(`card appeared after ~${elapsed + 4}s`);
+    console.log(`card appeared after ~${(elapsed + 4_000) / 1_000}s`);
     break;
   }
   if (seen.approvalButtons.length) {
-    console.log(`approval affordance at ~${elapsed + 4}s: ${JSON.stringify(seen.approvalButtons)}`);
+    console.log(`approval affordance at ~${(elapsed + 4_000) / 1_000}s: ${JSON.stringify(seen.approvalButtons)}`);
     break;
   }
 }
