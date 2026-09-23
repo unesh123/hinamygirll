@@ -51,15 +51,13 @@ $host_ = ([uri]$tunnelUrl).Host
 Write-Host "[2/3] Tunnel up: $tunnelUrl" -ForegroundColor Green
 
 # 3. Rewrite vercel.json rewrites with the fresh host.
+#    Text substitution, not ConvertFrom-Json/ConvertTo-Json: re-serializing
+#    reformats the whole file on every rotation, burying the 3-line change that
+#    is the only real edit.
 $vercelJson = Join-Path $rootDir 'vercel.json'
-$json = Get-Content $vercelJson -Raw | ConvertFrom-Json
-foreach ($rw in $json.rewrites) {
-    if ($rw.destination -match 'trycloudflare\.com') {
-        $rw.destination = $rw.destination -replace 'https://[a-z0-9-]+\.trycloudflare\.com', $tunnelUrl
-    }
-}
+$raw = Get-Content $vercelJson -Raw
 $bomless = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($vercelJson, ($json | ConvertTo-Json -Depth 10), $bomless)
+[System.IO.File]::WriteAllText($vercelJson, ($raw -replace 'https://[a-z0-9-]+\.trycloudflare\.com', $tunnelUrl), $bomless)
 Write-Host '[3/3] vercel.json now points at the live tunnel.' -ForegroundColor Green
 
 if ($Deploy) {
