@@ -7,15 +7,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://laden-pink-trial-cet.trycloudflare.com/api/:path*"
+      "destination": "https://filename-enabled-shark-phentermine.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://laden-pink-trial-cet.trycloudflare.com/v1/:path*"
+      "destination": "https://filename-enabled-shark-phentermine.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://laden-pink-trial-cet.trycloudflare.com/health"
+      "destination": "https://filename-enabled-shark-phentermine.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",

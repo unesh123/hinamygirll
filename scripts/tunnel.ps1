@@ -21,31 +21,38 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $log = Join-Path $root 'tunnel.log'
+$out = Join-Path $root 'tunnel.out.log'
+$err = Join-Path $root 'tunnel.err.log'
 $exe = Join-Path $root 'cloudflared.exe'
 
 Write-Host "Stopping any running cloudflared..."
 Stop-Process -Name cloudflared -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
-Remove-Item $log -Force -ErrorAction SilentlyContinue
+Remove-Item $log, $out, $err -Force -ErrorAction SilentlyContinue
 
 Write-Host "Starting quick tunnel -> http://127.0.0.1:$Port (http2)..."
+# The child's own --logfile never appeared on one run while the identical
+# command registered fine with its output redirected, so redirect here: the
+# hostname is only ever printed to the standard streams.
 Start-Process -FilePath $exe -ArgumentList @(
     'tunnel', '--url', "http://127.0.0.1:$Port",
-    '--no-autoupdate', '--protocol', 'http2', '--logfile', $log
-) -WindowStyle Hidden
+    '--no-autoupdate', '--protocol', 'http2'
+) -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
 
 $hostName = $null
 for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Seconds 2
-    if (Test-Path $log) {
-        $match = Select-String -Path $log -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' |
+    foreach ($file in @($log, $out, $err)) {
+        if (-not (Test-Path $file)) { continue }
+        $match = Select-String -Path $file -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' |
             Select-Object -First 1
         if ($match) { $hostName = $match.Matches[0].Value; break }
     }
+    if ($hostName) { break }
 }
 
 if (-not $hostName) {
-    Write-Error "No hostname appeared in $log after 60s. Read the log for the failure."
+    Write-Error "No hostname appeared after 60s. Read $out and $err for the failure."
     exit 1
 }
 Write-Host "Tunnel hostname: $hostName"
