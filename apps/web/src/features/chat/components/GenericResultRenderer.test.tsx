@@ -145,6 +145,25 @@ describe("document download card", () => {
     expect(screen.queryByText(/KB$/)).not.toBeInTheDocument();
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
   });
+
+  it("states where the body came from without claiming an interpreter ran", () => {
+    render(
+      <GenericResultRenderer
+        toolName="pdf_generate"
+        result={{
+          title: "Field Report",
+          filename: "report.pdf",
+          downloadUrl: "/api/v1/generated-docs/D1",
+          contentSource: "live-research",
+          pythonSnippet: "# Body source: live-research\n",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Body: live research")).toBeInTheDocument();
+    expect(screen.queryByText(/code interpreter \(\d+ pages generated\)/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/no code interpreter ran/i)).toBeInTheDocument();
+  });
 });
 
 

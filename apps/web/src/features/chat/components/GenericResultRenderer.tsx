@@ -450,6 +450,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
       ? `${baseDownloadUrl}${baseDownloadUrl.includes('?') ? '&' : '?'}filename=${encodeURIComponent(filename)}`
       : '#';
     const pageCount = data.pageCount;
+    const contentSource = typeof data.contentSource === 'string' ? data.contentSource : '';
     const fileSizeKb: number | null =
       typeof data.fileSizeKb === 'number' ? data.fileSizeKb : null;
     const pythonSnippet = data.pythonSnippet;
@@ -505,6 +506,12 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
                     <span>{pageCount} Pages</span>
                   </>
                 )}
+                {contentSource && (
+                  <>
+                    <span>•</span>
+                    <span>Body: {contentSource.replace(/-/g, ' ')}</span>
+                  </>
+                )}
                 {typeof fileSizeKb === 'number' && (
                   <>
                     <span>•</span>
@@ -543,7 +550,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
           </div>
         </div>
 
-        {/* Collapsible Python Analysis / Code block (like ChatGPT) */}
+        {/* Collapsible render record: what this file was built from */}
         {pythonSnippet && (
           <div style={{
             borderRadius: 10,
@@ -568,7 +575,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'monospace' }}>
-                <Terminal size={12} color="var(--accent, #f472b6)" /> Python Code Interpreter ({pageCount} pages generated)
+                <Terminal size={12} color="var(--accent, #f472b6)" /> Render record (no code interpreter ran)
               </span>
               {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>

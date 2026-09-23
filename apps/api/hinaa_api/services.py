@@ -638,6 +638,38 @@ def plan_voice_response(
     )
 
 
+_DOCUMENT_TOOL_NAMES = {"pdf_generate", "document_generate"}
+
+# The builder typesets supplied text or cited findings and adds no analysis
+# tables, figures, or bibliography of its own. A toolRequest is only a request
+# at this point — nothing exists yet — so a reply listing what the document
+# "contains" is describing a file nobody has written.
+_UNVERIFIED_DOCUMENT_CLAIM = re.compile(
+    r"(?i)[,;]?\s+\b(?:with|including|featuring|complete with|packed with)\b"
+    r"(?P<list>[^.;:\n]{0,120}?\b(?:analyses?|analysis|citations?|references?|tables?|"
+    r"graphs?|figures?|illustrations?|bibliography|footnotes?|scholarly sources)\b"
+    r"[^.;:\n]{0,60})"
+)
+
+
+def _strip_unverified_document_claims(text: str) -> tuple[str, bool]:
+    """Drop clauses asserting contents a document builder cannot have produced."""
+    stripped_count = 0
+
+    def _drop(match: re.Match[str]) -> str:
+        nonlocal stripped_count
+        stripped_count += 1
+        return ""
+
+    cleaned = _UNVERIFIED_DOCUMENT_CLAIM.sub(_drop, text)
+    if not stripped_count:
+        return text, False
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"(\w)\s+\1", r"\1", cleaned)
+    return cleaned.strip(), True
+
+
 def _apply_response_quality_guard(
     plan: AssistantTurnPlan,
     is_live: bool = False,
@@ -660,6 +692,10 @@ def _apply_response_quality_guard(
             plan.displayText = rendered_display
         except Exception:
             logger.debug("Citation rendering in quality guard skipped", exc_info=True)
+
+    if any(t.toolName in _DOCUMENT_TOOL_NAMES for t in plan.toolRequests):
+        plan.displayText, _ = _strip_unverified_document_claims(plan.displayText)
+        plan.spokenText, _ = _strip_unverified_document_claims(plan.spokenText)
 
     had_laughter = display_laughed or spoken_laughed
     if had_laughter:

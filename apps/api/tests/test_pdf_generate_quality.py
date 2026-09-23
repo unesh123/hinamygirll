@@ -14,7 +14,8 @@ import pytest
 
 from hinaa_api.tools import pdf_generate
 from hinaa_api.config import Settings
-from hinaa_api.models import TurnRequest
+from hinaa_api import services
+from hinaa_api.models import AssistantTurnPlan, TurnRequest
 from hinaa_api.services import ConversationService
 
 
@@ -227,6 +228,58 @@ def test_pdf_trigger_does_not_claim_content_it_did_not_write():
     text = plan.displayText + " " + plan.spokenText
     assert not re.search(r"(?i)\b(?:with|and)\s+(?:detailed\s+analysis|citations|references|comparison tables)\b", text), text
     assert re.search(r"(?i)typesetting|lays? .{0,20}out", plan.displayText), plan.displayText
+
+
+FABRICATED_SUMMARY = (
+    "I have compiled your complete academic assignment and research report on "
+    "**Quantum Computing** into a publication-grade PDF with structured foundations, "
+    "comparison tables, detailed analysis, and citations."
+)
+
+
+def _plan_with_pending_document_tool() -> AssistantTurnPlan:
+    service = ConversationService(Settings(provider_mode="mock"))
+    plan = _run(
+        service.create_plan(
+            TurnRequest(sessionId="s-pdf-guard", userId="user-1", text="make me a pdf about quantum computing")
+        )
+    ).value
+    assert [t.toolName for t in plan.toolRequests] == ["pdf_generate"], plan.toolRequests
+    return plan
+
+
+@pytest.mark.parametrize("tool_name", ["pdf_generate", "document_generate"])
+def test_pending_document_turn_strips_claims_about_the_file(tool_name: str):
+    """Nothing exists yet at guard time, so the reply may not describe the file's contents."""
+    plan = _plan_with_pending_document_tool()
+    plan.toolRequests[0].toolName = tool_name
+    plan.displayText = plan.spokenText = FABRICATED_SUMMARY
+    services._apply_response_quality_guard(plan)
+
+    for field in (plan.displayText, plan.spokenText):
+        assert "comparison tables" not in field, field
+        assert "detailed analysis" not in field, field
+        assert "citations" not in field, field
+    assert "publication-grade PDF" in plan.displayText, plan.displayText
+    assert plan.toolRequests[0].parameters.get("topic") == "quantum computing"
+
+
+def test_the_shield_does_not_widen_past_documents():
+    """Ordinary prose keeps its wording; only document turns are scrubbed."""
+    plan = _plan_with_pending_document_tool()
+    plan.toolRequests[0].toolName = "web_search"
+    plan.displayText = plan.spokenText = FABRICATED_SUMMARY
+    services._apply_response_quality_guard(plan)
+    assert "comparison tables" in plan.displayText, plan.displayText
+
+    honest = _plan_with_pending_document_tool()
+    honest.spokenText = honest.displayText = (
+        "• **Layout**: ReportLab PDF with running header and page numbers\n\n"
+        "The document builder only lays that material out - it does not add sections, facts, or references of its own."
+    )
+    services._apply_response_quality_guard(honest)
+    assert "running header and page numbers" in honest.displayText, honest.displayText
+    assert "references of its own" in honest.displayText, honest.displayText
 
 
 def _flat(block):
