@@ -2134,10 +2134,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         and so fell through to fabricated demo rows. Declared under /v1 so the
         generic alias block below also serves the /api/v1 form.
         """
-        from datetime import datetime, timezone
         from pathlib import Path
 
-        from hinaa_api.config import DATA_DIR
+        from hinaa_api.artifacts.inventory import list_image_artifacts
 
         try:
             page = max(1, min(int(limit), 200))
@@ -2167,30 +2166,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Persistence is optional; files on disk are still the truth.
             pass
 
-        entries: list[dict[str, object]] = []
-        images_root = DATA_DIR / "images"
-        if images_root.exists():
-            suffixes = {".png", ".jpg", ".jpeg", ".webp"}
-            files = [
-                path
-                for path in images_root.iterdir()
-                if path.is_file() and path.suffix.lower() in suffixes
-            ]
-            files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
-            for path in files[:page]:
-                stat = path.stat()
-                entries.append(
-                    {
-                        "id": path.name,
-                        "filename": path.name,
-                        "url": f"/api/v1/generated-images/{path.name}",
-                        "prompt": prompts.get(path.stem) or prompts.get(path.name),
-                        "created_at": datetime.fromtimestamp(
-                            stat.st_mtime, tz=timezone.utc
-                        ).isoformat(),
-                        "sizeKb": round(stat.st_size / 1024, 1),
-                    }
-                )
+        entries = list_image_artifacts(page)
+        for entry in entries:
+            name = str(entry["filename"])
+            entry["prompt"] = prompts.get(name) or prompts.get(Path(name).stem)
         return {"images": entries, "count": len(entries)}
 
     @app.get("/v1/generated-images/{image_id}")
@@ -2252,12 +2231,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from fastapi.responses import FileResponse
         from pathlib import Path
 
-        allowed_roots = [
-            (Path(__file__).resolve().parent / "data" / "documents").resolve(),
-            (Path(__file__).resolve().parent.parent / "data" / "documents").resolve(),
-            Path("apps/api/data/documents").resolve(),
-            Path("apps/api/hinaa_api/data/documents").resolve(),
-        ]
+        from .artifacts.inventory import document_roots
+
+        allowed_roots = document_roots()
 
         clean_name = Path(doc_id).name
         resolved_path = None
@@ -3021,68 +2997,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return FileResponse(path, media_type=media_type, filename=path.name)
 
     @app.get("/v1/artifacts/lookup")
-    async def lookup_artifact(
-        request: Request,
-        kind: str,
-        session_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Look up an artifact by kind (pdf, docx, pptx, image, etc.) in the current session or recent tasks."""
-        # Local workspace artifacts are scoped to the configured development
-        # owner and do not require persistent auth. Persistent artifacts still
-        # require server-resolved identity below.
-        if memory_service is None:
-            local_artifact = workspace_service.latest_artifact(_workspace_user_id(request), kind)
-            if not local_artifact:
-                return {"found": False, "kind": kind}
+    async def lookup_artifact(request: Request, kind: str) -> dict[str, Any]:
+        """Find the newest artifact of a kind, from the project store then from disk.
+
+        ``kind`` accepts both the project-store tokens (``note``, ``research``,
+        ``document``, ``image``) and the formats the UI asks for (``pdf``,
+        ``docx``, ``pptx``, ``xlsx``). A kind with no project record still
+        resolves if the file exists, which is the case for every document
+        rendered before artifacts were persisted.
+        """
+        normalized = kind.strip().lower()
+        local_artifact = workspace_service.latest_artifact(_workspace_user_id(request), normalized)
+        if local_artifact:
             return {
                 "found": True,
+                "source": "project",
                 "artifact": local_artifact,
-                "downloadUrl": f"/v1/projects/artifacts/{local_artifact['id']}/export",
+                "downloadUrl": f"/api/v1/projects/artifacts/{local_artifact['id']}/export",
             }
 
-        user_id = _resolve_user_id(request)
-        if not user_id:
-            raise HinaaError("AUTH_REQUIRED", "Authentication required for artifact lookup", 401, True)
-        
-        # Search in project artifacts for the current user
-        from .persistence.db import get_session_factory
-        from .persistence.orm import ProjectArtifact
-        from .config import get_settings
-        
-        session_factory = get_session_factory(active_settings)
-        
-        with session_factory() as session:
-            query = session.query(ProjectArtifact).filter(
-                ProjectArtifact.user_id == user_id,
-                ProjectArtifact.kind == kind,
-            )
-            if session_id:
-                # Filter by conversation/session if provided
-                pass  # Would need conversation linkage
-            
-            # Get the most recent artifact of this kind
-            artifact = query.order_by(ProjectArtifact.created_at.desc()).first()
-            
-            if not artifact:
-                return {
-                    "found": False,
-                    "kind": kind,
-                    "message": f"No {kind.upper()} artifact found in your projects.",
-                    "suggestion": f"Use /{kind} to create a new {kind.upper()} document.",
-                }
-            
+        from .artifacts.inventory import list_document_artifacts, list_image_artifacts
+
+        is_image = normalized in {"image", "images"}
+        on_disk = (
+            list_image_artifacts(limit=1)
+            if is_image
+            else list_document_artifacts(normalized, limit=1)
+        )
+        if on_disk:
+            artifact = on_disk[0]
             return {
                 "found": True,
-                "artifact": {
-                    "id": artifact.id,
-                    "kind": artifact.kind,
-                    "title": artifact.title,
-                    "createdAt": artifact.created_at.isoformat() if artifact.created_at else None,
-                    "projectId": artifact.project_id,
-                    "metadata": artifact.metadata,
-                },
-                "downloadUrl": f"/api/v1/projects/artifacts/{artifact.id}/export",
+                "source": "images" if is_image else "documents",
+                "artifact": artifact,
+                "downloadUrl": str(artifact["downloadUrl"]),
             }
+
+        return {
+            "found": False,
+            "kind": normalized,
+            "message": f"No {normalized.upper()} artifact found in your projects.",
+            "suggestion": f"Ask me to create a new {normalized.upper()} document.",
+        }
 
     # -----------------------------------------------------------------------
     # Phase 14: Artifact OS REST Surface
@@ -3938,50 +3894,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/v1/generated-docs")
     @app.get("/api/v1/generated-docs")
-    async def list_generated_documents() -> dict[str, object]:
-        """List HINAA-generated documents (metadata files on disk), newest first."""
-        import json as _json
-        from datetime import datetime, timezone
-        from pathlib import Path
+    async def list_generated_documents(limit: int = 200) -> dict[str, object]:
+        """Every document HINAA actually rendered, newest first.
 
-        # Every root resolves from __file__. Two cwd-relative entries used to
-        # sit here: launched from the repo root they duplicated these paths,
-        # launched from apps/api they pointed at a relocated directory.
-        roots = [
-            (Path(__file__).resolve().parent / "data" / "documents").resolve(),
-            (Path(__file__).resolve().parent.parent / "data" / "documents").resolve(),
-        ]
-        docs: list[dict[str, object]] = []
-        seen: set[str] = set()
-        for root in roots:
-            if not root.exists():
-                continue
-            metas = sorted(root.glob("*.metadata.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-            for meta_path in metas:
-                try:
-                    meta = _json.loads(meta_path.read_text(encoding="utf-8"))
-                except Exception:
-                    continue
-                if not isinstance(meta, dict):
-                    continue
-                doc_id = str(meta.get("docId") or meta_path.name.removesuffix(".metadata.json"))
-                if doc_id in seen:
-                    continue
-                seen.add(doc_id)
-                docs.append(
-                    {
-                        "docId": doc_id,
-                        "title": meta.get("title") or meta.get("filename") or doc_id,
-                        "filename": meta.get("filename"),
-                        "format": meta.get("format") or "pdf",
-                        "pageCount": meta.get("pageCount"),
-                        "fileSizeKb": meta.get("fileSizeKb"),
-                        "topic": meta.get("topic"),
-                        "downloadUrl": meta.get("downloadUrl") or f"/api/v1/generated-docs/{doc_id}",
-                        "createdAt": datetime.fromtimestamp(meta_path.stat().st_mtime, tz=timezone.utc).isoformat(),
-                    }
-                )
+        Lists the files, not the ``.metadata.json`` sidecars. Indexing sidecars
+        meant a rendered document was invisible whenever its writer failed to
+        record one, which is how the library froze at a dozen rows while 161
+        PDFs sat in the same directory.
+        """
+        from .artifacts.inventory import list_document_artifacts
+
+        docs = list_document_artifacts("document", limit)
         return {"documents": docs, "count": len(docs)}
+
+    @app.get("/v1/artifacts")
+    async def list_artifacts(
+        kind: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, object]:
+        """Everything HINAA produced that survives on disk, newest first.
+
+        Documents and generated images read straight off the filesystem, so a
+        rendered file stays listable after its own turn is gone. Documents
+        previously had no list endpoint at all, which left the UI fetching a 404
+        and showing nothing.
+        """
+        from .artifacts.inventory import (
+            document_roots,
+            image_roots,
+            list_document_artifacts,
+            list_image_artifacts,
+        )
+
+        wanted = (kind or "").strip().lower()
+        artifacts: list[dict[str, object]] = []
+        if wanted not in {"image", "images"}:
+            artifacts += list_document_artifacts(kind, limit)
+        if wanted in {"", "image", "images", "document", "file", "artifact"}:
+            artifacts += list_image_artifacts(limit)
+        artifacts.sort(
+            key=lambda item: str(item.get("createdAt") or item.get("created_at") or ""),
+            reverse=True,
+        )
+        artifacts = artifacts[: max(1, min(int(limit), 500))]
+        return {
+            "artifacts": artifacts,
+            "count": len(artifacts),
+            "kind": kind,
+            "documents": sum(1 for item in artifacts if item.get("kind") == "document"),
+            "images": sum(1 for item in artifacts if item.get("kind") == "image"),
+            "indexed": sum(1 for item in artifacts if item.get("indexed")),
+            "roots": [
+                str(root)
+                for root in [*document_roots(), *image_roots()]
+                if root.exists()
+            ],
+        }
 
     # ── Generic /api/v1 aliases ─────────────────────────────────────
     # Routes are canonically declared at /v1/... but the frontend addresses

@@ -2677,7 +2677,7 @@ class ConversationService:
                 if not any(t.toolName == "artifact_lookup" for t in plan.toolRequests):
                     plan.toolRequests.append(ToolRequest(
                         toolName="artifact_lookup",
-                        parameters={"kind": kind, "sessionId": ""},
+                        parameters={"kind": kind},
                     ))
                 break
 

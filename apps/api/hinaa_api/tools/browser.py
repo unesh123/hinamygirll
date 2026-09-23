@@ -856,27 +856,52 @@ registry.register(finance_research_def, finance_research)
 
 
 async def artifact_lookup(params: dict[str, Any]) -> dict[str, Any]:
-    """Look up an artifact by kind in the user's projects."""
+    """Find artifacts HINAA actually produced, from the project store and from disk."""
+    from ..artifacts.inventory import list_document_artifacts, list_image_artifacts
     from ..config import get_settings
     from ..persistence.db import get_session_factory
-    from ..persistence.orm import ProjectArtifact
-    
+    from ..persistence.project_service import LocalProjectService
+
     kind = str(params.get("kind", "pdf")).strip().lower()
-    session_id = str(params.get("sessionId", "")).strip() if params.get("sessionId") else None
-    
-    settings = get_settings()
-    session_factory = get_session_factory(settings)
-    
-    # This would need user context - for now return a helpful response
-    # In production, this would be called with authenticated user context
+    user_id = str(params.get("userId", "")).strip()
+
+    project_artifact = None
+    if user_id and kind not in {"image", "images"}:
+        settings = get_settings()
+        service = LocalProjectService(
+            get_session_factory(settings), settings.local_workspace_dir
+        )
+        project_artifact = service.latest_artifact(user_id, kind)
+
+    if kind in {"image", "images"}:
+        on_disk = list_image_artifacts(5)
+    else:
+        on_disk = list_document_artifacts(kind, 5)
+    artifact = project_artifact or (on_disk[0] if on_disk else None)
+    if artifact is None:
+        return {
+            "provider": "local",
+            "mode": "artifact_lookup",
+            "kind": kind,
+            "found": False,
+            "message": f"No {kind.upper()} artifact found.",
+            "suggestion": f"Ask me to create a new {kind.upper()} document.",
+            "artifact": None,
+            "candidates": [],
+        }
+
     return {
         "provider": "local",
         "mode": "artifact_lookup",
         "kind": kind,
-        "found": False,
-        "message": f"No {kind.upper()} artifact found in your projects.",
-        "suggestion": f"Use /{kind} to create a new {kind.upper()} document.",
-        "artifact": None,
+        "found": True,
+        "source": "project" if project_artifact else "disk",
+        "artifact": artifact,
+        "candidates": on_disk,
+        "summary": (
+            f"Found '{artifact.get('title') or artifact.get('filename') or artifact.get('name')}'"
+            f"{' — ' + str(artifact['downloadUrl']) if artifact.get('downloadUrl') else ''}."
+        ),
     }
 
 
@@ -886,7 +911,6 @@ artifact_lookup_def = ToolDefinition(
     description="Find a previously created artifact (PDF, document, image, etc.) in your projects.",
     parameters={
         "kind": {"type": "string", "enum": ["pdf", "docx", "pptx", "image", "video", "audio", "file"], "description": "Type of artifact to find"},
-        "sessionId": {"type": "string", "description": "Optional session/conversation ID to scope the search"},
     },
     required_parameters=["kind"],
     requires_confirmation=False,

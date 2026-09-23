@@ -183,10 +183,9 @@ async def document_generate_handler(params: GenerateDocumentParams) -> dict[str,
         "summary": f"Compiled '{title}' into a downloadable {fmt.upper()} document ({file_size_kb} KB) from {provenance.replace('-', ' ')} content.",
     }
 
-    if params.userId:
-        file_path.with_suffix(".metadata.json").write_text(
-            json.dumps({**result, "ownerId": params.userId}), encoding="utf-8"
-        )
+    file_path.with_suffix(".metadata.json").write_text(
+        json.dumps({**result, "ownerId": params.userId or "unattributed"}), encoding="utf-8"
+    )
 
     logger.info("Generated document %s: %s (%d bytes)", doc_id, filename, file_size_bytes)
     return result
