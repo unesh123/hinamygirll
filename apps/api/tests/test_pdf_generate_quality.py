@@ -1,6 +1,15 @@
+"""Document-body provenance: Hina may typeset real material or refuse, never invent.
+
+These tests pin the contract that replaced the canned academic builders: the body
+comes from supplied text or a live research pass, every finding carries its own
+address, and an empty pass yields an error instead of a filled-in template.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
+import re
+
 import pytest
 
 from hinaa_api.tools import pdf_generate
@@ -9,8 +18,7 @@ from hinaa_api.models import TurnRequest
 from hinaa_api.services import ConversationService
 
 
-def test_markdown_parser_headings_bullets_and_tables():
-    markdown = """# Executive Overview
+SUPPLIED_MARKDOWN = """# Executive Overview
 This document synthesizes key findings from empirical analysis.
 
 ## Key Observations
@@ -28,9 +36,12 @@ This document synthesizes key findings from empirical analysis.
 1. Deploy speculative decoding on edge clusters.
 2. Maintain zero-trust token authentication.
 """
-    sections = pdf_generate._build_user_content_sections(markdown)
+
+
+def test_markdown_parser_headings_bullets_and_tables():
+    sections = pdf_generate._build_user_content_sections(SUPPLIED_MARKDOWN)
     assert len(sections) >= 3
-    
+
     titles = [s[0] for s in sections]
     assert "Executive Overview" in titles
     assert "Key Observations" in titles
@@ -40,67 +51,136 @@ This document synthesizes key findings from empirical analysis.
     table_section = next(s for s in sections if s[0] == "Benchmark Data")
     elements = table_section[1]
     assert isinstance(elements, list)
-    # The table is parsed into a 2D list of row cells: list[list[str]]
     has_table = any(isinstance(el, list) and len(el) > 0 and isinstance(el[0], list) for el in elements)
     assert has_table, "Benchmark Data section should contain parsed table data rows"
 
 
-def test_domain_specific_academic_generators_no_boilerplate():
-    boilerplate = "This academic study investigates the fundamental dynamics"
-
-    # 1. History
-    h_title, history_sections = pdf_generate._build_academic_content("World War II causes and major turning points")
-    h_text = " ".join(str(s[1]) for s in history_sections)
-    assert boilerplate not in h_text
-    assert "Treaty of Versailles" in h_text or "Axis" in h_text or "Battle of Midway" in h_text
-    assert any("Historiographical" in s[0] or "Scholarly" in s[0] or "References" in s[0] or "Citations" in s[0] for s in history_sections)
-
-    # 2. Biology
-    b_title, bio_sections = pdf_generate._build_academic_content("CRISPR-Cas9 gene editing and molecular biology")
-    b_text = " ".join(str(s[1]) for s in bio_sections)
-    assert boilerplate not in b_text
-    assert "macromolecular" in b_text.lower() or "dna" in b_text.lower() or "crispr" in b_text.lower()
-    assert any("Citations" in s[0] or "References" in s[0] for s in bio_sections)
-
-    # 3. Economics
-    e_title, econ_sections = pdf_generate._build_academic_content("Macroeconomic inflation and monetary policy")
-    e_text = " ".join(str(s[1]) for s in econ_sections)
-    assert boilerplate not in e_text
-    assert "monetary" in e_text.lower() or "inflation" in e_text.lower() or "equilibrium" in e_text.lower()
-    assert any("References" in s[0] or "Econometric" in s[0] or "Citations" in s[0] for s in econ_sections)
-
-    # 4. Computer Science / AI
-    cs_title, cs_sections = pdf_generate._build_academic_content("Deep neural network architectures and transformers")
-    cs_text = " ".join(str(s[1]) for s in cs_sections)
-    assert boilerplate not in cs_text
-    assert "transformer" in cs_text.lower() or "flashattention" in cs_text.lower() or "complexity" in cs_text.lower()
-    assert any("Citations" in s[0] or "References" in s[0] for s in cs_sections)
-
-    # 5. Universal Academic
-    u_title, univ_sections = pdf_generate._build_academic_content("Astrophysical accretion disks around Kerr black holes")
-    u_text = " ".join(str(s[1]) for s in univ_sections)
-    assert boilerplate not in u_text
-    assert len(univ_sections) >= 6
-    assert any("References" in s[0] or "Bibliography" in s[0] or "Citations" in s[0] for s in univ_sections)
+def test_inventing_builders_are_gone():
+    for name in (
+        "_build_academic_content",
+        "_build_universal_academic_content",
+        "_build_history_content",
+        "_build_biology_content",
+        "_build_economics_content",
+        "_build_cs_ai_content",
+    ):
+        assert not hasattr(pdf_generate, name), f"{name} could still fabricate a document"
 
 
-@pytest.mark.asyncio
-async def test_academic_pdf_real_render_multi_page(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(pdf_generate, "DOCS_DIR", tmp_path)
-    
-    result = await pdf_generate.pdf_generate_handler(
-        pdf_generate.GeneratePDFParams(
-            topic="World War II causes and major turning points",
-            author="Hinaa Research Division",
+def test_tool_descriptions_do_not_promise_invented_content():
+    from hinaa_api.tools.document_generate import document_generate_def
+    from hinaa_api.tools.pdf_generate import pdf_generate_def
+
+    for definition in (pdf_generate_def, document_generate_def):
+        text = definition.description + " ".join(
+            str(spec.get("description", "")) for spec in definition.parameters.values()
+        )
+        assert "DOCUMENT_NO_SOURCE" in text, f"{definition.name} must advertise that it refuses"
+        assert "generate research" not in text.lower()
+
+
+def test_supplied_text_is_the_body_and_keeps_a_document_register():
+    title, sections, provenance = _run(
+        pdf_generate.compose_document_source(
+            topic="World War II causes",
+            content="Hey babe, here is my assignment on the Weimar Republic.\n\nThe Treaty of Versailles imposed reparations.",
+            title=None,
         )
     )
-    assert result["status"] == "success"
-    assert result["pageCount"] >= 2, f"Expected multi-page PDF, got {result['pageCount']}"
-    assert result["fileSizeBytes"] > 5000, f"Expected rich PDF > 5KB, got {result['fileSizeBytes']}"
-    
+    assert provenance == "supplied-text"
+    body = " ".join(str(block) for _, blocks in sections for block in _flat(blocks))
+    assert "Treaty of Versailles" in body
+    assert not re.search(r"(?i)\bbabe\b", body), "chat warmth leaked into the document"
+
+
+def test_bare_topic_refuses_instead_of_filling_template(monkeypatch):
+    async def no_answer(topic: str) -> list:
+        return []
+
+    monkeypatch.setattr(pdf_generate, "_research_body", no_answer)
+    with pytest.raises(pdf_generate.NoDocumentSource):
+        _run(pdf_generate.compose_document_source(topic="Astrophysics", content=None, title=None))
+
+
+def test_handler_reports_refusal_and_writes_no_file(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(pdf_generate, "DOCS_DIR", tmp_path)
+
+    async def no_answer(topic: str) -> list:
+        return []
+
+    monkeypatch.setattr(pdf_generate, "_research_body", no_answer)
+    result = _run(
+        pdf_generate.pdf_generate_handler(pdf_generate.GeneratePDFParams(topic="Cryptography history"))
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "DOCUMENT_NO_SOURCE"
+    assert list(tmp_path.iterdir()) == [], "a refused document must not leave a file behind"
+
+
+def test_research_sections_cite_every_finding():
+    items = [
+        {"source": "wikipedia", "title": "Naval Enigma", "snippet": "Machines used by Kriegsmarine.", "url": "https://example.org/enigma"},
+        {"source": "arxiv", "title": "Cryptanalysis survey", "snippet": "", "url": "https://arxiv.org/abs/1234"},
+    ]
+    sources = [
+        {"id": "wikipedia", "status": "ok", "count": 1},
+        {"id": "arxiv", "status": "ok", "count": 1},
+        {"id": "hackernews", "status": "failed", "count": 0, "error": "timed out"},
+    ]
+    sections = pdf_generate._research_sections(items, sources)
+    titles = [heading for heading, _ in sections]
+    assert "Sources queried" in titles
+    body = " ".join(str(block) for _, blocks in sections for block in _flat(blocks))
+    assert "https://example.org/enigma" in body
+    assert "https://arxiv.org/abs/1234" in body
+    assert "timed out" in body, "a source that did not answer must be named, not hidden"
+
+
+def test_live_research_pdf_is_stamped_with_its_provenance(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(pdf_generate, "DOCS_DIR", tmp_path)
+
+    async def answered(topic: str) -> list:
+        return pdf_generate._research_sections(
+            [{"source": "wikipedia", "title": "Enigma", "snippet": "Cipher machine.", "url": "https://example.org/e"}],
+            [{"id": "wikipedia", "status": "ok", "count": 1}],
+        )
+
+    monkeypatch.setattr(pdf_generate, "_research_body", answered)
+    result = _run(
+        pdf_generate.pdf_generate_handler(
+            pdf_generate.GeneratePDFParams(topic="Enigma cipher machines", author="Unesh")
+        )
+    )
+    assert result["status"] == "success", result
+    assert result["contentSource"] == "live-research"
+    assert "example.org" in result["summary"] or result["sectionCount"] >= 2
+
     pdf_file = tmp_path / f"{result['docId']}.pdf"
     assert pdf_file.exists()
     assert pdf_file.read_bytes().startswith(b"%PDF-")
+
+
+def test_supplied_text_pdf_renders_without_the_network(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(pdf_generate, "DOCS_DIR", tmp_path)
+
+    async def should_not_run(topic: str) -> list:  # pragma: no cover - guards the network
+        raise AssertionError("supplied content must not trigger a research pass")
+
+    monkeypatch.setattr(pdf_generate, "_research_body", should_not_run)
+    result = _run(
+        pdf_generate.pdf_generate_handler(
+            pdf_generate.GeneratePDFParams(
+                topic="Throughput study",
+                title="Throughput Study",
+                content=SUPPLIED_MARKDOWN,
+            )
+        )
+    )
+    assert result["status"] == "success"
+    assert result["contentSource"] == "supplied-text"
+    assert result["pageCount"] >= 1
+    assert result["fileSizeBytes"] > 2000
+    assert (tmp_path / f"{result['docId']}.pdf").read_bytes().startswith(b"%PDF-")
 
 
 @pytest.mark.asyncio
@@ -108,32 +188,56 @@ async def test_anaphora_resolution_extracts_previous_topic():
     settings = Settings(provider_mode="mock")
     service = ConversationService(settings)
     session_id = "test-session-anaphora"
-    
-    # User had a prior discussion about World War II
+
     service.memory.append_turn(
         session_id,
         "Tell me about the causes of World War II and the major alliances.",
-        '{"displayText": "# World War II Analysis\n\nThe conflict arose from the Treaty of Versailles and expansionist fascism.\n\n## Major Alliances\n- Allied Powers: UK, USSR, USA\n- Axis Powers: Germany, Japan, Italy", "spokenText": "Here is the summary of World War II babe."}'
+        '{"displayText": "# World War II Analysis\\n\\nThe conflict arose from the Treaty of Versailles and expansionist fascism.\\n\\n## Major Alliances\\n- Allied Powers: UK, USSR, USA\\n- Axis Powers: Germany, Japan, Italy", "spokenText": "Here is the summary of World War II babe."}',
     )
-    
-    # User now asks for a PDF based on the assignment
+
     req = TurnRequest(
         sessionId=session_id,
         userId="user-1",
         text="can you make a pdf based on that assignment",
     )
     plan = await service.create_plan(req)
-    
-    # Verify toolRequest for pdf_generate was generated
+
     assert plan.value.toolRequests is not None and len(plan.value.toolRequests) > 0
     tool_req = plan.value.toolRequests[0]
     assert tool_req.toolName == "pdf_generate"
-    
-    # Topic should NOT be 'based on that' or 'that assignment', it should be resolved from context
+
     resolved_topic = tool_req.parameters.get("topic", "")
     assert "world war" in resolved_topic.lower() or "causes" in resolved_topic.lower()
-    
-    # Substantive content should be passed
+
     content = tool_req.parameters.get("content", "")
     assert len(content) > 20
     assert "World War II Analysis" in content or "Allied Powers" in content
+
+
+def test_pdf_trigger_does_not_claim_content_it_did_not_write():
+    """The turn may not promise analysis or citations the builder cannot guarantee."""
+    settings = Settings(provider_mode="mock")
+    service = ConversationService(settings)
+    plan = _run(
+        service.create_plan(
+            TurnRequest(sessionId="s-pdf-claim", userId="user-1", text="make me a pdf about photosynthesis")
+        )
+    ).value
+
+    text = plan.displayText + " " + plan.spokenText
+    assert not re.search(r"(?i)\b(?:with|and)\s+(?:detailed\s+analysis|citations|references|comparison tables)\b", text), text
+    assert re.search(r"(?i)typesetting|lays? .{0,20}out", plan.displayText), plan.displayText
+
+
+def _flat(block):
+    for item in block if isinstance(block, list) else [block]:
+        if isinstance(item, list):
+            yield from _flat(item)
+        else:
+            yield item
+
+
+def _run(coroutine):
+    import asyncio
+
+    return asyncio.run(coroutine)

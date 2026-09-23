@@ -1,7 +1,7 @@
 """document_generate.py — Multi-Format Document Generation Tool (DOCX, PDF, PPTX).
 
 Supports producing publication-grade Word DOCX, ReportLab PDF, and PowerPoint PPTX documents
-from user prompts, outlines, or synthesized academic content.
+from supplied text or a live multi-source research pass. The exporters format; they do not author.
 """
 from __future__ import annotations
 
@@ -24,9 +24,10 @@ from hinaa_api.artifacts.exporters import (
 from hinaa_api.tools.pdf_generate import (
     DOCS_DIR,
     GeneratePDFParams,
-    _build_academic_content,
-    _build_user_content_sections,
+    NoDocumentSource,
     _sanitize_slug,
+    _scrub_chat_affection,
+    compose_document_source,
     pdf_generate_handler,
 )
 from hinaa_api.tools.registry import ToolDefinition, registry
@@ -81,15 +82,32 @@ async def document_generate_handler(params: GenerateDocumentParams) -> dict[str,
         )
 
     # Determine title & markdown content
+    provenance = "supplied-text"
     if params.content and params.content.strip():
         title = params.title or effective_topic.title()
-        raw_markdown = params.content.strip()
+        raw_markdown = _scrub_chat_affection(params.content).strip()
     else:
-        title, sections = _build_academic_content(effective_topic)
-        if params.title:
-            title = params.title
-        # Convert sections to high-fidelity markdown
-        md_parts = [f"# {title}\n\n*Prepared by {params.author or 'HINAA AI Studio'}*\n"]
+        try:
+            title, sections, provenance = await compose_document_source(
+                topic=effective_topic,
+                content=None,
+                title=params.title,
+            )
+        except NoDocumentSource as error:
+            return {
+                "status": "error",
+                "code": "DOCUMENT_NO_SOURCE",
+                "topic": error.topic,
+                "error": (
+                    f"No {fmt.upper()} was generated for '{error.topic}'. {error.reason} Send me the "
+                    f"text to lay out, or ask again once the research sources answer — I will not pad "
+                    f"the pages with template prose."
+                ),
+            }
+        # Convert the sourced sections to markdown for the DocumentAST exporters
+        md_parts = [
+            f"# {title}\n\n*Prepared by {params.author or 'HINAA AI Studio'} · Body source: {provenance}*\n"
+        ]
         for heading, body in sections:
             md_parts.append(f"## {heading}\n")
             if isinstance(body, list):
@@ -161,7 +179,8 @@ async def document_generate_handler(params: GenerateDocumentParams) -> dict[str,
         "fileSizeBytes": file_size_bytes,
         "fileSizeKb": file_size_kb,
         "topic": effective_topic,
-        "summary": f"Successfully compiled '{title}' into a downloadable {fmt.upper()} document ({file_size_kb} KB).",
+        "contentSource": provenance,
+        "summary": f"Compiled '{title}' into a downloadable {fmt.upper()} document ({file_size_kb} KB) from {provenance.replace('-', ' ')} content.",
     }
 
     if params.userId:
@@ -176,7 +195,12 @@ async def document_generate_handler(params: GenerateDocumentParams) -> dict[str,
 document_generate_def = ToolDefinition(
     name="document_generate",
     display_name="Generate Document",
-    description="Generate high-fidelity Word DOCX, PDF, PPTX, or Markdown documents and return downloadable URLs.",
+    description=(
+        "Lay out a Word DOCX, PDF, PPTX, or Markdown document and return a downloadable URL. "
+        "`content` is laid out verbatim; without it the body comes from a live multi-source research "
+        "pass on `topic`. Nothing is invented from a bare topic — the tool answers DOCUMENT_NO_SOURCE "
+        "when there is no real material."
+    ),
     parameters={
         "title": {"type": "string", "description": "Document title"},
         "content": {"type": "string", "description": "Document text or markdown body"},
@@ -185,7 +209,7 @@ document_generate_def = ToolDefinition(
             "enum": ["docx", "pdf", "pptx", "md", "html"],
             "description": "Target file format: docx, pdf, pptx, md, or html",
         },
-        "topic": {"type": "string", "description": "Topic to generate research or assignment content on"},
+        "topic": {"type": "string", "description": "Subject to research when no content is supplied"},
         "author": {"type": "string", "description": "Author name"},
         "category": {"type": "string", "description": "Document type / category"},
     },

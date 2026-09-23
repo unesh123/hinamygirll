@@ -249,10 +249,11 @@ COMMAND_REGISTRY: dict[str, CommandDefinition] = {
     "document": CommandDefinition(
         name="document",
         aliases=["document", "create doc", "write doc"],
-        description="Create a document (PDF, DOCX, Markdown) from provided content",
+        description="Lay out a document (PDF, DOCX, Markdown) from your content, or from a live research pass on the subject you name",
         examples=[
             "/document create a report from @research-results",
             "/document write a summary of the meeting notes",
+            "/document photosynthesis — research it and lay it out",
         ],
         inputSchema={
             "type": "object",
@@ -273,10 +274,11 @@ COMMAND_REGISTRY: dict[str, CommandDefinition] = {
     "pdf": CommandDefinition(
         name="pdf",
         aliases=["pdf", "create pdf", "export pdf"],
-        description="Generate a PDF document from content or context references",
+        description="Typeset a PDF from content or context references, or research the subject you name",
         examples=[
             "/pdf create a report from @research-results",
             "/pdf export the conversation as PDF",
+            "/pdf World War II — built from live cited findings",
         ],
         inputSchema={
             "type": "object",

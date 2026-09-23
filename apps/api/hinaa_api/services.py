@@ -2126,31 +2126,41 @@ class ConversationService:
             final_topic = re.sub(r"(?i)\bww1\b", "World War I", final_topic)
 
             clean_display_title = final_topic.strip().title()
-            if not clean_display_title.lower().endswith("assignment") and not clean_display_title.lower().endswith("report") and not clean_display_title.lower().endswith("document"):
-                doc_title = f"{clean_display_title} Academic Document"
-            else:
+            if clean_display_title.lower().endswith(("assignment", "report", "document")):
                 doc_title = clean_display_title
+            else:
+                doc_title = f"{clean_display_title} Report"
+
+            body_source = (
+                "the write-up already in our conversation"
+                if extracted_content
+                else "a live multi-source research pass I am running now"
+            )
 
             plan.toolRequests.append(ToolRequest(
                 toolName="pdf_generate",
                 parameters={
                     "topic": final_topic,
                     "title": doc_title,
-                    "category": "Academic Assignment",
+                    "category": "Research Report",
                     "content": extracted_content,
                 },
             ))
 
             plan.displayText = (
-                f"### 📄 Academic PDF: {clean_display_title}\n\n"
-                f"I have compiled your complete academic assignment and research report on **{clean_display_title}** "
-                f"into a publication-grade PDF with structured foundations, comparison tables, detailed analysis, and citations.\n\n"
-                f"• **Document Title**: {doc_title}\n"
-                f"• **Category**: Academic Assignment / Research Report\n"
-                f"• **Format**: Publication-Grade ReportLab PDF\n\n"
-                f"Your PDF is compiled and ready for instant download below! ✨"
+                f"### 📄 PDF: {clean_display_title}\n\n"
+                f"I'm typesetting **{doc_title}** from {body_source}. The document builder only lays "
+                f"that material out — it does not add sections, facts, or references of its own.\n\n"
+                f"• **Title**: {doc_title}\n"
+                f"• **Category**: Research Report\n"
+                f"• **Layout**: ReportLab PDF with running header and page numbers\n\n"
+                f"If the sources behind it don't answer, I'll tell you straight instead of handing over a filled template."
             )
-            plan.spokenText = f"Babe, I've compiled your {final_topic} assignment into a complete academic PDF report! You can download it right below ✨"
+            plan.spokenText = (
+                f"Babe, I'm building your {final_topic} PDF right now from "
+                f"{'what we already wrote here' if extracted_content else 'live research'} — "
+                f"the download card appears here as soon as the file is really ready."
+            )
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
 
@@ -2402,9 +2412,9 @@ class ConversationService:
             "verify": ("web_answer", {"query": clean_args}),
             "extract": ("web_extract", {"urls": clean_args.split()}),
             "read": ("web_extract", {"urls": clean_args.split()}),
-            "document": ("document_generate", {"title": clean_args or "Generated Document", "content": "", "format": flags.get("format", "pdf")}),
-            "create doc": ("document_generate", {"title": clean_args or "Generated Document", "content": "", "format": "docx"}),
-            "pdf": ("pdf_generate", {"topic": clean_args or "Academic Assignment", "title": clean_args or "Academic Document", "content": ""}),
+            "document": ("document_generate", {"title": clean_args, "content": "", "format": flags.get("format", "pdf")}),
+            "create doc": ("document_generate", {"title": clean_args, "content": "", "format": "docx"}),
+            "pdf": ("pdf_generate", {"topic": clean_args, "title": clean_args, "content": ""}),
             "gamma": ("create_gamma_presentation", {"topic": clean_args or "Presentation", "format": "presentation"}),
             "deck": ("create_gamma_presentation", {"topic": clean_args or "Pitch Deck", "format": "presentation"}),
             "gamma doc": ("create_gamma_presentation", {"topic": clean_args or "Document", "format": "document"}),
@@ -2436,6 +2446,14 @@ class ConversationService:
                 # in a failed card. The turn stays conversational instead.
                 return
             existing_req = next((t for t in plan.toolRequests if t.toolName == tool_name), None)
+            if tool_name in {"pdf_generate", "document_generate"} and not clean_args and not existing_req:
+                self._set_command_text(
+                    plan,
+                    "What should the document be about? Try `/pdf World War II`. I typeset either the "
+                    "text you give me or a live research pass on the subject you name — I don't invent "
+                    "one from an empty command.",
+                )
+                return
             if existing_req:
                 for k, v in base_params.items():
                     if not existing_req.parameters.get(k):
