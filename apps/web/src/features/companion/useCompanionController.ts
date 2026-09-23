@@ -674,7 +674,11 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           body: JSON.stringify({ ...request, confirmed: true, approvalSource }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok || payload.status === "error") {
+        // A 200 carrying status "error" is the tool refusing, not a transport
+        // fault. resolveToolOutcome labels it and the result reaches toolResults,
+        // where the card can say so out loud. Throwing here buried the refusal in
+        // an activity row that only renders while the turn is still thinking.
+        if (!response.ok) {
           throw new Error(payload.detail || payload.error || `Action failed (${response.status})`);
         }
         if (payload.status === "processing" && payload.job_id) {
@@ -728,6 +732,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         const label = error instanceof Error ? error.message : "Approved action failed";
         setMessages((current) => current.map((message) => message.id === messageId ? {
           ...message,
+          toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: { status: "error", error: label } }],
           toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
             ...activity, status: "error", label: `Failed: ${label}`,
           } : activity),

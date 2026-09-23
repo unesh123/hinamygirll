@@ -25,21 +25,28 @@ const plan: AssistantTurnPlan = {
   toolRequests: [{ toolName: "diagnostic_echo", parameters: { message: "ok" } }],
 };
 
+const pdfPlan: AssistantTurnPlan = {
+  ...plan,
+  displayText: "I'm typesetting Quantum Computing Report now.",
+  spokenText: "Building it now.",
+  toolRequests: [{ toolName: "pdf_generate", parameters: { topic: "quantum computing", content: "" } }],
+};
+
 const routing = {
   activeMode: "mock",
   useBackend: false,
 } as unknown as ProviderRuntimeSelection;
 
-function seedTranscriptWithProposedAction(): void {
+function seedTranscriptWithProposedAction(seedPlan: AssistantTurnPlan = plan): void {
   localStorage.setItem(
     "hinaa-messages-hinaa",
     JSON.stringify([
       {
         id: "assistant-with-action",
         role: "assistant",
-        text: plan.displayText,
+        text: seedPlan.displayText,
         createdAt: new Date().toISOString(),
-        plan,
+        plan: seedPlan,
       },
     ]),
   );
@@ -156,6 +163,49 @@ describe("tool autonomy", () => {
     rerender();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an in-band tool refusal visible after the turn ends", async () => {
+    // Measured on production: pdf_generate answered 200 with DOCUMENT_NO_SOURCE
+    // and the thread went silent after promising "the download card appears as
+    // soon as the file is really ready".
+    seedTranscriptWithProposedAction(pdfPlan);
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        status: "error",
+        code: "DOCUMENT_NO_SOURCE",
+        error: "No PDF was generated for 'quantum computing'. No research source answered.",
+      }),
+    }));
+
+    const { result } = renderController(true);
+
+    await waitFor(() => {
+      const activity = result.current.messages.at(-1)?.toolActivity ?? [];
+      expect(activity[0]?.status).toBe("error");
+    });
+    const recorded = result.current.messages.at(-1)?.toolResults ?? [];
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].toolName).toBe("pdf_generate");
+    expect((recorded[0].result as { error?: string }).error).toContain("No PDF was generated");
+    expect((recorded[0].result as { code?: string }).code).toBe("DOCUMENT_NO_SOURCE");
+  });
+
+  it("records a rejected execution as a result too", async () => {
+    seedTranscriptWithProposedAction(pdfPlan);
+    fetchMock.mockImplementation(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "This action is not permitted from a public address." }),
+    }));
+
+    const { result } = renderController(true);
+
+    await waitFor(() => {
+      const recorded = result.current.messages.at(-1)?.toolResults ?? [];
+      expect((recorded[0]?.result as { error?: string })?.error).toContain("not permitted from a public address");
+    });
   });
 
   it("hydrates from the active conversation id instead of the legacy companion cache", () => {
