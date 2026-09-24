@@ -40,6 +40,7 @@ import { PowerUpMentions, type ContextItem, type CommandItem } from "../../compo
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
+import { useActionEngine, HinaSurface, HinaActionStack } from "../../features/actions";
 
 
 /* Local command registry fallback - used when /api/v1/commands is unavailable.
@@ -364,6 +365,16 @@ export function WorkMode({
 
   const activeTopic = localTopic !== null ? (localTopic || null) : (searchQuery || (plan as any)?.topic || null);
 
+  // HINA Action Engine & Motion System ("The Walk")
+  const {
+    activeDraft,
+    committedActions,
+    commitAction,
+    dismissDraft,
+    removeCommittedAction,
+    updateCommittedAction,
+  } = useActionEngine(input, () => onInputChange(""));
+
   const handleComposerSend = useCallback(
     (options?: {
       mode?: ActionMode;
@@ -371,6 +382,12 @@ export function WorkMode({
       attachmentRole?: AttachmentRole;
       isGoalMode?: boolean;
     }) => {
+      // If an interactive action card is walking, commit it into the stack
+      if (activeDraft) {
+        commitAction(activeDraft);
+        return;
+      }
+
       let text = input.trim();
       if (!text && !attachedImage) return;
 
@@ -389,7 +406,7 @@ export function WorkMode({
 
       onSend(text, options?.attachmentRole);
     },
-    [input, attachedImage, goalModeEnabled, onSend]
+    [input, attachedImage, goalModeEnabled, onSend, activeDraft, commitAction]
   );
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
@@ -1330,6 +1347,30 @@ export function WorkMode({
             >
               <X size={13} />
             </button>
+          </div>
+        )}
+
+        {/* The Walk: Live Morphing Action Surface (Law 1, 4, 5) */}
+        {activeDraft && (
+          <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", width: "100%" }}>
+            <HinaSurface
+              draft={activeDraft}
+              compact={isMobile}
+              onCommit={(draft) => commitAction(draft)}
+              onDismiss={dismissDraft}
+            />
+          </div>
+        )}
+
+        {/* Stack Choreography (Law 7): Persistent Action Stack */}
+        {committedActions.length > 0 && !activeDraft && (
+          <div style={{ marginBottom: 8, display: "flex", justifyContent: "center", width: "100%" }}>
+            <HinaActionStack
+              items={committedActions}
+              compact={isMobile}
+              onRemoveItem={removeCommittedAction}
+              onUpdateItem={updateCommittedAction}
+            />
           </div>
         )}
 

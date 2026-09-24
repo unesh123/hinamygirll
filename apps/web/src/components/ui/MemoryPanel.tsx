@@ -30,7 +30,8 @@ interface MemoryPanelProps {
 }
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
-  const { entries, loading, error, removeMemory, updateMemory, clearAll, searchMemory } = useMemory();
+  const { entries, loading, error, removeMemory, updateMemory, clearAll, searchMemory } =
+    useMemory({ enabled: isOpen });
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");

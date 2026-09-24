@@ -45,7 +45,7 @@ async function memoryFetch(path: string, init?: RequestInit) {
   return response.json();
 }
 
-export function useMemory() {
+export function useMemory({ enabled = true }: { enabled?: boolean } = {}) {
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +65,10 @@ export function useMemory() {
   }, []);
 
   useEffect(() => {
-    fetchMemories();
-  }, [fetchMemories]);
+    // /v1/privacy/* is a private route: reading it before anyone can see the
+    // list only buys a 401 on the console.
+    if (enabled) fetchMemories();
+  }, [enabled, fetchMemories]);
 
   const addMemory = useCallback(
     async (content: string, category: string = "other", sourceTurnRef?: string) => {
