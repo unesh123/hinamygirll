@@ -18,11 +18,13 @@ import pytest
 
 
 from hinaa_api.generation.continuation import (
+    CollapseGuard,
     ContinuationReason,
     ContinuationStatus,
     GenerationContinuationState,
     SeamGuard,
     _count_unbalanced,
+    detect_collapse,
     detect_continuation_need,
     run_consistency_pass,
     seam_dedup,
@@ -927,6 +929,159 @@ class TestSeamGuard:
         assert guard.resolved
         out = guard.feed("more text")
         assert out == "more text"
+
+
+# ---------------------------------------------------------------------------
+# Degenerate repetition collapse (#71)
+# ---------------------------------------------------------------------------
+
+
+def _stream_through_guard(text: str, *, step: int = 9) -> str:
+    """Feed `text` in delta-sized chunks the way a provider stream does."""
+    guard = CollapseGuard()
+    released = ""
+    for i in range(0, len(text), step):
+        released += guard.feed(text[i : i + step])
+        if guard.collapsed:
+            break
+    return released + guard.finish()
+
+
+class TestCollapseDetector:
+    def test_a_glyph_spray_is_a_run(self) -> None:
+        run = detect_collapse(_unique_prose(8, "Head") + " " + "固" * 300)
+        assert run is not None
+        assert run.unit == "固"
+        assert run.chars >= 30
+
+    def test_a_short_phrase_spray_is_a_run(self) -> None:
+        run = detect_collapse("measured behaviour:" + " the answer is" * 20)
+        assert run is not None
+        assert run.unit == " the answer is"
+
+    def test_punctuation_runs_are_not_collapse(self) -> None:
+        for text in ("-" * 60, "." * 40, "| " * 40, "\n\n\n\n" * 20):
+            assert detect_collapse(text) is None, text[:12]
+
+    def test_honest_emphasis_is_not_collapse(self) -> None:
+        assert detect_collapse("No way, hahahahaha!") is None
+        assert detect_collapse(_unique_prose(40, "Section")) is None
+
+    def test_a_run_that_already_stopped_is_history(self) -> None:
+        # The loop ended and real prose followed, so nothing at the tail is a run.
+        assert detect_collapse("固" * 200 + " and here is the closing sentence.") is None
+
+
+class TestCollapseGuard:
+    def test_the_loop_never_reaches_the_reader(self) -> None:
+        answer = _unique_prose(30, "Reply") + " " + "固" * 4_000
+        released = _stream_through_guard(answer)
+        assert "固" not in released
+        assert released.rstrip() == _unique_prose(30, "Reply").rstrip()
+
+    def test_real_content_before_the_run_is_kept(self) -> None:
+        guard = CollapseGuard()
+        answer = _unique_prose(12, "Kept") + " " + "啦" * 200
+        out = ""
+        for i in range(0, len(answer), 7):
+            out += guard.feed(answer[i : i + 7])
+            if guard.collapsed:
+                break
+        assert out == _unique_prose(12, "Kept") + " "
+        # Only what had already been fed counts as suppressed: the caller stops
+        # consuming the stream once the run is confirmed, which is the point.
+        assert 14 <= guard.suppressed_chars <= CollapseGuard.HOLD_CHARS
+
+    def test_a_clean_answer_is_released_in_full(self) -> None:
+        answer = _unique_prose(25, "Whole") + " Thanks for asking, love you."
+        assert _stream_through_guard(answer) == answer
+
+    def test_repeated_letters_a_reader_wants_are_kept(self) -> None:
+        answer = "Okay, hahahahaha! You got me good."
+        assert _stream_through_guard(answer) == answer
+
+    def test_an_answer_that_is_only_the_loop_is_not_called_a_reply(self) -> None:
+        assert _stream_through_guard("固" * 1_000) == ""
+
+    def test_the_cut_lands_at_the_run_not_a_window_early(self) -> None:
+        # HOLD_CHARS must not swallow the sentence that came before the loop.
+        head = _unique_prose(8, "Exact")
+        guard = CollapseGuard()
+        out = guard.feed(head + " " + "嗯" * 40)
+        assert out == head + " "
+        assert "嗯" not in out
+
+
+class TestConsistencyPassCollapse:
+    def test_a_trailing_run_is_cut_from_the_canonical_text(self) -> None:
+        text = _unique_prose(20, "Doc") + "\n" + "ha" * 60
+        report = run_consistency_pass(text)
+        kinds = {i.kind for i in report.issues}
+        assert "DEGENERATE_COLLAPSE" in kinds
+        assert "ha" * 60 not in report.text
+        assert report.text.rstrip() == _unique_prose(20, "Doc").rstrip()
+
+    def test_the_run_is_reported_even_when_not_repaired(self) -> None:
+        text = "Final line of substance.\n" + "ok " * 40
+        report = run_consistency_pass(text, apply_repairs=False)
+        flagged = [i for i in report.issues if i.kind == "DEGENERATE_COLLAPSE"]
+        assert flagged and not flagged[0].repaired
+        assert report.text == text
+
+    def test_a_fence_under_a_run_is_still_closed(self) -> None:
+        text = "```python\nx = 1\n" + "固" * 200
+        report = run_consistency_pass(text)
+        assert "DEGENERATE_COLLAPSE" in {i.kind for i in report.issues}
+        assert "OPEN_CODE_FENCE" in {i.kind for i in report.issues}
+        assert report.text.rstrip().endswith("```")
+
+
+class TestOrchestratorCollapse:
+    """#71 end to end. The loop must not reach `emit_delta` (that is what the
+    chat bubble renders), and a brain that collapsed must not be asked to
+    resume — each resume was another provider call that looped again."""
+
+    @pytest.mark.asyncio
+    async def test_a_collapsed_stream_is_never_emitted_and_buys_no_resume(self) -> None:
+        seen: list[str] = []
+        resumes = 0
+
+        async def first_stream():
+            yield _unique_prose(20, "Real") + " "
+            for _ in range(60):
+                yield "固" * 20
+
+        def cont_factory(prior: str):
+            nonlocal resumes
+            resumes += 1
+
+            async def gen():
+                yield "this should never be asked for"
+
+            return gen(), {"value": "stop"}
+
+        async def emit(d: str) -> None:
+            seen.append(d)
+
+        orchestrator = GenerationOrchestrator(
+            max_continuations=4,
+            char_budget=200_000,
+            generation_id="collapse",
+        )
+        outcome = await orchestrator.run(
+            first_segment_stream=first_stream(),
+            first_finish_reason_holder={"value": "length"},
+            continuation_stream_factory=cont_factory,
+            emit_delta=emit,
+        )
+        assert "固" not in "".join(seen)
+        assert "固" not in outcome.text
+        assert outcome.text.startswith("Real detail 1")
+        assert resumes == 0
+        assert outcome.status == ContinuationStatus.TRUNCATED
+        assert outcome.trace.segments[-1].decision_reason == "degenerate_collapse"
+        # Raw model text still carries the loop for diagnostics.
+        assert "固" in outcome.raw_text
 
 
 # ---------------------------------------------------------------------------
