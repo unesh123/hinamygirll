@@ -2482,12 +2482,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     if prompt_val:
                         parsed_params["prompt"] = str(prompt_val)
             
-            # Server-resolved owner identity overrides client payload
+            # Server-resolved owner identity overrides client payload. Both
+            # halves have to agree: /v1/tools/poll looks the row up under
+            # _workspace_user_id, and when identity is unresolvable the execute
+            # side used to leave userId unset, so the handler's own default won
+            # and every image was drawn, saved, then reported as not found.
             server_user_id = _resolve_user_id(request)
             parsed_params.pop("userId", None)
             parsed_params.pop("user_id", None)
-            if server_user_id:
-                parsed_params["userId"] = server_user_id
+            parsed_params["userId"] = server_user_id or active_settings.dev_auth_subject
 
             if "conversationId" not in parsed_params:
                 conv_id = body.conversationId or request.headers.get("X-Conversation-ID")
