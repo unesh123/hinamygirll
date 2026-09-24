@@ -282,6 +282,16 @@ def _migration_0013_conversation_episodes(engine: Engine) -> None:
         logger.info("Applied migration: created table conversation_episodes")
 
 
+def _migration_0014_reminders(engine: Engine) -> None:
+    """Creates the reminders table so a set reminder outlives the process that set it."""
+    from .orm import Reminder
+
+    inspector = inspect(engine)
+    if "reminders" not in set(inspector.get_table_names()):
+        Reminder.__table__.create(engine, checkfirst=True)
+        logger.info("Applied migration: created table reminders")
+
+
 MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0001", "initial_schema", _migration_0001_initial_schema),
     ("0002", "explicit_memories_expires_at", _migration_0002_explicit_memories_expires_at),
@@ -296,6 +306,7 @@ MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0011", "task_runtime_hardening", _migration_0011_task_runtime_hardening),
     ("0012", "selected_asset_state", _migration_0012_selected_asset_state),
     ("0013", "conversation_episodes", _migration_0013_conversation_episodes),
+    ("0014", "reminders", _migration_0014_reminders),
 ]
 
 

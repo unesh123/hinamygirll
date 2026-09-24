@@ -2064,7 +2064,30 @@ class ConversationService:
                     from hinaa_api.dialogue_state import AssetReferenceResolver
                     ref_asset_id = AssetReferenceResolver.resolve_asset_id(unquoted, d_state)
                 if not ref_entity:
-                    ref_entity = d_state.active_topic or (d_state.active_entities[0]["name"] if d_state.active_entities and isinstance(d_state.active_entities[0], dict) and "name" in d_state.active_entities[0] else None)
+                    candidates = [d_state.active_topic]
+                    if d_state.active_entities and isinstance(d_state.active_entities[0], dict):
+                        candidates.append(d_state.active_entities[0].get("name"))
+                    # subject_entity is who or what is in the picture, and it feeds
+                    # reference resolution and asset memory. Measured live: the
+                    # dialogue-state topic held his sentence verbatim, so
+                    # `generate mikasa images` was filed as the subject. A request
+                    # verb or the deliverable's own name means that candidate is a
+                    # sentence, not a subject, so the next one gets the chance and
+                    # an invented subject never reaches the job.
+                    ref_entity = next(
+                        (
+                            candidate.strip()
+                            for candidate in candidates
+                            if isinstance(candidate, str)
+                            and candidate.strip()
+                            and not re.search(
+                                r"(?i)\b(generate|create|make|draw|render|show|send|design|please"
+                                r"|image|images|picture|pictures|photo|photos|pic|pics|wallpaper|wallpapers)\b",
+                                candidate,
+                            )
+                        ),
+                        None,
+                    )
 
             if not ref_asset_id and self.cross_session_retriever and uid:
                 try:
@@ -2362,6 +2385,119 @@ class ConversationService:
                 toolName="web_search",
                 parameters={"query": prompt_str or text},
             ))
+
+    def _gate_tool_intents(
+        self, request: TurnRequest, plan: AssistantTurnPlan, *, user_id: str | None
+    ) -> None:
+        """Decide with his words, not with the answering brain, which tools run.
+
+        Every gated call a provider invented is removed before it can become a
+        ``tool.proposed`` event, and the two calls this gate can specify
+        completely -- the subject of a picture, the moment of a reminder -- are
+        added even when the brain never noticed he had asked. The reply is then
+        rewritten to match the actions, because a paragraph written before the
+        gate existed can only promise or refuse the wrong thing.
+        """
+        from .tools.intent_gate import blocked_note, gate_tool_requests
+
+        kept, dropped, sanction = gate_tool_requests(
+            request.text, plan.toolRequests, known_subjects=CHARACTER_ENTITY_MAP
+        )
+        plan.toolRequests = kept
+
+        if kept:
+            # The answer was written before this decision existed, and a brain
+            # that invents its own call also pastes its arguments into the
+            # bubble. Now that a call is known to have been filed, the copy goes.
+            from .providers.display_stream_decoder import drop_echoed_call_arguments
+
+            plan.displayText = drop_echoed_call_arguments(plan.displayText)
+            plan.spokenText = drop_echoed_call_arguments(plan.spokenText)
+
+        if sanction.abort and self._cancel_inflight_image_jobs(user_id=user_id) is None:
+            # Nothing was cancelled because nothing could be reached, so the
+            # plain "Stopped." would be a lie about work still running.
+            note = "I could not reach the queue, so the running job may still finish."
+            plan.displayText = self._blocked_reply(plan.displayText, note)
+            plan.spokenText = self._blocked_reply(plan.spokenText, note)
+            return
+
+        added = [tool for tool in kept if tool.reason == "deterministic-intent"]
+        if added:
+            confirmation = " ".join(self._action_confirmation(tool) for tool in added)
+            plan.displayText = confirmation
+            plan.spokenText = confirmation
+            return
+
+        if dropped or sanction.abort:
+            note = blocked_note(dropped, aborted=sanction.abort, unbound=bool(sanction.resolved))
+            plan.displayText = self._blocked_reply(plan.displayText, note)
+            plan.spokenText = self._blocked_reply(plan.spokenText, note)
+
+    @staticmethod
+    def _action_confirmation(tool: ToolRequest) -> str:
+        parameters = tool.parameters if isinstance(tool.parameters, dict) else {}
+        if tool.toolName == "reminder.create":
+            from .tools.reminder import display_time, parse_at
+
+            return f"Reminder — {parameters.get('title')}, {display_time(parse_at(parameters.get('at')))}."
+        if tool.toolName == "image_generate":
+            subject = parameters.get("prompt")
+            count = parameters.get("count") or 1
+            if count > 1:
+                return f"Generating {count} images of {subject}."
+            return f"Generating an image of {subject}."
+        return f"Running {tool.toolName}."
+
+    @staticmethod
+    def _blocked_reply(text: str, note: str) -> str:
+        """Keep whatever still answers him, drop the promise that does not."""
+        from .tools.intent_gate import strip_stale_promises
+
+        remaining = strip_stale_promises(text or "")
+        if not remaining:
+            return note
+        if note in remaining:
+            return remaining
+        # Stripping the promise can leave a clause with no end mark, and the
+        # note then fuses with it on his screen.
+        if remaining[-1] not in ".!?।॥":
+            remaining = f"{remaining}."
+        return f"{remaining} {note}"
+
+    def _cancel_inflight_image_jobs(self, *, user_id: str | None) -> int | None:
+        """Stop the renders he just told us to stop; None means we could not look.
+
+        ``image_generate`` checks its row before every status write and returns
+        early on ``cancelled``, so flipping these rows really does end the work
+        rather than only hiding it.
+        """
+        from sqlalchemy import select
+
+        from .persistence.db import get_session_factory
+        from .persistence.orm import GenerationSet, ImageJob
+
+        # Scoped by owner, not by conversation: the generate tool only files a
+        # conversation_id when that conversation already has a row, so a thread
+        # narrowed filter would match nothing and "Stopped." would be a lie.
+        owner = user_id or self.settings.dev_auth_subject
+        try:
+            session_factory = get_session_factory(self.settings)
+            with session_factory() as session:
+                query = (
+                    select(ImageJob)
+                    .join(GenerationSet, ImageJob.generation_set_id == GenerationSet.id)
+                    .where(GenerationSet.user_id == owner)
+                    .where(ImageJob.status.in_(("pending", "processing")))
+                )
+                rows = list(session.execute(query).scalars().all())
+                for row in rows:
+                    row.status = "cancelled"
+                session.commit()
+                return len(rows)
+        except Exception:
+            logger.warning("Failed to cancel in-flight image jobs", exc_info=True)
+            return None
 
     def _map_explicit_command(
         self, parsed_command: ParsedCommand, plan: AssistantTurnPlan, user_id: str | None = None
@@ -3405,6 +3541,10 @@ class ConversationService:
                         request.providerMode, request.brainModel
                     )
                 attempted_brain = getattr(provider, "id", None) or request.providerMode
+                # The router resolves aliases and allow-lists to a concrete model id,
+                # so the instance — not the request — is the only honest source of
+                # what went over the wire.
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
                 result = await provider.create_plan(
                     request.text,
                     request.companionId,
@@ -3412,9 +3552,8 @@ class ConversationService:
                     history,
                     prompt,
                 )
-                self._record_brain_call(
-                    attempted_brain, ok=True, model=request.brainModel or ""
-                )
+                resolved_model = served_model or resolved_model
+                self._record_brain_call(attempted_brain, ok=True, model=served_model)
                 if request.providerMode == "mock" and self.cross_session_retriever and user_id:
                     try:
                         evs = self.cross_session_retriever.retrieve_relevant_context(
@@ -3471,6 +3610,7 @@ class ConversationService:
                     request.providerMode, request.brainModel
                 )
                 attempted_brain = getattr(provider, "id", None) or request.providerMode
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
                 try:
                     async with asyncio.timeout(primary_plan_timeout):
                         result = await provider.create_plan(
@@ -3480,9 +3620,8 @@ class ConversationService:
                             history,
                             prompt,
                         )
-                    self._record_brain_call(
-                        attempted_brain, ok=True, model=request.brainModel or ""
-                    )
+                    resolved_model = served_model or resolved_model
+                    self._record_brain_call(attempted_brain, ok=True, model=served_model)
                     retry_succeeded = True
                 except Exception as retry_err:
                     if isinstance(retry_err, HinaaError):
@@ -3587,6 +3726,7 @@ class ConversationService:
             turn_request=request,
             user_id=user_id,
         )
+        self._gate_tool_intents(request, result.value, user_id=user_id)
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
 
@@ -3877,6 +4017,7 @@ class ConversationService:
                         request.providerMode, request.brainModel
                     )
                 attempted_brain = getattr(provider, "id", None) or request.providerMode
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
                 if isinstance(provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                     result = await provider.create_live_plan(
                         request.text,
@@ -3895,9 +4036,12 @@ class ConversationService:
                         result.latency_ms,
                         stages=stages,
                     )
-                    # The interface now names the brain that answered, so record
-                    # the one that actually ran rather than the one requested.
+                    # The interface now names the brain that answered, so record the
+                    # ones that actually ran rather than the ones requested. A badge
+                    # built from the request said "claude" for weeks while a flash-tier
+                    # gateway wrote every word.
                     resolved_provider = getattr(provider, "id", None) or resolved_provider
+                    resolved_model = served_model or resolved_model
                 else:
                     # Mock / non-streaming path: deltas are synthetic after full plan.
                     timing.mark("provider_client_ready")
@@ -3940,9 +4084,7 @@ class ConversationService:
                         result.latency_ms,
                         stages=timing.snapshot(),
                     )
-            self._record_brain_call(
-                attempted_brain, ok=True, model=request.brainModel or ""
-            )
+            self._record_brain_call(attempted_brain, ok=True, model=served_model)
         except (HinaaError, TimeoutError, Exception) as raw_error:
             if isinstance(raw_error, TimeoutError):
                 timed_out_idle = primary_idle_expired()
@@ -4033,7 +4175,11 @@ class ConversationService:
                                     prompt,
                                 )
                             self._record_brain_call(
-                                attempted_brain, ok=True, model=request.brainModel or ""
+                                attempted_brain,
+                                ok=True,
+                                model=getattr(selected_provider, "model", "")
+                                or request.brainModel
+                                or "",
                             )
                             live_retry_succeeded = True
                     except HinaaError as retry_err:
@@ -4137,6 +4283,7 @@ class ConversationService:
             turn_request=request,
             user_id=user_id,
         )
+        self._gate_tool_intents(request, result.value, user_id=user_id)
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
 

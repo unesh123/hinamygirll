@@ -485,6 +485,56 @@ _SPECIAL_TOKEN_CALL_PATTERN = re.compile(
     r"(?:<\|[^|<>]*(?:end|finish|complete)[^|<>]*\|>|\Z)",
     re.IGNORECASE,
 )
+# A close with no opening pair. TOOLISH_TAG_SOURCE demands a qualifier
+# (`tool_call`), so the bare `</tool>` that a gateway model tacks onto the end
+# of an image answer matches nothing here. Measured live on `make me a picture
+# of a red fox in the rain`, whose bubble ended `... right now. 🦊🌧️ </tool>`.
+# Only closing tags are matched: an opening `<tool>` can be real markup he asked
+# about, while a close that opens nothing is never prose.
+_DANGLING_CALL_CLOSE_PATTERN = re.compile(
+    r"<\s*/\s*(?:antml[_.:-])?(?:tool|function|invoke|invocation|argument|parameter|call)\w*\b[^<>]*>",
+    re.IGNORECASE,
+)
+# The same call fenced as though it were an example. Measured live on
+# `generate mikasa images`, whose bubble ended
+# ```tool_call:freepik_image_generate``` — a fence, so the rule below that keeps
+# code samples survived it. Only a fence whose entire body names an invocation
+# goes; an answer that discusses this markup inside a fenced example keeps it.
+_FENCED_CALL_PATTERN = re.compile(
+    r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*"
+    r"(?:(?:tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*)"
+    r"[ \t]*(?:\r?\n[ \t]*)?`{3,}[ \t]*\r?\n?",
+    re.IGNORECASE,
+)
+# The same fence with no closer, because the stream stopped inside it. Anchored
+# to the end of the answer: a fence that opens with a name and carries on is a
+# code sample whose language hint happens to start with "function".
+_UNCLOSED_FENCED_CALL_PATTERN = re.compile(
+    r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*"
+    r"(?:(?:tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*)"
+    r"[ \t]*\Z",
+    re.IGNORECASE,
+)
+
+
+def drop_echoed_call_arguments(text: str) -> str:
+    """Remove a fenced block that repeats the arguments of a call this turn filed.
+
+    Called only once the gate has confirmed a call exists: a block of call
+    arguments is machinery when there is a call to be machinery about, and on
+    its own it is just the code he asked for.
+    """
+
+    def _drop(match: re.Match[str]) -> str:
+        body = match.group("body")
+        if re.search(
+            r"[\"'](?:prompt|negative_prompt|aspect_ratio|tool_call_id|toolName|tool_name)[\"']\s*:",
+            body,
+        ):
+            return ""
+        return match.group(0)
+
+    return re.sub(r"[ \t]*`{3,}[^\S\n]*(?P<body>[\s\S]*?)(?:`{3,}|$)", _drop, text)
 
 
 def strip_simulated_tool_calls(text: str) -> str:
@@ -493,8 +543,12 @@ def strip_simulated_tool_calls(text: str) -> str:
     Runs over the assembled answer, not a stream delta: an unbalanced tag
     fragment cannot be told apart from real text until the text is complete.
     Code fences are left alone — when the user asks for an example of this
-    markup, the markup is the answer.
+    markup, the markup is the answer — except for a fence whose entire content
+    is the call itself, which is not an example of anything.
     """
+    text = _UNCLOSED_FENCED_CALL_PATTERN.sub(
+        "", _FENCED_CALL_PATTERN.sub("", text)
+    )
     if "<" not in text:
         return text
     parts = text.split("```")
@@ -504,8 +558,11 @@ def strip_simulated_tool_calls(text: str) -> str:
         if index % 2
         else _STRAY_TOOL_TAG_PATTERN.sub(
             "",
-            _SIMULATED_TOOL_CALL_PATTERN.sub(
-                "", _SPECIAL_TOKEN_CALL_PATTERN.sub("", part)
+            _DANGLING_CALL_CLOSE_PATTERN.sub(
+                "",
+                _SIMULATED_TOOL_CALL_PATTERN.sub(
+                    "", _SPECIAL_TOKEN_CALL_PATTERN.sub("", part)
+                ),
             ),
         )
         for index, part in enumerate(parts)

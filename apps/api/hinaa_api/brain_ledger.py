@@ -205,6 +205,33 @@ def newest_verdict(
     return _verdict_from(best[1], best[2], now)
 
 
+def newest_success(
+    *,
+    window_seconds: float = LIVE_OUTCOME_WINDOW_SECONDS,
+) -> BrainVerdict | None:
+    """Which brain most recently answered a real call, whoever that was.
+
+    A row-scoped verdict can only answer "is this brain well?". `/health` needs the
+    other question — who actually spoke last — because a deployment configured for
+    one brain keeps reporting that name while a different one serves every turn.
+    Success only: a failed attempt proves nobody answered.
+    """
+    outcomes = _read()
+    now = time.time()
+    best: tuple[float, str, dict[str, Any]] | None = None
+    for brain_id, record in outcomes.items():
+        if not record.get("ok"):
+            continue
+        at = float(record.get("at") or 0.0)
+        if now - at > window_seconds:
+            continue
+        if best is None or at > best[0]:
+            best = (at, brain_id, record)
+    if best is None:
+        return None
+    return _verdict_from(best[1], best[2], now)
+
+
 # Ledger names are the provider ids that actually ran; badge names are the rows of
 # /v1/providers. They differ wherever one row fronts several client implementations.
 _ROW_ALIASES: dict[str, tuple[str, ...]] = {
@@ -273,6 +300,20 @@ def fingerprint_for(settings: Any, row_id: str) -> str:
 def fingerprints_for(settings: Any, row_id: str) -> dict[str, str]:
     fingerprint = fingerprint_for(settings, row_id)
     return {brain_id: fingerprint for brain_id in aliases_for(row_id)}
+
+
+def configured(settings: Any, row_id: str) -> bool:
+    """Whether this row holds a credential, independent of any live call.
+
+    Absence of evidence has two causes: the owner never configured the brain, or
+    he did and nobody has asked it anything recently. Only the first is a fact the
+    status endpoint can state without spending a request, so it is reported as
+    "not configured" rather than as an untested badge.
+    """
+    prefix = _SETTINGS_PREFIX.get(row_id)
+    if not prefix or settings is None:
+        return bool(getattr(settings, f"{row_id}_configured", False))
+    return bool(getattr(settings, f"{prefix}_configured", False))
 
 
 def reset_ledger(path: str | Path | None = None) -> None:

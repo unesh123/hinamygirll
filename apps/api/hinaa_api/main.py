@@ -39,13 +39,18 @@ from .dialogue_state import AssetReferenceResolver, AssetSelectionSource, Conver
 from .prompts import PROMPT_VERSION
 from .brain_ledger import (
     aliases_for,
+    configured,
     fingerprints_for,
+    is_local_brain,
+    newest_success,
     newest_verdict,
+    row_for_brain,
 )
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .realtime import RealtimeGateway
 from .services import ConversationService
 from .tools import policy as tool_policy, registry
+from .tools.reminder import cancel_reminder, list_reminders, schedule_reminder
 from .vmc_bridge import vmc_bridge
 from .voice_profiles import public_profiles
 from .artifacts import ArtifactFormat, ArtifactService
@@ -71,6 +76,12 @@ class MemoryToggleBody(BaseModel):
 
 class ConversationTitleBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=200)]
+
+
+class ReminderBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+    at: Annotated[str, Field(min_length=1, max_length=40)]
+    conversationId: str | None = None
 
 
 class ProjectCreateBody(BaseModel):
@@ -282,6 +293,70 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "qwen",
     }
 )
+
+
+def _routing_truth(settings: Settings, requested_mode: str) -> dict[str, Any]:
+    """Who actually answered, as opposed to who this deployment is configured for.
+
+    `mode` answers "what did the owner ask for?". It stayed "claude" through weeks in
+    which every answer came from a flash-tier fallback, so any badge built from it
+    lied about the brain behind her voice. This reads the ledger of calls that
+    really happened, so a green routing statement costs a real answered turn.
+    """
+    answered = newest_success()
+    requested = newest_verdict(
+        aliases_for(requested_mode),
+        fingerprints=fingerprints_for(settings, requested_mode),
+    )
+    if is_local_brain(requested_mode):
+        # An in-process brain needs no socket, so configuration does prove it, and
+        # the absence of ledger records means nobody has asked it anything yet.
+        served_requested = requested_mode
+        reason = f"{requested_mode} answers in-process and needs no live call to prove it."
+    else:
+        served_requested = (
+            requested_mode
+            if answered and row_for_brain(answered.brain_id) == requested_mode
+            else ""
+        )
+        reason = answered.message if served_requested else ""
+    if not reason:
+        if not configured(settings, requested_mode):
+            reason = (
+                f"{requested_mode} is not configured, so it cannot answer; "
+                + (f"answers came from {answered.brain_id}." if answered else "nothing has.")
+            )
+        elif answered is None:
+            reason = (
+                "No brain has answered a live call recently enough to claim. "
+                + (
+                    requested.message
+                    if requested
+                    else f"{requested_mode} has no live-call evidence either."
+                )
+            )
+        elif requested is None:
+            reason = (
+                f"{requested_mode} has no live-call evidence in this window; "
+                f"answers came from {answered.brain_id}."
+            )
+        else:
+            reason = f"{requested.message} Answers came from {answered.brain_id} instead."
+    return {
+        "answeredBy": (
+            {
+                "brain": answered.brain_id,
+                "row": row_for_brain(answered.brain_id),
+                "model": answered.model or None,
+                "ageSeconds": round(answered.age_seconds, 1),
+            }
+            if answered
+            else None
+        ),
+        "requestedServed": bool(served_requested),
+        "fallback": answered is not None and not served_requested,
+        "reason": reason,
+    }
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -1104,11 +1179,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else:
             missing = []
         ready = not missing
+        # The HTTP code stays a readiness contract: only absent configuration
+        # fails it. `status` is held to a higher bar than "the env vars exist",
+        # because a deployment whose configured brain never answered used to report
+        # ok while every reply came from a fallback.
+        routing = _routing_truth(active_settings, active_settings.provider_mode)
         return JSONResponse(
             status_code=200 if ready else 503,
             content={
-                "status": "ok" if ready else "degraded",
+                "status": "ok" if ready and routing["requestedServed"] else "degraded",
                 "mode": active_settings.provider_mode,
+                "answeredBy": routing["answeredBy"],
+                "requestedServed": routing["requestedServed"],
+                "fallback": routing["fallback"],
+                "routing": routing["reason"],
                 "missingConfiguration": missing if not ready else [],
                 "persistenceEnabled": active_settings.persistence_enabled,
                 "authMode": active_settings.auth_mode,
@@ -3254,6 +3338,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             project_state=body.projectState,
         )
 
+    @app.get("/v1/reminders")
+    @app.get("/api/v1/reminders")
+    async def get_reminders(
+        auth: AuthContext | None = Depends(conversation_auth),
+        status: str = "scheduled",
+    ) -> list[dict[str, Any]]:
+        # An empty list here would read as "no reminders", so an anonymous
+        # request has to fail instead of looking like an honest answer.
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for reminders", 401, True)
+        return list_reminders(user_id=auth.user_id, status=status, settings=active_settings)
+
+    @app.post("/v1/reminders")
+    @app.post("/api/v1/reminders")
+    async def create_reminder(
+        request: Request,
+        body: ReminderBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for reminders", 401, True)
+        return schedule_reminder(
+            user_id=auth.user_id,
+            title=body.title,
+            at=body.at,
+            conversation_id=body.conversationId or request.headers.get("X-Conversation-ID"),
+            settings=active_settings,
+        )
+
+    @app.post("/v1/reminders/{reminder_id}/cancel")
+    @app.post("/api/v1/reminders/{reminder_id}/cancel")
+    async def cancel_scheduled_reminder(
+        reminder_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for reminders", 401, True)
+        return cancel_reminder(user_id=auth.user_id, reminder_id=reminder_id, settings=active_settings)
+
     @app.get("/v1/training/candidates")
     async def list_training_candidates(
         auth: AuthContext | None = Depends(conversation_auth),
@@ -3629,6 +3752,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "message": error.message,
                         "retryable": error.retryable,
                         "correlationId": request.state.correlation_id,
+                        # A turn that dies before its plan event used to leave the
+                        # client holding nothing but the mode it asked for, so a
+                        # Claude request that 403'd kept a Claude badge on screen.
+                        "routing": _routing_truth(active_settings, body.providerMode),
                     },
                 )
             except Exception as error:

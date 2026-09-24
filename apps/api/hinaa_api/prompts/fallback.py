@@ -92,22 +92,103 @@ def normalize_gateway_turn_payload(payload: object) -> object:
     if not isinstance(payload, dict):
         return payload
     normalized = dict(payload)
+    # Whether this very turn filed a job. A block repeating call arguments is only
+    # machinery when there is a call for it to be machinery about.
+    _filed_tools = normalized.get("toolRequests")
+    _job_filed = isinstance(_filed_tools, list) and bool(_filed_tools)
+
     def _clean_str(val: str) -> str:
         # Strip thinking blocks
         val = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", val, flags=re.IGNORECASE)
         # P0: Brains that cannot use structured tool calling write the call into
         # their answer instead. Measured live: an image bubble printed the
-        # literal tags `<tool_calls>` ... `</tool_calls>`. The arguments are
-        # invocation, not prose, and the same prompt already renders in the
-        # image card, so the envelope goes.
+        # literal tags `<tool_calls>` ... `</tool_calls>`, and another spelled it
+        # `<tool name="image_generate" tool_call_id="img_mikasa_002">` followed by
+        # the raw prompt. The arguments are invocation, not prose, and the same
+        # prompt already renders in the image card, so the envelope goes.
         val = re.sub(
-            r"<(tool_calls?|function_calls?|antml:parameter|antml:function_calls)[^>]*>[\s\S]*?</\1>",
+            r"<(antml:)?(tool\w*|invoke\w*|function\w*|parameter)[^>]*>[\s\S]*?</(?:\1)?\2>",
+            "",
+            val,
+            flags=re.IGNORECASE,
+        )
+        # The same call with no closing tag, because the stream stopped inside it.
+        val = re.sub(
+            r"<(?:antml:)?(?:tool\w*|invoke\w*|function\w*|parameter)\b[^>]*>[\s\S]*$",
+            "",
+            val,
+            flags=re.IGNORECASE,
+        )
+        # The other half of that leak: a close whose pair the brain never wrote.
+        # Measured live on `make me a picture of a red fox in the rain`, whose
+        # bubble ended `... right now~> </tool>`. Only the tag goes -- the words
+        # stay, so an answer that merely mentions a tool loses nothing, and no
+        # opening tag is touched for the same reason.
+        val = re.sub(
+            r"</(?:antml:)?(?:tool\w*|invoke\w*|function\w*|parameter\w*)\b[^<>]*>",
+            "",
+            val,
+            flags=re.IGNORECASE,
+        )
+        # Claude's argument tags, mangled by the model that wrote them. Measured
+        # live: `<arg_value>Mikasa Ackerman from Attack on Titan, ... illustration
+        # style, dynamic pose</arg400x600</arg_key>`. The close does not name the
+        # opening tag and is not even terminated, so the pair is matched by family
+        # and the leftover markup is then stripped tag by tag -- words that are
+        # prose stay, and the prompt stays only in the image card.
+        val = re.sub(
+            r"<(?:antml:)?arg\w*[^>]*>[\s\S]*?</(?:antml:)?arg\w*[^<>]*",
+            "",
+            val,
+            flags=re.IGNORECASE,
+        )
+        val = re.sub(r"</?(?:antml:)?arg\w*\b[^<>]*", "", val, flags=re.IGNORECASE)
+        # The call written as a Python invocation instead. Measured live from
+        # gemini-3.5-flash-lite: the bubble ended with `ToolRequest:
+        # image_generate(prompt="A stunning, highly detailed ...`. Anchored to the
+        # end of the string, so an answer that merely discusses a tool request
+        # keeps every word after the name.
+        val = re.sub(
+            r"\btool\s*(?:requests?|calls?)\s*:?\s*[a-z_][\w.]*\s*\([\s\S]*$",
             "",
             val,
             flags=re.IGNORECASE,
         )
         # CDATA is markup around real words, so unwrap rather than delete.
         val = re.sub(r"<!\[CDATA\[([\s\S]*?)\]\]>", r"\1", val)
+        # Same leak, spelled with backticks instead of tags. Measured live: an
+        # image bubble ended with a fenced ```tool_request{... image_generate ...}```
+        # block. A stream cut mid-call leaves the fence unclosed, so the run to
+        # the end of the string goes with it. Prose that merely names the field
+        # is not fenced, and prose stays.
+        val = re.sub(
+            r"`{2,}[ \t]*\n?[ \t]*(?:tool_request|tool_call|function_call)s?\b"
+            r"[\s\S]*?(?:`{2,}|$)",
+            "",
+            val,
+            flags=re.IGNORECASE,
+        )
+        # Same leak, spelled with square brackets. Measured live: an image bubble
+        # read `## Generating your image... [IMAGE_GENERATE] {"prompt": ...}
+        # [/IMAGE_GENERATE]`. An all-caps tag closed by its own name is an
+        # invocation delimiter -- nothing a person writes to a person looks like
+        # it -- and the arguments are already rendered in the image card.
+        val = re.sub(r"[ \t]*\[([A-Z][A-Z0-9_]{2,})\][\s\S]*?\[/\1\][ \t]*", "", val)
+        # Unclosed, because the stream stopped mid-call. The tail goes whether or
+        # not the argument object ever reached its closing brace, but only when it
+        # plainly is one -- a stray tag followed by prose stays visible instead of
+        # taking the words with it.
+        val = re.sub(r"[ \t]*\[([A-Z][A-Z0-9_]{2,})\][ \t]*(?:\{\s*\"[\s\S]*)?$", "", val)
+        # The same call fenced as data. Measured live on `generate mikasa images`,
+        # where the bubble ended ```json { "prompt": "...", "aspect_ratio": "1:1",
+        # "quality": "hd" } ``` while that call had just been filed. Only a block
+        # carrying argument keys goes, only on a turn that filed something, so
+        # code he asked for and every other word stay. The same helper runs on the
+        # native tool-calling path, so the two cannot drift apart.
+        if _job_filed:
+            from ..providers.display_stream_decoder import drop_echoed_call_arguments
+
+            val = drop_echoed_call_arguments(val)
         # Strip leaked XML tags
         val = re.sub(
             r"</?(?:response|spokenText|displayText|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",

@@ -14,5 +14,6 @@ from . import image_fabric
 from . import deep_research
 from . import document_generate
 from . import github_tools
+from . import reminder
 
 __all__ = ["registry"]
