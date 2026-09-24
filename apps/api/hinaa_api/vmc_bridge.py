@@ -306,14 +306,37 @@ class VMCBridge:
         try:
             transport, _ = await loop.create_datagram_endpoint(Protocol, local_addr=("127.0.0.1", port))
             self._udp_transport = transport
-            logger.info("VMC bridge listening on UDP 127.0.0.1:%d", port)
+            # When port=0, the OS assigns an ephemeral port; read it back.
+            if transport.get_extra_info("sockname"):
+                self._port = transport.get_extra_info("sockname")[1]
+            logger.info("VMC bridge listening on UDP 127.0.0.1:%d", self._port)
         except OSError as exc:
             logger.warning("VMC bridge could not bind UDP port %d: %s", port, exc)
 
     def stop(self) -> None:
-        if self._udp_transport:
-            self._udp_transport.close()
-            self._udp_transport = None
+        """Release the UDP socket. Safe to call multiple times."""
+        transport = self._udp_transport
+        self._udp_transport = None
+        if transport is not None:
+            try:
+                transport.close()
+            except Exception:
+                pass
+
+    def reset(self) -> None:
+        """Full state reset for test isolation."""
+        self.stop()
+        self._values = dict(_INITIAL_VALUES)
+        self._bones = {}
+        self._channels = set()
+        self._last_packet_monotonic = None
+        self._last_packet_timestamp = None
+        self._last_source = "none"
+        self._last_sender = None
+        self._packet_times.clear()
+        self._packet_count = 0
+        self._connection_attempts = 0
+        self._sequence = 0
 
 
 vmc_bridge = VMCBridge()

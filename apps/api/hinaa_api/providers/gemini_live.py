@@ -19,7 +19,7 @@ GEMINI_BIDI_WS_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.gener
 class GeminiLiveSession:
     """Persistent bidirectional WebSocket session connected to Gemini Live API."""
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash", voice_name: str = "Kore") -> None:
+    def __init__(self, api_key: str, model: str = "gemini-3.6-flash", voice_name: str = "Kore") -> None:
         self.api_key = api_key
         self.model = model if model.startswith("models/") else f"models/{model}"
         self.voice_name = voice_name

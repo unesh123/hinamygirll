@@ -11,7 +11,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(139, 92, 246, 0.7);
+  color: rgba(255, 198, 214, 0.65);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -21,13 +21,13 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(16, 185, 129, 0.15);
+  background: rgba(238, 145, 173, 0.16);
   max-width: 16px;
 }
 
 .sectionDivider {
   height: 1px;
-  background: rgba(139, 92, 246, 0.1);
+  background: rgba(238, 145, 173, 0.1);
   margin: 6px 0;
 }
 
@@ -44,7 +44,7 @@
 }
 
 .row:hover {
-  background: rgba(139, 92, 246, 0.05);
+  background: rgba(238, 145, 173, 0.06);
 }
 
 .rowLabel {
@@ -64,7 +64,7 @@
 
 .rowDescription {
   font-size: 0.75rem;
-  color: rgba(6, 78, 59, 0.4);
+  color: rgba(216, 195, 205, 0.55);
   line-height: 1.4;
 }
 
@@ -76,9 +76,9 @@
 .select {
   min-height: 34px;
   padding: 0 32px 0 12px;
-  border: 1px solid rgba(139, 92, 246, 0.3);
+  border: 1px solid rgba(238, 145, 173, 0.32);
   border-radius: 10px;
-  background-color: rgba(139, 92, 246, 0.1);
+  background-color: rgba(238, 145, 173, 0.1);
   color: rgba(255, 255, 255, 0.9);
   font-family: inherit;
   font-size: 0.82rem;
@@ -87,7 +87,7 @@
   max-width: 200px;
   transition: border-color 0.15s, box-shadow 0.15s;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M6 8l4 4 4-4' stroke='%238b5cf6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M6 8l4 4 4-4' stroke='%23ee91ad' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 16px;
@@ -95,14 +95,14 @@
 }
 
 .select option {
-  background-color: #1a0f3a;
-  color: #064e3b;
+  background-color: #1c1224;
+  color: #ffe9f0;
 }
 
 .select:focus {
   outline: none;
-  border-color: rgba(139, 92, 246, 0.7);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  border-color: rgba(255, 198, 214, 0.65);
+  box-shadow: 0 0 0 3px rgba(238, 145, 173, 0.16);
 }
 
 .select:disabled {
@@ -138,9 +138,9 @@
 }
 
 .toggleInput:checked + .toggleTrack {
-  background: rgba(139, 92, 246, 0.85);
-  border-color: rgba(139, 92, 246, 0.6);
-  box-shadow: 0 0 10px rgba(139, 92, 246, 0.35);
+  background: linear-gradient(135deg, #ffdfaa 0%, #ffb1c6 38%, #ee91ad 100%);
+  border-color: rgba(255, 198, 214, 0.65);
+  box-shadow: 0 0 14px rgba(238, 145, 173, 0.45);
 }
 
 .toggleInput:disabled + .toggleTrack {
@@ -149,7 +149,7 @@
 }
 
 .toggleInput:focus-visible + .toggleTrack {
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 0 0 3px rgba(238, 145, 173, 0.32);
 }
 
 .toggleThumb {
@@ -165,7 +165,7 @@
 
 .toggleInput:checked ~ .toggleThumb {
   transform: translateX(18px);
-  background: #064e3b;
+  background: #2b1220;
 }
 
 /* ── Status pill ─────────────────────────────────────────────────────────── */
@@ -182,9 +182,9 @@
 }
 
 .statusPill[data-health="healthy"] {
-  background: rgba(16, 185, 129, 0.12);
+  background: rgba(238, 145, 173, 0.1);
   color: #34d399;
-  border-color: rgba(16, 185, 129, 0.25);
+  border-color: rgba(255, 214, 228, 0.2);
 }
 
 .statusPill[data-health="degraded"] {
@@ -193,17 +193,20 @@
   border-color: rgba(245, 158, 11, 0.25);
 }
 
+/* "untested" is neutral, not amber: nothing is wrong with the credential, it
+   just has not answered a live call yet. */
 .statusPill[data-health="unavailable"],
+.statusPill[data-health="untested"],
 .statusPill[data-health="unknown"] {
   background: rgba(255, 255, 255, 0.05);
-  color: rgba(6, 78, 59, 0.4);
-  border-color: rgba(16, 185, 129, 0.15);
+  color: rgba(216, 195, 205, 0.55);
+  border-color: rgba(238, 145, 173, 0.16);
 }
 
 .statusPill[data-health="checking"] {
-  background: rgba(16, 185, 129, 0.12);
+  background: rgba(238, 145, 173, 0.1);
   color: #a78bfa;
-  border-color: rgba(16, 185, 129, 0.25);
+  border-color: rgba(255, 214, 228, 0.2);
 }
 
 .statusDot {

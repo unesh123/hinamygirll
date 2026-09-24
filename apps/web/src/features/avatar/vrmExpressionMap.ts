@@ -36,8 +36,12 @@ export interface VrmExpressionInput {
   intensity: number;
   /** Audio RMS jaw energy, 0..1 (drives lip sync while speaking). */
   jawEnergy: number;
-  /** True while the scheduler says the avatar should blink. */
-  blinking: boolean;
+  /** Active phoneme/viseme name ("aa", "ih", "ou", "ee", "oh", etc.) */
+  viseme?: string;
+  /** Active viseme weight (0..1) */
+  visemeWeight?: number;
+  /** Eased eyelid closure for this frame, 0 open .. 1 shut. */
+  blinkWeight: number;
   /** True while the companion is in the speaking state. */
   speaking: boolean;
   /** Reduced-motion: calm expressions, no blink animation. */
@@ -126,17 +130,46 @@ export function buildVrmExpressionWeights(
     }
   }
 
-  // Lip sync — jaw energy drives the open/rounded visemes while speaking.
+  // Lip sync — jaw energy + visemes drive mouth articulation while speaking.
   if (input.speaking) {
+    // Visemes move the mouth corners too, so ease the smile instead of erasing
+    // it; cutting it to a fifth left her face blank for every spoken sentence.
+    weights.happy = weights.happy * 0.72;
+
     const jaw = clamp01(input.jawEnergy);
-    weights.aa = Math.max(weights.aa, jaw * 0.9);
-    weights.ih = Math.max(weights.ih, jaw * 0.3);
-    weights.ou = Math.max(weights.ou, jaw * 0.2);
-    weights.oh = Math.max(weights.oh, jaw * 0.15);
+    const vis = input.viseme;
+    const vWeight = input.visemeWeight !== undefined ? clamp01(input.visemeWeight) : 1.0;
+
+    if (vis && vis !== "closed") {
+      const primaryWeight = Math.max(0.25, vWeight * (jaw > 0.05 ? jaw * 1.2 : 0.75));
+      if (vis === "aa") {
+        weights.aa = Math.max(weights.aa, primaryWeight);
+        weights.oh = Math.max(weights.oh, primaryWeight * 0.2);
+      } else if (vis === "ih") {
+        weights.ih = Math.max(weights.ih, primaryWeight);
+        weights.ee = Math.max(weights.ee, primaryWeight * 0.4);
+      } else if (vis === "ou") {
+        weights.ou = Math.max(weights.ou, primaryWeight);
+        weights.oh = Math.max(weights.oh, primaryWeight * 0.3);
+      } else if (vis === "ee") {
+        weights.ee = Math.max(weights.ee, primaryWeight);
+        weights.ih = Math.max(weights.ih, primaryWeight * 0.5);
+      } else if (vis === "oh") {
+        weights.oh = Math.max(weights.oh, primaryWeight);
+        weights.ou = Math.max(weights.ou, primaryWeight * 0.4);
+        weights.aa = Math.max(weights.aa, primaryWeight * 0.3);
+      }
+    } else {
+      // Fallback jaw energy cycling
+      weights.aa = Math.max(weights.aa, jaw * 0.9);
+      weights.ih = Math.max(weights.ih, jaw * 0.3);
+      weights.ou = Math.max(weights.ou, jaw * 0.2);
+      weights.oh = Math.max(weights.oh, jaw * 0.15);
+    }
   }
 
-  // Blink — full closure on blink beats, none otherwise (VRM 1.0).
-  const blink = input.reducedMotion ? 0 : input.blinking ? 1 : 0;
+  // Blink — eased lid closure so the eyes fall shut and reopen.
+  const blink = input.reducedMotion ? 0 : clamp01(input.blinkWeight);
   weights.blink = blink;
   weights.blinkLeft = blink;
   weights.blinkRight = blink;

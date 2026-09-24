@@ -45,6 +45,17 @@ def test_health_and_provider_readiness_are_safe(client: TestClient) -> None:
     assert "api_key" not in diagnostics
 
 
+def test_openapi_schema_builds_for_every_route(client: TestClient) -> None:
+    """A request model declared inside the app factory leaves FastAPI holding an
+    unresolvable ForwardRef, and the entire schema 500s while every route keeps
+    answering. That is invisible to route-level tests, so the schema is gated
+    on its own here."""
+    schema = client.get("/openapi.json")
+    assert schema.status_code == 200, schema.text
+    paths = schema.json()["paths"]
+    assert "/api/v1/conversations/{conversation_id}" in paths
+
+
 def test_voice_profiles_disclose_standard_hindi_voices(client: TestClient) -> None:
     profiles = client.get("/v1/voice-profiles").json()
     assert profiles[0]["requestedVoice"] == "hi-IN-SwaraNeural"
@@ -216,7 +227,7 @@ def test_custom_provider_uses_codex_gateway_key_without_exposing_secret() -> Non
     openai = next(provider for provider in providers if provider["id"] == "openai")
     custom = next(provider for provider in providers if provider["id"] == "custom")
     assert openai["state"] == "unavailable"
-    assert custom["state"] == "healthy"
+    assert custom["state"] == "untested"
     assert "codex-placeholder" not in openai["userMessage"]
     assert "codex-placeholder" not in custom["userMessage"]
 
@@ -241,7 +252,7 @@ def test_openai_and_custom_gateway_keys_are_separate_without_exposing_secret() -
     openai = next(provider for provider in providers if provider["id"] == "openai")
     custom = next(provider for provider in providers if provider["id"] == "custom")
     assert "Key source: primary" in openai["userMessage"]
-    assert custom["state"] == "healthy"
+    assert custom["state"] == "untested"
     assert "primary-placeholder" not in openai["userMessage"]
     assert "codex-placeholder" not in openai["userMessage"]
     assert "codex-placeholder" not in custom["userMessage"]

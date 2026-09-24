@@ -62,7 +62,7 @@ class AzureContinuousRecognizer:
             auto_language = None
             if self._language_mode == "auto":
                 auto_language = sdk.languageconfig.AutoDetectSourceLanguageConfig(
-                    languages=["en-US", "hi-IN"]
+                    languages=["en-US", "hi-IN", "ne-NP"]
                 )
             else:
                 config.speech_recognition_language = self._language
@@ -235,7 +235,7 @@ class AzureSpeechProvider:
         rate_percent = round((rate - 1) * 100)
         volume_percent = round(volume * 100)
         ssml = (
-            "<speak version='1.0' xml:lang='hi-IN' "
+            f"<speak version='1.0' xml:lang='{escape('-'.join(voice.split('-')[:2]))}' "
             "xmlns='http://www.w3.org/2001/10/synthesis'>"
             f"<voice name='{escape(voice)}'><prosody rate='{rate_percent:+d}%' "
             f"pitch='{pitch_semitones:+.1f}st' volume='{volume_percent}%'>"

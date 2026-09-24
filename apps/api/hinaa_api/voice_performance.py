@@ -70,7 +70,7 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
             warmth=0.75,
             energy=0.3,
         )
-    if _TECH.search(text) or depth in {"procedural", "explanatory"}:
+    if _TECH.search(text) or depth in {"procedural", "explanatory", "report"}:
         return VoicePerformancePlan(
             mode="professional",
             pace=0.98,
@@ -111,10 +111,28 @@ def plan_voice_performance(*, user_text: str, reply_text: str, depth: str) -> Vo
 
 def speech_text_for_tts(display_text: str) -> str:
     spoken = display_text
+    # 1. Strip XML/HTML tags like <spokenText>, </spokenText>, <displayText>, <think>
+    spoken = re.sub(
+        r"</?(?:spokenText|displayText|think|thought|content|message)[^>]*>",
+        "",
+        spoken,
+        flags=re.IGNORECASE,
+    )
+    spoken = re.sub(r"<[^>]+>", " ", spoken)
+    # 2. Strip trailing parenthetical parameter dumps like (affection=0.75, sass=0.35...)
+    spoken = re.sub(
+        r"\s*\([a-zA-Z_]+=[0-9.]+(?:,\s*[a-zA-Z_]+=[0-9.]+)*\)\s*$",
+        "",
+        spoken,
+    )
+    # 3. Strip code blocks and backticks
+    spoken = re.sub(r"```[\s\S]*?```", " ", spoken)
+    spoken = re.sub(r"`[^`]*`", " ", spoken)
+    # 4. Pronunciation map substitutions
     for pattern, replacement in PRONUNCIATION_MAP:
         spoken = pattern.sub(replacement, spoken)
-    # Strip markdown that sounds bad in TTS.
-    spoken = re.sub(r"[`*#>]+", " ", spoken)
+    # 5. Strip markdown formatting chars
+    spoken = re.sub(r"[`*#_>~|]+", " ", spoken)
     spoken = re.sub(r"\s+", " ", spoken).strip()
     return spoken
 

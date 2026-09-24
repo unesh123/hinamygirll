@@ -1,57 +1,79 @@
-import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
-afterEach(() => cleanup());
+// Mock fetch globally
+global.fetch = vi.fn().mockImplementation(() =>
+  Promise.resolve({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({}),
+    text: () => Promise.resolve(""),
+  })
+);
 
-// ── matchMedia ────────────────────────────────────────────────────────────────
-Object.defineProperty(window, "matchMedia", {
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] || null),
+    setItem: vi.fn((key: string, value: string) => { store[key] = value; }),
+    removeItem: vi.fn((key: string) => { delete store[key]; }),
+    clear: vi.fn(() => { store = {}; }),
+    get length() { return Object.keys(store).length; },
+    key: vi.fn((index: number) => Object.keys(store)[index] || null),
+  };
+})();
+
+Object.defineProperty(global, 'localStorage', {
+  value: localStorageMock,
   writable: true,
-  value: (query: string) => ({
+});
+
+// Mock IntersectionObserver
+class MockIntersectionObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+global.IntersectionObserver = MockIntersectionObserver as any;
+
+// Mock ResizeObserver
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+global.ResizeObserver = MockResizeObserver as any;
+
+// Mock matchMedia
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation(query => ({
     matches: false,
     media: query,
     onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => false,
-  }),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
 });
 
-// ── scrollIntoView ────────────────────────────────────────────────────────────
-// jsdom does not implement scrollIntoView; this no-op prevents the TypeError
-// that was causing all 8 App.test.tsx failures.
-window.HTMLElement.prototype.scrollIntoView = function () {};
-
-// ── scrollTo ──────────────────────────────────────────────────────────────────
-window.HTMLElement.prototype.scrollTo = function () {};
-
-// ── ResizeObserver ────────────────────────────────────────────────────────────
-class MockResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-Object.defineProperty(window, "ResizeObserver", {
-  writable: true,
-  value: MockResizeObserver,
+// Suppress console.error in tests
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args) => {
+    if (
+      typeof args[0] === 'string' &&
+      args[0].includes('Warning: ReactDOM.render is no longer supported')
+    ) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
 });
 
-// ── IntersectionObserver ──────────────────────────────────────────────────────
-class MockIntersectionObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-Object.defineProperty(window, "IntersectionObserver", {
-  writable: true,
-  value: MockIntersectionObserver,
+afterAll(() => {
+  console.error = originalError;
 });
-
-// ── HTMLCanvasElement.getContext ──────────────────────────────────────────────
-// Prevents WebGL detection from throwing in jsdom.
-HTMLCanvasElement.prototype.getContext = function () {
-  return null;
-};
-

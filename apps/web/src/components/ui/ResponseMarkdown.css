@@ -1,0 +1,46 @@
+.response-markdown { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; line-height: 1.7; }
+.response-markdown > :first-child { margin-top: 0; }
+.response-markdown > :last-child { margin-bottom: 0; }
+.response-markdown p { margin: 0 0 .8em; }
+.response-markdown h1, .response-markdown h2, .response-markdown h3, .response-markdown h4 { margin: 1.1em 0 .45em; line-height: 1.3; font-weight: 700; }
+.response-markdown h1 { font-size: 1.5em; }
+.response-markdown h2 { font-size: 1.3em; }
+.response-markdown h3, .response-markdown h4 { font-size: 1.1em; }
+.response-markdown ul, .response-markdown ol { padding-left: 1.5em; margin: .5em 0 1em; }
+.response-markdown ul { list-style: disc; }
+.response-markdown ol { list-style: decimal; }
+.response-markdown li + li { margin-top: .35em; }
+.response-markdown li > p { margin: .3em 0; }
+.response-markdown a { color: var(--text-link, #ac315f); text-decoration: underline; text-underline-offset: 3px; }
+.response-markdown blockquote { margin: 1em 0; padding: .25em 1em; border-left: 3px solid var(--accent, #e86491); color: var(--text-secondary); }
+.response-markdown :not(pre) > code { padding: .1em .35em; border-radius: 5px; background: var(--bg-muted, #f8eef3); font-size: .9em; }
+.response-code-block { max-width: 100%; margin: 1em 0; overflow: hidden; border: 1px solid var(--border-subtle, #e5dce4); border-radius: 12px; background: var(--bg-tertiary, #f8f4f8); }
+.response-code-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 12px; border-bottom: 1px solid var(--border-subtle, #e5dce4); font-size: .8em; color: var(--text-secondary); }
+.response-code-toolbar button { border: 0; border-radius: 6px; padding: 6px 10px; background: transparent; color: var(--text-primary); cursor: pointer; min-height: 32px; }
+.response-code-toolbar button:hover { background: var(--accent-pale, #fff0f5); }
+.response-markdown .response-code-block pre { margin: 0; padding: 16px; border: 0; border-radius: 0; overflow-x: auto; white-space: pre; overflow-wrap: normal; font-size: .88em; line-height: 1.6; background: transparent; }
+.response-table-scroll { max-width: 100%; overflow-x: auto; margin: 1em 0; border: 1px solid var(--border-subtle, #e5dce4); border-radius: 10px; }
+.response-markdown table { margin: 0; width: 100%; border-collapse: collapse; font-size: .92em; }
+.response-markdown th, .response-markdown td { padding: 10px 14px; border-bottom: 1px solid var(--border-subtle, #e5dce4); text-align: left; min-width: 100px; }
+.response-markdown th { background: var(--accent-pale, #fff0f5); font-weight: 650; }
+.response-markdown tr:last-child td { border-bottom: 0; }
+.response-markdown :focus-visible, .hinaa-work-surface button:focus-visible, .hinaa-work-surface textarea:focus-visible { outline: 2px solid var(--accent, #dd588b); outline-offset: 3px; }
+.response-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.hinaa-work-surface { min-width: 0; }
+.hinaa-work-transcript { min-width: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
+/* Flex children shrink by default, so in a column scroll container an overflowing
+   card was squashed and clipped instead of pushing the transcript's scroll height. */
+.hinaa-work-transcript > * { flex-shrink: 0; }
+.hinaa-work-composer { box-sizing: border-box; min-width: 0; }
+.hinaa-work-bubble { min-width: 0; box-sizing: border-box; }
+.hinaa-work-surface textarea { min-width: 0; }
+@media (max-width: 640px) {
+  .hinaa-work-transcript { padding-inline: 12px !important; }
+  .hinaa-work-bubble { max-width: 100% !important; padding: 12px !important; }
+  .hinaa-work-composer { padding-inline: 10px !important; padding-bottom: max(12px, env(safe-area-inset-bottom)) !important; }
+  .response-code-toolbar button { min-height: 44px; }
+  .response-markdown .response-code-block pre { padding: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hinaa-work-surface *, .sakura-message *, .response-markdown * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

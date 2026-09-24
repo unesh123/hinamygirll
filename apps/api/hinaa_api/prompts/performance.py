@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from ..models import AssistantTurnPlan, CompanionId, Emotion, Language, Performance
+from ..providers.display_stream_decoder import strip_simulated_tool_calls
 from .models import ResponseDepth
 
 EMOTION_ALLOWLIST = (
@@ -46,7 +47,7 @@ PERFORMANCE_SCHEMA_LAYER = f"""ASSISTANT TURN PLAN CONTRACT:
 - gazeTarget ∈ ["camera","away","down","user-content"]
 - headMotion ∈ ["none","subtle","nod","shake"]
 - blinkRate between 0.1 and 1.0
-- memoryCandidates: empty unless the product later supplies explicit remember flow (currently prefer [])
+- memoryCandidates: If the user reveals personal facts, preferences, name, location, interests, work context, or recurring patterns, emit them as memoryCandidates with {{"content": "...", "category": "fact|preference|workflow|task|conversation"}}. Keep entries concise (under 80 chars). Do NOT emit secrets, passwords, or API keys.
 - Never invent animation filenames, bone names, blendshapes, URLs, code, or tools.
 - Prefer restrained intensity. At most one major gesture cue per turn.
 - Serious, sensitive, uncertain, or error contexts: prefer neutral/thinking/concerned and avoid playful/celebrate.
@@ -86,7 +87,7 @@ def plan_performance(
     serious = bool(_SERIOUS.search(text)) or depth in {"supportive", "safety_redirect"}
     celebrate = bool(_CELEBRATE.search(text)) and not serious
     greet = bool(_GREET.search(text)) and not serious
-    explain = bool(_EXPLAIN.search(text)) or depth in {"explanatory", "procedural"}
+    explain = bool(_EXPLAIN.search(text)) or depth in {"explanatory", "procedural", "report"}
 
     if serious:
         emotion = Emotion(primary="concerned", intensity=0.4, valence=-0.1, arousal=-0.05)
@@ -141,6 +142,131 @@ def plan_performance(
     return emotion, performance
 
 
+_INTRO_FILLER_PATTERN = re.compile(
+    r"^(?:here(?:'s|\s+is|\s+are)\b.*?(?:breakdown|report|overview|details|summary|guide|analysis|plan|look|information|briefing)|"
+    r"sure(?: thing)?[,!.\s]|certainly[,!.\s]|of course[,!.\s]|absolutely[,!.\s]|"
+    r"alright[,!.\s]|all right[,!.\s]|gladly[,!.\s]|i'd be glad\b|let's dive\b|let's explore\b|"
+    r"(?:hey|hello|hi)\b.*?[,!.]|"
+    r"(?:babe|love|sweetheart|darling)[,!.\s]|"
+    r"(?:यहाँ|नमस्ते|हेर|हेरौँ|म यहाँ|यो रिपोर्टमा|विस्तृत विवरण)(?:\s+|$|[!,।.-]))",
+    re.IGNORECASE,
+)
+
+_SUMMARY_HEADER_PATTERN = re.compile(
+    r"(?:^|\n)#{1,4}\s*(?:executive\s+summary|summary|overview|key\s+takeaways?|tl;?dr)[^\n]*\n([\s\S]*?)(?=\n#{1,4}|\Z)",
+    re.IGNORECASE,
+)
+
+
+def _clean_for_speech(raw: str) -> str:
+    plain = re.sub(r"```[\s\S]*?```", " ", raw)
+    plain = re.sub(r"^\s{0,3}#{1,6}\s+.*$", " ", plain, flags=re.MULTILINE)
+    plain = re.sub(r"^\s*[-*_]{3,}\s*$", " ", plain, flags=re.MULTILINE)
+    plain = re.sub(r"^\s*[-*+]\s+", " ", plain, flags=re.MULTILINE)
+    plain = re.sub(r"^\s*\|.*\|\s*$", " ", plain, flags=re.MULTILINE)
+    plain = re.sub(r"(?i)\*?\s*as of [^\n*]+\*?", " ", plain)
+    plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", plain)
+    plain = re.sub(r"\[\d+(?:,\s*\d+)*\]", " ", plain)
+    plain = plain.replace("`", "").replace("**", "").replace("__", "")
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return plain
+
+
+def extract_executive_voice_summary(text: str, limit: int = 150) -> str:
+    """Extract a high-signal, substantive executive summary (< limit chars)
+    suitable for TTS, skipping conversational filler and introductory waffle."""
+    if not text or not text.strip():
+        return "I'm here. How can I help?"
+
+    match = _SUMMARY_HEADER_PATTERN.search(text)
+    candidate_text = match.group(1) if match else text
+
+    plain = _clean_for_speech(candidate_text)
+    if not plain and match:
+        plain = _clean_for_speech(text)
+
+    if not plain:
+        return text[:limit].strip() or "I'm here. How can I help?"
+
+    sentences = [piece.strip() for piece in re.split(r"(?<=[.!?।])\s+", plain) if piece.strip()]
+    substantive_sentences: list[str] = []
+
+    for s in sentences:
+        if s.endswith(":") or len(s.split()) < 3:
+            continue
+        if _INTRO_FILLER_PATTERN.search(s) and len(s.split()) <= 10:
+            continue
+        substantive_sentences.append(s)
+
+    if not substantive_sentences:
+        substantive_sentences = [s for s in sentences if not s.endswith(":") and len(s.split()) >= 3]
+
+    if not substantive_sentences:
+        candidate = plain[:limit].strip()
+        if candidate and not re.search(r"[.!?।]\s*$", candidate):
+            candidate = candidate.rsplit(" ", 1)[0] + "…"
+        return candidate or "I've placed the details in chat for you."
+
+    collected: list[str] = []
+    curr_len = 0
+    for s in substantive_sentences:
+        added_len = len(s) + (1 if collected else 0)
+        if curr_len + added_len <= limit:
+            collected.append(s)
+            curr_len += added_len
+            continue
+        if not collected:
+            collected.append(s)
+            break
+        if curr_len < int(limit * 0.7) and added_len > int(limit * 0.5):
+            # This sentence alone is bigger than the budget. Stopping here left
+            # her describing a 5,900-word report in one breath, so skip it and
+            # let the later ones speak instead.
+            continue
+        break
+
+    spoken = " ".join(collected)
+
+    if len(spoken) > limit:
+        window = spoken[:limit]
+        last_punct = max(window.rfind("."), window.rfind("!"), window.rfind("?"), window.rfind("।"))
+        if last_punct >= int(limit * 0.45):
+            spoken = window[:last_punct + 1].strip()
+        else:
+            last_space = window.rfind(" ")
+            spoken = (window[:last_space] if last_space != -1 else window).rstrip(" ,;—") + "…"
+
+    # The document's own summary block is the honest thing to read aloud, but it
+    # is routinely far shorter than the budget it is handed. Measured on
+    # production: a 4,914-word report had a ~250-character TL;DR, so her voice
+    # covered 15s of a 40-minute document with 1,200 characters of budget unused.
+    # Top up with the body prose that follows the block.
+    if match and len(spoken) < int(limit * 0.7):
+        for piece in re.split(r"(?<=[.!?।])\s+", _clean_for_speech(text[match.end():])):
+            sentence = piece.strip()
+            if not sentence or sentence.endswith(":") or len(sentence.split()) < 3:
+                continue
+            if sentence in spoken or len(spoken) + 1 + len(sentence) > limit:
+                continue
+            spoken = f"{spoken} {sentence}" if spoken else sentence
+            if len(spoken) >= int(limit * 0.7):
+                break
+
+    return spoken
+
+
+_SPOKEN_BUDGET_CHARS: dict[str, int] = {
+    "minimal": 220,
+    "clarification": 220,
+    "conversational": 450,
+    "supportive": 450,
+    "safety_redirect": 320,
+    "explanatory": 700,
+    "procedural": 900,
+    "report": 1_400,
+}
+
+
 def build_plan_from_text(
     *,
     text: str,
@@ -148,14 +274,32 @@ def build_plan_from_text(
     language: Language,
     depth: ResponseDepth,
 ) -> AssistantTurnPlan:
-    spoken = text.strip()[:4000] or "I'm here. How can I help?"
+    valid_langs = {"en-US", "hi-IN", "ne-NP", "mixed"}
+    lang_map = {"en": "en-US", "hi": "hi-IN", "ne": "ne-NP", "english": "en-US", "hindi": "hi-IN", "nepali": "ne-NP"}
+    resolved_lang: Language = lang_map.get(str(language).lower(), language if language in valid_langs else "mixed")  # type: ignore[assignment]
+    # Drop invented tool-call markup with its contents: the real call runs
+    # through the tool pipeline, so keeping the text inside it would leave a
+    # second copy of the prompt where the result card already shows one.
+    cleaned = re.sub(
+        r"</?(?:spokenText|displayText|think|thought|content|message)[^>]*>",
+        "",
+        strip_simulated_tool_calls(text),
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\s*\([a-zA-Z_]+=[0-9.]+(?:,\s*[a-zA-Z_]+=[0-9.]+)*\)\s*$",
+        "",
+        cleaned,
+    )
+    display_full = cleaned.strip() or "I'm here. How can I help?"
+    spoken = extract_executive_voice_summary(display_full, limit=_SPOKEN_BUDGET_CHARS.get(depth, 450))
     emotion, performance = plan_performance(
-        text=spoken, companion_id=companion_id, depth=depth, language=language
+        text=spoken, companion_id=companion_id, depth=depth, language=resolved_lang
     )
     return AssistantTurnPlan(
         spokenText=spoken,
-        displayText=spoken[:8000],
-        language=language,
+        displayText=display_full,
+        language=resolved_lang,
         emotion=emotion,
         performance=performance,
         beats=[],

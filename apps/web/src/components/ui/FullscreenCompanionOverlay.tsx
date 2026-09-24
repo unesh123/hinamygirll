@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useSpring, animated, config } from "@react-spring/web";
 import { Mic, MicOff, Pause, Play, Radio, Sparkles, Square, Volume2 } from "lucide-react";
 import type { TranscriptMessage } from "../../features/companion/types";
 import type { CompanionState } from "../../features/companion/types";
@@ -8,6 +10,7 @@ export type FullscreenLiveStatus = {
   paused: boolean;
   detail: string;
   microphoneLevel: number;
+  status?: "idle" | "connecting" | "listening" | "paused" | "reconnecting" | "error";
 };
 
 interface FullscreenCompanionOverlayProps {
@@ -28,8 +31,16 @@ interface FullscreenCompanionOverlayProps {
 const stateCopy: Record<CompanionState, string> = {
   idle: "Ready when you are",
   listening: "Listening carefully",
+  understanding: "Understanding your request",
   thinking: "Thinking through your request",
+  researching: "Researching information",
+  using_tool: "Using tools to help",
+  generating: "Generating response",
+  writing: "Writing answer",
+  waiting: "Waiting",
   speaking: "Speaking with you",
+  success: "Done!",
+  confused: "Thinking carefully",
   interrupted: "Interrupted — ready again",
   error: "Connection needs attention",
 };
@@ -57,6 +68,31 @@ export function FullscreenCompanionOverlay({
   onPauseLive,
   onResumeLive,
 }: FullscreenCompanionOverlayProps) {
+  // Use a spring for the microphone level ring to make volume visual feedback more fluid
+  const level = Math.max(0, Math.min(1, live.microphoneLevel || 0));
+  const { ringScale } = useSpring({
+    ringScale: 1 + level * 0.18,
+    config: { mass: 1, tension: 300, friction: 20 },
+  });
+
+  // Use a spring for the button press interaction
+  const [{ buttonScale }, buttonApi] = useSpring(() => ({
+    buttonScale: 1,
+    config: config.stiff,
+  }));
+
+  // Escape key handling
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onStopLive();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onStopLive]);
+
   if (!open) return null;
 
   const recentMessages = messages.slice(-3);
@@ -65,7 +101,6 @@ export function FullscreenCompanionOverlay({
       ? "Live conversation paused"
       : stateCopy[companionState]
     : "Press the microphone to begin live voice";
-  const level = Math.max(0, Math.min(1, live.microphoneLevel || 0));
 
   return (
     <section className="fullscreen-companion-overlay" aria-label={`${companionName} live companion`}>
@@ -83,7 +118,7 @@ export function FullscreenCompanionOverlay({
             {live.active && !live.paused ? "LIVE" : live.paused ? "PAUSED" : "VOICE READY"}
           </span>
           <span className={`fullscreen-companion-overlay__signal${trackingActive ? " is-tracking" : ""}`}>
-            {trackingActive ? "VMC TRACKING" : "AUTONOMOUS PRESENCE"}
+            {trackingActive ? "VMC PACKETS LIVE" : "LOCAL AVATAR MOTION"}
           </span>
         </div>
       </header>
@@ -92,7 +127,7 @@ export function FullscreenCompanionOverlay({
         <AnimatePresence initial={false}>
           {recentMessages.map((message, index) => (
             <motion.article
-              key={message.id}
+              key={message.id || `msg-${index}`}
               className={`fullscreen-turn fullscreen-turn--${message.role}`}
               initial={{ opacity: 0, x: -14, y: 8 }}
               animate={{ opacity: 1, x: 0, y: 0 }}
@@ -152,17 +187,22 @@ export function FullscreenCompanionOverlay({
               {live.paused ? <Play size={15} fill="currentColor" aria-hidden="true" /> : <Pause size={15} fill="currentColor" aria-hidden="true" />}
             </button>
           )}
-          <motion.button
+          <animated.button
             type="button"
             className={`fullscreen-companion-overlay__mic${live.active ? " is-active" : ""}${live.paused ? " is-paused" : ""}`}
             onClick={live.active ? onStopLive : onStartLive}
             aria-label={live.active ? "Stop live conversation" : "Start live conversation"}
+            aria-pressed={live.active}
             title={live.active ? "Stop live conversation" : "Start live conversation"}
-            whileTap={{ scale: 0.96 }}
+            style={{ transform: buttonScale.to(s => `scale(${s})`) }}
+            onPointerDown={() => buttonApi.start({ buttonScale: 0.94, config: { tension: 400, friction: 20 } })}
+            onPointerUp={() => buttonApi.start({ buttonScale: 1, config: config.stiff })}
+            onPointerLeave={() => buttonApi.start({ buttonScale: 1, config: config.stiff })}
+            onPointerCancel={() => buttonApi.start({ buttonScale: 1, config: config.stiff })}
           >
-            <span className="fullscreen-companion-overlay__mic-ring" style={{ transform: `scale(${1 + level * 0.18})` }} />
+            <animated.span className="fullscreen-companion-overlay__mic-ring" style={{ transform: ringScale.to(s => `scale(${s})`) }} />
             {live.active ? <Square size={17} fill="currentColor" aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}
-          </motion.button>
+          </animated.button>
           {live.active && (
             <span className="fullscreen-companion-overlay__stop-label"><MicOff size={12} aria-hidden="true" /> Stop</span>
           )}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Download, FolderPlus, FileText, ListTodo, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { Download, FileSearch, FolderPlus, FileText, ListTodo, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Upload, XCircle } from "lucide-react";
 
 type TaskStatus = "pending" | "active" | "success" | "error" | "cancelled" | "waiting_approval";
 
@@ -15,6 +15,7 @@ interface ProjectTask {
 interface ProjectFile {
   id: string;
   name: string;
+  mediaType?: string;
   sizeBytes: number;
 }
 
@@ -88,8 +89,13 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
   const [sourceUrl, setSourceUrl] = useState("");
   const [runGoal, setRunGoal] = useState("");
   const [runBusy, setRunBusy] = useState(false);
+  const [codePath, setCodePath] = useState("src/main.py");
+  const [codeContent, setCodeContent] = useState("");
+  const [codeBusy, setCodeBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fileBusy, setFileBusy] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<{ runId: string; stepId: string; title: string } | null>(null);
 
   const loadProjects = async (selectId?: string) => {
     setLoading(true);
@@ -115,9 +121,21 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (active) void loadProjects();
-    // Refresh only when the panel is opened; do not poll the local API.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  // Runs are durable server-side jobs. Keep the maker UI live while one is
+  // executing so event/state changes (including cancellation or approval
+  // waits) are visible without forcing the user to press refresh.
+  useEffect(() => {
+    if (!active || !selected?.id || !selected.runs.some((run) => run.status === "running" || run.status === "queued")) return;
+    const timer = window.setInterval(() => {
+      if (!loading) void loadProjects(selected.id);
+    }, 2000);
+    return () => window.clearInterval(timer);
+    // loadProjects is intentionally kept stable for this polling subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, selected?.id, selected?.runs, loading]);
 
   const createProject = async () => {
     const clean = title.trim();
@@ -207,15 +225,65 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
     if (!selected || run.status === status) return;
     setRunBusy(true);
     try {
-      await request(`/projects/runs/${run.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
+      if (status === "cancelled") {
+        await request(`/agent/runs/${run.id}/cancel`, { method: "POST" });
+      } else if (status === "queued") {
+        await request(`/projects/${selected.id}/runs`, { method: "POST", body: JSON.stringify({ goal: run.goal }) });
+      } else {
+        const detail = await request<{ status: string }>(`/agent/runs/${run.id}`);
+        const plan = await request<{ steps: Array<{ step_id: string; title: string; status: string }> }>(`/agent/runs/${run.id}/steps`);
+        const pending = plan.steps.find((step) => step.status === "awaiting_confirmation");
+        if (pending) {
+          setPendingApproval({ runId: run.id, stepId: pending.step_id, title: pending.title });
+          return;
+        }
+        if (detail.status === "queued") {
+          await request(`/projects/runs/${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "running" }) });
+        } else {
+          await request(`/agent/runs/${run.id}/recover`, { method: "POST" });
+          await request(`/agent/runs/${run.id}/resume`, { method: "POST" });
+        }
+      }
       await loadProjects(selected.id);
     } catch {
       setError("Could not update the local agent run.");
     } finally {
       setRunBusy(false);
+    }
+  };
+
+  const uploadFile = async (file: File | undefined) => {
+    if (!selected || !file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      setError("Files are limited to 25 MB.");
+      return;
+    }
+    setFileBusy(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(`${API}/projects/${selected.id}/files`, { method: "POST", body: form });
+      if (!response.ok) throw new Error(`Upload failed (${response.status})`);
+      await loadProjects(selected.id);
+    } catch {
+      setError("Could not save that file to the local project.");
+    } finally {
+      setFileBusy(false);
+    }
+  };
+
+  const analyzeFile = async (file: ProjectFile) => {
+    if (!selected) return;
+    setFileBusy(true);
+    setError("");
+    try {
+      await request(`/projects/files/${file.id}/analyze`, { method: "POST" });
+      await loadProjects(selected.id);
+    } catch {
+      setError("HINAA could not read that file locally. Supported formats: TXT, Markdown, CSV, JSON, PDF, DOCX, and PPTX.");
+    } finally {
+      setFileBusy(false);
     }
   };
 
@@ -231,6 +299,24 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
       await loadProjects(selected.id);
     } catch {
       setError("Could not add the task.");
+    }
+  };
+
+  const saveCodeFile = async () => {
+    if (!selected || !codePath.trim() || !codeContent.trim()) return;
+    setCodeBusy(true);
+    setError("");
+    try {
+      await request(`/projects/${selected.id}/code/files`, {
+        method: "POST",
+        body: JSON.stringify({ path: codePath.trim(), content: codeContent, overwrite: false }),
+      });
+      setCodeContent("");
+      await loadProjects(selected.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save the source file. Choose a new path or inspect the conflict.");
+    } finally {
+      setCodeBusy(false);
     }
   };
 
@@ -293,8 +379,8 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
               </div>
             </div>
             <div style={{ display: "grid", gap: 7, marginTop: 10 }}>
-              {selected.tasks.map((task) => <div key={task.id} style={{ ...rowStyle, marginLeft: task.parentTaskId ? 14 : 0, borderLeft: task.parentTaskId ? "2px solid rgba(45,212,191,.35)" : "2px solid transparent" }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: statusColor(task.status), flexShrink: 0, marginTop: 5 }} />
+              {selected.tasks.map((task, taskIndex) => <div key={task.id} className="lwp-task-row" style={{ ...rowStyle, marginLeft: task.parentTaskId ? 14 : 0, borderLeft: task.parentTaskId ? "2px solid rgba(45,212,191,.35)" : "2px solid transparent", animationDelay: `${taskIndex * 45}ms` }}>
+                <span className={`lwp-task-dot${task.status === "active" ? " lwp-task-dot--active" : ""}`} style={{ width: 8, height: 8, borderRadius: 99, background: statusColor(task.status), flexShrink: 0, marginTop: 5 }} />
                 <div style={{ minWidth: 0, flex: 1 }}><strong>{task.title}</strong>{task.detail && <small>{task.detail}</small>}{task.requiresApproval && <em><ShieldCheck size={11} /> Approval required</em>}</div>
                 <select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => void updateTaskStatus(task, event.target.value as TaskStatus)} style={statusSelectStyle}>
                   <option value="pending">Queued</option><option value="active">Active</option><option value="waiting_approval">Approve</option><option value="success">Done</option><option value="error">Blocked</option><option value="cancelled">Stopped</option>
@@ -317,7 +403,22 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
                 const color = run.status === "completed" ? "#34d399" : run.status === "waiting_approval" ? "#fbbf24" : run.status === "failed" ? "#fb7185" : run.status === "running" ? "#38bdf8" : "#94a3b8";
                 return <div key={run.id} style={{ ...rowStyle, display: "grid", gap: 6, borderLeft: `2px solid ${color}` }}>
                   <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}><span style={{ width: 8, height: 8, marginTop: 4, borderRadius: 99, background: color }} /><div style={{ minWidth: 0, flex: 1 }}><strong>{run.goal}</strong><small>{latest?.label || "Run created"}{latest?.detail ? ` · ${latest.detail}` : ""}</small></div></div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, paddingLeft: 15 }}><span style={{ color, fontSize: 10, fontWeight: 800, letterSpacing: ".05em" }}>{run.status.replace("_", " ").toUpperCase()}</span><span style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>{run.status === "waiting_approval" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><Play size={11} /> Resume</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{run.status === "running" && <><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "waiting_approval")} style={miniButtonStyle}><Pause size={11} /> Pause</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "completed")} style={miniButtonStyle}><CheckCircle2 size={11} /> Finish</button><button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}><XCircle size={11} /> Cancel</button></>}{(run.status === "failed" || run.status === "cancelled" || run.status === "completed") && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}><RotateCcw size={11} /> Resume context</button>}</span></div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ color }}>{run.status.replace("_", " ")}</span>
+                    {run.status === "waiting_approval" && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "running")} style={miniButtonStyle}>Review / resume</button>}
+                    {["running", "queued", "waiting_approval"].includes(run.status) && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "cancelled")} style={miniButtonStyle}>Cancel run</button>}
+                    {run.status === "failed" && <button type="button" disabled={runBusy} onClick={() => void updateRun(run, "queued")} style={miniButtonStyle}>Retry as new run</button>}
+                  </div>
+                  {pendingApproval?.runId === run.id && <div role="group" aria-label="Approve agent action">
+                    <p>{pendingApproval.title}</p>
+                    {[true, false].map((approved) => <button key={String(approved)} type="button" disabled={runBusy} style={miniButtonStyle} onClick={() => {
+                      setRunBusy(true);
+                      void request(`/agent/runs/${run.id}/confirm`, { method: "POST", body: JSON.stringify({ step_id: pendingApproval.stepId, approved }) })
+                        .then(async () => { setPendingApproval(null); await loadProjects(selected.id); })
+                        .catch(() => setError("The approval could not be saved. Please retry."))
+                        .finally(() => setRunBusy(false));
+                    }}>{approved ? "Approve action" : "Reject action"}</button>)}
+                  </div>}
                 </div>;
               })}
               {selected.runs.length === 0 && <small style={{ color: "#94a3b8" }}>Start a run to preserve a focused execution context and inspect its event history later.</small>}
@@ -327,10 +428,25 @@ export function LocalProjectWorkspace({ active }: { active: boolean }) {
           <section>
             <label style={sectionLabelStyle}><FileText size={14} /> LOCAL CONTENT</label>
             <p style={{ color: "#cbd5e1", fontSize: 12, margin: "8px 0" }}>{selected.files.length} file{selected.files.length === 1 ? "" : "s"} · {selected.artifacts.length} saved artifact{selected.artifacts.length === 1 ? "" : "s"}</p>
+            <label style={{ ...miniButtonStyle, width: "fit-content", opacity: fileBusy ? .6 : 1 }} title="Upload a local document">
+              {fileBusy ? <Loader2 size={11} className="spin" /> : <Upload size={11} />} Upload file
+              <input aria-label="Upload local project file" type="file" hidden disabled={fileBusy} accept=".txt,.md,.markdown,.csv,.json,.pdf,.docx,.pptx" onChange={(event) => { void uploadFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+            </label>
+            <p style={{ color: "#94a3b8", fontSize: 11, lineHeight: 1.4, margin: "7px 0" }}>Files remain local. Analyze supported files to create a private text artifact HINAA can reference and export.</p>
             <div style={{ display: "grid", gap: 5 }}>
               {selected.artifacts.slice(0, 4).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12 }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.kind}: {item.title}</span><a href={`${API}/projects/artifacts/${item.id}/export`} title={`Export ${item.title} as Markdown`} aria-label={`Export ${item.title} as Markdown`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a></div>)}
-              {selected.files.slice(0, 3).map((item) => <div key={item.id} style={{ color: "#94a3b8", fontSize: 12, padding: "2px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>file: {item.name}</div>)}
+              {selected.files.slice(0, 6).map((item) => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: "#94a3b8", fontSize: 12, padding: "2px 0" }}><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>file: {item.name}</span><a href={`${API}/projects/files/${item.id}`} title={`Download ${item.name}`} aria-label={`Download ${item.name}`} style={{ color: "#7dd3fc", display: "grid" }}><Download size={13} /></a><button type="button" disabled={fileBusy} onClick={() => void analyzeFile(item)} title={`Analyze ${item.name} locally`} style={miniButtonStyle}><FileSearch size={11} /> Analyze</button></div>)}
             </div>
+          </section>
+
+          <section>
+            <label style={sectionLabelStyle}><FileText size={14} /> CODE MAKER</label>
+            <p style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.45, margin: "8px 0" }}>Write a source artifact into this private project. Paths stay inside the project and existing files are never replaced implicitly.</p>
+            <input value={codePath} onChange={(event) => setCodePath(event.target.value)} placeholder="src/main.py" aria-label="Code file path" style={{ ...inputStyle, width: "100%" }} />
+            <textarea value={codeContent} onChange={(event) => setCodeContent(event.target.value)} placeholder="Paste or draft code here…" aria-label="Code file content" rows={7} style={{ ...inputStyle, width: "100%", resize: "vertical", marginTop: 6, fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace", lineHeight: 1.45 }} />
+            <button type="button" disabled={codeBusy || !codeContent.trim()} onClick={() => void saveCodeFile()} style={{ ...miniButtonStyle, marginTop: 6, opacity: codeBusy ? 0.6 : 1 }}>
+              {codeBusy ? <Loader2 size={11} className="spin" /> : <Sparkles size={11} />} Save source artifact
+            </button>
           </section>
 
           <section>

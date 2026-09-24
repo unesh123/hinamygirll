@@ -1,6 +1,6 @@
 import React, { Suspense, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Environment, ContactShadows, PerspectiveCamera } from "@react-three/drei";
+import { ContactShadows, PerspectiveCamera } from "@react-three/drei";
 import { VRMAvatar, type AvatarEmotion } from "./VRMAvatar";
 import type { CompanionState } from "../../features/companion/types";
 import { motion, AnimatePresence } from "framer-motion";
@@ -89,7 +89,7 @@ export function AvatarStage({ state, jawEnergy, modelUrl = "/models/hinaa.vrm" }
           {/* Pearl fill light */}
           <pointLight position={[0, 1, 3]} intensity={0.8} color="#fafbff" />
 
-          <Environment preset="city" environmentIntensity={0.3} />
+          <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.3]} />
 
           <group position={[0, 0, 0]}>
             <VRMAvatar

@@ -38,9 +38,14 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   real:   "Gemini",
   local:  "Local",
   mock:   "Demo",
-  "agent-router": "Agent Router (agentrouter.org)",
+  groq:   "Groq Cloud",
+  claude: "Claude",
+  qwen: "Qwen",
+  "agent-router": "Bynara Router (router.bynara.id)",
   "cx-gateway":   "CX Gateway (cx/gpt-5.6-sol)",
   "gemini-live":  "Gemini Live (Native Speech-to-Speech)",
+  codecraft:      "CodeCraft AI (codecraftapi.com)",
+  ollama:         "Ollama (Local)",
 };
 
 const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
@@ -50,9 +55,14 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   real:   "Google Gemini models.",
   local:  "Zero-credit on-device model. Text only.",
   mock:   "Deterministic demo. No API calls.",
-  "agent-router": "agentrouter.org — access Claude, GPT, DeepSeek and more with your $175 credits.",
+  groq:   "Ultra-fast Llama models on Groq LPUs.",
+  claude: "Claude via HINAA’s own Anthropic-compatible API configuration.",
+  qwen: "QwenCloud text brain via HINAA’s private local backend; ElevenLabs continues to provide Hinaa’s voice.",
+  "agent-router": "router.bynara.id — free models (Agnes 2.5 Flash, Nemotron 3.5 Free, Laguna) & premium models (Claude, GPT, DeepSeek).",
   "cx-gateway":   "cx/gpt-5.6-sol — your premium Cloudflare gateway.",
   "gemini-live":  "Google Gemini Live Bidi S2S (<300ms native multimodal audio).",
+  codecraft:      "codecraftapi.com — 100M+ tokens, Claude Fable 5, and full unconstrained reasoning.",
+  ollama:         "Fast local uncensored models (dolphin-mistral:7b, etc.) via local Ollama engine.",
 };
 
 export function ProviderSettings({ provider, providers, onChange, activeMode }: Props) {

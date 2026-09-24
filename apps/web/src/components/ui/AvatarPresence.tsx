@@ -10,12 +10,12 @@
  *   Layer 6: Pose → relaxed idle via normalized rig bones
  */
 
-import { Suspense, useState, useRef, useEffect, useCallback } from "react";
+import { Suspense, useState, useRef, useEffect, useCallback, useContext } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { ContactShadows, Environment } from "@react-three/drei";
-import { motion } from "framer-motion";
+import { ContactShadows } from "@react-three/drei";
+import { AnimatePresence, motion } from "framer-motion";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMUtils } from "@pixiv/three-vrm";
+import { VRMLoaderPlugin, VRM, VRMExpressionPresetName, VRMHumanBoneName, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 import { Expand, Maximize2, Minimize2, Radio } from "lucide-react";
 import { FullscreenCompanionOverlay, type FullscreenLiveStatus } from "./FullscreenCompanionOverlay";
@@ -25,6 +25,8 @@ import type { FaceExpressions } from "../../features/audio/useVSeeFace";
 import { expressionIntentFor, type CompanionExpressionIntent } from "../../features/avatar/companionExpression";
 import type { VisemeEvent } from "../../features/audio/textToViseme";
 import { getActiveViseme } from "../../features/audio/textToViseme";
+import { SpeechPlaybackContext, sampleSpeechPlayback } from "../../features/audio/speechPlaybackBridge";
+import { optimizeVrm } from "../../features/avatar/vrmOptimizer";
 
 export type PresenceMode = "portrait" | "closeup" | "upperbody" | "full" | "hidden";
 
@@ -120,6 +122,15 @@ const VRM_PRESET: Record<MouthKey, VRMExpressionPresetName> = {
   oh: VRMExpressionPresetName.Oh,
 };
 
+// Older rigs spelled the same blend shapes with VRM 0.x authoring names. A
+// write only reaches the mesh through whichever spelling the file registered,
+// so the setter tries both. Module scope: the frame loop asks on every write.
+const PRESET_ALIASES: Record<string, string> = {
+  aa: "a", ih: "i", ou: "u", ee: "e", oh: "o",
+  happy: "joy", sad: "sorrow", relaxed: "fun",
+  blinkLeft: "blink_l", blinkRight: "blink_r",
+};
+
 /* ─── Emotion blends (always low intensity — never override mouth) */
 type EmotionBlend = Partial<Record<VRMExpressionPresetName, number>>;
 function emotionForIntent(intent: CompanionExpressionIntent): EmotionBlend {
@@ -211,6 +222,12 @@ function Model({
 }: ModelProps) {
   const vrmRef   = useRef<VRM | null>(null);
   const availRef = useRef<Set<string>>(new Set());
+  // What a loaded rig actually registers is whatever its author named the
+  // blend shapes, not the spec strings three-vrm's enum exposes. This model
+  // registers `VRMExpression_Surprised` with a capital S, so every write to
+  // "surprised" landed nowhere and her upper face had nothing but blink.
+  const rigNamesRef  = useRef<Map<string, string>>(new Map());
+  const writeNameRef = useRef<Map<string, string | null>>(new Map());
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -219,8 +236,14 @@ function Model({
   const restQRef     = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const poseTargetRef = useRef<Partial<Record<PoseBoneName, THREE.Quaternion>>>({});
   const headBoneRef = useRef<THREE.Object3D | null>(null);
+  const jawBoneRef = useRef<THREE.Object3D | null>(null);
   const headRestQRef = useRef<THREE.Quaternion | null>(null);
   const headCurQRef = useRef<THREE.Quaternion | null>(null);
+  // Idle liveliness: the chest/upperChest bone is NOT in POSE_BONES, so it is
+  // safe to drive a gentle breathing motion here without fighting the arm/
+  // shoulder pose-lock. Rest quaternion is captured once at load.
+  const chestBoneRef = useRef<THREE.Object3D | null>(null);
+  const chestRestQRef = useRef<THREE.Quaternion | null>(null);
 
   // Per-frame refs — no allocations
   const t           = useRef(0);
@@ -234,7 +257,7 @@ function Model({
   // retaining immediate conversational expression changes.
   const smoothFace  = useRef<FaceExpressions>({ mouthOpen: 0, mouthA: 0, mouthI: 0, mouthU: 0, mouthE: 0, mouthO: 0, mouthSmile: 0, eyeBlinkL: 0, eyeBlinkR: 0, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0, cheekPuff: 0, angry: 0, sad: 0, relaxed: 0 });
   // AudioContext ref — populated lazily from global on first frame
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const speechBridge = useContext(SpeechPlaybackContext);
 
   useEffect(() => {
     let mounted = true;
@@ -247,7 +270,11 @@ function Model({
     headBoneRef.current = null;
     headRestQRef.current = null;
     headCurQRef.current = null;
+    chestBoneRef.current = null;
+    chestRestQRef.current = null;
     availRef.current = new Set();
+    rigNamesRef.current = new Map();
+    writeNameRef.current = new Map();
     t.current = 0;
     mouthW.current = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
     smoothFace.current = { mouthOpen: 0, mouthA: 0, mouthI: 0, mouthU: 0, mouthE: 0, mouthO: 0, mouthSmile: 0, eyeBlinkL: 0, eyeBlinkR: 0, browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0, cheekPuff: 0, angry: 0, sad: 0, relaxed: 0 };
@@ -261,14 +288,34 @@ function Model({
       const v = gltf.userData.vrm as VRM;
       if (!v) { setFailed(true); return; }
 
-      // Optimizations
+      // Optimizations — live path. This is the (previously missing) GPU-load
+      // reduction the avatar exports need: the VRM ships ~2048 textures and
+      // hundreds of morph targets; without this the first frame uploads
+      // everything at full size and integrated GPUs stutter or lose the
+      // context. Downscale to 1024, prune morphs to the expressions HINAA
+      // drives (presets + viseme aliases), and re-enable per-mesh culling.
       try { VRMUtils.removeUnnecessaryVertices(v.scene); } catch {}
       try { VRMUtils.removeUnnecessaryJoints(v.scene); } catch {}
+      try {
+        optimizeVrm(v, {
+          maxTextureSize: 1024,
+          keepExpressionNames: [
+            "happy", "angry", "sad", "relaxed", "surprised", "neutral",
+            "blink", "blinkLeft", "blinkRight",
+            "aa", "ih", "ou", "ee", "oh",
+            "a", "i", "u", "e", "o",
+            "joy", "sorrow", "fun", "blink_l", "blink_r",
+          ],
+        });
+      } catch { /* keep the model as loaded */ }
       v.scene.traverse((o: THREE.Object3D) => {
-        o.frustumCulled = false;
+        // Culling: compute real bounding spheres so the renderer can skip
+        // off-screen parts (the old hard-coded false disabled culling for the
+        // whole model — measurable cost at closeup mode). Kept as a traverse
+        // loop because a VRM 0.x model can expose a mix of mesh types.
         if ((o as THREE.Mesh).isMesh) {
-          const mat = (o as THREE.Mesh).material as THREE.Material;
-          if (mat) mat.side = THREE.DoubleSide;
+          const mesh = o as THREE.Mesh;
+          try { mesh.geometry.computeBoundingSphere(); } catch {}
         }
       });
 
@@ -319,10 +366,25 @@ function Model({
         const allNames = [
           ...Object.values(VRMExpressionPresetName),
           "a", "i", "u", "e", "o", "blink_l", "blink_r", "joy", "sorrow", "fun",
+          "happy", "angry", "sad", "relaxed", "surprised", "blinkLeft", "blinkRight",
         ];
         for (const name of allNames) {
           try { if (em.getExpression(name)) availRef.current.add(name); } catch {}
         }
+        // The spec probe above only proves the names three-vrm itself knows.
+        // Whatever else the file's author called a blend shape is reachable only
+        // by the literal name, so index those too for a case-insensitive match.
+        try {
+          for (const registered of (em as any).expressions ?? []) {
+            const literal: unknown = registered?.name;
+            if (typeof literal !== "string" || !literal) continue;
+            const bare = literal.replace(/^(VRMExpression_|VRM_v1_)/, "");
+            for (const form of [literal, bare]) {
+              const key = form.toLowerCase();
+              if (!rigNamesRef.current.has(key)) rigNamesRef.current.set(key, form);
+            }
+          }
+        } catch {}
       }
 
       // Cache normalized bone nodes and immutable rest quaternions once. The
@@ -352,6 +414,15 @@ function Model({
             headCurQRef.current = headNode.quaternion.clone();
           }
         } catch {}
+        try {
+          const chestNode = hd.getNormalizedBoneNode("upperChest" as any)
+            ?? hd.getNormalizedBoneNode("chest" as any)
+            ?? hd.getNormalizedBoneNode("spine" as any);
+          if (chestNode) {
+            chestBoneRef.current = chestNode;
+            chestRestQRef.current = chestNode.quaternion.clone();
+          }
+        } catch {}
       }
 
       if (import.meta.env.DEV) {
@@ -360,7 +431,20 @@ function Model({
         console.log(`🎭 VRM ${specVer} | url=${url} | bones: ${bones.join(", ")} | expressions: ${exprs}`);
       }
 
+      // The normalized Jaw bone is the lipsync safety net below; capture it
+      // once per model load (absent on rigs without a jaw mapping).
+      try {
+        jawBoneRef.current = v.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Jaw) ?? null;
+      } catch {
+        jawBoneRef.current = null;
+      }
+
       vrmRef.current = v;
+      // The render loop owns every morph each frame, so a face can only be
+      // verified by driving the real speech bridge and sampling the canvas.
+      if (typeof window !== "undefined") {
+        (window as any).__HINAA_PRESENCE_VRM = { vrm: v, speech: speechBridge };
+      }
       setLoaded(true);
     }, undefined, () => { if (mounted) setFailed(true); });
 
@@ -377,11 +461,19 @@ function Model({
   useFrame((_, dtRaw) => {
     const vrm = vrmRef.current;
     if (!vrm) return;
+    // Easing must survive a frame spike, but a rhythm counted in clamped frames
+    // slows to a crawl as soon as the render loop drops below 20 fps — measured
+    // at 4.2 fps the blink timer advances five times slower than wall clock and
+    // she stops blinking entirely. Cadence therefore runs on real elapsed time.
     const dt = Math.min(dtRaw, 0.05);
+    const realDt = Math.min(dtRaw, 0.5);
     t.current += dt;
 
     const em  = vrm.expressionManager;
-    const face = faceExpressions ? smoothFace.current : null;
+    // Never let a stale/synthetic transport sample suppress HINAA's own blink,
+    // emotion, or relaxed-pose system. Face input becomes visual authority only
+    // after the parent has verified fresh external tracking.
+    const face = faceTrackingActive && faceExpressions ? smoothFace.current : null;
     if (face && faceExpressions) {
       const trackingAlpha = 1 - Math.exp(-dt * 12);
       for (const key of Object.keys(face) as Array<keyof FaceExpressions>) {
@@ -390,16 +482,28 @@ function Model({
     }
     const expressionIntent = expressionIntentFor(expressionText, state);
     const directedEmotion = emotionForIntent(expressionIntent);
-    // Safe setter with VRM 1.0 alias fallback
+    // Writes go through the names this rig actually registers. Every frame the
+    // loop asks for spec presets; three-vrm resolves them case-sensitively, so a
+    // file that named its blend shape `VRMExpression_Surprised` silently dropped
+    // the whole surprised channel. Resolution is memoised per requested name —
+    // including the failures — so the hot loop pays a map lookup, not a probe.
+    const resolveWrite = (n: string): string | null => {
+      const cache = writeNameRef.current;
+      if (cache.has(n)) return cache.get(n) ?? null;
+      const rigName = availRef.current.has(n)
+        ? n
+        : rigNamesRef.current.get(n.toLowerCase()) ?? null;
+      const alias = PRESET_ALIASES[n];
+      const resolved = rigName
+        ?? (alias && (availRef.current.has(alias) || rigNamesRef.current.has(alias.toLowerCase())) ? alias : null);
+      cache.set(n, resolved);
+      return resolved;
+    };
     const set = (n: string, v: number) => {
       if (!em) return;
-      try { em.setValue(n, v); } catch {}
-      const alias: Record<string, string> = {
-        aa: "a", ih: "i", ou: "u", ee: "e", oh: "o",
-        happy: "joy", sad: "sorrow", relaxed: "fun",
-        blinkLeft: "blink_l", blinkRight: "blink_r",
-      };
-      if (alias[n]) { try { em.setValue(alias[n], v); } catch {} }
+      const name = resolveWrite(n);
+      if (!name) return;
+      try { em.setValue(name, v); } catch {}
     };
 
     /* ── LAYER 1 + 2: LIP-SYNC ────────────────────────────────────────
@@ -411,43 +515,46 @@ function Model({
      *   - Mirror VSeeFace mouth open value
      */
     if (em) {
-      const speaking = speakingRef.current;
+      const speechSample = speechBridge ? sampleSpeechPlayback(speechBridge) : null;
+      const speaking = speechSample ? speechSample.speaking : speakingRef.current;
       // RMS values vary greatly across local voice engines and browsers. Shape
       // them for visible but natural articulation instead of treating quiet
       // speech as silence.
       const rawEnergy = Math.min(1, Math.max(0, jawEnergy.current * 3.2));
-      const energy = speaking ? Math.max(0.16, Math.sqrt(rawEnergy) * 0.82) : rawEnergy;
+      // Amplitude floor while speaking: browser-speech playback produces no
+      // analyser signal (the audio never enters our graph), so energy-only
+      // scaling pinned the mouth at a barely-visible 0.16 and the lips looked
+      // frozen. The viseme timeline itself carries the articulation; a firm
+      // floor keeps it legible in every TTS path while loud audio still
+      // swings the jaw higher.
+      const energy = speaking ? Math.max(0.48, Math.sqrt(rawEnergy) * 0.95) : rawEnergy;
 
       if (speaking) {
         // ── Speaking: viseme-based mouth animation ──
-        // Lazily populate audioCtxRef from global (avoids prop drilling through Canvas)
-        if (!audioCtxRef.current) {
-          audioCtxRef.current = (window as any).__hinaaAudioCtx ?? null;
-        }
-        const events = visemeEvents.current;
+        const events = speechSample?.events ?? visemeEvents.current;
         let targetMouth: MouthKey | null = null;
         let targetWeight = 0;
 
         if (events.length > 0) {
           // Use AudioContext time if available, else fallback to energy cycling
-          const ctx = audioCtxRef.current;
-          if (ctx) {
-            const playTimeMs = (ctx.currentTime - audioStartTimeRef.current) * 1000;
-            const active = getActiveViseme(Math.max(0, playTimeMs), events);
+          if (speechSample) {
+            const active = speechSample.viseme;
             if (active && active.mouth !== "closed") {
               targetMouth = VISEME_TO_VRM[active.mouth] as MouthKey ?? "aa";
               targetWeight = Math.max(0.10, active.weight * energy);
             } else {
-              // Preserve a soft open-mouth bridge between phoneme windows.
-              // This avoids a distracting open/close flicker on streamed TTS.
-              targetMouth = "aa";
-              targetWeight = energy * 0.36;
+              targetMouth = null;
+              targetWeight = 0;
             }
           } else {
-            // Fallback: cycle based on energy timing
-            const idx = Math.floor(t.current * 7) % ALL_MOUTH_KEYS.length;
-            targetMouth = ALL_MOUTH_KEYS[idx];
-            targetWeight = energy;
+            // Fallback when the AudioContext clock is unavailable: blend mouth
+            // shape from the energy envelope instead of robotic 7Hz cycling.
+            // Aa (open) dominates on peaks, Ou/Ih shape the sustained vowels.
+            const env = energy;
+            if (env > 0.72) { targetMouth = "aa"; targetWeight = Math.min(1, env); }
+            else if (env > 0.48) { targetMouth = "ou"; targetWeight = env * 0.85; }
+            else if (env > 0.28) { targetMouth = "ih"; targetWeight = env * 0.7; }
+            else { targetMouth = "aa"; targetWeight = Math.max(0.05, env * 0.5); }
           }
         } else {
           // No viseme events — energy-based jaw-open fallback
@@ -455,10 +562,12 @@ function Model({
           targetWeight = energy;
         }
 
-        // Smooth all mouth shapes
+        // Smooth all mouth shapes (forward faster than decay: the mouth opens
+        // onto the phoneme, then closes gradually into the next window).
         for (const k of ALL_MOUTH_KEYS) {
           const tgt = k === targetMouth ? targetWeight : 0;
-          mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * 14);
+          const rate = tgt > mouthW.current[k] ? 20 : 13;
+          mouthW.current[k] += (tgt - mouthW.current[k]) * Math.min(1, dt * rate);
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
         }
       } else if (face && trackingCalibration?.expressionBaseline) {
@@ -511,28 +620,40 @@ function Model({
         set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
       } else {
-        // Natural auto-blink
-        blinkTimer.current -= dt;
+        // Natural auto-blink: a quick shut, a softer open, and never a fully
+        // clamped closure. A symmetric sine peaking at 1.0 reads as a glitch
+        // frame; eyes at rest stay a fraction open.
+        blinkTimer.current -= realDt;
         let bv = 0;
+        const smooth = (u: number) => u * u * (3 - 2 * u);
+        // Each phase has to last at least one rendered frame. The curve is only
+        // sampled inside useFrame, so a fixed 170 ms blink falls entirely
+        // between two samples on a slow loop and she looks like she never blinks.
+        const CLOSE = Math.max(0.055, realDt);
+        const OPEN = Math.max(0.115, realDt);
         if (blinkTimer.current <= 0) {
-          if (blinkTimer.current < -0.14) {
-            if (doubleBlink.current) {
-              doubleBlink.current = false;
-              blinkTimer.current = 1.5 + Math.random() * 3.5;
-            } else if (Math.random() < 0.18) {
-              doubleBlink.current = true;
-              blinkTimer.current = -0.02;
-            } else {
-              blinkTimer.current = 2 + Math.random() * 4;
-            }
+          const t = -blinkTimer.current;
+          if (t < CLOSE) {
+            bv = 0.9 * smooth(t / CLOSE);
+          } else if (t < CLOSE + OPEN) {
+            bv = 0.9 * (1 - smooth((t - CLOSE) / OPEN));
+          } else if (doubleBlink.current) {
+            doubleBlink.current = false;
+            blinkTimer.current = 1.6 + Math.random() * 3.6;
+          } else if (Math.random() < 0.18) {
+            // A second beat one frame later. Restarting just above zero keeps the
+            // eye fully open in the gap instead of popping to mid-closure.
+            doubleBlink.current = true;
+            blinkTimer.current = Math.max(0.04, realDt);
           } else {
-            const phase = (blinkTimer.current + 0.14) / 0.14;
-            bv = Math.sin(Math.max(0, Math.min(1, phase)) * Math.PI);
+            blinkTimer.current = 2.2 + Math.random() * 4;
           }
         }
+        // Both the composite and the per-eye presets: rigs differ in which one
+        // actually drives the eyelid blend shape.
         set(VRMExpressionPresetName.Blink, bv);
-        set(VRMExpressionPresetName.BlinkLeft, 0);
-        set(VRMExpressionPresetName.BlinkRight, 0);
+        set(VRMExpressionPresetName.BlinkLeft, bv);
+        set(VRMExpressionPresetName.BlinkRight, bv);
       }
 
       /* ── LAYER 4: EMOTION (always low weight, never overrides mouth) */
@@ -548,13 +669,25 @@ function Model({
         set(VRMExpressionPresetName.Relaxed,   capEmo(Math.max(face.relaxed, face.cheekPuff, directed(VRMExpressionPresetName.Relaxed))));
       } else {
         const tEmo = emotionFor(state);
+        // This rig has no brow blend shapes, so `surprised` (brow lift plus eye
+        // open) is the only channel that can move her upper face. It rides how
+        // wide her mouth is open, which decays to zero in silence, so she lifts
+        // a brow as she emphasises a word and settles when she stops talking.
+        const articulation = Math.max(mouthW.current.aa, mouthW.current.oh) * 0.14;
         const emoKeys = [
           VRMExpressionPresetName.Happy, VRMExpressionPresetName.Sad,
           VRMExpressionPresetName.Relaxed, VRMExpressionPresetName.Angry,
+          VRMExpressionPresetName.Surprised,
         ] as const;
         for (const key of emoKeys) {
-          const tgt = (tEmo as any)[key] ?? 0;
-          emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * dt * 2.5;
+          // The reply text is the only cue available without an external face
+          // sender, so it has to reach the rig here: the blend takes whichever
+          // cue is stronger, never the sum, and stays inside natural weights.
+          let tgt = Math.max(tEmo[key] ?? 0, directedEmotion[key] ?? 0);
+          if (key === VRMExpressionPresetName.Surprised) {
+            tgt = Math.min(0.2, tgt + articulation);
+          }
+          emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * Math.min(1, realDt * 2.5);
           set(key, emo.current[key]);
         }
       }
@@ -598,10 +731,19 @@ function Model({
         delta.slerp(new THREE.Quaternion(), 1 - maxAngle / (2 * Math.acos(THREE.MathUtils.clamp(delta.w, -1, 1))));
       }
       const targetHead = headRest.clone().multiply(delta);
-      headCurrent.slerp(targetHead, Math.min(1, dt * 7));
+      headCurrent.slerp(targetHead, Math.min(1, 1 - Math.exp(-dt * 9)));
       head.quaternion.copy(headCurrent);
     } else if (head && headRest && headCurrent) {
-      headCurrent.slerp(headRest, Math.min(1, dt * 5));
+      // Idle head life — a gentle multi-frequency drift so she never freezes
+      // into a statue. Angles are deliberately small (a few degrees) to read as
+      // calm, human presence rather than a nervous wobble.
+      const yaw = Math.sin(t.current * 0.42) * 0.055 + Math.sin(t.current * 0.19 + 1.7) * 0.03;
+      const pitch = Math.sin(t.current * 0.35 + 0.6) * 0.035;
+      const roll = Math.sin(t.current * 0.29 + 2.2) * 0.02;
+      const swayTarget = headRest.clone().multiply(
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, roll)),
+      );
+      headCurrent.slerp(swayTarget, Math.min(1, 1 - Math.exp(-dt * 3.5)));
       head.quaternion.copy(headCurrent);
     }
 
@@ -626,9 +768,39 @@ function Model({
       bone.quaternion.copy(cur);
     }
 
+    // Physical jaw fallback — the last pose write of the frame. Models with
+    // broken or missing viseme blend shapes (common on auto-rigged VRMs) still
+    // visibly articulate, and healthy rigs get a complementary jaw drop driven
+    // by the exact same smoothed mouth weights the expressions use.
+    const jawBone = jawBoneRef.current;
+    if (jawBone) {
+      let mouthDrive = 0;
+      for (const k of ALL_MOUTH_KEYS) mouthDrive = Math.max(mouthDrive, mouthW.current[k]);
+      jawBone.rotation.x = THREE.MathUtils.damp(jawBone.rotation.x, -mouthDrive * 0.42, 16, dt);
+    }
+
     // The body lock intentionally runs after `vrm.update` above. VMC packets
     // never write shoulders, arms, hands, spine, hips, or root transforms.
     // Only the calibrated Head bone can receive a bounded live delta.
+
+    /* ── IDLE / ALWAYS-ON BREATHING ───────────────────────────────── */
+    // The chest/upperChest bone is not pose-locked, so a small periodic pitch
+    // reads as calm breathing and keeps HINAA visibly alive even in silence.
+    // Runs during speech too (a touch deeper), because people breathe while
+    // talking. This is the final write of the frame, matching the head/arm
+    // "last write wins" convention above.
+    const chestBone = chestBoneRef.current;
+    const chestRest = chestRestQRef.current;
+    if (chestBone && chestRest) {
+      const depth = speakingRef.current ? 0.030 : 0.024; // ~1.4–1.7° amplitude
+      const breathe = Math.sin(t.current * 1.5) * depth; // ~0.24 Hz ≈ 14 breaths/min
+      const drift = Math.sin(t.current * 0.6 + 1.0) * 0.006; // subtle non-mechanical feel
+      chestBone.quaternion.copy(
+        chestRest.clone().multiply(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(-(breathe + drift), 0, 0)),
+        ),
+      );
+    }
   });
 
   if (failed || !loaded) return null;
@@ -696,6 +868,53 @@ interface Props {
   onStopLive?: () => void;
   onPauseLive?: () => void;
   onResumeLive?: () => void;
+}
+
+
+/* ─── Live-voice veil: listening feedback + honest reconnect state ─── */
+function VoiceVeil({ live, onReconnect, overlayActive = false }: { live: FullscreenLiveStatus; onReconnect: () => void; overlayActive?: boolean }) {
+  const status = live.status ?? "idle";
+  const faulty = status === "reconnecting" || status === "error";
+  // The fullscreen overlay already carries this state and its own level meter,
+  // and the two are both bottom-centred, so the pill only stays for the states
+  // the overlay cannot act on.
+  const show = faulty || (live.active && !overlayActive);
+  const level = Math.max(0, Math.min(1, live.microphoneLevel));
+  const bars = [0.55, 0.85, 1, 0.8, 0.5];
+  const label = status === "reconnecting" ? "Reconnecting — Hinaa keeps listening soon"
+    : status === "error" ? "Voice link dropped"
+    : live.paused ? "Mic paused"
+    : "Listening";
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          className={`hinaa-voice-veil ${status === "error" ? "hinaa-voice-veil--error" : ""}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 6 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          aria-live="polite"
+        >
+          <span className="hinaa-voice-veil__dot" aria-hidden="true" />
+          <span className="hinaa-voice-veil__label">{label}</span>
+          <span className="hinaa-voice-veil__meter" aria-hidden="true">
+            {bars.map((m, i) => (
+              <i key={i} style={{ transform: `scaleY(${0.18 + (live.paused || status !== "listening" ? 0.12 : level * m) * 0.9})` }} />
+            ))}
+          </span>
+          {(status === "error" || status === "reconnecting") && (
+            <button type="button" className="hinaa-voice-veil__retry" onClick={onReconnect}>
+              {status === "error" ? "Reconnect now" : "Retry now"}
+            </button>
+          )}
+          {live.detail && (status === "error" || status === "reconnecting") && (
+            <small>{live.detail}</small>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 // Stable fallback refs so we never create new objects in render
@@ -818,17 +1037,30 @@ export function AvatarPresence({
                 onAnatomyFrame={applyAnatomy}
               />
 
+            {/* ContactShadows re-renders the scene every frame by default
+                (frames=Infinity). Baking once at mount costs a fraction and
+                removes a full shadow pass from the frame loop. */}
             <ContactShadows
-              resolution={256} scale={2.8} blur={2.5}
-              opacity={0.20} far={1.5}
-              position={[0, -0.02, 0]} color="#160d16"
+              resolution={128} scale={2.8} blur={2.5}
+              opacity={0.12} far={1.5} frames={1}
+              position={[0, -0.02, 0]} color="#8B6080"
             />
-            <Environment preset="apartment" environmentIntensity={0.3} />
+            {/* `Environment preset="apartment"` fetched an HDR from the
+                network at runtime every session (PMREM + download stall).
+                Replaced with a cheap procedural environment baked once; the
+                four lights above carry the cinematic look. */}
+            <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.3]} />
           </Suspense>
         </Canvas>
       )}
 
       {(!modelUrl || webglFailed) && <AvatarFallback state={state} />}
+
+      <VoiceVeil
+        live={liveStatus ?? { active: false, paused: false, detail: "", microphoneLevel: 0 }}
+        onReconnect={onStartLive ?? (() => undefined)}
+        overlayActive={isFullscreen}
+      />
 
       <FullscreenCompanionOverlay
         open={isFullscreen}

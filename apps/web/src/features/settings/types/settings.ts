@@ -11,9 +11,19 @@
  *
  * Version 4 — fluent Hindi (Devanagari) and English are the only active HINAA
  * language routes. Older experimental Nepali selections migrate to auto Hindi/English.
+ *
+ * Version 6 — automation autonomy. HINAA may execute her proposed tool actions
+ * without a per-action approval click. The toggle stays user-visible and
+ * reversible so consent remains an explicit, revocable choice.
+ *
+ * Version 7 — pinned the CX Gateway (it held the deployment's keys at the time).
+ *
+ * Version 9 — un-pins again. A stored preference is not a fact about the
+ * deployment: whichever gateway has credentials changes with the backend's
+ * .env.local, so routing defers to measured health instead of a hardcoded pin.
  */
 
-export const SETTINGS_VERSION = 4 as const;
+export const SETTINGS_VERSION = 9 as const;
 export const SETTINGS_KEY = "hinaa_settings_v1" as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -43,9 +53,14 @@ export type ProviderPreferenceMode =
   | "real"
   | "local"
   | "mock"
+  | "groq"
+  | "claude"
+  | "qwen"
   | "agent-router"
   | "cx-gateway"
-  | "gemini-live";
+  | "gemini-live"
+  | "codecraft"
+  | "ollama";
 
 /** Saved model selection per provider. Null = automatic. */
 export type ModelByProvider = Partial<
@@ -59,11 +74,20 @@ export interface ProviderPreferences {
   preferredModelByProvider: ModelByProvider;
 }
 
-export type ActiveLanguagePolicy = "auto-hi-en" | "hi-IN" | "en-US";
+export type ActiveLanguagePolicy = "auto" | "auto-hi-en" | "ne-NP" | "ne-en" | "hi-IN" | "hi-en" | "en-US";
 
 export interface LanguageSettings {
   /** HINAA responds in automatic Hindi-English, fixed Devanagari Hindi, or fixed English. */
   activePolicy: ActiveLanguagePolicy;
+}
+
+export interface AutomationSettings {
+  /**
+   * When true, HINAA runs her proposed tool actions immediately instead of
+   * waiting for a per-action approval click. Turning this off restores the
+   * explicit "Allow once / Decline" gate for every proposed action.
+   */
+  autoRunTools: boolean;
 }
 
 export interface HinaaSettings {
@@ -71,6 +95,7 @@ export interface HinaaSettings {
   appearance: AppearanceSettings;
   provider: ProviderPreferences;
   language: LanguageSettings;
+  automation: AutomationSettings;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -84,10 +109,15 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     avatarStyle: "auto",
   },
   provider: {
-    preferredMode: "cx-gateway",
-    preferredModelByProvider: {},
+    preferredMode: "auto",
+    preferredModelByProvider: {
+      "cx-gateway": "cx/gpt-5.6-sol",
+    },
   },
   language: {
-    activePolicy: "auto-hi-en",
+    activePolicy: "auto",
+  },
+  automation: {
+    autoRunTools: true,
   },
 };

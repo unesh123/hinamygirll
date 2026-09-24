@@ -1,7 +1,23 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/react";
 import "./App.css";
-import { motion } from "framer-motion";
-import { TranscriptView } from "./features/chat/components/TranscriptView";
+import { motion, AnimatePresence } from "framer-motion";
+import { AudioLines, ListChecks, ScanFace, Search, Wand2, Sparkles } from "lucide-react";
+import { AppShell } from "./design-system/layout/AppShell";
+import {
+  TopBarV6,
+  type ExecutiveMode,
+  type WorkspaceMode,
+} from "./design-system/layout/TopBarV6";
+import type { ResponseMode } from "./features/providers/conversationProvider";
+
+import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
+import { WorkMode } from "./design-system/modes/WorkMode";
+import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
+import type { AttachmentRole } from "./design-system/chat/ComposerV6";
+import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
+import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
+import { VoiceLab } from "./features/voice/VoiceLab";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
 import {
   type AvatarPresentation,
@@ -9,26 +25,30 @@ import {
   persistAvatarPresentation,
 } from "./features/avatar/avatarPresentation";
 import { FullScreenAura } from "./components/ui/FullScreenAura";
+import { AuroraVeil } from "./components/ui/AuroraVeil";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
-import { PremiumComposer } from "./components/ui/PremiumComposer";
-import ParticleOrbitEffect from "./components/lightswind/ParticleOrbitEffect";
 import type { PresenceMode } from "./components/ui/AvatarPresence";
 import { HinaDrawer } from "./components/lightswind/Drawer";
 import { SidebarProvider } from "./components/lightswind/Sidebar";
 import { synthesizeSpeech } from "./features/audio/api";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
+import { SpeechPlaybackContext } from "./features/audio/speechPlaybackBridge";
 import { useLiveConversation } from "./features/audio/useLiveConversation";
 import { useVSeeFace } from "./features/audio/useVSeeFace";
 import { companionProfiles, type CompanionId, type CompanionState } from "./features/companion/types";
 import { useCompanionController } from "./features/companion/useCompanionController";
+import {
+  getOrCreateActiveConversationId,
+  createNextConversationId,
+  saveActiveSession,
+} from "./features/companion/sessionManager";
 import { useProviders } from "./features/providers/hooks/useProviders";
+import { useEntranceStagger } from "./features/motion/useEntranceStagger";
 import { useProviderRouting } from "./features/providers/hooks/useProviderRouting";
-import { SettingsDialog, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
-import { AppearanceSettings } from "./features/settings/sections/AppearanceSettings";
-import { LanguageSettings } from "./features/settings/sections/LanguageSettings";
-import { ProviderSettings } from "./features/settings/sections/ProviderSettings";
-import { DiagnosticsSettings } from "./features/settings/sections/DiagnosticsSettings";
-import { NavRail, type NavSection } from "./components/ui/NavRail";
+import { pickRecoveryBrain } from "./features/providers/utils/resolveProviderSelection";
+import { SettingsV6, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
+import type { NavSection } from "./design-system/layout/NavigationRail";
+
 import { ActivityPanel, type AgentStep } from "./components/ui/ActivityPanel";
 import { ActionChips, type ActionChip } from "./components/ui/ActionChips";
 import type { ContextMode } from "./components/ui/ContextWorkspace";
@@ -36,28 +56,102 @@ import { SidebarPanel } from "./components/ui/SidebarPanel";
 import { VmcControlPanel } from "./components/ui/VmcControlPanel";
 
 import type { PowerUp } from "./components/ui/PowerUpMentions";
-import useMemory from "./features/memory/useMemory";
 
 const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
 const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
 const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((module) => ({ default: module.MemoryPanel })));
 const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
-const LocalImageStudio = lazy(() => import("./components/ui/LocalImageStudio").then((module) => ({ default: module.LocalImageStudio })));
+const MagnificImageStudio = lazy(() => import("./components/ui/MagnificImageStudio").then((module) => ({ default: module.MagnificImageStudio })));
 const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
+const HumanizerStudio = lazy(() => import("./features/tools/HumanizerStudio").then((module) => ({ default: module.HumanizerStudio })));
+const MusicMiniPlayer = lazy(() => import("./components/ui/MusicMiniPlayer").then((module) => ({ default: module.MusicMiniPlayer })));
+
+function ClerkAuthWrapper() {
+  const { isSignedIn } = useAuth();
+  return (
+    <>
+      <ClerkFetchInterceptor />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '8px' }}>
+        {isSignedIn ? (
+          <UserButton />
+        ) : (
+          <>
+            <SignInButton mode="modal" />
+            <SignUpButton mode="modal" />
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+const API_BASE = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
+
+export function isHinaApiUrl(url: string): boolean {
+  if (!/^https?:\/\//i.test(url)) {
+    return url.startsWith("/api") || url.startsWith("/v1");
+  }
+  // An absolute URL is only ours if it is this origin or the configured API base.
+  // Matching on pathname alone would hand the token to any host exposing /api/*.
+  const isOurs = url.startsWith(window.location.origin) || (API_BASE !== "" && url.startsWith(API_BASE));
+  if (!isOurs) return false;
+  const { pathname } = new URL(url);
+  return pathname.startsWith("/api") || pathname.startsWith("/v1");
+}
+
+export function ClerkFetchInterceptor() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      let [resource, config] = args;
+      const url = typeof resource === 'string' ? resource : resource instanceof URL ? resource.toString() : (resource as Request).url;
+      if (isHinaApiUrl(url)) {
+        try {
+          const token = await getToken();
+          if (token) {
+            config = config || {};
+            config.headers = {
+              ...config.headers,
+              Authorization: `Bearer ${token}`
+            };
+          }
+        } catch (e) {
+          console.error("Failed to get Clerk token", e);
+        }
+      }
+      return originalFetch(resource, config);
+    };
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [getToken]);
+  return null;
+}
 
 const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize: 12 }}>Loading local workspace…</div>;
 
 const AVATAR_MODEL_STORAGE_KEY = "hinaa.avatar-model";
 const AVATAR_CAMERA_STORAGE_KEY = "hinaa.avatar-camera.v1";
 const HINAA_AVATAR_MODELS = [
-  { url: "/models/model_6164.vrm", label: "Hinaa" },
-  { url: "/models/model_5447.vrm", label: "Hinaa Classic" },
+  { url: "/models/hinaa.vrm",                          label: "Hinaa" },
+  { url: "/models/model_6164.vrm",                     label: "Kimono" },
+  { url: "/models/model_5447.vrm",                     label: "Casual" },
+  { url: "/models/AvatarSample_E.vrm",                 label: "School" },
+  { url: "/models/5798998195377315936 (1).vrm",         label: "Original" },
 ] as const;
 const DEFAULT_AVATAR_MODEL = HINAA_AVATAR_MODELS[0].url;
 const MANAGED_AVATAR_URL = /^\/api\/v1\/avatar-assets\/avatar-[0-9a-f-]+\/file$/i;
 
 function isSelectableAvatarUrl(value: string | null): value is string {
-  return Boolean(value && (HINAA_AVATAR_MODELS.some((model) => model.url === value) || MANAGED_AVATAR_URL.test(value)));
+  return Boolean(
+    value && (
+      HINAA_AVATAR_MODELS.some((model) => model.url === value) ||
+      MANAGED_AVATAR_URL.test(value) ||
+      value.startsWith("blob:") ||
+      value.startsWith("/models/")
+    )
+  );
 }
 
 function getPersistedAvatarModel(): string {
@@ -105,8 +199,20 @@ function extractYouTubeIntent(text: string): string | null {
 }
 
 const stateLabels: Record<CompanionState, string> = {
-  idle: "Ready", listening: "Listening", thinking: "Understanding",
-  speaking: "Speaking", interrupted: "Interrupted", error: "Connection Issue",
+  idle: "Ready",
+  listening: "Listening",
+  understanding: "Understanding",
+  thinking: "Thinking",
+  researching: "Researching",
+  using_tool: "Using Tool",
+  generating: "Generating",
+  writing: "Writing",
+  waiting: "Waiting",
+  speaking: "Speaking",
+  success: "Completed",
+  confused: "Refining",
+  interrupted: "Interrupted",
+  error: "Connection Issue",
 };
 
 type AvatarTrackingMode = "autonomous" | "exact-vseeface" | "tracking-proxy";
@@ -152,20 +258,110 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
   );
 }
 
+/* ─── SpokenText derivation ───────────────────────────── */
+/**
+ * Derive a natural spoken form from displayText when the model omits spokenText.
+ * This is a FALLBACK — the primary source is AssistantTurnPlan.spokenText.
+ *
+ * Rules:
+ * - Preserve sentence meaning
+ * - Do not speak raw URLs, markdown, code, citation IDs, or table syntax
+ * - Preserve Devanagari, Hindi, and mixed-language text
+ * - Do not remove decimal points from numbers or corrupt abbreviations
+ * - Cut at sentence boundaries, not arbitrary character boundaries
+ * - For long content, speak a short summary
+ * - Record when fallback derivation was used (via wasFallbackDerived)
+ */
+let wasFallbackDerived = false;
+export function deriveSpokenText(displayText: string): string {
+  if (!displayText) return "";
+  wasFallbackDerived = true;
+  const originalLength = displayText.length;
+  let spoken = displayText
+    // Remove fenced code blocks (``` ... ```)
+    .replace(/```[\s\S]*?```/g, "")
+    // Remove inline code but keep the content
+    .replace(/`([^`]+)`/g, "$1")
+    // Remove markdown links, keep the link text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Remove bare URLs
+    .replace(/https?:\/\/\S+/g, "")
+    // Remove reference-style citation links like [1] [2] [^note]
+    .replace(/\[\^[a-zA-Z0-9]+\]/g, "")
+    .replace(/\[\d+\]/g, "")
+    // Remove headings (# ## ###)
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove bold/italic markers but keep content
+    .replace(/[*_]{1,3}/g, "")
+    // Remove table rows (| col | col |)
+    .replace(/^\|.*\|\s*$/gm, "")
+    // Remove table separator rows (|---|---|)
+    .replace(/^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/gm, "")
+    // Remove horizontal rules (--- ***)
+    .replace(/^[-*_]{3,}\s*$/gm, "")
+    // Remove blockquote markers (>
+    .replace(/^>\s*/gm, "")
+    // Remove image markdown ![alt](url)
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    // Remove HTML tags
+    .replace(/<[^>]+>/g, "")
+    // Collapse whitespace
+    .replace(/\s+/g, " ")
+    .trim();
+  // Truncate to a natural speaking length with sentence-aware cutting.
+  // Must match the backend chat budget in services.plan_voice_response —
+  // a shorter clamp here silently re-truncated every turn that had to derive
+  // its own speech, which is how her voice kept collapsing to one sentence.
+  const MAX_SPOKEN_LENGTH = 900;
+  const LOOKAHEAD_LIMIT = 40; // allow looking a few words past the target
+  if (spoken.length > MAX_SPOKEN_LENGTH) {
+    // Search for the last sentence boundary in a window around the target length
+    const searchEnd = Math.min(spoken.length, MAX_SPOKEN_LENGTH + LOOKAHEAD_LIMIT);
+    const searchWindow = spoken.substring(0, searchEnd);
+    const lastPeriod = searchWindow.lastIndexOf(".");
+    const lastExcl = searchWindow.lastIndexOf("!");
+    const lastQ = searchWindow.lastIndexOf("?");
+    const lastColon = searchWindow.lastIndexOf(":");
+    const bestCut = Math.max(lastPeriod, lastExcl, lastQ, lastColon);
+    if (bestCut > 80) {
+      // Cut at sentence boundary — keep the sentence-ending punctuation for natural speech
+      spoken = searchWindow.substring(0, bestCut + 1).trimEnd();
+      // Add continuation hint if there's more meaningful content remaining
+      const remainingAfterCut = originalLength - (bestCut + 1);
+      if (remainingAfterCut > 20) {
+        spoken += " Details are available in the chat.";
+      }
+    } else {
+      // No good sentence boundary — cut at word boundary
+      const lastSpace = searchWindow.lastIndexOf(" ");
+      spoken = (lastSpace > 100 ? searchWindow.substring(0, lastSpace) : searchWindow).trimEnd() + "...";
+    }
+  }
+  return spoken;
+}
+
+/** Check if the last spokenText was derived from displayText (fallback). */
+export function wasSpokenTextDerived(): boolean {
+  return wasFallbackDerived;
+}
+
 /* ─── Main App ─────────────────────────────────────────── */
 export default function App() {
   const playback = useAudioPlayback();
   const providers = useProviders();
-  const { settings, setAppearance, setLanguage, setProvider } = useSettings();
+  const { settings, setAppearance, setLanguage, setProvider, setAutomation } = useSettings();
   useSettingsPersistence(settings);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [musicPlayerOpen, setMusicPlayerOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"info" | "image" | "web" | "music" | "slides" | "code">("info");
   const [drawerTitle, setDrawerTitle] = useState("");
   const [drawerContent, setDrawerContent] = useState<React.ReactNode>(null);
   const [input, setInput] = useState("");
   const [searching, setSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [voiceReply, setVoiceReply] = useState<VoiceReplyState>({
     kind: "idle",
@@ -173,9 +369,70 @@ export default function App() {
   });
   const [playbackSession, setPlaybackSession] = useState<PlaybackSession | null>(null);
   const activePlaybackId = useRef<string | null>(null);
+  // Audio unlock state: AudioContext may be suspended by browser autoplay policy.
+  // When blocked, we show an unlock button so the user can tap to resume audio.
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const audioBlockedRef = useRef(false);
+  useEffect(() => {
+    const checkAudioContext = () => {
+      const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
+      if (ctx && ctx.state === "suspended" && !audioBlockedRef.current) {
+        audioBlockedRef.current = true;
+        setAudioBlocked(true);
+      }
+    };
+    // Check periodically (low frequency)
+    const interval = setInterval(checkAudioContext, 2000);
+    return () => clearInterval(interval);
+  }, []);
+  const unlockAudio = useCallback(async () => {
+    try {
+      await playback.unlockAudio();
+      const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
+      if (ctx && ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      audioBlockedRef.current = false;
+      setAudioBlocked(false);
+    } catch {
+      // AudioContext unlock failed — browser may require a different gesture
+    }
+  }, [playback]);
+
+  // ─── Sakura OS mode state ──────────────────────────────
+  const [sakuraView, setSakuraView] = useState<"talk" | "work" | "operate">("work");
+  const [executiveMode, setExecutiveMode] = useState<ExecutiveMode>(() => {
+    try {
+      const stored = window.localStorage.getItem("hinaa-executive-mode");
+      return stored === "deep-reasoning" || stored === "report" || stored === "research"
+        ? stored
+        : "chat";
+    } catch { return "chat"; }
+  });
+  const changeExecutiveMode = (mode: ExecutiveMode) => {
+    setExecutiveMode(mode);
+    try { window.localStorage.setItem("hinaa-executive-mode", mode); } catch {}
+  };
+  // `chat` deliberately sends nothing: the backend then infers the mode from the
+  // wording, so a greeting stays a greeting even with the chip selected.
+  const requestResponseMode: ResponseMode | undefined =
+    executiveMode === "report" ? "professional"
+      : executiveMode === "research" ? "research"
+      : executiveMode === "deep-reasoning" ? "technical"
+      : undefined;
+  const [visualMode, setVisualMode] = useState<VisualMode>(() => {
+    try {
+      return (window.localStorage.getItem("hinaa-visual-mode") as VisualMode) || "vrm";
+    } catch { return "vrm"; }
+  });
+  const changeVisualMode = (mode: VisualMode) => {
+    setVisualMode(mode);
+    try { window.localStorage.setItem("hinaa-visual-mode", mode); } catch {}
+  };
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
-  const [sidebarExpanded, setSidebarExpanded] = useState<NavSection | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [operateTab, setOperateTab] = useState<OperateTab>("tasks");
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [contextMode, setContextMode] = useState<ContextMode>("hidden");
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
@@ -203,10 +460,12 @@ export default function App() {
     setAvatarModel(modelUrl);
     setAvatarMode(getPersistedAvatarCamera(modelUrl));
     setAvatarPresentation(getPersistedAvatarPresentation(modelUrl));
-    try {
-      window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
-    } catch {
-      // The renderer still works when browser storage is unavailable.
+    if (!modelUrl.startsWith("blob:")) {
+      try {
+        window.localStorage.setItem(AVATAR_MODEL_STORAGE_KEY, modelUrl);
+      } catch {
+        // The renderer still works when browser storage is unavailable.
+      }
     }
   };
   const importAndSelectAvatar = async (file: File) => {
@@ -231,21 +490,51 @@ export default function App() {
   const facialSignalActive = faceActive && faceTrack.hasFacialSignal;
 
   const routing = useProviderRouting(settings.provider, providers);
+  // What a "switch to a working model" button may honestly offer: the strongest
+  // gateway whose last live call answered, per the outcomes /v1/providers reports.
+  const brainRecovery = pickRecoveryBrain(providers);
+  const [activeConversationId, setActiveConversationId] = useState<string>(() => getOrCreateActiveConversationId());
+
   const controller = useCompanionController({
+    conversationId: activeConversationId,
     routing,
     languagePolicy: settings.language.activePolicy,
+    autoRunTools: settings.automation.autoRunTools,
   });
+
+  const handleNewChat = useCallback(() => {
+    const nextId = createNextConversationId();
+    setActiveConversationId(nextId);
+    controller.resetConversation(nextId);
+  }, [controller]);
+
+  const handleSelectConversation = useCallback((id: string) => {
+    if (!id) return;
+    setActiveConversationId(id);
+    saveActiveSession({ conversationId: id });
+  }, []);
+
   // This is HINAA's own text only. The avatar director uses it for a subtle
   // deterministic expression accent; it never classifies webcam/user emotion.
   const latestAssistantExpressionText = [...controller.messages].reverse().find((message) => message.role === "assistant")?.text;
-  useMemory();
+
+  const hasClaudeAnswered = useMemo(() => {
+    return controller.messages.some(
+      (m) =>
+        m.role === "assistant" &&
+        (m.plan?.resolvedModel?.toLowerCase().includes("claude") ||
+          m.plan?.resolvedProvider?.toLowerCase().includes("claude") ||
+          m.resolvedModel?.toLowerCase().includes("claude") ||
+          m.resolvedProvider?.toLowerCase().includes("claude"))
+    );
+  }, [controller.messages]);
 
   // Keep the first interactive paint light, then warm the local-only panels in
   // the background so opening Projects or Image Studio feels immediate.
   useEffect(() => {
     const preload = () => {
       void import("./components/ui/LocalProjectWorkspace");
-      void import("./components/ui/LocalImageStudio");
+      void import("./components/ui/MagnificImageStudio");
     };
     const idleWindow = window as Window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -264,6 +553,7 @@ export default function App() {
   const live = useLiveConversation({
     controller,
     playback,
+    conversationId: activeConversationId,
     calibration: "natural",
     outputMode: "headphones",
     activeLanguagePolicy: settings.language.activePolicy,
@@ -271,13 +561,32 @@ export default function App() {
 
   const interruptPlayback = useCallback((status: "interrupted" | "failed" = "interrupted", error?: string) => {
     const playbackId = activePlaybackId.current;
-    if (!playbackId) return;
     activePlaybackId.current = null;
     playback.stop();
-    setPlaybackSession((current) => current?.playbackId === playbackId
-      ? { ...current, status, completedAt: new Date().toISOString(), error }
-      : current);
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+    if (playbackId) {
+      setPlaybackSession((current) => current?.playbackId === playbackId
+        ? { ...current, status, completedAt: new Date().toISOString(), error }
+        : current);
+    }
   }, [playback]);
+
+  const handleStop = useCallback(() => {
+    controller.stop();
+    interruptPlayback();
+    if (live.active) {
+      live.stop();
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  }, [controller, interruptPlayback, live]);
 
   // A started playback owns its own terminal transition. The hook changes
   // `playing` when decoded audio or browser speech ends; no render effect can
@@ -296,19 +605,31 @@ export default function App() {
   }, [playback.playing, playbackSession]);
 
   /* ─── Submit ─────────────────────────────────────────── */
-  const submit = useCallback((event?: any) => {
+  const submit = useCallback((event?: any, overrideText?: string, attachmentRole?: AttachmentRole) => {
     if (event && "preventDefault" in event) event.preventDefault();
-    if ((!input.trim() && !attachedImage) || live.active) return;
+    const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
+    if ((!textToSend && !attachedImage) || live.active) return;
+    void unlockAudio();
     interruptPlayback();
-    const text = input || (attachedImage ? "Look at this image" : "");
+    const text = textToSend || (attachedImage ? "Look at this image" : "");
     const imageData = attachedImage;
     setInput("");
     setAttachedImage(null);
     void (async () => {
-      const result = await controller.sendText(text + (imageData ? " [image attached]" : ""));
+      const result = await controller.sendText(text, {
+        imageUrl: imageData || undefined,
+        attachments: imageData
+          ? [{ kind: "image", role: attachmentRole ?? "inspection", url: imageData }]
+          : undefined,
+        reference_images:
+          imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
+        responseMode: requestResponseMode,
+      });
       const plan = result?.plan;
-      const spoken = plan?.spokenText?.trim();
-      if (!result || !plan || !spoken) return;
+      if (!result || !plan) return;
+      // Derive spokenText from displayText when the model omits it.
+      // Strip markdown, URLs, code blocks, and keep it under 200 chars.
+      const spoken = plan.spokenText?.trim() || deriveSpokenText(plan.displayText);
 
       const playbackId = `playback-${result.turnId}-${Date.now()}`;
       activePlaybackId.current = playbackId;
@@ -353,22 +674,36 @@ export default function App() {
         return;
       }
 
+      // Track TTS terminal state to prevent duplicate fallback.
+      // Backend has a 10s TTS timeout; frontend has 12s.
+      // Once one fires, the other must not start another voice.
+      let ttsTerminalReached = false;
+      const markTtsTerminal = () => { ttsTerminalReached = true; };
+
       try {
         updateSession("buffering", { provider: ttsMode });
+        // TTS with 12-second timeout — falls back to browser speech on timeout
+        const ttsController = new AbortController();
+        const ttsTimeout = setTimeout(() => {
+          if (!ttsTerminalReached) ttsController.abort();
+        }, 12_000);
         const speech = await synthesizeSpeech(
           spoken,
           controller.companionId,
           ttsMode,
-          new AbortController().signal,
+          ttsController.signal,
         );
+        clearTimeout(ttsTimeout);
         if (activePlaybackId.current !== playbackId) return;
         if (/placeholder|mock/i.test(speech.provider)) {
+          markTtsTerminal();
           await startBrowserFallback(
             "The selected mode has no intelligible server voice yet, so Hinaa is using your device voice.",
           );
           return;
         }
         await playback.play(speech.blob, spoken);
+        markTtsTerminal();
         if (!updateSession("playing", {
           provider: speech.provider,
           startedAt: new Date().toISOString(),
@@ -380,22 +715,47 @@ export default function App() {
         });
       } catch (error) {
         if (activePlaybackId.current !== playbackId) return;
-        await startBrowserFallback(
-          error instanceof Error
-            ? `${error.message} Using the device voice instead.`
-            : "Cloud voice is unavailable, so Hinaa is using the device voice instead.",
-        );
+        // Prevent duplicate fallback — only one terminal outcome per turn
+        if (ttsTerminalReached) return;
+        markTtsTerminal();
+        // If TTS timed out or failed, try browser speech as fallback
+        const reason = error instanceof Error ? error.message : "Cloud voice is unavailable";
+        if (reason.includes("aborted") || reason.includes("timeout")) {
+          await startBrowserFallback(
+            "Voice synthesis took too long. Using your device voice instead.",
+          );
+        } else {
+          await startBrowserFallback(
+            `${reason}. Using the device voice instead.`,
+          );
+        }
       }
     })();
-  }, [input, live.active, controller, playback, attachedImage, interruptPlayback]);
+  }, [input, live.active, controller, playback, attachedImage, interruptPlayback, requestResponseMode]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
+    // A command changes HINAA's working surface and leaves an explicit intent
+    // tag in the composer. It never performs an external action by itself.
     const map: Record<string, () => void> = {
       "search-web": () => { setContextMode("research"); setSearching(true); },
-      "image-search": () => setContextMode("images"),
+      "image-search": openImageStudio,
+      "generate-image": openImageStudio,
+      "deep-research": () => { setContextMode("research"); },
       "browser-navigate": () => setContextMode("browser"),
-      "play-music": () => window.open("https://www.youtube.com/results?search_query=hindi+songs", "_blank", "noopener,noreferrer"),
+      "browser-read": () => setContextMode("browser"),
+      "write-code": () => setNavSection("tools"),
+      "play-music": () => { setContextMode("music"); setMusicPlayerOpen(true); },
+      "check-email": () => setContextMode("email"),
+      "show-calendar": () => setNavSection("tools"),
+      "search-files": () => setNavSection("files"),
       "remember-this": () => setMemoryOpen(true),
+      "open-settings": () => setSettingsOpen(true),
+      "open-avatar-lab": openAvatarLab,
+      "agent-mode": () => setNavSection("tasks"),
+      "automation": () => setNavSection("tasks"),
+      "system-open": () => setNavSection("tools"),
+      "export": () => setNavSection("files"),
+      "open-humanizer": openHumanizerStudio,
     };
     map[p.action]?.();
   }, []);
@@ -403,11 +763,6 @@ export default function App() {
   const handleNav = useCallback((s: NavSection) => {
     if (s === "memory") { setMemoryOpen(v => !v); return; }
     setNavSection(s);
-    if (s === "tasks" || s === "files") {
-      setSidebarExpanded(null);
-      return;
-    }
-    setSidebarExpanded(prev => prev === s ? null : s);
   }, []);
 
   const openAvatarLab = () => {
@@ -430,49 +785,83 @@ export default function App() {
 
   const openImageStudio = () => {
     setDrawerMode("image");
-    setDrawerTitle("Hinaa Image Studio");
-    setDrawerContent(<Suspense fallback={lazyPanelFallback}><LocalImageStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
+    setDrawerTitle("Hinaa Image Studio · Magnific FLUX");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><MagnificImageStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
     setDrawerOpen(true);
+  };
+
+  const openHumanizerStudio = () => {
+    setDrawerMode("info");
+    setDrawerTitle("Text Humanizer Studio");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><HumanizerStudio onClose={() => setDrawerOpen(false)} /></Suspense>);
+    setDrawerOpen(true);
+  };
+
+  const openProjectWorkspace = () => {
+    setDrawerMode("code");
+    setDrawerTitle("Local Project Workspace");
+    setDrawerContent(<Suspense fallback={lazyPanelFallback}><LocalProjectWorkspace active={true} /></Suspense>);
+    setDrawerOpen(true);
+  };
+
+  const openMemoryPanel = () => {
+    setMemoryOpen(true);
   };
 
   const handleWelcome = (action: string) => {
     if (action === "voice") live.start();
-    else if (action === "research") setInput("Search for: ");
+    else if (action === "research") setInput("Deep research: ");
     else if (action === "create") openImageStudio();
     else if (action === "work") setInput("Help me plan my work: ");
+    else if (typeof action === "string" && action.length > 0) setInput(action);
   };
 
   /* ─── Agent steps ────────────────────────────────────── */
   useEffect(() => {
-    const latestUserText = [...controller.messages].reverse().find(m => m.role === "user")?.text?.toLowerCase() ?? "";
-    const isResearch = /search|find|research|look up|source|citation/i.test(latestUserText);
+    if (controller.agentSteps.length > 0) {
+      setAgentSteps(controller.agentSteps);
+      const hasActionableRuntimeState = controller.agentSteps.some((step) =>
+        step.status === "pending" || step.status === "error" || step.status === "cancelled" || step.status === "active",
+      );
+      if ((controller.state === "idle" || controller.state === "speaking") && !hasActionableRuntimeState) {
+        const timer = window.setTimeout(() => setAgentSteps([]), 2200);
+        return () => window.clearTimeout(timer);
+      }
+      return;
+    }
 
     if (controller.state === "thinking") {
-      setSearching(isResearch);
-      if (isResearch) {
-        setContextMode("research");
+      // The backend announces a real search with `search.started`. Guessing from
+      // keywords in the user's own message used to render the research card, and
+      // its "Cutoff Bypass Active" claim, for turns that never searched at all.
+      setSearching(controller.isSearching);
+      setSearchQuery(controller.searchQuery);
+      if (controller.isSearching) setContextMode("research");
+      if (controller.agentSteps.length === 0) {
         setAgentSteps([
-          { id: "scope", label: "Understand the question", detail: "Checking scope and evidence needs", status: "done" },
-          { id: "strategy", label: "Prepare source strategy", detail: "Selecting a focused research route — no web pages fetched yet", status: "active" },
-          { id: "approval", label: "Wait for your approval", detail: "Live research begins only after you confirm the proposed action", status: "pending" },
-          { id: "synthesis", label: "Prepare concise findings", detail: "Returned sources stay visible and attributable", status: "pending" },
-        ]);
-      } else {
-        setAgentSteps([
-          { id: "scope", label: "Understand the request", detail: "Identifying the useful outcome", status: "done" },
-          { id: "work", label: "Build the response", detail: "Working through the next best action", status: "active" },
+          {
+            id: "awaiting-live-progress",
+            label: "Waiting for live execution updates",
+            detail: "The backend runtime will report each real step as it starts",
+            status: "active",
+          },
         ]);
       }
       return;
     }
 
     setSearching(false);
+    setSearchQuery("");
     if (controller.state === "speaking" || controller.state === "idle") {
-      setAgentSteps((previous) => previous.map((step) => ({ ...step, status: "done" as const })));
+      setAgentSteps((previous) => previous.map((step) =>
+        step.status === "error" || step.status === "cancelled" || step.status === "pending"
+          ? step
+          : { ...step, status: "done" as const },
+      ));
       const timer = window.setTimeout(() => setAgentSteps([]), 1800);
       return () => window.clearTimeout(timer);
     }
-  }, [controller.state, controller.messages]);
+  }, [controller.state, controller.messages, controller.agentSteps, controller.isSearching, controller.searchQuery]);
 
   /* ─── Action chips ───────────────────────────────────── */
   useEffect(() => {
@@ -493,233 +882,310 @@ export default function App() {
     setActionChips(chips.slice(0, 4));
   }, [controller.messages, controller.state]);
 
+  // One-shot staged arrival for the shell regions (companion → transcript →
+  // composer). Reduced-motion users skip it entirely inside the hook.
+  useEntranceStagger(".hinaa-layout", [".workspace-nav-rail", ".avatar-pane", ".chat-pane", ".premium-composer-wrapper"], { delay: 0.08 });
+
   const showWelcome = controller.messages.length <= 1 && !controller.streamingText && !controller.partialTranscript && controller.state === "idle" && !live.active;
 
+  // Map existing CompanionState to the modes' expected types
+  const mapCompanionState = (s: CompanionState): "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error" => {
+    switch (s) {
+      case "listening":
+        return "listening";
+      case "understanding":
+      case "thinking":
+      case "researching":
+      case "using_tool":
+      case "generating":
+      case "writing":
+      case "waiting":
+      case "confused":
+        return "thinking";
+      case "speaking":
+        return "speaking";
+      case "interrupted":
+        return "interrupted";
+      case "error":
+        return "error";
+      case "idle":
+      case "success":
+      default:
+        return "idle";
+    }
+  };
+
+  // Voice Lab — developer-only diagnostic route
+  const isVoiceLab = typeof window !== "undefined" && window.location.pathname === "/dev/voice-lab";
+  if (isVoiceLab) return <VoiceLab />;
+
   return (
-    <SidebarProvider defaultExpanded={false}>
-      <div className="hinaa-shell">
-        <ParticleOrbitEffect particleCount={12} radius={80} intensity={0.4} fadeOpacity={0.03} particleSize={1.5} colorRange={[140, 175]} autoColors={false} />
+    <SpeechPlaybackContext.Provider value={playback.speech}>
+      <SidebarProvider defaultExpanded={false}>
+        <div className="hinaa-shell">
+        {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
+        <AuroraVeil state={controller.state} />
         <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />
         <FullScreenAura state={controller.state} />
 
-        <div className="hinaa-layout">
-          {/* Nav Rail */}
-          <NavRail active={navSection} onNavigate={handleNav} onNewChat={controller.resetConversation} onSettings={() => setSettingsOpen(true)} />
-          {navSection === "tasks" || navSection === "files" ? (
-            <Suspense fallback={lazyPanelFallback}><LocalProjectWorkspace active /></Suspense>
-          ) : (
-            <SidebarPanel
-              section={sidebarExpanded}
-              onClose={() => setSidebarExpanded(null)}
-              onNewChat={() => { controller.resetConversation(); setSidebarExpanded(null); }}
-              onStartVoice={() => { setSidebarExpanded(null); interruptPlayback(); live.start(); }}
-              onOpenMemory={() => { setSidebarExpanded(null); setMemoryOpen(true); }}
-              onOpenImageStudio={() => { setSidebarExpanded(null); openImageStudio(); }}
-              onOpenProjects={() => { setSidebarExpanded(null); setNavSection("tasks"); }}
-              onOpenSettings={() => { setSidebarExpanded(null); setSettingsOpen(true); }}
-              onQuickPrompt={(prompt) => { setSidebarExpanded(null); setInput(prompt); }}
+      {/* ─── Sakura OS (Canonical) ──────────────────────────── */}
+          <AppShell
+            activeSection={navSection as any}
+            onNavigate={(section: any) => {
+              if (section === "memory") { setMemoryOpen(true); return; }
+              setNavSection(section);
+              if (section === "talk" || section === "voice") setSakuraView("talk");
+              else if (section === "chat") setSakuraView("work");
+              else if (section === "dashboard" || section === "tasks" || section === "operate") { setSakuraView("operate"); setOperateTab("tasks"); }
+              else if (section === "models" || section === "tools") { setSakuraView("operate"); setOperateTab("capabilities"); }
+              else if (section === "reports") { setSakuraView("operate"); setOperateTab("reports"); }
+              else if (section === "images") openImageStudio();
+              else if (section === "library" || section === "projects" || section === "files") openProjectWorkspace();
+              else if (section === "creations") openHumanizerStudio();
+              else if (section === "settings") setSettingsOpen(true);
+            }}
+            onNewChat={handleNewChat}
+            onSelectConversation={handleSelectConversation}
+            onToggleHistory={() => setHistoryOpen((open) => !open)}
+            historyOpen={historyOpen}
+            activeConversationId={activeConversationId}
+            hasClaudeAnswered={hasClaudeAnswered}
+          >
+            {/* Unified Frontier TopBar V6 */}
+            <TopBarV6
+              currentMode={sakuraView as WorkspaceMode}
+              onModeChange={(mode) => setSakuraView(mode)}
+              activeProject={{ id: "main", name: "HINAA Workspace", repo: "main" }}
+              activeGoal={
+                controller.activePlan?.topic
+                  ? { id: "current-goal", title: typeof controller.activePlan.topic === "string" ? controller.activePlan.topic : String(controller.activePlan.topic) }
+                  : null
+              }
+              onOpenSearch={() => setHistoryOpen(true)}
+              onOpenProjectSettings={openProjectWorkspace}
+              onOpenGoalDetails={() => setSakuraView("work")}
+              onSelectModel={(modelId, providerId) => {
+                if (modelId === "auto") {
+                  setProvider({ preferredMode: "auto" as any });
+                  return;
+                }
+                setProvider({
+                  preferredMode: providerId as any,
+                  preferredModelByProvider: { ...settings.provider.preferredModelByProvider, [providerId]: modelId },
+                });
+              }}
+              selectedModelId={routing.activeModel}
+              executiveMode={executiveMode}
+              onExecutiveModeChange={changeExecutiveMode}
             />
-          )}
 
-          {/* Center: Avatar LEFT, Chat RIGHT */}
-          <div className="layout-body">
-            {/* Left: Avatar + Model Switcher */}
-            <div className="avatar-pane">
-              <Suspense fallback={<div style={{ display: "grid", placeItems: "center", height: "100%", color: "#94a3b8", fontSize: 12 }}>Preparing Hinaa…</div>}><AvatarPresence
-                mode={avatarMode}
-                state={controller.state}
+
+
+
+            {/* Mode content */}
+            {sakuraView === "talk" && (
+              <TalkMode
+                companionState={mapCompanionState(controller.state)}
+                companionName={companionProfiles[controller.companionId].name}
+                visualMode={visualMode}
+                onVisualModeChange={changeVisualMode}
+                isVoiceActive={live.active}
+                isPaused={live.paused}
+                voiceDetail={live.detail}
+                microphoneLevel={live.microphoneLevel}
+                onStartVoice={() => { interruptPlayback(); live.start(); }}
+                onStopVoice={() => live.stop()}
+                onPauseVoice={() => live.pause()}
+                onResumeVoice={() => live.resume()}
+                partialTranscript={controller.partialTranscript}
+                streamingText={controller.streamingText}
+                avatarModel={avatarModel}
+                avatarMode={avatarMode}
+                onCameraChange={changeAvatarMode}
+                languagePolicy={settings.language.activePolicy}
+                onLanguageChange={(policy) => setLanguage({ activePolicy: policy })}
                 jawEnergy={playback.jawEnergy}
                 speakingRef={playback.playingRef}
                 visemeEvents={playback.visemeEvents}
                 audioStartTimeRef={playback.audioStartTimeRef}
-                modelUrl={avatarModel}
-                onModeChange={changeAvatarMode}
                 faceExpressions={facialSignalActive ? faceTrack.expressionsRef.current : null}
                 faceBones={faceActive ? faceTrack.bonesRef.current : null}
                 faceTrackingActive={faceActive}
                 trackingCalibration={faceTrack.calibration}
-                expressionText={latestAssistantExpressionText}
-                presentation={avatarPresentation}
-                companionName={companionProfiles[controller.companionId].name}
-                liveStatus={{
-                  active: live.active,
-                  paused: live.paused,
-                  detail: live.detail,
-                  microphoneLevel: live.microphoneLevel,
-                }}
+                expressionText={latestAssistantExpressionText ?? ""}
+                avatarPresentation={avatarPresentation}
                 messages={controller.messages}
-                partialTranscript={controller.partialTranscript}
+                onOpenAvatarLab={openAvatarLab}
+                onToggleFullscreen={() => {}}
+                onTypeInstead={() => setSakuraView("work")}
+                onSendText={(text: string) => submit(undefined, text)}
+                isMuted={playback.muted}
+                onToggleMute={playback.toggleMute}
+                onReplay={() => void playback.replay()}
+                hasReplay={playback.hasReplay}
+                diagnostics={live.diagnostics}
+                onManualCommit={live.manualCommit}
+                onToggleDiagnostics={() => setDiagnosticsOpen((v) => !v)}
+                onSelectModel={selectAvatarModel}
+                availableModels={HINAA_AVATAR_MODELS}
+              />
+            )}
+
+            {sakuraView === "work" && (
+              <WorkMode
+                companionId={controller.companionId}
+                companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+                plan={controller.activePlan}
+                messages={controller.messages}
                 streamingText={controller.streamingText}
-                onStartLive={() => { interruptPlayback(); live.start(); }}
-                onStopLive={() => live.stop()}
-                onPauseLive={() => live.pause()}
-                onResumeLive={() => live.resume()}
-              /></Suspense>
-              {/* A small, direct selector: choose Hinaa, choose Classic, or add a local VRM.
-                  Rejected legacy B/C assets remain absent. */}
-              <div className="vrm-switcher" role="group" aria-label="Choose Hinaa avatar">
-                <input
-                  ref={avatarUploadRef}
-                  type="file"
-                  accept=".vrm,.glb,.gltf"
-                  aria-label="Upload a local avatar model"
-                  className="vrm-file-input"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void importAndSelectAvatar(file);
-                    event.currentTarget.value = "";
-                  }}
-                />
-                {HINAA_AVATAR_MODELS.map((m) => (
-                  <button
-                    key={m.url}
-                    type="button"
-                    className={`vrm-pill${avatarModel === m.url ? " vrm-pill--active" : ""}`}
-                    onClick={() => selectAvatarModel(m.url)}
-                    title={m.label}
-                    aria-label={`Use ${m.label}`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="vrm-pill vrm-pill--add"
-                  onClick={() => avatarUploadRef.current?.click()}
-                  title="Choose a local VRM file and use it in HINAA"
-                  aria-label="Add a local avatar model"
-                >
-                  + Add avatar
-                </button>
-                <button
-                  type="button"
-                  className={`vrm-pill vrm-pill--face${faceActive ? " vrm-pill--face-active" : ""}`}
-                  onClick={() => {
-                    setDrawerMode("info");
-                    setDrawerTitle("VSeeFace and VMC");
-                    setDrawerContent(<VmcControlPanel
-                      tracker={faceTrack}
-                      selectedModelLabel={HINAA_AVATAR_MODELS.find((model) => model.url === avatarModel)?.label ?? "Imported HINAA avatar"}
-                      selectedModelMode={avatarTrackingMode}
-                      onClose={() => setDrawerOpen(false)}
-                      onOpenAvatarLab={openAvatarLab}
-                    />);
-                    setDrawerOpen(true);
-                  }}
-                  title="Open VSeeFace and VMC connection controls"
-                  aria-label="Open VSeeFace and VMC connection controls"
-                >
-                  {faceTrack.status === "connecting" ? "⏳ Connecting" :
-                   faceTrack.status === "live" ? "🎭 LIVE" :
-                   faceTrack.status === "test" ? "🎭 TEST" : "🎭 VSeeFace"}
-                </button>
-              </div>
-              {avatarUploadMessage && <div className="vrm-upload-status" role="status">{avatarUploadMessage}</div>}
-              <div style={{ fontSize:"0.62rem", color: faceActive ? "#15803d" : faceTrack.status === "stale" ? "#b45309" : faceTrack.status === "test" ? "#6d28d9" : faceTrack.status === "error" ? "#dc2626" : "#64748b", padding:"3px 12px 5px", textAlign:"center", lineHeight:1.4 }} aria-live="polite">
-                {facialSignalActive ? "VSeeFace Live — fresh external facial channels are driving HINAA's expression layer."
-                  : faceActive ? "VSeeFace Live — motion packets are fresh; waiting for supported blendshape channels before mirroring expressions."
-                  : faceTrack.status === "listening" ? "VMC Listening — waiting for VSeeFace packets."
-                  : faceTrack.status === "stale" ? "Tracking Stale — the avatar is returning safely to autonomous presence."
-                  : faceTrack.status === "test" ? "Test Signal — diagnostic fixture only, not live camera tracking."
-                  : faceTrack.status === "connecting" ? "Starting local VMC connection…"
-                  : faceTrack.status === "error" ? `VMC error — ${faceTrack.error ?? "open the control panel to retry."}`
-                  : "VSeeFace is disconnected — open the control panel to connect/listen."}
-              </div>
-            </div>
+                partialTranscript={controller.partialTranscript}
+                isThinking={controller.state === "thinking" && !controller.streamingText && !controller.partialTranscript}
+                isSearching={controller.isSearching || searching}
+                searchQuery={controller.searchQuery || searchQuery}
+                input={input}
+                onInputChange={setInput}
+                onSend={(customText?: string, attachmentRole?: AttachmentRole) =>
+                  submit(undefined, customText, attachmentRole)
+                }
+                onAddMessage={(msg) => controller.setMessages((prev) => [...prev, msg])}
+                onStop={handleStop}
+                disabled={controller.state !== "idle" && controller.state !== "thinking"}
+                isVoiceActive={live.active}
+                onStartVoice={() => { interruptPlayback(); live.start(); }}
+                onStopVoice={() => live.stop()}
+                voiceFeedback={voiceReply}
+                powerUps={DEFAULT_POWER_UPS}
+                onPowerUpToggle={(id: PowerUpId) => {
+                  const idToAction: Record<PowerUpId, string> = {
+                    "web-research": "search-web", "humanizer": "open-humanizer",
+                    "code": "write-code", "pc-control": "browser-navigate",
+                    "files": "search-files", "memory": "remember-this",
+                    "creative": "generate-image", "data": "search-web",
+                  };
+                  const action = idToAction[id];
+                  if (action) handlePowerUp({ action, label: id, id } as any);
+                }}
+                onCommand={(action: string) => handlePowerUp({ action } as any)}
+                onResolveTool={controller.resolveToolRequest}
+                autoRunTools={settings.automation.autoRunTools}
+                agentSteps={agentSteps}
+                currentAgentRunId={controller.currentAgentRunId}
+                currentAgentConfirmationStepId={controller.currentAgentConfirmationStepId}
+                onCancelAgentRun={() => { void controller.cancelCurrentAgentRun(); handleStop(); }}
+                onResumeAgentRun={() => { void controller.resumeCurrentAgentRun(); }}
+                onConfirmAgentStep={(approved) => { void controller.confirmCurrentAgentStep(approved); }}
+                onRecoverAgentRun={() => { void controller.recoverCurrentAgentRun(); }}
+                onWelcomeAction={handleWelcome}
+                attachedImage={attachedImage}
+                onImageAttach={setAttachedImage}
+                // Companion & 3D Avatar
+                avatarModel={avatarModel}
+                avatarMode={avatarMode}
+                onChangeAvatarMode={changeAvatarMode}
+                avatarPresentation={avatarPresentation}
+                onOpenAvatarLab={openAvatarLab}
+                onSelectModel={selectAvatarModel}
+                availableModels={HINAA_AVATAR_MODELS}
+                companionName={companionProfiles[controller.companionId]?.name || "Hinaa"}
+                jawEnergy={playback.jawEnergy}
+                speakingRef={playback.playingRef}
+                visemeEvents={playback.visemeEvents}
+                audioStartTimeRef={playback.audioStartTimeRef}
+                speechBridge={playback.speech}
+                // Provider micro-status & fallback props
+                activeProviderMode={routing.activeMode ?? "mock"}
+                activeProviderModel={routing.activeModel}
+                providerHealth={routing.activeMode ? providers.getHealth(routing.activeMode as any) : "checking"}
+                providerLatencyMs={null}
+                brainRecovery={brainRecovery}
+                onSelectProvider={(mode, modelId) => {
+                  setProvider({
+                    preferredMode: mode as any,
+                    preferredModelByProvider: modelId ? { ...settings.provider.preferredModelByProvider, [mode]: modelId } : settings.provider.preferredModelByProvider,
+                  });
+                }}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenLibrary={openProjectWorkspace}
+                onOpenImages={openImageStudio}
+                providerOptions={providers.providerOptions}
+                getModelOptions={providers.getModelOptions}
+              />
+            )}
 
-            {/* Right: Chat */}
-            <main className="chat-pane">
-              {/* Header */}
-              <header className="app-header">
-                <div className="brand-group">
-                  <motion.span className="brand-mark" aria-hidden="true" animate={{ rotate: [0, 360] }} transition={{ duration: 30, repeat: Infinity, ease: "linear" }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
-                  </motion.span>
-                  <span className="brand-name">HINAA</span>
-                </div>
-                <div className="header-right">
-                  <span className="header-status"><span className="header-status-dot" />{stateLabels[controller.state]}</span>
-                  {routing.activeMode === "cx-gateway" && <span title="CX Gateway is the active Hinaa brain" style={{ color: "#0f766e", fontSize: 11, fontWeight: 750 }}>CX Brain</span>}
-                  {routing.reason === "recovery" && <button type="button" onClick={() => setSettingsOpen(true)} title="CX is not available locally; open settings to configure it" style={{ border: "1px solid rgba(245,158,11,.30)", borderRadius: 999, color: "#92400e", background: "rgba(254,243,199,.70)", padding: "4px 7px", cursor: "pointer", fontSize: 10, fontWeight: 750 }}>CX offline · safe mode</button>}
-                  <SearchingLoader visible={searching} />
-                  <SettingsTrigger onClick={() => setSettingsOpen(true)} isOpen={settingsOpen} />
-                </div>
-              </header>
+            {sakuraView === "operate" && (
+              <OperateMode key={operateTab} initialTab={operateTab} />
+            )}
+          </AppShell>
 
-              {/* Conversation */}
-              <div className="chat-scroll">
-                {agentSteps.length > 0 && <ActivityPanel steps={agentSteps} title={contextMode === "research" ? "Research workflow" : "Execution workflow"} mode={contextMode === "research" ? "research" : "execution"} />}
-
-                {showWelcome ? (
-                  <div className="welcome-center">
-                    <motion.h1 className="welcome-greeting" initial={{ opacity: 0, y: 16, filter: "blur(4px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0)" }} transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}>Hello</motion.h1>
-                    <motion.p className="welcome-subtitle" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.5 }}>Main tumhare liye ready hoon. What would you like to do?</motion.p>
-                    <motion.div className="welcome-cards" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-                      {[
-                        { icon: "🔍", title: "Research", desc: "Search with sources", action: "research" },
-                        { icon: "✨", title: "Create", desc: "Images, documents, ideas", action: "create" },
-                        { icon: "💼", title: "Continue work", desc: "Projects & tasks", action: "work" },
-                        { icon: "🎤", title: "Talk to HINAA", desc: "Voice conversation", action: "voice" },
-                      ].map((c, i) => (
-                        <motion.button type="button" key={c.action} className="welcome-card" aria-label={c.title} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 + i * 0.08 }} onClick={() => handleWelcome(c.action)} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
-                          <span className="welcome-card-icon" aria-hidden="true">{c.icon}</span>
-                          <span className="welcome-card-title">{c.title}</span>
-                          <span className="welcome-card-desc">{c.desc}</span>
-                        </motion.button>
-                      ))}
-                    </motion.div>
-                  </div>
-                ) : (
-                  <TranscriptView messages={controller.messages} streamingText={controller.streamingText}
-                    partialTranscript={controller.partialTranscript} companionName={companionProfiles[controller.companionId].name}
-                    isThinking={controller.state === "thinking" && !controller.streamingText && !controller.partialTranscript}
-                    onWelcomeAction={handleWelcome}
-                    onResolveTool={controller.resolveToolRequest} />
-                )}
-
-                {actionChips.length > 0 && controller.state === "idle" && (
-                  <ActionChips chips={actionChips} onChip={c => {
-                    if (c.id === "src") setContextMode("research");
-                    else if (c.id === "img") openImageStudio();
-                    else if (c.id === "deepen") setInput("Go deeper with a researched answer and clear sources: ");
-                    else if (c.id === "plan") setInput("Turn this into a clear task plan with milestones, dependencies, and approval steps: ");
-                    else setInput("Continue, and ask me the most useful next question: ");
-                  }} />
-                )}
-              </div>
-
-              {/* Composer */}
-              <div className="premium-composer-wrapper">
-                <PremiumComposer value={input} onChange={setInput} onSend={() => submit()} onVoiceStart={() => { interruptPlayback(); live.start(); }}
-                  onVoiceStop={() => live.stop()} onPowerUp={handlePowerUp} onImageAttach={setAttachedImage}
-                  imagePreview={attachedImage}
-                  isVoiceActive={live.active}
-                  isGenerating={controller.state === "thinking"} disabled={controller.state !== "idle" && controller.state !== "thinking"}
-                  companionName={companionProfiles[controller.companionId].name}
-                  voiceFeedback={voiceReply}
-                  hasReplay={playback.hasReplay}
-                  muted={playback.muted}
-                  onReplay={() => void playback.replay()}
-                  onToggleMute={playback.toggleMute} />
-              </div>
-            </main>
-          </div>
-
-          {/* Context workspace */}
-          <Suspense fallback={lazyPanelFallback}><ContextWorkspace mode={contextMode} onClose={() => setContextMode("hidden")} sources={contextSources} isSearching={searching} steps={agentSteps} /></Suspense>
-        </div>
+        {/* Audio unlock overlay — shows when AudioContext is suspended by browser autoplay policy */}
+        <AnimatePresence>
+          {audioBlocked && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              style={{
+                position: "fixed",
+                bottom: 80,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 2000,
+                background: "var(--accent-pale)",
+                border: "1px solid var(--accent)",
+                borderRadius: "var(--radius-lg)",
+                padding: "var(--space-3) var(--space-5)",
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-3)",
+                boxShadow: "var(--shadow-lg)",
+                cursor: "pointer",
+              }}
+              onClick={unlockAudio}
+              role="button"
+              aria-label="Enable HINAA voice"
+            >
+              <span style={{ fontSize: 20 }}>🔊</span>
+              <span style={{ fontFamily: "var(--font-body)", color: "var(--text-primary)", fontSize: "var(--text-sm)", fontWeight: 500 }}>
+                Tap to enable HINAA's voice
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Overlays */}
         <Suspense fallback={null}><MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} /></Suspense>
-        <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}>
-          <CompanionSwitch value={controller.companionId} onChange={id => { if (id === controller.companionId) return; if (live.active) live.stop(); controller.switchCompanion(id); }} />
-          <AppearanceSettings appearance={settings.appearance} onChange={setAppearance} />
-          <LanguageSettings language={settings.language} onChange={setLanguage} />
-          <ProviderSettings provider={settings.provider} providers={providers} onChange={setProvider} activeMode={routing.activeMode as any} />
-          <DiagnosticsSettings providers={providers} />
-        </SettingsDialog>
+        <SettingsV6
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          setAppearance={setAppearance}
+          setLanguage={setLanguage}
+          setProvider={setProvider}
+          setAutomation={setAutomation}
+          providers={providers}
+          activeMode={routing.activeMode as any}
+          isMuted={playback.muted}
+          onToggleMute={playback.toggleMute}
+        />
         <HinaDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} mode={drawerMode} title={drawerTitle} side="bottom">{drawerContent}</HinaDrawer>
+        <VoiceDiagnosticsDrawer
+          isOpen={diagnosticsOpen}
+          onClose={() => setDiagnosticsOpen(false)}
+          data={live.diagnostics}
+          onManualCommit={live.manualCommit}
+          isListening={live.active}
+        />
+        <Suspense fallback={null}>
+          <MusicMiniPlayer
+            isOpen={musicPlayerOpen || contextMode === "music"}
+            onClose={() => {
+              setMusicPlayerOpen(false);
+              if (contextMode === "music") setContextMode("hidden");
+            }}
+          />
+        </Suspense>
       </div>
     </SidebarProvider>
+    </SpeechPlaybackContext.Provider>
   );
 }

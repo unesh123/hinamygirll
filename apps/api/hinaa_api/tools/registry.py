@@ -7,6 +7,7 @@ class ToolParameter(BaseModel):
     required: bool = True
 
 class ToolDefinition(BaseModel):
+    timeout_seconds: float = Field(default=120.0, gt=0, le=600)
     name: str
     display_name: str
     description: str
@@ -14,6 +15,7 @@ class ToolDefinition(BaseModel):
     required_parameters: list[str]
     permission_level: str = "default"
     requires_confirmation: bool = False
+    risk_level: str = "medium"  # low, medium, high
     cancellable: bool = True
     voice_aliases: list[str] = []
 
@@ -38,9 +40,12 @@ class ToolRegistry:
             
         prompt = "REGISTERED TOOLS:\n"
         for t in self._tools.values():
-            prompt += f"- {t.name}: {t.description}\n"
-            prompt += f"  Parameters: {t.parameters}\n"
-            prompt += f"  Required: {t.required_parameters}\n"
+            param_names = [
+                f"{p}{'*' if p in (t.required_parameters or []) else ''}"
+                for p in (t.parameters or {}).keys()
+            ]
+            params_str = ", ".join(param_names) if param_names else "none"
+            prompt += f"- {t.name}({params_str}): {t.description}\n"
         return prompt
 
 registry = ToolRegistry()

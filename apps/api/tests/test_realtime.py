@@ -66,7 +66,10 @@ def test_mock_live_turn_is_versioned_validated_and_voice_explicit(client: TestCl
             events.append(socket.receive_json())
 
     types = [event["type"] for event in events]
-    assert types[:2] == ["stt.final", "assistant.thinking"]
+    # voice.pipeline may appear before stt.final as a progress notification
+    assert "stt.final" in types
+    assert "assistant.thinking" in types
+    assert types.index("stt.final") < types.index("assistant.thinking")
     assert "assistant.text.delta" in types
     assert "assistant.plan" in types
     audio = next(event for event in events if event["type"] == "tts.audio")
@@ -90,10 +93,21 @@ def test_duplicate_gap_and_stale_frames_are_rejected_without_duplication(
         socket.receive_json()
         send_frame(socket, 0)
         assert socket.receive_json()["reason"] == "duplicate-frame"
+        # A lost frame resyncs rather than faulting: the old AUDIO_SEQUENCE_GAP
+        # error never advanced expected_sequence, so every later frame gapped
+        # too and the client tore the session down mid-conversation.
         send_frame(socket, 2)
-        assert socket.receive_json()["code"] == "AUDIO_SEQUENCE_GAP"
+        assert socket.receive_json()["reason"] == "sequence-resynced"
         send_frame(socket, 1, generation=0)
         assert socket.receive_json()["reason"] == "stale-generation"
+        socket.send_json({"type": "audio.commit", "generation": 1, "endedAtMs": 0})
+        types = set()
+        for _ in range(12):
+            event = socket.receive_json()
+            types.add(event["type"])
+            if "assistant.plan" in types:
+                break
+        assert "assistant.plan" in types
 
 
 def test_silence_never_reaches_the_model(client: TestClient) -> None:
@@ -129,7 +143,10 @@ def test_interrupt_advances_generation_and_cancels_active_turn(client: TestClien
         send_frame(socket, 0)
         socket.receive_json()
         socket.send_json({"type": "audio.commit", "generation": 1, "endedAtMs": 20})
-        assert socket.receive_json()["type"] == "stt.final"
+        # Consume events until we see stt.final (voice.pipeline may precede it)
+        event = socket.receive_json()
+        while event["type"] != "stt.final":
+            event = socket.receive_json()
         socket.send_json({"type": "interrupt", "generation": 2})
         event = socket.receive_json()
         while event["type"] != "turn.cancelled":

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight, Brain, CheckSquare, FolderOpen, Image, MessageSquare, Mic, Plus, Search, Settings, Sparkles, Wrench, X,
 } from "lucide-react";
-import type { NavSection } from "./NavRail";
+import type { NavSection } from "../../design-system/layout/NavigationRail";
 
 interface SidebarPanelProps {
   section: NavSection | null;
@@ -25,8 +25,24 @@ type Shortcut = {
 };
 
 function panelTitle(section: NavSection): string {
-  return ({ chat: "Conversation", voice: "Voice", tasks: "Projects", files: "Projects", memory: "Memory", tools: "Local tools", settings: "Settings" } as const)[section];
+  const titles: Record<string, string> = {
+    chat: "Conversation",
+    talk: "Talk Mode",
+    voice: "Voice",
+    tasks: "Projects",
+    files: "Projects",
+    memory: "Memory",
+    tools: "Local tools",
+    settings: "Settings",
+    images: "Images",
+    library: "Library",
+    projects: "Projects",
+    creations: "Creations",
+    studio: "Studio",
+  };
+  return titles[section] || "Menu";
 }
+
 
 function shortcutsFor(section: NavSection, props: SidebarPanelProps): { eyebrow: string; heading: string; copy: string; items: Shortcut[] } {
   const openProjects = props.onOpenProjects;
@@ -67,8 +83,8 @@ function shortcutsFor(section: NavSection, props: SidebarPanelProps): { eyebrow:
         heading: "Choose an action, then stay in control",
         copy: "Availability depends on your local services and configured providers. HINAA shows a safe state rather than pretending an unavailable tool is ready.",
         items: [
-          { label: "Research with sources", detail: "Ask for attributable findings", icon: <Search size={16} />, action: () => props.onQuickPrompt?.("Research this with clear sources and practical next steps: ") },
-          { label: "Create an image", detail: "Open the local Image Studio", icon: <Image size={16} />, action: props.onOpenImageStudio },
+          { label: "Research with sources", detail: "Ask for attributable findings", icon: <Search size={16} />, action: () => props.onQuickPrompt?.("Deep research: ") },
+          { label: "Create an image", detail: "Open the Magnific FLUX Image Studio", icon: <Image size={16} />, action: props.onOpenImageStudio },
           { label: "Check local diagnostics", detail: "Review configured services", icon: <Settings size={16} />, action: props.onOpenSettings },
         ],
       };
@@ -92,8 +108,18 @@ function shortcutsFor(section: NavSection, props: SidebarPanelProps): { eyebrow:
           { label: "Open settings", detail: "Language, appearance, providers, and diagnostics", icon: <Settings size={16} />, action: props.onOpenSettings },
         ],
       };
+    default:
+      return {
+        eyebrow: "EXPLORE",
+        heading: "HINAA Workspace",
+        copy: "Multimodal workspace ready for creative and cognitive tasks.",
+        items: [
+          { label: "New conversation", detail: "Start a clean private chat", icon: <Plus size={16} />, action: props.onNewChat },
+        ],
+      };
   }
 }
+
 
 export function SidebarPanel(props: SidebarPanelProps) {
   const { section, onClose } = props;

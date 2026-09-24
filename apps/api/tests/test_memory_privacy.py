@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import socket
 
 from fastapi.testclient import TestClient
 
+from hinaa_api.circuit_breaker import reset_circuit_breakers
 from hinaa_api.config import Settings
 from hinaa_api.errors import HinaaError
 from hinaa_api.main import create_app
@@ -13,19 +16,42 @@ from hinaa_api.persistence.db import reset_session_factory
 from hinaa_api.services import ConversationService
 
 
-def _app_client() -> TestClient:
+def _app_client(**overrides) -> TestClient:
     reset_session_factory()
-    settings = Settings(
-        HINAA_PROVIDER_MODE="mock",
-        AZURE_SPEECH_KEY="",
-        AZURE_SPEECH_REGION="",
-        GEMINI_API_KEY="",
-        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
-        HINAA_AUTH_MODE="dev",
-        HINAA_PERSISTENCE_ENABLED=True,
-        _env_file=None,
-    )
-    return TestClient(create_app(settings))
+    # Every brain is switched off unless the test turns one on explicitly: this
+    # machine exports real keys, and a stray credential would silently answer a
+    # turn that is supposed to fail.
+    settings = {
+        "HINAA_PROVIDER_MODE": "mock",
+        "AZURE_SPEECH_KEY": "",
+        "AZURE_SPEECH_REGION": "",
+        "GEMINI_API_KEY": "",
+        "GROQ_API_KEY": "",
+        "OPENAI_API_KEY": "",
+        "OPENAI_CODEX_API_KEY": "",
+        "OPENAI_CODEX_BASE_URL": "",
+        "AGENT_ROUTER_API_KEY": "",
+        "AGENT_ROUTER_BASE_URL": "",
+        "CX_GATEWAY_API_KEY": "",
+        "CX_GATEWAY_BASE_URL": "",
+        "HINAA_CLAUDE_API_KEY": "",
+        "ANTHROPIC_API_KEY": "",
+        "ELEVENLABS_API_KEY": "",
+        "HINAA_DATABASE_URL": "sqlite+pysqlite:///:memory:",
+        "HINAA_AUTH_MODE": "dev",
+        "HINAA_PERSISTENCE_ENABLED": True,
+    }
+    settings.update(overrides)
+    return TestClient(create_app(Settings(**settings, _env_file=None)))
+
+
+def _closed_port_url() -> str:
+    """A real socket nobody is listening on, so the brain fails for real."""
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return f"http://127.0.0.1:{port}/v1"
 
 
 def test_remember_list_forget_and_isolation() -> None:
@@ -53,6 +79,15 @@ def test_remember_list_forget_and_isolation() -> None:
             ]
             == []
         )
+
+
+def test_privacy_routes_refuse_anonymous_callers() -> None:
+    """The public URL used to answer these as the owner with no credential at all."""
+    with _app_client() as client:
+        for path in ("/v1/privacy/status", "/v1/privacy/memories", "/v1/privacy/export"):
+            anonymous = client.get(path)
+            assert anonymous.status_code == 401, path
+            assert anonymous.json()["code"] == "AUTH_REQUIRED", path
 
 
 def test_sensitive_and_disabled_memory_blocked() -> None:
@@ -130,6 +165,221 @@ def test_self_learned_facts_persist_to_durable_store_via_turn() -> None:
         assert any("coding" in content for content in contents)
 
 
+def test_a_dead_brain_still_learns_what_he_told_her() -> None:
+    """He reported it as "she cannot lock and learn". Extraction and the durable
+    write both ran after the provider returned, so a turn whose brain was
+    unreachable raised straight past them and the facts were dropped.
+
+    The brain here is a socket nobody is listening on, because the bug lives
+    only on a genuine failure path -- and the proof is the store read back
+    through the memory endpoint, not a call count.
+    """
+    reset_circuit_breakers()
+    try:
+        with _app_client(
+            CX_GATEWAY_API_KEY="test-cx-key",
+            CX_GATEWAY_BASE_URL=_closed_port_url(),
+        ) as client:
+            headers = {"X-HINAA-Dev-User": "dead-brain"}
+            response = client.post(
+                "/v1/conversations/turns:stream",
+                headers=headers,
+                json={
+                    "sessionId": "learn-while-blind",
+                    "text": (
+                        "My name is Prabin and I love coding. "
+                        "Remember that the studio rent is due on the 3rd."
+                    ),
+                    "companionId": "hinaa",
+                    "language": "mixed",
+                    "providerMode": "cx-gateway",
+                },
+            )
+            assert response.status_code == 200
+            events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+            assert any(event.get("type") == "error" for event in events), events
+            assert [e for e in events if e.get("type") == "plan"] == [], "the brain must not answer"
+
+            listed = client.get("/v1/privacy/memories", headers=headers)
+            contents = [memory["content"] for memory in listed.json()["memories"]]
+    finally:
+        reset_circuit_breakers()
+
+    assert any("Prabin" in content for content in contents), contents
+    assert any("coding" in content for content in contents), contents
+    assert any("studio rent is due on the 3rd" in content for content in contents), contents
+
+
+def test_restating_a_memory_never_crashes_the_store() -> None:
+    """Measured through the real endpoints: rewording one memory into text she
+    had held before, or into text another memory already says, raised
+    IntegrityError out of the unique index on (user_id, normalized_hash) and the
+    request died as a 500 with both rows left as they were."""
+    with _app_client() as client:
+        headers = {"X-HINAA-Dev-User": "restate"}
+        held = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My cat is called Momo", "category": "fact"},
+        ).json()
+        live = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My cat is called Kiko", "category": "fact"},
+        ).json()
+        current = [m["content"] for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]]
+        assert sorted(current) == sorted(["My cat is called Momo", "My cat is called Kiko"])
+
+        # She forgot one wording, then he restates the other memory as it.
+        client.delete(f"/v1/privacy/memories/{held['id']}", headers=headers)
+        back = client.post(
+            f"/v1/privacy/memories/{live['id']}/supersede",
+            headers=headers,
+            json={"content": "My cat is called Momo", "category": "fact"},
+        )
+        assert back.status_code == 200, back.text
+        revived = [
+            m
+            for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]
+            if "Momo" in m["content"]
+        ]
+        assert len(revived) == 1, revived
+        assert revived[0]["id"] == held["id"], "the row she already owned must be reused"
+        assert revived[0]["status"] == "approved", revived[0]
+
+        # Rewording a memory into text another live memory says must not insert
+        # a second owner of that hash either.
+        third = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "I study in the library", "category": "goal"},
+        ).json()
+        merged = client.post(
+            f"/v1/privacy/memories/{third['id']}/supersede",
+            headers=headers,
+            json={"content": "My cat is called Momo", "category": "fact"},
+        )
+        assert merged.status_code == 200, merged.text
+        momo = [
+            m
+            for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]
+            if "Momo" in m["content"]
+        ]
+        assert len(momo) == 1, momo
+
+
+def test_an_edited_memory_is_found_by_its_new_words() -> None:
+    """Editing a memory in place used to leave its dedupe hash pointing at the
+    old sentence, so telling her the new wording afterwards stored a second copy
+    of the same fact."""
+    with _app_client() as client:
+        headers = {"X-HINAA-Dev-User": "rehash"}
+        created = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My favourite fruit is mango", "category": "preference"},
+        ).json()
+        edited = client.put(
+            f"/v1/privacy/memories/{created['id']}",
+            headers=headers,
+            json={"content": "My favourite fruit is jackfruit"},
+        )
+        assert edited.status_code == 200, edited.text
+
+        again = client.post(
+            "/v1/privacy/memories",
+            headers=headers,
+            json={"content": "My favourite fruit is jackfruit", "category": "preference"},
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["id"] == edited.json()["id"], "the edit must be findable by its new text"
+        rows = [
+            m
+            for m in client.get("/v1/privacy/memories", headers=headers).json()["memories"]
+            if "fruit" in m["content"]
+        ]
+        assert len(rows) == 1, rows
+
+
+def test_a_forgotten_fact_can_be_learned_again() -> None:
+    """The other half of "she cannot lock and learn". He told her the same thing
+    twice with a delete in between and the second time nothing was stored:
+    ``forget`` soft-deletes, so the row stays and keeps its place in the unique
+    index on (user_id, normalized_hash). The re-learn then tried to INSERT a
+    second row for the same hash and raised IntegrityError, which the persist
+    loop swallows -- so the fact was unlearnable forever after one deletion.
+    """
+    text = "Remember that my cat is called Momo and she is exactly two years old."
+
+    def turn(client: TestClient, headers: dict, session_id: str) -> None:
+        response = client.post(
+            "/v1/conversations/turns:stream",
+            headers=headers,
+            json={
+                "sessionId": session_id,
+                "text": text,
+                "companionId": "hinaa",
+                "language": "mixed",
+                "providerMode": "mock",
+            },
+        )
+        assert response.status_code == 200
+
+    def momo_rows(client: TestClient, headers: dict) -> list[dict]:
+        listed = client.get("/v1/privacy/memories", headers=headers)
+        return [m for m in listed.json()["memories"] if "Momo" in m["content"]]
+
+    with _app_client() as client:
+        headers = {"X-HINAA-Dev-User": "relearn"}
+        turn(client, headers, "relearn-first")
+        first = momo_rows(client, headers)
+        assert len(first) == 1, first
+
+        deleted = client.delete(f"/v1/privacy/memories/{first[0]['id']}", headers=headers)
+        assert deleted.status_code == 200
+        assert momo_rows(client, headers) == [], "she must really have forgotten it"
+
+        turn(client, headers, "relearn-second")
+        again = momo_rows(client, headers)
+
+    assert len(again) == 1, f"re-learning a forgotten fact stored {len(again)} rows"
+    assert again[0]["status"] == "approved", again[0]
+
+
+def test_she_only_claims_a_memory_she_can_actually_keep() -> None:
+    """The prompt is told the truth by this predicate, so bind it to the two
+    real reasons a fact cannot survive a turn: no signed-in owner to store it
+    under, and no store to write it to."""
+    reset_session_factory()
+    store = MemoryService(
+        init_db(
+            Settings(
+                HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+                _env_file=None,
+            )
+        )
+    )
+    owner = store.ensure_user("owner-two")
+    settings = Settings(HINAA_PROVIDER_MODE="mock", _env_file=None)
+    request = TurnRequest(
+        sessionId="claim-check",
+        text="remember that my studio rent is due on the 3rd",
+        companionId="hinaa",
+        language="mixed",
+        providerMode="mock",
+    )
+
+    with_store = ConversationService(settings, memory_service=store)
+    assert with_store._capture_turn_facts(request, owner.id) is True
+    assert any(
+        "3rd" in memory["content"] for memory in store.list_memories(owner.id)
+    ), "the true case must really write the row it promised"
+    assert with_store._capture_turn_facts(request, None) is False
+
+    no_store = ConversationService(settings)
+    assert no_store._capture_turn_facts(request, owner.id) is False
+
+
 def test_durable_memories_survive_restart_and_are_recalled() -> None:
     """Learned facts persist across a service restart and feed later prompts."""
     reset_session_factory()
@@ -190,3 +440,28 @@ def test_disabled_memory_does_not_break_turns_or_store_facts() -> None:
         assert response.status_code == 200
         listed = client.get("/v1/privacy/memories", headers=headers)
         assert listed.json()["memories"] == []
+
+
+def test_resolve_user_accepts_an_id_without_minting_a_second_identity() -> None:
+    """durable_tasks.owner_id references users.id, and an unauthenticated tool
+    call supplies the auth subject instead — the insert failed its foreign key
+    and /tools/execute answered 502, so searched images never rendered. The
+    resolver must take either form without splitting one person in two."""
+    reset_session_factory()
+    factory = init_db(
+        Settings(
+            HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+            _env_file=None,
+        )
+    )
+    service = MemoryService(factory)
+
+    resolved = service.resolve_user("local-dev-user")
+    assert service.resolve_user(resolved.id).id == resolved.id
+    assert service.resolve_user("local-dev-user").id == resolved.id
+
+    from sqlalchemy import func, select
+    from hinaa_api.persistence.orm import User
+
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(User)) == 1

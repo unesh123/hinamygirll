@@ -7,5 +7,12 @@ from . import gamma
 from . import email
 from . import browser_agent
 from . import image_generate
+from . import tinyfish
+from . import pdf_generate
+from . import freepik_suite
+from . import image_fabric
+from . import deep_research
+from . import document_generate
+from . import github_tools
 
 __all__ = ["registry"]

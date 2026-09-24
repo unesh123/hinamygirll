@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Check, Loader2, X } from "lucide-react";
 import styles from "./ActivityPanel.module.css";
 
 interface Activity {
@@ -35,9 +36,9 @@ export function ActivityPanel({ activities }: Props) {
                   : styles.error
               }`}
             >
-              {act.status === "running" && "⟳"}
-              {act.status === "complete" && "✓"}
-              {act.status === "error" && "✗"}
+              {act.status === "running" && <Loader2 size={13} className="spin" />}
+              {act.status === "complete" && <Check size={13} />}
+              {act.status === "error" && <X size={13} />}
             </span>
             <span className={styles.label}>{act.label}</span>
           </div>

@@ -1,0 +1,37 @@
+{
+  "health": {
+    "status": 200,
+    "data": {
+      "status": "ok",
+      "service": "hinaa-api",
+      "version": "0.3.0"
+    }
+  },
+  "tools": {
+    "status": 200,
+    "tool_count": 49,
+    "sample": [
+      "web_search",
+      "image_search",
+      "web_answer",
+      "web_research",
+      "web_research_status"
+    ]
+  },
+  "tasks": {
+    "status": 200,
+    "task_count": 0
+  },
+  "referent_suppression": {
+    "status": 200,
+    "research_sources_count": 0,
+    "search_fired": false,
+    "displayText": "Bujhe\u0901. Ma yahi chu\u2014k bata suru garau?"
+  },
+  "topic_precedence": {
+    "status": 200,
+    "topic": "",
+    "searchQuery": "",
+    "displayText": "Bujhe\u0901. Ma yahi chu\u2014k bata suru garau?"
+  }
+}

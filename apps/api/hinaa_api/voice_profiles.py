@@ -19,8 +19,18 @@ CALIBRATIONS: dict[str, VoiceTuning] = {
 }
 
 
-def resolve_voice(companion_id: CompanionId, female: str, male: str) -> str:
-    return female if companion_id == "hinaa" else male
+def resolve_voice(companion_id: CompanionId, female: str, male: str, language: str = "mixed") -> str:
+    selected = female if companion_id == "hinaa" else male
+    # Preserve a configured voice for its own locale; use a standard locale
+    # voice when the user explicitly switches language.
+    voices = {
+        "ne-NP": ("ne-NP-HemkalaNeural", "ne-NP-SagarNeural"),
+        "hi-IN": ("hi-IN-SwaraNeural", "hi-IN-MadhurNeural"),
+        "en-US": ("en-US-JennyNeural", "en-US-GuyNeural"),
+    }
+    if language in voices and not selected.startswith(language):
+        return voices[language][0 if companion_id == "hinaa" else 1]
+    return selected
 
 
 def resolve_calibration(value: str) -> VoiceTuning:

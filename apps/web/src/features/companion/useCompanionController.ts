@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { BackendConversationProvider } from "../providers/backendConversationProvider";
+import type {
+  AgentRuntimeEvent,
+  ResponseMode,
+} from "../providers/conversationProvider";
 import { MockConversationProvider } from "../providers/mockConversationProvider";
 import {
   companionProfiles,
@@ -14,8 +18,14 @@ import { resolveToolOutcome } from "../tools/toolOutcome";
 import {
   deserializeAssistantTurn,
   getAssistantDisplayText,
+  getSafeAssistantStreamingText,
   serializeAssistantTurn,
 } from "./assistantTurnCodec";
+import {
+  loadConversationMessages,
+  saveConversationMessages,
+} from "./sessionManager";
+import { singleLine } from "../../lib/turnFailure";
 
 function createId(): string {
   return (
@@ -49,19 +59,129 @@ function createMessage(
   };
 }
 
+export interface LiveAgentStep {
+  id: string;
+  label: string;
+  status: "pending" | "active" | "done" | "error" | "cancelled";
+  detail?: string;
+}
+
+function runtimeEventToSteps(
+  previous: LiveAgentStep[],
+  event: AgentRuntimeEvent,
+): LiveAgentStep[] {
+  const payload = event.payload ?? {};
+  const stepId = event.step_id ?? "runtime";
+  const title =
+    typeof payload.title === "string"
+      ? payload.title
+      : event.event_type.replace(/^agent\./, "").replace(/\./g, " ");
+  const message =
+    typeof payload.message === "string"
+      ? payload.message
+      : typeof payload.code === "string"
+        ? payload.code
+        : undefined;
+  const upsert = (step: LiveAgentStep) => {
+    const existing = previous.findIndex((item) => item.id === step.id);
+    if (existing === -1) return [...previous, step];
+    const next = [...previous];
+    next[existing] = { ...next[existing], ...step };
+    return next;
+  };
+
+  if (event.event_type === "agent.run.created") {
+    return upsert({
+      id: "run",
+      label: "Run accepted",
+      status: "done",
+      detail: "Server created a durable agent run",
+    });
+  }
+  if (event.event_type === "agent.run.started" || event.event_type === "agent.planning.started") {
+    return upsert({
+      id: "plan",
+      label: "Plan live turn",
+      status: "active",
+      detail: "HINAA is preparing a bounded runtime plan",
+    });
+  }
+  if (event.event_type === "agent.plan.ready") {
+    return upsert({
+      id: "plan",
+      label: "Plan ready",
+      status: "done",
+      detail: "Runtime validated the execution plan",
+    });
+  }
+  if (event.event_type === "agent.step.started") {
+    return upsert({ id: stepId, label: title, status: "active", detail: "Running through server runtime" });
+  }
+  if (event.event_type === "agent.step.progress") {
+    return upsert({ id: stepId, label: title, status: "active", detail: message ?? "Runtime step updated" });
+  }
+  if (event.event_type === "agent.step.completed") {
+    return upsert({ id: stepId, label: title, status: "done", detail: "Runtime step completed" });
+  }
+  if (event.event_type === "agent.step.failed") {
+    return upsert({ id: stepId, label: title, status: "error", detail: message ?? "Runtime step failed" });
+  }
+  if (event.event_type === "confirmation.required") {
+    return upsert({ id: stepId, label: title, status: "pending", detail: "Waiting for your approval" });
+  }
+  if (event.event_type === "agent.run.completed") {
+    return previous.map((step) => ({ ...step, status: step.status === "error" ? step.status : "done" }));
+  }
+  if (event.event_type === "agent.run.failed") {
+    return upsert({ id: "run", label: "Run needs attention", status: "error", detail: message ?? "Runtime failed safely" });
+  }
+  if (event.event_type === "agent.run.recovered") {
+    return upsert({ id: "run", label: "Recovery requested", status: "active", detail: "Runtime restored recoverable work" });
+  }
+  if (event.event_type === "agent.run.cancelled" || event.event_type === "turn.cancelled") {
+    return previous.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" }));
+  }
+  return previous;
+}
+
+/** What a caller may attach to one turn. Declared once: the interface and the
+ * implementation used to repeat this shape, and a field added to only one of
+ * them passed the local typecheck and failed the production build. */
+export interface SendTextOptions {
+  forceBackend?: boolean;
+  responseMode?: ResponseMode;
+  imageUrl?: string;
+  attachment_ids?: string[];
+  /** Data URIs to feed as image-to-image references for this turn's drawing. */
+  reference_images?: string[];
+  attachments?: import("./types").MessageAttachment[];
+  imageEngine?: string;
+  voiceEngine?: string;
+}
+
 export interface CompanionController {
   companionId: CompanionId;
   switchCompanion: (id: CompanionId) => void;
-  resetConversation: () => void;
+  resetConversation: (newId?: string) => void;
   state: CompanionState;
   messages: TranscriptMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<TranscriptMessage[]>>;
   partialTranscript: string;
   streamingText: string;
   routing: ProviderRuntimeSelection;
   activePlan?: AssistantTurnPlan;
+  agentSteps: LiveAgentStep[];
+  isSearching: boolean;
+  searchQuery: string;
+  currentAgentRunId?: string;
+  currentAgentConfirmationStepId?: string;
+  cancelCurrentAgentRun: () => Promise<void>;
+  resumeCurrentAgentRun: () => Promise<void>;
+  confirmCurrentAgentStep: (approved: boolean) => Promise<void>;
+  recoverCurrentAgentRun: () => Promise<void>;
   sendText: (
     text: string,
-    options?: { forceBackend?: boolean },
+    options?: SendTextOptions,
   ) => Promise<
     { turnId: string; plan: AssistantTurnPlan; providerLatencyMs?: number } | undefined
   >;
@@ -82,8 +202,15 @@ export interface CompanionController {
 }
 
 export interface CompanionControllerOptions {
+  conversationId?: string | null;
   routing: ProviderRuntimeSelection;
   languagePolicy: ActiveLanguagePolicy;
+  /**
+   * Standing consent for tool execution. When true, proposed actions run
+   * immediately instead of waiting for a per-action approval click. Defaults to
+   * false so any caller that does not opt in keeps the explicit approval gate.
+   */
+  autoRunTools?: boolean;
 }
 
 function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US" | "hi-IN" {
@@ -92,23 +219,55 @@ function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US
   return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
 }
 
-export function useCompanionController({ routing, languagePolicy }: CompanionControllerOptions): CompanionController {
+export function useCompanionController({ conversationId, routing, languagePolicy, autoRunTools = false }: CompanionControllerOptions): CompanionController {
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
+  const [agentSteps, setAgentSteps] = useState<LiveAgentStep[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentAgentRunId, setCurrentAgentRunId] = useState<string>();
+  const [currentAgentConfirmationStepId, setCurrentAgentConfirmationStepId] = useState<string>();
+  const effectiveKey = conversationId ? `hinaa-messages-${conversationId}` : `hinaa-messages-${companionId}`;
   const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
     try {
-      const stored = localStorage.getItem(`hinaa-messages-hinaa`);
-      if (stored) {
-        const restored = restoreMessages(JSON.parse(stored));
-        if (restored) return restored;
-      }
+      const storedMessages = conversationId
+        ? loadConversationMessages(conversationId)
+        : (() => {
+            const stored = localStorage.getItem(effectiveKey);
+            return stored ? restoreMessages(JSON.parse(stored)) : null;
+          })();
+      const restored = restoreMessages(storedMessages);
+      if (restored && restored.length > 0) return restored;
     } catch {}
     return [createMessage("assistant", companionProfiles.hinaa.greeting)];
   });
 
+  const prevConvoIdRef = useRef(conversationId);
   useEffect(() => {
-    localStorage.setItem(`hinaa-messages-${companionId}`, JSON.stringify(messages));
-  }, [messages, companionId]);
+    if (prevConvoIdRef.current !== conversationId) {
+      prevConvoIdRef.current = conversationId;
+      try {
+        const storedMessages = conversationId
+          ? loadConversationMessages(conversationId)
+          : (() => {
+              const stored = localStorage.getItem(`hinaa-messages-${companionId}`);
+              return stored ? restoreMessages(JSON.parse(stored)) : null;
+            })();
+        const restored = restoreMessages(storedMessages);
+        if (restored && restored.length > 0) {
+          setMessages(restored);
+          return;
+        }
+      } catch {}
+      setMessages([createMessage("assistant", companionProfiles[companionId]?.greeting ?? companionProfiles.hinaa.greeting)]);
+    }
+  }, [conversationId, companionId]);
+
+  useEffect(() => {
+    const key = conversationId ? `hinaa-messages-${conversationId}` : `hinaa-messages-${companionId}`;
+    if (conversationId) saveConversationMessages(conversationId, messages);
+    else localStorage.setItem(key, JSON.stringify(messages));
+  }, [messages, conversationId, companionId]);
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();
@@ -167,23 +326,29 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
+      setAgentSteps([]);
+      setCurrentAgentRunId(undefined);
+      setCurrentAgentConfirmationStepId(undefined);
       const initialMessages = (() => {
         try {
-          const stored = localStorage.getItem(`hinaa-messages-${id}`);
-          if (stored) {
-            const restored = restoreMessages(JSON.parse(stored));
-            if (restored) return restored;
-          }
+          const storedMessages = conversationId
+            ? loadConversationMessages(conversationId)
+            : (() => {
+                const stored = localStorage.getItem(`hinaa-messages-${id}`);
+                return stored ? restoreMessages(JSON.parse(stored)) : null;
+              })();
+          const restored = restoreMessages(storedMessages);
+          if (restored && restored.length > 0) return restored;
         } catch {}
         return [createMessage("assistant", companionProfiles[id].greeting)];
       })();
       setMessages(initialMessages);
       setState("idle");
     },
-    [clearTimers, companionId, finalizeTurn],
+    [clearTimers, companionId, conversationId, finalizeTurn],
   );
 
-  const resetConversation = useCallback(() => {
+  const resetConversation = useCallback((newId?: string) => {
     const previousTurn = activeTurnId.current;
     currentAbort.current?.abort();
     if (previousTurn) finalizeTurn(previousTurn);
@@ -191,6 +356,11 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
     setPartialTranscript("");
     setStreamingText("");
     setActivePlan(undefined);
+    setAgentSteps([]);
+    setIsSearching(false);
+    setSearchQuery("");
+    setCurrentAgentRunId(undefined);
+    setCurrentAgentConfirmationStepId(undefined);
     setMessages([createMessage("assistant", companionProfiles[companionId].greeting)]);
     setState("idle");
   }, [clearTimers, companionId, finalizeTurn]);
@@ -198,6 +368,14 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
   const stop = useCallback(() => {
     const previousTurn = activeTurnId.current;
     currentAbort.current?.abort();
+    if (currentAgentRunId) {
+      void fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
+        method: "POST",
+      }).catch(() => undefined);
+      setAgentSteps((current) =>
+        current.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" })),
+      );
+    }
     if (previousTurn) {
       finalizeTurn(previousTurn);
       return;
@@ -206,10 +384,89 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
     setPartialTranscript("");
     setStreamingText("");
     setState("idle");
-  }, [clearTimers, finalizeTurn]);
+  }, [clearTimers, currentAgentRunId, finalizeTurn]);
+
+  const cancelCurrentAgentRun = useCallback(async () => {
+    if (!currentAgentRunId) return;
+    await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
+      method: "POST",
+    }).catch(() => undefined);
+    setAgentSteps((current) =>
+      current.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" })),
+    );
+    setState("idle");
+  }, [currentAgentRunId]);
+
+  const resumeCurrentAgentRun = useCallback(async () => {
+    if (!currentAgentRunId) return;
+    const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/resume`, {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error(`Resume failed (${response.status})`);
+    setAgentSteps((current) =>
+      current.map((step) =>
+        step.status === "pending" || step.status === "cancelled"
+          ? { ...step, status: "active", detail: "Runtime resume requested" }
+          : step,
+      ),
+    );
+    setState("thinking");
+  }, [currentAgentRunId]);
+
+  const confirmCurrentAgentStep = useCallback(async (approved: boolean) => {
+    if (!currentAgentRunId || !currentAgentConfirmationStepId) return;
+    const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stepId: currentAgentConfirmationStepId, approved }),
+    });
+    if (!response.ok) throw new Error(`Confirmation failed (${response.status})`);
+    setAgentSteps((current) =>
+      current.map((step) =>
+        step.id === currentAgentConfirmationStepId
+          ? {
+              ...step,
+              status: approved ? "active" : "cancelled",
+              detail: approved ? "Approval sent to runtime" : "Rejected by user",
+            }
+          : step,
+      ),
+    );
+    if (!approved) setState("idle");
+  }, [currentAgentConfirmationStepId, currentAgentRunId]);
+
+  const recoverCurrentAgentRun = useCallback(async () => {
+    if (!currentAgentRunId) return;
+    const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/recover`, {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error(`Recovery failed (${response.status})`);
+    setAgentSteps((current) => [
+      ...current.filter((step) => step.id !== "run-recovery"),
+      {
+        id: "run-recovery",
+        label: "Recovery requested",
+        status: "active",
+        detail: "Runtime is restoring safe resumable work",
+      },
+    ]);
+    setState("thinking");
+  }, [currentAgentRunId]);
 
   const sendText = useCallback(
-    async (rawText: string, options?: { forceBackend?: boolean }) => {
+    async (
+      rawText: string,
+      options?: {
+        forceBackend?: boolean;
+        responseMode?: ResponseMode;
+        imageUrl?: string;
+        attachment_ids?: string[];
+        reference_images?: string[];
+        attachments?: import("./types").MessageAttachment[];
+        imageEngine?: string;
+        voiceEngine?: string;
+      },
+    ) => {
       const text = rawText.trim();
       if (!text) return;
 
@@ -223,25 +480,37 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
       currentAbort.current = abortController;
       setMessages((current) => [
         ...current,
-        createMessage("user", text),
+        createMessage("user", text, {
+          imageUrl: options?.imageUrl,
+          attachments: options?.attachments,
+        }),
       ]);
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
+      setAgentSteps([]);
+      setCurrentAgentRunId(undefined);
+      setCurrentAgentConfirmationStepId(undefined);
       setState("thinking");
 
+      let streamRafId: any = null;
       try {
+        let rawStreamed = "";
         let streamed = "";
         let completedPlan: AssistantTurnPlan | undefined;
         let providerLatencyMs: number | undefined;
         const language = resolveTurnLanguage(text, languagePolicy);
         // Snapshot routing for this turn so it can't change mid-stream
-        const turnMode = routing.activeMode ?? "mock";
+        const isMockAllowed = !import.meta.env.PROD || import.meta.env.VITE_ALLOW_MOCK === "true";
+        let turnMode = routing.activeMode ?? (import.meta.env.PROD ? "claude" : "mock");
+        if (!isMockAllowed && turnMode === "mock") {
+          turnMode = "claude";
+        }
         const turnModel = routing.activeModel ?? "";
         
         const selectedProvider =
-          turnMode !== "mock" || options?.forceBackend
-            ? new BackendConversationProvider(turnMode)
+          turnMode !== "mock" || options?.forceBackend || !isMockAllowed
+            ? new BackendConversationProvider(turnMode === "mock" ? "claude" : turnMode)
             : provider.current;
             
         for await (const event of selectedProvider.streamTurn({
@@ -249,16 +518,52 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
           companionId,
           signal: abortController.signal,
           language,
+          responseMode: options?.responseMode,
           brainModel: turnModel,
+          imageEngine: options?.imageEngine,
+          voiceEngine: options?.voiceEngine,
+          conversationId: conversationId || undefined,
+          imageUrl: options?.imageUrl,
+          attachment_ids: options?.attachment_ids,
+          reference_images: options?.reference_images,
+          attachments: options?.attachments,
         })) {
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {
             setState("thinking");
+          } else if (event.type === "search.started") {
+            setIsSearching(true);
+            setSearchQuery(event.query);
+          } else if (event.type === "search.completed") {
+            setIsSearching(false);
           } else if (event.type === "text.delta") {
-            streamed += event.delta;
-            setStreamingText(streamed);
-            setState("speaking");
+            setIsSearching(false);
+            rawStreamed += event.delta;
+            // Batch streaming deltas via requestAnimationFrame to avoid React thrashing during 50K/100K streams
+            if (!streamRafId) {
+              const scheduleFrame =
+                typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+                  ? window.requestAnimationFrame
+                  : (cb: () => void) => setTimeout(cb, 16);
+              streamRafId = scheduleFrame(() => {
+                streamRafId = null;
+                streamed = getSafeAssistantStreamingText(rawStreamed);
+                setStreamingText(streamed);
+                setState(streamed ? "speaking" : "thinking");
+              });
+            }
           } else if (event.type === "plan") {
+            if (streamRafId) {
+              const cancelFrame =
+                typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+                  ? window.cancelAnimationFrame
+                  : clearTimeout;
+              cancelFrame(streamRafId);
+              streamRafId = null;
+            }
+            setIsSearching(false);
+            setSearchQuery("");
+            setStreamingText("");
             completedPlan = event.plan;
             setActivePlan(event.plan);
             setMessages((current) => [
@@ -272,6 +577,19 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
             // usage metadata after the plan; finalizing early makes the next
             // stream event look stale and drops the completed turn before typed
             // chat can hand its spokenText to the playback owner.
+          } else if (event.type === "agent.event") {
+            setCurrentAgentRunId(event.event.run_id);
+            if (event.event.event_type === "confirmation.required") {
+              setCurrentAgentConfirmationStepId(event.event.step_id ?? undefined);
+            }
+            if (
+              event.event.event_type === "agent.run.completed" ||
+              event.event.event_type === "agent.run.failed" ||
+              event.event.event_type === "agent.run.cancelled"
+            ) {
+              setCurrentAgentConfirmationStepId(undefined);
+            }
+            setAgentSteps((current) => runtimeEventToSteps(current, event.event));
           } else {
             providerLatencyMs = event.latencyMs;
           }
@@ -290,13 +608,46 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
           finalizeTurn(turnId);
           return undefined;
         }
-        const message = error instanceof Error ? error.message : "";
-        const friendly = message.includes("PROVIDER_RATE_LIMIT")
-          ? "The selected brain key/model is rate limited. Switch the Brain model, wait a moment, or use the Codex key source."
-          : `Response failed safely. ${message} Try another brain model or text mode.`;
-        finalizeTurn(turnId, { errorText: friendly });
+        const code =
+          typeof (error as any)?.code === "string"
+            ? String((error as any).code).toUpperCase()
+            : "";
+        const message = error instanceof Error ? singleLine(error.message) : "";
+        const isSchemaError =
+          (error as any)?.name === "ZodError" ||
+          code === "VALIDATION_ERROR" ||
+          message.includes("unrecognized_keys") ||
+          message.includes("validation_error") ||
+          message.includes("Invalid input");
+        const isRateLimit =
+          code === "PROVIDER_RATE_LIMIT" ||
+          message.includes("429") ||
+          message.includes("rate_limit_exceeded") ||
+          message.includes("rate limited");
+        const friendly = isSchemaError
+          ? "HINAA encountered a plan formatting error while generating this response. Your prompt is preserved."
+          : isRateLimit
+          ? "The brain gateway is temporarily rate limited. Your prompt is preserved, and Hinaa will auto-route to an available brain."
+          : code === "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE" || message.includes("capacity")
+            ? "The gateway is temporarily at capacity. Your prompt is preserved."
+            : code === "PROVIDER_KEY_INVALID" || code === "PROVIDER_AUTH_FAILED"
+            ? routing.activeMode === "claude"
+              ? "Claude could not authenticate. Please verify your Claude gateway key and endpoint."
+              : "The selected brain could not authenticate. Check its configuration and retry."
+            : code === "PROVIDER_UNAVAILABLE" || message.includes("cooldown") || message.includes("timeout")
+            ? "The primary brain is reconnecting. You can send your message again or switch to Gemini in brain settings."
+            : message || "HINAA could not finish this turn. Your prompt is preserved.";
+        finalizeTurn(turnId, { errorText: singleLine(friendly, "HINAA could not finish this turn.") });
         return undefined;
       } finally {
+        if (streamRafId) {
+          const cancelFrame =
+            typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+              ? window.cancelAnimationFrame
+              : clearTimeout;
+          cancelFrame(streamRafId);
+          streamRafId = null;
+        }
         if (currentAbort.current === abortController) currentAbort.current = undefined;
       }
     },
@@ -308,6 +659,7 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
       messageId: string,
       request: AssistantTurnPlan["toolRequests"][number],
       approved: boolean,
+      approvalSource: "user" | "standing-consent" = "user",
     ) => {
       const actionId = request.toolName;
       const requestKey = `${messageId}:${actionId}:${JSON.stringify(request.parameters)}`;
@@ -334,10 +686,14 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
         const response = await fetch("/api/v1/tools/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...request, confirmed: true }),
+          body: JSON.stringify({ ...request, confirmed: true, approvalSource }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok || payload.status === "error") {
+        // A 200 carrying status "error" is the tool refusing, not a transport
+        // fault. resolveToolOutcome labels it and the result reaches toolResults,
+        // where the card can say so out loud. Throwing here buried the refusal in
+        // an activity row that only renders while the turn is still thinking.
+        if (!response.ok) {
           throw new Error(payload.detail || payload.error || `Action failed (${response.status})`);
         }
         if (payload.status === "processing" && payload.job_id) {
@@ -355,16 +711,23 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
                 const pollResponse = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(payload.job_id)}`);
                 const progress = await pollResponse.json();
                 if (!pollResponse.ok) continue;
+                // The route answers "processing" | "completed" | "failed".
+                const phase = progress.status === "completed"
+                  ? "complete" as const
+                  : progress.status === "failed" ? "error" as const : "running" as const;
+                const reason = typeof progress.error === "string" && progress.error.trim()
+                  ? progress.error.trim()
+                  : request.toolName;
                 setMessages((current) => current.map((message) => message.id === messageId ? {
                   ...message,
                   toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: progress }],
                   toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
                     ...activity,
-                    status: progress.status === "success" ? "complete" : progress.status === "error" ? "error" : "running",
-                    label: progress.status === "success" ? `Completed: ${request.toolName}` : progress.status === "error" ? `Failed: ${request.toolName}` : `Working locally: ${request.toolName}`,
+                    status: phase,
+                    label: phase === "complete" ? `Completed: ${request.toolName}` : phase === "error" ? `Failed: ${reason}` : `Working locally: ${request.toolName}`,
                   } : activity),
                 } : message));
-                if (progress.status === "success" || progress.status === "error") return;
+                if (phase !== "running") return;
               } catch {
                 // Keep the last known progress visible; the next poll may recover.
               }
@@ -384,6 +747,7 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
         const label = error instanceof Error ? error.message : "Approved action failed";
         setMessages((current) => current.map((message) => message.id === messageId ? {
           ...message,
+          toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: { status: "error", error: label } }],
           toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
             ...activity, status: "error", label: `Failed: ${label}`,
           } : activity),
@@ -489,24 +853,35 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
     if (processedToolMessageIds.current.has(lastMessage.id)) return;
 
     processedToolMessageIds.current.add(lastMessage.id);
-    // A model proposal is not consent to browse, send, purchase, or call an
-    // external service. Keep it visible until a dedicated confirmation UI is
-    // implemented, then submit with `confirmed: true` only after approval.
+    const messageId = lastMessage.id;
+
+    // Autonomy mode carries standing consent from Settings, so a proposal is
+    // executed immediately. With autonomy off, a model proposal is still not
+    // consent to browse, send, purchase, or call an external service: the action
+    // stays visible and pending until it is explicitly allowed or declined, and
+    // only then is it submitted with `confirmed: true`.
     setMessages((current) =>
       current.map((message) =>
-        message.id === lastMessage.id
+        message.id === messageId
           ? {
               ...message,
               toolActivity: toolRequests.map((request) => ({
                 id: request.toolName,
                 status: "pending" as const,
-                label: `Proposed action: ${request.toolName}`,
+                label: autoRunTools
+                  ? `Auto-running: ${request.toolName}`
+                  : `Proposed action: ${request.toolName}`,
               })),
             }
           : message,
       ),
     );
-  }, [messages]);
+
+    if (!autoRunTools) return;
+    for (const request of toolRequests) {
+      void resolveToolRequest(messageId, request, true, "standing-consent");
+    }
+  }, [messages, autoRunTools, resolveToolRequest]);
 
   return {
     companionId,
@@ -514,10 +889,20 @@ export function useCompanionController({ routing, languagePolicy }: CompanionCon
     resetConversation,
     state,
     messages,
+    setMessages,
     partialTranscript,
     streamingText,
     routing,
     activePlan,
+    agentSteps,
+    isSearching,
+    searchQuery,
+    currentAgentRunId,
+    currentAgentConfirmationStepId,
+    cancelCurrentAgentRun,
+    resumeCurrentAgentRun,
+    confirmCurrentAgentStep,
+    recoverCurrentAgentRun,
     sendText,
     startMockListening,
     beginListening,

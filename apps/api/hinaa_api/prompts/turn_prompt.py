@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 from ..config import Settings
 from ..models import TurnRequest
@@ -28,6 +29,11 @@ def build_turn_prompt(
     interaction_mode: InteractionMode,
     session_memories: tuple[str, ...] = (),
     approved_memory_blocks: tuple[str, ...] = (),
+    attachments: tuple[Any, ...] = (),
+    dialogue_state_block: str = "",
+    live_search_block: str = "",
+    history_preselected: bool = False,
+    durable_memory: bool = True,
 ) -> PromptPackage:
     inp = PromptInput(
         companion_id=request.companionId,
@@ -41,6 +47,11 @@ def build_turn_prompt(
         max_history_chars=settings.session_history_char_limit,
         session_memories=session_memories,
         approved_memory_blocks=approved_memory_blocks,
+        durable_memory=durable_memory,
         visible_actions=request.visibleActions,
+        attachments=attachments,
+        dialogue_state_block=dialogue_state_block,
+        live_search_block=live_search_block,
+        history_preselected=history_preselected,
     )
     return assemble_prompt(inp)

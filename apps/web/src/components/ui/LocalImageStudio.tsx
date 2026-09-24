@@ -29,7 +29,26 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
   const [images, setImages] = useState<Array<ImageResult | string>>([]);
   const [slots, setSlots] = useState<ImageSlot[]>([]);
   const [comfyStatus, setComfyStatus] = useState<"checking" | "ready" | "unavailable">("checking");
+  const [referenceImages, setReferenceImages] = useState<string[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef(false);
+  const requestRef = useRef<AbortController | null>(null);
+  const busy = state === "starting" || state === "processing";
+
+  useEffect(() => () => {
+    abortRef.current = true;
+    requestRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!busy) return;
+    const started = Date.now();
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
 
   const checkComfy = async () => {
     setComfyStatus("checking");
@@ -46,16 +65,43 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
 
   useEffect(() => { void checkComfy(); }, []);
 
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 720px)");
+    const update = () => setIsMobile(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const remaining = 1 - referenceImages.length;
+    const selectedFiles = Array.from(files).slice(0, remaining);
+    selectedFiles.forEach((file) => {
+      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 10 * 1024 * 1024) {
+        setMessage("Choose a PNG, JPEG, or WebP reference under 10 MB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          const resultStr = reader.result;
+          setReferenceImages((prev) => (prev.length < 1 ? [...prev, resultStr] : prev));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
   const generate = async () => {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt || state === "starting" || state === "processing") return;
-    if (comfyStatus !== "ready") {
-      setState("failed");
-      setMessage("ComfyUI is not ready yet. Start it on http://127.0.0.1:8188 and click Check again.");
-      return;
-    }
     setState("starting");
-    setMessage("Preparing the local image job…");
+    setMessage(comfyStatus === "ready"
+        ? "Preparing the local image job…"
+        : "Preparing a cloud fallback image job…");
     setImages([]);
     setSlots(Array.from({ length: count }, (_, index) => ({
       id: `preparing-${index + 1}`,
@@ -63,19 +109,24 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
       status: "pending" as const,
     })));
     abortRef.current = false;
+    const request = new AbortController();
+    requestRef.current = request;
     try {
       const start = await fetch("/api/v1/tools/execute", {
         method: "POST",
+        signal: request.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           toolName: "image_generate",
           confirmed: true,
+          approvalSource: "user",
           parameters: {
             prompt: cleanPrompt,
             negative_prompt: negativePrompt.trim(),
             seed: seed ? Number(seed) : undefined,
             count,
             mode,
+            reference_images: referenceImages.length > 0 ? referenceImages : undefined,
           },
         }),
       });
@@ -95,31 +146,36 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
       }
 
       setState("processing");
-      setMessage("Hinaa is generating locally. You can keep chatting while this finishes.");
+      setMessage(String(toolResult?.strategy).startsWith("cloud-")
+        ? "Hinaa is generating through the configured cloud fallback. You can keep chatting while this finishes."
+        : "Hinaa is generating locally. You can keep chatting while this finishes.");
       for (let attempt = 0; attempt < 180 && !abortRef.current; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
-        const poll = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(jobId)}`);
+        if (abortRef.current) return;
+        const poll = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(jobId)}`, { signal: request.signal });
         const result = await poll.json();
         if (!poll.ok) throw new Error(result?.message || "Could not read image progress.");
         setImages(result.images || []);
         if (Array.isArray(result.slots)) setSlots(result.slots);
-        if (result.status === "success" || result.status === "partial") {
+        if (result.status === "completed" || result.status === "success" || result.status === "partial") {
           setState("complete");
-          const completed = Number(result.completed ?? result.images?.length ?? 0);
-          const total = Number(result.total ?? completed);
-          setMessage(result.status === "partial"
-            ? `${completed} of ${total} local images are ready. ${result.error || "Some outputs did not finish."}`
-            : `${completed} local image${completed === 1 ? "" : "s"} ready.`);
+          const completed = Array.isArray(result.images) ? result.images.length : Number(result.completed ?? 0);
+          const total = Number(result.total ?? completed) || completed;
+          setMessage(typeof result.error === "string" && result.error
+            ? `${completed} of ${total} images are ready. ${result.error}`
+            : `${completed} image${completed === 1 ? "" : "s"} ready.`);
           return;
         }
         if (result.status === "error" || result.status === "failed") throw new Error(result.error || "The local image workflow failed.");
         const activeSlot = Array.isArray(result.slots) ? result.slots.find((slot: ImageSlot) => slot.status === "processing") : undefined;
+        const ready = Array.isArray(result.images) ? result.images.length : 0;
         setMessage(result.total
-          ? `Generating ${Number(result.completed ?? result.images?.length ?? 0)} of ${result.total} image outputs${activeSlot ? ` — image ${activeSlot.index} is running` : ""}…`
-          : "Generating locally…");
+          ? `Generating ${ready} of ${result.total} image outputs${activeSlot ? ` — image ${activeSlot.index} is running` : ""}…`
+          : "Generating image…");
       }
       if (!abortRef.current) throw new Error("The image job took too long. Check that ComfyUI is running locally.");
     } catch (error) {
+      if (abortRef.current || request.signal.aborted) return;
       setState("failed");
       setMessage(error instanceof Error ? error.message : "Image generation failed.");
     }
@@ -131,27 +187,84 @@ export function LocalImageStudio({ onClose }: { onClose: () => void }) {
         <div>
           <p style={{ margin: 0, color: "#f5a7bb", fontSize: 11, fontWeight: 800, letterSpacing: "0.12em" }}>LOCAL CREATOR</p>
           <h2 style={{ margin: "5px 0", fontSize: 25 }}>Image studio</h2>
-          <p style={{ margin: 0, color: "var(--text-secondary)", lineHeight: 1.5 }}>Create locally through your configured ComfyUI workflow. Generate is an explicit action; Hinaa will not start image jobs on her own.</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: comfyStatus === "ready" ? "#86efac" : comfyStatus === "unavailable" ? "#f49aad" : "#f2bf7a", fontSize: 12 }}>
+          <p style={{ margin: 0, color: "var(--text-secondary)", lineHeight: 1.5 }}>Create with local ComfyUI or the server’s cloud fallback. Reference edits use local ComfyUI; text-only generation can use cloud providers.</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: comfyStatus === "ready" ? "#86efac" : comfyStatus === "unavailable" ? "#f2bf7a" : "#f2bf7a", fontSize: 12 }}>
             <span style={{ width: 7, height: 7, borderRadius: 99, background: "currentColor" }} />
-            {comfyStatus === "ready" ? "ComfyUI ready on this device" : comfyStatus === "checking" ? "Checking local ComfyUI…" : "ComfyUI unavailable — start it locally, then check again"}
+            {comfyStatus === "ready" ? "ComfyUI ready on this device" : comfyStatus === "checking" ? "Checking local ComfyUI…" : "Local renderer unavailable — text-only cloud fallback may be available"}
             <button type="button" onClick={() => void checkComfy()} style={{ ...secondaryButtonStyle, padding: "3px 7px", fontSize: 11 }}>Check again</button>
           </div>
         </div>
         <button type="button" onClick={() => { abortRef.current = true; onClose(); }} style={secondaryButtonStyle}>Close</button>
       </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.25fr) minmax(260px,.75fr)", gap: 18, marginTop: 22 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "minmax(0,1.25fr) minmax(260px,.75fr)", gap: 18, marginTop: 22 }}>
         <div style={panelStyle}>
           <label style={labelStyle}>What should Hinaa create?</label>
           <textarea aria-label="Image prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the subject, scene, style, lighting, composition, and aspect ratio…" rows={7} style={{ ...inputStyle, width: "100%", resize: "vertical", lineHeight: 1.5 }} />
           <label style={{ ...labelStyle, marginTop: 14 }}>Avoid (optional)</label>
           <input aria-label="Negative image prompt" value={negativePrompt} onChange={(event) => setNegativePrompt(event.target.value)} placeholder="Blur, extra fingers, text artifacts…" style={{ ...inputStyle, width: "100%" }} />
-          <button type="button" onClick={() => void generate()} disabled={!prompt.trim() || comfyStatus !== "ready" || state === "starting" || state === "processing"} style={{ ...generateButtonStyle, opacity: !prompt.trim() || comfyStatus !== "ready" || state === "starting" || state === "processing" ? .55 : 1 }}>
+
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <label style={labelStyle}>Reference Image ({referenceImages.length}/1)</label>
+              <button
+                type="button"
+                aria-label="Add Reference Image"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={referenceImages.length >= 1 || busy}
+                style={{ ...secondaryButtonStyle, padding: "3px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                <ImagePlus size={12} /> Add Reference
+              </button>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: "none" }}
+              onChange={handleFileChange}
+            />
+            {referenceImages.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                {referenceImages.map((imgUrl, idx) => (
+                  <div key={idx} style={{ position: "relative", width: 56, height: 56, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,219,231,.3)" }}>
+                    <img src={imgUrl} alt={`Reference ${idx + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <button
+                      type="button"
+                      aria-label={`Remove reference ${idx + 1}`}
+                      onClick={() => setReferenceImages((prev) => prev.filter((_, i) => i !== idx))}
+                      style={{
+                        position: "absolute",
+                        top: 2,
+                        right: 2,
+                        background: "rgba(0,0,0,0.75)",
+                        border: "none",
+                        borderRadius: "50%",
+                        width: 16,
+                        height: 16,
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        fontSize: 9,
+                        padding: 0,
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button type="button" onClick={() => void generate()} disabled={!prompt.trim() || state === "starting" || state === "processing"} style={{ ...generateButtonStyle, opacity: !prompt.trim() || state === "starting" || state === "processing" ? .55 : 1 }}>
             {state === "starting" || state === "processing" ? <Loader2 size={18} className="spin" /> : <Wand2 size={18} />}
-            {state === "starting" || state === "processing" ? "Generating locally…" : "Generate images"}
+            {state === "starting" || state === "processing" ? "Generating…" : "Generate images"}
           </button>
           <p role="status" style={{ margin: "12px 0 0", color: state === "failed" ? "#f49aad" : "var(--text-secondary)", fontSize: 13 }}>{message}</p>
+          {busy && <p aria-label="Generation elapsed time" style={{ fontSize: 12, color: "var(--text-secondary)" }}>{elapsedSeconds}s elapsed · Waiting for the renderer’s result</p>}
         </div>
 
         <aside style={panelStyle}>

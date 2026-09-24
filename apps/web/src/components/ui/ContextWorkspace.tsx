@@ -60,25 +60,32 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {ModeIcon && <ModeIcon size={15} style={{ color: '#f5a7bb' }} />}
-                <span style={{ fontWeight: 750, fontSize: '0.88rem', color: '#fff4f8', letterSpacing: '.01em' }}>{title ?? MODE_LABELS[mode]}</span>
+                {ModeIcon && <ModeIcon size={16} style={{ color: '#38bdf8' }} />}
+                <span style={{ fontWeight: 750, fontSize: '0.9rem', color: '#f8fafc', letterSpacing: '.01em' }}>{title ?? MODE_LABELS[mode]}</span>
+                {mode === 'research' && sources.length > 0 && (
+                  <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'rgba(255,255,255,0.1)', color: '#cbd5e1', borderRadius: 12, fontWeight: 600 }}>
+                    {sources.length} {sources.length === 1 ? 'source' : 'sources'}
+                  </span>
+                )}
               </div>
               <button
                 type="button"
                 aria-label={`Close ${MODE_LABELS[mode]} workspace`}
                 onClick={onClose}
-                style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid rgba(255,219,231,.18)', background: 'rgba(255,255,255,.045)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d8c3cd', transition: 'transform 160ms var(--ease-out-expo), background 160ms var(--ease-out-expo)' }}
+                style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.05)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', transition: 'all 0.2s' }}
+                onFocus={(e) => (e.currentTarget.style.outline = '2px solid #38bdf8')}
+                onBlur={(e) => (e.currentTarget.style.outline = 'none')}
               >
-                <X size={13} />
+                <X size={14} />
               </button>
             </div>
 
             {/* Research progress uses HINAA's actual workflow state; it never
                 invents external websites, source names, or completed fetches. */}
             {isSearching && (
-              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} style={{ padding: '8px 0' }}>
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} style={{ padding: '4px 0 16px' }}>
                 <ActivityPanel
                   title="Research workflow"
                   mode="research"
@@ -89,7 +96,7 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
 
             {/* Source cards */}
             {mode === 'research' && sources.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', paddingRight: 4, paddingBottom: 16 }}>
                 {sources.map((src, i) => (
                   <SourceCard key={src.id} source={src} index={i} />
                 ))}
@@ -98,11 +105,14 @@ export function ContextWorkspace({ mode, onClose, sources = [], isSearching = fa
 
             {/* Empty state */}
             {!isSearching && sources.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#c8b6c0', fontSize: '0.82rem', lineHeight: 1.55 }}>
-                {ModeIcon && <ModeIcon size={32} style={{ marginBottom: 12, color: '#f5a7bb', opacity: 0.6 }} />}
-                <div>{MODE_EMPTY_STATES[mode as Exclude<ContextMode, 'hidden'>]}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '48px 24px', opacity: 0.7 }}>
+                <Globe size={32} style={{ color: '#64748b', marginBottom: 16 }} />
+                <div style={{ fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.5, maxWidth: 280 }}>
+                  {MODE_EMPTY_STATES[mode as Exclude<ContextMode, 'hidden'>]}
+                </div>
               </div>
             )}
+
           </motion.div>
         )}
       </AnimatePresence>

@@ -5,6 +5,7 @@ import {
   getAssistantArtifacts,
   getAssistantDisplayText,
   getAssistantSpokenText,
+  getSafeAssistantStreamingText,
   serializeAssistantTurn,
 } from "./assistantTurnCodec";
 
@@ -43,4 +44,20 @@ describe("assistant turn codec", () => {
     expect(deserializeAssistantTurn(broken)).toBeUndefined();
     expect(getAssistantDisplayText(broken)).toBe("A saved response could not be restored safely.");
   });
+
+  it("holds a partial fenced HINAA plan until it can render display text", () => {
+    const partial = "```json\n{\n  \"spokenText\": \"Hey babe!\",";
+    const fenced = `\`\`\`json\n${JSON.stringify(turn)}\n\`\`\``;
+    expect(getSafeAssistantStreamingText(partial)).toBe("");
+    expect(getSafeAssistantStreamingText(fenced)).toBe(turn.displayText);
+  });
 });
+
+
+  it("decodes a Markdown-fenced Claude plan without exposing JSON to chat or speech", () => {
+    const fenced = `\`\`\`json\n${JSON.stringify(turn)}\n\`\`\``;
+    expect(deserializeAssistantTurn(fenced)).toEqual(turn);
+    expect(getAssistantDisplayText(fenced)).toBe(turn.displayText);
+    expect(getAssistantSpokenText(fenced)).toBe(turn.spokenText);
+    expect(getAssistantDisplayText(fenced)).not.toContain("\`\`\`json");
+  });

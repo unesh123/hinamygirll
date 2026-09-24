@@ -1,0 +1,47 @@
+/* ═══════════════════════════════════════════════════════════════
+   HINAA Sakura OS — Spacing & Shape Tokens
+   8-point grid · Consistent radii · Tactile depth
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── 8-Point Spacing Scale ─────────────────────────────── */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* ── Border Radius ─────────────────────────────────────── */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-2xl: 30px;
+  --radius-pill: 999px;
+
+  /* ── Content Width ─────────────────────────────────────── */
+  --max-width-chat: 780px;
+  --max-width-content: 680px;
+  --max-width-wide: 1024px;
+
+  /* ── Nav Dimensions ────────────────────────────────────── */
+  --nav-rail-width: 72px;
+  --nav-rail-expanded: 240px;
+  --topbar-height: 52px;
+}

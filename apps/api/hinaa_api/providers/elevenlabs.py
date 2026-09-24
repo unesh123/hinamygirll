@@ -348,6 +348,17 @@ class ElevenLabsSTTProvider:
             "diarize": "false",
             "num_speakers": "1",
         }
+        # Explicit language code hint: ElevenLabs Scribe v2 requires "language_code"
+        # for non-English audio (e.g. "hin" for Hindi/Hinglish, "nep" for Nepali).
+        lang = (language or "").lower()
+        if not lang or lang in ("auto", "default") or any(h in lang for h in ("hi", "hin", "mixed")):
+            data["language_code"] = "hin"
+        elif any(n in lang for n in ("ne", "nep")):
+            data["language_code"] = "nep"
+        elif "en" in lang:
+            data["language_code"] = "eng"
+        elif lang:
+            data["language_code"] = lang[:3]
         
         from ..errors import HinaaError
 

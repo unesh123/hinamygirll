@@ -30,6 +30,13 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
+    {
+      name: "desktop-chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+    },
     { name: "pixel-5", use: { ...devices["Pixel 5"] } },
     {
       name: "small-android",

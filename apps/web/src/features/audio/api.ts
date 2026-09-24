@@ -5,14 +5,23 @@ export type ProviderMode =
   | "openai"
   | "custom"
   | "real"
+  | "claude"
+  | "qwen"
   | "agent-router"
   | "cx-gateway"
-  | "gemini-live";
+  | "gemini-live"
+  | "codecraft"
+  | "ollama";
 
 export interface ProviderStatus {
   id: string;
   capabilities: string[];
-  state: "healthy" | "degraded" | "unavailable" | "disabled";
+  /**
+   * `healthy` for a brain means a live call answered — see
+   * apps/api/hinaa_api/brain_ledger.py. `untested` means the credential is
+   * configured but no live call has proven it recently.
+   */
+  state: "healthy" | "degraded" | "unavailable" | "untested" | "disabled";
   userMessage: string;
 }
 
@@ -62,11 +71,12 @@ export async function synthesizeSpeech(
   companionId: "hinaa" | "hiro",
   mode: ProviderMode,
   signal: AbortSignal,
+  language: "ne-NP" | "hi-IN" | "en-US" | "mixed" = "mixed",
 ): Promise<{ blob: Blob; provider: string; latencyMs: number }> {
   const response = await fetch("/api/v1/speech/synthesis", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, companionId, providerMode: mode }),
+    body: JSON.stringify({ text, companionId, providerMode: mode, language }),
     signal,
   });
   if (!response.ok) {
@@ -82,4 +92,29 @@ export async function synthesizeSpeech(
     provider: response.headers.get("X-HINAA-Provider") ?? mode,
     latencyMs: Number(response.headers.get("X-HINAA-Latency-Ms") ?? 0),
   };
+}
+
+export async function reprobeCxGateway(): Promise<{
+  providerId: string;
+  environment: string;
+  hostname: string | null;
+  configured: boolean;
+  reachable: boolean;
+  inference: boolean;
+  quota: boolean;
+  state: string;
+  circuitBreakerState: string;
+  model: string;
+  latencyMs: number;
+  userMessage: string;
+  timestamp: string;
+}> {
+  const response = await fetch("/api/v1/providers/cx/reprobe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`Reprobe failed (${response.status})`);
+  }
+  return response.json();
 }

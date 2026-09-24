@@ -1,157 +1,140 @@
 /**
  * HINAA Memory System
- * Persistent conversation memory with localStorage + categories.
- * Auto-saves facts, preferences, context. User-editable.
+ * Persistent conversation memory using durable backend store.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
+import { describeResponseFailure, describeThrownFailure } from "../../lib/turnFailure";
 
 export interface MemoryEntry {
   id: string;
   content: string;
-  category: "fact" | "preference" | "workflow" | "task" | "conversation";
+  category: "fact" | "preference" | "workflow" | "task" | "conversation" | string;
+  status: string;
+  consentState: string;
+  sourceTurnRef?: string;
   createdAt: string;
-  lastConfirmedAt: string;
-  source: string;
-  sensitivity: "low" | "medium" | "high";
-  expiresAt?: string;
+  updatedAt: string;
+  expiresAt?: string | null;
 }
 
-export interface MemoryStore {
-  entries: MemoryEntry[];
-  version: number;
-}
-
-const STORAGE_KEY = "hinaa_memory_v2";
-
-function loadMemory(): MemoryStore {
+async function memoryFetch(path: string, init?: RequestInit) {
+  let response: Response;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { entries: [], version: 1 };
-    return JSON.parse(raw) as MemoryStore;
-  } catch {
-    return { entries: [], version: 1 };
+    response = await fetch(`/api${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        "X-HINAA-Dev-User": HINAA_DEV_USER,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (err) {
+    throw new Error(describeThrownFailure(err, "HINAA's memory store never answered"));
   }
-}
-
-function saveMemory(store: MemoryStore): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    // Storage full — silently fail
+  const contentType = response.headers.get("content-type");
+  // A 200 carrying HTML is the network edge answering, not the store. Parsing it
+  // as JSON would throw a SyntaxError that quotes the page.
+  if (!response.ok || (contentType ?? "").toLowerCase().includes("text/html")) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      describeResponseFailure({ status: response.status, body, contentType }),
+    );
   }
+  return response.json();
 }
 
-function createEntry(
-  content: string,
-  category: MemoryEntry["category"],
-  source: string,
-  sensitivity: MemoryEntry["sensitivity"] = "low",
-): MemoryEntry {
-  const now = new Date().toISOString();
-  return {
-    id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    content,
-    category,
-    createdAt: now,
-    lastConfirmedAt: now,
-    source,
-    sensitivity,
-  };
-}
+export function useMemory({ enabled = true }: { enabled?: boolean } = {}) {
+  const [entries, setEntries] = useState<MemoryEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-export function useMemory() {
-  const [store, setStore] = useState<MemoryStore>(loadMemory);
+  const fetchMemories = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await memoryFetch("/v1/privacy/memories");
+      setEntries(data.memories || []);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Memory store unavailable.");
+      console.error("Failed to load memories", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    saveMemory(store);
-  }, [store]);
+    // /v1/privacy/* is a private route: reading it before anyone can see the
+    // list only buys a 401 on the console.
+    if (enabled) fetchMemories();
+  }, [enabled, fetchMemories]);
 
   const addMemory = useCallback(
-    (content: string, category: MemoryEntry["category"], source = "user", sensitivity: MemoryEntry["sensitivity"] = "low") => {
-      setStore((prev) => {
-        // Don't duplicate
-        const exists = prev.entries.some((e) => e.content === content && e.category === category);
-        if (exists) return prev;
-        const entry = createEntry(content, category, source, sensitivity);
-        return { ...prev, entries: [...prev.entries, entry] };
-      });
+    async (content: string, category: string = "other", sourceTurnRef?: string) => {
+      try {
+        const result = await memoryFetch("/v1/privacy/memories", {
+          method: "POST",
+          body: JSON.stringify({ content, category, sourceTurnRef }),
+        });
+        setEntries((prev) => [result as MemoryEntry, ...prev]);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Memory store unavailable.");
+        console.error("Failed to add memory", err);
+      }
     },
-    [],
+    []
   );
 
-  const removeMemory = useCallback((id: string) => {
-    setStore((prev) => ({
-      ...prev,
-      entries: prev.entries.filter((e) => e.id !== id),
-    }));
+  const removeMemory = useCallback(async (id: string) => {
+    try {
+      await memoryFetch(`/v1/privacy/memories/${id}`, { method: "DELETE" });
+      setEntries((prev) => prev.filter((e) => e.id !== id));
+    } catch (err) {
+      console.error("Failed to remove memory", err);
+    }
   }, []);
 
-  const updateMemory = useCallback((id: string, content: string) => {
-    setStore((prev) => ({
-      ...prev,
-      entries: prev.entries.map((e) =>
-        e.id === id ? { ...e, content, lastConfirmedAt: new Date().toISOString() } : e,
-      ),
-    }));
+  const updateMemory = useCallback(async (id: string, content: string, expiresAt?: string | null) => {
+    try {
+      const result = await memoryFetch(`/v1/privacy/memories/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ content, expiresAt }),
+      });
+      setEntries((prev) => prev.map((e) => (e.id === id ? (result as MemoryEntry) : e)));
+    } catch (err) {
+      console.error("Failed to update memory", err);
+    }
   }, []);
 
-  const confirmMemory = useCallback((id: string) => {
-    setStore((prev) => ({
-      ...prev,
-      entries: prev.entries.map((e) =>
-        e.id === id ? { ...e, lastConfirmedAt: new Date().toISOString() } : e,
-      ),
-    }));
+  const clearAll = useCallback(async () => {
+    try {
+      await memoryFetch(`/v1/privacy/memories`, { method: "DELETE" });
+      setEntries([]);
+    } catch (err) {
+      console.error("Failed to clear memories", err);
+    }
   }, []);
-
-  const getByCategory = useCallback(
-    (category: MemoryEntry["category"]) => store.entries.filter((e) => e.category === category),
-    [store.entries],
-  );
 
   const searchMemory = useCallback(
     (query: string) => {
       const q = query.toLowerCase();
-      return store.entries.filter((e) => e.content.toLowerCase().includes(q));
+      return entries.filter((e) => e.content.toLowerCase().includes(q));
     },
-    [store.entries],
-  );
-
-  const clearAll = useCallback(() => {
-    setStore({ entries: [], version: 1 });
-  }, []);
-
-  // Auto-extract from assistant responses
-  const extractFromResponse = useCallback(
-    (text: string) => {
-      // Extract potential facts/preferences using heuristic patterns
-      const patterns = [
-        { regex: /(?:remember|noted|saved):\s*(.+)/gi, category: "fact" as const },
-        { regex: /(?:you prefer|you like|you want)\s+(.+)/gi, category: "preference" as const },
-        { regex: /(?:your\s+)(?:goal|task|project)(?:\s+is)?\s*(.+)/gi, category: "task" as const },
-      ];
-
-      for (const { regex, category } of patterns) {
-        let match;
-        while ((match = regex.exec(text)) !== null) {
-          addMemory(match[1].trim(), category, "auto-extract", "medium");
-        }
-      }
-    },
-    [addMemory],
+    [entries]
   );
 
   return {
-    entries: store.entries,
+    entries,
+    loading,
+    error,
     addMemory,
     removeMemory,
     updateMemory,
-    confirmMemory,
-    getByCategory,
-    searchMemory,
     clearAll,
-    extractFromResponse,
+    searchMemory,
+    fetchMemories,
   };
 }
 

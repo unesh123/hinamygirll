@@ -46,7 +46,7 @@ describe("LocalImageStudio", () => {
         pollCount += 1;
         return jsonResponse(pollCount === 1
           ? {
-              status: "processing", completed: 1, total: 2,
+              status: "processing", total: 2, error: null,
               images: ["http://127.0.0.1:8000/v1/generated-images/first"],
               slots: [
                 { id: "first", index: 1, status: "completed", seed: 42, url: "http://127.0.0.1:8000/v1/generated-images/first" },
@@ -54,7 +54,7 @@ describe("LocalImageStudio", () => {
               ],
             }
           : {
-              status: "success", completed: 2, total: 2,
+              status: "completed", total: 2, error: null, prompt: "Hinaa in a neon studio", mode: "quality",
               images: ["http://127.0.0.1:8000/v1/generated-images/first", "http://127.0.0.1:8000/v1/generated-images/second"],
               slots: [
                 { id: "first", index: 1, status: "completed", seed: 42, url: "http://127.0.0.1:8000/v1/generated-images/first" },
@@ -79,5 +79,7 @@ describe("LocalImageStudio", () => {
     expect(screen.getByText("Image 2")).toBeInTheDocument();
     expect(screen.getByText("Waiting for its sequential turn")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => String(init?.body).includes('"seed":42'))).toBe(true);
+    expect(await screen.findByText("2 images ready.", {}, { timeout: 4_000 })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/v1/tools/poll"))).toHaveLength(2);
   });
 });

@@ -209,11 +209,19 @@ export function useVSeeFace(): VSeeFaceState {
           bones?: Record<string, [number, number, number, number]>;
           tracking?: VmcDiagnostics;
         };
-        safeExpressionUpdate(expressionsRef.current, data.blendshapes);
-        if (data.bones && typeof data.bones === "object") bonesRef.current = data.bones;
+        const externallyLive = data.tracking?.state === "live" && data.tracking.source === "external";
         if (data.tracking) {
           setDiagnostics(data.tracking);
           setStatus(toClientStatus(data.tracking, true));
+        }
+        // WebSocket connectivity, synthetic test packets, and stale diagnostics
+        // are transport information—not avatar motion authority. Only fresh
+        // external packets may influence HINAA’s expression/head samples.
+        if (externallyLive) {
+          safeExpressionUpdate(expressionsRef.current, data.blendshapes);
+          if (data.bones && typeof data.bones === "object") bonesRef.current = data.bones;
+        } else if (data.tracking) {
+          resetSamples();
         }
       } catch {
         // One malformed sender payload must not terminate chat or the tracking receiver.
@@ -292,7 +300,7 @@ export function useVSeeFace(): VSeeFaceState {
     };
   }, [clearPolling]);
 
-  const hasFacialSignal = diagnostics?.detectedChannels.some((channel) => channel.startsWith("expression:")) ?? false;
+  const hasFacialSignal = status === "live" && diagnostics?.source === "external" && (diagnostics.detectedChannels.some((channel) => channel.startsWith("expression:")) ?? false);
 
   return {
     status,

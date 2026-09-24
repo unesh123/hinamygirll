@@ -1,0 +1,10 @@
+{
+  "name": "hinaa-monorepo",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "build": "pnpm --dir apps/web build",
+    "dev": "pnpm --dir apps/web dev",
+    "test": "pnpm --dir apps/web test"
+  }
+}

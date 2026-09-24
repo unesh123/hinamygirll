@@ -1,0 +1,13 @@
+[debug] [vite] connecting...
+[debug] [vite] connected.
+[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[warning] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+[warning] [.WebGL-0x243c00aec400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x243c00aec400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x243c00aec400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x243c00aec400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+[warning] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+[log] THREE.WebGLRenderer: Context Lost.
+[warning] VRMUtils.removeUnnecessaryJoints: removeUnnecessaryJoints is deprecated. Use combineSkeletons instead. combineSkeletons contributes more to the performance improvement. This function will be removed in the next major version.
+[log] 🎭 VRM 1.0 | url=/models/model_6164.vrm | bones: leftShoulder, rightShoulder, leftUpperArm, rightUpperArm, leftLowerArm, rightLowerArm, leftHand, rightHand | expressions: aa, ih, ou, ee, oh, blink, happy, angry, sad, relaxed, blinkLeft, blinkRight
+[log] THREE.WebGLRenderer: Context Lost.

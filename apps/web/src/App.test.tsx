@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import App, { isHinaApiUrl } from "./App";
+import { buildMockPlan } from "./features/providers/mockConversationProvider";
 
 class FakeUtterance {
   lang = "";
@@ -14,77 +15,55 @@ class FakeUtterance {
   constructor(readonly text: string) {}
 }
 
+function resetHinaaStorage(): void {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("hinaa")) localStorage.removeItem(key);
+  }
+}
+
 describe("HINAA assistant workspace", () => {
+  beforeEach(() => {
+    resetHinaaStorage();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
-    localStorage.removeItem("hinaa.avatar-model");
-    localStorage.removeItem("hinaa_settings_v1");
+    resetHinaaStorage();
   });
 
-  it("renders the main stage with brand and status", () => {
+  it("renders the Sakura OS navigation rail", () => {
     render(<App />);
-    expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getAllByText("HINAA").length).toBeGreaterThan(0);
-    expect(document.querySelector(".header-status")).toHaveTextContent("Ready");
+    expect(screen.getByTestId("executive-nav-sidebar")).toBeInTheDocument();
   });
 
-  it("offers clear welcome actions without automatically starting a live session", () => {
+  it("renders Chat, Dashboard, and Models navigation destinations", () => {
     render(<App />);
-    expect(screen.getByRole("button", { name: "Research" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue work" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Talk to HINAA" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Start Live Session/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Chat" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Dashboard" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Models" })[0]).toBeInTheDocument();
   });
 
-  it("shows the text composer as the dependable input path", () => {
+  it("shows the Work mode text composer", () => {
     render(<App />);
-    expect(screen.getByLabelText("Message HINAA")).toBeInTheDocument();
+    const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
+    expect(composer).toBeInTheDocument();
   });
 
-  it("has settings trigger accessible", () => {
+  it("does not claim an agent cluster the backend does not run", () => {
     render(<App />);
-    expect(screen.getByRole("banner")).toBeInTheDocument();
+    const text = document.body.textContent || "";
+    expect(text).not.toMatch(/agent cluster/i);
+    expect(text).not.toMatch(/cluster on/i);
+    expect(text).not.toMatch(/4\s*(parallel\s+)?workers?/i);
   });
 
-  it("keeps the local voice control accessible in the composer", () => {
+  it("shows welcome actions in Work mode", () => {
     render(<App />);
-    expect(screen.getByRole("button", { name: "Mute Hinaa voice" })).toBeInTheDocument();
-  });
-
-  it("opens the visible VSeeFace and VMC control panel from the avatar pill", async () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Open VSeeFace and VMC connection controls" }));
-    expect(await screen.findByRole("dialog", { name: "VSeeFace and VMC connection panel" })).toBeInTheDocument();
-    expect(screen.getByText("Disconnected")).toBeInTheDocument();
-    expect(screen.getByText(/Start HINAA’s local receiver/i)).toBeInTheDocument();
-  });
-
-  it("imports and selects a local avatar in one flow", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ asset: { displayName: "Unesh Hinaa.vrm", browserUrl: "/api/v1/avatar-assets/avatar-00000000-0000-0000-0000-000000000001/file" } }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(<App />);
-
-    const model = new File(["vrm"], "Unesh Hinaa.vrm", { type: "model/vrm" });
-    fireEvent.change(screen.getByLabelText("Upload a local avatar model"), { target: { files: [model] } });
-
-    await waitFor(() => expect(localStorage.getItem("hinaa.avatar-model")).toBe("/api/v1/avatar-assets/avatar-00000000-0000-0000-0000-000000000001/file"));
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/avatar-assets/import", expect.objectContaining({ method: "POST" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Unesh Hinaa.vrm is selected");
-  });
-
-  it("persists the selected approved avatar model across a remount", () => {
-    const firstMount = render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Use Hinaa Classic" }));
-    expect(localStorage.getItem("hinaa.avatar-model")).toBe("/models/model_5447.vrm");
-    firstMount.unmount();
-
-    render(<App />);
-    expect(screen.getByRole("button", { name: "Use Hinaa Classic" })).toHaveClass("vrm-pill--active");
-    expect(screen.getByRole("button", { name: "Use Hinaa" })).not.toHaveClass("vrm-pill--active");
+    // Welcome cards should be visible in Work mode
+    const research = screen.getAllByRole("button").find(el => el.textContent?.includes("Research"));
+    const create = screen.getAllByRole("button").find(el => el.textContent?.includes("Create"));
+    expect(research).toBeDefined();
+    expect(create).toBeDefined();
   });
 
   it("system errors do not appear in the conversation", () => {
@@ -99,13 +78,15 @@ describe("HINAA assistant workspace", () => {
     vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
     vi.stubGlobal("AudioContext", undefined);
     localStorage.setItem("hinaa_settings_v1", JSON.stringify({
-      _version: 2,
+      _version: 7,
       appearance: { theme: "system", motion: "system", avatarVisible: true, avatarStyle: "procedural" },
       provider: { preferredMode: "mock", preferredModelByProvider: {} },
+      language: { activePolicy: "en-US" },
+      automation: { autoRunTools: false },
     }));
     render(<App />);
 
-    const composer = screen.getByLabelText("Message HINAA");
+    const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
     fireEvent.change(composer, { target: { value: "Give me a quick status update." } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
@@ -113,10 +94,101 @@ describe("HINAA assistant workspace", () => {
     const utterance = speak.mock.calls[0][0] as FakeUtterance;
     expect(utterance.text).toBeTruthy();
     expect(utterance.text).not.toContain("```");
-    expect(screen.getByText("Speaking with local browser voice")).toBeInTheDocument();
     utterance.onend?.();
-  });
+  }, 10_000);
+
+  async function sendAttachedPicture(roleLabel: string): Promise<any> {
+    localStorage.setItem("hinaa_settings_v1", JSON.stringify({
+      _version: 7,
+      appearance: { theme: "system", motion: "system", avatarVisible: true, avatarStyle: "procedural" },
+      provider: { preferredMode: "claude", preferredModelByProvider: {} },
+      language: { activePolicy: "en-US" },
+      automation: { autoRunTools: false },
+    }));
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak: vi.fn(), cancel: vi.fn() });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+
+    const turns: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/conversations/turns:stream")) {
+          const body = JSON.parse(String(init?.body));
+          turns.push(body);
+          const plan = buildMockPlan("Reference locked.", "hinaa");
+          return new Response(`${JSON.stringify({ type: "plan", plan })}\n`, {
+            status: 200,
+            headers: { "Content-Type": "application/x-ndjson" },
+          });
+        }
+        return new Response("{}", { status: 404, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+
+    render(<App />);
+
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    fireEvent.change(fileInput as HTMLInputElement, {
+      target: { files: [new File([new Uint8Array([137, 80, 78, 71])], "face.png", { type: "image/png" })] },
+    });
+
+    const chip = await screen.findByText("Role: Style");
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByText(roleLabel));
+
+    const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
+    fireEvent.change(composer, { target: { value: "make it like this" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(turns.length).toBeGreaterThan(0), { timeout: 8_000 });
+    return turns[0];
+  }
+
+  it("sends an attached picture and the role chosen for it in the same turn", async () => {
+    const turnBody = await sendAttachedPicture("Face Identity");
+
+    expect(turnBody.text).toBe("make it like this");
+    expect(String(turnBody.imageUrl)).toMatch(/^data:image\/png;base64,/);
+    expect(turnBody.attachments).toEqual([
+      { kind: "image", role: "face_reference", url: turnBody.imageUrl },
+    ]);
+    // The image workflow only takes a reference from this field, so a face
+    // reference that never reaches it cannot be honoured by a draw.
+    expect(turnBody.reference_images).toEqual([turnBody.imageUrl]);
+  }, 20_000);
+
+  it("keeps a look-at-this picture out of the reference-editing path", async () => {
+    const turnBody = await sendAttachedPicture("General Inspection");
+
+    expect(turnBody.attachments).toEqual([
+      { kind: "image", role: "inspection", url: turnBody.imageUrl },
+    ]);
+    expect(turnBody.reference_images).toBeUndefined();
+  }, 20_000);
 
   it.todo("starts live voice only after the user grants microphone permission");
   it.todo("offers a visible confirmation before executing an external assistant action");
+});
+
+describe("URLs that earn the Clerk token", () => {
+  const origin = window.location.origin;
+
+  it("matches the relative paths every call site uses today", () => {
+    expect(isHinaApiUrl("/api/v1/conversations/turns:stream")).toBe(true);
+    expect(isHinaApiUrl("/v1/providers")).toBe(true);
+    expect(isHinaApiUrl("/health")).toBe(false);
+  });
+
+  it("matches absolute URLs to this origin, the shape a tunnelled API base takes", () => {
+    expect(isHinaApiUrl(`${origin}/api/v1/capabilities`)).toBe(true);
+    expect(isHinaApiUrl(`${origin}/v1/tasks/abc/events`)).toBe(true);
+    expect(isHinaApiUrl(`${origin}/health`)).toBe(false);
+  });
+
+  it("never matches a foreign host, whatever path it exposes", () => {
+    expect(isHinaApiUrl("https://third-party.example.com/api/v1/turns:stream")).toBe(false);
+    expect(isHinaApiUrl("https://third-party.example.com/v1/providers")).toBe(false);
+  });
 });

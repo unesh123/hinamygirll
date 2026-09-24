@@ -39,7 +39,10 @@ def make_engine(database_url: str) -> Engine:
 def init_db(settings: Settings) -> sessionmaker[Session]:
     global _session_factory
     engine = make_engine(settings.database_url)
-    Base.metadata.create_all(engine)
+    
+    from .migrations import run_migrations
+    run_migrations(engine)
+            
     _session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     return _session_factory
 

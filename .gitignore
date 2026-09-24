@@ -52,6 +52,11 @@ crash.*.log
 *.pcm
 backups/
 data/private/
+apps/api/data/images/
+apps/api/data/documents/
+apps/api/data/freepik_usage.json
+apps/api/hinaa_api/data/documents/
+apps/api/hinaa_api/data/brain_outcomes.json
 .cert/
 .runtime/
 logs/
@@ -70,5 +75,15 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Local test/audit scratch outputs (regenerated on every run)
+vitest-out.txt
+vitest-*.txt
+apps/web/vitest-*.txt
+apps/web/run-vitest.cmd
+apps/web/.audit-out/
+scratch/
+
 # Allow VRM models in public/models
 !apps/web/public/models/*.vrm
+.vercel
+cloudflared.exe

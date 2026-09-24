@@ -1,0 +1,4 @@
+import {mkdir,readdir,stat} from 'node:fs/promises';import path from 'node:path';import {z} from 'zod';
+const ROOT=path.resolve(process.cwd(),'workspace-data');function safe(p=''){const x=path.resolve(ROOT,p);if(!x.startsWith(ROOT+path.sep)&&x!==ROOT)throw new Error('Invalid path');return x}
+export async function GET(req:Request){const p=new URL(req.url).searchParams.get('path')||'';await mkdir(ROOT,{recursive:true});const dir=safe(p);const names=await readdir(dir);const files=await Promise.all(names.map(async name=>{const s=await stat(path.join(dir,name));return{name,type:s.isDirectory()?'dir':'file',size:s.size}}));return Response.json({path:p,files})}
+export async function POST(req:Request){const b=z.object({action:z.literal('mkdir'),path:z.string().default(''),name:z.string().regex(/^[a-zA-Z0-9 _.-]{1,80}$/)}).parse(await req.json());await mkdir(path.join(safe(b.path),b.name),{recursive:false});return Response.json({ok:true})}

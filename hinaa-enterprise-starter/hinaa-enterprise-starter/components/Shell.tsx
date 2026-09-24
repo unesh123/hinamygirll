@@ -1,0 +1,4 @@
+"use client";
+import Link from 'next/link';import {MessageCircle,Image,Mic2,FolderKanban,Library,Settings,Sparkles} from 'lucide-react';
+const items=[['/','chat',MessageCircle],['/images','images',Image],['/voice','voice',Mic2],['/workspace','workspace',FolderKanban],['/library','library',Library]] as const;
+export default function Shell({title,children}:{title:string,children:React.ReactNode}){return <div className="shell"><aside className="rail"><div className="brand">H</div>{items.map(([href,label,I])=><Link key={href} href={href} aria-label={label} className="navbtn"><I size={20}/></Link>)}<div style={{flex:1}}/><button className="navbtn"><Settings size={20}/></button></aside><main className="main"><header className="topbar"><strong>✨ {title}</strong><div className="brain"><Sparkles size={15} style={{verticalAlign:'middle'}}/> Brain: CX Gateway</div></header>{children}</main></div>}

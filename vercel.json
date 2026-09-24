@@ -1,0 +1,25 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm --dir apps/web build",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "pnpm install",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://filename-enabled-shark-phentermine.trycloudflare.com/api/:path*"
+    },
+    {
+      "source": "/v1/:path*",
+      "destination": "https://filename-enabled-shark-phentermine.trycloudflare.com/v1/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://filename-enabled-shark-phentermine.trycloudflare.com/health"
+    },
+    {
+      "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

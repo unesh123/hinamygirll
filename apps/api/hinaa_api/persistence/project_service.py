@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from ..document_ingestion import extract_local_document
 from .orm import (
     LocalAgentRun,
     LocalAgentRunEvent,
@@ -103,6 +104,7 @@ class LocalProjectService:
     def _run_public(cls, run: LocalAgentRun, events: list[LocalAgentRunEvent] | None = None) -> dict[str, Any]:
         return {
             "id": run.id,
+            "runtimeRunId": run.id,
             "projectId": run.project_id,
             "rootTaskId": run.root_task_id,
             "goal": run.goal,
@@ -188,6 +190,25 @@ class LocalProjectService:
                 "files": [self._file_public(file) for file in files],
                 "runs": self.list_agent_runs(user_id, project.id, limit=20),
             }
+
+    def latest_artifact(self, user_id: str, kind: str) -> dict[str, Any] | None:
+        """Return the newest artifact of a kind owned by the resolved user."""
+        normalized_kind = kind.strip().lower()
+        if not normalized_kind:
+            return None
+        with self._factory() as session:
+            artifact = (
+                session.query(LocalProjectArtifact)
+                .join(LocalProject, LocalProjectArtifact.project_id == LocalProject.id)
+                .filter(
+                    LocalProject.user_id == user_id,
+                    LocalProject.archived_at.is_(None),
+                    LocalProjectArtifact.kind == normalized_kind,
+                )
+                .order_by(LocalProjectArtifact.created_at.desc())
+                .first()
+            )
+            return self._artifact_public(artifact) if artifact is not None else None
 
     def create_task(
         self,
@@ -278,6 +299,163 @@ class LocalProjectService:
             session.commit()
             return self._file_public(record)
 
+    def save_code_file(
+        self,
+        user_id: str,
+        project_id: str,
+        relative_path: str,
+        content: str,
+        *,
+        overwrite: bool = False,
+        run_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Write one UTF-8 source file inside an owned project.
+
+        This is deliberately a file-artifact primitive, not a shell runner:
+        paths are project-relative, extensions are allowlisted, writes are
+        size-bounded, and overwriting must be explicit.  An optional live run
+        receives a durable progress event in the same transaction.
+        """
+        raw_path = relative_path.strip().replace("\\", "/")
+        path = Path(raw_path)
+        allowed_extensions = {
+            ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+            ".css", ".scss", ".html", ".vue", ".svelte", ".json", ".jsonc",
+            ".md", ".yaml", ".yml", ".toml", ".sql", ".sh", ".ps1",
+        }
+        if (
+            not raw_path
+            or path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path.suffix.lower() not in allowed_extensions
+            or len(raw_path) > 600
+        ):
+            raise ValueError("Code path must be a relative project path with an allowed source extension.")
+        data = content.encode("utf-8")
+        if len(data) > 1_048_576:
+            raise ValueError("Code files are limited to 1 MiB.")
+
+        with self._factory() as session:
+            project = session.get(LocalProject, project_id)
+            if project is None or project.user_id != user_id:
+                return None
+            project_dir = self._project_dir(project)
+            target = (project_dir / Path(*path.parts)).resolve()
+            if project_dir not in target.parents:
+                raise ValueError("Code path is outside the project workspace.")
+            existed_before = target.exists()
+            if existed_before and not overwrite:
+                raise FileExistsError("Code file already exists; set overwrite=true to replace it.")
+
+            run = session.get(LocalAgentRun, run_id) if run_id else None
+            if run_id and (
+                run is None
+                or run.project_id != project_id
+                or run.status in {"completed", "failed", "cancelled"}
+            ):
+                raise ValueError("runId must reference a live run in this project.")
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            normalized = str(target.relative_to(project_dir)).replace("\\", "/")
+            record = (
+                session.query(LocalProjectFile)
+                .filter_by(project_id=project_id, relative_path=normalized)
+                .first()
+            )
+            if record is None:
+                record = LocalProjectFile(
+                    project_id=project_id,
+                    name=target.name,
+                    media_type="text/plain",
+                    relative_path=normalized,
+                    size_bytes=len(data),
+                )
+                session.add(record)
+            else:
+                record.name = target.name
+                record.size_bytes = len(data)
+                record.media_type = "text/plain"
+            if run is not None:
+                self._append_run_event(
+                    session,
+                    run,
+                    kind="code",
+                    status=run.status,
+                    label="Code file overwritten" if overwrite else "Code file written",
+                    detail=normalized,
+                )
+            session.commit()
+            return {
+                **self._file_public(record),
+                "path": normalized,
+                "overwritten": existed_before,
+            }
+
+    def list_code_files(self, user_id: str, project_id: str) -> list[dict[str, Any]] | None:
+        """List tracked source files for an owned project in stable path order."""
+        with self._factory() as session:
+            project = session.get(LocalProject, project_id)
+            if project is None or project.user_id != user_id:
+                return None
+            allowed_extensions = {
+                ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+                ".css", ".scss", ".html", ".vue", ".svelte", ".json", ".jsonc",
+                ".md", ".yaml", ".yml", ".toml", ".sql", ".sh", ".ps1",
+            }
+            records = (
+                session.query(LocalProjectFile)
+                .filter_by(project_id=project_id)
+                .order_by(LocalProjectFile.relative_path.asc())
+                .all()
+            )
+            return [
+                {**self._file_public(record), "path": record.relative_path.replace("\\", "/")}
+                for record in records
+                if Path(record.relative_path).suffix.lower() in allowed_extensions
+            ]
+
+    def analyze_file(self, user_id: str, file_id: str) -> dict[str, Any] | None:
+        """Read a supported uploaded document locally and save a bounded artifact.
+
+        The file is parsed only as untrusted data. HINAA never executes document
+        macros/scripts, follows instructions contained inside the file, or uploads
+        its contents to a provider during this operation.
+        """
+        with self._factory() as session:
+            record = session.get(LocalProjectFile, file_id)
+            project = session.get(LocalProject, record.project_id) if record else None
+            if record is None or project is None or project.user_id != user_id:
+                return None
+            project_dir = self._project_dir(project)
+            path = (project_dir / record.relative_path).resolve()
+            if not path.exists() or project_dir not in path.parents:
+                return None
+            extraction = extract_local_document(path, record.name)
+            artifact = LocalProjectArtifact(
+                project_id=project.id,
+                kind="document",
+                title=f"Extracted: {record.name}",
+                content=extraction.text,
+                relative_path=record.relative_path,
+                metadata_json=json.dumps(
+                    {
+                        "sourceFileId": record.id,
+                        "sourceFileName": record.name,
+                        "mediaType": record.media_type,
+                        "parser": extraction.parser,
+                        "documentKind": extraction.kind,
+                        "charCount": extraction.char_count,
+                        "truncated": extraction.truncated,
+                        "localOnly": True,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            session.add(artifact)
+            session.commit()
+            return self._artifact_public(artifact)
+
     def resolve_file(self, user_id: str, file_id: str) -> tuple[Path, str] | None:
         with self._factory() as session:
             record = session.get(LocalProjectFile, file_id)
@@ -357,6 +535,7 @@ class LocalProjectService:
         project_id: str,
         goal: str,
         root_task_id: str | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Create a durable, transparent local agent run without hidden execution."""
         clean_goal = goal.strip()
@@ -370,7 +549,9 @@ class LocalProjectService:
             if task is not None and task.project_id != project.id:
                 return None
             status = "waiting_approval" if task and task.requires_approval else "running"
+            run_data = {"id": run_id} if run_id else {}
             run = LocalAgentRun(
+                **run_data,
                 project_id=project.id,
                 root_task_id=task.id if task else None,
                 goal=clean_goal,
@@ -432,6 +613,20 @@ class LocalProjectService:
                 output.append(self._run_public(run, events))
             return output
 
+    def get_agent_run(self, user_id: str, run_id: str) -> dict[str, Any] | None:
+        with self._factory() as session:
+            run = session.get(LocalAgentRun, run_id)
+            project = session.get(LocalProject, run.project_id) if run else None
+            if run is None or project is None or project.user_id != user_id:
+                return None
+            events = (
+                session.query(LocalAgentRunEvent)
+                .filter_by(run_id=run.id)
+                .order_by(LocalAgentRunEvent.sequence.asc())
+                .all()
+            )
+            return self._run_public(run, events)
+
     def update_agent_run(
         self,
         user_id: str,
@@ -446,6 +641,19 @@ class LocalProjectService:
             run = session.get(LocalAgentRun, run_id)
             project = session.get(LocalProject, run.project_id) if run else None
             if run is None or project is None or project.user_id != user_id:
+                return None
+            transitions = {
+                "queued": {"running", "waiting_approval", "cancelled"},
+                "waiting_approval": {"running", "cancelled"},
+                "running": {"waiting_approval", "completed", "failed", "cancelled"},
+                # A failed job can be explicitly retried.  Completed and
+                # cancelled jobs are immutable so the UI cannot accidentally
+                # report a stale result as live work.
+                "failed": {"queued"},
+                "completed": set(),
+                "cancelled": set(),
+            }
+            if status != run.status and status not in transitions.get(run.status, set()):
                 return None
             run.status = status
             if summary is not None:
@@ -463,6 +671,52 @@ class LocalProjectService:
                 "cancelled": "Run cancelled",
             }[status]
             self._append_run_event(session, run, kind="status", status=status, label=label, detail=run.summary)
+            session.commit()
+            events = session.query(LocalAgentRunEvent).filter_by(run_id=run.id).order_by(LocalAgentRunEvent.sequence.asc()).all()
+            return self._run_public(run, events)
+
+    def append_agent_run_event(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        kind: str,
+        status: str | None = None,
+        label: str,
+        detail: str = "",
+        allow_terminal: bool = False,
+    ) -> dict[str, Any] | None:
+        """Append one bounded progress/audit event to an owned live run.
+
+        Events are the runner's durable progress channel.  Terminal runs stay
+        immutable, which prevents late worker callbacks from resurrecting or
+        mutating a finished job.
+        """
+        clean_kind = kind.strip().lower()
+        clean_label = label.strip()
+        if not clean_kind or not clean_label or len(clean_kind) > 40 or len(clean_label) > 240:
+            return None
+        with self._factory() as session:
+            run = session.get(LocalAgentRun, run_id)
+            project = session.get(LocalProject, run.project_id) if run else None
+            if run is None or project is None or project.user_id != user_id:
+                return None
+            if run.status in {"completed", "failed", "cancelled"} and not allow_terminal:
+                return None
+            event_status = (status or run.status).strip().lower()
+            allowed_statuses = {"queued", "running", "waiting_approval"}
+            if allow_terminal:
+                allowed_statuses |= {"completed", "failed", "cancelled"}
+            if event_status not in allowed_statuses:
+                event_status = run.status
+            self._append_run_event(
+                session,
+                run,
+                kind=clean_kind,
+                status=event_status,
+                label=clean_label,
+                detail=detail[:20_000],
+            )
             session.commit()
             events = session.query(LocalAgentRunEvent).filter_by(run_id=run.id).order_by(LocalAgentRunEvent.sequence.asc()).all()
             return self._run_public(run, events)

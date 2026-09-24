@@ -263,3 +263,80 @@ The You.com Images endpoint is documented as beta, unmaintained, and early-acces
 | Legacy-envelope correctness | `resolveToolOutcome` now unwraps direct and staged `success/data/data` responses. A nested error cannot be labelled `Completed: image_search`. | New nested-image-search error regression passes. |
 | Failure UX | Image-search 502 failure cards now state that no images were returned and describe bounded recovery options. | Focused frontend tests pass. |
 | Detailed research | Added source-backed result rendering for cited answers, deep research, task status, selected-page extraction, and finance research. Content is excerpted initially, expandable, and paired with attributed source cards. | Detailed research renderer regression passes. |
+
+## Phase 29 — Secret-safe provider readiness and explicit Claude integration
+| Surface | Change | Verification |
+|---|---|---|
+| Claude brain | Added an explicit `claude` provider mode using HINAA's Anthropic Messages adapter, typed request selection, safe model allow-list, CX-first automatic fallback, settings selector, header indicator, and provider status entry. | Dedicated backend and frontend tests pass without a live provider call. |
+| Secret handling | Claude accepts `HINAA_CLAUDE_API_KEY` or standard `ANTHROPIC_API_KEY`. It does not consume `ANTHROPIC_AUTH_TOKEN`, which may be a separate Claude Code gateway credential. | Environment-template documentation and secret-safe status regression added. |
+| Diagnostics | Expanded provider diagnostics to show safe readiness messages and capability labels. It never renders credential values. | Provider status API regression confirms the test key is absent from output. |
+| Provider verification | Full release gate completes with no external provider invocation; configuration presence is not represented as authentication or synthesis proof. | API tests, frontend tests, mobile checks, TypeScript, build, and lint pass. |
+
+## Phase 30 — Claude gateway protocol compatibility
+| Surface | Change | Verification |
+|---|---|---|
+| Gateway protocol | Added `HINAA_CLAUDE_PROTOCOL` (`auto`, `anthropic`, or `openai-compatible`). Auto selects OpenAI-compatible transport for a Claude gateway base URL ending `/v1`, matching the supplied mwapi guide's documented application route. | No-network regression asserts `/v1/chat/completions`, Bearer authorization shape, and safe protocol capability status. |
+| Claude adapter selection | The provider router now selects HINAA's OpenAI-compatible adapter for the documented gateway mode and retains Anthropic Messages for the official/default Anthropic route. | Provider-router, API status, and security regression suites pass. |
+| Structured answers | The OpenAI-compatible Claude route uses HINAA's existing gateway prose-to-plan recovery and streaming path, avoiding unsupported JSON response-format retries. | Type and regression checks pass. |
+| Authentication UX | Claude authentication errors now give a clear local recovery instruction with the documented base URL/protocol format and backend restart requirement. | Frontend TypeScript and full test/build gates pass. |
+
+## Phase 31 — Claude gateway model catalog recovery
+| Surface | Change | Verification |
+|---|---|---|
+| Gateway model catalog | For the documented OpenAI-compatible `/v1` Claude gateway route, HINAA now reports the gateway catalog (`claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001`) instead of the official Anthropic default IDs. | Provider-status regression confirms the old model is absent and the gateway default is present. |
+| Stale model recovery | Legacy persisted official Claude model IDs are mapped to their documented gateway equivalents at backend resolution, and the frontend discards a saved model absent from a refreshed provider catalog. | Backend model-normalization and frontend selection regressions pass. |
+| User recovery | After an API restart and hard refresh, settings will present the gateway-supported model list and a stale old selection resolves to the current gateway default rather than generating `PROVIDER_MODEL_NOT_FOUND`. | Full API, frontend, mobile, type, build, and lint gates pass. |
+
+## Phase 32 — Claude gateway upstream-capacity classification
+| Surface | Change | Verification |
+|---|---|---|
+| Gateway 503 classifier | Added `PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE` for the exact 503 response body that reports no available upstream accounts. | No-network regression uses the observed payload and verifies retryable/actionable typed output with secret redaction. |
+| Chat recovery | HINAA now explains that the gateway received the request but has no upstream account capacity, and directs users to account/balance status, retry later, or another healthy brain. | Frontend type check and full release gate pass. |
+| Fault attribution | This condition is no longer represented as a local Claude model-selection or authentication failure. | The screenshot payload is explicitly handled before generic provider-unavailable mapping. |
+
+## Phase 33 — mwapi Claude-compatible Bearer alignment
+| Surface | Change | Verification |
+|---|---|---|
+| Automatic mwapi transport | HINAA now recognizes `api.mwapi.dev` as a dedicated gateway and defaults its Claude mode to Anthropic Messages with the gateway’s required Bearer header. OpenAI-compatible transport remains explicit opt-in. | No-network provider-routing, model-resolution, diagnostics, and header-contract regressions pass. |
+| Authentication headers | The Anthropic adapter retains the SDK’s official request contract and adds `Authorization: Bearer` only for the mwapi host. | Regression verifies the exact Bearer header is configured without transmitting a real key. |
+| Gateway model catalog | mwapi host detection, rather than transport selection alone, controls the model alias/catalog recovery. This preserves `claude-sonnet-4-6` across the successful Claude-compatible path. | API status and stale-model regressions pass. |
+| Diagnostics | Claude diagnostics identify `anthropic-messages`, `bearer-auth`, and the selected protocol without exposing credentials. | Full release gate passes. |
+
+## Phase 34 — Claude structured-turn presentation and voice repair
+| Surface | Change | Verification |
+|---|---|---|
+| Claude live response | Claude-compatible live planning now buffers the internal AssistantTurnPlan until strict validation, then emits only `displayText` as chat deltas. | Regression proves a fenced JSON contract cannot appear in emitted live text. |
+| Historical/UI defense | The assistant-turn codec now decodes a valid Markdown-fenced plan as well as the persisted HINAA turn format. | Frontend regression confirms chat uses `displayText` and speech uses `spokenText`, with no JSON fence displayed. |
+| Voice quality guard | Long answers that otherwise repeat word-for-word now use a short natural display-derived spoken summary rather than the canned “key details” phrase. | Response-quality regression passes. |
+| Voice boundary | Full-plan validation deliberately precedes Claude live delta emission to protect chat/TTS from internal JSON. | This trades unsafe first-token streaming for correct natural speech and a valid emotion/performance plan. |
+
+## Phase 35 — Claude plan normalization and command-surface polish
+| Surface | Change | Verification |
+|---|---|---|
+| Typed Claude turns | Safe gateway normalization accepts compatible `hindi-english` locale aliases and missing presentation-only emotion valence/arousal values before strict validation. | Regression reproduces the exact fenced payload seen in the Windows screenshot and yields natural display/spoken text plus a valid performance plan. |
+| Raw-plan containment | Typed chat and fullscreen live voice withhold a partial reserved HINAA plan until it can be decoded; typed chat streams only the validated plan `displayText`. | Backend and frontend regressions pass. |
+| Gateway fallback | Legacy/invalid fenced plan recovery extracts `displayText` rather than treating the whole JSON contract as prose. | Parser suite passes. |
+| Composer | Existing Ink Rose composer now provides both `@` power-ups and `/` commands with filtering, click/keyboard selection, Escape dismissal, and safe intent-tag insertion. | Two component interaction regressions pass. |
+| Action routing | Commands move into existing research, images, browser, music, email, tasks, files, memory, and tools surfaces. No command auto-executes an external browser, music, or email action. | Typecheck and full frontend suite pass. |
+| Fullscreen/mobile voice | Existing fullscreen overlay received mobile-safe spacing, larger touch controls, focus rings, bounded transcript area, and command menu sizing. | Mobile check and production build pass. |
+
+## Phase 36 — QwenCloud brain and truthful live-voice recovery
+| Surface | Change | Verification |
+|---|---|---|
+| QwenCloud brain | Added optional `qwen` provider using its documented OpenAI-compatible Chat Completions endpoint, Bearer authentication, backend-only key aliases, validated model allow-list, provider status, settings selection, and CX → Claude → Qwen automatic fallback order. | Focused provider tests plus complete API/frontend release gate passed. |
+| Qwen structured turns | Qwen uses documented `max_tokens` and JSON-object plans; live mode buffers the raw response, validates it, then emits only natural `displayText`. | Dedicated regression verifies no `spokenText`/`displayText` JSON contract reaches live deltas. |
+| Voice brain selection | Typed chat and realtime session hello now forward selected models for Claude, CX, and Qwen rather than silently dropping them. | Frontend typecheck and full Vitest suite passed. |
+| Live speech queue | Validated Claude and Qwen display text now use HINAA’s existing ordered ElevenLabs audio queue, keeping the avatar’s audio-driven lip-sync lifecycle intact. | Realtime regression suite and production build passed. |
+| Failure truthfulness | Removed the neutral generic live-answer fallback after a selected brain timeout/failure. The gateway now sends an explicit safe provider error instead of pretending HINAA answered. | Timeout regression changed to assert `PROVIDER_UNAVAILABLE`; full API suite passed. |
+| Diagnostics | Live dock now displays safe server diagnostic text; backend maps configuration, key, rate-limit, capacity, timeout, and invalid-plan errors to actionable wording without exposing credentials. | Typecheck and full frontend suite passed. |
+
+## Phase 37 — Local Capability and Presence Hardening — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Qwen availability diagnosis | **IMPLEMENTED** | Added `diagnose-qwen.bat`, which checks the intended local backend environment file and provider status without revealing an API key. It is a Windows local diagnostic; it has not been executed in the Linux sandbox. |
+| ComfyUI fast variations | **REPAIRED AND TESTED** | HINAA now submits requested variations as distinct ComfyUI prompt IDs, records durable queued slots, and polls each result independently so completed images appear one at a time. It deliberately preserves local GPU safety by keeping workflow latent batch size at one. `HINAA_COMFYUI_MAX_CONCURRENT_JOBS` defaults to one and is bounded to four. |
+| Local document workspace | **IMPLEMENTED AND TESTED** | Existing local projects can upload TXT, Markdown, CSV, JSON, PDF, DOCX, and PPTX files up to 25 MB. HINAA extracts bounded local text into a user-owned, exportable document artifact without executing document content or uploading it to a provider. |
+| Humanized concise response policy | **REPAIRED AND TESTED** | HINAA now avoids habitual closing questions, takes safe local-next-step initiative on complex work, and retains an explicit approval boundary for consequential actions. Residual Nepali classifier aliases were removed; active language routing remains Hindi (Devanagari) and English only. |
+| Fullscreen voice surface | **POLISHED AND TYPE-TESTED** | The existing single avatar stage has scrollable recent transcript cards, mobile-safe spacing, touch feedback, and truthful labels distinguishing live VMC packets from local avatar motion. |
+| VSeeFace truthfulness and pose safety | **REPAIRED IN CODE; WINDOWS EVIDENCE PENDING** | Only fresh externally sourced VMC packets may now influence face/head samples. Stale, listening, and synthetic test packets reset to HINAA’s local expression/blink and relaxed-limb layer. No claim of real Windows packet tracking, facial mirroring, or physical lip-sync is made without runtime evidence. |
+| Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | Complete API suite, complete frontend Vitest suite, mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 35 warnings and 0 errors. |

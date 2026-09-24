@@ -1,0 +1,1075 @@
+INFO:     Started server process [112264]
+INFO:     Waiting for application startup.
+2026-08-26 13:28:53,541 INFO hinaa.vmc: VMC bridge listening on UDP 127.0.0.1:39539
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-08-26 13:33:47,978 INFO hinaa.conversation: prompt_assembled
+2026-08-26 13:33:54,920 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 13:34:20,768 INFO hinaa.conversation: prompt_assembled
+2026-08-26 13:34:27,105 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 13:35:45,936 INFO hinaa.conversation: prompt_assembled
+2026-08-26 13:35:52,202 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 13:36:27,200 INFO hinaa.conversation: prompt_assembled
+2026-08-26 13:36:33,556 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 14:53:18,800 INFO hinaa.conversation: prompt_assembled
+2026-08-26 14:53:18,802 INFO hinaa.conversation: casual fast path engaged (cx-gateway -> openai:gpt-5-mini)
+2026-08-26 14:53:21,507 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 401 Unauthorized"
+2026-08-26 14:53:21,513 WARNING hinaa.conversation: casual fast provider openai failed (PROVIDER_KEY_INVALID); retrying with cx-gateway
+2026-08-26 14:53:33,861 INFO hinaa.conversation: prompt_assembled
+2026-08-26 14:53:41,021 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 15:44:31,057 INFO hinaa.conversation: prompt_assembled
+2026-08-26 15:44:31,061 INFO hinaa.conversation: casual fast path engaged (cx-gateway -> openai:gpt-5-mini)
+2026-08-26 15:44:33,580 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 401 Unauthorized"
+2026-08-26 15:44:33,584 WARNING hinaa.conversation: casual fast provider openai failed (PROVIDER_KEY_INVALID); retrying with cx-gateway
+2026-08-26 15:44:50,155 INFO hinaa.conversation: prompt_assembled
+2026-08-26 15:44:50,157 INFO hinaa.conversation: casual fast path engaged (cx-gateway -> gemini:gemini-3.1-flash-lite)
+2026-08-26 15:44:51,645 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-08-26 15:44:56,822 INFO httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse "HTTP/1.1 200 OK"
+2026-08-26 15:44:59,872 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 15:45:26,299 INFO hinaa.conversation: prompt_assembled
+2026-08-26 15:45:26,303 INFO hinaa.conversation: casual fast path engaged (cx-gateway -> gemini:gemini-3.1-flash-lite)
+2026-08-26 15:45:27,797 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-08-26 15:45:31,126 INFO httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse "HTTP/1.1 200 OK"
+2026-08-26 15:45:33,894 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 15:45:50,771 INFO hinaa.conversation: prompt_assembled
+2026-08-26 15:45:50,773 INFO hinaa.conversation: casual fast path engaged (cx-gateway -> gemini:gemini-3.1-flash-lite)
+2026-08-26 15:45:52,248 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-08-26 15:45:56,874 INFO httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse "HTTP/1.1 200 OK"
+2026-08-26 15:45:59,582 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:27:34,344 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:27:41,239 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:27:44,207 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:27:58,380 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:28:06,202 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:28:07,340 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:29:29,550 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:29:40,550 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:29:42,471 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:30:45,596 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:31:04,786 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:31:05,959 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:32:03,706 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:32:21,323 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:34:03,632 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:34:23,773 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:56411 - "WebSocket /v1/realtime" [accepted]
+INFO:     connection open
+2026-08-26 21:34:36,021 INFO hinaa.realtime: realtime: <<< session.hello mode=claude companion=hinaa
+2026-08-26 21:34:36,129 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:34:36,130 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,131 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,132 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,157 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,170 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,171 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,209 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,221 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,253 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,257 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,285 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,299 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,325 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,337 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,356 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,366 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,397 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,407 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,430 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,447 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,477 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,487 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,509 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,517 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,542 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,563 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,597 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,612 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,635 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,639 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,696 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,710 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,719 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,720 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,750 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,765 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,786 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,795 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,828 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,854 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,881 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,888 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,917 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,928 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,953 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,956 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,986 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:36,996 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,028 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,045 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,072 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,080 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,104 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,122 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,146 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,162 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,190 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,197 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,220 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,240 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,264 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,280 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,306 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,324 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,353 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,364 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,391 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,406 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,430 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,438 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,463 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,481 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,506 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,520 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,546 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,562 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,590 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,597 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,620 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,638 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,663 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,681 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,706 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,714 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,740 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,759 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,783 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,798 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,830 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,838 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,867 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,886 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,915 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,923 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,943 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:37,943 INFO hinaa.realtime: realtime: <<< audio.commit
+2026-08-26 21:34:40,559 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:34:40,561 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,562 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,564 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,564 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,565 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,565 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,566 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,566 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,566 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,566 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,586 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,594 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,621 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,639 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,663 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,679 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,705 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,723 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,751 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,760 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,781 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,800 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,823 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,850 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,877 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,885 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,907 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,914 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,943 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,964 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:40,992 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,001 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,025 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,046 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,069 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,077 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,104 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,118 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,144 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,160 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,187 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,195 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,222 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,237 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,265 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,281 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,304 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,319 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,354 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,375 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,384 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,397 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,423 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,438 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,464 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,477 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,511 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,528 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,552 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,564 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,587 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,595 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,621 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,633 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,660 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,679 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,701 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,718 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,743 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,756 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,782 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,797 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,821 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,834 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,865 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,885 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,911 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,917 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,943 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,965 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:41,993 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,001 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,022 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,042 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,062 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,078 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,102 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,119 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,144 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,157 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,182 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,198 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,223 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,242 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,265 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,278 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,302 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,319 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,340 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,357 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,383 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,399 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,425 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,437 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,463 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,481 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,503 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,520 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,545 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,558 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,583 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,600 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,622 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,639 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,660 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,678 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,706 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,719 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,743 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,761 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,782 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,799 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,825 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,837 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,865 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,886 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,916 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,925 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:42,926 INFO hinaa.realtime: realtime: <<< audio.commit
+2026-08-26 21:34:43,783 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:34:43,785 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,786 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,788 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,788 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,789 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,789 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,789 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,790 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,790 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,790 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,801 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,823 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,839 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,868 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,874 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,900 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,923 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,950 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,957 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:43,983 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,007 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,033 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,040 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,063 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,081 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,107 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,122 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,143 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,159 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,184 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,200 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,223 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,239 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,263 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,281 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,303 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,321 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,344 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,361 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,384 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,404 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,429 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,436 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,460 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,476 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,504 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,520 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,545 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,558 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,584 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,596 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,622 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,635 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,667 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,680 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,703 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,719 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,745 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,758 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,784 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,797 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,823 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,836 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,861 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,884 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,910 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,918 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,943 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,968 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:44,994 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,002 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,024 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,044 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,072 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,080 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,102 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,119 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,146 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,159 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,186 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,199 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,223 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,240 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,262 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,279 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,302 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,319 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,345 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,357 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,385 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,399 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,424 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,438 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,464 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,483 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,505 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,518 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,543 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,561 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,583 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,601 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,622 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,640 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,663 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,681 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,704 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,718 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,743 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,760 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,784 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,800 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,825 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,838 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,863 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,889 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,915 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,922 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,945 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,965 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:45,996 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,002 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,026 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,050 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,076 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,083 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,103 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,121 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,142 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,160 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,183 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,201 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,226 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,241 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,265 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,280 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,305 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,323 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,350 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,357 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,381 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,399 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,423 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,441 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,463 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,481 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,503 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,521 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,544 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,562 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,584 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,604 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,625 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,640 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,666 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,679 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,704 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,720 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,744 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,759 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,785 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,800 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,825 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,840 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,866 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,874 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,901 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,925 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,951 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,959 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:46,985 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,004 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,030 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,038 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,066 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,083 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,103 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,119 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,143 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,163 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,188 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,196 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,219 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,236 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,263 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,280 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,303 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,321 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,344 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,362 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,385 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,399 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,425 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,443 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,470 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,476 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,500 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,513 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,541 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,558 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,581 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,599 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,623 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,644 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,665 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,683 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,709 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,715 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,740 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,758 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,782 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,800 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,821 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,840 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,863 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,882 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,908 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,916 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,945 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,967 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:47,996 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,004 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,030 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,038 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,067 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,087 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,110 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,116 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,140 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,153 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,181 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,198 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,224 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,238 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,265 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,278 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,306 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,322 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,343 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,362 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,383 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,401 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,424 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,444 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,464 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,480 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,505 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,520 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,545 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,560 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,589 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,595 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,621 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,634 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,662 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,679 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,703 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,722 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,744 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,763 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,785 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,798 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,824 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,840 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,867 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,874 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,900 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,919 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,948 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,956 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:48,983 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,006 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,033 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,040 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,065 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,085 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,114 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,116 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,142 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,163 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,185 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,203 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,229 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,238 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,260 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,278 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,303 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,322 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,345 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,361 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,388 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,396 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,422 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,436 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,468 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,483 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,503 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,520 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,547 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,555 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,581 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,598 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,622 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,642 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,665 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,720 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,738 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,739 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,761 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:49,781 INFO hinaa.realtime: realtime: <<< session.close
+INFO:     127.0.0.1:54285 - "WebSocket /v1/realtime" [accepted]
+INFO:     connection open
+2026-08-26 21:34:50,778 INFO hinaa.realtime: realtime: <<< session.hello mode=claude companion=hinaa
+2026-08-26 21:34:50,886 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:34:50,888 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,888 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,889 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,889 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,889 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,896 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,919 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,944 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,960 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:50,978 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,001 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,010 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,036 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,050 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,081 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,088 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,118 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,132 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,158 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,176 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,203 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,211 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,234 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,250 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,274 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,293 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,317 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,338 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,371 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,378 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,398 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,423 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,439 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,461 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,490 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,497 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,517 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,542 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,570 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,578 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,603 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,610 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,635 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,648 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,676 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,691 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,719 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,736 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,761 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,769 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,794 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,811 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,834 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,853 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,877 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,893 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,918 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:51,919 INFO hinaa.realtime: realtime: <<< audio.commit
+2026-08-26 21:34:52,557 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:34:52,560 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,560 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,561 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,561 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,562 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,563 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,563 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,563 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,564 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,564 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,565 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,565 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,566 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,566 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,567 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,567 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,568 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,568 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,569 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,569 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,570 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,571 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,572 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,597 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,618 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,645 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,654 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,675 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,695 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,720 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,734 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,761 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,768 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,796 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,814 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,845 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,862 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,885 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,892 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,915 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,932 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:52,939 INFO hinaa.realtime: realtime: <<< session.close
+INFO:     127.0.0.1:51556 - "WebSocket /v1/realtime" [accepted]
+INFO:     connection open
+2026-08-26 21:34:53,950 INFO hinaa.realtime: realtime: <<< session.hello mode=claude companion=hinaa
+2026-08-26 21:34:54,057 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:34:54,058 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,058 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,059 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,068 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,093 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,103 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,129 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,132 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,159 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,178 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,203 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,221 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,248 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,257 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,284 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,299 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,330 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,338 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,360 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,381 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,405 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,414 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,440 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,455 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,481 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,496 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,525 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,532 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,557 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,577 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,607 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,617 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,641 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,663 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,693 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,700 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,728 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,736 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,764 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,785 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,810 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,812 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,843 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,857 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,885 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,900 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,927 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,936 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,960 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:54,979 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,003 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,017 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,044 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,052 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,084 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,097 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,123 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,137 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,165 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,183 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,207 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,214 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,242 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,261 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,282 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,298 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,327 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,334 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,362 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:34:55,363 INFO hinaa.realtime: realtime: <<< audio.commit
+2026-08-26 21:34:58,918 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/speech-to-text "HTTP/1.1 200 OK"
+2026-08-26 21:34:58,920 INFO hinaa.elevenlabs: ElevenLabs STT raw: '\u0938\u0941\u0928\u094b \u0928\u093e \u092f\u093e\u0930 \u0930\u0940\u0928\u093e' -> cleaned: '\u0938\u0941\u0928\u094b \u0928\u093e \u092f\u093e\u0930 \u0930\u0940\u0928\u093e'
+2026-08-26 21:34:58,925 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:35:02,748 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:35:04,080 INFO httpx: HTTP Request: POST https://api.mwapi.dev/chat/completions "HTTP/1.1 200 OK"
+2026-08-26 21:35:04,082 ERROR hinaa.conversation: Live provider 'claude' failed before producing a valid plan
+Traceback (most recent call last):
+  File "C:\Users\unesh\OneDrive\all my cloud stroge\Desktop\HINAMYGIRL\apps\api\hinaa_api\providers\agent_router.py", line 214, in create_live_plan
+    repaired = await self._repair_json(answer)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\unesh\OneDrive\all my cloud stroge\Desktop\HINAMYGIRL\apps\api\hinaa_api\providers\openai_llm.py", line 294, in _repair_json
+    data = response.json()
+  File "C:\Users\unesh\OneDrive\all my cloud stroge\Desktop\HINAMYGIRL\apps\api\.venv\Lib\site-packages\httpx\_models.py", line 832, in json
+    return jsonlib.loads(self.content, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\json\__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Python314\Lib\json\decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\json\decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\unesh\OneDrive\all my cloud stroge\Desktop\HINAMYGIRL\apps\api\hinaa_api\services.py", line 1037, in create_live_plan
+    result = await provider.create_live_plan(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "C:\Users\unesh\OneDrive\all my cloud stroge\Desktop\HINAMYGIRL\apps\api\hinaa_api\providers\agent_router.py", line 224, in create_live_plan
+    except HinaaError:
+           ^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'HinaaError' where it is not associated with a value
+2026-08-26 21:35:04,089 WARNING hinaa.realtime: realtime: turn failed with HinaaError code=PROVIDER_UNAVAILABLE retryable=True
+2026-08-26 21:35:08,967 INFO hinaa.realtime: realtime: <<< ping
+2026-08-26 21:35:16,913 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:35:16,914 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,915 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,916 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,917 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,917 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,917 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,918 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,918 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,919 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,919 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,928 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,961 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:16,976 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,003 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,019 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,044 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,059 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,087 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,098 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,099 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,133 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,135 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,166 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,178 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,206 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,225 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,254 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,257 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,277 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,300 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,322 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,333 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,357 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,368 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,400 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,408 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,446 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,455 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,479 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,488 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,526 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,535 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,557 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,569 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,599 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,609 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,640 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,650 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,676 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,689 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,720 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,729 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,758 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,767 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,797 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,807 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,839 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,849 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,883 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,899 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,918 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,939 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,960 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:17,975 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,005 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,021 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,039 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,049 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,091 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,092 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,117 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,129 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,157 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,168 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,198 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,208 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,237 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,249 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,281 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,290 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,318 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,337 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,363 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,379 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,404 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,414 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,445 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:18,446 INFO hinaa.realtime: realtime: <<< audio.commit
+2026-08-26 21:35:21,698 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/speech-to-text "HTTP/1.1 200 OK"
+2026-08-26 21:35:21,700 INFO hinaa.elevenlabs: ElevenLabs STT raw: '' -> cleaned: ''
+2026-08-26 21:35:21,700 INFO hinaa.realtime: realtime: STT returned empty transcript; cancelling turn safely
+2026-08-26 21:35:23,258 INFO hinaa.realtime: realtime: <<< audio.start
+2026-08-26 21:35:23,259 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,259 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,260 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,260 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,261 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,261 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,262 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,262 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,263 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,263 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,281 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,299 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,336 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,347 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,364 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,386 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,406 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,423 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,457 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,471 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,493 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,508 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,530 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,542 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,574 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,585 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,606 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,624 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,652 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,664 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,690 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,702 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,723 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,741 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,769 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,781 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,811 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,822 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,843 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,859 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,887 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,898 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,924 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,942 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,960 INFO hinaa.realtime: realtime: <<< ping
+2026-08-26 21:35:23,969 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:23,980 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,014 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,025 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,052 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,063 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,089 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,099 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,125 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,150 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,161 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,184 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,207 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,232 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,261 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,273 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,295 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,306 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,331 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,341 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,361 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,377 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,406 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,418 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,446 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,463 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,489 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,501 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,526 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,536 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,563 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,581 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,612 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,621 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,646 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,657 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,685 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,701 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,730 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,741 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,766 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,776 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,804 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,822 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,849 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,861 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,881 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,898 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,926 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,937 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,966 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:24,984 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,005 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,030 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,057 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,069 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,092 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,103 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,136 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,146 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,171 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,181 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,208 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,232 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,244 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,267 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,286 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,310 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,329 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,341 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,366 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,377 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,401 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,419 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,447 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,459 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,489 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,508 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,527 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,545 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,574 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,585 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,606 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,623 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,651 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,662 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,690 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,701 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,721 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,743 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,776 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:35:25,789 INFO hinaa.realtime: realtime: <<< audio.frame
+2026-08-26 21:36:41,564 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:36:47,959 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:37:07,488 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:37:20,231 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:37:35,752 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:37:50,862 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:38:03,367 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:38:10,336 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:38:33,519 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:39:03,214 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:39:19,124 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 21:39:51,922 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:39:54,294 INFO httpx: HTTP Request: POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-08-26 21:40:10,934 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:40:12,314 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-08-26 21:40:35,228 INFO httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse "HTTP/1.1 200 OK"
+2026-08-26 21:40:37,176 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:40:53,900 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:40:55,302 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-08-26 21:41:01,848 INFO httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse "HTTP/1.1 200 OK"
+2026-08-26 21:41:04,039 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:41:39,721 INFO hinaa.conversation: prompt_assembled
+2026-08-26 21:41:41,086 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-08-26 21:42:05,130 INFO httpx: HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse "HTTP/1.1 200 OK"
+2026-08-26 21:42:08,069 INFO httpx: HTTP Request: POST https://api.elevenlabs.io/v1/text-to-speech/WUgmmuDCpFXQ4z0NUUYX/stream "HTTP/1.1 200 OK"
+2026-08-26 21:42:48,696 INFO hinaa.conversation: prompt_assembled
+2026-08-26 23:47:55,204 INFO hinaa.conversation: prompt_assembled
+2026-08-26 23:48:11,728 INFO hinaa.conversation: prompt_assembled
+2026-08-26 23:49:31,422 INFO hinaa.conversation: prompt_assembled
+2026-08-26 23:49:42,536 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"
+2026-08-26 23:49:51,254 INFO hinaa.conversation: prompt_assembled
+2026-08-26 23:50:07,072 INFO httpx: HTTP Request: POST https://api.mwapi.dev/v1/messages "HTTP/1.1 200 OK"

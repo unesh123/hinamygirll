@@ -5,8 +5,12 @@
  * Keep in sync with apps/api/hinaa_api/main.py ProviderStatus model.
  */
 
-/** Health state reported by the backend for each provider. */
-export type ProviderHealth = "healthy" | "degraded" | "unavailable" | "disabled" | "checking" | "unknown";
+/**
+ * Health state reported by the backend for each provider.
+ * For a brain, "healthy" requires a live call that answered. A configured
+ * credential nobody has watched answer yet is "untested".
+ */
+export type ProviderHealth = "healthy" | "degraded" | "unavailable" | "untested" | "disabled" | "checking" | "unknown";
 
 /** Normalized provider status (adapted from audio/api ProviderStatus). */
 export interface ProviderStatus {
@@ -22,7 +26,7 @@ export interface ProviderStatus {
  * Provider modes understood by the backend /v1/chat endpoint.
  * Internal keys — never shown directly in UI (use providerLabels.ts).
  */
-export type ProviderMode = "mock" | "local" | "custom" | "openai" | "real" | "groq" | "agent-router" | "cx-gateway" | "gemini-live";
+export type ProviderMode = "mock" | "local" | "custom" | "openai" | "real" | "groq" | "claude" | "qwen" | "agent-router" | "cx-gateway" | "gemini-live" | "codecraft" | "ollama";
 
 /** A model option derived from provider capabilities. */
 export interface ModelOption {
@@ -56,4 +60,5 @@ export interface ProvidersState {
   getDefaultModel: (mode: ProviderMode) => string | null;
   getHealth: (mode: ProviderMode) => ProviderHealth;
   refresh: () => void;
+  reprobeCx?: () => Promise<void>;
 }

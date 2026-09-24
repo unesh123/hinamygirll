@@ -1,12 +1,24 @@
+import { ClerkProvider } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./app/styles/global.css";
+import "./design-system/global.css";
 import App from "./App.tsx";
+import { installStaleBuildRecovery } from "./lib/staleBuildRecovery";
+import { ClerkSessionGate } from "./features/auth/ClerkSessionGate";
+// Aurora Veil must arrive after App.css (and its imports) so the elevation
+// layer refines every surface without fighting the base stylesheet.
+import "./app/styles/aurora.css";
 
 // NOTE: BrowserRouter removed — no routes are registered yet.
 // Reintroduce when /playground, /settings, or another genuine route exists.
 
-if (import.meta.env.DEV && "serviceWorker" in navigator) {
+if (
+  typeof window !== "undefined" &&
+  (import.meta.env.DEV ||
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1") &&
+  "serviceWorker" in navigator
+) {
   void navigator.serviceWorker
     .getRegistrations()
     .then((registrations) =>
@@ -14,15 +26,26 @@ if (import.meta.env.DEV && "serviceWorker" in navigator) {
         registrations.map((registration) => registration.unregister()),
       ),
     )
-    .then(() => caches.keys())
+    .then(() => ("caches" in window ? caches.keys() : []))
     .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
     .catch(() => {
-      // Best-effort dev cleanup only; the app should still render if cleanup fails.
+      // Best-effort dev cleanup only
     });
 }
 
+const authMode = import.meta.env.VITE_HINAA_AUTH_MODE;
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+installStaleBuildRecovery();
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    {authMode === "clerk" && PUBLISHABLE_KEY ? (
+      <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
+        <ClerkSessionGate />
+      </ClerkProvider>
+    ) : (
+      <App />
+    )}
   </StrictMode>,
 );

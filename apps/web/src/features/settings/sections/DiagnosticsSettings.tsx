@@ -11,7 +11,7 @@ interface Props {
   providers: ProvidersState;
 }
 
-const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? "dev";
+const APP_VERSION = "HINAA V3.1 · 478dd8f · 2026-09-05";
 
 export function DiagnosticsSettings({ providers }: Props) {
   return (
@@ -39,7 +39,11 @@ export function DiagnosticsSettings({ providers }: Props) {
         <div className={styles.providerList} role="list">
           {providers.statuses.map((s) => (
             <div key={s.id} className={styles.providerRow} role="listitem">
-              <span className={styles.providerId}>{s.id}</span>
+              <div style={{ display: "grid", gap: 3, minWidth: 0 }}>
+                <span className={styles.providerId}>{s.id}</span>
+                {s.userMessage ? <small style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.35 }}>{s.userMessage}</small> : null}
+                {s.capabilities.length ? <small style={{ color: "var(--text-muted)", fontSize: 10, lineHeight: 1.35, overflowWrap: "anywhere" }}>{s.capabilities.slice(0, 6).join(" · ")}</small> : null}
+              </div>
               <SettingsStatus health={s.state} />
             </div>
           ))}

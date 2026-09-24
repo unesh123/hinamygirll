@@ -459,3 +459,120 @@ Final real-world acceptance is still **PENDING_USER_RUNTIME**. After the branch 
 | Duplicate failure cards | **VERIFIED IN FRONTEND TESTS** | Controller execution is guarded by request key; message rendering also displays only the latest result per tool name, including persisted legacy conversation data. |
 | Detailed web information | **VERIFIED IN FRONTEND TESTS / PROVIDER RUNTIME DEPENDENT** | Cited answers, deep research, extraction, and finance research now render readable bounded content, warnings, source totals, expandable full text, and attributed source cards. Actual detail still depends on returned public source content, access rules, provider availability, and explicit confirmation. |
 | Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, full frontend tests, responsive phone checks, TypeScript, production build, and lint pass. Lint reports 32 warnings and 0 errors. |
+
+## Phase 29 — Provider Readiness and Claude Integration — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Claude provider | **IMPLEMENTED AND TESTED WITHOUT LIVE BILLING** | Selectable Claude support now uses `HINAA_CLAUDE_API_KEY` or `ANTHROPIC_API_KEY`, optional `HINAA_CLAUDE_BASE_URL`, and an allowed model list. CX Gateway remains the automatic primary; configured Claude is the next fallback. A real Claude response requires the user to place a valid HINAA/Anthropic key in the actual `apps/api/.env.local` and restart the backend. |
+| Credentials supplied in attached conversation | **NOT USED OR STORED** | The attached third-party setup script and its token were treated as untrusted content. HINAA does not import `ANTHROPIC_AUTH_TOKEN` from Claude Code. Because a credential was pasted into chat, it should be revoked/rotated in the originating provider dashboard before any future configuration use. |
+| Sandbox provider status | **PARTIAL / ENVIRONMENT-SPECIFIC** | This sandbox has OpenAI configuration present, while CX Gateway, Agent Router, ElevenLabs, Gemini, Deepgram, and local ComfyUI readiness were unavailable in the active service diagnostics. The user's separate Windows `.env.local` was not present here and was not modified. |
+| Provider diagnostics | **VERIFIED** | Settings now displays each provider's safe readiness reason and capabilities only. No key values are returned by the endpoint or UI. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile responsive checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 30 — Claude Gateway Compatibility — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Documented mwapi-compatible route | **IMPLEMENTED AND TESTED WITHOUT LIVE BILLING** | For `HINAA_CLAUDE_BASE_URL=https://api.mwapi.dev/v1`, HINAA auto-selects `openai-compatible`, posts to `/v1/chat/completions`, and uses Bearer authorization. This replaces the incompatible Anthropic Messages request shape that produced the observed authentication failure. |
+| Official Anthropic route | **SUPPORTED** | The default `https://api.anthropic.com` continues using the Anthropic Messages adapter. `HINAA_CLAUDE_PROTOCOL` can explicitly override automatic routing. |
+| Authentication result | **CREDENTIAL-SIDE VERIFICATION REQUIRED** | A real provider authentication test was intentionally not sent because the attachment contained an exposed credential and the real Windows `.env.local` is unavailable in this sandbox. After credential rotation and a backend restart, one short typed test is required to prove the provider account accepts the replacement key. |
+| Safe token boundary | **VERIFIED** | `ANTHROPIC_AUTH_TOKEN` alone cannot configure HINAA. HINAA requires `HINAA_CLAUDE_API_KEY` or `ANTHROPIC_API_KEY`; it never prints either value. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 31 — Claude Model Catalog Recovery — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Model-not-found repair | **IMPLEMENTED AND TESTED WITHOUT LIVE BILLING** | The observed `claude-sonnet-4-20250514` stale selection is normalized to `claude-sonnet-4-6` when the configured Claude gateway uses the documented `/v1` OpenAI-compatible route. The returned provider catalog excludes that old unsupported ID. |
+| Persisted browser setting recovery | **VERIFIED** | Once fresh provider metadata arrives, HINAA replaces any saved Claude model that is absent from the catalog with the provider default. This protects existing browser localStorage selections after an upgrade. |
+| Real gateway acceptance | **REQUIRES ONE POST-RESTART WINDOWS TEST** | The sandbox has no access to the user’s real credential and did not send a paid provider request. A local typed turn after installing the updated branch, restarting the backend, and hard-refreshing the frontend is required for final account-side authentication evidence. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 32 — Claude Gateway Account Capacity — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Screenshot 503 diagnosis | **CONFIRMED UPSTREAM CAPACITY BLOCKER** | The returned gateway text explicitly states `No available accounts`. HINAA’s request reached the provider, which rules out the old local model-selection error for this new turn. The provider must provision an account/capacity or the user must select another funded/healthy brain. |
+| HINAA handling | **IMPLEMENTED AND TESTED** | The matching 503 now returns `PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE` with a concise action path and no raw upstream JSON or secret content in the chat card. |
+| Live provider success | **NOT PROVEN / BLOCKED BY UPSTREAM** | No local source change can make a provider account available when the gateway reports none. A successful real Claude turn requires the gateway account/balance/capacity condition to clear. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 33 — mwapi Claude-compatible Bearer Alignment — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Provider evidence reconciliation | **IMPLEMENTED AND TESTED WITHOUT LIVE BILLING** | The user-supplied provider dashboard shows quota and successful `claude-sonnet-4-6` requests. HINAA therefore now defaults the mwapi host to the Claude-compatible Anthropic Messages path with Bearer authentication, aligning with that evidence rather than the prior automatic OpenAI chat-completions route. |
+| Request contract | **VERIFIED IN NO-NETWORK TESTS** | HINAA detects `api.mwapi.dev`, selects Claude’s Anthropic adapter, adds the Bearer header, keeps the gateway model catalog, and publishes safe diagnostics. |
+| Real Windows acceptance | **REQUIRES RESTART AND ONE TYPED TURN** | The user’s local backend must load this newest code and restart before testing. No live paid request was sent from the sandbox. The gateway’s prior transient account-capacity error must be rechecked only after the updated transport is active. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 32 warnings and 0 errors. |
+
+## Phase 34 — Claude Structured Turn and Live Voice — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Raw JSON transcript defect | **REPAIRED AND TESTED** | The user screenshot shows Claude successfully returned a fenced AssistantTurnPlan. HINAA now validates that contract before emitting only human-readable `displayText`; the frontend also repairs an already-persisted fenced plan on render. |
+| Spoken reply selection | **REPAIRED AND TESTED** | TTS receives validated `spokenText`, never raw contract JSON. When a long display response and spoken text are identical, a natural short summary replaces the former canned phrase. |
+| Real ElevenLabs playback | **PARTIAL RUNTIME EVIDENCE** | The screenshot shows ElevenLabs synthesis starting. Final browser playback and avatar mouth-reset evidence still require the user’s local audio/browser runtime check. |
+| Release gates | **PASS WITH NON-BLOCKING LINT WARNINGS** | Full API tests, frontend Vitest, mobile checks, TypeScript, Vite/PWA build, and lint passed. Lint reports 35 warnings and 0 errors. |
+
+## Phase 35 — Claude Normalization and Command Surface — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| Screenshot raw JSON root cause | **REPAIRED AND TESTED** | The exact captured plan used `language: "hindi-english"` and omitted strict emotion `valence`/`arousal`. That made the typed Claude plan fail schema validation and fall back to rendering the raw contract. The backend now normalizes those safe gateway variations before validation. |
+| Typed chat natural reply | **REPAIRED AND TESTED** | Regular `/turns:stream` now receives validated `displayText`; raw partial reserved plans are withheld defensively in the client. |
+| Fullscreen/live voice safety | **REPAIRED IN CODE AND TESTED AT TYPE LEVEL** | Visible live deltas are guarded, and the validated plan’s `spokenText` owns TTS fallback. Final microphone-to-audio runtime proof still requires the user’s Windows browser/audio session. |
+| @ and / command palette | **IMPLEMENTED AND TESTED** | Both triggers open the matching Ink Rose palette, insert the durable intent tag, and route to a real existing HINAA workspace without triggering sensitive external automation. |
+| Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | API tests, frontend Vitest, mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 35 warnings and 0 errors. |
+
+## Phase 36 — QwenCloud and Live Voice Truthfulness — 2026-08-13
+| Capability | Current state | Evidence and boundary |
+|---|---|---|
+| QwenCloud provider | **IMPLEMENTED AND TESTED IN CODE** | Uses the official OpenAI-compatible base URL and backend-only `HINAA_QWEN_API_KEY`/`QWEN_API_KEY` aliases. Qwen is selectable in settings and available as an automatic fallback after CX and Claude. No actual user key was inspected, logged, or committed. |
+| Qwen live response | **IMPLEMENTED AND TESTED** | Raw structured output is buffered and schema-validated before natural display text streams to the live transcript/TTS queue. |
+| Claude/CX/Qwen live model routing | **REPAIRED AND TESTED AT TYPE/PROTOCOL LEVEL** | Selected model values now reach websocket `session.hello` as well as typed chat. |
+| ElevenLabs live path | **REPAIRED IN CODE; WINDOWS AUDIO PROOF PENDING** | Synthesized `tts.audio` continues through the existing ordered playback queue and avatar audio/viseme lifecycle. A selected brain failure now produces an explicit live error rather than a generic spoken fallback. Final microphone → STT → brain → audible browser playback → mouth-reset proof still requires the user’s Windows local runtime. |
+| Full release gate | **PASS WITH NON-BLOCKING LINT WARNINGS** | API suite, frontend Vitest, responsive/mobile checks, TypeScript, production build, lint, and whitespace validation passed. Lint reports 35 warnings and 0 errors. |
+
+## Phase 37 — Local Capability and Presence Hardening — 2026-08-13
+
+| Acceptance area | Evidence | Status |
+|---|---|---|
+| Qwen provider unavailable | `diagnose-qwen.bat` now detects the local backend environment file and reads only safe provider-status state. The sandbox has no user Qwen key, so it cannot verify the user’s Qwen account. | **WINDOWS CHECK REQUIRED** |
+| Four fast local variations | Focused image tests verify independent ComfyUI prompt workflow, single-latent GPU-safe execution, and explicit independent queue strategy. Local ComfyUI is not installed in the sandbox. | **CODE VERIFIED; WINDOWS COMFYUI REQUIRED** |
+| Document upload and artifact | API regression uploads Markdown, analyzes it locally, persists a user-owned document artifact, and exports it as Markdown. | **VERIFIED** |
+| Concise HINAA response behavior | Prompt and response-quality tests passed; persona now disallows habitual follow-up questions and supports safe local initiative with explicit approval for consequential actions. | **VERIFIED** |
+| Hindi-English route | Prompt regression verifies Hindi procedural detection and excludes residual Nepali classifier aliases. | **VERIFIED** |
+| Fullscreen responsive companion | Existing frontend interaction suite, mobile checks, type check, production build, and CSS verification passed. | **IMPLEMENTATION VERIFIED** |
+| VSeeFace packet truth | VMC bridge tests verify `listening`, synthetic `test`, external `live`, and `stale` transitions. The browser now applies face/head samples only for fresh external `live` diagnostics. No VSeeFace process or camera exists in the sandbox. | **CODE VERIFIED; WINDOWS HARDWARE EVIDENCE REQUIRED** |
+| Release gate | Full API suite, full frontend Vitest suite, responsive/mobile check, type check, production build, lint, and diff check completed. Lint: 35 warnings, 0 errors. | **PASSED** |
+
+## Phase 38 — P0 Stabilization and Reproducibility Gate — 2026-09-01
+
+The in-flight uncommitted work was repaired, verified, and committed under the production-readiness master plan (Phase P0). Three defects in the uncommitted tree blocked the test suites and were fixed before committing:
+
+| Defect | Root cause | Repair |
+|---|---|---|
+| `NameError: artifact_lookup_def` at import | `tools/browser.py` registered `artifact_lookup` before its definition | Registration moved after the definition |
+| `IndentationError` in `services.py` | New composer-parser module code (`ParsedCommand`, `parse_composer_input`) was spliced mid-class, destroying `ConversationService` structure | Module-level helpers moved to top of file with `from dataclasses import dataclass`; `_inject_deterministic_tool_intents` restored as a class method |
+| `TypeError` in `providers/blocks.py` | Canonical block dataclasses placed defaulted `type` field before required fields; `CanonicalUnknownBlock` constructed with wrong kwarg `provider_type` | All canonical dataclasses now `kw_only=True`; construction uses `providerType` |
+
+Additionally, a real UX defect surfaced by the test run: the `@`/`/` power-up palette stayed on the Contexts tab when opened via `/` because `activeTab` was only initialized from `trigger` at mount. `PowerUpMentions` now syncs `activeTab` on trigger change, and the over-broad test matcher was tightened to the exact leaf label.
+
+| Gate | Result |
+|---|---|
+| Backend `pytest -q` | **PASS** — 235 tests, 0 failures |
+| Frontend `pnpm typecheck` (`tsc -b`) | **PASS** |
+| Frontend `pnpm test` (Vitest) | **PASS** — 35 files, 186 tests, 2 todos |
+| Production build (`tsc -b && vite build` + PWA) | **PASS** — known non-blocking 1.19 MB avatar-chunk warning (P7 lazy-load target) |
+
+**Commits:** `38b00fc` (API: composer slash-command parsing, canonical provider blocks, artifact lookup tool), `2c22129` (Web: palette tab sync, audio turn-taking hardening, e2e suite). `scratch/zcode-diagnosis/` remains intentionally uncommitted. The reproducibility release blocker from the production-readiness audit is **CLEARED**; remaining blockers are the external credential/service gates (AgentRouter, ComfyUI, real Azure/ElevenLabs audio) and the P8 production-hardening items (OIDC, Postgres RLS, HTTPS staging, restore drill).
+
+## Phase 39 — P3 Multi-Agent Orchestration: Parallel Tools, Approval Gate, hcnsec Disable — 2026-09-01
+
+Under the master plan (Phase P3), tool orchestration was verified and hardened:
+
+1. **Parallel tool execution (frontend):** `useToolRunner.ts` rewrote sequential `for...await` dispatch into `Promise.all` over `toolRequests`, each tool updating only its own `toolActivity` entry through functional state updates (race-safe; appended result order is now nondeterministic by design). Committed as `c1a3fa9`.
+2. **Runtime proof against a live server (mock mode, port 8123/8124):**
+   - Unknown tool → `404 Tool not found` (registry allowlist holds; the model cannot execute unregistered tools).
+   - Side-effect tool without confirmation → `409 TOOL_CONFIRMATION_REQUIRED`; with `confirmed: true` → accepted.
+   - Image generation with no local ComfyUI and no cloud gateway → truthful `IMAGE_RENDERER_UNAVAILABLE` BLOCKED state.
+3. **Security finding and fix — hcnsec gateway disabled:** the runtime proof revealed `apps/api/.env.local` had `OPENAI_CODEX_BASE_URL=https://api.hcnsec.cn/v1` with a live key, contradicting the project's own standing rule that hcnsec remains disabled until ownership, authorization, privacy, retention, billing, and security are independently verified. Both `OPENAI_CODEX_*` lines are now commented out (guarded with `# HINAA-GUARD` markers) so image generation falls back to the truthful BLOCKED state. The key was never exposed in output or committed. Note: one image-generation request reached hcnsec before the disable (fallback triggered during the initial proof); assume that prompt (`"sunset over Kathmandu"`) touched the gateway.
+   - Also noted: `CX_GATEWAY_BASE_URL` points at a temporary `trycloudflare.com` tunnel and `AGENT_ROUTER_BASE_URL=https://api.mwapi.dev` (reseller-class gateway). Both are user-configured and opt-in; they are flagged here for the user's own verification decision but were left untouched.
+4. **ComfyUI auto-detect:** `LocalComfyUIProvider.health_check()` gates every image job against `HINAA_COMFYUI_BASE_URL` (default `127.0.0.1:8188`); absent renderer yields the BLOCKED state above. Truthful and mock-safe.
+
+**Gates:** backend `pytest -q` PASS (full suite, 0 failures; consistent with the 235-test suite from Phase 38), frontend `pnpm typecheck` PASS, tool-runner Vitest suite 4/4 PASS.

@@ -1,0 +1,51 @@
+# Only apps/web + workspace manifests are needed for the Vercel build.
+# Everything below either busts the 100MB per-file upload limit or is local-only.
+
+# Python backend (served via cloudflared tunnel, not on Vercel)
+apps/api/
+**/.venv
+**/.venv/**
+.runtime/
+
+# Dependency trees (gitignored too, but explicit here)
+**/node_modules
+**/node_modules/**
+
+# Local-only tooling / caches
+.git
+.agents/
+.freebuff/
+.gemini/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.refact/
+.vercel
+github/
+
+# Large local archives & binaries (220MB zip busts Vercel's 100MB/file limit)
+*.zip
+*.exe
+*.7z
+*.rar
+hinaa-enterprise-starter/
+52blendshapes-for-VRoid-face-main/
+AnimationClipToVrmaSample-main/
+
+# Local databases / dumps
+*.db
+*.sqlite
+*.sqlite3
+
+# Root-level VRM dumps (the shippable ones live in apps/web/public/models)
+/*.vrm
+
+# Scratch / generated artifacts
+scratch/
+output.png
+test_img.png
+old_app_temp.txt
+vitest-out.txt
+vitest-wm.txt
+apps/web/vitest-out.txt
+apps/web/run-vitest.cmd
