@@ -95,6 +95,19 @@ def normalize_gateway_turn_payload(payload: object) -> object:
     def _clean_str(val: str) -> str:
         # Strip thinking blocks
         val = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", val, flags=re.IGNORECASE)
+        # P0: Brains that cannot use structured tool calling write the call into
+        # their answer instead. Measured live: an image bubble printed the
+        # literal tags `<tool_calls>` ... `</tool_calls>`. The arguments are
+        # invocation, not prose, and the same prompt already renders in the
+        # image card, so the envelope goes.
+        val = re.sub(
+            r"<(tool_calls?|function_calls?|antml:parameter|antml:function_calls)[^>]*>[\s\S]*?</\1>",
+            "",
+            val,
+            flags=re.IGNORECASE,
+        )
+        # CDATA is markup around real words, so unwrap rather than delete.
+        val = re.sub(r"<!\[CDATA\[([\s\S]*?)\]\]>", r"\1", val)
         # Strip leaked XML tags
         val = re.sub(
             r"</?(?:response|spokenText|displayText|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",
