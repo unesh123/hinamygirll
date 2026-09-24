@@ -52,6 +52,30 @@ describe("NavigationRail health status", () => {
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
 
+  it("removes fake claude mode and All systems nominal line when hasClaudeAnswered is false", async () => {
+    stubCapabilities(async () =>
+      new Response(
+        JSON.stringify({
+          runtime: { backendConnected: true, activeMode: "claude" },
+          providers: [
+            { id: "a", configured: true },
+            { id: "b", configured: true },
+            { id: "c", configured: false },
+          ],
+          features: { memory: true, webSearch: false, artifacts: true },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    render(<NavigationRail active="chat" onNavigate={() => {}} isOnline={true} hasClaudeAnswered={false} />);
+
+    await waitFor(() => expect(screen.getByText("Workspace ready")).toBeInTheDocument());
+    expect(screen.getByText("2 providers · awaiting turn")).toBeInTheDocument();
+    expect(screen.queryByText("All systems nominal")).not.toBeInTheDocument();
+    expect(screen.queryByText(/claude mode/i)).not.toBeInTheDocument();
+  });
+
   it("shows a degraded banner when the capabilities probe fails", async () => {
     stubCapabilities(async () => {
       throw new Error("network down");

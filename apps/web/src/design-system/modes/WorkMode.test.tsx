@@ -622,4 +622,72 @@ describe("WorkMode command palette", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  describe("In-thread Action Objects", () => {
+    it("renders committed reminder object in the thread message list with NOT WIRED status", () => {
+      const messages = [
+        { id: "u1", role: "user" as const, text: "remind me tomorrow at 8 to call Alex", createdAt: new Date().toISOString() },
+        {
+          id: "a1",
+          role: "assistant" as const,
+          text: "Reminder scheduled: call Alex · Tomorrow · 8:00 AM",
+          createdAt: new Date().toISOString(),
+          actionDraft: {
+            id: "draft-remind-1",
+            intent: "reminder.create",
+            fields: {
+              data: {
+                title: "call Alex",
+                when: "Tomorrow · 8:00 AM",
+                isUrgent: false,
+              },
+            },
+            status: "success",
+          },
+        },
+      ];
+
+      renderWorkMode({ messages });
+
+      // Verifies title and when remain visible in the thread
+      expect(screen.getByText("call Alex")).toBeInTheDocument();
+      expect(screen.getByText("Tomorrow · 8:00 AM")).toBeInTheDocument();
+      // Verifies honest button marking
+      expect(screen.getByText("NOT WIRED")).toBeInTheDocument();
+      expect(screen.getByText("Reminder active in thread")).toBeInTheDocument();
+    });
+
+    it("renders image generation object in the thread message list with live timer", () => {
+      const messages = [
+        { id: "u1", role: "user" as const, text: "generate a red mug", createdAt: new Date().toISOString() },
+        {
+          id: "a1",
+          role: "assistant" as const,
+          text: 'Generating image for "Red mug"',
+          createdAt: new Date().toISOString(),
+          actionDraft: {
+            id: "draft-img-1",
+            intent: "image.job",
+            fields: {
+              data: {
+                prompt: "Red mug",
+                aspectRatio: "16:9",
+                style: "photorealistic",
+                stage: "generating",
+                elapsedSeconds: 0,
+              },
+            },
+            status: "running",
+          },
+        },
+      ];
+
+      renderWorkMode({ messages });
+
+      // Verifies Image Generation Object in the message list
+      expect(screen.getByText("Image Generation Object")).toBeInTheDocument();
+      expect(screen.getByText(/Generating · \d+s/)).toBeInTheDocument();
+      expect(screen.getByText("Red mug")).toBeInTheDocument();
+    });
+  });
 });

@@ -14,6 +14,7 @@ interface AppShellProps {
   activeConversationId?: string | null;
   onSelectConversation?: (id: string) => void;
   onDeleteConversation?: (id: string) => void;
+  hasClaudeAnswered?: boolean;
 }
 
 export function AppShell({
@@ -27,6 +28,7 @@ export function AppShell({
   activeConversationId,
   onSelectConversation,
   onDeleteConversation,
+  hasClaudeAnswered,
 }: AppShellProps) {
   const [internalActiveSection, setInternalActiveSection] = useState<NavSection>("chat");
   const activeSection = controlledActiveSection ?? internalActiveSection;
@@ -86,6 +88,7 @@ export function AppShell({
         isOnline={isOnline}
         isDark={isDark}
         onToggleTheme={toggleTheme}
+        hasClaudeAnswered={hasClaudeAnswered}
       />
 
       {/* Conversation History Sidebar */}

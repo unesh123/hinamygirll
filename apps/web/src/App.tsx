@@ -518,6 +518,17 @@ export default function App() {
   // deterministic expression accent; it never classifies webcam/user emotion.
   const latestAssistantExpressionText = [...controller.messages].reverse().find((message) => message.role === "assistant")?.text;
 
+  const hasClaudeAnswered = useMemo(() => {
+    return controller.messages.some(
+      (m) =>
+        m.role === "assistant" &&
+        (m.plan?.resolvedModel?.toLowerCase().includes("claude") ||
+          m.plan?.resolvedProvider?.toLowerCase().includes("claude") ||
+          m.resolvedModel?.toLowerCase().includes("claude") ||
+          m.resolvedProvider?.toLowerCase().includes("claude"))
+    );
+  }, [controller.messages]);
+
   // Keep the first interactive paint light, then warm the local-only panels in
   // the background so opening Projects or Image Studio feels immediate.
   useEffect(() => {
@@ -938,6 +949,7 @@ export default function App() {
             onToggleHistory={() => setHistoryOpen((open) => !open)}
             historyOpen={historyOpen}
             activeConversationId={activeConversationId}
+            hasClaudeAnswered={hasClaudeAnswered}
           >
             {/* Unified Frontier TopBar V6 */}
             <TopBarV6
@@ -1035,6 +1047,7 @@ export default function App() {
                 onSend={(customText?: string, attachmentRole?: AttachmentRole) =>
                   submit(undefined, customText, attachmentRole)
                 }
+                onAddMessage={(msg) => controller.setMessages((prev) => [...prev, msg])}
                 onStop={handleStop}
                 disabled={controller.state !== "idle" && controller.state !== "thinking"}
                 isVoiceActive={live.active}

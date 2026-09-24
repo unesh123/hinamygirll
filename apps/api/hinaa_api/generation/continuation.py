@@ -42,6 +42,9 @@ __all__ = [
     "normalize_for_comparison",
     "seam_dedup",
     "SeamGuard",
+    "CollapseRun",
+    "detect_collapse",
+    "CollapseGuard",
     "ConsistencyIssue",
     "ConsistencyReport",
     "run_consistency_pass",
@@ -669,6 +672,134 @@ class SeamGuard:
 
 
 # ---------------------------------------------------------------------------
+# Degenerate repetition collapse
+# ---------------------------------------------------------------------------
+
+# A sampled brain that falls into a loop emits the same glyph or the same short
+# span until it burns the whole output budget ("固" hundreds of times, " the
+# the the…"). Nothing below 30 characters is unmistakable, which is what keeps
+# honest writing ("hahaha", "!!!!", a `----` rule, a 3-column table row) intact.
+_LETTER_RE = re.compile(r"[^\W\d_]")
+_MAX_UNIT_CHARS = 16
+_MIN_LETTER_RUN = 16
+_MIN_PERIODIC_REPEATS = 6
+_MIN_PERIODIC_CHARS = 30
+_SCAN_WINDOW_CHARS = 4_096
+
+
+@dataclass
+class CollapseRun:
+    """A repetition run sitting at the very end of a draft."""
+
+    unit: str
+    repeats: int
+
+    @property
+    def chars(self) -> int:
+        return len(self.unit) * self.repeats
+
+    def describe(self) -> str:
+        shown = self.unit if len(self.unit) <= 12 else self.unit[:12] + "…"
+        return f"{self.repeats}× {shown!r} ({self.chars} chars)"
+
+
+def _trailing_repeats(text: str, unit_len: int) -> int:
+    unit = text[-unit_len:]
+    repeats = 0
+    i = len(text)
+    while i >= unit_len and text[i - unit_len : i] == unit:
+        i -= unit_len
+        repeats += 1
+    return repeats
+
+
+def detect_collapse(text: str) -> CollapseRun | None:
+    """Return the degenerate repetition run ending ``text``, if there is one.
+
+    Only the tail is judged: a loop that already ended on its own is history,
+    and cutting mid-answer for something the model recovered from would delete
+    real content. The run's unit must contain a letter, so Markdown rules,
+    table pipes and ellipses are never mistaken for collapse.
+    """
+    tail = text[-_SCAN_WINDOW_CHARS:]
+    best: CollapseRun | None = None
+    for unit_len in range(1, _MAX_UNIT_CHARS + 1):
+        if unit_len > len(tail):
+            break
+        repeats = _trailing_repeats(tail, unit_len)
+        if repeats < 2:
+            continue
+        unit = tail[-unit_len:]
+        if not _LETTER_RE.search(unit):
+            continue
+        confirmed = repeats >= _MIN_LETTER_RUN if unit_len == 1 else (
+            repeats >= _MIN_PERIODIC_REPEATS and repeats * unit_len >= _MIN_PERIODIC_CHARS
+        )
+        if not confirmed:
+            continue
+        run = CollapseRun(unit=unit, repeats=repeats)
+        if best is None or run.chars > best.chars:
+            best = run
+    return best
+
+
+class CollapseGuard:
+    """Keeps a repetition collapse out of the text that reaches the browser.
+
+    A run is only unmistakable once it is ~30 characters long, so the tail of
+    the stream is held back by ``HOLD_CHARS``: the loop is confirmed inside
+    that window and never displayed. Once confirmed, everything after the run
+    is suppressed and the answer simply ends where the real content did — the
+    garbage is never shown, and nothing before it is lost.
+    """
+
+    HOLD_CHARS = 64
+
+    def __init__(self) -> None:
+        self.hold = ""
+        self.emitted = ""
+        self.collapsed = False
+        self.run: CollapseRun | None = None
+        self.suppressed_chars = 0
+
+    def feed(self, delta: str) -> str:
+        """Return the emit-safe text for this delta ('' while holding back)."""
+        if self.collapsed:
+            self.suppressed_chars += len(delta)
+            return ""
+        self.hold += delta
+        probe = self.emitted + self.hold
+        run = detect_collapse(probe)
+        if run is not None:
+            self.collapsed = True
+            self.run = run
+            # Cut exactly at the loop, not HOLD_CHARS before it.
+            release = max(0, min(len(self.hold), len(probe) - run.chars - len(self.emitted)))
+            head = self.hold[:release]
+            self.suppressed_chars += len(self.hold) - release
+            self.hold = ""
+            self._commit(head)
+            return head
+        keep = min(self.HOLD_CHARS, len(self.hold))
+        out = self.hold[: len(self.hold) - keep]
+        if out:
+            self.hold = self.hold[len(out) :]
+            self._commit(out)
+        return out
+
+    def finish(self) -> str:
+        """Release the held-back tail once the stream ends."""
+        out, self.hold = ("", self.hold) if self.collapsed else (self.hold, "")
+        if out:
+            self._commit(out)
+        return out
+
+    def _commit(self, text: str) -> None:
+        if text:
+            self.emitted = (self.emitted + text)[-_SCAN_WINDOW_CHARS:]
+
+
+# ---------------------------------------------------------------------------
 # Final consistency pass (directive §6, §37, §39)
 # ---------------------------------------------------------------------------
 
@@ -704,6 +835,8 @@ def run_consistency_pass(text: str, *, apply_repairs: bool = True) -> Consistenc
     """Verify structural consistency of a completed long output.
 
     Repairs ONLY unambiguous defects when ``apply_repairs`` is true:
+    - a degenerate repetition run at the end of the output (the loop is not
+      content, so cutting it loses nothing that a reader could use);
     - an unclosed code fence at end-of-generation (closing it is correct
       because generation is complete);
     - trailing mid-word/mid-sentence fragments on the final line are left
@@ -714,6 +847,17 @@ def run_consistency_pass(text: str, *, apply_repairs: bool = True) -> Consistenc
     """
     issues: list[ConsistencyIssue] = []
     repaired_text = text
+
+    # First, so an unclosed fence below isn't pushed past a wall of loops and
+    # so nothing downstream (spoken text, memory extraction) sees the run.
+    collapse = detect_collapse(repaired_text)
+    if collapse is not None:
+        detail = f"degenerate repetition at end of generation: {collapse.describe()}"
+        if apply_repairs:
+            repaired_text = repaired_text[: -collapse.chars].rstrip()
+            issues.append(ConsistencyIssue("DEGENERATE_COLLAPSE", detail, repaired=True))
+        else:
+            issues.append(ConsistencyIssue("DEGENERATE_COLLAPSE", detail, repaired=False))
 
     open_fences, brace_depth = _count_unbalanced(text)
     if open_fences:

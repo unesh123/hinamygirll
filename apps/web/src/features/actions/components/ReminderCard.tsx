@@ -112,8 +112,8 @@ export function ReminderCard({ data, onCommit, compact = false }: ReminderCardPr
         <span>{displayWhen}</span>
       </div>
 
-      {/* Commit button */}
-      {onCommit && (
+      {/* Commit button or Thread state */}
+      {onCommit ? (
         <button
           type="button"
           onClick={() => onCommit({ title: displayTitle, when: displayWhen, isUrgent })}
@@ -134,8 +134,39 @@ export function ReminderCard({ data, onCommit, compact = false }: ReminderCardPr
           }}
         >
           <Check size={15} strokeWidth={2.5} />
-          <span>Set Reminder ↵</span>
+          <span>Set Reminder (Not Wired) ↵</span>
         </button>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: "rgba(16, 185, 129, 0.08)",
+            border: "1px solid rgba(16, 185, 129, 0.2)",
+            marginTop: 4,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8rem", color: "#059669", fontWeight: 700 }}>
+            <Check size={14} />
+            <span>Reminder active in thread</span>
+          </div>
+          <span
+            style={{
+              fontSize: "0.72rem",
+              color: "#64748b",
+              fontWeight: 750,
+              background: "rgba(0,0,0,0.06)",
+              padding: "2px 8px",
+              borderRadius: 4,
+              letterSpacing: "0.02em",
+            }}
+          >
+            NOT WIRED
+          </span>
+        </div>
       )}
     </div>
   );

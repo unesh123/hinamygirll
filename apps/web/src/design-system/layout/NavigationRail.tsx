@@ -41,6 +41,7 @@ interface NavigationRailProps {
   isOnline?: boolean;
   isDark?: boolean;
   onToggleTheme?: () => void;
+  hasClaudeAnswered?: boolean;
 }
 
 export function NavigationRail({
@@ -52,6 +53,7 @@ export function NavigationRail({
   isOnline = false,
   isDark = false,
   onToggleTheme,
+  hasClaudeAnswered,
 }: NavigationRailProps) {
   const isChatActive = active === "chat";
   const isTalkActive = active === "talk" || active === "voice";
@@ -62,14 +64,24 @@ export function NavigationRail({
 
   // Never assert health the rail has not measured — these literals stayed green
   // through a total backend outage.
+  // Rule 4: Remove the fake "claude mode" / All systems nominal line unless Claude actually answered.
+  const isClaudeMode = runtime.activeMode?.toLowerCase() === "claude";
+  const isUnverifiedClaude = isClaudeMode && hasClaudeAnswered === false;
+
   const status = capsLoading
     ? { dot: "#94a3b8", headline: "Checking systems…", detail: "Probing /v1/capabilities" }
     : backendOk
-      ? {
-          dot: "#10b981",
-          headline: "All systems nominal",
-          detail: `${configuredProviders} providers · ${runtime.activeMode} mode`,
-        }
+      ? isUnverifiedClaude
+        ? {
+            dot: "#94a3b8",
+            headline: "Workspace ready",
+            detail: `${configuredProviders} providers · awaiting turn`,
+          }
+        : {
+            dot: "#10b981",
+            headline: "All systems nominal",
+            detail: `${configuredProviders} providers · ${runtime.activeMode} mode`,
+          }
       : {
           dot: "#ef4444",
           headline: "Backend unreachable",

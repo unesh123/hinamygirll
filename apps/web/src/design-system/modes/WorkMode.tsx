@@ -40,7 +40,16 @@ import { PowerUpMentions, type ContextItem, type CommandItem } from "../../compo
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
-import { useActionEngine, HinaSurface, HinaActionStack, ComposerSuggestionStrip } from "../../features/actions";
+import {
+  useActionEngine,
+  HinaSurface,
+  ComposerSuggestionStrip,
+  ReminderCard,
+  ImageJobCard,
+  SplitCard,
+  matchLocalActionIntent,
+  type HinaActionDraft,
+} from "../../features/actions";
 
 
 /* Local command registry fallback - used when /api/v1/commands is unavailable.
@@ -99,6 +108,7 @@ interface WorkModeProps {
   input: string;
   onInputChange: (value: string) => void;
   onSend: (customText?: string, attachmentRole?: AttachmentRole) => void;
+  onAddMessage?: (message: TranscriptMessage) => void;
   onStop: () => void;
   disabled: boolean;
   isVoiceActive: boolean;
@@ -172,6 +182,7 @@ export function WorkMode({
   input,
   onInputChange,
   onSend,
+  onAddMessage,
   onStop,
   disabled,
   isVoiceActive,
@@ -378,6 +389,26 @@ export function WorkMode({
     updateCommittedAction,
   } = useActionEngine(input, () => onInputChange(""));
 
+  const handleCommitAction = useCallback(
+    (draft: HinaActionDraft) => {
+      commitAction(draft);
+      if (onAddMessage) {
+        const data = draft.fields?.data as any;
+        onAddMessage({
+          id: `action-reminder-${Date.now()}`,
+          role: "assistant",
+          text: `Reminder scheduled: ${data?.title || "Reminder"} · ${data?.when || ""}`,
+          createdAt: new Date().toISOString(),
+          actionDraft: {
+            ...draft,
+            status: "success",
+          },
+        });
+      }
+    },
+    [commitAction, onAddMessage]
+  );
+
   const handleComposerSend = useCallback(
     (options?: {
       mode?: ActionMode;
@@ -411,8 +442,45 @@ export function WorkMode({
       }
 
       onSend(text, options?.attachmentRole);
+
+      // Requirements 1 & 2: Object stays IN THE THREAD
+      const detected = matchLocalActionIntent(text);
+      if (detected && onAddMessage) {
+        const data = detected.fields?.data as any;
+        if (detected.intent === "reminder.create") {
+          onAddMessage({
+            id: `action-reminder-${Date.now()}`,
+            role: "assistant",
+            text: `Reminder scheduled: ${data?.title || "Reminder"} · ${data?.when || ""}`,
+            createdAt: new Date().toISOString(),
+            actionDraft: {
+              ...detected,
+              status: "success",
+            },
+          });
+        } else if (detected.intent === "image.job") {
+          onAddMessage({
+            id: `action-image-${Date.now()}`,
+            role: "assistant",
+            text: `Generating image for "${data?.prompt || text}"`,
+            createdAt: new Date().toISOString(),
+            actionDraft: {
+              ...detected,
+              status: "running",
+              fields: {
+                ...detected.fields,
+                data: {
+                  ...data,
+                  stage: "generating",
+                  elapsedSeconds: 0,
+                },
+              },
+            },
+          });
+        }
+      }
     },
-    [input, attachedImage, goalModeEnabled, onSend, suggestion, activeDraft, dismissSuggestion, dismissDraft]
+    [input, attachedImage, goalModeEnabled, onSend, suggestion, activeDraft, dismissSuggestion, dismissDraft, onAddMessage]
   );
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
@@ -1374,20 +1442,8 @@ export function WorkMode({
             <HinaSurface
               draft={activeDraft}
               compact={isMobile}
-              onCommit={(draft) => commitAction(draft)}
+              onCommit={(draft) => handleCommitAction(draft)}
               onDismiss={dismissDraft}
-            />
-          </div>
-        )}
-
-        {/* Stack Choreography (Law 7): Persistent Action Stack */}
-        {committedActions.length > 0 && !activeDraft && (
-          <div style={{ marginBottom: 8, display: "flex", justifyContent: "center", width: "100%" }}>
-            <HinaActionStack
-              items={committedActions}
-              compact={isMobile}
-              onRemoveItem={removeCommittedAction}
-              onUpdateItem={updateCommittedAction}
             />
           </div>
         )}
@@ -1504,6 +1560,34 @@ function WorkMessage({
         {message.toolResults.map((tr, idx) => (
           <GenericResultRenderer key={`${tr.toolName}-${idx}`} toolName={tr.toolName} result={tr.result} />
         ))}
+      </div>
+    );
+  };
+
+  // Render interactive action objects (Reminder, Image Job, Split) directly in the thread
+  const renderActionObject = () => {
+    const draft = message.actionDraft;
+    if (!draft) return null;
+    return (
+      <div style={{ marginTop: 8, paddingLeft: isUser ? 0 : 34, width: "100%", maxWidth: 540 }}>
+        {draft.intent === "reminder.create" && (
+          <ReminderCard
+            data={draft.fields?.data as any}
+            compact={false}
+          />
+        )}
+        {draft.intent === "image.job" && (
+          <ImageJobCard
+            data={draft.fields?.data as any}
+            compact={false}
+          />
+        )}
+        {draft.intent === "split" && (
+          <SplitCard
+            data={draft.fields?.data as any}
+            compact={false}
+          />
+        )}
       </div>
     );
   };
@@ -1717,6 +1801,9 @@ function WorkMessage({
           </button>
         </div>
       )}
+
+      {/* Action Object in thread */}
+      {!isUser && renderActionObject()}
 
       {/* Tool Results with Source Cards */}
       {!isUser && renderToolResults()}

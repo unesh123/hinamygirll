@@ -68,6 +68,7 @@ export interface TranscriptMessage {
   toolResults?: Array<{ toolName: string; result: any }>;
   imageUrl?: string | null;
   attachments?: MessageAttachment[];
+  actionDraft?: any;
   requestedProvider?: string | null;
   requestedModel?: string | null;
   resolvedProvider?: string | null;

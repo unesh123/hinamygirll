@@ -22,6 +22,7 @@ from enum import Enum
 from typing import Protocol
 
 from .continuation import (
+    CollapseGuard,
     ContinuationStatus,
     GenerationContinuationState,
     SeamGuard,
@@ -333,6 +334,16 @@ class GenerationOrchestrator:
         segment_no = 0
         last_evidence = None
         seam_guard = SeamGuard()
+        collapse_guard = CollapseGuard()
+
+        async def _release(text: str) -> None:
+            """Emit only what the collapse guard vouches for."""
+            if not text:
+                return
+            safe = collapse_guard.feed(text)
+            if safe:
+                await emit_delta(safe)
+                emitted_chunks.append(safe)
 
         while True:
             if segment_no == 0:
@@ -361,20 +372,51 @@ class GenerationOrchestrator:
                 segment_chars += len(delta)
                 events += 1
                 if segment_no == 0:
-                    await emit_delta(delta)
-                    emitted_chunks.append(delta)
+                    await _release(delta)
                 else:
-                    emit_text = seam_guard.feed(delta)
-                    if emit_text:
-                        await emit_delta(emit_text)
-                        emitted_chunks.append(emit_text)
+                    await _release(seam_guard.feed(delta))
+                if collapse_guard.collapsed:
+                    break
 
-            if segment_no > 0:
-                flush = seam_guard.finish_segment()
-                if flush:
-                    await emit_delta(flush)
-                    emitted_chunks.append(flush)
-                self.deduped_total += seam_guard.deduped_chars
+            if collapse_guard.collapsed:
+                self.state.register_segment(segment_chars)
+                raw_reason = (holder or {}).get("value")
+                reason = map_finish_reason(raw_reason, family=family)
+                self.segment_results.append(
+                    SegmentResult(text="".join(chunks), finish_reason=reason, events=events)
+                )
+                segment_no += 1
+                run = collapse_guard.run
+                detail = (
+                    f"degenerate repetition: {run.describe()} suppressed after "
+                    f"{collapse_guard.suppressed_chars} characters"
+                )
+                self.trace.segments.append(
+                    SegmentTraceRecord(
+                        segment_number=segment_no,
+                        finish_reason=reason.value,
+                        characters=len("".join(chunks)),
+                        seam_overlap_removed=seam_guard.deduped_chars if segment_no > 1 else 0,
+                        continuation_decision=False,
+                        decision_reason="degenerate_collapse",
+                        decision_evidence={
+                            "unit": run.unit,
+                            "repeats": run.repeats,
+                            "suppressed_chars": collapse_guard.suppressed_chars,
+                        },
+                        explanation=(
+                            f"WHY DID HINA STOP? -> {detail}. Another resume would "
+                            "loop again, so the answer ends with the real content."
+                        ),
+                    )
+                )
+                logger.warning(
+                    "generation %s collapsed into repetition -> %s",
+                    self.trace.generation_id,
+                    detail,
+                )
+                self.state.status = ContinuationStatus.TRUNCATED
+                break
 
             self.state.register_segment(segment_chars)
             raw_reason = (holder or {}).get("value")
