@@ -17,6 +17,7 @@ from pydantic import Field, ValidationError
 
 from .config import Settings
 from .errors import HinaaError
+from .response.notation import MathNotationStream, ascii_math
 from . import realtime_tickets
 from .models import CompanionId, Language, ProviderMode, StrictModel, TurnRequest
 from .services import ConversationService
@@ -505,8 +506,15 @@ class RealtimeGateway:
 
                 streamed_delivery_tail = asyncio.create_task(deliver_after_previous())
 
+            # One converter for both surfaces: what he sees streaming in and what
+            # she is about to speak come off the same deltas.
+            notation_stream = MathNotationStream()
+
             async def emit_delta(delta: str) -> None:
                 nonlocal first_delta_ms, sentence_buffer
+                delta = ascii_math(notation_stream.feed(delta))
+                if not delta:
+                    return
                 if first_delta_ms is None:
                     first_delta_ms = int((perf_counter() - llm_started) * 1000)
                 await self._send_current(
@@ -557,6 +565,18 @@ class RealtimeGateway:
                 user_id=session.user_id,
             )
             llm_ms = int((perf_counter() - llm_started) * 1000)
+            # Whatever was still held back needs a resolving delta that never
+            # came. Send it and let the trailing-phrase block below speak it.
+            tail = ascii_math(notation_stream.flush())
+            if tail:
+                await self._send_current(
+                    websocket,
+                    session,
+                    generation,
+                    "assistant.text.delta",
+                    {"delta": tail},
+                )
+                sentence_buffer += tail
             await self._send_current(
                 websocket,
                 session,

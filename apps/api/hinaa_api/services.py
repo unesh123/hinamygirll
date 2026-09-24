@@ -16,6 +16,7 @@ from .config import Settings
 from .circuit_breaker import peek_circuit_breaker
 from .brain_ledger import fingerprint_for, record_call, row_for_brain
 from .capabilities import brain_accepts_images
+from .response.notation import MathNotationStream, ascii_math, plainify_math
 from .errors import HinaaError
 from .reachability import probe_gateway_models
 from .memory import SessionMemory
@@ -681,6 +682,12 @@ def _apply_response_quality_guard(
     """Normalize a completed plan without changing meaning or tool requests."""
     clean_display, display_laughed = _clean_natural_speech_and_display(plan.displayText)
     clean_spoken, spoken_laughed = _clean_natural_speech_and_display(plan.spokenText)
+    # She answers chemistry and calculus in LaTeX and no surface of hers can
+    # typeset it, so the markup becomes readable here -- once, for the bubble,
+    # the saved document, the notification, and her voice (in ASCII, because a
+    # speech engine has to guess at a subscript).
+    clean_display = plainify_math(clean_display)
+    clean_spoken = ascii_math(plainify_math(clean_spoken))
     # Speech only — the document keeps its markdown, her voice must not read it.
     clean_spoken = _speech_safe(clean_spoken)
 
@@ -4178,9 +4185,16 @@ class ConversationService:
         # wire the instant they are produced instead of waiting for the whole
         # plan, so the interface reveals web search animations and text continuously.
         queue: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue()
+        # A delta is not a word boundary: `$\text{CO` can arrive as one chunk and
+        # `_2}$` as the next. The guard already converted the final text, so the
+        # stream holds a trailing open construct back until it resolves, which
+        # keeps the typed-out bubble identical to what lands in it.
+        notation_stream = MathNotationStream()
 
         async def emit_delta(delta: str) -> None:
-            await queue.put(("delta", delta))
+            safe = notation_stream.feed(delta)
+            if safe:
+                await queue.put(("delta", safe))
 
         async def emit_event(name: str, payload: dict[str, Any]) -> None:
             await queue.put(("event", (name, payload)))
@@ -4235,6 +4249,12 @@ class ConversationService:
                             event_name, payload = data
                             yield self._event(event_name, payload)
                 break
+            # Anything still held back was never followed by a resolving delta;
+            # ship it before the remainder comparison so it cannot be emitted twice.
+            tail = notation_stream.flush()
+            if tail:
+                emitted.append(tail)
+                yield _make_delta_event(tail)
             result = await turn_task
             # Guarantee full display text even if a provider finished without
             # streaming (or emitted a different final polish than its deltas).
