@@ -100,6 +100,8 @@ export interface ComposerV6Props {
    * lines and left a 393px screen with ~230px of visible transcript.
    */
   compact?: boolean;
+  onTabAdopt?: () => boolean | void;
+  onEscDismiss?: () => void;
 }
 
 export const ComposerV6: React.FC<ComposerV6Props> = ({
@@ -134,6 +136,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   onSelectAuto,
   onSelectModel,
   backendConnected = false,
+  onTabAdopt,
+  onEscDismiss,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -211,6 +215,18 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   }, []);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Tab") {
+      if (onTabAdopt) {
+        const adopted = onTabAdopt();
+        if (adopted !== false) {
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+    if (e.key === "Escape") {
+      onEscDismiss?.();
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (isGenerating) {

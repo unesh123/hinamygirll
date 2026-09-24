@@ -200,8 +200,14 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
     }
     return (
       <section style={{ marginTop: 10, display: 'grid', gap: 9 }} aria-label="Public image search results">
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--text-primary)', fontSize: 12, fontWeight: 750 }}>
-          <span>Public image results</span><span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{images.length} result{images.length === 1 ? '' : 's'}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, color: 'var(--text-primary)', fontSize: 12, fontWeight: 750 }}>
+            <span>🔍 Web Image Search <span style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: 'rgba(245, 158, 11, 0.15)', padding: '2px 6px', borderRadius: 4, marginLeft: 6 }}>Search only — generation did not run</span></span>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{images.length} web source{images.length === 1 ? '' : 's'}</span>
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+            Public web search thumbnails for reference. Original generation did not run.
+          </span>
         </div>
         {selectionStatus && (
           <div role="status" style={{ fontSize: 11, color: 'var(--success, #10b981)', fontWeight: 600 }}>

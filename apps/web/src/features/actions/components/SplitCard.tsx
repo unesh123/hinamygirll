@@ -36,10 +36,10 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
       style={{
         padding: compact ? "12px 14px" : "16px 20px",
         borderRadius: "14px",
-        background: "var(--bg-surface-raised, #18202a)",
-        border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
-        color: "#ffffff",
+        background: "var(--bg-surface-raised, #ffffff)",
+        border: "1px solid var(--border-default, #e2e8f0)",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04)",
+        color: "var(--text-primary, #0f172a)",
         display: "flex",
         flexDirection: "column",
         gap: "12px",
@@ -55,8 +55,8 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
               width: 28,
               height: 28,
               borderRadius: 8,
-              background: "rgba(79, 185, 137, 0.15)",
-              color: "#4fb989",
+              background: "rgba(16, 185, 129, 0.15)",
+              color: "#059669",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -64,11 +64,11 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
           >
             <Users size={16} />
           </div>
-          <span style={{ fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.02em" }}>
+          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-primary, #0f172a)", letterSpacing: "0.02em" }}>
             Split Bill
           </span>
         </div>
-        <span style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.5)", fontWeight: 500 }}>
+        <span style={{ fontSize: "0.82rem", color: "var(--text-secondary, #475569)", fontWeight: 600 }}>
           Total: {data.currency}
           {totalWithTip.toLocaleString()}
         </span>
@@ -80,24 +80,24 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
           display: "flex",
           alignItems: "baseline",
           justifyContent: "space-between",
-          padding: "10px 14px",
+          padding: "12px 16px",
           borderRadius: 10,
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.05)",
+          background: "var(--surface-subtle, rgba(0,0,0,0.03))",
+          border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
         }}
       >
         <div>
-          <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.74rem", color: "var(--text-secondary, #475569)", fontWeight: 600, textTransform: "uppercase" }}>
             Each person pays
           </div>
           <motion.div
             animate={ticking ? HINA_MOTION.tick : { scale: 1 }}
             style={{
-              fontSize: "1.75rem",
+              fontSize: "1.85rem",
               fontWeight: 800,
-              color: "#4fb989",
+              color: "#059669",
               lineHeight: 1.1,
-              marginTop: 2,
+              marginTop: 3,
             }}
           >
             {data.currency}
@@ -115,9 +115,9 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
               width: 32,
               height: 32,
               borderRadius: 8,
-              background: "rgba(255,255,255,0.08)",
-              border: "none",
-              color: "#ffffff",
+              background: "var(--surface-subtle, rgba(0,0,0,0.06))",
+              border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))",
+              color: "var(--text-primary, #0f172a)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -127,7 +127,7 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
           >
             <Minus size={15} />
           </button>
-          <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: "1rem" }}>
+          <span style={{ minWidth: 20, textAlign: "center", fontWeight: 750, fontSize: "1.05rem", color: "var(--text-primary, #0f172a)" }}>
             {people}
           </span>
           <button
@@ -137,9 +137,9 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
               width: 32,
               height: 32,
               borderRadius: 8,
-              background: "rgba(255,255,255,0.08)",
-              border: "none",
-              color: "#ffffff",
+              background: "var(--surface-subtle, rgba(0,0,0,0.06))",
+              border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))",
+              color: "var(--text-primary, #0f172a)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -153,18 +153,18 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
 
       {/* Tip presets */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.4)", marginRight: 4 }}>Tip:</span>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary, #475569)", fontWeight: 600, marginRight: 4 }}>Tip:</span>
         {[0, 10, 15, 20].map((tip) => (
           <button
             key={tip}
             type="button"
             onClick={() => handleTipChange(tip)}
             style={{
-              padding: "3px 9px",
+              padding: "4px 10px",
               borderRadius: 6,
-              background: tipPercent === tip ? "#4fb989" : "rgba(255,255,255,0.06)",
-              color: tipPercent === tip ? "#000000" : "rgba(255,255,255,0.7)",
-              border: "none",
+              background: tipPercent === tip ? "#059669" : "var(--surface-subtle, rgba(0,0,0,0.05))",
+              color: tipPercent === tip ? "#ffffff" : "var(--text-secondary, #475569)",
+              border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
               fontSize: "0.75rem",
               fontWeight: 650,
               cursor: "pointer",
@@ -194,18 +194,18 @@ export function SplitCard({ data, onCommit, compact = false }: SplitCardProps) {
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
-            padding: "8px 14px",
+            padding: "9px 14px",
             borderRadius: 8,
-            background: "#4fb989",
-            color: "#000000",
+            background: "#059669",
+            color: "#ffffff",
             border: "none",
-            fontWeight: 700,
-            fontSize: "0.82rem",
+            fontWeight: 750,
+            fontSize: "0.84rem",
             cursor: "pointer",
             marginTop: 4,
           }}
         >
-          <Check size={14} />
+          <Check size={15} strokeWidth={2.5} />
           <span>Save Split ↵</span>
         </button>
       )}

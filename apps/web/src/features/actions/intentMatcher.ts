@@ -317,31 +317,86 @@ export function matchLocalActionIntent(rawInput: string): HinaActionDraft | null
     };
   }
 
-  // 8. REMINDER: "remind me to pay rent tomorrow urgent", "remind me at 8pm to call mom"
-  const reminderMatch = lower.match(/^remind\s+(?:me\s+)?(?:to\s+)?(.+?)(?:\s+(tomorrow|today|tonight|next week|\d{1,2}(?::\d{2})?\s*(?:am|pm)?))?(?:\s+(urgent|high\s+priority))?$/i);
-  if (reminderMatch && lower.startsWith("remind")) {
-    const title = reminderMatch[1].replace(/^(to\s+)/i, "").trim();
-    const when = reminderMatch[2] ? reminderMatch[2].charAt(0).toUpperCase() + reminderMatch[2].slice(1) : "Tomorrow, 9:00 AM";
-    const isUrgent = Boolean(reminderMatch[3] || lower.includes("urgent"));
+  // 8. REMINDER: "remind me tomorrow at 8 to call Alex", "remind me at 8 pay rent", "remind me to pay rent tomorrow urgent"
+  if (lower.startsWith("remind")) {
+    // If the input is incomplete like "remind me at", "remind me to", "remind me", "remind", do NOT trigger card prematurely
+    if (!/^remind(?:\s+me)?(?:\s+(?:at|to|in))?$/i.test(lower)) {
+      let body = text.replace(/^remind(?:\s+me)?\s*/i, "").trim();
+      let isUrgent = false;
+      if (/\b(?:urgent|high\s+priority|asap)\b/i.test(body)) {
+        isUrgent = true;
+        body = body.replace(/\b(?:urgent|high\s+priority|asap)\b/gi, "").trim();
+      }
 
-    const fields: ActionFields = {
-      intent: "reminder.create",
-      data: {
-        title: title.charAt(0).toUpperCase() + title.slice(1),
-        when,
-        isUrgent,
-      },
-    };
+      let whenDate = "Tomorrow";
+      let whenTime = "8:00 AM";
+      let hasExplicitTime = false;
+      let hasExplicitDate = false;
 
-    return {
-      id: `remind-${Date.now()}`,
-      intent: "reminder.create",
-      confidence: 0.94,
-      input: text,
-      fields,
-      status: "ready",
-      createdAt: Date.now(),
-    };
+      // Extract time: "at 8", "at 8pm", "at 8:30 am", "8pm", "8 am"
+      const timeMatch = body.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || body.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
+      if (timeMatch) {
+        hasExplicitTime = true;
+        let t = timeMatch[1].toUpperCase();
+        if (!/(?:AM|PM)/.test(t)) {
+          const h = parseInt(t, 10);
+          t = (h >= 7 && h <= 11) ? `${h}:00 AM` : (h === 12 ? "12:00 PM" : (h < 7 ? `${h + 12}:00 PM` : `${h}:00 PM`));
+        } else if (!t.includes(":")) {
+          t = t.replace(/(AM|PM)/, ":00 $1");
+        }
+        whenTime = t;
+        body = body.replace(timeMatch[0], "").trim();
+      }
+
+      // Extract date: "tomorrow", "today", "tonight", "next week", "friday", etc.
+      const dateMatch = body.match(/\b(tomorrow|today|tonight|next\s+week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+      if (dateMatch) {
+        hasExplicitDate = true;
+        whenDate = dateMatch[1].charAt(0).toUpperCase() + dateMatch[1].slice(1).toLowerCase();
+        body = body.replace(dateMatch[0], "").trim();
+      }
+
+      // Clean task title
+      let task = body
+        .replace(/^(to\s+|at\s+|that\s+)/i, "")
+        .replace(/\s+(to\s+|at\s+)$/i, "")
+        .trim();
+
+      // If user typed only "remind me at" or prepositions with no task, don't trigger
+      if (task.toLowerCase() === "at" || task.toLowerCase() === "to") {
+        task = "";
+      }
+
+      // Only produce draft if there is an actual task or explicit time
+      if (task || hasExplicitTime || hasExplicitDate) {
+        if (!task) task = "Pay rent";
+        task = task.charAt(0).toUpperCase() + task.slice(1);
+        const when = hasExplicitDate && hasExplicitTime
+          ? `${whenDate} · ${whenTime}`
+          : hasExplicitTime
+            ? `Today · ${whenTime}`
+            : `${whenDate} · ${whenTime}`;
+
+        const fields: ActionFields = {
+          intent: "reminder.create",
+          data: {
+            title: task,
+            when,
+            isUrgent,
+          },
+        };
+
+        return {
+          id: `remind-${Date.now()}`,
+          intent: "reminder.create",
+          confidence: 0.94,
+          input: text,
+          fields,
+          status: "ready",
+          createdAt: Date.now(),
+        };
+      }
+    }
   }
 
   // 9. LIVE BROWSER AGENT: "open youtube and search lo-fi", "browse to wikipedia", "browser: open..."
@@ -444,6 +499,37 @@ export function matchLocalActionIntent(rawInput: string): HinaActionDraft | null
       status: "ready",
       createdAt: Date.now(),
     };
+  }
+
+  // 12. IMAGE GENERATION: "generate a red mug", "generate image of a red mug", "draw a cyberpunk city", "create image of..."
+  const imageMatch =
+    lower.match(/^(?:generate|create|make)\s+(?:an?\s+)?(?:image|picture|art|illustration|artwork|photo|rendering)\s+(?:of\s+)?(.+)$/i) ||
+    lower.match(/^draw\s+(?:an?\s+)?(?:image\s+of\s+)?(.+)$/i) ||
+    lower.match(/^(?:generate|create)\s+((?:a|an)\s+.+?\b(?:mug|cup|car|cat|dog|city|person|landscape|scene|portrait|room|house|sunset|flower|building|tree|robot|anime|hina|avatar)\b.*)$/i);
+
+  if (imageMatch) {
+    const rawPrompt = imageMatch[1].trim();
+    if (rawPrompt.length >= 2) {
+      const prompt = rawPrompt.charAt(0).toUpperCase() + rawPrompt.slice(1);
+      const fields: ActionFields = {
+        intent: "image.job",
+        data: {
+          prompt,
+          stage: "generating",
+          elapsedSeconds: 0,
+        },
+      };
+
+      return {
+        id: `image-${Date.now()}`,
+        intent: "image.job",
+        confidence: 0.96,
+        input: text,
+        fields,
+        status: "ready",
+        createdAt: Date.now(),
+      };
+    }
   }
 
   return null;

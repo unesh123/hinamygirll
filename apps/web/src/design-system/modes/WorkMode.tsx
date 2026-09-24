@@ -40,7 +40,7 @@ import { PowerUpMentions, type ContextItem, type CommandItem } from "../../compo
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
-import { useActionEngine, HinaSurface, HinaActionStack } from "../../features/actions";
+import { useActionEngine, HinaSurface, HinaActionStack, ComposerSuggestionStrip } from "../../features/actions";
 
 
 /* Local command registry fallback - used when /api/v1/commands is unavailable.
@@ -365,10 +365,13 @@ export function WorkMode({
 
   const activeTopic = localTopic !== null ? (localTopic || null) : (searchQuery || (plan as any)?.topic || null);
 
-  // HINA Action Engine & Motion System ("The Walk")
+  // HINA Action Engine & Motion System ("The Walk" + Non-blocking Suggestion Strip)
   const {
+    suggestion,
     activeDraft,
     committedActions,
+    adoptSuggestion,
+    dismissSuggestion,
     commitAction,
     dismissDraft,
     removeCommittedAction,
@@ -382,14 +385,17 @@ export function WorkMode({
       attachmentRole?: AttachmentRole;
       isGoalMode?: boolean;
     }) => {
-      // If an interactive action card is walking, commit it into the stack
-      if (activeDraft) {
-        commitAction(activeDraft);
-        return;
-      }
-
+      // Flow B: Enter ALWAYS sends normal chat text! Never block or hijack user input!
       let text = input.trim();
       if (!text && !attachedImage) return;
+
+      // Clear any pending suggestion strip or draft so conversation proceeds cleanly
+      if (suggestion) {
+        dismissSuggestion();
+      }
+      if (activeDraft) {
+        dismissDraft();
+      }
 
       const mode = options?.mode;
       const isGoal = options?.isGoalMode ?? goalModeEnabled;
@@ -406,7 +412,7 @@ export function WorkMode({
 
       onSend(text, options?.attachmentRole);
     },
-    [input, attachedImage, goalModeEnabled, onSend, activeDraft, commitAction]
+    [input, attachedImage, goalModeEnabled, onSend, suggestion, activeDraft, dismissSuggestion, dismissDraft]
   );
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel);
@@ -1350,7 +1356,19 @@ export function WorkMode({
           </div>
         )}
 
-        {/* The Walk: Live Morphing Action Surface (Law 1, 4, 5) */}
+        {/* P0 Suggestion Layer: Non-blocking subtle hint while typing */}
+        {suggestion && !activeDraft && (
+          <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
+            <ComposerSuggestionStrip
+              suggestion={suggestion}
+              compact={isMobile}
+              onAdopt={adoptSuggestion}
+              onDismiss={dismissSuggestion}
+            />
+          </div>
+        )}
+
+        {/* The Walk: Live Morphing Action Surface (Only when adopted via Tab or Click) */}
         {activeDraft && (
           <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", width: "100%" }}>
             <HinaSurface
@@ -1378,6 +1396,17 @@ export function WorkMode({
         <ComposerV6
           compact={isMobile}
           value={input}
+          onTabAdopt={() => {
+            if (suggestion) {
+              adoptSuggestion();
+              return true;
+            }
+            return false;
+          }}
+          onEscDismiss={() => {
+            if (suggestion) dismissSuggestion();
+            if (activeDraft) dismissDraft();
+          }}
           onChange={(val) => {
             onInputChange(val);
             const cursorPos = val.length;

@@ -89,9 +89,12 @@ export interface ColorFields {
 export interface ImageJobFields {
   prompt: string;
   stage: "seeing" | "generating" | "saved";
-  progressPercent: number;
+  progressPercent?: number;
+  elapsedSeconds?: number;
   thumbnailUrl?: string;
   resultUrl?: string;
+  isSearchFallback?: boolean;
+  note?: string;
 }
 
 export interface PdfDocFields {
@@ -161,4 +164,30 @@ export interface HinaCommittedAction {
   summaryText: string;
   badgeLabel: string;
   isExpanded?: boolean;
+}
+
+// P1 Universal HinaObject Runtime Model
+export type HinaObjectState = "suggested" | "draft" | "running" | "completed" | "failed";
+
+export interface HinaArtifact {
+  id: string;
+  type: string;
+  url?: string;
+  title?: string;
+  data?: any;
+}
+
+export interface HinaObject {
+  id: string;
+  capabilityId: string;
+  state: HinaObjectState;
+  fields: Record<string, any>;
+  artifacts?: HinaArtifact[];
+  revisions?: any[];
+  title?: string;
+  description?: string;
+  suggestionText?: string;
+  badgeLabel?: string;
+  createdAt: number;
+  updatedAt?: number;
 }

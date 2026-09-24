@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { HinaActionDraft, HinaCommittedAction, ActionFields } from "./types";
+import type { HinaActionDraft, HinaCommittedAction, HinaObject } from "./types";
 import { matchLocalActionIntent } from "./intentMatcher";
 import { HINA_TIMINGS } from "../motion/MOTION";
 
 const STORAGE_KEY = "hinaa_action_stack_v1";
 
 export function useActionEngine(input: string, onClearInput?: () => void) {
+  // P0 Suggestion layer: Non-blocking subtle hint while typing
+  const [suggestion, setSuggestion] = useState<HinaObject | null>(null);
+
+  // Adopted interactive draft (Only shown when explicitly adopted via Tab or click)
   const [activeDraft, setActiveDraft] = useState<HinaActionDraft | null>(null);
+
   const [committedActions, setCommittedActions] = useState<HinaCommittedAction[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -31,6 +36,7 @@ export function useActionEngine(input: string, onClearInput?: () => void) {
   // Debounced fast local intent matching (< 80ms perceived parse)
   useEffect(() => {
     if (!input || input.trim().length < 3) {
+      setSuggestion(null);
       if (activeDraft) setActiveDraft(null);
       lastParsedInputRef.current = "";
       return;
@@ -42,18 +48,33 @@ export function useActionEngine(input: string, onClearInput?: () => void) {
       lastParsedInputRef.current = input;
       const detected = matchLocalActionIntent(input);
       if (detected) {
-        // Keep ID stable if the intent matches existing draft
-        setActiveDraft((prev) => {
-          if (prev && prev.intent === detected.intent) {
-            return {
-              ...detected,
-              id: prev.id, // preserve DOM layoutId
-            };
-          }
-          return detected;
-        });
+        const { summary, badge } = getSummaryForDraft(detected);
+        const newSuggestion: HinaObject = {
+          id: detected.id,
+          capabilityId: detected.intent,
+          state: "suggested",
+          fields: detected.fields.data,
+          artifacts: [],
+          revisions: [],
+          title: badge,
+          description: summary,
+          suggestionText: summary,
+          badgeLabel: badge,
+          createdAt: detected.createdAt,
+        };
+
+        // If user already adopted a draft of the same intent, update activeDraft live
+        if (activeDraft && activeDraft.intent === detected.intent) {
+          setActiveDraft({
+            ...detected,
+            id: activeDraft.id,
+          });
+        } else if (!activeDraft) {
+          // Otherwise, only show suggestion strip! Do NOT hijack composer into full card!
+          setSuggestion(newSuggestion);
+        }
       } else {
-        setActiveDraft(null);
+        setSuggestion(null);
       }
     }, HINA_TIMINGS.localParseDebounce);
 
@@ -152,6 +173,21 @@ export function useActionEngine(input: string, onClearInput?: () => void) {
     [activeDraft, onClearInput]
   );
 
+  // Adopt suggestion into active draft (Flow A: Tab / Click)
+  const adoptSuggestion = useCallback(() => {
+    if (!suggestion) return;
+    const detected = matchLocalActionIntent(input);
+    if (detected) {
+      setActiveDraft(detected);
+      setSuggestion(null);
+    }
+  }, [suggestion, input]);
+
+  // Dismiss suggestion strip (Esc / click close)
+  const dismissSuggestion = useCallback(() => {
+    setSuggestion(null);
+  }, []);
+
   // Dismiss / collapse draft
   const dismissDraft = useCallback(() => {
     setActiveDraft(null);
@@ -178,8 +214,11 @@ export function useActionEngine(input: string, onClearInput?: () => void) {
   }, []);
 
   return {
+    suggestion,
     activeDraft,
     committedActions,
+    adoptSuggestion,
+    dismissSuggestion,
     commitAction,
     dismissDraft,
     removeCommittedAction,

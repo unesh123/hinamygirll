@@ -15,3 +15,4 @@ export * from "./components/ImageJobCard";
 export * from "./components/PdfCard";
 export * from "./components/PlanCard";
 export * from "./components/BrowserAgentCard";
+export * from "./components/ComposerSuggestionStrip";

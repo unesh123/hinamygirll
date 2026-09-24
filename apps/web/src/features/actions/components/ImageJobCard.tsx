@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ImageIcon, Eye, Wand2, CheckCircle2, Download } from "lucide-react";
-import { HINA_MOTION } from "../../motion/MOTION";
+import { ImageIcon, Wand2, CheckCircle2, Download, RefreshCw, AlertCircle } from "lucide-react";
 import type { ImageJobFields } from "../types";
 
 interface ImageJobCardProps {
@@ -11,35 +10,27 @@ interface ImageJobCardProps {
 }
 
 export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardProps) {
-  const [stage, setStage] = useState<"seeing" | "generating" | "saved">(data.stage || "seeing");
-  const [percent, setPercent] = useState(data.progressPercent || 30);
+  const [stage, setStage] = useState<"seeing" | "generating" | "saved">(data.stage || "generating");
+  const [elapsedSeconds, setElapsedSeconds] = useState(data.elapsedSeconds || 0);
 
+  // Honest elapsed seconds timer (No fake percentages)
   useEffect(() => {
-    if (stage === "seeing") {
-      const t = setTimeout(() => {
-        setStage("generating");
-        setPercent(65);
-      }, 1600);
-      return () => clearTimeout(t);
-    }
-    if (stage === "generating") {
-      const t = setTimeout(() => {
-        setStage("saved");
-        setPercent(100);
-      }, 2000);
-      return () => clearTimeout(t);
-    }
-  }, [stage]);
+    if (stage === "saved" || data.isSearchFallback) return;
+    const interval = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [stage, data.isSearchFallback]);
 
   return (
     <div
       style={{
         padding: compact ? "12px 14px" : "16px 20px",
         borderRadius: "14px",
-        background: "var(--bg-surface-raised, #18202a)",
-        border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
-        color: "#ffffff",
+        background: "var(--bg-surface-raised, #ffffff)",
+        border: "1px solid var(--border-default, #e2e8f0)",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04)",
+        color: "var(--text-primary, #0f172a)",
         display: "flex",
         flexDirection: "column",
         gap: "12px",
@@ -55,8 +46,8 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
               width: 28,
               height: 28,
               borderRadius: 8,
-              background: "rgba(243, 111, 156, 0.15)",
-              color: "#f36f9c",
+              background: "rgba(244, 114, 182, 0.15)",
+              color: "#db2777",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -64,23 +55,59 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
           >
             <ImageIcon size={16} />
           </div>
-          <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>Image Generation Studio</span>
+          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-primary, #0f172a)" }}>
+            Image Generation Object
+          </span>
         </div>
-        <span style={{ fontSize: "0.75rem", color: "#f36f9c", fontWeight: 650 }}>
-          {percent}%
+        <span
+          style={{
+            fontSize: "0.75rem",
+            color: data.isSearchFallback ? "#b45309" : stage === "saved" ? "#059669" : "#db2777",
+            fontWeight: 700,
+            background: data.isSearchFallback ? "rgba(245, 158, 11, 0.1)" : "rgba(244, 114, 182, 0.1)",
+            padding: "2px 8px",
+            borderRadius: 6,
+          }}
+        >
+          {data.isSearchFallback
+            ? "Search only — generation did not run"
+            : stage === "saved"
+              ? "Completed"
+              : `Generating · ${elapsedSeconds}s`}
         </span>
       </div>
 
-      {/* Main card body with locked thumbnail */}
+      {/* Honest fallback banner if search ran instead of generation */}
+      {data.isSearchFallback && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: "rgba(245, 158, 11, 0.1)",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+            fontSize: "0.78rem",
+            color: "#92400e",
+            fontWeight: 600,
+          }}
+        >
+          <AlertCircle size={15} color="#d97706" />
+          <span>Search only — generation did not run. Public web images were returned.</span>
+        </div>
+      )}
+
+      {/* Main card body with stable thumbnail canvas */}
       <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
         {/* Thumbnail anchor */}
         <div
           style={{
-            width: 72,
-            height: 72,
+            width: 76,
+            height: 76,
             borderRadius: 10,
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.1)",
+            background: "var(--surface-subtle, rgba(0,0,0,0.04))",
+            border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -89,50 +116,59 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
             position: "relative",
           }}
         >
-          {data.thumbnailUrl ? (
+          {data.thumbnailUrl || data.resultUrl ? (
             <img
-              src={data.thumbnailUrl}
-              alt="Thumbnail"
+              src={data.thumbnailUrl || data.resultUrl}
+              alt="Generated Art"
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           ) : (
-            <div style={{ color: "rgba(255,255,255,0.3)" }}>
-              <ImageIcon size={28} />
+            <div style={{ color: "var(--text-tertiary, #94a3b8)", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <ImageIcon size={26} />
+              <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>16:9 Canvas</span>
             </div>
           )}
-          {stage !== "saved" && (
+          {stage === "generating" && !data.thumbnailUrl && (
             <motion.div
               animate={{ opacity: [0.3, 0.7, 0.3] }}
               transition={{ duration: 1.5, repeat: Infinity }}
               style={{
                 position: "absolute",
                 inset: 0,
-                background: "linear-gradient(45deg, transparent, rgba(243, 111, 156, 0.15), transparent)",
+                background: "linear-gradient(45deg, transparent, rgba(244, 114, 182, 0.15), transparent)",
               }}
             />
           )}
         </div>
 
         {/* Stages Walk: Seeing -> Generating -> Saved */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-          <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#ffffff" }}>
-            {data.prompt.slice(0, 50)}...
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: "0.95rem",
+              fontWeight: 700,
+              color: "var(--text-primary, #0f172a)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {data.prompt}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {/* Stage 1: Seeing */}
+            {/* Stage 1: Preparing */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.75rem" }}>
               <span
                 style={{
-                  width: 8,
-                  height: 8,
+                  width: 7,
+                  height: 7,
                   borderRadius: "50%",
-                  background: stage === "seeing" ? "#f36f9c" : "#10b981",
-                  boxShadow: stage === "seeing" ? "0 0 8px #f36f9c" : "none",
+                  background: stage === "seeing" ? "#db2777" : "#059669",
                 }}
               />
-              <span style={{ color: stage === "seeing" ? "#ffffff" : "rgba(255,255,255,0.5)" }}>
-                Seeing & Parsing Intent…
+              <span style={{ color: stage === "seeing" ? "var(--text-primary, #0f172a)" : "var(--text-secondary, #64748b)", fontWeight: stage === "seeing" ? 700 : 500 }}>
+                Preparing request & prompt parsing
               </span>
             </div>
 
@@ -140,15 +176,15 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.75rem" }}>
               <span
                 style={{
-                  width: 8,
-                  height: 8,
+                  width: 7,
+                  height: 7,
                   borderRadius: "50%",
-                  background: stage === "generating" ? "#f36f9c" : stage === "saved" ? "#10b981" : "rgba(255,255,255,0.2)",
-                  boxShadow: stage === "generating" ? "0 0 8px #f36f9c" : "none",
+                  background: stage === "generating" ? "#db2777" : stage === "saved" ? "#059669" : "#94a3b8",
+                  boxShadow: stage === "generating" ? "0 0 6px #db2777" : "none",
                 }}
               />
-              <span style={{ color: stage === "generating" ? "#ffffff" : "rgba(255,255,255,0.5)" }}>
-                Generating with Multimodal Model…
+              <span style={{ color: stage === "generating" ? "var(--text-primary, #0f172a)" : "var(--text-secondary, #64748b)", fontWeight: stage === "generating" ? 700 : 500 }}>
+                {stage === "generating" ? `Generating with Multimodal Model · ${elapsedSeconds}s` : "Model generation"}
               </span>
             </div>
 
@@ -156,14 +192,13 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.75rem" }}>
               <span
                 style={{
-                  width: 8,
-                  height: 8,
+                  width: 7,
+                  height: 7,
                   borderRadius: "50%",
-                  background: stage === "saved" ? "#10b981" : "rgba(255,255,255,0.2)",
-                  boxShadow: stage === "saved" ? "0 0 8px #10b981" : "none",
+                  background: stage === "saved" ? "#059669" : "#cbd5e1",
                 }}
               />
-              <span style={{ color: stage === "saved" ? "#10b981" : "rgba(255,255,255,0.5)", fontWeight: stage === "saved" ? 650 : 400 }}>
+              <span style={{ color: stage === "saved" ? "#059669" : "var(--text-secondary, #64748b)", fontWeight: stage === "saved" ? 700 : 500 }}>
                 Saved to Artifacts
               </span>
             </div>
@@ -171,33 +206,57 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
         </div>
       </div>
 
-      {/* Action / Download button */}
-      {stage === "saved" && (
-        <motion.button
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          type="button"
-          onClick={() => onCommit?.({ ...data, stage, progressPercent: 100 })}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            padding: "8px 14px",
-            borderRadius: 8,
-            background: "#10b981",
-            color: "#000000",
-            border: "none",
-            fontWeight: 700,
-            fontSize: "0.82rem",
-            cursor: "pointer",
-            marginTop: 4,
-          }}
-        >
-          <Download size={14} />
-          <span>Save Image Result ↵</span>
-        </motion.button>
-      )}
+      {/* Result actions */}
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        {stage === "saved" ? (
+          <button
+            type="button"
+            onClick={() => onCommit?.({ ...data, stage: "saved", elapsedSeconds })}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "9px 14px",
+              borderRadius: 8,
+              background: "#059669",
+              color: "#ffffff",
+              border: "none",
+              fontWeight: 750,
+              fontSize: "0.84rem",
+              cursor: "pointer",
+            }}
+          >
+            <Download size={15} />
+            <span>Download Artifact</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setStage("saved")}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "8px 12px",
+              borderRadius: 8,
+              background: "var(--surface-subtle, rgba(0,0,0,0.04))",
+              color: "var(--text-primary, #0f172a)",
+              border: "1px solid var(--border-default, #e2e8f0)",
+              fontWeight: 650,
+              fontSize: "0.8rem",
+              cursor: "pointer",
+            }}
+          >
+            <CheckCircle2 size={14} color="#059669" />
+            <span>Simulate Finish</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
+

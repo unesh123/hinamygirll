@@ -100,4 +100,49 @@ describe("HINA Action Engine — Fast Local Intent Matcher (< 80ms)", () => {
     const draft = matchLocalActionIntent("Explain relativity");
     expect(draft).toBeNull();
   });
+
+  it("Law 5: 'hello hina' stays chat and does NOT morph", () => {
+    const draft = matchLocalActionIntent("hello hina");
+    expect(draft).toBeNull();
+  });
+
+  it("matches 'remind me tomorrow at 8 to call Alex' with extracted task and time", () => {
+    const draft = matchLocalActionIntent("remind me tomorrow at 8 to call Alex");
+    expect(draft).not.toBeNull();
+    expect(draft?.intent).toBe("reminder.create");
+    const data = draft?.fields.data as any;
+    expect(data.title).toBe("Call Alex");
+    expect(data.when).toBe("Tomorrow · 8:00 AM");
+  });
+
+  it("matches 'remind me at 8 pay rent' with extracted task and time", () => {
+    const draft = matchLocalActionIntent("remind me at 8 pay rent");
+    expect(draft).not.toBeNull();
+    expect(draft?.intent).toBe("reminder.create");
+    const data = draft?.fields.data as any;
+    expect(data.title).toBe("Pay rent");
+    expect(data.when).toBe("Today · 8:00 AM");
+  });
+
+  it("incomplete 'remind me at' stays null and does NOT open an empty broken card", () => {
+    const draft = matchLocalActionIntent("remind me at");
+    expect(draft).toBeNull();
+  });
+
+  it("matches 'generate a red mug' into an Image job action", () => {
+    const draft = matchLocalActionIntent("generate a red mug");
+    expect(draft).not.toBeNull();
+    expect(draft?.intent).toBe("image.job");
+    const data = draft?.fields.data as any;
+    expect(data.prompt).toBe("A red mug");
+    expect(data.stage).toBe("generating");
+  });
+
+  it("matches 'generate image of a red mug' into an Image job action", () => {
+    const draft = matchLocalActionIntent("generate image of a red mug");
+    expect(draft).not.toBeNull();
+    expect(draft?.intent).toBe("image.job");
+    const data = draft?.fields.data as any;
+    expect(data.prompt).toBe("A red mug");
+  });
 });
