@@ -430,6 +430,41 @@ def test_selected_mode_still_earns_the_report_contract(
     assert infer_response_depth(text, "rest", response_mode) == expected
 
 
+@pytest.mark.parametrize(
+    ("text", "response_mode"),
+    [
+        ("make me an image of a cat wearing a hat", "professional"),
+        ("generate a poster for my birthday party", "research"),
+        ("draw hinamyojo in the rain", "academic"),
+        ("can you create an image of a futuristic nepali village", "professional"),
+        ("म एउटा तस्वीर बनाउ", "professional"),
+    ],
+)
+def test_a_picture_ask_never_borrows_the_document_floor(
+    text: str, response_mode: str
+) -> None:
+    """Measured with Report selected: the image came back fine and she refused him.
+
+    The turn took a 4,900-word floor, answered in ~120 words because the
+    deliverable was a picture, the detector resumed her for the missing length,
+    and she read that resume as an injected padding instruction out loud in the
+    chat. A deep mode is consent to prose length; it cannot demand prose from a
+    turn that asked for an image.
+    """
+    depth = infer_response_depth(text, "rest", response_mode)
+    assert depth != "report"
+    assert depth_word_floor(depth) == 0
+
+
+def test_an_image_turn_that_also_asks_for_a_document_still_gets_it() -> None:
+    assert (
+        infer_response_depth(
+            "make me an image of a cat and write a full report about it", "rest", "professional"
+        )
+        == "report"
+    )
+
+
 def test_depth_layer_does_not_contradict_mode_layer() -> None:
     package = assemble_prompt(
         PromptInput(

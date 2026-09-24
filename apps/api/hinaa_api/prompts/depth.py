@@ -44,6 +44,18 @@ _REPORT = re.compile(
     re.IGNORECASE,
 )
 
+# The picture is the deliverable, so there is no prose length to promise. Names
+# of visual artefacts and the verbs that ask for one only — bare "make" or
+# "create" appear in ordinary questions and must not count here.
+_VISUAL_ASK = re.compile(
+    r"\b(image|images|picture|pictures|photo|photos|photograph|photographs|poster|posters|"
+    r"logo|logos|wallpaper|wallpapers|"
+    r"illustration|illustrations|"
+    r"draw|drawing|sketch|sketches|render|renders)\b|"
+    r"(चित्र|तस्वीर|फोटो|पोस्टर)",
+    re.IGNORECASE,
+)
+
 
 _MODE_DEPTH: dict[str, ResponseDepth] = {
     "professional": "report",
@@ -113,7 +125,16 @@ def infer_response_depth(
     if not _CLARIFY.match(text) and response_mode and response_mode != "conversation":
         mapped = _MODE_DEPTH.get(response_mode)
         report_unasked = mapped == "report" and mode_inferred and not _REPORT.search(text)
-        if mapped is not None and not report_unasked:
+        # Choosing a deep mode in the top bar is consent to the length that mode
+        # promises for prose. It cannot promise prose on a turn whose deliverable
+        # is a picture: measured with Report selected, "make me an image of a cat"
+        # took a 4,900-word floor, came back at ~120 words, and the resume she was
+        # then handed read to her as an injected padding instruction — so she
+        # refused him. Asking for a document in the same message wins.
+        report_on_picture = (
+            mapped == "report" and not _REPORT.search(text) and _VISUAL_ASK.search(text)
+        )
+        if mapped is not None and not report_unasked and not report_on_picture:
             return mapped
     if len(text) <= 12 or _CLARIFY.match(text):
         return "clarification" if len(text) <= 8 else "minimal"

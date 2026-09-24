@@ -100,11 +100,17 @@ def _build_continuation_contents(prompt: PromptPackage, generated: str) -> Any:
     )
     short_words = depth_word_floor(prompt.response_depth) - word_count(generated)
     if short_words > 0:
+        # This provider is the brain that actually answers in production, and it
+        # refused him out loud over the old wording: an imperative, capitalised
+        # "LENGTH CONTRACT" directive reads as an injected instruction to a model
+        # hardened against prompt injection. Same enforcement, stated as the
+        # unfinished answer he asked for.
         instruction += (
-            f" LENGTH CONTRACT STILL UNMET: this answer needs at least "
-            f"{short_words:,} more words before it is finished. Write the "
-            "substance that is missing with worked detail, numbers and examples. Do not conclude, "
-            "summarise or offer follow-up help while the contract is unmet — keep reporting."
+            f" He asked for a complete, documented answer and this draft still needs about "
+            f"{short_words:,} more words of substance to be it. Write what is missing — the "
+            "sections never started and the ones left as a sentence or two, with worked detail, "
+            "numbers and examples. Don't conclude, summarise or offer follow-up help yet; there "
+            "is still answer left to write."
         )
     parts: list[Any] = []
     if getattr(prompt, "attachments", None):

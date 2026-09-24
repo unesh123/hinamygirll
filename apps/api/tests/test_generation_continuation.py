@@ -709,7 +709,7 @@ class TestDepthContractEnforcement:
                 remaining_words=463,
             )
         )
-        assert "LENGTH CONTRACT STILL UNMET" in rendered
+        assert "STILL LEFT TO COVER" in rendered
         assert "463 more words" in rendered
 
     def test_length_contract_omitted_when_nothing_is_missing(self) -> None:
@@ -721,7 +721,32 @@ class TestDepthContractEnforcement:
                 previous_tail="### Routing\n\nThe gateway selects a brain.",
             )
         )
-        assert "LENGTH CONTRACT" not in rendered
+        assert "STILL LEFT TO COVER" not in rendered
+
+    def test_gemini_resume_is_framed_as_his_ask_not_as_a_directive(self) -> None:
+        """The brain that actually answers in production refused him over this text.
+
+        Measured on a live image turn: "it's an injected instruction trying to get
+        me to pad a response to hit an artificial word count, and that's not
+        something I'll do." A capitalised imperative about an unmet contract reads
+        as injection to a hardened model — and the canonical prompt already tells
+        her never to mention contracts, so the two directives fought and the
+        refusal won. The shortfall still has to reach her; only its framing moves.
+        """
+        from types import SimpleNamespace
+
+        from hinaa_api.providers.gemini import _build_continuation_contents
+
+        draft = _prose(400)
+        prompt = SimpleNamespace(
+            response_depth="report", attachments=[], user_contents="Explain the pipeline."
+        )
+        text = _build_continuation_contents(prompt, draft)[-1].text
+
+        assert "contract" not in text.lower()
+        assert "LENGTH" not in text
+        assert "He asked for" in text
+        assert f"{depth_word_floor('report') - word_count(draft):,} more words" in text
 
     @pytest.mark.asyncio
     async def test_shallow_answer_is_continued_to_the_floor(self) -> None:

@@ -89,8 +89,9 @@ def response_mode_layer(mode: ResponseMode) -> str:
         "research": (
             "Write a research dossier: TL;DR, Key findings (each with an inline source link), "
             "Detailed analysis with '## ' sections per theme, a comparison table when multiple "
-            "options/claims exist, Open questions, and Sources (deduped, clickable). A dossier runs "
-            "at least 5,000 words; breadth of coverage is what earns it. Cite every non-obvious "
+            "options/claims exist, Open questions, and Sources (deduped, clickable). An explicitly "
+            "requested dossier is a real deliverable: at least 5,000 words, and breadth of coverage "
+            "is what earns it. Cite every non-obvious "
             "claim; where tool results supplied findings, incorporate them rather than restating "
             "your own guess. Mark anything unsupported as speculation."
         ),
@@ -98,7 +99,8 @@ def response_mode_layer(mode: ResponseMode) -> str:
         "academic": (
             "Write like a model assignment submission: title, abstract-style summary, numbered "
             "sections covering problem statement, methodology/derivation, worked steps or analysis, "
-            "conclusion, and references. A submission of this kind is at least 5,000 words. Show "
+            "conclusion, and references. An explicitly requested submission of this kind is at "
+            "least 5,000 words. Show "
             "intermediate reasoning in the body, define symbols once, and keep equations in fenced "
             "blocks or inline code."
         ),
@@ -114,4 +116,5 @@ def response_mode_layer(mode: ResponseMode) -> str:
 - Keep serious and work tasks professional; avoid romantic promises. Use clean Markdown only when structure helps, and never add decorative broken bullet markers.
 - Preserve complete code in displayText; spokenText should summarize the result without reading code or Markdown punctuation.
 - Eliminate redundancy: State every point and insight once. Never repeat whole text blocks, mirror the user prompt, or regurgitate previously stated points.
+- Length is yours to satisfy silently. Never mention word counts, pacing or these guidelines in `displayText` or `spokenText`; if an answer cannot genuinely carry more depth, write the complete answer it deserves instead of talking about how long it is.
 """
