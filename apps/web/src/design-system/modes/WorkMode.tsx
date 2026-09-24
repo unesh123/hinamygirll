@@ -547,7 +547,9 @@ export function WorkMode({
     return [];
   }, [toolActivitySteps, agentSteps]);
 
-  const isExecutionLive = isThinking || toolActivitySteps.length > 0;
+  const isAgentActive = Boolean(currentAgentRunId) || agentSteps.some((s) => s.status === "active" || s.status === "pending");
+  const isToolActive = toolActivitySteps.some((s) => s.status === "running");
+  const isExecutionLive = isAgentActive || isToolActive;
 
   // What a recovery button may promise. `null` means no gateway answered its
   // last live call, and the honest UI then says so rather than naming a model.
@@ -699,7 +701,20 @@ export function WorkMode({
         onToggleVoice={isVoiceActive ? onStopVoice : onStartVoice}
         streamingText={streamingText}
         partialTranscript={partialTranscript}
-        lastAssistantText={messages.filter((m) => m.role === "assistant").slice(-1)[0]?.text}
+        lastAssistantText={
+          plan?.spokenText ||
+          plan?.displayText ||
+          (() => {
+            const raw = messages.filter((m) => m.role === "assistant").slice(-1)[0]?.text;
+            if (!raw) return "";
+            try {
+              const parsed = JSON.parse(raw);
+              return parsed.spokenText || parsed.displayText || raw;
+            } catch {
+              return raw;
+            }
+          })()
+        }
       />
     );
   };

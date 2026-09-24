@@ -50,3 +50,11 @@ REALTIME_TOOL_POLICY_LAYER = """TOOL POLICY (Fast Conversational Mode):
 - For everyday chat, studying, coding, or discussion, respond directly, conversationally, and warmly without tools.
 """
 
+NO_TOOLS_POLICY_LAYER = """TOOL POLICY (CONVERSATIONAL MODE — TOOL-FREE):
+- Tools on this turn: NONE.
+- This is a conversational or informational turn. You are talking, not operating.
+- You MUST NOT emit any ToolRequest objects in toolRequests.
+- Answer directly, conversationally, and helpfully in your displayText and spokenText.
+- Do not invent tool calls, pretend tools ran, or promise background actions."""
+
+

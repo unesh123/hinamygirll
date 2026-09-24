@@ -479,17 +479,20 @@ class MemoryService:
         attachments: list[dict[str, Any]] | None = None,
     ) -> str:
         with self._factory() as session:
-            self._user(session, user_id)
+            user = self._user(session, user_id)
             conversation: Conversation | None = None
             if conversation_id:
                 conversation = session.scalar(
                     select(Conversation).where(
                         Conversation.id == conversation_id,
-                        Conversation.user_id == user_id,
                     )
                 )
             if conversation is None:
-                conversation = Conversation(user_id=user_id, companion_id=companion_id)
+                conversation = Conversation(
+                    id=conversation_id or _uuid(),
+                    user_id=user.id,
+                    companion_id=companion_id,
+                )
                 session.add(conversation)
                 session.flush()
 
@@ -777,13 +780,15 @@ class MemoryService:
     def get_conversation_messages(self, user_id: str, conversation_id: str, *, limit: int = 100, offset: int = 0) -> list[dict]:
         """Return messages for a conversation, oldest first."""
         with self._factory() as session:
-            from .orm import Conversation, Message
+            from .orm import Conversation, Message, User
             
             # Verify ownership
+            u = session.scalar(select(User).where((User.id == user_id) | (User.auth_subject == user_id)))
+            target_user_id = u.id if u else user_id
             convo = (
                 session.query(Conversation)
                 .filter(Conversation.id == conversation_id)
-                .filter(Conversation.user_id == user_id)
+                .filter((Conversation.user_id == target_user_id) | (Conversation.user_id == user_id))
                 .first()
             )
             if not convo:
@@ -804,12 +809,73 @@ class MemoryService:
                 content = m.content or ""
                 display_text = content
                 spoken_text = None
+                action_draft = None
                 if m.role == "assistant":
                     try:
                         import json
                         data = json.loads(content)
                         display_text = data.get("displayText", content)
                         spoken_text = data.get("spokenText")
+                        tool_requests = data.get("toolRequests") or []
+                        for tr in tool_requests:
+                            tool_name = tr.get("toolName")
+                            params = tr.get("parameters") or {}
+                            if tool_name == "reminder.create":
+                                action_draft = {
+                                    "intent": "reminder.create",
+                                    "status": "ready",
+                                    "fields": {
+                                        "data": {
+                                            "title": params.get("title") or "Reminder",
+                                            "when": params.get("at") or params.get("display") or "Today",
+                                            "isUrgent": False,
+                                        }
+                                    },
+                                }
+                                break
+                            elif tool_name in ("image_generate", "magnific_image_generate", "freepik_image_generate"):
+                                is_completed = bool(params.get("resultUrl") or tr.get("status") == "completed")
+                                action_draft = {
+                                    "intent": "image.job",
+                                    "status": "ready",
+                                    "fields": {
+                                        "data": {
+                                            "prompt": params.get("prompt") or "",
+                                            "stage": "saved" if is_completed else "generating",
+                                            "isSearchFallback": False,
+                                            "thumbnailUrl": params.get("thumbnailUrl") or params.get("resultUrl") or "",
+                                            "resultUrl": params.get("resultUrl") or "",
+                                        }
+                                    },
+                                }
+                                break
+                            elif tool_name in ("web_search", "web_answer", "web_research"):
+                                action_draft = {
+                                    "intent": "web.search",
+                                    "status": "ready",
+                                    "fields": {
+                                        "data": {
+                                            "query": params.get("query") or "",
+                                            "sources": params.get("sources") or [],
+                                        }
+                                    },
+                                }
+                                break
+                            elif tool_name == "image_search":
+                                action_draft = {
+                                    "intent": "image.job",
+                                    "status": "ready",
+                                    "fields": {
+                                        "data": {
+                                            "prompt": params.get("query") or "",
+                                            "stage": "saved",
+                                            "isSearchFallback": True,
+                                            "thumbnailUrl": params.get("thumbnailUrl") or params.get("resultUrl") or "",
+                                            "resultUrl": params.get("resultUrl") or "",
+                                        }
+                                    },
+                                }
+                                break
                     except Exception:
                         pass
                 msg_attachments = []
@@ -833,6 +899,8 @@ class MemoryService:
                     "language": m.language,
                     "created_at": m.created_at.isoformat() if m.created_at else None,
                     "attachments": msg_attachments,
+                    "action_draft": action_draft,
+                    "actionDraft": action_draft,
                 })
             return results
 
@@ -1300,9 +1368,14 @@ class MemoryService:
 
     @staticmethod
     def _user(session: Session, user_id: str) -> User:
-        user = session.scalar(select(User).where(User.id == user_id, User.deleted_at.is_(None)))
+        user = session.scalar(
+            select(User).where((User.id == user_id) | (User.auth_subject == user_id), User.deleted_at.is_(None))
+        )
         if user is None:
-            raise HinaaError("USER_NOT_FOUND", "User was not found.", 404, False)
+            uid = user_id if len(user_id) <= 36 else _uuid()
+            user = User(id=uid, auth_subject=user_id)
+            session.add(user)
+            session.flush()
         return user
 
     @staticmethod

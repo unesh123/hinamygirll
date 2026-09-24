@@ -113,9 +113,9 @@ SLASH_COMMAND = re.compile(r"^\s*/[a-zA-Z][\w-]*\b")
 
 _REMIND = re.compile(r"(?i)\b(?:remind\s+me|reminder|set\s+(?:a\s+)?(?:reminder|alarm)|wake\s+me)\b")
 _WEB = re.compile(
-    r"""(?ix) \b (?: search\s+the\s+web | google(?:\s+search)? | look\s+(?:it\s+)?up |
-        web\s*search | latest\s+(?:news|episode|release|version|developments?) |
-        current\s+news | what'?s\s+(?:new|trending|happening) | on\s+the\s+web ) \b"""
+    r"""(?ix) \b (?: search(?:\s+the\s+web|\s+online|\s+for)? | google(?:\s+search)? | look\s+(?:it\s+)?up |
+        web\s*search | latest\s+(?:news|episode|release|version|developments?|anime|animes|isekai|\w+) |
+        find\s+(?:the\s+)?latest | current\s+(?:news|\w+) | what'?s\s+(?:new|trending|happening) | on\s+the\s+web ) \b"""
 )
 _RESEARCH = re.compile(r"(?ix)^\s*(?:please\s+)?(?:research|investigate|dig\s+into|look\s+into)\s+\S")
 _DOCUMENT = re.compile(
@@ -329,6 +329,7 @@ def _parse_when(text: str, now: datetime) -> tuple[datetime | None, str | None]:
         (re.compile(r"(?i)\b(?:by|at|around|@)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b"), "clock"),
         (re.compile(r"(?i)\b(\d{1,2}):(\d{2})\s*(am|pm)?\b"), "clock"),
         (re.compile(r"(?i)\b(\d{1,2})\s*(am|pm)\b"), "clock"),
+        (re.compile(r"(?i)\b(?:today|tomorrow)\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b"), "clock"),
     ]
     tomorrow = bool(re.search(r"(?i)\btomorrow\b", text))
     for pattern, kind in specs:

@@ -590,8 +590,16 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               setCurrentAgentConfirmationStepId(undefined);
             }
             setAgentSteps((current) => runtimeEventToSteps(current, event.event));
-          } else {
+          } else if (event.type === "usage") {
             providerLatencyMs = event.latencyMs;
+          } else if (event.type === "astra.tool") {
+            if (event.status === "started" || event.status === "progress") {
+              setState("using_tool");
+            }
+          } else if (event.type === "astra.route") {
+            // Astra route telemetry received
+          } else if (event.type === "astra.entity") {
+            // Astra grounded entity resolution received
           }
         }
         if (!completedPlan) {

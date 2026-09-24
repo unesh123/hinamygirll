@@ -29,9 +29,7 @@ async function privacyFetch(path: string, init?: RequestInit) {
 
 export function PrivacyPanel() {
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<string>(
-    "Memory controls use dev auth locally.",
-  );
+  const [status, setStatus] = useState<string>("Memory active");
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);

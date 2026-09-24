@@ -127,6 +127,7 @@ class ToolRequest(BaseModel):
     id: str | None = None
     intent: str | None = None
     reason: str | None = None
+    status: str | None = None
     confirmed: bool = False
     approvalSource: Literal["none", "standing-consent", "user", "policy-engine"] = "none"
     idempotencyKey: str | None = Field(default=None, max_length=160)

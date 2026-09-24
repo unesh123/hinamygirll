@@ -3353,6 +3353,157 @@ class ConversationService:
         d_state = None
         dialogue_state_block = ""
         live_search_block = ""
+
+        # Gate First: evaluate intent before running LLM or routing
+        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
+        gate_decision = decide_intent(request.text)
+
+        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
+            from .tools.reminder import schedule_reminder
+            from .models import ToolRequest
+            saved = schedule_reminder(
+                user_id=user_id or "anonymous",
+                title=gate_decision.arguments["title"],
+                at=gate_decision.arguments["due_at"],
+                conversation_id=request.conversationId or request.sessionId,
+                settings=self.settings,
+            )
+            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
+            plan = build_plan_from_text(
+                text=confirm_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = confirm_text
+            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
+            plan.toolRequests = [
+                ToolRequest(
+                    toolName="reminder.create",
+                    parameters={
+                        "title": saved["title"],
+                        "at": saved["at"],
+                        "display": saved["display"],
+                        "id": saved["id"],
+                    },
+                    status="ready",
+                    reason="deterministic-intent",
+                )
+            ]
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
+            return result
+
+        if gate_decision.intent == HinaaIntent.CANCEL:
+            self._cancel_inflight_image_jobs(user_id=user_id)
+            cancel_text = "Stopped. I have cancelled any running jobs."
+            plan = build_plan_from_text(
+                text=cancel_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = cancel_text
+            plan.spokenText = cancel_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.CLARIFY:
+            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
+            plan = build_plan_from_text(
+                text=reason,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = reason
+            plan.spokenText = reason
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.WEB_SEARCH and not self.settings.youcom_configured:
+            offline_text = "Search is offline: You.com key or API tunnel is not on production."
+            plan = build_plan_from_text(
+                text=offline_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = offline_text
+            plan.spokenText = offline_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.IMAGE_GENERATE:
+            allowed_tools = ("image_generate", "magnific_image_generate", "freepik_image_generate")
+        elif gate_decision.intent == HinaaIntent.IMAGE_SEARCH:
+            allowed_tools = ("image_search",)
+        elif gate_decision.intent == HinaaIntent.WEB_SEARCH:
+            allowed_tools = ("web_search", "web_answer", "web_research")
+        else:
+            allowed_tools = ()
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -3378,12 +3529,17 @@ class ConversationService:
         # Real-time pre-turn live web search grounding. Trivial FAST turns
         # never hit search (§39: simple chat must not suffer or pay for it).
         grounded_sources: list[Any] = []
+        search_query = ""
         if (
             request.providerMode != "mock"
             and not _route_meta.get("skip_recent_working_context")
-            and self._should_pre_search(request.text, d_state=d_state)
+            and (self._should_pre_search(request.text, d_state=d_state) or gate_decision.intent == HinaaIntent.WEB_SEARCH)
         ):
-            search_query = self._extract_search_query(request.text, d_state=d_state)
+            search_query = (
+                gate_decision.arguments.get("query")
+                if gate_decision.intent == HinaaIntent.WEB_SEARCH
+                else None
+            ) or self._extract_search_query(request.text, d_state=d_state)
             # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
             try:
                 from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
@@ -3407,7 +3563,7 @@ class ConversationService:
                 from datetime import datetime, timezone
                 search_res = await asyncio.wait_for(
                     search_web({"query": search_query, "count": search_budget}),
-                    timeout=5.0,
+                    timeout=8.0,
                 )
                 items = search_res.get("results") or search_res.get("sources") or []
                 if items:
@@ -3453,8 +3609,64 @@ class ConversationService:
                             self.dialogue_state_service.save(d_state)
                         except Exception:
                             pass
+                elif gate_decision.intent == HinaaIntent.WEB_SEARCH:
+                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
+                    plan = build_plan_from_text(
+                        text=offline_text,
+                        companion_id=request.companionId or "hinaa",
+                        language=request.language or "en-US",
+                        depth="conversational",
+                    )
+                    plan.displayText = offline_text
+                    plan.spokenText = offline_text
+                    plan.toolRequests = []
+                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+                    self.memory.append_turn(
+                        request.sessionId, request.text, result.value.model_dump_json()
+                    )
+                    if self.memory_service and user_id:
+                        try:
+                            self.memory_service.append_turn(
+                                user_id=user_id,
+                                companion_id=request.companionId or "hinaa",
+                                conversation_id=request.conversationId or request.sessionId,
+                                user_text=request.text,
+                                assistant_text=result.value.model_dump_json(),
+                                language=result.value.language or "mixed",
+                            )
+                        except Exception:
+                            pass
+                    return result
             except Exception:
                 logger.debug("Pre-search grounding skipped or timed out", exc_info=True)
+                if gate_decision.intent == HinaaIntent.WEB_SEARCH:
+                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
+                    plan = build_plan_from_text(
+                        text=offline_text,
+                        companion_id=request.companionId or "hinaa",
+                        language=request.language or "en-US",
+                        depth="conversational",
+                    )
+                    plan.displayText = offline_text
+                    plan.spokenText = offline_text
+                    plan.toolRequests = []
+                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+                    self.memory.append_turn(
+                        request.sessionId, request.text, result.value.model_dump_json()
+                    )
+                    if self.memory_service and user_id:
+                        try:
+                            self.memory_service.append_turn(
+                                user_id=user_id,
+                                companion_id=request.companionId or "hinaa",
+                                conversation_id=request.conversationId or request.sessionId,
+                                user_text=request.text,
+                                assistant_text=result.value.model_dump_json(),
+                                language=result.value.language or "mixed",
+                            )
+                        except Exception:
+                            pass
+                    return result
 
         if d_state is not None:
             try:
@@ -3494,6 +3706,7 @@ class ConversationService:
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
             history_preselected=True,
+            allowed_tools=allowed_tools,
         )
         self._log_prompt_meta(
             request.sessionId,
@@ -3719,14 +3932,29 @@ class ConversationService:
                 except Exception:
                     logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
 
-        self._inject_deterministic_tool_intents(
-            request.text,
-            result.value,
-            session_id=request.sessionId,
-            turn_request=request,
-            user_id=user_id,
-        )
-        self._gate_tool_intents(request, result.value, user_id=user_id)
+        if allowed_tools == ():
+            result.value.toolRequests = []
+        else:
+            self._inject_deterministic_tool_intents(
+                request.text,
+                result.value,
+                session_id=request.sessionId,
+                turn_request=request,
+                user_id=user_id,
+            )
+            self._gate_tool_intents(request, result.value, user_id=user_id)
+            if gate_decision.intent == HinaaIntent.WEB_SEARCH and not any(t.toolName in ("web_search", "web_answer", "web_research") for t in result.value.toolRequests):
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="web_search",
+                        parameters={"query": search_query or request.text},
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+            result.value.toolRequests = [
+                tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
+            ]
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
 
@@ -3773,6 +4001,148 @@ class ConversationService:
         d_state = None
         dialogue_state_block = ""
         live_search_block = ""
+
+        # Gate First: evaluate intent before running LLM or routing
+        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
+        gate_decision = decide_intent(request.text)
+
+        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
+            from .tools.reminder import schedule_reminder
+            from .models import ToolRequest
+            saved = schedule_reminder(
+                user_id=user_id or "anonymous",
+                title=gate_decision.arguments["title"],
+                at=gate_decision.arguments["due_at"],
+                conversation_id=request.conversationId or request.sessionId,
+                settings=self.settings,
+            )
+            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
+            plan = build_plan_from_text(
+                text=confirm_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = confirm_text
+            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
+            plan.toolRequests = [
+                ToolRequest(
+                    toolName="reminder.create",
+                    parameters={
+                        "title": saved["title"],
+                        "at": saved["at"],
+                        "display": saved["display"],
+                        "id": saved["id"],
+                    },
+                    status="ready",
+                    reason="deterministic-intent",
+                )
+            ]
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
+            return result
+
+        if gate_decision.intent == HinaaIntent.CANCEL:
+            self._cancel_inflight_image_jobs(user_id=user_id)
+            cancel_text = "Stopped. I have cancelled any running jobs."
+            plan = build_plan_from_text(
+                text=cancel_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = cancel_text
+            plan.spokenText = cancel_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.CLARIFY:
+            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
+            plan = build_plan_from_text(
+                text=reason,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = reason
+            plan.spokenText = reason
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.WEB_SEARCH and not self.settings.youcom_configured:
+            offline_text = "Search is offline: You.com key or API tunnel is not on production."
+            plan = build_plan_from_text(
+                text=offline_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = offline_text
+            plan.spokenText = offline_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -3957,6 +4327,7 @@ class ConversationService:
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
             history_preselected=True,
+            allowed_tools=(),
         )
         timing.mark("prompt_built")
         self._log_prompt_meta(
@@ -4276,14 +4647,8 @@ class ConversationService:
                 except Exception:
                     logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
 
-        self._inject_deterministic_tool_intents(
-            request.text,
-            result.value,
-            session_id=request.sessionId,
-            turn_request=request,
-            user_id=user_id,
-        )
-        self._gate_tool_intents(request, result.value, user_id=user_id)
+        # Contract 5: Voice/Talk turns receive tool-free prompt path and zero tool execution
+        result.value.toolRequests = []
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
 

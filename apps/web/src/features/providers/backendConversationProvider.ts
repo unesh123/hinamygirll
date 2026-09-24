@@ -23,6 +23,17 @@ interface StreamEvent {
   stepId?: string | null;
   query?: string;
   sourcesCount?: number;
+  toolName?: string;
+  toolRunId?: string;
+  status?: string;
+  parameters?: unknown;
+  route?: string;
+  confidence?: number;
+  goal?: string;
+  candidate_capabilities?: string[];
+  canonical_name?: string;
+  grounded_tool_query?: string;
+  data?: Record<string, unknown>;
 }
 
 function normalizeAgentEvent(event: StreamEvent): AgentRuntimeEvent | null {
@@ -184,6 +195,43 @@ export class BackendConversationProvider implements ConversationProvider {
             yield { type: "search.started", query: event.query || "" };
           if (event.type === "search.completed")
             yield { type: "search.completed", query: event.query || "", sourcesCount: event.sourcesCount };
+          if (event.type === "route.decided") {
+            const data = (event.data || event) as Record<string, any>;
+            yield {
+              type: "astra.route",
+              route: String(data.route || "CHAT"),
+              confidence: Number(data.confidence ?? 1.0),
+              goal: String(data.goal || ""),
+              candidates: Array.isArray(data.candidate_capabilities) ? data.candidate_capabilities : [],
+            };
+          }
+          if (event.type === "entity.resolved") {
+            const data = (event.data || event) as Record<string, any>;
+            yield {
+              type: "astra.entity",
+              canonicalName: String(data.canonical_name || ""),
+              groundedQuery: String(data.grounded_tool_query || ""),
+            };
+          }
+          if (event.type.startsWith("tool.")) {
+            const status: "started" | "progress" | "completed" | "failed" =
+              event.type === "tool.started"
+                ? "started"
+                : event.type === "tool.progress"
+                ? "progress"
+                : event.type === "tool.completed"
+                ? "completed"
+                : "failed";
+            const data = (event.data || event) as Record<string, any>;
+            yield {
+              type: "astra.tool",
+              status,
+              toolName: String(data.toolName || ""),
+              toolRunId: String(data.toolRunId || ""),
+              message: typeof data.message === "string" ? data.message : undefined,
+              parameters: data.parameters,
+            };
+          }
           if (event.type === "text.delta" && event.delta) {
             const rawEvent = event as unknown as Record<string, unknown>;
             if (typeof rawEvent.sequence === "number") {

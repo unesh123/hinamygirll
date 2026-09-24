@@ -119,6 +119,24 @@ def schedule_reminder(
     )
     try:
         with _factory(settings)() as session:
+            from ..persistence.orm import User, Conversation
+            existing_user = session.scalar(select(User).where((User.id == user_id) | (User.auth_subject == user_id)))
+            if existing_user is None:
+                uid = user_id if len(user_id) <= 36 else _uuid()
+                new_user = User(id=uid, auth_subject=user_id)
+                session.add(new_user)
+                session.flush()
+                owner_pk = new_user.id
+            else:
+                owner_pk = existing_user.id
+
+            if conversation_id:
+                existing_convo = session.scalar(select(Conversation).where(Conversation.id == conversation_id))
+                if existing_convo is None:
+                    session.add(Conversation(id=conversation_id, user_id=owner_pk, companion_id="hinaa"))
+                    session.flush()
+
+            row.user_id = user_id
             session.add(row)
             session.commit()
             session.refresh(row)
@@ -140,7 +158,13 @@ def list_reminders(
     *, user_id: str, status: str = "scheduled", settings: Optional[Settings] = None
 ) -> list[dict[str, Any]]:
     with _factory(settings)() as session:
-        query = select(Reminder).where(Reminder.user_id == user_id)
+        from ..persistence.orm import User
+        u = session.scalar(select(User).where((User.id == user_id) | (User.auth_subject == user_id)))
+        allowed_ids = {user_id}
+        if u:
+            allowed_ids.add(u.id)
+            allowed_ids.add(u.auth_subject)
+        query = select(Reminder).where(Reminder.user_id.in_(allowed_ids))
         if status != "all":
             query = query.where(Reminder.status == status)
         rows = session.execute(query.order_by(Reminder.at)).scalars().all()

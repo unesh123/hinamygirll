@@ -24,6 +24,7 @@ from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse
+from .astra import AstraRequest, AstraRuntime
 from .creative import CreativeJobStore, CreativeModelRegistry, MagnificBudgetManager
 from .media import AssetSource, get_asset_store
 from .persistence import MemoryService, TaskService, init_db
@@ -380,6 +381,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         TaskService(session_factory) if session_factory is not None else None
     )
     service = ConversationService(active_settings, memory_service=memory_service, task_service=task_service, session_factory=session_factory)
+    astra_runtime = AstraRuntime(
+        memory_service=memory_service,
+        conversation_service=service,
+    )
     workspace_service = LocalProjectService(
         get_session_factory(active_settings), active_settings.local_workspace_dir
     )
@@ -3641,12 +3646,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = _resolve_user_id(request)
 
         agent_run = None
-        # The dev subject is a local-only owner. Filing an unidentified public
-        # turn under it put strangers' runs in the same bucket as his own.
         owner_id = user_id or (
             active_settings.dev_auth_subject if not reached_through_edge(request) else None
         )
-        if active_settings.agent_runtime_enabled and agent_runtime is not None and owner_id:
+        is_agent_request = (
+            body.text.strip().startswith(("/deep", "/agent", "/plan", "/workflow"))
+            or body.responseMode in ("automation", "research")
+            or body.providerMode == "agent-router"
+            or bool(re.search(r"\b(deep\s+research|audit\s+the\s+entire|refactor\s+the\s+entire|step\s+by\s+step\s+plan\s+and\s+execute)\b", body.text, re.I))
+        )
+        if active_settings.agent_runtime_enabled and agent_runtime is not None and owner_id and is_agent_request:
             agent_run = agent_runtime.create_run(
                 goal=body.text,
                 user_id=owner_id,
@@ -3770,6 +3779,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise
 
         return StreamingResponse(guarded_stream(), media_type="application/x-ndjson")
+
+    @app.post("/v1/astra/turns:stream")
+    @app.post("/api/v1/astra/turns:stream")
+    async def stream_astra_turn(request: Request, body: AstraRequest = Body(...)) -> StreamingResponse:
+        user_id = _resolve_user_id(request)
+        if user_id and not body.user_id:
+            body = body.model_copy(update={"user_id": user_id})
+
+        async def astra_event_generator():
+            async for event in astra_runtime.stream_turn(body):
+                yield event.to_sse()
+
+        return StreamingResponse(
+            astra_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.delete("/v1/sessions/{session_id}", status_code=204)
     async def clear_session(session_id: str) -> Response:

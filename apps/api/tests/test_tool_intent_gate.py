@@ -409,11 +409,13 @@ def test_reminder_tool_is_registered_and_needs_no_confirmation():
 # --- Persistence: the row is what makes the promise true -----------------------
 
 def test_reminder_persists_and_survives_a_restart(temp_db):
+    from datetime import datetime
     from hinaa_api.persistence.db import reset_session_factory
     from hinaa_api.tools.reminder import list_reminders, schedule_reminder
 
+    today_at = datetime.now().strftime("%Y-%m-%dT16:00")
     stored = schedule_reminder(
-        user_id="gate-user", title="Call Sile", at="2026-09-24T16:00", settings=temp_db
+        user_id="gate-user", title="Call Sile", at=today_at, settings=temp_db
     )
     assert stored["status"] == "scheduled"
     assert stored["display"] == "Today at 4:00 PM"
