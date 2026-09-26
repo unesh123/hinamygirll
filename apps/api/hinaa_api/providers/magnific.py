@@ -154,6 +154,15 @@ class MagnificProvider:
     def is_configured(self) -> bool:
         return self.available()
 
+    def honours_reference_image(self) -> bool:
+        """Whether generate() will actually carry his reference picture.
+
+        The Freepik-direct text-to-image contract has no input-image field, so a
+        reference sent there is dropped and he gets a fresh drawing that looks
+        like an edit. Only the Magnific branch posts `input_image`.
+        """
+        return self.available() and "freepik.com" not in self._base_url()
+
     def _headers(self) -> dict[str, str]:
         key = self.api_key or ""
         headers: dict[str, str] = {
