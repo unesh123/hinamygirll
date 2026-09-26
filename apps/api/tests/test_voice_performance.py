@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
 from hinaa_api.config import Settings
+from hinaa_api.models import SpeechRequest
+from hinaa_api.providers.mock import MockTTSProvider
 from hinaa_api.realtime import segment_phrases
-from hinaa_api.services import ProviderRouter
+from hinaa_api.services import ConversationService, ProviderRouter
 from hinaa_api.voice_performance import (
     ALLOWED_SSML_TAGS,
     VoicePerformancePlan,
@@ -44,6 +48,60 @@ def test_speech_only_pronunciation_does_not_mutate_display_intent() -> None:
     assert "Hee-nah" in spoken
     assert "fast A P I" in spoken
     assert "Hinaa" in display  # display string unchanged by caller ownership
+
+
+def test_spoken_channel_carries_no_decoration() -> None:
+    cases = [
+        ("Hey babe, how's your day going? 🔥", "Hey how's your day going?"),
+        ("I set it for 4:00, babe. ✅ 3 reminders", "I set it for 4:00. 3 reminders"),
+        ("Done BABES 🎉🫡 — cost $4.99 for 25 images", "Done — cost $4.99 for 25 images"),
+        ("See you later, babe. Love you.", "See you later. Love you."),
+        ("Babe, tell me more", "tell me more"),
+    ]
+    for display, expected in cases:
+        assert speech_text_for_tts(display) == expected, display
+
+
+def test_decoration_removal_does_not_cost_content() -> None:
+    # A TTS engine reads an emoji as a word, so it goes; everything the voice has
+    # to report stays. "Babel" is not a pet name and Devanagari is not decoration.
+    spoken = speech_text_for_tts("नमस्ते babe! ठीक है, कोई बात नहीं 🦊🌧️")
+    assert spoken.startswith("नमस्ते ठीक है")
+    assert "babe" not in spoken.lower()
+    assert speech_text_for_tts("Babel is a compiler, not a pet name.") == (
+        "Babel is a compiler, not a pet name."
+    )
+    assert speech_text_for_tts("That is fire🔥dude") == "That is fire dude"
+    # Decoration alone has nothing to say, and an empty phrase must not be sent.
+    assert speech_text_for_tts("🙂") == ""
+
+
+def test_speaker_button_hands_the_provider_shaped_text() -> None:
+    # The Talk page shapes inside the realtime pipeline; the chat page's speaker
+    # button goes through SpeechRequest, which had no shaping at all. Audio bytes
+    # cannot prove the difference (two identical requests came back at 33481 and
+    # 29720), so the assertion is on the exact string the provider is handed.
+    seen: list[str] = []
+
+    class RecordingTTS(MockTTSProvider):
+        async def synthesize(self, text: str, voice: str):  # type: ignore[override]
+            seen.append(text)
+            return await super().synthesize(text, voice)
+
+    service = ConversationService(
+        Settings(HINAA_PROVIDER_MODE="mock", _env_file=None)
+    )
+    service.router.mock_tts = RecordingTTS()
+
+    reply = "I set it for 4:00, babe. ✅ 3 reminders 💜"
+    asyncio.run(service.synthesize(SpeechRequest(text=reply, providerMode="mock")))
+    assert seen == ["I set it for 4:00. 3 reminders"]
+
+    # A reply that is nothing but decoration still has to produce audio rather
+    # than an empty request, so the original text is what gets sent.
+    seen.clear()
+    asyncio.run(service.synthesize(SpeechRequest(text="🙂", providerMode="mock")))
+    assert seen == ["🙂"]
 
 
 def test_ssml_allowlist_and_escaping() -> None:

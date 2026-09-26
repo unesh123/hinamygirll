@@ -44,6 +44,7 @@ from .providers.elevenlabs import ElevenLabsConfig, ElevenLabsHTTPStreamingProvi
 from .providers.fish_audio import FishAudioConfig, FishAudioTTSProvider
 from .providers.openai_llm import OpenAILLMProvider
 from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
+from .voice_performance import speech_text_for_tts
 from .voice_profiles import resolve_calibration, resolve_voice
 
 logger = logging.getLogger("hinaa.conversation")
@@ -4864,18 +4865,23 @@ class ConversationService:
         })
 
     async def synthesize(self, request: SpeechRequest) -> ProviderResult[bytes]:
+        # The speaker button reads the same text the bubble shows, so the voice
+        # channel gets the shaping the Talk path already applies: emoji and the
+        # pet name stay on screen and are never read aloud. A reply that is
+        # nothing but decoration keeps its original text instead of going silent.
+        text = speech_text_for_tts(request.text) or request.text
         try:
             async with asyncio.timeout(self.settings.provider_timeout_seconds):
                 provider = self.router.tts(request.providerMode, request.companionId)
                 if isinstance(provider, DeepgramTTSProvider):
-                    return await provider.synthesize(request.text, voice=self.settings.deepgram_tts_model_hiro)
+                    return await provider.synthesize(text, voice=self.settings.deepgram_tts_model_hiro)
                 if isinstance(provider, ElevenLabsHTTPStreamingProvider):
                     voice_id = (
                         self.settings.elevenlabs_hiro_voice_id
                         if request.companionId == "hiro"
                         else self.settings.elevenlabs_hinaa_voice_id
                     )
-                    return await provider.synthesize_full(request.text, voice=voice_id)
+                    return await provider.synthesize_full(text, voice=voice_id)
                 voice = resolve_voice(
                     request.companionId,
                     self.settings.azure_speech_female_voice,
@@ -4884,8 +4890,8 @@ class ConversationService:
                 )
                 if isinstance(provider, FishAudioTTSProvider):
                     voice_id = self.settings.fish_audio_voice_ids[0 if request.companionId == "hinaa" else 1]
-                    return await provider.synthesize(request.text, voice=voice_id, language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto")
-                return await provider.synthesize(request.text, voice)
+                    return await provider.synthesize(text, voice=voice_id, language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto")
+                return await provider.synthesize(text, voice)
         except TimeoutError as error:
             raise HinaaError(
                 "PROVIDER_TIMEOUT", "Voice synthesis took too long.", 504, True

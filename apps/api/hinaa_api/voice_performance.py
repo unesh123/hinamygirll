@@ -46,6 +46,10 @@ _CELEBRATE = re.compile(r"\b(great|awesome|done|passed|thanks|धन्यवा
 _GREET = re.compile(r"\b(hi|hello|hey|namaste|नमस्ते)\b", re.IGNORECASE)
 
 
+# The same ranges the blocked-reply rule strips, so the two places that take emoji
+# out of what she says do not disagree about what an emoji is.
+_EMOJI_CLASS = r"\U0001F300-\U0001FAFF☀-➿️"
+
 # Speech-only substitutions; display text remains unchanged.
 PRONUNCIATION_MAP = (
     (re.compile(r"\bHINAA\b"), "Hee-nah"),
@@ -133,6 +137,19 @@ def speech_text_for_tts(display_text: str) -> str:
         spoken = pattern.sub(replacement, spoken)
     # 5. Strip markdown formatting chars
     spoken = re.sub(r"[`*#_>~|]+", " ", spoken)
+    # 6. Decoration the voice has to speak around. A TTS engine reads 🔥 as "fire",
+    #    and the pet name the on-screen persona is told to use lands in nearly
+    #    every sentence, which is what makes a spoken turn sound like the chat
+    #    model reading itself aloud. Both stay in displayText: this function
+    #    shapes the channel, not the reply.
+    spoken = re.sub(rf"[{_EMOJI_CLASS}]", " ", spoken)
+    # The pet name is an address term, so the comma that introduced it goes with
+    # it; dropping the word alone would leave "later,. Love you" for the voice.
+    spoken = re.sub(r",\s*\bbabes?\b(?=[\s,.!]|$)", "", spoken, flags=re.IGNORECASE)
+    spoken = re.sub(r"\s*\bbabes?\b\s*[,.!]?\s*", " ", spoken, flags=re.IGNORECASE)
+    # Removing the decoration strands whatever leaned on it. Only the spaces and
+    # the punctuation a removal created go -- a sentence keeps its own full stop.
+    spoken = re.sub(r"\s+([,.;:!?])", r"\1", spoken)
     spoken = re.sub(r"\s+", " ", spoken).strip()
     return spoken
 

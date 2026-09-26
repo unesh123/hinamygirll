@@ -589,21 +589,22 @@ class RealtimeGateway:
             if sentence_buffer.strip():
                 phrase_text = speech_text_for_tts(sentence_buffer.strip())
                 sentence_buffer = ""
-                task = asyncio.create_task(
-                    self.service.synthesize_text(
-                        phrase_text,
-                        session.hello.companionId,
-                        session.hello.providerMode,
-                        session.hello.calibration,
-                        rate=effective_rate,
-                        pitch_semitones=effective_pitch,
-                        volume=effective_volume,
-                        delivery_mode=voice_plan.mode,
+                if phrase_text and len(phrase_text) >= 2:
+                    task = asyncio.create_task(
+                        self.service.synthesize_text(
+                            phrase_text,
+                            session.hello.companionId,
+                            session.hello.providerMode,
+                            session.hello.calibration,
+                            rate=effective_rate,
+                            pitch_semitones=effective_pitch,
+                            volume=effective_volume,
+                            delivery_mode=voice_plan.mode,
+                        )
                     )
-                )
-                sentence_tasks.append((phrase_text, task))
-                if stream_real_audio:
-                    queue_streamed_speech(phrase_text, task)
+                    sentence_tasks.append((phrase_text, task))
+                    if stream_real_audio:
+                        queue_streamed_speech(phrase_text, task)
 
             # Fallback if sentence_tasks is empty (e.g. non-streaming provider)
             if not sentence_tasks:
