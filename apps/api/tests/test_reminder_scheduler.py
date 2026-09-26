@@ -52,6 +52,10 @@ def _minutes_ago(minutes: int) -> str:
     return (datetime.now() - timedelta(minutes=minutes)).isoformat(timespec="minutes")
 
 
+def _hours_ago(hours: int) -> str:
+    return (datetime.now() - timedelta(hours=hours)).isoformat(timespec="minutes")
+
+
 def _hour_from_now() -> str:
     return (datetime.now() + timedelta(hours=1)).isoformat(timespec="minutes")
 
@@ -124,8 +128,39 @@ def test_a_reminder_with_no_thread_fires_and_reports_that_it_was_not_delivered(c
     fired = fire_due(settings=clock_db)
 
     assert [item["id"] for item in fired] == [row["id"]]
+    assert fired[0]["status"] == "fired"
     assert fired[0]["delivered"] is False
     assert list_reminders(user_id="clock-user", status="fired", settings=clock_db)
+
+
+def test_a_row_that_came_due_long_ago_is_missed_instead_of_announced_late(clock_db):
+    stale = schedule_reminder(
+        user_id="clock-user",
+        title="Yesterday's appointment",
+        at=_hours_ago(5),
+        conversation_id="clock-stale",
+        settings=clock_db,
+    )
+    fresh = schedule_reminder(
+        user_id="clock-user",
+        title="Call back now",
+        at=_minutes_ago(1),
+        conversation_id="clock-fresh",
+        settings=clock_db,
+    )
+
+    outcomes = {item["id"]: item for item in fire_due(settings=clock_db)}
+
+    assert outcomes[stale["id"]]["status"] == "missed"
+    assert outcomes[stale["id"]]["delivered"] is False
+    assert outcomes[fresh["id"]]["status"] == "fired"
+    assert _thread(clock_db, "clock-user", "clock-stale") == []
+    assert _thread(clock_db, "clock-user", "clock-fresh") == [
+        ("assistant", "Reminder: Call back now.")
+    ]
+    assert [item["title"] for item in list_reminders(
+        user_id="clock-user", status="missed", settings=clock_db
+    )] == ["Yesterday's appointment"]
 
 
 def test_a_long_identity_subject_still_creates_its_owner(clock_db):

@@ -425,6 +425,9 @@ class Settings(BaseSettings):
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
     reminder_scheduler_enabled: bool = Field(True, alias="HINAA_REMINDER_SCHEDULER_ENABLED")
     reminder_tick_seconds: float = Field(20.0, gt=0, le=600, alias="HINAA_REMINDER_TICK_SECONDS")
+    # Catch-up after downtime is a feature; announcing yesterday's appointment
+    # this morning as if it were news is not.
+    reminder_fire_grace_seconds: int = Field(7200, ge=60, le=86400, alias="HINAA_REMINDER_FIRE_GRACE_SECONDS")
     environment: str = Field("development", alias="ENVIRONMENT")
     local_workspace_dir: Path = Field(
         Path.home() / ".hinaa" / "workspace", alias="HINAA_LOCAL_WORKSPACE_DIR"
