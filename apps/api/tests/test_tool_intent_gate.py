@@ -621,3 +621,40 @@ async def test_a_spoken_turn_still_gets_no_catalogue(gate_settings, monkeypatch)
     )
     assert captured and captured[0] == ()
     assert result.value.toolRequests == []
+
+
+# The page a brain retypes is 17,388 characters of markup measured on the live
+# bubble while the same turn wrote the real file to the workspace.
+_RETYPED_PAGE = (
+    "Here is the site for Himalayan Java Roasters.\n\n"
+    "```html\n<!DOCTYPE html>\n<html><head><title>Roasters</title></head>"
+    "<body><h1>Himalayan Java</h1></body></html>\n```"
+)
+
+
+def test_a_page_the_brain_retyped_is_not_what_he_reads(gate_settings):
+    """He filed the call himself, so no deterministic confirmation overwrites this
+    text -- the document has to be removed where it stands."""
+    plan = _gated(
+        gate_settings,
+        "build me a one page website for Himalayan Java Roasters in Jhamsikhel",
+        [("design_website", {"brief": "Himalayan Java Roasters in Jhamsikhel"})],
+        reply=_RETYPED_PAGE,
+    )
+
+    assert [req.toolName for req in plan.toolRequests] == ["design_website"]
+    assert plan.displayText == "Here is the site for Himalayan Java Roasters."
+    assert plan.spokenText == plan.displayText
+
+
+def test_markup_stays_on_screen_when_no_page_is_being_built(gate_settings):
+    """Only a turn that runs the builder may delete a document: otherwise the
+    markup is the thing he wrote in to look at."""
+    plan = _gated(
+        gate_settings,
+        "why is the website broken",
+        [],
+        reply="A broken page usually has an unclosed <html> tag.",
+    )
+
+    assert "<html>" in plan.displayText

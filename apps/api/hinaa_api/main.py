@@ -2390,6 +2390,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{resolved_path.name}"'},
         )
 
+    # A designed page is meant to be looked at, not filed away, so it gets a route
+    # that sends it inline instead of as an attachment. The generator emits no
+    # script tag at all; ``sandbox`` plus ``default-src 'none'`` make that a
+    # guarantee rather than a habit — nothing in the document can run, phone home,
+    # or reach back into this origin even if escaping ever failed.
+    @app.get("/v1/generated-docs/{doc_id}/preview")
+    @app.get("/api/v1/generated-docs/{doc_id}/preview")
+    async def preview_generated_document(doc_id: str):
+        from .artifacts.inventory import document_roots
+
+        # Validated first: the id becomes a glob pattern below, and only hex and
+        # dashes survive, so no metacharacter can widen the search.
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", doc_id):
+            raise HTTPException(status_code=404, detail="Preview not found")
+
+        for root in document_roots():
+            if not root.exists():
+                continue
+            for candidate in sorted(root.glob(f"{doc_id}_*.html")):
+                if candidate.is_file():
+                    return FileResponse(
+                        candidate,
+                        media_type="text/html; charset=utf-8",
+                        headers={
+                            "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+                            "X-Content-Type-Options": "nosniff",
+                        },
+                    )
+        raise HTTPException(status_code=404, detail="Preview not found")
+
 
     @app.get("/v1/workspace/identity")
     async def workspace_identity(

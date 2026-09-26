@@ -2511,10 +2511,25 @@ class ConversationService:
             # The answer was written before this decision existed, and a brain
             # that invents its own call also pastes its arguments into the
             # bubble. Now that a call is known to have been filed, the copy goes.
-            from .providers.display_stream_decoder import drop_echoed_call_arguments
+            from .providers.display_stream_decoder import (
+                drop_echoed_call_arguments,
+                drop_inlined_page_source,
+            )
 
             plan.displayText = drop_echoed_call_arguments(plan.displayText)
             plan.spokenText = drop_echoed_call_arguments(plan.spokenText)
+
+            if any(req.toolName == "design_website" for req in kept):
+                # A weak brain answers "build me a site" by writing the whole
+                # page into its reply. He then reads 17K characters of markup in
+                # the bubble while the same turn quietly writes the real file.
+                plan.displayText = drop_inlined_page_source(plan.displayText or "")
+                plan.spokenText = drop_inlined_page_source(plan.spokenText or "")
+                if not plan.displayText.strip():
+                    fallback = self._action_confirmation(
+                        next(req for req in kept if req.toolName == "design_website")
+                    )
+                    plan.displayText = plan.spokenText = fallback
 
         if sanction.abort and self._cancel_inflight_image_jobs(user_id=user_id) is None:
             # Nothing was cancelled because nothing could be reached, so the
@@ -2566,6 +2581,11 @@ class ConversationService:
         if tool.toolName == "image_search":
             subject = parameters.get("canonicalSubject") or parameters.get("query")
             return f"Searching images for {subject}."
+        if tool.toolName == "design_website":
+            from .tools.website_design import _subject_line
+
+            subject = _subject_line(parameters.get("brief") or "")
+            return f"Building the website for {subject}." if subject else "Building that website for you."
         return f"Running {tool.toolName}."
 
     @staticmethod
@@ -2793,6 +2813,10 @@ class ConversationService:
             "document": ("document_generate", {"title": clean_args, "content": "", "format": flags.get("format", "pdf")}),
             "create doc": ("document_generate", {"title": clean_args, "content": "", "format": "docx"}),
             "pdf": ("pdf_generate", {"topic": clean_args, "title": clean_args, "content": ""}),
+            "site": ("design_website", {"brief": clean_args}),
+            "website": ("design_website", {"brief": clean_args}),
+            "webpage": ("design_website", {"brief": clean_args}),
+            "landing page": ("design_website", {"brief": clean_args}),
             "gamma": ("create_gamma_presentation", {"topic": clean_args or "Presentation", "format": "presentation"}),
             "deck": ("create_gamma_presentation", {"topic": clean_args or "Pitch Deck", "format": "presentation"}),
             "gamma doc": ("create_gamma_presentation", {"topic": clean_args or "Document", "format": "document"}),
@@ -4864,8 +4888,20 @@ class ConversationService:
         # stream holds a trailing open construct back until it resolves, which
         # keeps the typed-out bubble identical to what lands in it.
         notation_stream = MathNotationStream()
+        # Decided from his words, before the brain speaks, by the same sanction
+        # that files the call below: on a turn already building the page, a
+        # document typed into the reply is machinery, and the client paints
+        # whatever reaches the wire. Prose either side of it still streams.
+        from .providers.display_stream_decoder import PageSourceGuard
+        from .tools.intent_gate import page_will_be_built
+
+        page_guard = PageSourceGuard() if page_will_be_built(request.text) else None
 
         async def emit_delta(delta: str) -> None:
+            if page_guard is not None:
+                delta = page_guard.feed(delta)
+                if not delta:
+                    return
             safe = notation_stream.feed(delta)
             if safe:
                 await queue.put(("delta", safe))
@@ -4925,6 +4961,12 @@ class ConversationService:
                 break
             # Anything still held back was never followed by a resolving delta;
             # ship it before the remainder comparison so it cannot be emitted twice.
+            held_page = page_guard.flush() if page_guard is not None else ""
+            if held_page:
+                safe = notation_stream.feed(held_page)
+                if safe:
+                    emitted.append(safe)
+                    yield _make_delta_event(safe)
             tail = notation_stream.flush()
             if tail:
                 emitted.append(tail)

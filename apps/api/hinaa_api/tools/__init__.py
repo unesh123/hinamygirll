@@ -13,6 +13,7 @@ from . import freepik_suite
 from . import image_fabric
 from . import deep_research
 from . import document_generate
+from . import website_design
 from . import github_tools
 from . import reminder
 

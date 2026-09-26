@@ -13,8 +13,10 @@ from hinaa_api.providers.display_stream_decoder import (
     DisplayTextChain,
     DisplayTextStreamDecoder,
     JsonDisplayTextLocator,
+    PageSourceGuard,
     decode_all_display_fields,
     decode_display_field,
+    drop_inlined_page_source,
     strip_simulated_tool_calls,
 )
 
@@ -486,3 +488,70 @@ def test_the_chatml_payload_never_reaches_the_written_answer() -> None:
         "I'd love to help you with that, babe! Let me create a comprehensive "
         "PDF on quantum computing for you right away."
     )
+
+
+_PAGE = (
+    "<!DOCTYPE html>\n<html><head><title>Roasters</title></head>"
+    "<body><h1>Himalayan Java</h1></body></html>"
+)
+
+
+def _guard_stream(text: str, chunk_size: int) -> str:
+    guard = PageSourceGuard()
+    out = [
+        guard.feed(text[i : i + chunk_size])
+        for i in range(0, len(text), chunk_size)
+    ]
+    out.append(guard.flush())
+    return "".join(out)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 2, 5, 9, 16, 64, 4000])
+def test_a_page_typed_into_the_reply_never_reaches_his_screen(chunk_size: int) -> None:
+    """Measured at 17,388 streamed characters: the flash brain answers a website
+    request by retyping the document it is already writing to disk."""
+    streamed = _guard_stream("Here is the site.\n\n" + _PAGE, chunk_size)
+
+    assert streamed == "Here is the site.\n\n"
+    for token in ("<!DOCTYPE", "<html", "<body", "Roasters", "Himalayan"):
+        assert token not in streamed
+
+
+@pytest.mark.parametrize("chunk_size", [1, 7, 4000])
+def test_a_reply_that_is_only_a_page_streams_as_nothing(chunk_size: int) -> None:
+    assert _guard_stream(_PAGE, chunk_size) == ""
+    assert _guard_stream(_PAGE + "\nOpen the preview above.", chunk_size) == ""
+
+
+def test_markup_he_asked_to_see_is_not_a_page_being_built() -> None:
+    """The guard opens a document with a page token. Inline tags are part of an
+    answer, and silencing them would delete the thing he wrote in to ask about."""
+    for reply in (
+        "Wrap it in <b>bold</b> and it goes thick.",
+        "Use <span style=\"color:red\"> like this, then close with </span>.",
+        "A table is <table><tr><td>cell</td></tr></table>.",
+        "a < b and c > d holds for any numbers.",
+    ):
+        for chunk_size in (1, 3, 4000):
+            assert _guard_stream(reply, chunk_size) == reply, reply
+
+
+def test_the_guard_does_not_end_the_stream_on_a_half_seen_tag() -> None:
+    """A trailing '<' is a guess about the next delta, so flush owes it back."""
+    guard = PageSourceGuard()
+
+    assert guard.feed("x = y <") == "x = y "
+    assert guard.feed(" z") == ""
+    assert guard.flush() == "< z"
+    assert guard.flush() == ""
+
+
+def test_the_written_answer_loses_the_page_and_nothing_else() -> None:
+    assert drop_inlined_page_source(_PAGE) == ""
+    assert drop_inlined_page_source("Here is the site.\n\n" + _PAGE) == "Here is the site."
+    assert drop_inlined_page_source(_PAGE[:60]) == ""
+    assert drop_inlined_page_source("Here you go.\n\n```html\n" + _PAGE + "\n```\n\nEnjoy.") == (
+        "Here you go.\n\nEnjoy."
+    )
+    assert drop_inlined_page_source("Wrap it in <b>bold</b>.") == "Wrap it in <b>bold</b>."
+    assert drop_inlined_page_source("no markup at all") == "no markup at all"

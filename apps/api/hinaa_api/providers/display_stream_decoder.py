@@ -42,6 +42,8 @@ __all__ = [
     "DisplayTextChain",
     "AdaptiveStreamDecoder",
     "strip_simulated_tool_calls",
+    "drop_inlined_page_source",
+    "PageSourceGuard",
     "decode_display_field",
     "decode_all_display_fields",
     "DISPLAY_KEY_PATTERN",
@@ -535,6 +537,88 @@ def drop_echoed_call_arguments(text: str) -> str:
         return match.group(0)
 
     return re.sub(r"[ \t]*`{3,}[^\S\n]*(?P<body>[\s\S]*?)(?:`{3,}|$)", _drop, text)
+
+
+# A page the builder writes is delivered as a document artifact; the same
+# markup printed into the bubble is machinery, not an answer. Deliberately
+# requires a page-opening token so ordinary prose, inline tags, and a fenced
+# example he asked for are never touched.
+_PAGE_SOURCE_PATTERN = re.compile(
+    r"""
+    (?:^[ \t]*`{3,}[ \t]*(?:html?|xml|svg)[ \t]*\n)?      # optional opening fence
+    [ \t]*(?:<!doctype[ \t]+html|<html\b)[\s\S]*?</html\s*>
+    (?:[ \t]*\n?[ \t]*`{3,})?                             # optional closing fence
+    |
+    (?:^[ \t]*`{3,}[ \t]*(?:html?|xml|svg)[ \t]*\n)?
+    [ \t]*(?:<!doctype[ \t]+html|<html\b)[\s\S]*$         # unclosed: the rest is the page
+    """,
+    re.IGNORECASE | re.MULTILINE | re.VERBOSE,
+)
+
+
+# The token that opens a whole document. Deliberately narrower than any tag:
+# inline markup is part of an answer, a page is the answer being retyped.
+_PAGE_OPEN_PATTERN = re.compile(r"(?i)<!doctype\s+html|<html\b")
+
+
+class PageSourceGuard:
+    """Streaming twin of :func:`drop_inlined_page_source`.
+
+    Forwards prose untouched and goes silent for good the moment the answer
+    starts typing an HTML document. A marker is not a word boundary --
+    ``"<!DOCTY"`` and ``"PE html>"`` can arrive as separate deltas -- so a
+    trailing fragment that could still grow into one is held back a few
+    characters at a time.
+    """
+
+    _HOLD_CHARS = 16
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self.closed = False
+
+    def feed(self, delta: str) -> str:
+        if self.closed:
+            return ""
+        self._pending += delta
+        # Search, not match: a provider that answers in whole paragraphs ships the
+        # prose and the page in one delta, and the page must not ride through on
+        # the coattails of a sentence that came before it.
+        opening = _PAGE_OPEN_PATTERN.search(self._pending)
+        if opening:
+            head = self._pending[: opening.start()]
+            self.closed = True
+            self._pending = ""
+            return head
+        split = len(self._pending)
+        for edge in range(len(self._pending) - 1, max(len(self._pending) - self._HOLD_CHARS, -1), -1):
+            if self._pending[edge] == "<":
+                split = edge
+                break
+        head, self._pending = self._pending[:split], self._pending[split:]
+        return head
+
+    def flush(self) -> str:
+        """Give back a trailing ``<`` fragment that never grew into a page.
+
+        The hold is a guess about the next delta, not a judgement about the text
+        already sent, so the stream must not end on it.
+        """
+        pending, self._pending = self._pending, ""
+        return "" if self.closed else pending
+
+
+def drop_inlined_page_source(text: str) -> str:
+    """Remove an HTML document a brain printed as its answer.
+
+    Called only once ``design_website`` is known to be running this turn. Until
+    then a page is plausibly what he asked to see; after it, the real page is on
+    its way to him as a file, and the source text has nothing left to say.
+    """
+    if "<" not in text:
+        return text
+    stripped = _PAGE_SOURCE_PATTERN.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", stripped).strip()
 
 
 def strip_simulated_tool_calls(text: str) -> str:

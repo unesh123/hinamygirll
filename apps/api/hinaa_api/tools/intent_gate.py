@@ -34,6 +34,7 @@ GATED_TOOLS = {
     "reminder.create",
     "document_generate",
     "pdf_generate",
+    "design_website",
 }
 
 # Gated calls whose every required parameter this module reads out of the owner's
@@ -42,6 +43,7 @@ GATED_TOOLS = {
 SELF_SPECIFIED = {
     "image_generate": ("prompt",),
     "reminder.create": ("title", "at"),
+    "design_website": ("brief",),
 }
 
 
@@ -130,6 +132,15 @@ _DOCUMENT_ASK = re.compile(
 # "make me a pdf" sanctions the family. Naming one of them would drop the other
 # and leave a genuine document request with no tool at all.
 _DOCUMENT_FAMILY = frozenset({"document_generate", "pdf_generate"})
+# "Design" names both a picture and a page, and a page is the bigger ask, so this
+# is matched before the image branch: "design a landing page with a hero section"
+# wants one HTML file, not a rendered image of one.
+_WEBSITE = re.compile(
+    r"""(?ix) \b (?: build | create | design | make | develop | generate | code | write |
+        lay\s+out | put\s+together | give\s+me | i\s+(?:want|need) ) \b [^.?!]* \b
+        (?: web\s*site | web\s*page | landing\s*page | home\s*page | portfolio\s*site |
+            (?:a|an|the|my|one|full|complete|whole|simple|new)\s+site ) \b"""
+)
 _FABRIC_UPSCALE = re.compile(r"(?ix)\b(?:up[\s-]?scal\w*|make\s+it\s+(?:bigger|sharper|4k|8k))\b")
 _FABRIC_RELIGHT = re.compile(r"(?ix)\b(?:re-?light\w*)\b")
 
@@ -401,6 +412,26 @@ def _parse_when(text: str, now: datetime) -> tuple[datetime | None, str | None]:
     return None, None
 
 
+def _slash_parameters(tool: str, args: str, now: datetime) -> dict[str, Any]:
+    """The arguments he typed after the verb, read back out of his own sentence.
+
+    A slash command is where he names the action himself, so the subject is
+    already in the text. Leaving these empty made the gate refuse the call the
+    plan had filed for it: "/image a red fox" came back with nothing running.
+    """
+    if not args:
+        return {}
+    if tool == "image_generate":
+        return {"prompt": extract_image_subject(args) or args, "count": requested_count(args)}
+    if tool == "design_website":
+        return {"brief": args}
+    if tool == "reminder.create":
+        when, at_phrase = _parse_when(args, now)
+        title = _reminder_title(args, at_phrase)
+        return {"title": title, "at": when.isoformat(timespec="minutes")} if when and title else {}
+    return {}
+
+
 def sanction_tools(
     text: str,
     *,
@@ -435,6 +466,10 @@ def sanction_tools(
             "deep": "deep_research",
             "pdf": "document_generate",
             "doc": "document_generate",
+            "site": "design_website",
+            "website": "design_website",
+            "webpage": "design_website",
+            "landing": "design_website",
             "remind": "reminder.create",
         }
         tool = mapping.get(verb)
@@ -442,7 +477,10 @@ def sanction_tools(
             _allow_document(sanction)
         elif tool:
             sanction.allowed.add(tool)
-            sanction.parameters[tool] = {}
+            typed_args = re.sub(r"^\s*/[\w-]+\s*", "", raw).strip()
+            sanction.parameters[tool] = _slash_parameters(
+                tool, typed_args, now or datetime.now()
+            )
         return sanction
 
     lowered = raw.casefold()
@@ -471,6 +509,16 @@ def sanction_tools(
     if _RESEARCH.search(lowered):
         sanction.allowed.add("deep_research")
         sanction.parameters["deep_research"] = {}
+        return sanction
+
+    if _WEBSITE.search(lowered) and not META_FRAMING.search(lowered):
+        # Ahead of the image branch on purpose: "design" is in both vocabularies
+        # and a page is the larger deliverable. His sentence is the brief itself --
+        # the page is built from what he donates in it, or researched from the
+        # subject the builder reads out of it -- so a brain that planned nothing
+        # still owes him a page.
+        sanction.allowed.add("design_website")
+        sanction.parameters["design_website"] = {"brief": raw}
         return sanction
 
     if _VARIANT_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -525,6 +573,28 @@ def sanction_tools(
         return sanction
 
     return sanction
+
+
+def page_will_be_built(
+    text: str,
+    *,
+    now: datetime | None = None,
+    known_subjects: Iterable[str] = (),
+) -> bool:
+    """True when his own words commit this turn to building a page.
+
+    ``turns:stream`` asks this before the brain speaks. A weak model answers a
+    website request by typing the entire document into its reply, and the client
+    paints that markup live for tens of seconds; when the same turn is already
+    writing the real file to the workspace, the typed-out source is machinery his
+    screen then has to recover from. The check mirrors the rule that files the
+    call, so a turn that only asked to *see* markup keeps streaming it.
+    """
+    sanction = sanction_tools(text, now=now, known_subjects=known_subjects)
+    if "design_website" not in sanction.allowed:
+        return False
+    authorized = sanction.parameters.get("design_website") or {}
+    return all(authorized.get(key) for key in SELF_SPECIFIED["design_website"])
 
 
 def gate_tool_requests(
@@ -659,6 +729,7 @@ BLOCKED_NOTE = {
     "image": "I did not start an image job because your message was not a request for one.",
     "search": "I did not search because your message was not a request to search.",
     "document": "I did not build a document because your message was not a request for one.",
+    "website": "I did not build a website because your message was not a request for one.",
     "reminder": "I did not set a reminder because your message was not a request to set one.",
     # The opposite failure: he did ask, and the sentence named no subject to act
     # on, so telling him his message was not a request would be untrue.
@@ -675,6 +746,7 @@ TOOL_KIND = {
     "deep_research": "search",
     "document_generate": "document",
     "pdf_generate": "document",
+    "design_website": "website",
     "reminder.create": "reminder",
 }
 
