@@ -12,10 +12,17 @@ class VoiceTuning:
     volume: float
 
 
+# The live client never sends a calibration other than "natural" (App.tsx
+# hard-codes it; there is no picker), so these numbers ARE her speaking pace and
+# nothing else can change them. They used to top out at 1.07 while the ElevenLabs
+# provider ignored them entirely and pinned 0.9, which is why "she is talking so
+# slow I can read it faster than that". The band is now brisk by default and
+# reaches 1.2, the highest value measured to be accepted on this account before
+# HTTP 400 invalid_voice_settings. Pitch and volume are unchanged.
 CALIBRATIONS: dict[str, VoiceTuning] = {
-    "natural": VoiceTuning(1.0, 0.0, 1.0),
-    "soft": VoiceTuning(0.94, -0.5, 0.9),
-    "lively": VoiceTuning(1.07, 0.8, 1.0),
+    "natural": VoiceTuning(1.12, 0.0, 1.0),
+    "soft": VoiceTuning(1.0, -0.5, 0.9),
+    "lively": VoiceTuning(1.2, 0.8, 1.0),
 }
 
 

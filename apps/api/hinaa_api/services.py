@@ -4929,7 +4929,14 @@ class ConversationService:
                         if request.companionId == "hiro"
                         else self.settings.elevenlabs_hinaa_voice_id
                     )
-                    return await provider.synthesize_full(text, voice=voice_id)
+                    return await provider.synthesize_full(
+                        text,
+                        voice=voice_id,
+                        # Without this the bubble voice falls back to the "warm"
+                        # performance pace, which is deliberately slow, and the
+                        # two speech channels disagree on how fast she talks.
+                        rate=resolve_calibration("natural").rate,
+                    )
                 voice = resolve_voice(
                     request.companionId,
                     self.settings.azure_speech_female_voice,
@@ -5005,6 +5012,10 @@ class ConversationService:
                         voice=voice_id,
                         delivery_mode=delivery_mode,
                         companion_id=companion_id,
+                        # Same rule as the Azure path below: an explicit rate wins,
+                        # otherwise the calibration decides. The live client sends
+                        # "natural" and has no picker, so this value is her pace.
+                        rate=rate if rate is not None else resolve_calibration(calibration).rate,
                     )
             except Exception as error:
                 raise HinaaError("TTS_FAILED", f"ElevenLabs TTS failed: {error}", 503, True) from error

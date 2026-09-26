@@ -73,6 +73,21 @@ def language_code_for_model(text: str, model_id: str) -> str | None:
     return hint if hint in accepted else None
 
 
+# voice_settings.speed is validated, not rounded. Measured against this account
+# on eleven_turbo_v2_5: 0.7 through 1.2 are accepted, 1.25 and 1.5 are answered
+# with HTTP 400 {"detail":{"code":"invalid_voice_settings","message":"speed
+# expected to be greater or equal to 0.7 and less or equal to 1.2"}}. The
+# performance planner is free to emit 0.5 to 2.0, so anything that reaches the
+# wire without this clamp silently costs the phrase its audio.
+ELEVENLABS_SPEED_MIN = 0.7
+ELEVENLABS_SPEED_MAX = 1.2
+
+
+def clamp_elevenlabs_speed(value: float) -> float:
+    """Keep a requested rate inside the range the vendor will actually accept."""
+    return max(ELEVENLABS_SPEED_MIN, min(ELEVENLABS_SPEED_MAX, float(value)))
+
+
 class ElevenLabsStatus(str, Enum):
     configured             = "configured"
     authenticationUntested = "authenticationUntested"
@@ -248,6 +263,7 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
         voice: str | None = None,
         delivery_mode: str = "warm",
         companion_id: str = "hinaa",
+        rate: float | None = None,
     ) -> ProviderResult[bytes]:
         import time
         import asyncio
@@ -262,7 +278,11 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
             chunks: list[bytes] = []
             try:
                 async for chunk in self.synthesize(
-                    text, voice=voice, delivery_mode=delivery_mode, companion_id=companion_id
+                    text,
+                    voice=voice,
+                    delivery_mode=delivery_mode,
+                    companion_id=companion_id,
+                    rate=rate,
                 ):
                     chunks.append(chunk)
             except ElevenLabsError as error:
@@ -297,6 +317,7 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
         voice: str | None = None,
         delivery_mode: str = "warm",
         companion_id: str = "hinaa",
+        rate: float | None = None,
         cancel: ElevenLabsCancellationToken | None = None,
     ) -> AsyncIterator[bytes]:
         if not self._config.configured:
@@ -322,7 +343,14 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
                 "similarity_boost": delivery["similarity"],
                 "style": delivery["style_intensity"],
                 "use_speaker_boost": True,
-                "speed": 0.9,
+                # Speed used to be pinned at 0.9 here -- the slowest value the
+                # system holds -- while the caller's rate was dropped on the floor
+                # by services, so no server-side pacing decision could reach the
+                # wire. The caller's rate now wins; the planner's pace is only a
+                # fallback for a caller that expresses no pacing at all.
+                "speed": clamp_elevenlabs_speed(
+                    rate if rate is not None else delivery["pace"]
+                ),
             },
         }
         # A language_code the model does not carry is not ignored, it is a 400 and

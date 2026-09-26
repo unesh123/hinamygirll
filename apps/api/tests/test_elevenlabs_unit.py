@@ -16,10 +16,14 @@ from hinaa_api.providers.elevenlabs import (
     ElevenLabsAlignmentSource,
     VisemeApproximationAdapter,
     ALLOWED_SEMANTIC_MODES,
+    ELEVENLABS_SPEED_MAX,
+    ELEVENLABS_SPEED_MIN,
+    clamp_elevenlabs_speed,
     language_code_for_text,
     language_code_for_model,
     reason_from_body,
 )
+from hinaa_api.voice_profiles import CALIBRATIONS
 
 def test_language_hint_is_text_aware_without_forcing_hindi() -> None:
     assert language_code_for_text("Explain the deployment plan clearly.") == "en"
@@ -117,7 +121,7 @@ async def test_synthesize_full_retries_transient_429_burst():
     calls = {"count": 0}
 
     async def fake_synthesize(
-        text, *, voice=None, delivery_mode="warm", companion_id="hinaa"
+        text, *, voice=None, delivery_mode="warm", companion_id="hinaa", rate=None
     ):
         calls["count"] += 1
         if calls["count"] == 1:
@@ -142,7 +146,7 @@ async def test_synthesize_full_hard_failure_skips_retry():
     calls = {"count": 0}
 
     async def fake_synthesize(
-        text, *, voice=None, delivery_mode="warm", companion_id="hinaa"
+        text, *, voice=None, delivery_mode="warm", companion_id="hinaa", rate=None
     ):
         calls["count"] += 1
         raise ElevenLabsError(ElevenLabsStatus.authenticationFailed, "bad key")
@@ -166,7 +170,7 @@ async def test_synthesize_full_gives_up_after_bounded_retries():
     calls = {"count": 0}
 
     async def fake_synthesize(
-        text, *, voice=None, delivery_mode="warm", companion_id="hinaa"
+        text, *, voice=None, delivery_mode="warm", companion_id="hinaa", rate=None
     ):
         calls["count"] += 1
         raise ElevenLabsError(ElevenLabsStatus.quotaFailed, "quota exhausted")
@@ -409,4 +413,102 @@ async def test_elevenlabs_batch_stt_provider_mocked():
             assert wf.getsampwidth() == 2
             assert wf.getframerate() == 16000
             assert wf.getnframes() == 16000
+
+
+def _turbo_provider(monkeypatch, sent):
+    """An ElevenLabs provider whose outgoing synthesis payloads are recorded."""
+    _record_stream(monkeypatch, sent)
+    return ElevenLabsHTTPStreamingProvider(
+        ElevenLabsConfig(api_key="k", voice_id="v", model_id=TURBO)
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_rate_a_caller_asks_for_reaches_the_request(monkeypatch):
+    """Measured defect: voice_settings.speed was pinned to 0.9 here, so the one
+    number that decides how fast she speaks answered for nobody.
+    """
+    sent = []
+    provider = _turbo_provider(monkeypatch, sent)
+
+    await provider.synthesize_full(
+        "Explain the deployment plan.", companion_id="hinaa", rate=1.12
+    )
+
+    assert sent[0]["voice_settings"]["speed"] == 1.12
+
+
+@pytest.mark.asyncio
+async def test_a_caller_that_names_no_pace_keeps_the_semantic_mode_pace(monkeypatch):
+    sent = []
+    provider = _turbo_provider(monkeypatch, sent)
+
+    await provider.synthesize_full(
+        "Take your time with this one.",
+        companion_id="hinaa",
+        delivery_mode="calm",
+    )
+
+    pace = VoicePerformancePlanner().plan_delivery("calm", "hinaa")["pace"]
+    assert sent[0]["voice_settings"]["speed"] == clamp_elevenlabs_speed(pace)
+
+
+@pytest.mark.asyncio
+async def test_a_rate_the_vendor_would_reject_is_clamped_not_sent(monkeypatch):
+    """1.25 is answered with HTTP 400 invalid_voice_settings on this account, and
+    the planner is allowed to emit up to 2.0. An unclamped pace does not degrade
+    to a slower voice; it costs the phrase its audio entirely.
+    """
+    sent = []
+    provider = _turbo_provider(monkeypatch, sent)
+
+    await provider.synthesize_full("Too fast.", companion_id="hinaa", rate=2.0)
+    await provider.synthesize_full("Too slow.", companion_id="hinaa", rate=0.4)
+
+    assert [payload["voice_settings"]["speed"] for payload in sent] == [
+        ELEVENLABS_SPEED_MAX,
+        ELEVENLABS_SPEED_MIN,
+    ]
+    assert clamp_elevenlabs_speed(1.07) == 1.07  # inside the band, untouched
+
+
+def test_every_advertised_pace_is_one_the_provider_will_accept():
+    """The live client hard-codes "natural" and offers no picker, so these numbers
+    ARE her speaking pace. They used to sit at 0.94-1.07 while the provider pinned
+    0.9, which is the measured gap behind "she is talking so slow, I can read it
+    faster than that".
+    """
+    for name, tuning in CALIBRATIONS.items():
+        assert ELEVENLABS_SPEED_MIN <= tuning.rate <= ELEVENLABS_SPEED_MAX, name
+    assert CALIBRATIONS["natural"].rate > 1.1, "the default must be brisk"
+    assert CALIBRATIONS["lively"].rate >= CALIBRATIONS["natural"].rate
+    assert CALIBRATIONS["soft"].rate <= CALIBRATIONS["natural"].rate
+
+
+@pytest.mark.asyncio
+async def test_the_service_layer_forwards_the_rate_it_accepts(monkeypatch):
+    """The rate was dropped in services, not in the provider: synthesize_text took
+    the argument and never passed it on the ElevenLabs branch, so the calibration
+    the realtime session resolved died one call before the wire.
+    """
+    from types import SimpleNamespace
+
+    from hinaa_api.config import Settings
+    from hinaa_api.services import ConversationService
+
+    sent = []
+    provider = _turbo_provider(monkeypatch, sent)
+    service = ConversationService(Settings())
+    service.router = SimpleNamespace(tts=lambda mode, companion_id: provider)
+
+    await service.synthesize_text(
+        "Explain the deployment plan.", "hinaa", "elevenlabs", rate=1.15
+    )
+    assert sent[0]["voice_settings"]["speed"] == 1.15
+
+    # With no explicit rate, the calibration he is on decides, and it still speaks.
+    await service.synthesize_text(
+        "Explain it again.", "hinaa", "elevenlabs", calibration="lively"
+    )
+    assert sent[1]["voice_settings"]["speed"] == CALIBRATIONS["lively"].rate
 
