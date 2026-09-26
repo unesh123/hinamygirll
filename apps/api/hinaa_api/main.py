@@ -48,6 +48,7 @@ from .brain_ledger import (
     row_for_brain,
 )
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
+from .reminder_scheduler import run_scheduler as run_reminder_scheduler
 from .realtime import RealtimeGateway
 from .services import ConversationService
 from .tools import policy as tool_policy, registry
@@ -870,7 +871,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 agent_runtime.recover(saved_run.run_id, saved_run.user_id)
         if task_service:
             task_service.recover_interrupted_tasks()
+        # "Reminder set" is only true if something advances the row. This dies
+        # with the process, so a reminder due during a restart fires on the
+        # first tick after it comes back rather than being lost.
+        scheduler_stop = asyncio.Event()
+        scheduler_task = None
+        if active_settings.reminder_scheduler_enabled and active_settings.persistence_enabled:
+            scheduler_task = asyncio.create_task(
+                run_reminder_scheduler(
+                    settings=active_settings,
+                    stop=scheduler_stop,
+                    tick_seconds=active_settings.reminder_tick_seconds,
+                ),
+                name="hinaa-reminder-scheduler",
+            )
         yield
+        scheduler_stop.set()
+        if scheduler_task is not None:
+            await asyncio.gather(scheduler_task, return_exceptions=True)
         tasks = [*project_tasks.values(), *tool_tasks]
         for task in tasks:
             task.cancel()

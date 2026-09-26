@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from ..config import Settings, get_settings
 from ..errors import HinaaError
 from ..persistence.db import get_session_factory
-from ..persistence.orm import Reminder
+from ..persistence.orm import Reminder, _uuid
 from .registry import ToolDefinition, registry
 
 logger = logging.getLogger("hinaa.tools.reminder")

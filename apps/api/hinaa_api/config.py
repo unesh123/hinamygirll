@@ -423,6 +423,8 @@ class Settings(BaseSettings):
     cx_gateway_quota_url: str | None = Field(None, alias="CX_GATEWAY_QUOTA_URL")
     cx_gateway_quota_key: SecretStr | None = Field(None, alias="CX_GATEWAY_QUOTA_KEY")
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
+    reminder_scheduler_enabled: bool = Field(True, alias="HINAA_REMINDER_SCHEDULER_ENABLED")
+    reminder_tick_seconds: float = Field(20.0, gt=0, le=600, alias="HINAA_REMINDER_TICK_SECONDS")
     environment: str = Field("development", alias="ENVIRONMENT")
     local_workspace_dir: Path = Field(
         Path.home() / ".hinaa" / "workspace", alias="HINAA_LOCAL_WORKSPACE_DIR"
