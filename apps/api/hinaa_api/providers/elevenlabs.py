@@ -324,10 +324,20 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
             raise ElevenLabsError(ElevenLabsStatus.unavailable, "ElevenLabs is not configured.")
         voice_id = voice or self._config.voice_id
         url = f"{self._config.base_url}/v1/text-to-speech/{voice_id}/stream"
+        # output_format is a query parameter. Sent inside the JSON body it is
+        # ignored without any error, so this account answered every request with
+        # its mp3 default whatever ELEVENLABS_OUTPUT_FORMAT asked for -- and the
+        # media type that labels these bytes for the browser is chosen from that
+        # same setting, so the label was right only by coincidence.
+        params = {"output_format": self._config.output_format}
         headers = {
             "xi-api-key": self._config.api_key,
             "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
+            "Accept": (
+                "audio/mpeg"
+                if self._config.output_format.startswith("mp3")
+                else "application/octet-stream"
+            ),
         }
         delivery = VoicePerformancePlanner().plan_delivery(delivery_mode, companion_id)
         # Emotion-driven voice settings: the planner maps semantic modes
@@ -337,7 +347,6 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
         payload = {
             "text": text,
             "model_id": self._config.model_id,
-            "output_format": self._config.output_format,
             "voice_settings": {
                 "stability": delivery["stability"],
                 "similarity_boost": delivery["similarity"],
@@ -363,7 +372,9 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
         try:
             async with _tts_gate(self._config.tts_max_concurrency):
                 async with httpx.AsyncClient(timeout=self._config.request_timeout_s) as client:
-                    async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    async with client.stream(
+                        "POST", url, headers=headers, params=params, json=payload
+                    ) as response:
                         if response.status_code != 200:
                             mapped = map_elevenlabs_http_error(response.status_code)
                             self._status = mapped

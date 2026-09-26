@@ -248,11 +248,12 @@ NEPALI_PHRASE = "मलाई कम्प्युटर सेटअप बु
 TURBO = "eleven_turbo_v2_5"
 
 
-def _record_stream(monkeypatch, sent, status_code=200, error_body=b""):
+def _record_stream(monkeypatch, sent, status_code=200, error_body=b"", queries=None):
     """Stand in for httpx so a synthesis request is recorded, not sent.
 
     The response keeps the three members the provider actually uses: status_code,
-    aread() for the error body, and aiter_bytes() for the audio.
+    aread() for the error body, and aiter_bytes() for the audio. `queries` records
+    the URL parameters too, because that is where the vendor reads output_format.
     """
     import httpx
 
@@ -283,8 +284,10 @@ def _record_stream(monkeypatch, sent, status_code=200, error_body=b""):
         async def __aexit__(self, *_exc):
             return False
 
-        def stream(self, method, url, headers=None, json=None):
+        def stream(self, method, url, headers=None, params=None, json=None):
             sent.append(json)
+            if queries is not None:
+                queries.append(params)
             return _Stream()
 
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
@@ -511,4 +514,27 @@ async def test_the_service_layer_forwards_the_rate_it_accepts(monkeypatch):
         "Explain it again.", "hinaa", "elevenlabs", calibration="lively"
     )
     assert sent[1]["voice_settings"]["speed"] == CALIBRATIONS["lively"].rate
+
+
+@pytest.mark.asyncio
+async def test_the_requested_audio_format_goes_where_the_vendor_reads_it(monkeypatch):
+    """Measured: with output_format inside the JSON body this account answered
+    every request as mp3_44100_128, byte for byte, whatever was configured -- and
+    refused to explain itself. The label put on those bytes comes from the same
+    setting, so a pcm configuration would have handed the browser mp3 wearing a
+    pcm name. The parameter belongs in the query string.
+    """
+    sent: list[dict] = []
+    queries: list[dict] = []
+    _record_stream(monkeypatch, sent, queries=queries)
+    provider = ElevenLabsHTTPStreamingProvider(
+        ElevenLabsConfig(
+            api_key="k", voice_id="v", model_id=TURBO, output_format="pcm_16000"
+        )
+    )
+
+    await provider.synthesize_full("Give me raw samples.", companion_id="hinaa")
+
+    assert queries[0] == {"output_format": "pcm_16000"}
+    assert "output_format" not in sent[0]
 
