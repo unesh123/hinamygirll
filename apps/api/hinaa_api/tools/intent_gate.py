@@ -231,8 +231,14 @@ def extract_image_subject(text: str) -> str | None:
         \b [,.]? \s*
         """,
         rf""" ^ \s* (?: {FILLERS} | for \s+ me | me | us ) \b [,.]? \s* """,
-        # The batch size first, while the noun it hangs off is still there.
-        rf""" \b (?: \d{{1,2}} | {COUNT_WORDS} ) \s+ (?: {IMAGE_NOUNS} ) \b """,
+        # The batch size first, while the noun it hangs off is still there. The
+        # low end of a range goes with it: "3 or 4 image" names four pictures,
+        # not a subject that starts with "3 or".
+        rf"""
+        \b (?: \d{{1,2}} | {COUNT_WORDS} )
+        (?: \s* (?: or | and | to | - | – | , ) \s* (?: \d{{1,2}} | {COUNT_WORDS} ) )?
+        \s+ (?: {IMAGE_NOUNS} ) \b
+        """,
         # Every remaining mention of the medium, with its article and connector:
         # "a picture of", "images", "the wallpaper for".
         rf"""
@@ -284,20 +290,31 @@ def extract_image_subject(text: str) -> str | None:
     return candidate
 
 
-def requested_count(text: str, *, maximum: int = 10) -> int:
+def requested_count(text: str, *, maximum: int = 10, default: int = 1) -> int:
     """How many he asked for. Defaults to one rather than the vendor default."""
     numerals = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
                 "seven": 7, "eight": 8, "nine": 9, "ten": 10}
     match = re.search(
-        rf"(?ix) \b(?:{COUNT_WORDS}|\d{{1,2}}) \b \s* (?: {IMAGE_NOUNS} | variants? | versions? ) \b",
+        rf"""(?ix) \b (?P<low> {COUNT_WORDS} | \d{{1,2}} ) \b \s*
+        (?: (?: or | and | to | - | – ) \s*
+            (?P<high> {COUNT_WORDS} | \d{{1,2}} ) \b \s* )?
+        (?: {IMAGE_NOUNS} | variants? | versions? ) \b""",
         text or "",
     )
     if not match:
-        return 1
-    token = match.group(0).split()[0].casefold()
-    count = numerals.get(token) or (int(token) if token.isdigit() else 0)
+        return default
+
+    def as_number(token: str) -> int:
+        word = (token or "").casefold()
+        if word in numerals:
+            return numerals[word]
+        return int(word) if word.isdigit() else 0
+
+    # "3 or 4 images" is four pictures, not three; the low end is only what he
+    # would settle for, and a plain "4 images" leaves `high` empty.
+    count = max(as_number(match.group("low")), as_number(match.group("high")))
     if count < 1:
-        return 1
+        return default
     return min(count, maximum)
 
 

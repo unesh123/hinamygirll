@@ -53,6 +53,20 @@ IMAGE_SEARCH = re.compile(
     re.IGNORECASE,
 )
 
+# A bare fetch names no subject on purpose: "fetch me some images" after
+# talking about Mikasa means images of Mikasa. The subject comes from the
+# conversation's active entity, compiled downstream -- the gate only has to
+# recognize that the turn asks for pictures at all.
+IMAGE_BARE_FETCH = re.compile(
+    r"^\s*(?:please\s+)?(?:hey\s+hinaa?\s*,?\s*)?"
+    r"(?:show|sho|find|search(?:\s+for)?|get|fetch|bring|see|look\s+for|"
+    r"send\s+me|give\s+me)\s+"
+    r"(?:me\s+)?(?:some\s+|a\s+few\s+|the\s+)?(?:\d+\s+)?"
+    r"(?:images?|imges?|pictures?|photos?|pics?|imgs?|illustrations?|drawings?|"
+    r"wallpapers?|posters?|artworks?)\b\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
 IMAGE_GENERATE = re.compile(
     r"^\s*(?:please\s+)?(generate|draw|create|make)\s+"
     r"(?:me\s+)?(.+?)\s*[.!?]?\s*$",
@@ -90,6 +104,26 @@ WEB_SEARCH_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# A document ask names the artifact. "Make me a pdf about photosynthesis",
+# "turn that assignment into a docx" — the format is the request.
+DOCUMENT_MENTION = re.compile(
+    r"\b(?:pdf|docx?|document|report\s+file|slides?|deck|spreadsheet|excel)\b",
+    re.IGNORECASE,
+)
+DOCUMENT_ASK = re.compile(
+    r"\b(?:make|create|generate|write|prepare|build|turn\s+\w+\s+into|download)\b"
+    r"[^.?!]*\b(?:pdf|docx?|document|report|deck|slides?|spreadsheet|excel)\b",
+    re.IGNORECASE,
+)
+# A question about documents is not a request to build one.
+DOCUMENT_META = re.compile(
+    r"""(?ix)
+    \b(?:why|how\s+come|what\s+happened|didn'?t|dont|don'?t|do\s+not|never|stop|"
+    "cancel|broken|fail(?:ed|ing)?|error|wrong|not\s+working|can'?t|cannot|"
+    "fix|suggest|recommend|do\s+you\s+(?:have|support|can))\b""",
+    re.IGNORECASE,
+)
+
 
 class Intent(str, Enum):
     CHAT = "chat"
@@ -98,6 +132,7 @@ class Intent(str, Enum):
     IMAGE_GENERATE = "image.generate"
     REMINDER_CREATE = "reminders.create"
     WEB_SEARCH = "web.search"
+    DOCUMENT_CREATE = "document.create"
     CLARIFY = "clarify"
 
 
@@ -245,6 +280,18 @@ def decide(
                 Intent.IMAGE_SEARCH,
                 {"query": subject},
             )
+
+    if IMAGE_BARE_FETCH.match(message) and not STOP_OR_COMPLAINT.match(message):
+        return Decision(Intent.IMAGE_SEARCH)
+
+    # Document asks are checked before the generic make/create branch: a turn
+    # that names a file format is a document request even though "make" is
+    # also a picture verb, and a meta question stays chat.
+    if (
+        DOCUMENT_ASK.search(message)
+        or (DOCUMENT_MENTION.search(message) and IMAGE_GENERATE.match(message))
+    ) and not DOCUMENT_META.search(message):
+        return Decision(Intent.DOCUMENT_CREATE)
 
     generate_match = IMAGE_GENERATE.match(message)
     if generate_match:

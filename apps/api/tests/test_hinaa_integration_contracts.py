@@ -140,12 +140,18 @@ async def test_contract_4_cancellation_stops_jobs_zero_replacements(service: Con
 
 @pytest.mark.asyncio
 async def test_contract_5_separate_talk_voice_is_tool_free(service: ConversationService):
-    """Voice/Talk turns (create_live_plan) receive tool-free prompt path and emit 0 tools."""
+    """Voice/Talk turns (responseMode=concise_voice on create_live_plan) stay tool-free."""
+    # turns:stream now carries typed chat as well as voice, so the tool-free
+    # contract is keyed on the voice mode itself rather than on the transport.
+    # A typed "generate an image of a red mug" on the same endpoint is expected
+    # to file an image job (see test_media_asset_selection_p010 / cross-session
+    # recall e2e); the same sentence spoken in a voice session must not.
     req = TurnRequest(
         text="generate an image of a red mug",
         sessionId="test_session_voice",
         providerMode="mock",
         conversationId="convo_voice_1",
+        responseMode="concise_voice",
     )
     async def dummy_delta(_):
         pass

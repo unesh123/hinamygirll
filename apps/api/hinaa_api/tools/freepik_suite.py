@@ -35,6 +35,14 @@ IMAGE_STORE = DATA_DIR / "images"
 IMAGE_STORE.mkdir(parents=True, exist_ok=True)
 USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
+# The most this endpoint has ever been asked for in one call. Whether the
+# vendor would answer more is unmeasured here (no key configured), so the
+# ceiling stays put and larger asks are issued as several requests.
+FREEPIK_MAX_IMAGES_PER_REQUEST = 4
+# The same ceiling image_generate publishes, so the two tools cannot disagree
+# about what a caller may ask for.
+FREEPIK_MAX_IMAGES = 10
+
 
 class FreepikUsageTracker:
     """Thread-safe persistent usage and daily quota tracker."""
@@ -187,7 +195,7 @@ usage_tracker = FreepikUsageTracker()
 class FreepikImageParams(BaseModel):
     model_config = {"extra": "ignore"}
     prompt: str = Field(..., description="Prompt describing the image to generate")
-    count: int = Field(1, description="Number of images (1-4)")
+    count: int = Field(1, description="Number of images (1-10)")
     model: str = Field("flux-schnell", description="Model: flux-schnell (lowest cost/fastest), classic, or flux-dev")
     aspect_ratio: str = Field("square_1_1", description="Aspect ratio: square_1_1, widescreen_16_9, portrait_4_5")
 
@@ -198,7 +206,12 @@ async def generate_freepik_image(
     model: str = "flux-schnell",
     aspect_ratio: str = "square_1_1",
 ) -> list[dict[str, Any]]:
-    """Generate high-quality images using Freepik's low-cost Flux Schnell engine."""
+    """Generate high-quality images using Freepik's low-cost Flux Schnell engine.
+
+    The vendor answers at most ``FREEPIK_MAX_IMAGES_PER_REQUEST`` images per
+    call, so a larger ask is issued as that many requests rather than being cut
+    down to four in silence: a turn that said "8 images" got 4.
+    """
     settings = get_settings()
     key = settings.active_freepik_key
     if not key:
@@ -209,14 +222,7 @@ async def generate_freepik_image(
             user_action_required=True,
         )
 
-    has_quota, used, limit = usage_tracker.check_quota()
-    if not has_quota:
-        raise HinaaError(
-            "QUOTA_EXCEEDED",
-            f"Daily Freepik generation limit reached ({used}/{limit}). Increases tomorrow or update FREEPIK_DAILY_LIMIT.",
-            status_code=429,
-        )
-
+    wanted = min(max(1, count), FREEPIK_MAX_IMAGES)
     url = "https://api.freepik.com/v1/ai/text-to-image"
     headers = {
         "x-freepik-api-key": key.get_secret_value(),
@@ -224,46 +230,71 @@ async def generate_freepik_image(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
-    payload: dict[str, Any] = {
-        "prompt": prompt,
-        "num_images": min(max(1, count), 4),
-        "image": {"size": aspect_ratio or "square_1_1"},
-    }
 
     entries: list[dict[str, Any]] = []
     async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        if resp.status_code != 200:
-            logger.warning("Freepik API returned error: %d %s", resp.status_code, resp.text)
-            resp.raise_for_status()
+        while len(entries) < wanted:
+            has_quota, used, limit = usage_tracker.check_quota()
+            if not has_quota:
+                if entries:
+                    # Part of the set is on disk. Reporting the smaller number
+                    # is honest; raising after it would hide those images.
+                    logger.warning("Freepik daily limit reached with %d/%d images done", len(entries), wanted)
+                    break
+                raise HinaaError(
+                    "QUOTA_EXCEEDED",
+                    f"Daily Freepik generation limit reached ({used}/{limit}). Increases tomorrow or update FREEPIK_DAILY_LIMIT.",
+                    status_code=429,
+                )
 
-        data = resp.json().get("data", [])
-        for item in data:
-            b64 = item.get("base64")
-            img_url = item.get("url")
-            file_name = f"freepik_{uuid.uuid4().hex}.jpg"
-            target = IMAGE_STORE / file_name
-            if b64:
-                target.write_bytes(base64.b64decode(b64))
-                entries.append({
-                    "file_path": str(target),
-                    "filename": file_name,
-                    "url": f"/v1/generated-images/{file_name}",
-                    "model": model,
-                })
-            elif img_url:
-                dl = await client.get(img_url, timeout=30.0)
-                if dl.status_code == 200:
-                    target.write_bytes(dl.content)
+            batch = min(wanted - len(entries), FREEPIK_MAX_IMAGES_PER_REQUEST)
+            payload: dict[str, Any] = {
+                "prompt": prompt,
+                "num_images": batch,
+                "image": {"size": aspect_ratio or "square_1_1"},
+            }
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                logger.warning("Freepik API returned error: %d %s", resp.status_code, resp.text)
+                resp.raise_for_status()
+
+            data = resp.json().get("data", [])
+            made = 0
+            for item in data:
+                b64 = item.get("base64")
+                img_url = item.get("url")
+                file_name = f"freepik_{uuid.uuid4().hex}.jpg"
+                target = IMAGE_STORE / file_name
+                if b64:
+                    target.write_bytes(base64.b64decode(b64))
                     entries.append({
                         "file_path": str(target),
                         "filename": file_name,
                         "url": f"/v1/generated-images/{file_name}",
                         "model": model,
                     })
+                    made += 1
+                elif img_url:
+                    dl = await client.get(img_url, timeout=30.0)
+                    if dl.status_code == 200:
+                        target.write_bytes(dl.content)
+                        entries.append({
+                            "file_path": str(target),
+                            "filename": file_name,
+                            "url": f"/v1/generated-images/{file_name}",
+                            "model": model,
+                        })
+                        made += 1
 
-    if entries:
-        usage_tracker.record_usage("image_generate", model=model)
+            if made:
+                # The request spent vendor credits whether or not it filled the
+                # batch, so it is metered before anything decides to stop.
+                usage_tracker.record_usage("image_generate", model=model)
+            if made < batch:
+                # The vendor gave less than this request asked for, which it is
+                # not going to stop doing on the next call. Keep what arrived
+                # rather than spending the rest of the day asking again.
+                break
 
     return entries
 
@@ -416,7 +447,7 @@ def assert_no_video_generation(requested_action: str) -> None:
 class MagnificImageParams(BaseModel):
     model_config = {"extra": "ignore"}
     prompt: str = Field(..., description="Prompt describing the image to generate")
-    count: int = Field(1, description="Number of images (1-4)")
+    count: int = Field(1, description="Number of images (1-10)")
     tier: str = Field("economy", description="Cost tier: economy (lowest cost/fastest), balanced, or quality")
     model: str = Field("flux-schnell", description="Model override: flux-schnell, classic, flux-dev, mystic")
     aspect_ratio: str = Field("square_1_1", description="Aspect ratio: square_1_1, widescreen_16_9, portrait_4_5")
@@ -428,7 +459,7 @@ magnific_image_def = ToolDefinition(
     description="Generate high-fidelity images using Magnific / Freepik AI with cost-tier routing (economy: 1 credit, balanced: 5 credits, quality: 10 credits).",
     parameters={
         "prompt": {"type": "string", "description": "Visual prompt for image creation"},
-        "count": {"type": "integer", "description": "Number of variations (1-4)"},
+        "count": {"type": "integer", "description": "Number of variations (1-10)"},
         "tier": {"type": "string", "description": "Cost tier: 'economy', 'balanced', 'quality'"},
         "model": {"type": "string", "description": "Model name override"},
     },
@@ -444,7 +475,7 @@ freepik_image_def = ToolDefinition(
     description="Generate ultra-fast AI images using Freepik's low-cost Flux Schnell engine.",
     parameters={
         "prompt": {"type": "string", "description": "Visual prompt for image creation"},
-        "count": {"type": "integer", "description": "Number of variations (1-4)"},
+        "count": {"type": "integer", "description": "Number of variations (1-10)"},
         "model": {"type": "string", "description": "Model name, default 'flux-schnell'"},
     },
     required_parameters=["prompt"],

@@ -197,7 +197,18 @@ def test_image_search_relevance_verifier_drops_unrelated_stock_results(monkeypat
             {"id": "bad-6", "title": "Random game character", "imageUrl": "https://example.test/game.jpg", "pageUrl": "https://example.test/game"},
         ]
 
+    async def nothing(*args, **kwargs):
+        return []
+
+    async def no_sources(*args, **kwargs):
+        return {"images": [], "provider": "multi-source-web", "boards": []}
+
     monkeypatch.setattr(browser, "search_safebooru_images", fake_safebooru)
+    # search_images keeps going down the queue until the ask is filled, so the
+    # other sources have to be closed off for this to stay a filter test.
+    monkeypatch.setattr(browser, "search_multi_source_images", no_sources)
+    monkeypatch.setattr(browser, "search_wikimedia_images", nothing)
+    monkeypatch.setattr(browser.YouComClient, "image_search", nothing)
 
     result = asyncio.run(browser.search_images({
         "query": "Mikasa Ackerman Attack on Titan",

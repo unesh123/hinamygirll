@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -36,6 +37,10 @@ FIRST_PERSON_GOAL_RE = re.compile(
     r"\b(?:create|make|build|generate|design|continue|draw|produce|render|craft)\b.*",
     re.IGNORECASE,
 )
+
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
 
 
 def _json_loads(val: Any, default: Any = None) -> Any:

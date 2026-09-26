@@ -29,6 +29,11 @@ logger = logging.getLogger("hinaa.browser")
 
 MAX_WEB_URLS = 5
 
+# He asked for up to 20 pictures in one turn. The public sources serve more
+# than that per request (measured: Wikimedia `gsrlimit=40` and Safebooru
+# `limit=40` both returned 40), so this is a product ceiling, not a vendor one.
+MAX_IMAGE_RESULTS = 20
+
 
 def _destination_url(href: str) -> str:
     """Unwrap DuckDuckGo result redirects without following arbitrary URLs."""
@@ -260,7 +265,7 @@ async def search_wikimedia_images(query: str, count: int = 6) -> list[dict[str, 
         "generator": "search",
         "gsrsearch": query,
         "gsrnamespace": 6,
-        "gsrlimit": min(max(1, count), 12),
+        "gsrlimit": min(max(1, count), 40),
         "prop": "imageinfo",
         "iiprop": "url|size|mime",
         "iiurlwidth": 500,
@@ -425,7 +430,7 @@ async def search_safebooru_images(query: str, count: int = 6) -> list[dict[str, 
     if not tag:
         return []
 
-    url = f"https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&tags={urllib.parse.quote(tag)}&limit={min(max(1, count), 20)}"
+    url = f"https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&tags={urllib.parse.quote(tag)}&limit={min(max(1, count), 40)}"
     headers = {"User-Agent": "HINAA-Companion/1.0 (contact@hinaa.dev)"}
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
@@ -535,6 +540,7 @@ async def search_images(params: dict[str, Any]) -> dict[str, Any]:
         count = int(params.get("count", 6) or 6)
     except (TypeError, ValueError):
         count = 6
+    count = min(max(1, count), MAX_IMAGE_RESULTS)
 
     if not query:
         return {
@@ -548,104 +554,84 @@ async def search_images(params: dict[str, Any]) -> dict[str, Any]:
     spec = _query_spec_from_params(params, query)
     canonical_subject = params.get("canonicalSubject") or (spec.expected_entities[0] if spec.expected_entities else None)
 
-    # 1. Try Safebooru first (especially for anime characters, wallpapers, and entities)
+    # One provider rarely has the whole request. Each used to get its own
+    # `if imageCount > 0: return`, so the first source that matched anything at
+    # all ended the search and he got 3 pictures for "20 images of X". The
+    # providers are a queue now: keep working down it until the candidate pool
+    # is deep enough that the relevance filter can still fill the request.
+    pool: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    contributors: list[str] = []
+    boards: list[dict[str, str]] | None = None
+    # The filter drops off-subject hits, so the pool is filled to twice the ask.
+    target = count * 2
+
+    def absorb(items: list[dict[str, Any]] | None, provider: str, *, boards_from: list[dict[str, str]] | None = None) -> None:
+        if not items:
+            return
+        contributors.append(provider)
+        for item in items:
+            key = str(item.get("imageUrl") or item.get("thumbnailUrl") or item.get("url") or item.get("pageUrl") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            pool.append(item)
+        if boards_from:
+            nonlocal boards
+            boards = boards_from
+
+    # 1. Safebooru first (especially for anime characters, wallpapers, and entities)
     try:
-        sb_images = await search_safebooru_images(query, count=count * 2)
-        if sb_images:
-            resp = _finalize_image_response(
-                query,
-                sb_images,
-                spec,
-                "safebooru",
-                canonical_subject=canonical_subject,
-                count=count,
-            )
-            if resp["imageCount"] > 0:
-                return resp
+        absorb(await search_safebooru_images(query, count=min(target, 40)), "safebooru")
     except Exception as exc:
         logger.warning("Safebooru search error: %s", exc)
 
-    # 2. Try High-speed multi-source search (Pinterest + Bing + Anime)
-    try:
-        multi_res = await search_multi_source_images(query, count=count * 2)
-        candidate_images = multi_res.get("images") or []
-        if candidate_images:
-            resp = _finalize_image_response(
-                query,
-                candidate_images,
-                spec,
-                multi_res.get("provider", "multi-source-web"),
-                canonical_subject=canonical_subject,
-                boards=multi_res.get("boards"),
-                count=count,
-            )
-            if resp["imageCount"] > 0:
-                return resp
-    except Exception as exc:
-        logger.warning("Multi-source search failed: %s", exc)
-
-    # 3. Try You.com if available
-    try:
-        res = await YouComClient(get_settings()).image_search(query, count=count)
-        candidate_images = res.get("images") or []
-        if candidate_images:
-            resp = _finalize_image_response(
-                query,
-                candidate_images,
-                spec,
-                "youcom",
-                canonical_subject=canonical_subject,
-                count=count,
-            )
-            if resp["imageCount"] > 0:
-                return resp
-    except Exception as exc:
-        logger.warning("You.com image search unavailable (%s), trying public image sources...", exc)
-
-    # 4. Fallback to Wikimedia Commons public image search
-    try:
-        wiki_images = await search_wikimedia_images(query, count=count * 2)
-        if wiki_images:
-            resp = _finalize_image_response(
-                query,
-                wiki_images,
-                spec,
-                "wikimedia-commons",
-                canonical_subject=canonical_subject,
-                count=count,
-            )
-            if resp["imageCount"] > 0:
-                return resp
-    except Exception as exc:
-        logger.warning("Wikimedia image search failed: %s", exc)
-
-    # 5. Fallback to broader keyword search if specific phrase had no match
-    keywords = [w for w in query.split() if len(w) > 3 and not w.startswith("/")]
-    if len(keywords) > 1:
-        fallback_query = " ".join(keywords[:2])
+    # 2. High-speed multi-source search (Pinterest + Bing + Anime)
+    if len(pool) < target:
         try:
-            wiki_images = await search_wikimedia_images(fallback_query, count=count)
-            if wiki_images:
-                resp = _finalize_image_response(
-                    query,
-                    wiki_images,
-                    spec,
-                    "wikimedia-commons",
-                    canonical_subject=canonical_subject,
-                    count=count,
-                )
-                if resp["imageCount"] > 0:
-                    return resp
+            multi_res = await search_multi_source_images(query, count=min(target, 40))
+            absorb(
+                multi_res.get("images"),
+                multi_res.get("provider", "multi-source-web"),
+                boards_from=multi_res.get("boards"),
+            )
         except Exception as exc:
-            logger.warning("Wikimedia fallback search failed: %s", exc)
+            logger.warning("Multi-source search failed: %s", exc)
 
-    # If all returned 0 accepted images, return finalized empty structure with trace
+    # 3. You.com, if the key early-accesses the image API
+    if len(pool) < target:
+        try:
+            res = await YouComClient(get_settings()).image_search(query, count=target)
+            absorb(res.get("images"), "youcom")
+        except Exception as exc:
+            logger.warning("You.com image search unavailable (%s), trying public image sources...", exc)
+
+    # 4. Wikimedia Commons public images
+    if len(pool) < target:
+        try:
+            absorb(await search_wikimedia_images(query, count=min(target, 40)), "wikimedia-commons")
+        except Exception as exc:
+            logger.warning("Wikimedia image search failed: %s", exc)
+
+    # 5. Broader keyword search if the specific phrase had no match
+    if len(pool) < target:
+        keywords = [w for w in query.split() if len(w) > 3 and not w.startswith("/")]
+        if len(keywords) > 1:
+            try:
+                absorb(
+                    await search_wikimedia_images(" ".join(keywords[:2]), count=min(target, 40)),
+                    "wikimedia-commons",
+                )
+            except Exception as exc:
+                logger.warning("Wikimedia fallback search failed: %s", exc)
+
     return _finalize_image_response(
         query,
-        [],
+        pool,
         spec,
-        "multi-source-web",
+        "+".join(contributors) or "multi-source-web",
         canonical_subject=canonical_subject,
+        boards=boards,
         count=count,
     )
 
@@ -758,10 +744,15 @@ web_search_def = ToolDefinition(
 image_search_def = ToolDefinition(
     name="image_search",
     display_name="Find public images",
-    description="Use You.com's beta image-search API to find public web image links. Availability requires early-access permission for the configured You.com key; source-page licensing still must be verified before reuse.",
+    description=(
+        "Find public web image links, pooling Safebooru, Bing/Pinterest, You.com and "
+        "Wikimedia Commons until the requested number is filled. Ask for up to 20; "
+        "availability depends on the subject, and the result reports how many were "
+        "actually found. Source-page licensing still must be verified before reuse."
+    ),
     parameters={
         "query": {"type": "string", "description": "The public image search query"},
-        "count": {"type": "number", "description": "Optional result count; default 6, maximum 12"},
+        "count": {"type": "number", "description": "Optional result count; default 6, maximum 20"},
     },
     required_parameters=["query"],
     requires_confirmation=True,

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 import time
 import httpx

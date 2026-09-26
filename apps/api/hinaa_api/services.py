@@ -235,6 +235,19 @@ def _comparison_key(text: str) -> str:
     return re.sub(r"[^\w]+", "", text.casefold(), flags=re.UNICODE)
 
 
+def _image_fetch_count(text: str, *, default: int = 6) -> int:
+    """How many existing pictures he asked for, capped where the tool caps.
+
+    The search tool pools providers up to its own ceiling; a planner that always
+    asked for six made that ceiling unreachable from his words.
+    """
+    from .tools.browser import MAX_IMAGE_RESULTS
+    from .tools.intent_gate import requested_count
+
+    count = requested_count(text or "", maximum=MAX_IMAGE_RESULTS, default=default)
+    return min(max(1, count), MAX_IMAGE_RESULTS)
+
+
 def _dedupe_halves(text: str) -> str:
     """If the model repeated its entire answer block verbatim or near-verbatim, collapse it."""
     s = text.strip()
@@ -2006,13 +2019,16 @@ class ConversationService:
             # browser with an existing conversation, the compiler resolved the
             # turn to the user's own echoed words and the caption read
             # "Found 6 relevant i want pics of tokyo ghoul images.".
-            compiled = compiled_image_query_parameters({"query": final_query, "count": 6})
+            # He has to get "20 images" out of the tool that searches, not just
+            # out of the tool that draws; a hard-coded 6 here capped every ask.
+            fetch_count = _image_fetch_count(plain_text or text)
+            compiled = compiled_image_query_parameters({"query": final_query, "count": fetch_count})
             final_query = str(compiled.get("query") or final_query)
             canonical_subject = str(compiled.get("canonicalSubject") or canonical_subject)
 
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_subject},
+                parameters={"query": final_query, "count": fetch_count, "canonicalSubject": canonical_subject},
             ))
 
             if re.search(r"[\u0900-\u097F]", plain_text):
@@ -2020,8 +2036,8 @@ class ConversationService:
                 plan.spokenText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं!"
                 plan.language = "hi-IN"
             else:
-                plan.displayText = f"Found 6 relevant {canonical_subject} images."
-                plan.spokenText = f"Found 6 relevant {canonical_subject} images."
+                plan.displayText = f"Found {fetch_count} relevant {canonical_subject} images."
+                plan.spokenText = f"Found {fetch_count} relevant {canonical_subject} images."
                 plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
 
@@ -2049,12 +2065,15 @@ class ConversationService:
         if image_command and not any(t.toolName == "image_generate" for t in plan.toolRequests):
             prompt_str = plain_text
             prompt_str = re.sub(
-                r"(?i)^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?(?:generate|create|make|draw|paint|render)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|portrait)?\s*(?:of\s+)?",
+                r"(?i)^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?"
+                r"(?:generate|create|make|draw|paint|render)\s+(?:me\s+)?"
+                r"(?:\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s+)?"
+                r"(?:an?\s+)?(?:image|picture|photo|portrait)s?\s*(?:of\s+)?",
                 "",
                 prompt_str,
             ).strip()
             prompt_str = re.sub(
-                r"(?i)\s+(?:image|picture|photo|portrait|artwork|wallpaper)$",
+                r"(?i)\s+(?:image|picture|photo|portrait|artwork|wallpaper)s?$",
                 "",
                 prompt_str,
             ).strip()
@@ -2072,7 +2091,7 @@ class ConversationService:
             img_count = 1
             count_m = re.search(r"\b(\d+)\s*(?:images?|pictures?|photos?|variations?|series)\b", lower_text)
             if count_m:
-                img_count = min(max(1, int(count_m.group(1))), 4)
+                img_count = min(max(1, int(count_m.group(1))), 10)
             elif re.search(r"\b(?:series\s+of\s+images?|image\s+series|multiple\s+images?|few\s+images?)\b", lower_text):
                 img_count = 3
             elif re.search(r"\b(?:two|pair\s+of)\s+(?:images?|pictures?|photos?)\b", lower_text):
@@ -2586,12 +2605,13 @@ class ConversationService:
                 canonical_sub = CHARACTER_ENTITY_MAP[clean_args.lower()]
                 final_query = canonical_sub
             plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search", "image_generate"}]
+            lookup_count = _image_fetch_count(clean_args)
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_sub},
+                parameters={"query": final_query, "count": lookup_count, "canonicalSubject": canonical_sub},
             ))
-            plan.displayText = f"Found 6 relevant {canonical_sub} images."
-            plan.spokenText = f"Found 6 relevant {canonical_sub} images."
+            plan.displayText = f"Found {lookup_count} relevant {canonical_sub} images."
+            plan.spokenText = f"Found {lookup_count} relevant {canonical_sub} images."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
             return
@@ -2602,10 +2622,19 @@ class ConversationService:
             "generate image", "image_generate", "img", "dalle", "flux", "paint"
         }
         if is_generate_cmd:
+            from .tools.intent_gate import requested_count
+
             prompt_text = clean_args or "beautiful digital artwork"
+            # The batch size is a request for how many pictures, not part of the
+            # subject: strip the number with the noun it hangs off, range included.
+            prompt_text = re.sub(
+                r"(?i)\b\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s*(?:images?|imges?|pictures?|photos?|pics?|wallpapers?)\b",
+                " ",
+                prompt_text,
+            )
             # Strip trailing noise tokens like images, imges, pictures, pics, etc.
-            prompt_text = re.sub(r"(?i)\b(images?|imges?|pictures?|photos?|pics?|wallpapers?)\b", "", prompt_text).strip()
-            prompt_text = prompt_text or "beautiful digital artwork"
+            prompt_text = re.sub(r"(?i)\b(images?|imges?|pictures?|photos?|pics?|wallpapers?)\b", " ", prompt_text)
+            prompt_text = re.sub(r"\s{2,}", " ", prompt_text).strip(" ,") or "beautiful digital artwork"
             # Expand known character names to canonical full names
             _pt_lower = prompt_text.lower()
             for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
@@ -2613,14 +2642,17 @@ class ConversationService:
                 if re.search(_pattern, _pt_lower, re.IGNORECASE):
                     prompt_text = re.sub(_pattern, canonical, prompt_text, flags=re.IGNORECASE)
                     break
-            count = int(flags.get("count", 1))
+            flag_count = flags.get("count")
+            count = int(flag_count) if isinstance(flag_count, int) and flag_count > 0 else requested_count(
+                clean_args, maximum=10
+            )
             mode = flags.get("mode", "quality")
             seed = flags.get("seed")
             engine = flags.get("model") or flags.get("engine")
 
             gen_params: dict[str, Any] = {
                 "prompt": prompt_text,
-                "count": min(max(1, count), 4),
+                "count": min(max(1, count), 10),
                 "mode": mode,
             }
             if seed is not None:
@@ -2634,8 +2666,13 @@ class ConversationService:
                 parameters=gen_params,
             ))
             display_model = f" [{engine}]" if engine else ""
-            plan.displayText = f"Generating '{prompt_text}'{display_model} for you now! 🎨✨"
-            plan.spokenText = f"Generating that image for you now!"
+            batch = int(gen_params["count"])
+            if batch > 1:
+                plan.displayText = f"Generating {batch} of '{prompt_text}'{display_model} for you now! 🎨✨"
+                plan.spokenText = f"Generating {batch} images for you now!"
+            else:
+                plan.displayText = f"Generating '{prompt_text}'{display_model} for you now! 🎨✨"
+                plan.spokenText = "Generating that image for you now!"
             plan.language = "en-US"
             plan.emotion = Emotion(primary="excited", intensity=0.8, valence=0.8, arousal=0.6)
             return
@@ -2665,12 +2702,17 @@ class ConversationService:
                 final_query = clean_q or clean_args or "anime aesthetic"
                 canonical_sub = final_query.title()
             plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search"}]
+            flag_count = flags.get("count")
+            search_count = _image_fetch_count(
+                clean_args,
+                default=flag_count if isinstance(flag_count, int) and flag_count > 0 else 6,
+            )
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_sub},
+                parameters={"query": final_query, "count": search_count, "canonicalSubject": canonical_sub},
             ))
-            plan.displayText = f"Found 6 relevant {canonical_sub} images."
-            plan.spokenText = f"Found 6 relevant {canonical_sub} images."
+            plan.displayText = f"Found {search_count} relevant {canonical_sub} images."
+            plan.spokenText = f"Found {search_count} relevant {canonical_sub} images."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
             return
@@ -3551,8 +3593,24 @@ class ConversationService:
             allowed_tools = ("image_search",)
         elif gate_decision.intent == HinaaIntent.WEB_SEARCH:
             allowed_tools = ("web_search", "web_answer", "web_research")
+        elif gate_decision.intent == HinaaIntent.DOCUMENT_CREATE:
+            # Either builder answers the ask; the injector picks and the gate
+            # dedupes the family, so both names stay open.
+            allowed_tools = ("pdf_generate", "document_generate")
         else:
-            allowed_tools = ()
+            # The pre-LLM classifier only knows the loud intents. A turn it
+            # fell through on can still name an action in words the richer
+            # gate reads -- "same one but darker", "generate hina again",
+            # "fetch Nepal incident images" -- so the whitelist comes from
+            # the same sanction that later filters the provider's own calls,
+            # not from this one regex pass.
+            from .tools.intent_gate import sanction_tools
+
+            sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+            if sanction.allowed:
+                allowed_tools = tuple(sorted(sanction.allowed))
+            else:
+                allowed_tools = ()
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -4696,8 +4754,26 @@ class ConversationService:
                 except Exception:
                     logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
 
-        # Contract 5: Voice/Talk turns receive tool-free prompt path and zero tool execution
-        result.value.toolRequests = []
+        # The live path used to receive a tool-free prompt and a blanket
+        # ``toolRequests = []`` afterwards. That wiped image and document
+        # actions for every streamed turn, not just voice ones, so "generate
+        # Hina in a cafe" on the web chat filed no job at all. Turns:stream now
+        # carries typed chat as well as voice, so the tool-free contract is
+        # kept for the turns that are actually voice: ``concise_voice`` mode
+        # gets a tool-free prompt and zero tool execution, while typed turns
+        # keep the same words-decide-the-action pipeline as REST.
+        is_voice_turn = request.responseMode == "concise_voice"
+        if is_voice_turn:
+            result.value.toolRequests = []
+        else:
+            self._inject_deterministic_tool_intents(
+                request.text,
+                result.value,
+                session_id=request.sessionId,
+                turn_request=request,
+                user_id=user_id,
+            )
+            self._gate_tool_intents(request, result.value, user_id=user_id)
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
 
