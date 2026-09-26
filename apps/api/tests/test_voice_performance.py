@@ -69,11 +69,19 @@ def test_hindi_and_nepali_pet_names_leave_the_spoken_channel() -> None:
         "कम्प्युटर सेटअपको कुरा गरौं।"
     )
     assert speech_text_for_tts("नमस्ते जानू, यो हेर।") == "नमस्ते यो हेर।"
+    # The next live turn opened with "अरे बाबे," -- the Latin term written the way
+    # a Nepali reply spells it, which the -ु/-ू list did not cover.
+    assert speech_text_for_tts("अरे बाबे, यो कम्प्युटरको setup हो।") == (
+        "यो कम्प्युटरको setup हो।"
+    )
+    assert speech_text_for_tts("बेबी, यो हेर।") == "यो हेर।"
     # A name that merely contains the pet name keeps it, and जान ("life") is not
     # an address term here, so none of that content is cost.
     assert speech_text_for_tts("बाबुराज ko kaam") == "बाबुराज ko kaam"
     assert speech_text_for_tts("जान लेने जोखिम छ।") == "जान लेने जोखिम छ।"
     assert speech_text_for_tts("बाबा lekhchha") == "बाबा lekhchha"
+    # The same term glued to a postposition is a possessive, not an address.
+    assert speech_text_for_tts("बाबेको कम्प्युटर खराब छ।") == "बाबेको कम्प्युटर खराब छ।"
 
 
 def test_decoration_removal_does_not_cost_content() -> None:

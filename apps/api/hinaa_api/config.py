@@ -388,6 +388,11 @@ class Settings(BaseSettings):
     # between audio.commit and the next thing he wants to say, so reusing the
     # idle timer here reclaimed the socket mid-reply and left her mute.
     realtime_turn_timeout_seconds: float = 240.0
+    # An audio.frame descriptor is followed on the same socket by its paired
+    # binary. The read loop awaits _control inline, so an unbounded wait for a
+    # binary that never arrives parks the whole session: no further message,
+    # silence window included, is ever read again.
+    realtime_frame_pair_timeout_seconds: float = 3.0
     realtime_commit_timeout_seconds: float = 8.0
     # Browser-reachable origin for the realtime WebSocket (e.g. a tunnel host).
     # Unset → derived per request from the Host header; see GET /v1/realtime/url.

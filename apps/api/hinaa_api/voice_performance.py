@@ -153,8 +153,12 @@ def speech_text_for_tts(display_text: str) -> str:
     # non-word characters to re, so \b fires inside बाबु and a \b-anchored
     # Devanagari term matches nothing; those are bounded by the script block
     # instead, which also keeps बाबुराज and जान ("life") as content.
+    #
+    # बाबे/बेबी are the Latin terms written the way a Nepali turn says them. A
+    # live turn opened with "अरे बाबे," because the -े and -ी spellings were not
+    # in the list; the boundary still leaves a glued form like बाबेको alone.
     latin = r"\b(?:babes?|baby|babu|jaanu)\b"
-    devanagari = r"(?<![\u0900-\u097F])(?:बाबु|बाबू|जानू|प्रिय)(?![\u0900-\u097F])"
+    devanagari = r"(?<![\u0900-\u097F])(?:बाबु|बाबू|बाबे|जानू|बेबी|प्रिय)(?![\u0900-\u097F])"
     pet_name = rf"(?:{latin}|{devanagari})"
     vocative = r"(?:(?:ए|अरे|ओ)\s+)?"
     spoken = re.sub(rf",\s*{vocative}{pet_name}(?=[\s,.!]|$)", "", spoken, flags=re.IGNORECASE)

@@ -292,7 +292,14 @@ class RealtimeGateway:
             return
         if message_type == "audio.frame":
             descriptor = FrameDescriptor.model_validate(value)
-            binary_message = await websocket.receive()
+            try:
+                async with asyncio.timeout(
+                    self.settings.realtime_frame_pair_timeout_seconds
+                ):
+                    binary_message = await websocket.receive()
+            except TimeoutError:
+                await self._error(websocket, session, "AUDIO_FRAME_MISSING", False)
+                return
             frame = binary_message.get("bytes")
             if frame is None or len(frame) != descriptor.byteLength or len(frame) % 2:
                 await self._error(websocket, session, "AUDIO_FRAME_INVALID", False)
@@ -800,6 +807,7 @@ class RealtimeGateway:
         messages = {
             "AUDIO_NO_SIGNAL": "No clear speech was detected. Try again or use text.",
             "AUDIO_SEQUENCE_GAP": "A microphone frame was lost; listening can restart safely.",
+            "AUDIO_FRAME_MISSING": "One microphone frame never arrived; HINAA kept the rest of your words.",
             "AUDIO_BUFFER_LIMIT": "The live recording reached its safety limit.",
             "PROVIDER_CONFIGURATION_MISSING": (
                 "The selected brain is not configured in the local backend environment."

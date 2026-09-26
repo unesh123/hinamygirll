@@ -340,3 +340,45 @@ async def test_the_idle_window_still_reclaims_a_socket_with_no_turn() -> None:
 
     assert socket.types() == ["session.ready"]
     assert socket.closed_after_events == 1, "an abandoned socket is still reclaimed"
+
+
+async def test_a_frame_descriptor_alone_cannot_park_the_session() -> None:
+    """A microphone that sends the descriptor and loses its binary stays recoverable.
+
+    audio.frame is two messages: JSON first, then the bytes it described. That
+    second await sat inside _control, which the read loop awaits inline, so an
+    unbounded wait meant the loop never returned to its own receive and the
+    silence window could not reclaim the socket either — the session was parked
+    with a client that had already stopped talking.
+    """
+    gateway = RealtimeGateway(
+        Settings(
+            _env_file=None,
+            realtime_idle_timeout_seconds=0.05,
+            realtime_turn_timeout_seconds=30.0,
+            realtime_frame_pair_timeout_seconds=0.2,
+        ),
+        service=None,  # type: ignore[arg-type]
+    )
+    socket = SilentClientSocket(
+        [
+            _text(hello()),
+            _text({"type": "audio.start", "generation": 1}),
+            _text(
+                {
+                    "type": "audio.frame",
+                    "sequence": 0,
+                    "generation": 1,
+                    "capturedAtMs": 20.0,
+                    "byteLength": 640,
+                }
+            ),
+            # no binary: receive() parks here, which is the whole point
+        ]
+    )
+
+    await asyncio.wait_for(gateway.handle(socket), timeout=5)
+
+    missing = [event for event in socket.sent if event.get("code") == "AUDIO_FRAME_MISSING"]
+    assert missing, "the lost frame is reported instead of waited on forever"
+    assert missing[0]["retryable"] is False, "one dropped frame is not a retryable turn"
