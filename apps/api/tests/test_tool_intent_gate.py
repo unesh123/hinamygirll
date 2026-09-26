@@ -493,3 +493,131 @@ def test_a_turn_with_no_call_keeps_the_json_he_asked_for(gate_settings):
     text = 'The call takes this shape:\n\n```json\n{ "prompt": "a fox", "aspect_ratio": "1:1" }\n```'
     plan = _gated(gate_settings, "what shape does the image call take?", [], reply=text)
     assert plan.displayText == text
+
+
+# --- The tool that runs cannot be missing from her own reply --------------------
+
+# Verbatim from the streamed turn the owner screenshotted. The same plan carried
+# `image_generate(prompt="Super natural landscape", count=1)`, the client ran it,
+# and a picture rendered underneath a paragraph saying it could not.
+DENIAL_REPLY = (
+    "Babe, I really wish I could conjure up a stunning supernatural landscape for you "
+    "right here — but unfortunately I don't have an image generation tool available on "
+    "this turn, so I can't directly create or send images. 😔\n\n"
+    "But hey, I *can* help you craft the perfectly detailed prompt you'd drop into an "
+    "image generator like Midjourney. Want me to write one out for you?"
+)
+
+
+def test_a_call_that_runs_is_not_denied_in_her_own_bubble(gate_settings):
+    plan = _gated(
+        gate_settings,
+        "generate an image of super natural landscape",
+        [("image_generate", {"prompt": "Super natural landscape", "count": 1})],
+        reply=DENIAL_REPLY,
+    )
+    assert [tool.toolName for tool in plan.toolRequests] == ["image_generate"]
+    assert "I don't have an image generation tool" not in plan.displayText
+    assert "unavailable" not in plan.displayText.lower()
+    assert plan.displayText.startswith("Generating an image of Super natural landscape.")
+    # Only the false claim goes. What still answers him is his to keep.
+    assert "perfectly detailed prompt" in plan.displayText
+    assert "unavailable" not in plan.spokenText.lower()
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Here are the images you asked for. I didn't crop them, and no model was told to.",
+        "You can't make a landscape out of the word stuff.",
+        "He couldn't create the map in time, so the survey was cancelled.",
+        "I can't wait to see this one, it came out clean.",
+    ],
+)
+def test_a_denial_is_hers_about_the_tooling_not_his_about_the_subject(answer):
+    """A remark about the pictures, or his own limits, are not claims about her tools."""
+    from hinaa_api.tools.intent_gate import denies_capability, strip_capability_denials
+
+    assert denies_capability(answer) is False
+    assert strip_capability_denials(answer) == answer
+
+
+def test_the_denial_stripper_keeps_his_numbers_and_his_marks():
+    """Losing digits is the failure mode this project has been burned by twice; the
+    sentence that survives has to survive whole."""
+    from hinaa_api.tools.intent_gate import strip_capability_denials
+
+    kept = strip_capability_denials(
+        "Napoleon's retreat from Moscow in 1812 killed ~500,000 soldiers — the model "
+        "of attrition here is starvation, not combat. I can't generate images."
+    )
+    assert "1812" in kept
+    assert "500,000" in kept
+    assert "I can't generate images" not in kept
+
+
+@pytest.mark.asyncio
+async def test_the_streamed_prompt_names_the_tools_his_words_earned(gate_settings, monkeypatch):
+    """The cause, not the symptom: the live path built every prompt tool-free, so
+    "Tools on this turn: none are offered" reached a turn that filed an image job."""
+    from hinaa_api import services as services_module
+
+    captured: list[object] = []
+    real_builder = services_module.build_turn_prompt
+
+    def capture(**kwargs):
+        captured.append(kwargs.get("allowed_tools"))
+        return real_builder(**kwargs)
+
+    monkeypatch.setattr(services_module, "build_turn_prompt", capture)
+
+    async def sink(_delta: str) -> None:
+        return None
+
+    service = ConversationService(settings=gate_settings)
+    result = await service.create_live_plan(
+        TurnRequest(
+            sessionId="live-prompt-image",
+            conversationId="live-prompt-image",
+            text="generate an image of a red mug",
+            providerMode="mock",
+        ),
+        sink,
+        user_id="gate-user",
+    )
+    assert captured, "the live path never built a prompt"
+    assert "image_generate" in captured[0]
+    assert any(tool.toolName == "image_generate" for tool in result.value.toolRequests)
+
+
+@pytest.mark.asyncio
+async def test_a_spoken_turn_still_gets_no_catalogue(gate_settings, monkeypatch):
+    """The menu is for typed turns, never for voice."""
+    from hinaa_api import services as services_module
+
+    captured: list[object] = []
+    real_builder = services_module.build_turn_prompt
+
+    def capture(**kwargs):
+        captured.append(kwargs.get("allowed_tools"))
+        return real_builder(**kwargs)
+
+    monkeypatch.setattr(services_module, "build_turn_prompt", capture)
+
+    async def sink(_delta: str) -> None:
+        return None
+
+    service = ConversationService(settings=gate_settings)
+    result = await service.create_live_plan(
+        TurnRequest(
+            sessionId="live-prompt-voice",
+            conversationId="live-prompt-voice",
+            text="generate an image of a red mug",
+            providerMode="mock",
+            responseMode="concise_voice",
+        ),
+        sink,
+        user_id="gate-user",
+    )
+    assert captured and captured[0] == ()
+    assert result.value.toolRequests == []

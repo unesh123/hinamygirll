@@ -698,16 +698,79 @@ ORPHAN_EMOJI = r"\U0001F300-\U0001FAFF☀-➿️"
 ORPHAN_HEAD = rf"\s.,:;!\-\u2014\u2013\u2018\u2019\u201c\u201d{ORPHAN_EMOJI}"
 
 
-def strip_stale_promises(text: str) -> str:
-    """Remove sentences that claim a tool the gate refused to run, promised or done."""
-    if not text:
-        return text
-    cleaned = PROMISE.sub("", text)
-    cleaned = STALE_CLAIM.sub("", cleaned)
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+def _close_gaps(text: str) -> str:
+    cleaned = re.sub(r"[ \t]{2,}", " ", text)
     cleaned = re.sub(r"\s*\n{3,}", "\n\n", cleaned)
     cleaned = re.sub(rf"^\s*(?:and\b|so\b|but\b)\s*|^[{ORPHAN_HEAD}]+", "", cleaned, flags=re.IGNORECASE)
     # Only emoji and whitespace go from the end. The sentence that survived ends
     # with its own full stop, and deleting it would be losing his answer.
     cleaned = re.sub(rf"[\s{ORPHAN_EMOJI}]+$", "", cleaned)
     return cleaned
+
+
+# The mirror of a promise that will not happen: a denial of a tool this turn does
+# run. Measured on the streamed path, her prompt said "Tools on this turn: none"
+# while the injector filed the image job underneath it, so the bubble told him the
+# feature was unavailable in the same turn that rendered a picture.
+CAPABILITY_DENIAL = re.compile(
+    r"""(?ix)
+    [^.!?]*
+    (?= [^.!?]* \b (?: tool | tools | feature | features | capabilit\w+ |
+        model | models | generation | generator ) \b )
+    (?= [^.!?]* \b (?:
+          unavailable | not\s+available | isn'?t\s+available | not\s+enabled |
+          not\s+support\w* | not\s+configur\w+ | isn'?t\s+configur\w+ |
+          no \s+ (?:\w+\s+){0,3}? (?: tool | tools | feature | capabilit\w+ |
+              model | models | image ) \s+ (?:\w+\s+){0,3}? (?: available |
+              configured | enabled | supported | present | registered | set\s+up |
+              on\s+this\s+turn ) |
+          (?: don'?t | do\s+not | doesn'?t | does\s+not | haven'?t | have\s+no |
+              has\s+no ) \s+ (?:\w+\s+){0,3}? (?: tool | tools | feature |
+              capabilit\w+ | model | models | image | access ) |
+          (?: can'?t | cannot | unable | not\s+able ) \s+ (?:\w+\s+){0,2}?
+              (?: generate | create | draw | produce | fetch | search | access |
+              edit ) |
+          lack\w* | without\s+access
+      ) \b )
+    [^.!?]* [.!?]?
+    """
+)
+
+# The same lie told without naming the thing that is missing. Anchored on her own
+# subject so it cannot eat a sentence about him ("you can't generate a result
+# from two words") and on the verbs this project's tools actually deliver.
+SELF_INABILITY = re.compile(
+    r"""(?ix)
+    [^.!?]*
+    \b (?: I\s+ (?:can'?t | cannot)
+         | I (?:'m | ’m | \s+am) \s+ unable \s+ to ) \b
+    \s+ (?:\w+\s+){0,2}?
+    (?: generate | create | draw | render | produce | make ) \b
+    [^.!?]* [.!?]?
+    """
+)
+
+DENIAL_PATTERNS = (CAPABILITY_DENIAL, SELF_INABILITY)
+
+
+def denies_capability(text: str) -> bool:
+    """Whether any sentence claims a tool this turn is missing or switched off."""
+    return any(pattern.search(text) for pattern in DENIAL_PATTERNS) if text else False
+
+
+def strip_capability_denials(text: str) -> str:
+    """Remove sentences that deny a tool this turn runs, keep whatever else answers him."""
+    if not text:
+        return text
+    for pattern in DENIAL_PATTERNS:
+        text = pattern.sub("", text)
+    return _close_gaps(text)
+
+
+def strip_stale_promises(text: str) -> str:
+    """Remove sentences that claim a tool the gate refused to run, promised or done."""
+    if not text:
+        return text
+    cleaned = PROMISE.sub("", text)
+    cleaned = STALE_CLAIM.sub("", cleaned)
+    return _close_gaps(cleaned)

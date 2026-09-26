@@ -2454,6 +2454,35 @@ class ConversationService:
                 parameters={"query": prompt_str or text},
             ))
 
+    def _turn_tool_whitelist(self, text: str, gate_intent) -> tuple[str, ...]:
+        """The tools his own words earned for this turn, decided before any brain speaks.
+
+        Both the prompt and the executed plan are cut from this one set. When the
+        streamed path built its prompt tool-free and the injector filed the action
+        afterwards, she was told "Tools on this turn: none" and then ran an image
+        job anyway, so the bubble denied a capability the same turn was using.
+        """
+        from .tools.intent_gate import sanction_tools
+        from hinaa_intent_gate import Intent as HinaaIntent
+
+        if gate_intent == HinaaIntent.IMAGE_GENERATE:
+            return ("image_generate", "magnific_image_generate", "freepik_image_generate")
+        if gate_intent == HinaaIntent.IMAGE_SEARCH:
+            return ("image_search",)
+        if gate_intent == HinaaIntent.WEB_SEARCH:
+            return ("web_search", "web_answer", "web_research")
+        if gate_intent == HinaaIntent.DOCUMENT_CREATE:
+            # Either builder answers the ask; the injector picks and the gate
+            # dedupes the family, so both names stay open.
+            return ("pdf_generate", "document_generate")
+        # The pre-LLM classifier only knows the loud intents. A turn it fell
+        # through on can still name an action in words the richer gate reads --
+        # "same one but darker", "generate hina again", "fetch Nepal incident
+        # images" -- so the whitelist comes from the same sanction that later
+        # filters the provider's own calls, not from this one regex pass.
+        sanction = sanction_tools(text, known_subjects=CHARACTER_ENTITY_MAP)
+        return tuple(sorted(sanction.allowed)) if sanction.allowed else ()
+
     def _gate_tool_intents(
         self, request: TurnRequest, plan: AssistantTurnPlan, *, user_id: str | None
     ) -> None:
@@ -2466,7 +2495,12 @@ class ConversationService:
         rewritten to match the actions, because a paragraph written before the
         gate existed can only promise or refuse the wrong thing.
         """
-        from .tools.intent_gate import blocked_note, gate_tool_requests
+        from .tools.intent_gate import (
+            blocked_note,
+            denies_capability,
+            gate_tool_requests,
+            strip_capability_denials,
+        )
 
         kept, dropped, sanction = gate_tool_requests(
             request.text, plan.toolRequests, known_subjects=CHARACTER_ENTITY_MAP
@@ -2497,6 +2531,20 @@ class ConversationService:
             plan.spokenText = confirmation
             return
 
+        if kept and denies_capability(plan.displayText or ""):
+            # She proposed this call herself, so it runs -- and a paragraph that
+            # says the tool is missing is false on his screen either way. The
+            # action leads, and whatever else still answers him stays under it.
+            confirmation = " ".join(self._action_confirmation(tool) for tool in kept)
+            for field in ("displayText", "spokenText"):
+                remaining = strip_capability_denials(getattr(plan, field) or "")
+                setattr(
+                    plan,
+                    field,
+                    f"{confirmation} {remaining}".strip() if remaining.strip() else confirmation,
+                )
+            return
+
         if dropped or sanction.abort:
             note = blocked_note(dropped, aborted=sanction.abort, unbound=bool(sanction.resolved))
             plan.displayText = self._blocked_reply(plan.displayText, note)
@@ -2515,6 +2563,9 @@ class ConversationService:
             if count > 1:
                 return f"Generating {count} images of {subject}."
             return f"Generating an image of {subject}."
+        if tool.toolName == "image_search":
+            subject = parameters.get("canonicalSubject") or parameters.get("query")
+            return f"Searching images for {subject}."
         return f"Running {tool.toolName}."
 
     @staticmethod
@@ -3587,30 +3638,7 @@ class ConversationService:
                     pass
             return result
 
-        if gate_decision.intent == HinaaIntent.IMAGE_GENERATE:
-            allowed_tools = ("image_generate", "magnific_image_generate", "freepik_image_generate")
-        elif gate_decision.intent == HinaaIntent.IMAGE_SEARCH:
-            allowed_tools = ("image_search",)
-        elif gate_decision.intent == HinaaIntent.WEB_SEARCH:
-            allowed_tools = ("web_search", "web_answer", "web_research")
-        elif gate_decision.intent == HinaaIntent.DOCUMENT_CREATE:
-            # Either builder answers the ask; the injector picks and the gate
-            # dedupes the family, so both names stay open.
-            allowed_tools = ("pdf_generate", "document_generate")
-        else:
-            # The pre-LLM classifier only knows the loud intents. A turn it
-            # fell through on can still name an action in words the richer
-            # gate reads -- "same one but darker", "generate hina again",
-            # "fetch Nepal incident images" -- so the whitelist comes from
-            # the same sanction that later filters the provider's own calls,
-            # not from this one regex pass.
-            from .tools.intent_gate import sanction_tools
-
-            sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-            if sanction.allowed:
-                allowed_tools = tuple(sorted(sanction.allowed))
-            else:
-                allowed_tools = ()
+        allowed_tools = self._turn_tool_whitelist(request.text, gate_decision.intent)
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -4422,6 +4450,16 @@ class ConversationService:
             decision=route_decision_rt,
         )
         resolved_media = await self._resolve_turn_media(request)
+        # ``turns:stream`` carries typed chat as well as voice, so the tool-free
+        # contract is keyed on the mode that is actually voice. A typed turn gets
+        # the whitelist its own words earned: passing () here told her the turn
+        # had no tools while the injector below filed the action anyway.
+        is_voice_turn = request.responseMode == "concise_voice"
+        live_allowed_tools = (
+            ()
+            if is_voice_turn
+            else self._turn_tool_whitelist(request.text, gate_decision.intent)
+        )
         prompt = build_turn_prompt(
             request=request,
             history=history,
@@ -4434,7 +4472,7 @@ class ConversationService:
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
             history_preselected=True,
-            allowed_tools=(),
+            allowed_tools=live_allowed_tools,
         )
         timing.mark("prompt_built")
         self._log_prompt_meta(
@@ -4759,10 +4797,9 @@ class ConversationService:
         # actions for every streamed turn, not just voice ones, so "generate
         # Hina in a cafe" on the web chat filed no job at all. Turns:stream now
         # carries typed chat as well as voice, so the tool-free contract is
-        # kept for the turns that are actually voice: ``concise_voice`` mode
-        # gets a tool-free prompt and zero tool execution, while typed turns
-        # keep the same words-decide-the-action pipeline as REST.
-        is_voice_turn = request.responseMode == "concise_voice"
+        # decided once, above, from the mode that is actually voice: a
+        # ``concise_voice`` turn gets a tool-free prompt and zero tool execution,
+        # while a typed turn is told and then runs the same words-decided set.
         if is_voice_turn:
             result.value.toolRequests = []
         else:
