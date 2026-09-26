@@ -21,7 +21,11 @@ from .response.notation import MathNotationStream, ascii_math
 from . import realtime_tickets
 from .models import CompanionId, Language, ProviderMode, StrictModel, TurnRequest
 from .services import ConversationService
-from .voice_performance import plan_voice_performance, speech_text_for_tts
+from .voice_performance import (
+    plan_voice_performance,
+    speech_text_for_tts,
+    strip_greeting,
+)
 from .voice_profiles import resolve_calibration, resolve_voice
 
 
@@ -552,6 +556,12 @@ class RealtimeGateway:
                 delta = ascii_math(notation_stream.feed(delta))
                 if not delta:
                     return
+                # She is told to address him this way, and on the measured turn it
+                # landed mid-reply, so every chunk goes through the same rule the
+                # audio uses rather than just the first one.
+                delta = strip_greeting(delta)
+                if not delta:
+                    return
                 if first_delta_ms is None:
                     first_delta_ms = int((perf_counter() - llm_started) * 1000)
                 await self._send_current(
@@ -609,12 +619,19 @@ class RealtimeGateway:
                     {"delta": tail},
                 )
                 sentence_buffer += tail
+            plan_payload = plan_result.value.model_dump()
+            # A surface that paints the finished reply from the plan would put the
+            # greeting right back after the deltas stopped showing it.
+            if isinstance(plan_payload.get("spokenText"), str):
+                plan_payload["spokenText"] = strip_greeting(
+                    plan_payload["spokenText"]
+                )
             await self._send_current(
                 websocket,
                 session,
                 generation,
                 "assistant.plan",
-                {"plan": plan_result.value.model_dump(), "provider": plan_result.provider},
+                {"plan": plan_payload, "provider": plan_result.provider},
             )
 
             # Pick up any trailing text buffer
