@@ -233,6 +233,10 @@ def _image_store() -> Path:
 
 _LOCAL_REF = re.compile(r"/(?:api/)?v1/generated-images/(?P<image_id>[a-zA-Z0-9_.-]+)")
 
+# A scheme means the gateway can read it itself -- a link it fetches or a data URL
+# it decodes. Two letters minimum, so a Windows path is not mistaken for one.
+_FETCHABLE = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.\-]+:|//)")
+
 _STORE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
@@ -268,26 +272,55 @@ def _reference_file(image_id: str, user_id: str) -> Optional[Path]:
     return None
 
 
-async def _resolve_reference(params: ImageGenerateParams) -> tuple[Optional[str], Optional[str]]:
-    """Return (reference_url, reference_b64) from explicit inputs or context."""
+def _reference_candidate(params: ImageGenerateParams) -> str:
+    """The one reference this workflow takes, in whichever shape it arrived."""
     candidate = params.reference_url or ""
     if not candidate and not params.reference_image_b64 and params.reference_images:
         # A picture from his own grid arrives as the serve route's link, in
         # whichever shape that route answers: a job id or a saved file name.
         candidate = params.reference_images[0]
-    if candidate:
-        url = candidate.strip()
-        local = _LOCAL_REF.search(url)
-        if local:
-            path = _reference_file(local.group("image_id"), params.userId)
-            if path is None:
-                raise HinaaError("IMAGE_NOT_FOUND", "Reference image not found.", 404)
-            # The gateway reads bytes, not a link to this machine: a relative
-            # path or a tunnel URL would either fail or fetch the wrong thing.
-            mime = _STORE_MIME.get(path.suffix.lower(), "image/png")
-            data = base64.b64encode(path.read_bytes()).decode("ascii")
-            return None, f"data:{mime};base64,{data}"
+    return candidate.strip()
+
+
+def _resolve_reference_target(candidate: str, user_id: str) -> tuple[Optional[str], Optional[Path]]:
+    """Return (link the gateway opens, picture on this server) for a reference.
+
+    A scheme means the gateway reads it itself: a link it fetches or a data URL
+    it decodes. Anything else names a picture this server already has, and is
+    looked up here. Posted to the vendor as it arrived, a bare job id cost a
+    credit and came back "Invalid or corrupted image" after this server had
+    already said the reference applied.
+    """
+    url = candidate.strip()
+    if _FETCHABLE.match(url):
         return url, None
+    local = _LOCAL_REF.search(url)
+    image_id = local.group("image_id") if local else url
+    path = _reference_file(image_id, user_id)
+    if path is None:
+        if local:
+            raise HinaaError("IMAGE_NOT_FOUND", "Reference image not found.", 404)
+        raise HinaaError(
+            "IMAGE_REFERENCE_UNREADABLE",
+            f"That reference ({image_id[:60]}) is not a web address and not a picture "
+            "this server has. Attach the image again, or ask for it by its link.",
+            400,
+        )
+    return None, path
+
+
+async def _resolve_reference(params: ImageGenerateParams) -> tuple[Optional[str], Optional[str]]:
+    """Return (reference_url, reference_b64) from explicit inputs or context."""
+    candidate = _reference_candidate(params)
+    if candidate:
+        url, path = _resolve_reference_target(candidate, params.userId)
+        if url is not None:
+            return url, None
+        # The gateway reads bytes, not a link to this machine: a relative
+        # path or a tunnel URL would either fail or fetch the wrong thing.
+        mime = _STORE_MIME.get(path.suffix.lower(), "image/png")
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        return None, f"data:{mime};base64,{data}"
     if params.reference_image_b64 and params.reference_image_b64.startswith("data:image"):
         return None, params.reference_image_b64.strip()
     query = (params.reference_query or "").strip()
@@ -506,6 +539,7 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
         await asyncio.gather(*(collect_one(job_id, prompt_id) for job_id, prompt_id in enqueued))
 
     except Exception:
+        logger.exception("Image workflow %s failed before any render landed", generation_set_id)
         with session_factory() as session:
             for job in session.query(ImageJob).filter_by(generation_set_id=generation_set_id).all():
                 if job.status in {"pending", "processing"}:
@@ -547,6 +581,15 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
                 "Start ComfyUI on http://127.0.0.1:8188 or configure Freepik/Codex keys."
             ),
         }
+
+    candidate = _reference_candidate(params)
+    if candidate:
+        # The same check the worker runs, before this server promises the
+        # reference applied and files a job that can only fail.
+        try:
+            _resolve_reference_target(candidate, params.userId)
+        except HinaaError as error:
+            return {"status": "error", "code": error.code, "error": error.message}
 
     generation_set_id = str(uuid.uuid4())
     session_factory = get_session_factory(settings)

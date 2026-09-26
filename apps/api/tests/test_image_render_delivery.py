@@ -163,3 +163,21 @@ def test_a_render_that_cannot_be_saved_reports_the_cause(monkeypatch, tmp_path, 
     assert cloud.calls.count("generate") == 1
     causes = [record.getMessage() for record in caplog.records]
     assert any(job.id in cause and "HTTP 502" in cause for cause in causes), causes
+
+
+def test_a_reference_nothing_can_read_bills_nobody_and_leaves_a_trace(monkeypatch, tmp_path, caplog):
+    """Measured live: the token was posted to flux-kontext-pro, cost a credit, and
+    the client was left with "Image 1 failed" and no line in any log."""
+    cloud = _Cloud(upscale_result=_upscaled_asset())
+    factory = _db(monkeypatch)
+    monkeypatch.setattr(image_generate, "_image_store", lambda: tmp_path)
+    monkeypatch.setattr(image_generate, "MagnificProvider", lambda _settings: cloud)
+
+    with caplog.at_level(logging.WARNING, logger="hinaa.image_generate"):
+        asyncio.run(image_generate.run_image_job("set-1", _params(reference_images=["cda16831-702c-4abf-96f0"])))
+
+    assert cloud.calls == []
+    with factory() as session:
+        assert session.query(ImageJob).one().status == "failed"
+    causes = [record.getMessage() for record in caplog.records]
+    assert any("set-1" in cause for cause in causes), causes

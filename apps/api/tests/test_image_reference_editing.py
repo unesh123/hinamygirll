@@ -258,3 +258,80 @@ def test_a_web_picture_stays_a_link_the_gateway_can_fetch(monkeypatch):
     url, b64 = asyncio.run(image_generate._resolve_reference(_params(reference_images=["https://cdn.test/photo.jpg"])))
 
     assert (url, b64) == ("https://cdn.test/photo.jpg", None)
+    # And a picture his browser encoded goes whole: the gateway reads a data URL
+    # of his own, so re-encoding it here would only cost him detail.
+    url, b64 = asyncio.run(image_generate._resolve_reference(_params(reference_images=[REFERENCE])))
+
+    assert (url, b64) == (REFERENCE, None)
+
+
+# ─── a reference the renderer cannot read ───────────────────────────────────
+#
+# Measured on flux-kontext-pro: posted as it arrives, the bare token `cda16831-…`
+# cost a credit and came back "Invalid or corrupted image" in seven seconds, while
+# the same picture sent as bytes or as a fetchable link edited. Nothing this server
+# has should ever reach the vendor as an unreadable word.
+
+
+def test_a_bare_job_id_is_his_own_picture_read_from_disk(monkeypatch, tmp_path):
+    picture = tmp_path / "HINAA_job-9_12.png"
+    picture.write_bytes(b"PNG-BYTES")
+    _in_memory_db(monkeypatch, {
+        ("ImageJob", "job-9"): SimpleNamespace(id="job-9", generation_set_id="set-1", file_path=str(picture)),
+        ("GenerationSet", "set-1"): SimpleNamespace(user_id="owner-1"),
+    })
+    monkeypatch.setattr(image_generate, "_image_store", lambda: tmp_path)
+
+    url, b64 = asyncio.run(image_generate._resolve_reference(_params(reference_images=["job-9"])))
+
+    assert url is None
+    assert base64.b64decode(b64.split(",", 1)[1]) == b"PNG-BYTES"
+
+
+def test_a_reference_that_names_nothing_is_refused_here_not_by_the_vendor(monkeypatch, tmp_path):
+    monkeypatch.setattr(image_generate, "_image_store", lambda: tmp_path)
+    _in_memory_db(monkeypatch)
+
+    with pytest.raises(HinaaError) as raised:
+        asyncio.run(image_generate._resolve_reference(_params(reference_images=["not-a-picture"])))
+
+    assert raised.value.code == "IMAGE_REFERENCE_UNREADABLE"
+    assert "not-a-picture" in raised.value.message
+    assert "Attach" in raised.value.message
+
+
+def test_an_unreadable_reference_is_refused_before_a_job_is_filed(monkeypatch, tmp_path):
+    """The promise was the damage: `reference_applied: true`, then a job that could
+    only end "Image 1 failed" with no cause anywhere he could see it."""
+
+    def nothing_may_be_filed(coro):
+        coro.close()
+        raise AssertionError("a render was started for a reference nothing can read")
+
+    _comfy_offline(monkeypatch)
+    _renderer(monkeypatch, cloud=True, honours=True)
+    monkeypatch.setattr(image_generate, "_image_store", lambda: tmp_path)
+    monkeypatch.setattr(image_generate.asyncio, "create_task", nothing_may_be_filed)
+
+    result = asyncio.run(image_generate.image_generate_handler(_params(reference_images=["not-a-picture"])))
+
+    assert result["code"] == "IMAGE_REFERENCE_UNREADABLE"
+    assert "job_id" not in result
+    assert "Attach" in result["error"]
+
+
+def test_his_own_picture_by_bare_job_id_still_files_the_job(monkeypatch, tmp_path):
+    _comfy_offline(monkeypatch)
+    _renderer(monkeypatch, cloud=True, honours=True)
+    picture = tmp_path / "HINAA_job-9_12.png"
+    picture.write_bytes(b"PNG-BYTES")
+    _in_memory_db(monkeypatch, {
+        ("ImageJob", "job-9"): SimpleNamespace(id="job-9", generation_set_id="set-1", file_path=str(picture)),
+        ("GenerationSet", "set-1"): SimpleNamespace(user_id="owner-1"),
+    })
+    monkeypatch.setattr(image_generate, "_image_store", lambda: tmp_path)
+
+    result = asyncio.run(image_generate.image_generate_handler(_params(reference_images=["job-9"])))
+
+    assert result["status"] == "processing"
+    assert result["reference_applied"] is True
