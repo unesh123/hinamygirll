@@ -119,6 +119,26 @@ def _tts_media_type(provider_id: str, elevenlabs_output_format: str) -> str:
     return "audio/wav"
 
 
+# A phrase shorter than this is a fragment, not speech: every flush is its own
+# synthesis request and its own audio blip. The wrap width matches
+# segment_phrases so both spoken paths cut text the same way.
+SPEECH_MIN_PHRASE_CHARS = 40
+SPEECH_PHRASE_WRAP_CHARS = 160
+
+
+def spoken_phrase_is_complete(buffer: str) -> bool:
+    """Whether streamed text so far should be handed to the voice vendor as one phrase.
+
+    Every flush is a separate synthesis request and a separate audio blip.
+    Ending a phrase at the first punctuation in the buffer turned one measured
+    live turn into 144 fragments, because markdown list markers and the dot in
+    a version number each closed a two-word request.
+    """
+    if len(buffer) >= SPEECH_PHRASE_WRAP_CHARS:
+        return True
+    return any(p in buffer for p in ".!?।;\n") and len(buffer) >= SPEECH_MIN_PHRASE_CHARS
+
+
 def segment_phrases(text: str, limit: int = 160) -> list[str]:
     """Split spoken text into TTS-friendly phrases without breaking technical tokens."""
     # Strip markdown markers only; preserve underscores in env vars / identifiers.
@@ -196,9 +216,17 @@ class RealtimeGateway:
                 },
             )
             while True:
-                message = await asyncio.wait_for(
-                    websocket.receive(), timeout=self.settings.realtime_idle_timeout_seconds
+                # A client mid-turn sends nothing: it waits for her audio. Applying
+                # the idle timer there closed the socket 35s after audio.commit, so
+                # every tts.audio frame was written to a dead connection and she
+                # appeared mute while synthesis kept succeeding server-side.
+                turn_in_flight = session.processing is not None and not session.processing.done()
+                quiet_limit = (
+                    self.settings.realtime_turn_timeout_seconds
+                    if turn_in_flight
+                    else self.settings.realtime_idle_timeout_seconds
                 )
+                message = await asyncio.wait_for(websocket.receive(), timeout=quiet_limit)
                 if message.get("type") == "websocket.disconnect":
                     break
                 if message.get("text") is None:
@@ -213,8 +241,10 @@ class RealtimeGateway:
                     pass
                 logger.info("realtime: <<< %s", msg_type)
                 await self._control(websocket, session, message["text"])
-        except (WebSocketDisconnect, TimeoutError):
+        except WebSocketDisconnect:
             pass
+        except TimeoutError:
+            logger.info("realtime: no client message within the silence window; reclaiming socket")
         except ValidationError as e:
             logger.error("realtime: ClientHello validation failed: %s", e)
             await self._error(websocket, session, "PROTOCOL_MESSAGE_INVALID", False)
@@ -525,12 +555,7 @@ class RealtimeGateway:
                     {"delta": delta},
                 )
                 sentence_buffer += delta
-                # Split only on natural clause punctuation or a complete word
-                # boundary after enough text to sound natural. This prevents both
-                # choppy one-token TTS and a full-answer speech delay.
-                has_punct = any(p in delta for p in [".", "!", "?", "।", "\n", ";"]) or ("," in delta and len(sentence_buffer) >= 45)
-                has_word_break = " " in delta and len(sentence_buffer) >= 80
-                if has_punct or has_word_break:
+                if spoken_phrase_is_complete(sentence_buffer):
                     phrase_text = speech_text_for_tts(sentence_buffer.strip())
                     sentence_buffer = ""
                     if phrase_text and len(phrase_text) >= 2:

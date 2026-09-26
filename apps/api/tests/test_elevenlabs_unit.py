@@ -17,6 +17,8 @@ from hinaa_api.providers.elevenlabs import (
     VisemeApproximationAdapter,
     ALLOWED_SEMANTIC_MODES,
     language_code_for_text,
+    language_code_for_model,
+    reason_from_body,
 )
 
 def test_language_hint_is_text_aware_without_forcing_hindi() -> None:
@@ -177,6 +179,178 @@ async def test_synthesize_full_gives_up_after_bounded_retries():
     assert exc_info.value.el_status is ElevenLabsStatus.quotaFailed
     # attempts + 1 initial call, never more
     assert calls["count"] == config.tts_retry_attempts + 1
+
+
+@pytest.mark.asyncio
+async def test_the_synthesis_gate_bounds_in_flight_requests_across_instances(
+    monkeypatch,
+):
+    """A live turn fans out one synthesis per phrase; the account caps at five.
+
+    ElevenLabs answers the sixth concurrent request with 429 and the realtime
+    layer drops that sentence, so the ceiling has to hold even though
+    ProviderRouter builds a new provider for every single call.
+    """
+    import asyncio
+    import httpx
+
+    state = {"live": 0, "peak": 0}
+
+    class _Response:
+        status_code = 200
+
+        async def aiter_bytes(self, chunk_size):
+            await asyncio.sleep(0.02)
+            yield b"audio"
+            state["live"] -= 1
+
+    class _StreamCtx:
+        async def __aenter__(self):
+            return _Response()
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        def stream(self, *args, **kwargs):
+            state["live"] += 1
+            state["peak"] = max(state["peak"], state["live"])
+            return _StreamCtx()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    config = ElevenLabsConfig(api_key="k", voice_id="v", tts_max_concurrency=4)
+
+    results = await asyncio.gather(
+        *[
+            ElevenLabsHTTPStreamingProvider(config).synthesize_full(f"Phrase {i}")
+            for i in range(12)
+        ]
+    )
+
+    assert state["peak"] <= 4
+    assert [r.value for r in results] == [b"audio"] * 12
+
+
+NEPALI_PHRASE = "मलाई कम्प्युटर सेटअप बुझाऊ, छिटो भन।"
+TURBO = "eleven_turbo_v2_5"
+
+
+def _record_stream(monkeypatch, sent, status_code=200, error_body=b""):
+    """Stand in for httpx so a synthesis request is recorded, not sent.
+
+    The response keeps the three members the provider actually uses: status_code,
+    aread() for the error body, and aiter_bytes() for the audio.
+    """
+    import httpx
+
+    class _Response:
+        def __init__(self):
+            self.status_code = status_code
+
+        async def aread(self):
+            return error_body
+
+        async def aiter_bytes(self, chunk_size):
+            yield b"audio"
+
+    class _Stream:
+        async def __aenter__(self):
+            return _Response()
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        def stream(self, method, url, headers=None, json=None):
+            sent.append(json)
+            return _Stream()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+
+def test_a_language_code_the_model_rejects_is_never_sent() -> None:
+    """Measured against this account: turbo v2.5 answers 400 unsupported_language
+    for 'ne' while 'hi' and 'en' return audio. The hint is enforced, not suggested,
+    so every Nepali phrase of a live turn lost its voice to a field we chose to send.
+    """
+    assert language_code_for_text(NEPALI_PHRASE) == "ne"  # what the classifier says
+    assert language_code_for_model(NEPALI_PHRASE, TURBO) is None  # what gets sent
+    assert language_code_for_model("Explain the deployment plan.", TURBO) == "en"
+    assert language_code_for_model("हिना, मुझे setup समझाओ।", TURBO) == "hi"
+    # Multilingual v2 rejects the field for any value, and an unmeasured model is
+    # left to detect the language itself: omission costs enforcement, never audio.
+    assert language_code_for_model(NEPALI_PHRASE, "eleven_multilingual_v2") is None
+    assert language_code_for_model(NEPALI_PHRASE, "eleven_future_model") is None
+
+
+@pytest.mark.asyncio
+async def test_a_nepali_phrase_on_turbo_sends_no_language_code(monkeypatch):
+    sent = []
+    _record_stream(monkeypatch, sent)
+    provider = ElevenLabsHTTPStreamingProvider(
+        ElevenLabsConfig(api_key="k", voice_id="v", model_id=TURBO)
+    )
+
+    result = await provider.synthesize_full(NEPALI_PHRASE, companion_id="hinaa")
+
+    assert result.value == b"audio"
+    assert "language_code" not in sent[0]
+    await provider.synthesize_full("Set it for four oclock.", companion_id="hinaa")
+    assert sent[1]["language_code"] == "en"
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_synthesis_carries_the_vendors_reason(monkeypatch):
+    """The mapped status said only "unavailable" for a parameter the model refused.
+
+    That named nothing that was wrong, so six silent phrases in one turn stayed
+    unexplained in the log; the vendor's own words now ride on the error.
+    """
+    body = (
+        b'{"detail":{"type":"validation_error","code":"invalid_parameters",'
+        b'"message":"Model \'eleven_turbo_v2_5\' does not support language_code \'ne\'.",'
+        b'"status":"unsupported_language","param":"language_code"}}'
+    )
+    sent = []
+    _record_stream(monkeypatch, sent, status_code=400, error_body=body)
+    provider = ElevenLabsHTTPStreamingProvider(
+        ElevenLabsConfig(api_key="k", voice_id="v", model_id=TURBO)
+    )
+
+    with pytest.raises(ElevenLabsError) as exc_info:
+        await provider.synthesize_full(NEPALI_PHRASE, companion_id="hinaa")
+
+    message = str(exc_info.value)
+    assert "unsupported_language" in message
+    assert "does not support language_code" in message
+    assert "unavailable" not in message
+    assert len(sent) == 1  # a rejected parameter is not retried as if it were a burst
+
+
+def test_the_vendor_reason_stays_bounded_and_single_line():
+    assert reason_from_body(b"") == "no response body"
+    assert reason_from_body(b'{"detail":"Too many requests"}') == "Too many requests"
+    padded = reason_from_body(b'{"detail":{"message":"' + b"x" * 4000 + b'"}}')
+    assert len(padded) <= 200 and "\n" not in padded
+    assert reason_from_body(b"<html>500 upstream</html>") == "upstream returned no structured reason"
 
 
 def test_key_isolation():

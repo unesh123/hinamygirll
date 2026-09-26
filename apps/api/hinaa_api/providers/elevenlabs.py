@@ -18,8 +18,11 @@ Status NOT marked available merely because key is present.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
+import weakref
 from dataclasses import dataclass
 from enum import Enum
 from typing import AsyncIterator
@@ -44,6 +47,30 @@ def language_code_for_text(text: str) -> str:
     if re.search(r"(?:मलाई|तपाईं|हुनुहोस्|गर्नुहोस्|छु|छौ|को\s+setup)", text):
         return "ne"
     return "hi"
+
+
+# language_code is enforced, not suggested. A code the model does not carry is not
+# ignored, it is answered with HTTP 400 unsupported_language, and the phrase that
+# asked for it never becomes audio. Measured against this account:
+# eleven_turbo_v2_5 accepts "en" and "hi" and rejects "ne" with
+#   {"detail":{"code":"invalid_parameters","status":"unsupported_language",
+#    "message":"Model 'eleven_turbo_v2_5' does not support language_code 'ne'."}}
+# which is precisely why only her Nepali phrases went silent in a live turn
+# (ttsStatus=partial, 12 of 18 segments delivered). Multilingual v2 rejects the
+# field for every value. So the rule is to send a hint only where it is measured
+# to be accepted: an unmeasured model or code costs enforcement, never audio.
+LANGUAGE_CODES_BY_MODEL: dict[str, frozenset[str]] = {
+    "eleven_turbo_v2_5": frozenset({"en", "hi"}),
+}
+
+
+def language_code_for_model(text: str, model_id: str) -> str | None:
+    """The language_code to put on the request, or None to let the model detect."""
+    accepted = LANGUAGE_CODES_BY_MODEL.get(model_id)
+    if not accepted:
+        return None
+    hint = language_code_for_text(text)
+    return hint if hint in accepted else None
 
 
 class ElevenLabsStatus(str, Enum):
@@ -85,6 +112,9 @@ class ElevenLabsConfig:
     # short-backoff retry keeps her voice from skipping a sentence mid-reply.
     tts_retry_attempts: int   = 2
     tts_retry_backoff_s: float = 0.6
+    # Measured ceiling is 5 in-flight syntheses; one slot of headroom keeps a
+    # burst from being answered with 429 instead of audio.
+    tts_max_concurrency: int  = 4
 
     @property
     def configured(self) -> bool:
@@ -119,8 +149,62 @@ def map_elevenlabs_http_error(status_code: int) -> ElevenLabsStatus:
     return _HTTP_STATUS_MAP.get(status_code, ElevenLabsStatus.unavailable)
 
 
+def reason_from_body(body: bytes | str) -> str:
+    """ElevenLabs' own words about a rejected request, bounded and single-line.
+
+    A 400 maps to no specific status here, so reporting only the mapped enum made a
+    parameter the model refuses read as "unavailable" -- which named nothing that
+    was wrong and left a partial voice turn undiagnosable in the logs.
+    """
+    raw = body.decode("utf-8", "replace") if isinstance(body, bytes) else body
+    text = raw.strip()
+    if not text:
+        return "no response body"
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        parsed = None
+    detail = parsed.get("detail") if isinstance(parsed, dict) else None
+    if isinstance(detail, dict):
+        text = " ".join(
+            part
+            for part in (str(detail.get("status") or ""), str(detail.get("message") or ""))
+            if part
+        )
+    elif isinstance(detail, str):
+        text = detail
+    elif parsed is None:
+        # A proxy page instead of an API answer. Quoting it would put markup on a
+        # line meant to be read as one sentence.
+        text = "upstream returned no structured reason"
+    return re.sub(r"\s+", " ", text)[:200] or "no response body"
+
+
+# ElevenLabs rejects the sixth simultaneous synthesis for this account with a
+# 429, and a live turn spawns one synthesis per streamed phrase. The gate is
+# module-level because ProviderRouter builds a new provider instance on every
+# call, so an instance attribute would gate nothing. It is keyed by loop because
+# an asyncio primitive reused across event loops raises instead of waiting.
+_TTS_GATES: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _tts_gate(limit: int) -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    entry = _TTS_GATES.get(loop)
+    if entry is None or entry[0] != limit:
+        entry = (limit, asyncio.Semaphore(limit))
+        _TTS_GATES[loop] = entry
+    return entry[1]
+
+
 class ElevenLabsError(Exception):
-    """Sanitized error. Never contains the API key or raw upstream body."""
+    """Sanitized error. Carries at most a bounded, field-parsed vendor reason.
+
+    Never the API key, an auth header, or a raw upstream body — see reason_from_body,
+    which keeps the rejected-request explanation that made a silent phrase findable.
+    """
     def __init__(self, status: ElevenLabsStatus, message: str) -> None:
         super().__init__(message)
         self.el_status = status
@@ -241,24 +325,35 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
                 "speed": 0.9,
             },
         }
-        # ElevenLabs documents language_code as unsupported for multilingual v2.
-        # Do not force all Hinaa turns into Hindi: it harms English/Nepali turns
-        # and can cause the field to be ignored. Other models receive a bounded
-        # language hint derived from the actual spoken text.
-        if "multilingual_v2" not in self._config.model_id:
-            payload["language_code"] = language_code_for_text(text)
+        # A language_code the model does not carry is not ignored, it is a 400 and
+        # the phrase loses its audio, so the hint is sent only where this account
+        # is measured to accept it (see LANGUAGE_CODES_BY_MODEL). Multilingual v2,
+        # the default, is absent from that map and keeps detecting the language.
+        language_code = language_code_for_model(text, self._config.model_id)
+        if language_code is not None:
+            payload["language_code"] = language_code
         try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout_s) as client:
-                async with client.stream("POST", url, headers=headers, json=payload) as response:
-                    if response.status_code != 200:
-                        mapped = map_elevenlabs_http_error(response.status_code)
-                        self._status = mapped
-                        raise ElevenLabsError(mapped, f"ElevenLabs HTTP {response.status_code}: {mapped.value}")
-                    self._status = ElevenLabsStatus.available
-                    async for chunk in response.aiter_bytes(self._config.stream_chunk_bytes):
-                        if cancel and cancel.is_cancelled:
-                            return
-                        yield chunk
+            async with _tts_gate(self._config.tts_max_concurrency):
+                async with httpx.AsyncClient(timeout=self._config.request_timeout_s) as client:
+                    async with client.stream("POST", url, headers=headers, json=payload) as response:
+                        if response.status_code != 200:
+                            mapped = map_elevenlabs_http_error(response.status_code)
+                            self._status = mapped
+                            reason = reason_from_body(await response.aread())
+                            logger.error(
+                                "ElevenLabs rejected %d: %s (%s)",
+                                response.status_code,
+                                mapped.value,
+                                reason,
+                            )
+                            raise ElevenLabsError(
+                                mapped, f"ElevenLabs HTTP {response.status_code}: {reason}"
+                            )
+                        self._status = ElevenLabsStatus.available
+                        async for chunk in response.aiter_bytes(self._config.stream_chunk_bytes):
+                            if cancel and cancel.is_cancelled:
+                                return
+                            yield chunk
         except httpx.TimeoutException as exc:
             self._status = ElevenLabsStatus.timeout
             raise ElevenLabsError(ElevenLabsStatus.timeout, "ElevenLabs request timed out.") from exc

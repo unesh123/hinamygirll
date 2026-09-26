@@ -62,6 +62,20 @@ def test_spoken_channel_carries_no_decoration() -> None:
         assert speech_text_for_tts(display) == expected, display
 
 
+def test_hindi_and_nepali_pet_names_leave_the_spoken_channel() -> None:
+    # A measured Nepali voice turn opened with "ए बाबु," because the strip list
+    # covered Latin spellings only. The vocative in front of the term goes with it.
+    assert speech_text_for_tts("ए बाबु, कम्प्युटर सेटअपको कुरा गरौं।") == (
+        "कम्प्युटर सेटअपको कुरा गरौं।"
+    )
+    assert speech_text_for_tts("नमस्ते जानू, यो हेर।") == "नमस्ते यो हेर।"
+    # A name that merely contains the pet name keeps it, and जान ("life") is not
+    # an address term here, so none of that content is cost.
+    assert speech_text_for_tts("बाबुराज ko kaam") == "बाबुराज ko kaam"
+    assert speech_text_for_tts("जान लेने जोखिम छ।") == "जान लेने जोखिम छ।"
+    assert speech_text_for_tts("बाबा lekhchha") == "बाबा lekhchha"
+
+
 def test_decoration_removal_does_not_cost_content() -> None:
     # A TTS engine reads an emoji as a word, so it goes; everything the voice has
     # to report stays. "Babel" is not a pet name and Devanagari is not decoration.

@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import suppress
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
-from hinaa_api.realtime import segment_phrases
+from hinaa_api.config import Settings
+from hinaa_api.realtime import (
+    SPEECH_MIN_PHRASE_CHARS,
+    RealtimeGateway,
+    segment_phrases,
+    spoken_phrase_is_complete,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -162,6 +170,42 @@ def test_phrase_segmentation_is_bounded_and_ordered() -> None:
     assert all(0 < len(chunk) <= 80 for chunk in chunks)
 
 
+def test_a_two_word_clause_is_not_worth_a_synthesis_request() -> None:
+    # Markdown list markers and version-number dots used to close a phrase each.
+    assert not spoken_phrase_is_complete("Fix `agent-router` v2.5 first.")
+    assert not spoken_phrase_is_complete("1. cold auth\n")
+    assert spoken_phrase_is_complete(
+        "cold auth on every turn, then the tool catalogue, then the fallback ladder."
+    )
+
+
+def test_an_unpunctuated_run_still_wraps_instead_of_stalling() -> None:
+    assert not spoken_phrase_is_complete("word " * 30)
+    assert spoken_phrase_is_complete("word " * 40)
+
+
+def test_a_streamed_answer_splits_into_sentences_not_fragments() -> None:
+    deltas = [
+        "The biggest latency bottleneck ",
+        "in a voice assistant is not ",
+        "the model. It is the chain: ",
+        "1. cold auth, 2. tool catalogue, ",
+        "3. the fallback ladder. Fix `agent-router` v2.5 first.",
+    ]
+    buffer = ""
+    phrases: list[str] = []
+    for delta in deltas:
+        buffer += delta
+        if spoken_phrase_is_complete(buffer):
+            phrases.append(buffer)
+            buffer = ""
+    if buffer:
+        phrases.append(buffer)
+
+    assert len(phrases) == 2
+    assert all(len(phrase) >= SPEECH_MIN_PHRASE_CHARS for phrase in phrases)
+
+
 def test_phase3_control_messages_validate_against_canonical_schema() -> None:
     schema = json.loads(
         (ROOT / "packages/contracts/schemas/phase-3-live-message.schema.json").read_text(
@@ -179,3 +223,120 @@ def test_phase3_control_messages_validate_against_canonical_schema() -> None:
             "byteLength": 640,
         }
     )
+
+
+class SilentClientSocket:
+    """Stand-in WebSocket for a browser that stops talking once he commits.
+
+    Yields pre-built Starlette messages and never raises on an empty queue: the
+    client is listening for her audio, not gone.
+    """
+
+    def __init__(self, incoming: list[dict[str, object]]) -> None:
+        self._incoming = list(incoming)
+        self.sent: list[dict[str, object]] = []
+        self.closed_after_events: int | None = None
+
+    async def accept(self) -> None:
+        return None
+
+    async def _silence(self) -> dict[str, object]:
+        # He is waiting to hear her, not gone: park on a future nothing resolves.
+        await asyncio.get_running_loop().create_future()
+        raise AssertionError("unreachable")
+
+    async def receive(self) -> dict[str, object]:
+        if self._incoming:
+            return self._incoming.pop(0)
+        return await self._silence()
+
+    async def receive_json(self) -> dict[str, object]:
+        message = await self.receive()
+        return json.loads(str(message["text"]))
+
+    async def send_json(self, payload: dict[str, object]) -> None:
+        self.sent.append(payload)
+
+    async def close(self) -> None:
+        self.closed_after_events = len(self.sent)
+
+    def types(self) -> list[str]:
+        return [str(event["type"]) for event in self.sent]
+
+
+def _text(message: dict[str, object]) -> dict[str, object]:
+    return {"type": "websocket.receive", "text": json.dumps(message)}
+
+
+def _binary(frame: bytes) -> dict[str, object]:
+    return {"type": "websocket.receive", "bytes": frame}
+
+
+def _quick_gateway_settings() -> Settings:
+    return Settings(
+        _env_file=None,
+        realtime_idle_timeout_seconds=0.05,
+        realtime_turn_timeout_seconds=30.0,
+    )
+
+
+def _committed_client() -> SilentClientSocket:
+    return SilentClientSocket(
+        [
+            _text(hello()),
+            _text({"type": "audio.start", "generation": 1}),
+            _text(
+                {
+                    "type": "audio.frame",
+                    "sequence": 0,
+                    "generation": 1,
+                    "capturedAtMs": 20.0,
+                    "byteLength": 640,
+                }
+            ),
+            _binary(speech_frame()),
+            _text({"type": "audio.commit", "generation": 1, "endedAtMs": 640.0}),
+        ]
+    )
+
+
+async def test_a_live_turn_outlives_the_idle_silence_window(monkeypatch) -> None:
+    """The silence window must not tear down a socket while she is still replying.
+
+    Measured on the live gateway: audio.commit at 1.94s, clean close at 37.52s,
+    zero tts.audio delivered, while ElevenLabs returned 200s for 20s more. The
+    read loop was reusing the abandoned-socket timer for a client that is simply
+    waiting to hear her.
+    """
+    gateway = RealtimeGateway(_quick_gateway_settings(), service=None)  # type: ignore[arg-type]
+    replied = asyncio.Event()
+    open_when_replied: list[bool] = []
+
+    async def slow_turn(websocket, session, commit, turn_audio=None) -> None:
+        await asyncio.sleep(0.4)  # 8x the idle window: brain, then synthesis
+        await gateway._send(websocket, session, "turn.complete", {})
+        open_when_replied.append(socket.closed_after_events is None)
+        session.processing = None
+        replied.set()
+
+    monkeypatch.setattr(gateway, "_process_turn", slow_turn)
+    socket = _committed_client()
+    handler = asyncio.create_task(gateway.handle(socket))
+    try:
+        await asyncio.wait_for(replied.wait(), timeout=2)
+    finally:
+        handler.cancel()
+        with suppress(asyncio.CancelledError):
+            await handler
+
+    assert open_when_replied == [True], "her reply must reach an open socket"
+
+
+async def test_the_idle_window_still_reclaims_a_socket_with_no_turn() -> None:
+    gateway = RealtimeGateway(_quick_gateway_settings(), service=None)  # type: ignore[arg-type]
+    socket = SilentClientSocket([_text(hello())])
+
+    await asyncio.wait_for(gateway.handle(socket), timeout=5)
+
+    assert socket.types() == ["session.ready"]
+    assert socket.closed_after_events == 1, "an abandoned socket is still reclaimed"

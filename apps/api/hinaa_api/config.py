@@ -319,6 +319,8 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DEEPGRAM_BASE_URL", "Deepgram_BASE_URL"),
     )
     deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
+    # /v1/listen only accepts prerecorded models; flux is realtime-only and 404s here.
+    deepgram_stt_model: str = Field("nova-2-general", alias="DEEPGRAM_STT_MODEL")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "http://127.0.0.1:5173",
@@ -382,6 +384,10 @@ class Settings(BaseSettings):
     # sentence longer than the ceiling overflows and ends the live turn.
     realtime_max_buffer_bytes: int = 2_880_000
     realtime_idle_timeout_seconds: float = 35.0
+    # Silence window while a live turn is in flight. The browser sends nothing
+    # between audio.commit and the next thing he wants to say, so reusing the
+    # idle timer here reclaimed the socket mid-reply and left her mute.
+    realtime_turn_timeout_seconds: float = 240.0
     realtime_commit_timeout_seconds: float = 8.0
     # Browser-reachable origin for the realtime WebSocket (e.g. a tunnel host).
     # Unset → derived per request from the Host header; see GET /v1/realtime/url.

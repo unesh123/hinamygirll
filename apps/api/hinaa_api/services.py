@@ -1014,16 +1014,35 @@ class ProviderRouter:
             )
 
     def stt(self, mode: str) -> STTProvider:
+        return self.stt_candidates(mode, "en-US")[0]
+
+    def stt_candidates(self, mode: str, language: str) -> list[STTProvider]:
+        """Speech-to-text options for this turn, best match for `language` first.
+
+        Deepgram's nova models here are English-only, so Hindi, Nepali and
+        Hinglish audio starts on Scribe rather than hearing a bad English guess.
+        """
         if mode == "mock":
-            return self.mock_stt
+            return [self.mock_stt]
         if mode == "local":
-            return self.local_stt
-        if self.settings.deepgram_configured:
+            return [self.local_stt]
+
+        english = (language or "").lower().startswith("en")
+
+        deepgram: STTProvider | None = None
+        # An English-only nova model on Hindi audio returns confident nonsense,
+        # which is worse than no transcript, so it is only offered for English
+        # unless the operator names a multilingual model.
+        covers_language = english or "multilingual" in self.settings.deepgram_stt_model
+        if self.settings.deepgram_configured and covers_language:
             assert self.settings.deepgram_api_key
-            return DeepgramSTTProvider(
+            deepgram = DeepgramSTTProvider(
                 api_key=self.settings.deepgram_api_key.get_secret_value(),
-                base_url=self.settings.deepgram_base_url
+                base_url=self.settings.deepgram_base_url,
+                model=self.settings.deepgram_stt_model,
             )
+
+        elevenlabs: STTProvider | None = None
         if self.settings.elevenlabs_configured:
             assert self.settings.elevenlabs_api_key
             config = ElevenLabsConfig(
@@ -1032,8 +1051,10 @@ class ProviderRouter:
                 voice_id=self.settings.elevenlabs_voice_id,
                 model_id=self.settings.elevenlabs_stt_model_id,
             )
-            return ElevenLabsSTTProvider(config)
-        return self.local_stt
+            elevenlabs = ElevenLabsSTTProvider(config)
+
+        ordered = [deepgram, elevenlabs] if english else [elevenlabs, deepgram]
+        return [provider for provider in ordered if provider is not None] or [self.local_stt]
 
     def llm(
         self,
@@ -1612,13 +1633,40 @@ class ConversationService:
                 logger.debug("Failed to record project fact", exc_info=True)
 
     async def transcribe(self, pcm: bytes, language: str, mode: str) -> ProviderResult[str]:
-        try:
-            async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                return await self.router.stt(mode).transcribe(pcm, language)
-        except TimeoutError as error:
-            raise HinaaError(
-                "PROVIDER_TIMEOUT", "Speech transcription took too long.", 504, True
-            ) from error
+        attempts: list[str] = []
+        for provider in self.router.stt_candidates(mode, language):
+            try:
+                async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                    result = await provider.transcribe(pcm, language)
+            except TimeoutError:
+                attempts.append(f"{provider.id}=timeout")
+                logger.warning("STT %s timed out; trying the next provider", provider.id)
+                continue
+            except HinaaError as error:
+                if not error.retryable:
+                    # "Not configured" is a fact about this vendor, not a flake.
+                    # Another provider cannot make it truer, so say it plainly.
+                    raise
+                attempts.append(f"{provider.id}={error.code}")
+                logger.warning(
+                    "STT %s rejected the audio (%s: %s); trying the next provider",
+                    provider.id, error.code, error.developer_message or error.message,
+                )
+                continue
+            except Exception as error:
+                attempts.append(f"{provider.id}={type(error).__name__}")
+                logger.warning("STT %s failed unexpectedly", provider.id, exc_info=True)
+                continue
+            if result.value.strip():
+                return result
+            attempts.append(f"{provider.id}=empty")
+        raise HinaaError(
+            "STT_UNAVAILABLE",
+            "I could not make out any words in that.",
+            504,
+            True,
+            developer_message="; ".join(attempts) or "no speech-to-text provider configured",
+        ) from None
 
     def _inject_deterministic_tool_intents(
         self,

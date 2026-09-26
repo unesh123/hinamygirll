@@ -145,8 +145,20 @@ def speech_text_for_tts(display_text: str) -> str:
     spoken = re.sub(rf"[{_EMOJI_CLASS}]", " ", spoken)
     # The pet name is an address term, so the comma that introduced it goes with
     # it; dropping the word alone would leave "later,. Love you" for the voice.
-    spoken = re.sub(r",\s*\bbabes?\b(?=[\s,.!]|$)", "", spoken, flags=re.IGNORECASE)
-    spoken = re.sub(r"\s*\bbabes?\b\s*[,.!]?\s*", " ", spoken, flags=re.IGNORECASE)
+    # बाबु/जानू are the same address terms in Devanagari, and ए/अरे is the
+    # vocative in front of them: a measured Nepali turn opened with "ए बाबु,"
+    # because only the Latin spellings were stripped.
+    #
+    # The two scripts cannot share one boundary rule. Devanagari vowel signs are
+    # non-word characters to re, so \b fires inside बाबु and a \b-anchored
+    # Devanagari term matches nothing; those are bounded by the script block
+    # instead, which also keeps बाबुराज and जान ("life") as content.
+    latin = r"\b(?:babes?|baby|babu|jaanu)\b"
+    devanagari = r"(?<![\u0900-\u097F])(?:बाबु|बाबू|जानू|प्रिय)(?![\u0900-\u097F])"
+    pet_name = rf"(?:{latin}|{devanagari})"
+    vocative = r"(?:(?:ए|अरे|ओ)\s+)?"
+    spoken = re.sub(rf",\s*{vocative}{pet_name}(?=[\s,.!]|$)", "", spoken, flags=re.IGNORECASE)
+    spoken = re.sub(rf"\s*{vocative}{pet_name}\s*[,.!]?\s*", " ", spoken, flags=re.IGNORECASE)
     # Removing the decoration strands whatever leaned on it. Only the spaces and
     # the punctuation a removal created go -- a sentence keeps its own full stop.
     spoken = re.sub(r"\s+([,.;:!?])", r"\1", spoken)
