@@ -189,10 +189,12 @@ class MagnificProvider:
         return httpx.Timeout(seconds, connect=15.0)
 
     def _base_url(self) -> str:
+        if self.settings.freepik_api_key and not self.settings.magnific_api_key:
+            return "https://api.freepik.com"
         if getattr(self.settings, "magnific_base_url", None):
             return self.settings.magnific_base_url.rstrip("/")
-        if self.settings.freepik_api_key:
-            return "https://api.freepik.com"
+        if self.settings.magnific_api_key:
+            return "https://api.magnific.com"
         return "https://api.freepik.com"
 
     async def health_check(self) -> bool:

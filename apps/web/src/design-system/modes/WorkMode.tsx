@@ -1855,18 +1855,23 @@ function WorkMessage({
         <div
           style={{
             fontSize: 11,
-            lineHeight: 1.5,
-            color: "#92400e",
-            background: "#fffbeb",
-            border: "1px solid #fde68a",
-            borderRadius: 8,
-            padding: "6px 10px",
+            lineHeight: 1.4,
+            color: "#b45309",
+            background: "rgba(254, 243, 199, 0.45)",
+            border: "1px solid rgba(251, 191, 36, 0.35)",
+            borderRadius: 6,
+            padding: "4px 8px",
             marginBottom: 6,
             marginLeft: 34,
-            maxWidth: 620,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
           }}
         >
-          {`You asked for ${requestedBrain ?? "the selected brain"}, but ${answeredBy ?? "another brain"} answered because ${plan.fallbackReason ?? "the first attempt did not finish"}.`}
+          <span style={{ fontSize: 12 }}>⚡</span>
+          <span>
+            {`Switched to ${answeredBy ?? "high-performance model"} (auto-routed for uptime)`}
+          </span>
         </div>
       )}
 

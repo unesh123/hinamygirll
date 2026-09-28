@@ -98,3 +98,36 @@ def test_complaint_is_not_an_image_prompt() -> None:
     )
     assert result.intent is Intent.CANCEL
     assert result.arguments == {}
+
+
+def test_typo_in_generate_verb() -> None:
+    result = decide("generte mikasa ackerman anime pic", now=NOW)
+    assert result.intent is Intent.IMAGE_GENERATE
+    assert "mikasa" in result.arguments.get("prompt", "").lower()
+
+
+def test_imperative_directive() -> None:
+    result = decide("just generate it", now=NOW)
+    assert result.intent is Intent.IMAGE_GENERATE
+
+    result_profane = decide("go and fuck generate it", now=NOW)
+    assert result_profane.intent is Intent.IMAGE_GENERATE
+
+
+def test_pasted_art_prompt() -> None:
+    prompt = (
+        "Mikasa Ackerman from Attack on Titan, standing on a rooftop in the evening light with "
+        "the Survey Corps uniform, anime style, highly detailed, dramatic sunset lighting, masterpiece."
+    )
+    result = decide(prompt, now=NOW)
+    assert result.intent is Intent.IMAGE_GENERATE
+    assert result.arguments.get("prompt") == prompt
+
+
+def test_multi_turn_affirmative_resolves_image() -> None:
+    history = [
+        ("user", "can you draw Mikasa?"),
+        ("assistant", "Sure! I can create a dramatic portrait of Mikasa Ackerman. Should I generate it?"),
+    ]
+    result = decide("yes", now=NOW, history=history)
+    assert result.intent is Intent.IMAGE_GENERATE

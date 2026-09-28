@@ -26,7 +26,7 @@ ENTITY_ALIASES = {
 }
 
 IMAGE_WORDS = re.compile(
-    r"\b(images?|pictures?|photos?|illustrations?|drawings?)\b",
+    r"\b(images?|pictures?|photos?|pics?|illustrations?|drawings?|art(?:work)?|wallpapers?|portraits?|sketches?|चित्र|तस्वीर)\b",
     re.IGNORECASE,
 )
 
@@ -68,8 +68,45 @@ IMAGE_BARE_FETCH = re.compile(
 )
 
 IMAGE_GENERATE = re.compile(
-    r"^\s*(?:please\s+)?(generate|draw|create|make)\s+"
+    r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?"
+    r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?"
+    r"(?:please\s+|pls\s+|kindly\s+)?"
+    r"(?:just\s+|now\s+|go\s+(?:ahead\s+and\s+|and\s+(?:f(?:uck|ucking)\s+)?)?)?"
+    r"(generate|generte|genrate|generat|gnr8|draw|paint|sketch|render|illustrate|create|make|बनाओ|बनाऊ|बनाइए|बनाइदेऊ)\s+"
     r"(?:me\s+)?(.+?)\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+IMAGE_DIRECTIVE = re.compile(
+    r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?"
+    r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?"
+    r"(?:please\s+|pls\s+|kindly\s+)?"
+    r"(?:just\s+|now\s+|go\s+(?:ahead\s+and\s+|and\s+(?:f(?:uck|ucking)\s+)?)?)?"
+    r"(?:generate|generte|genrate|generat|gnr8|draw|paint|render|create|make)\s+"
+    r"(?:it|this|that|what\s+you\s+can|whatever\s+you\s+can|something)\b\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+IMAGE_WANT_GENERATE = re.compile(
+    r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?"
+    r"(?:i\s+(?:want|need)|give\s+me)\s+(?:an?\s+)?(?:image|picture|photo|illustration|drawing|artwork|wallpaper|portrait)\s+"
+    r"(?:of|for)\s+(.+?)\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+IMAGE_PROMPT_KEYWORDS = re.compile(
+    r"\b(?:masterpiece|best\s+quality|highly\s+detailed|ultra\s+detailed|cinematic\s+lighting|"
+    r"dramatic\s+lighting|studio\s+lighting|volumetric\s+lighting|octane\s+render|unreal\s+engine|"
+    r"8k\s+resolution|4k\s+resolution|photorealistic|hyperrealistic|anime\s+style|manga\s+style|"
+    r"digital\s+art|concept\s+art|character\s+design|character\s+sheet|trending\s+on\s+artstation|"
+    r"pixiv|deviantart|depth\s+of\s+field|bokeh|ray\s+tracing|intricate\s+details?)\b",
+    re.IGNORECASE,
+)
+
+YES_CONFIRM_PATTERN = re.compile(
+    r"^\s*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|do\s+it|go\s+ahead|please\s+do|just\s+do\s+it|"
+    r"haan|haan\s+ji|bana\s+do|banao|yes\s+please|just\s+generate\s+it|just\s+generate|"
+    r"go\s+and\s+.*generate\s+it|generate\s+it|draw\s+it|make\s+it)\b\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
 
@@ -238,10 +275,36 @@ def _reminder_decision(text: str, now: datetime) -> Decision:
     )
 
 
+def _check_image_proposal(history: list[tuple[str, str]]) -> tuple[bool, str]:
+    """Check if recent conversation turns contained an unfulfilled image proposal or prompt."""
+    for role, content in reversed(history[-4:]):
+        if role == "assistant":
+            m_prompt = re.search(r'(?:prompt|visual description)[:\s]+["“]?([^"”\n]{10,300})["”]?', content, re.I)
+            if m_prompt:
+                return True, m_prompt.group(1).strip()
+            if re.search(
+                r"\b(?:generate|draw|create)\s+(?:this|an?|the)\s+(?:image|picture|artwork|portrait)\b|"
+                r"\bwould\s+you\s+like\s+me\s+to\s+(?:generate|draw|create)\b|"
+                r"\bshould\s+i\s+(?:generate|draw|create)\b|"
+                r"\bwant\s+me\s+to\s+(?:generate|draw|create)\b",
+                content,
+                re.I,
+            ):
+                for r2, c2 in reversed(history[-4:]):
+                    if r2 == "user":
+                        return True, c2.strip()
+                return True, "image"
+        elif role == "user":
+            if re.search(r"\b(?:generate|draw|paint|picture|image|photo)\b", content, re.I):
+                return True, content.strip()
+    return False, ""
+
+
 def decide(
     text: str,
     *,
     now: datetime | None = None,
+    history: list[tuple[str, str]] | None = None,
 ) -> Decision:
     """
     Classify one user turn before any model or tool receives it.
@@ -293,13 +356,56 @@ def decide(
     ) and not DOCUMENT_META.search(message):
         return Decision(Intent.DOCUMENT_CREATE)
 
+    # Imperative direct commands: "just generate it", "go and fuck generate it", "generate it"
+    if IMAGE_DIRECTIVE.match(message):
+        resolved_subject = "it"
+        if history:
+            is_img, pending_prompt = _check_image_proposal(history)
+            if is_img and pending_prompt:
+                resolved_subject = pending_prompt
+        return Decision(
+            Intent.IMAGE_GENERATE,
+            {"prompt": resolved_subject},
+        )
+
+    # Affirmative confirmations: "yes", "do it", "sure", "go ahead" following an image discussion
+    if history and YES_CONFIRM_PATTERN.match(message):
+        is_img, pending_prompt = _check_image_proposal(history)
+        if is_img:
+            return Decision(
+                Intent.IMAGE_GENERATE,
+                {"prompt": pending_prompt or "image"},
+            )
+
+    # Want/Give image queries: "i want a picture of Mikasa", "give me an image of Gojo"
+    want_match = IMAGE_WANT_GENERATE.match(message)
+    if want_match:
+        subject = _clean_subject(want_match.group(1))
+        if subject:
+            return Decision(
+                Intent.IMAGE_GENERATE,
+                {"prompt": subject},
+            )
+
+    # Raw image prompt pastes: text containing artistic quality tokens, not phrased as a question
+    if (
+        not re.search(r"^(?:why|what|how|who|when|where|is|are|can|could|would)\b|\?", message, re.I)
+        and len(IMAGE_PROMPT_KEYWORDS.findall(message)) >= 2
+    ):
+        return Decision(
+            Intent.IMAGE_GENERATE,
+            {"prompt": message},
+        )
+
     generate_match = IMAGE_GENERATE.match(message)
     if generate_match:
         verb, requested_subject = generate_match.groups()
 
         # "Make a decision" and "create a reminder" are not image jobs.
-        if verb.casefold() in {"make", "create"} and not IMAGE_WORDS.search(
-            requested_subject
+        if verb.casefold() in {"make", "create"} and not (
+            IMAGE_WORDS.search(requested_subject)
+            or requested_subject.strip().casefold() in ENTITY_ALIASES
+            or requested_subject.strip().casefold() in {"it", "this", "that"}
         ):
             return Decision(Intent.CHAT)
 

@@ -64,17 +64,18 @@ IMAGE_NOUNS = (
     r"(?:imges?|images?|imgs?|pictures?|photos?|pics?|pv|pvs|posters?|"
     r"wallpapers?|artworks?|drawings?|sketch(?:es)?|चित्र|तस्वीरें|फोटो)"
 )
-GENERATE_VERBS = r"(?:generate|genrate|generat|creat(e|ing)?|draw|paint|render|design|make|बनाओ|बनाइए)"
+GENERATE_VERBS = r"(?:generate|generte|genrate|generat|gnr8|creat(?:e|ing)?|draw|paint|sketch|render|illustrate|design|make|बनाओ|बनाऊ|बनाइए|बनाइदेऊ)"
 FETCH_VERBS = r"(?:show|sho|display|find|search|get|fetch|bring|see|look\s+for|send\s+me|give\s+me|भेज|दिखा|ढूँढ|खोज|लाओ)"
 TIME_UNITS = r"(?:minutes?|mins?|hours?|hrs?|seconds?|days?|weeks?)"
 
 # Verbs that already name a picture. "draw goku" needs no noun to prove it is a
 # generation request, while "make" and "create" do.
 VISUAL_VERBS = r"(?:draw|paint|render|sketch|illustrate)"
-HEAD_VERBS = rf"(?:generate|genrate|generat|creat(?:e|ing)?|{VISUAL_VERBS}|design|make|बना(?:ओ|इए))"
+HEAD_VERBS = rf"(?:generate|generte|genrate|generat|gnr8|creat(?:e|ing)?|{VISUAL_VERBS}|design|make|बना(?:ओ|इए|ऊ|इदेऊ))"
 FILLERS = (
     r"(?:please|pls|kindly|can\s+you|could\s+you|would\s+you|will\s+you|"
-    r"hey|hi|hello|now|also|just|babe|jaan|baby)"
+    r"hey|hi|hello|now|also|just|babe|jaan|baby|"
+    r"go\s+(?:ahead\s+and\s+|and\s+(?:f(?:uck|ucking)\s+)?)?)"
 )
 CONNECTORS = r"(?:of|for|featuring|with|showing|depicting|about)"
 QUALITY_WORDS = r"(?:ultra|8k|4k|2k|hd|fhd|masterpiece|high\s+quality|best\s+quality)"
@@ -90,7 +91,8 @@ META_FRAMING = re.compile(
         never | stop | quit | cancel | abort | pause | enough | useless | broken |
         fail(?:ed|ing|ure)? | error | wrong | not\s+working | wasn'?t | weren'?t |
         i\s+asked | i\s+wanted | instead\s+of | yesterday | earlier | last\s+time |
-        again | supposed | should\s+have | can'?t | cannot | fix | debug |
+        (?:once\s+)?again[,:\s]+(?:you|stop|i\s+didn'?t|it\s+failed|broken)|not\s+again |
+        supposed | should\s+have | can'?t | cannot | fix | debug |
         suggest | recommend | recommendation | any\s+ideas | what\s+should |
         do\s+you\s+(?:have|support|can) | can\s+you\s+really | is\s+it\s+true
     ) \b
@@ -148,8 +150,8 @@ _FABRIC_RELIGHT = re.compile(r"(?ix)\b(?:re-?light\w*)\b")
 # The lead verb plus a subject we already know is drawable is as explicit as an
 # image noun, and unlike a noun mention it cannot be a recommendation ask.
 _VISUAL_LEAD = re.compile(
-    r"(?ix) ^ \s* (?: hey\s+ )? (?: hinaa? [\s,]+ )? (?: please\s+ )?"
-    r"(?: generate | draw | paint | render | create ) \s+ \S"
+    rf"(?ix) ^ \s* (?: hey\s+ )? (?: hinaa? [\s,]+ )? (?: please\s+ )?"
+    rf"{HEAD_VERBS} \s+ \S"
 )
 # A variant of the picture he is pointing at. Which picture comes out of the
 # selected-asset state, so the sentence itself carries no prompt to extract.
@@ -170,9 +172,14 @@ _TEXT_DELIVERABLE = re.compile(
     r" review | wiki | fandom ) \b"
 )
 
+DEFAULT_KNOWN_SUBJECTS = (
+    "hina", "hinaa", "mikasa", "mikasa ackerman", "gojo", "gojo satoru",
+    "naruto", "goku", "eren", "levi", "sukuna", "tanjiro", "nezuko", "luffy", "zoro",
+)
+
 
 def _names_known_subject(lowered: str, known_subjects: Iterable[str]) -> bool:
-    for name in ("hina", "hinaa", *known_subjects):
+    for name in (*DEFAULT_KNOWN_SUBJECTS, *known_subjects):
         if name and re.search(rf"(?i)\b{re.escape(name)}\b", lowered):
             return True
     return False
@@ -288,11 +295,20 @@ def extract_image_subject(text: str) -> str | None:
     if not candidate:
         return None
     words = candidate.split()
-    if len(words) > 12 or len(candidate) > 90:
+    # Permit longer prompts for detailed visual/artistic descriptions
+    has_artistic_clues = bool(
+        re.search(
+            r"(?i)(?:,|lighting|style|anime|manga|detailed|wearing|standing|sitting|background|sunset|hair|eyes|art|masterpiece|cinematic|portrait|illustration)",
+            candidate,
+        )
+    )
+    max_words = 120 if has_artistic_clues else 18
+    max_chars = 900 if has_artistic_clues else 120
+    if len(words) > max_words or len(candidate) > max_chars:
         return None
     if len("".join(words)) < 2:
         return None
-    if re.search(r"(?i)\b(?:you|your|i|me|my)\b", candidate) and len(words) > 3:
+    if re.search(r"(?i)\b(?:you|your|i|me|my)\b", candidate) and len(words) > 3 and not has_artistic_clues:
         return None
     if META_FRAMING.search(candidate):
         return None
@@ -527,6 +543,37 @@ def sanction_tools(
         # our own router resolved before this gate ran, so its call is kept.
         sanction.allowed.add("image_generate")
         sanction.resolved.add("image_generate")
+        return sanction
+
+    _DIRECTIVE_GEN = re.compile(
+        r"(?ix)^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+|pls\s+|kindly\s+)?(?:can\s+you\s+|could\s+you\s+)?"
+        r"(?:just\s+|now\s+|go\s+(?:ahead\s+and\s+|and\s+(?:f(?:uck|ucking)\s+)?)?)?"
+        r"(?:generate|generte|genrate|generat|gnr8|draw|paint|create|make)\s+"
+        r"(?:it|this|that|what\s+you\s+can|whatever\s+you\s+can|something)\b"
+    )
+    if _DIRECTIVE_GEN.match(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("image_generate")
+        sanction.parameters["image_generate"] = {
+            "prompt": "it",
+            "count": requested_count(raw),
+        }
+        sanction.resolved.add("image_generate")
+        return sanction
+
+    _ART_PROMPT_PASTE = re.compile(
+        r"(?ix)\b(?:anime\s+style|manga\s+style|masterpiece|cinematic\s+lighting|dramatic\s+lighting|"
+        r"8k\s+resolution|photorealistic|character\s+design|octane\s+render|unreal\s+engine|highly\s+detailed|ultra\s+detailed)\b"
+    )
+    if (
+        _ART_PROMPT_PASTE.search(lowered)
+        and not META_FRAMING.search(lowered)
+        and not re.search(r"^(?:why|what|how|who|when|where|is|are|can)\b", lowered)
+    ):
+        sanction.allowed.add("image_generate")
+        sanction.parameters["image_generate"] = {
+            "prompt": raw,
+            "count": requested_count(raw),
+        }
         return sanction
 
     pure_visual = bool(re.search(rf"(?ix) \b{VISUAL_VERBS} \b", lowered))

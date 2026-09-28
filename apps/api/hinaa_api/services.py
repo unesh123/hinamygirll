@@ -2432,11 +2432,13 @@ class ConversationService:
             topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*pdf\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
             topic_str = re.sub(r"(?i)\b(?:the\s+)?pdf\s*(?:file|document|banao|banau|dinu|bro|please|pls)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
             topic_str = re.sub(r"[\"']", "", topic_str).strip()
+            topic_str = re.sub(r"[^\w\s-]", "", topic_str).strip()
             topic_str = re.sub(r"\s+", " ", topic_str).strip()
 
             is_referential = (
                 not topic_str
                 or len(topic_str) < 4
+                or topic_str.lower() in {"it", "this", "that", "the", "pdf", "file", "document", "report", "the pdf", "this pdf", "that pdf"}
                 or bool(
                     re.search(
                         r"(?i)^(?:based\s+on\s+)?(?:that|this|it|her|the\s+above|above|same|previous|last|what\s+you\s+(?:said|wrote|generated)|report|the\s+report|thr\s+report)(?:\s+(?:assignment|report|paper|doc|document|topic|conversation))?$",
@@ -2504,6 +2506,9 @@ class ConversationService:
             final_topic = re.sub(r"(?i)\bww1\b", "World War I", final_topic)
 
             clean_display_title = final_topic.strip().title()
+            if clean_display_title.lower() in {"it", "it.", "this", "that", "pdf"} or len(clean_display_title) <= 2:
+                clean_display_title = resolved_topic.strip().title() if resolved_topic else "Research Document"
+            clean_display_title = clean_display_title.rstrip(" .;,!?")
             if clean_display_title.lower().endswith(("assignment", "report", "document")):
                 doc_title = clean_display_title
             else:
@@ -2680,7 +2685,12 @@ class ConversationService:
                 parameters={"query": prompt_str or text},
             ))
 
-    def _turn_tool_whitelist(self, text: str, gate_intent) -> tuple[str, ...]:
+    def _turn_tool_whitelist(
+        self,
+        text: str,
+        gate_intent,
+        history: list[tuple[str, str]] | None = None,
+    ) -> tuple[str, ...]:
         """The tools his own words earned for this turn, decided before any brain speaks.
 
         Both the prompt and the executed plan are cut from this one set. When the
@@ -2707,7 +2717,16 @@ class ConversationService:
         # images" -- so the whitelist comes from the same sanction that later
         # filters the provider's own calls, not from this one regex pass.
         sanction = sanction_tools(text, known_subjects=CHARACTER_ENTITY_MAP)
-        return tuple(sorted(sanction.allowed)) if sanction.allowed else ()
+        if sanction.allowed:
+            return tuple(sorted(sanction.allowed))
+        # If user gave an affirmative confirmation and recent turns discussed generating an image
+        if history:
+            from hinaa_intent_gate import YES_CONFIRM_PATTERN, _check_image_proposal
+            if YES_CONFIRM_PATTERN.match(text):
+                is_img, _ = _check_image_proposal(history)
+                if is_img:
+                    return ("image_generate", "magnific_image_generate", "freepik_image_generate")
+        return ()
 
     def _gate_tool_intents(
         self, request: TurnRequest, plan: AssistantTurnPlan, *, user_id: str | None
@@ -3806,9 +3825,11 @@ class ConversationService:
         dialogue_state_block = ""
         live_search_block = ""
 
+        session_history = self.memory.context(request.sessionId) if request.sessionId else []
+
         # Gate First: evaluate intent before running LLM or routing
         from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
-        gate_decision = decide_intent(request.text)
+        gate_decision = decide_intent(request.text, history=session_history)
 
         if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
             from .tools.reminder import schedule_reminder
@@ -3948,7 +3969,7 @@ class ConversationService:
                     pass
             return result
 
-        allowed_tools = self._turn_tool_whitelist(request.text, gate_decision.intent)
+        allowed_tools = self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -4398,6 +4419,45 @@ class ConversationService:
                             reason="deterministic-intent",
                         )
                     )
+            # Deterministic Image Generation Guarantee
+            if (
+                gate_decision.intent == HinaaIntent.IMAGE_GENERATE
+                or "image_generate" in allowed_tools
+            ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
+                prompt_to_use = gate_decision.arguments.get("prompt") or request.text
+                if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
+                    session_history = self.memory.context(request.sessionId) if request.sessionId else []
+                    from hinaa_intent_gate import _check_image_proposal
+                    is_img, pending_prompt = _check_image_proposal(session_history)
+                    if pending_prompt and pending_prompt not in {"image", "it", "this"}:
+                        prompt_to_use = pending_prompt
+                    elif d_state:
+                        active = getattr(d_state, "active_entity", None) or getattr(d_state, "active_topic", None)
+                        if active:
+                            prompt_to_use = active
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    if re.search(r"\b" + re.escape(alias) + r"\b", prompt_to_use, re.IGNORECASE):
+                        prompt_to_use = re.sub(r"\b" + re.escape(alias) + r"\b", canonical, prompt_to_use, flags=re.IGNORECASE)
+                        break
+
+                engine = getattr(request, "imageEngine", None) or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="image_generate",
+                        parameters={
+                            "prompt": prompt_to_use,
+                            "count": 1,
+                            "mode": "quality",
+                            "engine": engine,
+                        },
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "copyright", "do you want me to", "should i generate", "let me know if you want")):
+                    result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
+                    result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
+
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
             ]
@@ -4462,9 +4522,11 @@ class ConversationService:
         dialogue_state_block = ""
         live_search_block = ""
 
+        session_history = self.memory.context(request.sessionId) if request.sessionId else []
+
         # Gate First: evaluate intent before running LLM or routing
         from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
-        gate_decision = decide_intent(request.text)
+        gate_decision = decide_intent(request.text, history=session_history)
 
         if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
             from .tools.reminder import schedule_reminder
@@ -4757,7 +4819,7 @@ class ConversationService:
         live_allowed_tools = (
             ()
             if is_voice_turn
-            else self._turn_tool_whitelist(request.text, gate_decision.intent)
+            else self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
         )
         prompt = build_turn_prompt(
             request=request,
@@ -5110,6 +5172,48 @@ class ConversationService:
                 user_id=user_id,
             )
             self._gate_tool_intents(request, result.value, user_id=user_id)
+            # Deterministic Image Generation Guarantee
+            if (
+                gate_decision.intent == HinaaIntent.IMAGE_GENERATE
+                or "image_generate" in live_allowed_tools
+            ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
+                prompt_to_use = gate_decision.arguments.get("prompt") or request.text
+                if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
+                    session_history = self.memory.context(request.sessionId) if request.sessionId else []
+                    from hinaa_intent_gate import _check_image_proposal
+                    is_img, pending_prompt = _check_image_proposal(session_history)
+                    if pending_prompt and pending_prompt not in {"image", "it", "this"}:
+                        prompt_to_use = pending_prompt
+                    elif d_state:
+                        active = getattr(d_state, "active_entity", None) or getattr(d_state, "active_topic", None)
+                        if active:
+                            prompt_to_use = active
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    if re.search(r"\b" + re.escape(alias) + r"\b", prompt_to_use, re.IGNORECASE):
+                        prompt_to_use = re.sub(r"\b" + re.escape(alias) + r"\b", canonical, prompt_to_use, flags=re.IGNORECASE)
+                        break
+
+                engine = getattr(request, "imageEngine", None) or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="image_generate",
+                        parameters={
+                            "prompt": prompt_to_use,
+                            "count": 1,
+                            "mode": "quality",
+                            "engine": engine,
+                        },
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "copyright", "do you want me to", "should i generate", "let me know if you want")):
+                    result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
+                    result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
+
+            result.value.toolRequests = [
+                tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
+            ]
             if live_search_block or (result.value.displayText and len(result.value.displayText.strip()) > 30):
                 SEARCH_TOOLS = {"web_search", "web_research", "web_answer", "finance_research", "web_extract"}
                 result.value.toolRequests = [

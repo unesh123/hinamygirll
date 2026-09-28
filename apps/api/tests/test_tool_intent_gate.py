@@ -658,3 +658,22 @@ def test_markup_stays_on_screen_when_no_page_is_being_built(gate_settings):
     )
 
     assert "<html>" in plan.displayText
+
+
+def test_directive_and_art_paste_sanctions():
+    s1 = sanction_tools("just generate it")
+    assert s1.permits("image_generate")
+
+    s2 = sanction_tools("go and fuck generate it")
+    assert s2.permits("image_generate")
+
+    s3 = sanction_tools("generte mikasa")
+    assert s3.permits("image_generate")
+
+    prompt = (
+        "Mikasa Ackerman from Attack on Titan, standing on a rooftop in the evening light with "
+        "Survey Corps uniform, anime style, highly detailed, dramatic sunset lighting, masterpiece."
+    )
+    s4 = sanction_tools(prompt)
+    assert s4.permits("image_generate")
+    assert s4.parameters["image_generate"]["prompt"] == prompt
