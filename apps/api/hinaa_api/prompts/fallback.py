@@ -97,8 +97,17 @@ def normalize_gateway_turn_payload(payload: object) -> object:
     _filed_tools = normalized.get("toolRequests")
     _job_filed = isinstance(_filed_tools, list) and bool(_filed_tools)
 
-    def _clean_str(val: str) -> str:
-        # Strip thinking blocks
+    extracted_thoughts: list[str] = []
+    if isinstance(normalized.get("thinking"), str) and normalized["thinking"].strip():
+        extracted_thoughts.append(normalized["thinking"].strip())
+
+    def _clean_str(val: str, is_display: bool = False) -> str:
+        # Preserve thinking blocks into normalized["thinking"]
+        if is_display:
+            for m in re.finditer(r"<(?:think|thought)>([\s\S]*?)</(?:think|thought)>", val, flags=re.IGNORECASE):
+                t = m.group(1).strip()
+                if t:
+                    extracted_thoughts.append(t)
         val = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", val, flags=re.IGNORECASE)
         # P0: Brains that cannot use structured tool calling write the call into
         # their answer instead. Measured live: an image bubble printed the
@@ -222,9 +231,12 @@ def normalize_gateway_turn_payload(payload: object) -> object:
     )
 
     if isinstance(normalized.get("displayText"), str):
-        normalized["displayText"] = _clean_str(normalized["displayText"])
+        normalized["displayText"] = _clean_str(normalized["displayText"], is_display=True)
     if isinstance(normalized.get("spokenText"), str):
-        normalized["spokenText"] = _clean_str(normalized["spokenText"])
+        normalized["spokenText"] = _clean_str(normalized["spokenText"], is_display=False)
+
+    if extracted_thoughts:
+        normalized["thinking"] = "\n\n".join(extracted_thoughts)
 
     language = normalized.get("language")
     if isinstance(language, str):

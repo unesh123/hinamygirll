@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     )
 
     provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft"] = Field(
-        "claude", alias="HINAA_PROVIDER_MODE"
+        "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
     azure_speech_region: str | None = Field(None, alias="AZURE_SPEECH_REGION")
@@ -258,6 +258,135 @@ class Settings(BaseSettings):
         120.0,
         validation_alias=AliasChoices("HINAA_OMNIROUTE_TIMEOUT_SECONDS", "OMNIROUTE_TIMEOUT_SECONDS"),
     )
+    # PGSGrove AI Gateway — high-speed frontier & open-weight models (glm-5.3-flash, deepseek-v4.1-flash)
+    pgsgrove_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("PGSGROVE_API_KEY", "PGS_GROVE_API_KEY"),
+    )
+    pgsgrove_base_url: str = Field(
+        "https://api.pgsgrove.com/v1",
+        validation_alias=AliasChoices("PGSGROVE_BASE_URL", "PGS_GROVE_BASE_URL"),
+    )
+    pgsgrove_model: str = Field(
+        "glm-5.3-flash",
+        validation_alias=AliasChoices("PGSGROVE_MODEL", "PGS_GROVE_MODEL"),
+    )
+    pgsgrove_allowed_models_raw: str = Field(
+        "glm-5.3-flash,deepseek-v4.1-flash,deepseek-v4.1-flash-turbo,deepseek-v4-flash-0731,deepseek-v4-flash-0731-turbo",
+        validation_alias=AliasChoices("PGSGROVE_ALLOWED_MODELS", "PGS_GROVE_ALLOWED_MODELS"),
+    )
+    # SeekAI OneAPI Gateway
+    seekai_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("SEEKAI_API_KEY", "SEEK_AI_API_KEY"),
+    )
+    seekai_base_url: str = Field(
+        "https://seekai.cc/v1",
+        validation_alias=AliasChoices("SEEKAI_BASE_URL", "SEEK_AI_BASE_URL"),
+    )
+    seekai_model: str = Field(
+        "glm-5.3-flash",
+        validation_alias=AliasChoices("SEEKAI_MODEL", "SEEK_AI_MODEL"),
+    )
+    seekai_allowed_models_raw: str = Field(
+        "claude-sonnet,claude-sonnet-4-6,doubao-seed-2.0-code,claude-sonnet-4-20250514,deepseek-v4.1-flash,glm-5.3-flash,deepseek-ai/DeepSeek-V4-Flash-0731,hy4-preview-f,MiniMax-M2.7-highspeed,Qwen3.8-27B,hy3",
+        validation_alias=AliasChoices("SEEKAI_ALLOWED_MODELS", "SEEK_AI_ALLOWED_MODELS"),
+    )
+    # TokenTable Multi-Model Gateway
+    tokentable_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("TOKENTABLE_API_KEY", "TOKEN_TABLE_API_KEY"),
+    )
+    tokentable_base_url: str = Field(
+        "https://tokentable.asia/v1",
+        validation_alias=AliasChoices("TOKENTABLE_BASE_URL", "TOKEN_TABLE_BASE_URL"),
+    )
+    tokentable_model: str = Field(
+        "auto",
+        validation_alias=AliasChoices("TOKENTABLE_MODEL", "TOKEN_TABLE_MODEL"),
+    )
+    tokentable_allowed_models_raw: str = Field(
+        "auto,claude-fable-5-1,claude-fable-5,claude-opus-5-5,claude-opus-5,claude-sonnet-5,gpt-6-astra,gpt-6-sol,deepseek-ai/DeepSeek-V4.1-Flash,qwen3.8-max",
+        validation_alias=AliasChoices("TOKENTABLE_ALLOWED_MODELS", "TOKEN_TABLE_ALLOWED_MODELS"),
+    )
+    # XKiro Multi-Model AI Gateway — fast free Qwen 3.8 Max, Qwen 3.7 Flash, coder models
+    xkiro_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("XKIRO_API_KEY", "XK_IRO_API_KEY"),
+    )
+    xkiro_base_url: str = Field(
+        "https://api.xkiro.com/v1",
+        validation_alias=AliasChoices("XKIRO_BASE_URL", "XK_IRO_BASE_URL"),
+    )
+    xkiro_model: str = Field(
+        "qwen/qwen3.8-max:free",
+        validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
+    )
+    xkiro_allowed_models_raw: str = Field(
+        "qwen/qwen3.8-max:free,qwen/qwen3.7-flash:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free,qwen/qwen3-coder-plus:free,qwen/qwen3-vl-plus:free",
+        validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
+    )
+    # Cavoti AI Gateway — frontier models (claude-fable-5, claude-opus-5, claude-haiku-4-5)
+    cavoti_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("CAVOTI_AI_API_KEY", "CAVOTI_API_KEY"),
+    )
+    cavoti_base_url: str = Field(
+        "https://cavoti.com/v1",
+        validation_alias=AliasChoices("CAVOTI_AI_BASE_URL", "CAVOTI_BASE_URL"),
+    )
+    cavoti_model: str = Field(
+        "claude-fable-5",
+        validation_alias=AliasChoices("CAVOTI_AI_MODEL", "CAVOTI_MODEL"),
+    )
+    cavoti_allowed_models_raw: str = Field(
+        "claude-fable-5,claude-fable-5-1,claude-fable-5.1,claude-haiku-4-5,claude-haiku-4-5-20251001,claude-opus-4-6,claude-opus-4-7,claude-opus-4-8,claude-opus-5,claude-opus-5-5",
+        validation_alias=AliasChoices("CAVOTI_AI_ALLOWED_MODELS", "CAVOTI_ALLOWED_MODELS"),
+    )
+    # Bright Data Scraping Browser & SERP API
+    bright_data_browser_ws: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("BRIGHT_DATA_BROWSER_WS", "BRD_BROWSER_WS", "BRIGHT_DATA_BROWSER_URL"),
+    )
+    bright_data_selenium_url: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("BRIGHT_DATA_SELENIUM_URL", "BRD_SELENIUM_URL"),
+    )
+    bright_data_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("BRIGHT_DATA_API_KEY", "BRD_API_KEY"),
+    )
+    bright_data_serp_zone: str = Field(
+        "serp_api1",
+        validation_alias=AliasChoices("BRIGHT_DATA_SERP_ZONE", "BRD_SERP_ZONE"),
+    )
+    # CapSolver Captcha Solver
+    capsolver_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("CAPSOLVER_API_KEY", "CAP_SOLVER_API_KEY"),
+    )
+    capsolver_base_url: str = Field(
+        "https://api.capsolver.com",
+        validation_alias=AliasChoices("CAPSOLVER_BASE_URL", "CAP_SOLVER_BASE_URL"),
+    )
+    # EZ-Captcha Captcha Solver
+    ez_captcha_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("EZ_CAPTCHA_API_KEY", "EZCAPTCHA_API_KEY"),
+    )
+    ez_captcha_base_url: str = Field(
+        "https://api.ez-captcha.com",
+        validation_alias=AliasChoices("EZ_CAPTCHA_BASE_URL", "EZ_CAPTCHA_URL"),
+    )
+    # Stability AI Image Generation
+    stabilityai_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("STABILITYAI_API_KEY", "STABILITY_AI_API_KEY"),
+    )
+    stabilityai_base_url: str = Field(
+        "https://api.stability.ai",
+        validation_alias=AliasChoices("STABILITYAI_BASE_URL", "STABILITY_AI_BASE_URL"),
+    )
     # You.com — private, server-side real-time web intelligence. Keep the key
     # in apps/api/.env.local as YDC_API_KEY; never expose it to Vite/browser code.
     youcom_api_key: SecretStr | None = Field(None, alias="YDC_API_KEY")
@@ -285,8 +414,8 @@ class Settings(BaseSettings):
     azure_speech_male_voice: str = Field("hi-IN-MadhurNeural", alias="AZURE_SPEECH_MALE_VOICE")
     elevenlabs_api_key: SecretStr | None = Field(None, alias="ELEVENLABS_API_KEY")
     elevenlabs_base_url: str = Field("https://api.elevenlabs.io", alias="ELEVENLABS_BASE_URL")
-    elevenlabs_voice_id: str = Field("TRnaQb7q41oL7sV0w6Bu", alias="ELEVENLABS_VOICE_ID")
-    elevenlabs_hinaa_voice_id: str = Field("TRnaQb7q41oL7sV0w6Bu", alias="ELEVENLABS_HINAA_VOICE_ID")
+    elevenlabs_voice_id: str = Field("21m00Tcm4LoLmXQzje3p", alias="ELEVENLABS_VOICE_ID")
+    elevenlabs_hinaa_voice_id: str = Field("21m00Tcm4LoLmXQzje3p", alias="ELEVENLABS_HINAA_VOICE_ID")
     elevenlabs_hiro_voice_id: str = Field("ErXwobaYiN019PkySvjV", alias="ELEVENLABS_HIRO_VOICE_ID")
     elevenlabs_model_id: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_MODEL_ID")
     elevenlabs_stt_model_id: str = Field("scribe_v2", alias="ELEVENLABS_STT_MODEL_ID")
@@ -294,6 +423,26 @@ class Settings(BaseSettings):
     elevenlabs_tts_model_expressive: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_TTS_MODEL_EXPRESSIVE")
     elevenlabs_output_format: str = Field("mp3_44100_128", alias="ELEVENLABS_OUTPUT_FORMAT")
     elevenlabs_language_policy: str = Field("auto", alias="ELEVENLABS_LANGUAGE_POLICY")
+    # Nepali turns must reach a model that carries Nepali (v3 family only).
+    # Flash/Turbo/Multilingual v2 cannot speak it, and a Nepali line routed to
+    # one of those models comes back silent — so the language of the turn, not
+    # a single pinned model, decides what speaks it.
+    elevenlabs_tts_model_nepali: str = Field(
+        "eleven_v3_conversational", alias="ELEVENLABS_TTS_MODEL_NEPALI"
+    )
+    # "websocket" streams PCM as the sentence is generated (live voice),
+    # "http" buffers a phrase per request. This is the default because it is the
+    # difference between a voice agent and a script reader: first audio follows
+    # the first clause instead of the whole phrase.
+    elevenlabs_transport: Literal["http", "websocket"] = Field(
+        "websocket", alias="ELEVENLABS_TRANSPORT"
+    )
+    # Which vendor speaks when more than one is configured. The user's voice is
+    # an identity, not a fallback chain, so ElevenLabs is the default authority
+    # and the others are only reached when it is absent or this says otherwise.
+    voice_provider: Literal["auto", "elevenlabs", "fish-audio", "deepgram", "azure"] = Field(
+        "deepgram", alias="HINAA_VOICE_PROVIDER"
+    )
     # Fish Audio — server-side multilingual TTS with Nepali/English
     # switching. The key is read from FISH_AUDIO_API_KEY or the legacy
     # Fish_Audio_API_KEY spelling; never expose it to the browser.
@@ -301,7 +450,10 @@ class Settings(BaseSettings):
         None,
         validation_alias=AliasChoices("FISH_AUDIO_API_KEY", "Fish_Audio_API_KEY"),
     )
-    fish_audio_base_url: str = Field("https://api.fish.audio", alias="FISH_AUDIO_BASE_URL")
+    fish_audio_base_url: str = Field(
+        "https://api.fish.audio",
+        validation_alias=AliasChoices("FISH_AUDIO_BASE_URL", "FISHAUDIO_BASE_URL"),
+    )
     fish_audio_hinaa_voice_id: str = Field("", alias="FISH_AUDIO_HINAA_VOICE_ID")
     fish_audio_hiro_voice_id: str = Field("", alias="FISH_AUDIO_HIRO_VOICE_ID")
     fish_audio_model_id: str = Field("fish-speech-1.5", alias="FISH_AUDIO_MODEL_ID")
@@ -319,6 +471,8 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DEEPGRAM_BASE_URL", "Deepgram_BASE_URL"),
     )
     deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
+    # Deepgram Aura cute anime-style voice for Hinaa (aura-2-luna-en)
+    deepgram_tts_model_hinaa: str = Field("aura-2-luna-en", alias="DEEPGRAM_TTS_MODEL_HINAA")
     # /v1/listen only accepts prerecorded models; flux is realtime-only and 404s here.
     deepgram_stt_model: str = Field("nova-2-general", alias="DEEPGRAM_STT_MODEL")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
@@ -337,8 +491,12 @@ class Settings(BaseSettings):
     # Stage-specific voice timeouts — each stage gets its own deadline so
     # a slow STT doesn't kill the entire turn prematurely.
     voice_stt_timeout_seconds: float = Field(12.0, alias="HINAA_VOICE_STT_TIMEOUT")
-    voice_brain_first_token_timeout_seconds: float = Field(15.0, alias="HINAA_VOICE_BRAIN_TIMEOUT")
-    voice_tts_phrase_timeout_seconds: float = Field(10.0, alias="HINAA_VOICE_TTS_TIMEOUT")
+    voice_brain_first_token_timeout_seconds: float = Field(8.0, alias="HINAA_VOICE_BRAIN_TIMEOUT")
+    voice_tts_phrase_timeout_seconds: float = Field(15.0, alias="HINAA_VOICE_TTS_TIMEOUT")
+    # Bounded warm-up for the per-turn synthesis socket. It opens underneath the
+    # brain's first token, so a slow handshake costs voice nothing — but it must
+    # never be able to stall the turn either.
+    voice_socket_timeout_seconds: float = Field(2.0, alias="HINAA_VOICE_SOCKET_TIMEOUT")
     voice_total_turn_timeout_seconds: float = Field(90.0, alias="HINAA_VOICE_TURN_TIMEOUT")
     # Brain (LLM) calls get a far larger budget: reasoning models such as
     # cx/gpt-5.6-sol burn hidden ``reasoning_content`` tokens before the first
@@ -433,7 +591,7 @@ class Settings(BaseSettings):
     hinaa_allowed_user_ids: str | None = Field(None, alias="HINAA_ALLOWED_USER_IDS")
     cx_gateway_quota_url: str | None = Field(None, alias="CX_GATEWAY_QUOTA_URL")
     cx_gateway_quota_key: SecretStr | None = Field(None, alias="CX_GATEWAY_QUOTA_KEY")
-    persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
+    persistence_enabled: bool = Field(False, alias="HINAA_PERSISTENCE_ENABLED")
     reminder_scheduler_enabled: bool = Field(True, alias="HINAA_REMINDER_SCHEDULER_ENABLED")
     reminder_tick_seconds: float = Field(20.0, gt=0, le=600, alias="HINAA_REMINDER_TICK_SECONDS")
     # Catch-up after downtime is a feature; announcing yesterday's appointment
@@ -983,6 +1141,216 @@ class Settings(BaseSettings):
     def omniroute_configured(self) -> bool:
         """Declared, not proven. Whether the gateway answers is measured live."""
         return bool(self.omniroute_enabled and self.omniroute_is_local)
+
+    @property
+    def pgsgrove_configured(self) -> bool:
+        return bool(
+            self.pgsgrove_api_key
+            and self.pgsgrove_api_key.get_secret_value()
+            and self.active_pgsgrove_base_url
+        )
+
+    @property
+    def active_pgsgrove_key(self) -> SecretStr | None:
+        if self.pgsgrove_api_key and self.pgsgrove_api_key.get_secret_value():
+            return self.pgsgrove_api_key
+        return None
+
+    @property
+    def active_pgsgrove_base_url(self) -> str | None:
+        value = (self.pgsgrove_base_url or "").strip().rstrip("/")
+        return value or None
+
+    @property
+    def active_pgsgrove_model(self) -> str:
+        return self.pgsgrove_model or "glm-5.3-flash"
+
+    @property
+    def pgsgrove_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.pgsgrove_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_pgsgrove_model]
+        if self.active_pgsgrove_model and self.active_pgsgrove_model not in models:
+            models.insert(0, self.active_pgsgrove_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_pgsgrove_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_pgsgrove_model
+        if "*" not in self.pgsgrove_allowed_models and model not in self.pgsgrove_allowed_models:
+            allowed = ", ".join(self.pgsgrove_allowed_models)
+            raise ValueError(f"PGSGrove model is not in PGSGROVE_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def seekai_configured(self) -> bool:
+        return bool(
+            self.seekai_api_key
+            and self.seekai_api_key.get_secret_value()
+            and self.active_seekai_base_url
+        )
+
+    @property
+    def active_seekai_key(self) -> SecretStr | None:
+        if self.seekai_api_key and self.seekai_api_key.get_secret_value():
+            return self.seekai_api_key
+        return None
+
+    @property
+    def active_seekai_base_url(self) -> str | None:
+        value = (self.seekai_base_url or "").strip().rstrip("/")
+        return value or None
+
+    @property
+    def active_seekai_model(self) -> str:
+        return self.seekai_model or "glm-5.3-flash"
+
+    @property
+    def seekai_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.seekai_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_seekai_model]
+        if self.active_seekai_model and self.active_seekai_model not in models:
+            models.insert(0, self.active_seekai_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_seekai_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_seekai_model
+        if "*" not in self.seekai_allowed_models and model not in self.seekai_allowed_models:
+            allowed = ", ".join(self.seekai_allowed_models)
+            raise ValueError(f"SeekAI model is not in SEEKAI_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def tokentable_configured(self) -> bool:
+        return bool(
+            self.tokentable_api_key
+            and self.tokentable_api_key.get_secret_value()
+            and self.active_tokentable_base_url
+        )
+
+    @property
+    def active_tokentable_key(self) -> SecretStr | None:
+        if self.tokentable_api_key and self.tokentable_api_key.get_secret_value():
+            return self.tokentable_api_key
+        return None
+
+    @property
+    def active_tokentable_base_url(self) -> str | None:
+        value = (self.tokentable_base_url or "").strip().rstrip("/")
+        return value or None
+
+    @property
+    def active_tokentable_model(self) -> str:
+        return self.tokentable_model or "auto"
+
+    @property
+    def tokentable_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.tokentable_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_tokentable_model]
+        if self.active_tokentable_model and self.active_tokentable_model not in models:
+            models.insert(0, self.active_tokentable_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_tokentable_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_tokentable_model
+        if "*" not in self.tokentable_allowed_models and model not in self.tokentable_allowed_models:
+            allowed = ", ".join(self.tokentable_allowed_models)
+            raise ValueError(f"TokenTable model is not in TOKENTABLE_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def xkiro_configured(self) -> bool:
+        return bool(
+            self.xkiro_api_key
+            and self.xkiro_api_key.get_secret_value()
+            and self.active_xkiro_base_url
+        )
+
+    @property
+    def active_xkiro_key(self) -> SecretStr | None:
+        if self.xkiro_api_key and self.xkiro_api_key.get_secret_value():
+            return self.xkiro_api_key
+        return None
+
+    @property
+    def active_xkiro_base_url(self) -> str | None:
+        value = (self.xkiro_base_url or "").strip().rstrip("/")
+        return value or None
+
+    @property
+    def active_xkiro_model(self) -> str:
+        return self.xkiro_model or "qwen/qwen3.8-max:free"
+
+    @property
+    def xkiro_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.xkiro_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_xkiro_model]
+        if self.active_xkiro_model and self.active_xkiro_model not in models:
+            models.insert(0, self.active_xkiro_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_xkiro_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_xkiro_model
+        if "*" not in self.xkiro_allowed_models and model not in self.xkiro_allowed_models:
+            allowed = ", ".join(self.xkiro_allowed_models)
+            raise ValueError(f"XKiro model is not in XKIRO_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def cavoti_configured(self) -> bool:
+        return bool(
+            self.cavoti_api_key
+            and self.cavoti_api_key.get_secret_value()
+            and self.active_cavoti_base_url
+        )
+
+    @property
+    def active_cavoti_key(self) -> SecretStr | None:
+        if self.cavoti_api_key and self.cavoti_api_key.get_secret_value():
+            return self.cavoti_api_key
+        return None
+
+    @property
+    def active_cavoti_base_url(self) -> str | None:
+        value = (self.cavoti_base_url or "").strip().rstrip("/")
+        if value and not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value or None
+
+    @property
+    def active_cavoti_model(self) -> str:
+        return self.cavoti_model or "claude-fable-5"
+
+    @property
+    def cavoti_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.cavoti_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_cavoti_model]
+        if self.active_cavoti_model and self.active_cavoti_model not in models:
+            models.insert(0, self.active_cavoti_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_cavoti_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_cavoti_model
+        if "*" not in self.cavoti_allowed_models and model not in self.cavoti_allowed_models:
+            allowed = ", ".join(self.cavoti_allowed_models)
+            raise ValueError(f"Cavoti model is not in CAVOTI_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def bright_data_configured(self) -> bool:
+        ws = self.bright_data_browser_ws and self.bright_data_browser_ws.get_secret_value().strip()
+        api = self.bright_data_api_key and self.bright_data_api_key.get_secret_value().strip()
+        return bool(ws or api)
+
+    @property
+    def capsolver_configured(self) -> bool:
+        return bool(self.capsolver_api_key and self.capsolver_api_key.get_secret_value().strip())
+
+    @property
+    def ez_captcha_configured(self) -> bool:
+        return bool(self.ez_captcha_api_key and self.ez_captcha_api_key.get_secret_value().strip())
+
+    @property
+    def stabilityai_configured(self) -> bool:
+        return bool(self.stabilityai_api_key and self.stabilityai_api_key.get_secret_value().strip())
 
     @property
     def active_omniroute_key(self) -> str:

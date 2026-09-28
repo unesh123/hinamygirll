@@ -118,6 +118,11 @@ export class BackendConversationProvider implements ConversationProvider {
         this.mode === "agent-router" ||
         this.mode === "cx-gateway" ||
         this.mode === "codecraft" ||
+        this.mode === "pgsgrove" ||
+        this.mode === "seekai" ||
+        this.mode === "tokentable" ||
+        this.mode === "xkiro" ||
+        this.mode === "cavoti" ||
         this.mode === "real") &&
       request.brainModel
     ) {

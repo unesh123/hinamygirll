@@ -51,6 +51,7 @@ from .brain_ledger import (
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .reminder_scheduler import run_scheduler as run_reminder_scheduler
 from .realtime import RealtimeGateway
+from .run_ledger import get_run_ledger
 from .services import ConversationService
 from .tools import policy as tool_policy, registry
 from .tools.reminder import cancel_reminder, list_reminders, schedule_reminder
@@ -283,6 +284,7 @@ def _correlation_id(value: str | None) -> str:
 _BRAIN_PROVIDER_IDS = frozenset(
     {
         "agent-router",
+        "cavoti",
         "claude",
         "codecraft",
         "custom",
@@ -293,7 +295,11 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "ollama",
         "omniroute",
         "openai",
+        "pgsgrove",
         "qwen",
+        "seekai",
+        "tokentable",
+        "xkiro",
     }
 )
 
@@ -360,6 +366,39 @@ def _routing_truth(settings: Settings, requested_mode: str) -> dict[str, Any]:
         "fallback": answered is not None and not served_requested,
         "reason": reason,
     }
+
+
+_PROBE_CACHE: dict[str, tuple[float, Any]] = {}
+_PROBE_TTL_SECONDS = 45.0
+
+
+def _probe_cached(key: str, ttl: float = _PROBE_TTL_SECONDS) -> Any | None:
+    """A local probe answer remembered for a short window.
+
+    A configured-but-dead local engine (Ollama, ComfyUI) used to be re-probed by
+    every status poll, so one unhealthy service produced an endless stream of
+    connection timeouts in the log even while she sat idle. Remembering the last
+    answer for a few seconds turns "probe on every poll" into "probe every TTL".
+    """
+    entry = _PROBE_CACHE.get(key)
+    if entry is not None and (time.time() - entry[0]) < ttl:
+        return entry[1]
+    return None
+
+
+def _probe_store(key: str, value: Any) -> None:
+    _PROBE_CACHE[key] = (time.time(), value)
+
+
+def _ledger_response_text(plan: Any) -> str | None:
+    """The text she actually said, for the turn ledger's stop row."""
+    if not isinstance(plan, dict):
+        return None
+    for key in ("spokenText", "message", "text", "summary"):
+        value = plan.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -1393,6 +1432,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowedModels": [active_settings.groq_model],
                 "protocol": "groq-sdk",
             },
+            {
+                "id": "pgsgrove",
+                "name": "PGSGrove AI",
+                "configured": bool(getattr(active_settings, "pgsgrove_configured", False)),
+                "defaultModel": active_settings.active_pgsgrove_model,
+                "allowedModels": list(active_settings.pgsgrove_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "seekai",
+                "name": "SeekAI Gateway",
+                "configured": bool(getattr(active_settings, "seekai_configured", False)),
+                "defaultModel": active_settings.active_seekai_model,
+                "allowedModels": list(active_settings.seekai_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "tokentable",
+                "name": "TokenTable Asia",
+                "configured": bool(getattr(active_settings, "tokentable_configured", False)),
+                "defaultModel": active_settings.active_tokentable_model,
+                "allowedModels": list(active_settings.tokentable_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "xkiro",
+                "name": "XKiro AI",
+                "configured": bool(getattr(active_settings, "xkiro_configured", False)),
+                "defaultModel": active_settings.active_xkiro_model,
+                "allowedModels": list(active_settings.xkiro_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "cavoti",
+                "name": "Cavoti AI",
+                "configured": bool(getattr(active_settings, "cavoti_configured", False)),
+                "defaultModel": active_settings.active_cavoti_model,
+                "allowedModels": list(active_settings.cavoti_allowed_models),
+                "protocol": "openai-compatible",
+            },
             # Local fallback gateway, measured rather than assumed. `declared`
             # says the operator opted in; `configured` says the container is
             # answering right now, which is the only combination the ladder
@@ -1576,7 +1655,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         base = active_settings.active_ollama_base_url.rstrip("/")
         is_loopback = "127.0.0.1" in base or "localhost" in base or "0.0.0.0" in base
         if active_settings.ollama_configured:
-            if is_server_remote and is_loopback:
+            cached_ollama = _probe_cached("ollama")
+            if cached_ollama is not None:
+                ollama_state, ollama_message, ollama_models = cached_ollama
+            elif is_server_remote and is_loopback:
                 # `desktop_bridge` is not a legal ProviderStatus.state, so it is
                 # kept out of the status field and named in the message instead.
                 ollama_state = "unavailable"
@@ -1612,6 +1694,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         f"Ollama is configured at {active_settings.active_ollama_base_url} but unreachable. "
                         "Ensure Ollama is running (`ollama serve`)."
                     )
+                    # Remember the failure so the next poll does not repeat
+                    # the same 1.5s timeout for a service that is still down.
+                    _probe_store("ollama", (ollama_state, ollama_message, ollama_models))
 
         # OmniRoute is a stopped-or-running fact about a local container, and a
         # stopped one keeps its environment, so only a live /v1/models answer can
@@ -1817,6 +1902,91 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"CodeCraft AI is configured with default model {active_settings.active_codecraft_model}."
                     if active_settings.codecraft_configured
                     else "CodeCraft AI needs CODECRAFT_API_KEY and CODECRAFT_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="pgsgrove",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.pgsgrove_model}",
+                    *[f"model:{model}" for model in active_settings.pgsgrove_allowed_models],
+                ],
+                state="healthy" if active_settings.pgsgrove_configured else "unavailable",
+                userMessage=(
+                    f"PGSGrove AI is configured with default model {active_settings.pgsgrove_model}."
+                    if active_settings.pgsgrove_configured
+                    else "PGSGrove AI needs PGSGROVE_API_KEY and PGSGROVE_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="xkiro",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.xkiro_model}",
+                    *[f"model:{model}" for model in active_settings.xkiro_allowed_models],
+                ],
+                state="healthy" if active_settings.xkiro_configured else "unavailable",
+                userMessage=(
+                    f"XKiro AI is configured with default model {active_settings.xkiro_model}."
+                    if active_settings.xkiro_configured
+                    else "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="seekai",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.seekai_model}",
+                    *[f"model:{model}" for model in active_settings.seekai_allowed_models],
+                ],
+                state="healthy" if active_settings.seekai_configured else "unavailable",
+                userMessage=(
+                    f"SeekAI is configured with default model {active_settings.seekai_model}."
+                    if active_settings.seekai_configured
+                    else "SeekAI needs SEEKAI_API_KEY and SEEKAI_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="tokentable",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.tokentable_model}",
+                    *[f"model:{model}" for model in active_settings.tokentable_allowed_models],
+                ],
+                state="healthy" if active_settings.tokentable_configured else "unavailable",
+                userMessage=(
+                    f"TokenTable is configured with default model {active_settings.tokentable_model}."
+                    if active_settings.tokentable_configured
+                    else "TokenTable needs TOKENTABLE_API_KEY and TOKENTABLE_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="cavoti",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.cavoti_model}",
+                    *[f"model:{model}" for model in active_settings.cavoti_allowed_models],
+                ],
+                state="healthy" if active_settings.cavoti_configured else "unavailable",
+                userMessage=(
+                    f"Cavoti AI is configured with default model {active_settings.cavoti_model}."
+                    if active_settings.cavoti_configured
+                    else "Cavoti AI needs CAVOTI_AI_API_KEY and CAVOTI_AI_BASE_URL."
                 ),
             ),
             ProviderStatus(
@@ -3712,6 +3882,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         async def guarded_stream():  # type: ignore[no-untyped-def]
+            # The run ledger is the audit trail for "did she actually stop?":
+            # a start row here and a stop/idle row in the finally below.
+            turn_id = request.state.correlation_id
+            stream_ledger = get_run_ledger()
+            stream_ledger.record_turn_start(
+                turn_id,
+                session_id=body.sessionId,
+                provider=body.providerMode,
+            )
+            turn_completed = False
+            ledger_plan: dict[str, Any] | None = None
             stream_plan = None
             stream_step = None
             pending_runtime_events: list[AgentEvent] = []
@@ -3771,6 +3952,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         decoded = json.loads(event.decode("utf-8"))
                         if decoded.get("type") == "plan" and isinstance(decoded.get("plan"), dict):
                             final_plan_payload = decoded["plan"]
+                            ledger_plan = final_plan_payload
                     except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
                         pass
                     yield event
@@ -3788,6 +3970,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     for runtime_event in completed_events:
                         yield _runtime_event_payload(runtime_event)
+                turn_completed = True
             except HinaaError as error:
                 logger.warning(
                     "Streamed turn failed: code=%s message=%s cause=%s",
@@ -3826,6 +4009,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     ):
                         yield _runtime_event_payload(runtime_event)
                 raise
+            finally:
+                # One terminal row per turn: the delivered text and the idle
+                # timestamp the stop-fix is judged by.
+                stream_ledger.record_turn_stop(
+                    turn_id,
+                    response_text=_ledger_response_text(ledger_plan),
+                    status="completed" if turn_completed else "aborted",
+                    provider=body.providerMode,
+                )
 
         return StreamingResponse(guarded_stream(), media_type="application/x-ndjson")
 
@@ -4016,7 +4208,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def synthesize(body: SpeechRequest) -> Response:
         started = perf_counter()
         result = await service.synthesize(body)
-        media_type = "audio/mpeg" if result.provider == "elevenlabs" else "audio/wav"
+        media_type = (
+            "audio/mpeg"
+            if result.provider in ("elevenlabs", "fish-audio")
+            or result.value[:3] == b"ID3"
+            or result.value[:2] == b"\xff\xfb"
+            else "audio/wav"
+        )
         return Response(
             result.value,
             media_type=media_type,
@@ -4193,6 +4391,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 name=f"api_alias_{route_name}_{method.lower()}",
                 include_in_schema=False,
             )
+
+    @app.get("/v1/ledger/turns")
+    @app.get("/api/v1/ledger/turns")
+    async def ledger_turns(limit: int = 20) -> dict[str, Any]:
+        """Recent conversation turns with their stop/idle timestamps."""
+        return {"turns": [t.as_dict() for t in get_run_ledger().recent_turns(limit)]}
+
+    @app.get("/v1/ledger/tts")
+    @app.get("/api/v1/ledger/tts")
+    async def ledger_tts(limit: int = 20) -> dict[str, Any]:
+        """Recent voice requests: provider, voice, model, latency, outcome."""
+        return {"events": get_run_ledger().recent_tts(limit)}
+
+    @app.get("/v1/ledger/motion")
+    @app.get("/api/v1/ledger/motion")
+    async def ledger_motion(limit: int = 50) -> dict[str, Any]:
+        """Recent animation/idle state changes reported by the client."""
+        return {"events": get_run_ledger().recent_motion(limit)}
+
+    @app.post("/v1/ledger/motion")
+    @app.post("/api/v1/ledger/motion")
+    async def ledger_motion_write(payload: dict[str, Any] = Body(...)) -> dict[str, bool]:
+        get_run_ledger().record_motion(
+            state=str(payload.get("state") or "unknown"),
+            session_id=payload.get("sessionId"),
+            detail=payload.get("detail"),
+        )
+        return {"ok": True}
 
     return app
 

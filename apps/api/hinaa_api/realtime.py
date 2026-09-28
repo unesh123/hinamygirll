@@ -8,7 +8,7 @@ import struct
 from contextlib import suppress
 from dataclasses import dataclass, field
 from time import monotonic_ns, perf_counter
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 logger = logging.getLogger("hinaa.realtime")
 
@@ -20,6 +20,11 @@ from .errors import HinaaError
 from .response.notation import MathNotationStream, ascii_math
 from . import realtime_tickets
 from .models import CompanionId, Language, ProviderMode, StrictModel, TurnRequest
+from .providers.elevenlabs import (
+    ElevenLabsSpeechStream,
+    ElevenLabsWebSocketStreamingProvider,
+    choose_live_tts_model,
+)
 from .services import ConversationService
 from .voice_performance import (
     plan_voice_performance,
@@ -106,12 +111,12 @@ def _tts_media_type(provider_id: str, elevenlabs_output_format: str) -> str:
     """Return the real audio MIME type for the bytes a TTS provider produced.
 
     Previously this event field was hardcoded to "audio/wav" for every
-    provider. ElevenLabs returns MP3 (per ELEVENLABS_OUTPUT_FORMAT, e.g.
-    mp3_44100_128) — mislabeling those bytes as audio/wav is silently
-    incorrect and is a real cause of "she isn't speaking" on stricter mobile
-    audio decoders even though it often accidentally plays on desktop Chrome
-    because browsers sniff content instead of trusting the MIME string.
+    provider. ElevenLabs and Deepgram return MP3 (per ELEVENLABS_OUTPUT_FORMAT / encoding=mp3)
+    — mislabeling those bytes as audio/wav is silently incorrect and is a real cause of
+    "she isn't speaking" on stricter mobile audio decoders.
     """
+    if provider_id in {"deepgram", "fish-audio"}:
+        return "audio/mpeg"
     if provider_id == "elevenlabs":
         if elevenlabs_output_format.startswith("mp3"):
             return "audio/mpeg"
@@ -380,6 +385,80 @@ class RealtimeGateway:
             return
         await self._error(websocket, session, "PROTOCOL_MESSAGE_UNSUPPORTED", False)
 
+    def _live_voice_stream_enabled(self, provider_mode: str) -> bool:
+        """Whether this turn may speak over the synthesis socket.
+
+        Off for mock/local (they have no socket) and for an install that has
+        configured a different voice vendor, so a preference for another voice
+        is never silently overridden.
+        """
+        if provider_mode in {"mock", "local"}:
+            return False
+        return (
+            self.settings.elevenlabs_transport == "websocket"
+            and self.settings.elevenlabs_configured
+            and self.settings.voice_provider in {"auto", "elevenlabs"}
+        )
+
+    async def _open_live_voice_stream(
+        self,
+        session: LiveSession,
+        *,
+        seed_text: str,
+        rate: float,
+        delivery_mode: str,
+    ) -> ElevenLabsSpeechStream | None:
+        """Warm one synthesis socket for this turn, or resolve to None.
+
+        This runs concurrently with the brain. The seed text is the user's own
+        words, which is what the reply is almost always written in, so the model
+        that can actually pronounce the turn is chosen before the turn exists.
+        A model that turns out to be wrong for the reply is corrected on the
+        next turn rather than mid-utterance — changing models mid-sentence
+        changes the voice the listener is already hearing.
+        """
+        try:
+            provider = self.service.router.tts(
+                session.hello.providerMode, session.hello.companionId
+            )
+            if not isinstance(provider, ElevenLabsWebSocketStreamingProvider):
+                return None
+            voice_id = (
+                self.settings.elevenlabs_hiro_voice_id
+                if session.hello.companionId == "hiro"
+                else self.settings.elevenlabs_hinaa_voice_id
+            )
+            model = choose_live_tts_model(
+                seed_text,
+                configured_model=self.settings.elevenlabs_model_id,
+                fast_model=self.settings.elevenlabs_tts_model_fast,
+                nepali_model=self.settings.elevenlabs_tts_model_nepali,
+            )
+            stream = await asyncio.wait_for(
+                provider.open_speech_stream(
+                    voice=voice_id,
+                    model_id=model,
+                    rate=rate,
+                    delivery_mode=delivery_mode,
+                    companion_id=session.hello.companionId,
+                ),
+                timeout=self.settings.voice_socket_timeout_seconds,
+            )
+            logger.info(
+                "realtime: voice socket ready (model=%s voice=%s)",
+                model,
+                voice_id[:4],
+            )
+            return stream
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.info(
+                "realtime: voice socket unavailable; speaking phrase by phrase",
+                exc_info=True,
+            )
+            return None
+
     async def _process_turn(
         self,
         websocket: WebSocket,
@@ -390,6 +469,13 @@ class RealtimeGateway:
         generation = session.hello.generation
         turn_started = perf_counter()
         pcm = turn_audio if turn_audio is not None else bytes(session.audio)
+        # Declared before the try so the finally below can always reach them: a
+        # voice socket or speaker task that outlives its turn keeps a vendor
+        # connection running after barge-in, a timeout, or a failed STT call.
+        voice_socket_task: asyncio.Task[ElevenLabsSpeechStream | None] | None = None
+        live_stream: ElevenLabsSpeechStream | None = None
+        ws_pump: asyncio.Task[None] | None = None
+        speech_tail: asyncio.Task[None] | None = None
         try:
             # Notify frontend: pipeline is processing
             await self._send_current(
@@ -459,7 +545,7 @@ class RealtimeGateway:
             # configured voice output can safely begin on a stable clause while
             # later text continues to stream, as long as delivery remains ordered.
             stream_real_audio = session.hello.providerMode in {
-                "real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen"
+                "real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen", "codecraft"
             } or (session.hello.providerMode == "groq" and self.settings.azure_configured)
             streamed_delivery_tail: asyncio.Task[None] | None = None
 
@@ -516,7 +602,7 @@ class RealtimeGateway:
                         "provider": speech.provider,
                         "requestedVoice": voice,
                         "actualVoice": voice
-                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen"}
+                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen", "codecraft"}
                         or (session.hello.providerMode == "groq" and self.settings.azure_configured)
                         else f"{session.hello.providerMode}-tone",
                         "calibration": session.hello.calibration,
@@ -547,6 +633,162 @@ class RealtimeGateway:
 
                 streamed_delivery_tail = asyncio.create_task(deliver_after_previous())
 
+            # ── One synthesis socket for the whole turn, opened underneath the
+            # brain's first token ────────────────────────────────────────────
+            # The per-phrase path can only hand over audio once a phrase has been
+            # synthesized in full. This socket opens the moment STT lands, so the
+            # vendor handshake and setup frame run concurrently with the model
+            # thinking, and audio starts streaming the instant a clause exists.
+            # A socket that cannot open resolves to None, which sends the turn
+            # down the per-phrase path below — voice never depends on it.
+            voice_socket_task: asyncio.Task[ElevenLabsSpeechStream | None] | None = None
+            if self._live_voice_stream_enabled(session.hello.providerMode):
+                voice_socket_task = asyncio.create_task(
+                    self._open_live_voice_stream(
+                        session,
+                        seed_text=transcript,
+                        rate=effective_rate,
+                        delivery_mode=voice_plan.mode,
+                    ),
+                    name="live-voice-socket",
+                )
+            # Resolved on the first phrase: by then the socket task has had the
+            # model's entire first-token time to finish.
+            # One decision for the whole turn. Mixing transports mid-utterance
+            # would let audio for a later phrase be sent before an earlier one,
+            # which is exactly the seam listeners hear as a glitch.
+            decided_voice_path: list[str | None] = [None]
+            # How much was handed to the socket, and how much came back — the
+            # status reported at turn end is counted from these, not assumed.
+            ws_text_phrases = 0
+            ws_audio_chunks = 0
+
+            async def current_voice_stream() -> ElevenLabsSpeechStream | None:
+                nonlocal live_stream
+                if voice_socket_task is None:
+                    return None
+                if live_stream is None:
+                    live_stream = await voice_socket_task
+                return live_stream
+
+            async def push_chunk_to_client(
+                stream: ElevenLabsSpeechStream, chunk: Any
+            ) -> None:
+                """One socket audio frame, in order, carrying its own timing."""
+                nonlocal ws_audio_chunks
+                if not chunk.audio:
+                    return
+                await self._send_current(
+                    websocket,
+                    session,
+                    generation,
+                    "tts.audio.chunk",
+                    {
+                        "sequence": ws_audio_chunks,
+                        "text": chunk.text_echo,
+                        "audioBase64": base64.b64encode(chunk.audio).decode("ascii"),
+                        "mediaType": "audio/pcm",
+                        "sampleRate": 24_000,
+                        # Raw vendor timing alongside the audio it describes, so
+                        # the client can place words against the schedule it is
+                        # actually playing instead of re-guessing from characters.
+                        "vendorAlignment": (
+                            chunk.alignment.to_events() if chunk.alignment else None
+                        ),
+                        "provider": stream.model_id,
+                        "requestedVoice": stream.voice_id,
+                        "actualVoice": stream.voice_id,
+                        "calibration": session.hello.calibration,
+                        "voiceMode": voice_plan.mode,
+                        "rate": effective_rate,
+                        "pitchSemitones": effective_pitch,
+                        "volume": effective_volume,
+                    },
+                )
+                ws_audio_chunks += 1
+
+            async def pump_voice_audio(stream: ElevenLabsSpeechStream) -> None:
+                """Drain socket audio to the client as it arrives."""
+                try:
+                    async for chunk in stream.chunks():
+                        await push_chunk_to_client(stream, chunk)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("realtime: voice socket pump stopped", exc_info=True)
+
+            async def speak_over_socket(phrase: str) -> None:
+                nonlocal ws_text_phrases
+                stream = await current_voice_stream()
+                if stream is None:
+                    return
+                try:
+                    await stream.send_text_delta(phrase, flush=False)
+                except Exception:
+                    logger.warning(
+                        "realtime: could not hand a phrase to the voice socket",
+                        exc_info=True,
+                    )
+                    return
+                ws_text_phrases += 1
+                start_audio_pump(stream)
+
+            async def speak_phrase(phrase: str) -> None:
+                """Say one phrase on whichever transport this turn actually got.
+
+                The transport is decided on the first phrase and held for the
+                whole turn; ordering comes from the caller's task chain, which is
+                what keeps `sentence_tasks` in phrase order for the delivery loop.
+                """
+                if decided_voice_path[0] is None:
+                    if voice_socket_task is None:
+                        decided_voice_path[0] = "http"
+                    else:
+                        decided_voice_path[0] = (
+                            "ws" if await current_voice_stream() is not None else "http"
+                        )
+                if decided_voice_path[0] == "ws":
+                    await speak_over_socket(phrase)
+                    return
+                task = asyncio.create_task(
+                    self.service.synthesize_text(
+                        phrase,
+                        session.hello.companionId,
+                        session.hello.providerMode,
+                        session.hello.calibration,
+                        rate=effective_rate,
+                        pitch_semitones=effective_pitch,
+                        volume=effective_volume,
+                        delivery_mode=voice_plan.mode,
+                        live=True,
+                    )
+                )
+                sentence_tasks.append((phrase, task))
+                if stream_real_audio:
+                    queue_streamed_speech(phrase, task)
+
+            def schedule_phrase(phrase: str) -> None:
+                """Queue one phrase behind the previous one, never out of order."""
+                nonlocal speech_tail
+                previous = speech_tail
+
+                async def run_after_previous() -> None:
+                    if previous is not None:
+                        with suppress(Exception):
+                            await previous
+                    await speak_phrase(phrase)
+
+                speech_tail = asyncio.create_task(
+                    run_after_previous(), name="live-speech-phrase"
+                )
+
+            def start_audio_pump(stream: ElevenLabsSpeechStream) -> None:
+                nonlocal ws_pump
+                if ws_pump is None:
+                    ws_pump = asyncio.create_task(
+                        pump_voice_audio(stream), name="live-voice-pump"
+                    )
+
             # One converter for both surfaces: what he sees streaming in and what
             # she is about to speak come off the same deltas.
             notation_stream = MathNotationStream()
@@ -576,21 +818,10 @@ class RealtimeGateway:
                     phrase_text = speech_text_for_tts(sentence_buffer.strip())
                     sentence_buffer = ""
                     if phrase_text and len(phrase_text) >= 2:
-                        task = asyncio.create_task(
-                            self.service.synthesize_text(
-                                phrase_text,
-                                session.hello.companionId,
-                                session.hello.providerMode,
-                                session.hello.calibration,
-                                rate=effective_rate,
-                                pitch_semitones=effective_pitch,
-                                volume=effective_volume,
-                                delivery_mode=voice_plan.mode,
-                            )
-                        )
-                        sentence_tasks.append((phrase_text, task))
-                        if stream_real_audio:
-                            queue_streamed_speech(phrase_text, task)
+                        # One ordered speaker for the whole turn: the socket path
+                        # streams as she says it, the per-phrase path synthesizes
+                        # concurrently and delivers in order.
+                        schedule_phrase(phrase_text)
 
             turn_lang = "hi-IN" if session.hello.language in ("auto", "mixed") else session.hello.language
             plan_result = await self.service.create_live_plan(
@@ -601,6 +832,7 @@ class RealtimeGateway:
                     language=turn_lang,
                     providerMode=session.hello.providerMode,
                     brainModel=session.hello.brainModel,
+                    responseMode="concise_voice",
                     visibleActions=commit.visibleActions,
                 ),
                 emit_delta,
@@ -639,24 +871,19 @@ class RealtimeGateway:
                 phrase_text = speech_text_for_tts(sentence_buffer.strip())
                 sentence_buffer = ""
                 if phrase_text and len(phrase_text) >= 2:
-                    task = asyncio.create_task(
-                        self.service.synthesize_text(
-                            phrase_text,
-                            session.hello.companionId,
-                            session.hello.providerMode,
-                            session.hello.calibration,
-                            rate=effective_rate,
-                            pitch_semitones=effective_pitch,
-                            volume=effective_volume,
-                            delivery_mode=voice_plan.mode,
-                        )
-                    )
-                    sentence_tasks.append((phrase_text, task))
-                    if stream_real_audio:
-                        queue_streamed_speech(phrase_text, task)
+                    schedule_phrase(phrase_text)
 
-            # Fallback if sentence_tasks is empty (e.g. non-streaming provider)
-            if not sentence_tasks:
+            # Every phrase the brain produced is now queued; let the ordered
+            # speaker finish handing them to the voice before deciding whether
+            # anything is still missing. Reading `sentence_tasks` before this
+            # drain is what used to re-speak the whole reply over the fallback.
+            if speech_tail is not None:
+                await speech_tail
+
+            # Fallback if nothing has been spoken at all: a non-streaming brain,
+            # a socket that opened but carried no deltas, or every phrase send
+            # that failed. Nothing here runs when the voice already spoke.
+            if not sentence_tasks and ws_text_phrases == 0:
                 spoken = speech_text_for_tts(plan_result.value.spokenText)
                 phrases = segment_phrases(spoken)[:35]
                 for phrase in phrases:
@@ -670,33 +897,66 @@ class RealtimeGateway:
                             pitch_semitones=effective_pitch,
                             volume=effective_volume,
                             delivery_mode=voice_plan.mode,
+                            live=True,
                         )
                     )
                     sentence_tasks.append((phrase, task))
 
-            await self._send_current(
-                websocket, session, generation,
-                "voice.pipeline",
-                {"stage": "tts", "detail": f"{len(sentence_tasks)} phrases to synthesize"},
-            )
-            if streamed_delivery_tail is not None:
-                # Wait only for the ordered delivery tail. Each real-audio clause
-                # has already been synthesized concurrently with the model stream.
-                await streamed_delivery_tail
+            if decided_voice_path[0] == "ws":
+                await self._send_current(
+                    websocket, session, generation,
+                    "voice.pipeline",
+                    {
+                        "stage": "tts",
+                        "detail": f"streaming {ws_text_phrases} phrases over the voice socket",
+                    },
+                )
+                # Closing the socket flushes the tail clause the generation
+                # schedule had not yet reached; the pump then delivers every
+                # remaining audio frame in the order the vendor produced it.
+                socket = await current_voice_stream()
+                if socket is not None:
+                    await socket.close()
+                if ws_pump is not None:
+                    await ws_pump
             else:
-                total_segments = len(sentence_tasks)
-                for index, (phrase, task) in enumerate(sentence_tasks):
-                    await emit_speech(
-                        phrase,
-                        task,
-                        segment=index,
-                        segments=total_segments,
-                        streaming=False,
-                    )
-            # Determine TTS status for the frontend
-            tts_count = len(sentence_tasks)
-            tts_succeeded = sum(1 for _, t in sentence_tasks if t.done() and t.exception() is None)
-            tts_failed = sum(1 for _, t in sentence_tasks if t.done() and t.exception() is not None)
+                await self._send_current(
+                    websocket, session, generation,
+                    "voice.pipeline",
+                    {"stage": "tts", "detail": f"{len(sentence_tasks)} phrases to synthesize"},
+                )
+                if streamed_delivery_tail is not None:
+                    # Wait only for the ordered delivery tail. Each real-audio clause
+                    # has already been synthesized concurrently with the model stream.
+                    await streamed_delivery_tail
+                else:
+                    total_segments = len(sentence_tasks)
+                    for index, (phrase, task) in enumerate(sentence_tasks):
+                        await emit_speech(
+                            phrase,
+                            task,
+                            segment=index,
+                            segments=total_segments,
+                            streaming=False,
+                        )
+
+            # Determine TTS status for the frontend, from whichever transport
+            # actually carried this turn — frames delivered over the socket are
+            # the same truth as a synthesis task that returned audio.
+            socket_stream = live_stream
+            socket_error = socket_stream.error if socket_stream is not None else None
+            if decided_voice_path[0] == "ws":
+                tts_count = ws_text_phrases
+                tts_succeeded = ws_audio_chunks
+                tts_failed = 1 if socket_error is not None else 0
+            else:
+                tts_count = len(sentence_tasks)
+                tts_succeeded = sum(
+                    1 for _, t in sentence_tasks if t.done() and t.exception() is None
+                )
+                tts_failed = sum(
+                    1 for _, t in sentence_tasks if t.done() and t.exception() is not None
+                )
             tts_status = (
                 "not_requested" if tts_count == 0
                 else "completed" if tts_succeeded > 0 and tts_failed == 0
@@ -721,6 +981,11 @@ class RealtimeGateway:
                     "ttsStatus": tts_status,
                     "ttsChunksTotal": tts_count,
                     "ttsChunksSucceeded": tts_succeeded,
+                    # Which transport carried the audio, so the diagnostics
+                    # drawer and the latency report can attribute the numbers.
+                    "ttsTransport": (
+                        "websocket" if decided_voice_path[0] == "ws" else "phrases"
+                    ),
                 },
             )
         except asyncio.CancelledError:
@@ -742,11 +1007,51 @@ class RealtimeGateway:
                 error.code,
                 error.retryable,
             )
+            await self._send_current(
+                websocket,
+                session,
+                generation,
+                "turn.cancelled",
+                {"cancelledGeneration": generation, "generation": generation, "reason": error.code},
+            )
             await self._error(websocket, session, error.code, error.retryable, generation)
         except Exception:
             logger.exception("realtime: turn failed with an unhandled exception")
+            await self._send_current(
+                websocket,
+                session,
+                generation,
+                "turn.cancelled",
+                {"cancelledGeneration": generation, "generation": generation, "reason": "REALTIME_TURN_FAILED"},
+            )
             await self._error(websocket, session, "REALTIME_TURN_FAILED", True, generation)
         finally:
+            # Nothing may outlive its turn. A socket left open keeps a vendor
+            # connection — and its billing — running after barge-in or a
+            # timeout, and an unfinished warm-up task would be destroyed as
+            # pending by the event loop.
+            if voice_socket_task is not None:
+                if not voice_socket_task.done():
+                    voice_socket_task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await voice_socket_task
+                elif live_stream is None:
+                    # Opened but never spoken to (an empty reply, or a turn that
+                    # failed first): still a live connection, so it is closed.
+                    try:
+                        opened = voice_socket_task.result()
+                    except Exception:
+                        opened = None
+                    if opened is not None:
+                        live_stream = opened
+            if live_stream is not None and not live_stream.finished:
+                with suppress(Exception):
+                    await live_stream.abort()
+            for helper in (ws_pump, speech_tail):
+                if helper is not None and not helper.done():
+                    helper.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await helper
             session.audio.clear()
             session.processing = None
 

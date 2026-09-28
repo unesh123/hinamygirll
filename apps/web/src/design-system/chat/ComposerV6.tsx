@@ -571,17 +571,25 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 5,
-              padding: "3px 8px",
+              gap: 6,
+              padding: "3px 9px",
               borderRadius: 6,
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
+              background: "var(--surface-subtle, #f8fafc)",
+              border: "1px solid var(--border-subtle, #e2e8f0)",
               fontSize: 11,
-              fontWeight: 500,
-              color: "#475569",
+              fontWeight: 550,
+              color: "var(--text-secondary, #475569)",
             }}
           >
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ef4444" }} />
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: backendConnected ? "var(--accent-primary, #dc5f8b)" : "#ef4444",
+                boxShadow: backendConnected ? "0 0 6px rgba(220, 95, 139, 0.4)" : "none",
+              }}
+            />
             <span>Command Center</span>
           </div>
 
@@ -592,13 +600,13 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 5,
-                padding: "3px 8px",
+                padding: "3px 9px",
                 borderRadius: 6,
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
+                background: "var(--surface-subtle, #f8fafc)",
+                border: "1px solid var(--border-subtle, #e2e8f0)",
                 fontSize: 11,
                 fontWeight: 500,
-                color: "#475569",
+                color: "var(--text-secondary, #475569)",
               }}
             >
               <Paperclip size={11} style={{ color: "#64748b" }} />
@@ -612,13 +620,13 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              padding: "3px 8px",
+              padding: "3px 9px",
               borderRadius: 6,
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
+              background: "var(--surface-subtle, #f8fafc)",
+              border: "1px solid var(--border-subtle, #e2e8f0)",
               fontSize: 11,
               fontWeight: 500,
-              color: "#475569",
+              color: "var(--text-secondary, #475569)",
             }}
           >
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusTone.dot }} />
@@ -759,27 +767,23 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             />
           </div>
 
-          {/* 2. `Auto ▾` Real Model / Intelligence Selector V7.
-              Compact means a phone, where the top bar already carries this
-              control — two chips disagreed and the second one pushed the
-              toolbar past its row. */}
-          {!compact && (
-            <ModelSelectorV7
-              models={discoveredModels}
-              providers={discoveredProviders}
-              selectedModelId={selectedModelId}
-              selectedProviderId={selectedProviderId}
-              isAutoRouter={isAutoRouter}
-              onSelectAuto={() => {
-                onSelectAuto?.();
-                onChangeIntelligence?.("auto");
-              }}
-              onSelectModel={(model) => {
-                onSelectModel?.(model);
-              }}
-              backendConnected={backendConnected}
-            />
-          )}
+          {/* 2. `Auto ▾` Real Model / Intelligence Selector V7 */}
+          <ModelSelectorV7
+            models={discoveredModels}
+            providers={discoveredProviders}
+            selectedModelId={selectedModelId}
+            selectedProviderId={selectedProviderId}
+            isAutoRouter={isAutoRouter}
+            onSelectAuto={() => {
+              onSelectAuto?.();
+              onChangeIntelligence?.("auto");
+            }}
+            onSelectModel={(model) => {
+              onSelectModel?.(model);
+            }}
+            backendConnected={backendConnected}
+            placement="top"
+          />
 
           {/* 3. `Goal Mode` Toggle Button */}
           <button

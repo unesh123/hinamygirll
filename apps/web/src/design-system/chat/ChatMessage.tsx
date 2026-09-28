@@ -3,6 +3,8 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Copy, Check, RotateCcw } from "lucide-react";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { ResponseRenderer } from "../../components/ui/ResponseRenderer";
+import { HinaBrainThinking } from "../../components/ui/HinaBrainThinking";
+import { extractBrainThought } from "../../lib/brainThoughtExtractor";
 
 export interface Message {
   id: string;
@@ -107,7 +109,21 @@ export const ChatMessage = memo(function ChatMessage({
 
         {/* Rendered content */}
         <div className="sakura-msg-content">
-          {isUser ? <div style={{ whiteSpace: "pre-wrap" }}>{message.text}</div> : <ResponseRenderer content={message.text} />}
+          {isUser ? (
+            <div style={{ whiteSpace: "pre-wrap" }}>{message.text}</div>
+          ) : (
+            (() => {
+              const { thought, cleanText, sources } = extractBrainThought(message.text);
+              return (
+                <>
+                  {thought || (sources && sources.length > 0) ? (
+                    <HinaBrainThinking thought={thought} sources={sources} />
+                  ) : null}
+                  <ResponseRenderer content={cleanText} />
+                </>
+              );
+            })()
+          )}
         </div>
 
         {/* Streaming cursor */}
@@ -139,18 +155,26 @@ export const ChatMessage = memo(function ChatMessage({
       <style>{`
         .sakura-streaming-cursor {
           display: inline-block;
-          width: 2px;
-          height: 1.1em;
-          background: var(--accent);
-          margin-left: 2px;
-          vertical-align: text-bottom;
-          border-radius: 1px;
-          animation: sakura-cursor-blink 0.8s ease-in-out infinite;
+          width: 7.5px;
+          height: 15px;
+          background: linear-gradient(135deg, #ec4899, #f43f5e);
+          margin-left: 5px;
+          vertical-align: -2px;
+          border-radius: 3px;
+          animation: sakura-cursor-blink 0.85s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
 
         @keyframes sakura-cursor-blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.2; }
+          0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+            box-shadow: 0 0 10px rgba(236, 72, 153, 0.9), 0 0 16px rgba(244, 63, 94, 0.5);
+          }
+          50% {
+            opacity: 0.15;
+            transform: scale(0.85);
+            box-shadow: 0 0 2px rgba(236, 72, 153, 0.2);
+          }
         }
 
         .sakura-msg-content h1 { font-size: var(--text-xl); margin: 0.8em 0 0.4em; font-weight: 700; }

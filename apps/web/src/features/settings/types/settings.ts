@@ -60,7 +60,12 @@ export type ProviderPreferenceMode =
   | "cx-gateway"
   | "gemini-live"
   | "codecraft"
-  | "ollama";
+  | "ollama"
+  | "pgsgrove"
+  | "seekai"
+  | "tokentable"
+  | "xkiro"
+  | "cavoti";
 
 /** Saved model selection per provider. Null = automatic. */
 export type ModelByProvider = Partial<

@@ -25,6 +25,10 @@ ProviderMode = Literal[
     "codecraft",
     "ollama",
     "omniroute",
+    "pgsgrove",
+    "seekai",
+    "tokentable",
+    "xkiro",
 ]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal[
@@ -180,6 +184,7 @@ class AssistantTurnPlan(BaseModel):
     fallback: bool = False
     fallbackReason: str | None = None
     latencyMs: int | None = None
+    thinking: str | None = None
 
 
 def safe_extract_display_text(content: str) -> str:

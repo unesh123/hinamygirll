@@ -128,18 +128,19 @@ def test_a_rejected_audio_raises_a_typed_error_not_a_bare_exception(monkeypatch)
     assert raised.value.developer_message == "model not found"
 
 
-def test_english_voice_starts_on_deepgram_and_hindi_voice_on_scribe():
+def test_deepgram_is_primary_stt_for_all_languages():
     settings = _settings(ELEVENLABS_API_KEY="el-test", DEEPGRAM_API_KEY="dg-test")
     assert settings.deepgram_configured and settings.elevenlabs_configured
     router = ProviderRouter(settings)
 
     english = [p.id for p in router.stt_candidates("real", "en-US")]
     hindi = [p.id for p in router.stt_candidates("real", "hi-IN")]
+    nepali = [p.id for p in router.stt_candidates("real", "ne-NP")]
 
     assert english[0] == "deepgram"
-    assert hindi[0].startswith("elevenlabs")
-    # An English-only nova model on Hindi audio returns confident nonsense.
-    assert "deepgram" not in hindi
+    assert hindi[0] == "deepgram"
+    assert nepali[0] == "deepgram"
+    assert "deepgram" in hindi
 
 
 def test_only_the_mock_and_local_paths_short_circuit_the_chain(monkeypatch):

@@ -92,6 +92,7 @@ export default defineConfig({
       },
     },
     VitePWA({
+      selfDestroying: true,
       registerType: "autoUpdate",
       devOptions: {
         enabled: false,

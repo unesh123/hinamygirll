@@ -39,12 +39,12 @@ export interface TurnTakingConfig {
 }
 
 export const DEFAULT_TURN_TAKING: TurnTakingConfig = {
-  startFrames: 4,               // ~80ms sustained voice onset (rejects 1-frame air puffs & clicks)
-  bargeInFrames: 12,           // ~240ms of sustained voice; 3 frames let her own speaker echo interrupt and discard her remaining audio
-  minimumSpeechFrames: 8,       // ~160ms minimum voiced frames
-  hesitationFrames: 14,         // ~280ms pause treated as natural thinking hesitation
-  endOfTurnFrames: 28,          // ~560ms natural pause before turn commit (prevents mid-sentence cutoffs)
-  maxSilenceFrames: 40,         // ~800ms hard silence ceiling
+  startFrames: 3,               // ~60ms sustained voice onset (rejects 1-frame air puffs & clicks)
+  bargeInFrames: 10,           // ~200ms of sustained voice while assistant speaks
+  minimumSpeechFrames: 6,       // ~120ms minimum voiced frames (picks up short greetings: "Hi", "Hey", "Hina")
+  hesitationFrames: 12,         // ~240ms pause treated as natural thinking hesitation
+  endOfTurnFrames: 22,          // ~440ms natural pause before turn commit (snappy conversational response)
+  maxSilenceFrames: 35,         // ~700ms hard silence ceiling
   maxSpeechFrames: 1_500,
   startThreshold: 0.012,        // Immune to fan/AC rumble (~0.004-0.006 RMS) while sensitive to speech (>=0.020)
   speakerThreshold: 0.045,      // Responsive threshold for natural voice interruption
@@ -212,15 +212,19 @@ export class TurnTakingController {
       this.config.startThreshold * 0.8,
       this.noiseFloor * 1.5 + 0.005,
     );
-    const dynamicBargeInThreshold = Math.max(
-      input.assistantPlaying ? Math.max(0.045, (this.config.speakerThreshold || 0.045) * 1.5) : 0.040,
-      this.noiseFloor * 2.2 + 0.015,
-    );
-
     const isBusy =
       input.assistantPlaying ||
       Boolean(input.waitingForProvider) ||
       this.state === "waiting_for_provider";
+
+    const dynamicBargeInThreshold = Math.max(
+      input.assistantPlaying
+        ? Math.max(0.045, (this.config.speakerThreshold || 0.045) * 1.5)
+        : isBusy
+          ? 0.20
+          : 0.040,
+      this.noiseFloor * 2.2 + 0.015,
+    );
 
     const threshold = isBusy
       ? dynamicBargeInThreshold
@@ -232,7 +236,7 @@ export class TurnTakingController {
     const hot = input.level >= threshold;
     this.hotFrames = hot ? this.hotFrames + 1 : 0;
     const bargeIn =
-      isBusy && this.hotFrames === this.config.bargeInFrames;
+      isBusy && this.hotFrames >= this.config.bargeInFrames;
 
     if (input.partialText.trim()) this.lastPartial = input.partialText.trim();
 
@@ -308,14 +312,11 @@ export class TurnTakingController {
         this.resetSpeech();
         this.state = "committing";
       } else if (
-        enoughSpeech &&
-        // Without a transcript (e.g. Claude/CX backend batch STT), commit once user has
-        // spoken for a sustained stretch and paused naturally for endOfTurnFrames.
         this.voicedFrames >= Math.max(this.config.minimumSpeechFrames * 2, 4) &&
         (this.quietFrames >= this.config.endOfTurnFrames || hardMax)
       ) {
-        // Even if STT hasn't returned partials yet, commit if the user clearly
-        // spoke for a sustained stretch and has been silent long enough.
+        // Without streaming partials (batch STT via Deepgram Nova-2 on commit), commit once user has
+        // spoken for a sustained stretch and paused naturally for endOfTurnFrames.
         // Backend STT will transcribe from the audio.
         const fingerprint = `silent_commit|${this.voicedFrames}`;
         if (fingerprint !== this.lastCommitFingerprint) {
@@ -329,6 +330,10 @@ export class TurnTakingController {
           this.state = "listening";
           reason = "noise_rejected";
         }
+      } else if (this.quietFrames >= this.config.maxSilenceFrames) {
+        // If silence exceeded maxSilenceFrames and not enough speech was voiced, reset cleanly.
+        this.resetSpeech();
+        this.state = "listening";
       }
     } else if (this.hotFrames > 0 && !isBusy) {
       this.state = "possible_speech";

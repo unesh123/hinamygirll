@@ -12,13 +12,7 @@ import "./app/styles/aurora.css";
 // NOTE: BrowserRouter removed — no routes are registered yet.
 // Reintroduce when /playground, /settings, or another genuine route exists.
 
-if (
-  typeof window !== "undefined" &&
-  (import.meta.env.DEV ||
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1") &&
-  "serviceWorker" in navigator
-) {
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
   void navigator.serviceWorker
     .getRegistrations()
     .then((registrations) =>
@@ -29,7 +23,7 @@ if (
     .then(() => ("caches" in window ? caches.keys() : []))
     .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
     .catch(() => {
-      // Best-effort dev cleanup only
+      // Best-effort cleanup
     });
 }
 

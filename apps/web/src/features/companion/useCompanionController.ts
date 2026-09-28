@@ -26,6 +26,7 @@ import {
   saveConversationMessages,
 } from "./sessionManager";
 import { singleLine } from "../../lib/turnFailure";
+import { recordMotionState } from "./motionLedger";
 
 function createId(): string {
   return (
@@ -222,6 +223,12 @@ function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US
 export function useCompanionController({ conversationId, routing, languagePolicy, autoRunTools = false }: CompanionControllerOptions): CompanionController {
   const [companionId, setCompanionId] = useState<CompanionId>("hinaa");
   const [state, setState] = useState<CompanionState>("idle");
+  // Mirror every companion state change into the backend run ledger. The
+  // final `idle` after a reply is what makes the stop-fix auditable from the
+  // server instead of only visible on screen.
+  useEffect(() => {
+    recordMotionState(state);
+  }, [state]);
   const [agentSteps, setAgentSteps] = useState<LiveAgentStep[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -304,6 +311,9 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     if (!result.preservePartial) setPartialTranscript("");
     setStreamingText("");
     setActivePlan(undefined);
+    setCurrentAgentRunId(undefined);
+    setCurrentAgentConfirmationStepId(undefined);
+    setAgentSteps([]);
     const errorText = result.errorText;
     if (errorText) {
       setMessages((current) => [...current, createMessage("assistant", errorText)]);
@@ -372,10 +382,10 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       void fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
         method: "POST",
       }).catch(() => undefined);
-      setAgentSteps((current) =>
-        current.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" })),
-      );
     }
+    setCurrentAgentRunId(undefined);
+    setCurrentAgentConfirmationStepId(undefined);
+    setAgentSteps([]);
     if (previousTurn) {
       finalizeTurn(previousTurn);
       return;
@@ -387,13 +397,14 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   }, [clearTimers, currentAgentRunId, finalizeTurn]);
 
   const cancelCurrentAgentRun = useCallback(async () => {
-    if (!currentAgentRunId) return;
-    await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
-      method: "POST",
-    }).catch(() => undefined);
-    setAgentSteps((current) =>
-      current.map((step) => ({ ...step, status: step.status === "done" ? step.status : "cancelled" })),
-    );
+    if (currentAgentRunId) {
+      void fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
+        method: "POST",
+      }).catch(() => undefined);
+    }
+    setCurrentAgentRunId(undefined);
+    setCurrentAgentConfirmationStepId(undefined);
+    setAgentSteps([]);
     setState("idle");
   }, [currentAgentRunId]);
 
@@ -588,6 +599,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               event.event.event_type === "agent.run.cancelled"
             ) {
               setCurrentAgentConfirmationStepId(undefined);
+              setCurrentAgentRunId(undefined);
             }
             setAgentSteps((current) => runtimeEventToSteps(current, event.event));
           } else if (event.type === "usage") {
@@ -726,15 +738,51 @@ export function useCompanionController({ conversationId, routing, languagePolicy
                 const reason = typeof progress.error === "string" && progress.error.trim()
                   ? progress.error.trim()
                   : request.toolName;
-                setMessages((current) => current.map((message) => message.id === messageId ? {
-                  ...message,
-                  toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: progress }],
-                  toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
-                    ...activity,
-                    status: phase,
-                    label: phase === "complete" ? `Completed: ${request.toolName}` : phase === "error" ? `Failed: ${reason}` : `Working locally: ${request.toolName}`,
-                  } : activity),
-                } : message));
+                const isImageTool = request.toolName === "image_generate" || request.toolName === "magnific_image_generate" || request.toolName === "freepik_image_generate";
+                const generatedImages: string[] = Array.isArray(progress.images)
+                  ? progress.images
+                  : progress.image
+                    ? [progress.image]
+                    : progress.resultUrl
+                      ? [progress.resultUrl]
+                      : [];
+                const firstImg = generatedImages[0] || progress.resultUrl || progress.thumbnailUrl || "";
+
+                setMessages((current) => current.map((message) => {
+                  if (message.id !== messageId) return message;
+
+                  let nextActionDraft = message.actionDraft;
+                  if (nextActionDraft && isImageTool && nextActionDraft.intent === "image.job") {
+                    const existingData = (nextActionDraft.fields as any)?.data || nextActionDraft.fields || {};
+                    const updatedFieldsData = {
+                      ...existingData,
+                      prompt: progress.prompt || existingData.prompt || "",
+                      stage: phase === "complete" ? ("saved" as const) : phase === "error" ? ("failed" as const) : ("generating" as const),
+                      resultUrl: firstImg || existingData.resultUrl || "",
+                      thumbnailUrl: firstImg || existingData.thumbnailUrl || "",
+                      images: generatedImages.length > 0 ? generatedImages : existingData.images,
+                      slots: progress.slots || existingData.slots,
+                      model: progress.mode ? (progress.mode.includes("flux") ? "FLUX.1 [dev]" : progress.mode) : (existingData.model || "FLUX.1 [dev]"),
+                      resolution: progress.slots?.[0] ? `${progress.slots[0].width} × ${progress.slots[0].height}` : (existingData.resolution || "1024 × 1024"),
+                    };
+                    nextActionDraft = {
+                      ...nextActionDraft,
+                      status: phase === "complete" ? ("success" as const) : phase === "error" ? ("error" as const) : ("running" as const),
+                      fields: (nextActionDraft.fields as any)?.data ? { ...nextActionDraft.fields, data: updatedFieldsData } : updatedFieldsData,
+                    };
+                  }
+
+                  return {
+                    ...message,
+                    actionDraft: nextActionDraft,
+                    toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: progress }],
+                    toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+                      ...activity,
+                      status: phase,
+                      label: phase === "complete" ? `Completed: ${request.toolName}` : phase === "error" ? `Failed: ${reason}` : `Working locally: ${request.toolName}`,
+                    } : activity),
+                  };
+                }));
                 if (phase !== "running") return;
               } catch {
                 // Keep the last known progress visible; the next poll may recover.
@@ -744,22 +792,76 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           return;
         }
         const outcome = resolveToolOutcome(request.toolName, payload);
-        setMessages((current) => current.map((message) => message.id === messageId ? {
-          ...message,
-          toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: outcome.result }],
-          toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
-            ...activity, status: outcome.status, label: outcome.label,
-          } : activity),
-        } : message));
+        const isImageTool = request.toolName === "image_generate" || request.toolName === "magnific_image_generate" || request.toolName === "freepik_image_generate";
+        const directImages: string[] = Array.isArray(payload.images)
+          ? payload.images
+          : payload.image
+            ? [payload.image]
+            : payload.resultUrl
+              ? [payload.resultUrl]
+              : [];
+        const firstDirectImg = directImages[0] || payload.resultUrl || payload.thumbnailUrl || "";
+
+        setMessages((current) => current.map((message) => {
+          if (message.id !== messageId) return message;
+          let nextActionDraft = message.actionDraft;
+          if (nextActionDraft && isImageTool && nextActionDraft.intent === "image.job") {
+            const existingData = (nextActionDraft.fields as any)?.data || nextActionDraft.fields || {};
+            const isFinished = outcome.status === "complete" || Boolean(firstDirectImg);
+            const updatedFieldsData = {
+              ...existingData,
+              prompt: payload.prompt || existingData.prompt || "",
+              stage: isFinished ? ("saved" as const) : outcome.status === "error" ? ("failed" as const) : ("generating" as const),
+              resultUrl: firstDirectImg || existingData.resultUrl || "",
+              thumbnailUrl: firstDirectImg || existingData.thumbnailUrl || "",
+              images: directImages.length > 0 ? directImages : existingData.images,
+              slots: payload.slots || existingData.slots,
+              model: payload.mode ? (payload.mode.includes("flux") ? "FLUX.1 [dev]" : payload.mode) : (existingData.model || "FLUX.1 [dev]"),
+              resolution: payload.slots?.[0] ? `${payload.slots[0].width} × ${payload.slots[0].height}` : (existingData.resolution || "1024 × 1024"),
+            };
+            nextActionDraft = {
+              ...nextActionDraft,
+              status: isFinished ? ("success" as const) : outcome.status === "error" ? ("error" as const) : ("running" as const),
+              fields: (nextActionDraft.fields as any)?.data ? { ...nextActionDraft.fields, data: updatedFieldsData } : updatedFieldsData,
+            };
+          }
+
+          return {
+            ...message,
+            actionDraft: nextActionDraft,
+            toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: outcome.result }],
+            toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+              ...activity, status: outcome.status, label: outcome.label,
+            } : activity),
+          };
+        }));
       } catch (error) {
         const label = error instanceof Error ? error.message : "Approved action failed";
-        setMessages((current) => current.map((message) => message.id === messageId ? {
-          ...message,
-          toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: { status: "error", error: label } }],
-          toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
-            ...activity, status: "error", label: `Failed: ${label}`,
-          } : activity),
-        } : message));
+        setMessages((current) => current.map((message) => {
+          if (message.id !== messageId) return message;
+          let nextActionDraft = message.actionDraft;
+          if (nextActionDraft && nextActionDraft.intent === "image.job") {
+            const existingData = (nextActionDraft.fields as any)?.data || nextActionDraft.fields || {};
+            const updatedFieldsData = {
+              ...existingData,
+              stage: "failed" as const,
+              note: label,
+            };
+            nextActionDraft = {
+              ...nextActionDraft,
+              status: "error" as const,
+              fields: (nextActionDraft.fields as any)?.data ? { ...nextActionDraft.fields, data: updatedFieldsData } : updatedFieldsData,
+            };
+          }
+          return {
+            ...message,
+            actionDraft: nextActionDraft,
+            toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: { status: "error", error: label } }],
+            toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+              ...activity, status: "error", label: `Failed: ${label}`,
+            } : activity),
+          };
+        }));
       } finally {
         resolvingToolRequestIds.current.delete(requestKey);
       }
@@ -855,13 +957,27 @@ export function useCompanionController({ conversationId, routing, languagePolicy
 
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
-    const toolRequests =
+    const rawToolRequests =
       lastMessage?.role === "assistant" ? lastMessage.plan?.toolRequests : undefined;
-    if (!lastMessage || !toolRequests?.length) return;
+    if (!lastMessage || !rawToolRequests?.length) return;
     if (processedToolMessageIds.current.has(lastMessage.id)) return;
 
     processedToolMessageIds.current.add(lastMessage.id);
     const messageId = lastMessage.id;
+
+    // Filter out informational search tools: they belong to the pre-generation retrieval
+    // phase and must never be shown as pending actions or auto-run after an answer is generated.
+    const SEARCH_TOOL_NAMES = new Set([
+      "web_search",
+      "web_research",
+      "web_answer",
+      "web_extract",
+      "finance_research",
+      "deep_research",
+      "image_search",
+    ]);
+    const toolRequests = rawToolRequests.filter((r) => !SEARCH_TOOL_NAMES.has(r.toolName));
+    if (!toolRequests.length) return;
 
     // Autonomy mode carries standing consent from Settings, so a proposal is
     // executed immediately. With autonomy off, a model proposal is still not

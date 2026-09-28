@@ -242,6 +242,7 @@ _ROW_ALIASES: dict[str, tuple[str, ...]] = {
 # Provider row id -> the Settings field prefix holding its credential.
 _SETTINGS_PREFIX: dict[str, str] = {
     "agent-router": "agent_router",
+    "cavoti": "cavoti",
     "claude": "claude",
     "codecraft": "codecraft",
     "custom": "custom",
@@ -251,7 +252,11 @@ _SETTINGS_PREFIX: dict[str, str] = {
     "ollama": "ollama",
     "omniroute": "omniroute",
     "openai": "openai",
+    "pgsgrove": "pgsgrove",
     "qwen": "qwen",
+    "seekai": "seekai",
+    "tokentable": "tokentable",
+    "xkiro": "xkiro",
 }
 
 

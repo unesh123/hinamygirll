@@ -26,7 +26,7 @@ export interface PlaybackController {
     providerVisemes?: VisemeEvent[],
   ) => Promise<void>;
   /** Speak through the browser's local speech engine when no intelligible TTS provider is available. */
-  speakBrowser: (spokenText: string, language?: string) => Promise<boolean>;
+  speakBrowser: (spokenText: string, language?: string, companionId?: string) => Promise<boolean>;
   replay: () => Promise<void>;
   stop: () => void;
   toggleMute: () => void;
@@ -60,7 +60,7 @@ export function useAudioPlayback(): PlaybackController {
   const playingRef = useRef(false);
   const browserSpeechActiveRef = useRef(false);
   const browserWatchdogRef = useRef<number | undefined>(undefined);
-  const lastBrowserSpeechRef = useRef<{ text: string; language: string } | null>(null);
+  const lastBrowserSpeechRef = useRef<{ text: string; language: string; companionId?: string } | null>(null);
 
   const ensureGraph = useCallback(() => {
     if (contextRef.current) return contextRef.current;
@@ -306,7 +306,7 @@ export function useAudioPlayback(): PlaybackController {
   );
 
   const speakBrowser = useCallback(
-    async (spokenText: string, language = "en-US"): Promise<boolean> => {
+    async (spokenText: string, language = "en-US", companionId = "hinaa"): Promise<boolean> => {
       const text = spokenText.trim();
       if (
         !text ||
@@ -326,20 +326,82 @@ export function useAudioPlayback(): PlaybackController {
       const utterance = new SpeechSynthesisUtterance(text);
       const normalizedLanguage = language === "mixed" ? "hi-IN" : language;
       utterance.lang = normalizedLanguage;
-      utterance.rate = 0.93;
-      utterance.pitch = 1.04;
-      utterance.volume = 1;
 
-      const matchingVoice = engine
-        .getVoices()
-        .find((voice) => voice.lang.toLowerCase().startsWith(normalizedLanguage.slice(0, 2).toLowerCase()));
-      if (matchingVoice) utterance.voice = matchingVoice;
+      const isHinaa = companionId !== "hiro";
+      const allVoices = engine.getVoices();
+      const langPrefix = normalizedLanguage.slice(0, 2).toLowerCase();
+      const langVoices = allVoices.filter((v) =>
+        v.lang.toLowerCase().startsWith(langPrefix),
+      );
+      const candidateVoices = langVoices.length > 0 ? langVoices : allVoices;
+
+      const isMaleVoice = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        // If it explicitly has female/girl/woman, it is NOT male!
+        if (lower.includes("female") || lower.includes("girl") || lower.includes("woman")) {
+          return false;
+        }
+        const malePatterns = [
+          /\bdavid\b/i, /\bmark\b/i, /\bgeorge\b/i, /\bguy\b/i, /\bravi\b/i,
+          /\bmadhur\b/i, /\bsagar\b/i, /\brichard\b/i, /\bjames\b/i, /\bsean\b/i,
+          /\bboy\b/i, /\bmale\b/i, /microsoft david/i, /microsoft mark/i, /microsoft guy/i
+        ];
+        return malePatterns.some((pattern) => pattern.test(lower));
+      };
+
+      const isFemaleVoice = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        const femalePatterns = [
+          /\bzira\b/i, /\bjenny\b/i, /\baria\b/i, /\bswara\b/i, /\bhemkala\b/i,
+          /\bsamantha\b/i, /\bvictoria\b/i, /\bkaren\b/i, /\bsonia\b/i, /\bheera\b/i,
+          /\bneerja\b/i, /\bhazel\b/i, /\bsusan\b/i, /\bgirl\b/i, /\bfemale\b/i,
+          /\bwoman\b/i, /natural.*female/i, /google us english/i, /microsoft zira/i,
+          /microsoft jenny/i, /microsoft aria/i
+        ];
+        return femalePatterns.some((pattern) => pattern.test(lower));
+      };
+
+      let selectedVoice: SpeechSynthesisVoice | undefined;
+
+      if (isHinaa) {
+        // Priority 1: Candidate language female voice
+        selectedVoice = candidateVoices.find((v) => isFemaleVoice(v.name));
+        // Priority 2: Any female voice on the entire machine, regardless of locale
+        if (!selectedVoice) {
+          selectedVoice = allVoices.find((v) => isFemaleVoice(v.name));
+        }
+        // Priority 3: Any voice in candidates that is NOT male
+        if (!selectedVoice) {
+          selectedVoice = candidateVoices.find((v) => !isMaleVoice(v.name));
+        }
+        // Priority 4: Any voice across all voices that is NOT male
+        if (!selectedVoice) {
+          selectedVoice = allVoices.find((v) => !isMaleVoice(v.name));
+        }
+        // If strictly only male voices exist on this OS, pitch shift up high so it never sounds like a man
+        if (!selectedVoice) {
+          selectedVoice = candidateVoices[0] || allVoices[0];
+          utterance.pitch = 1.35; // Feminine pitch shift
+        } else {
+          utterance.pitch = 1.18; // Sweet, lively anime companion pitch
+        }
+        utterance.rate = 1.05;
+        utterance.volume = 1;
+      } else {
+        // Hiro companion: calm male voice
+        selectedVoice = candidateVoices.find((v) => isMaleVoice(v.name)) || allVoices.find((v) => isMaleVoice(v.name));
+        utterance.pitch = 0.96;
+        utterance.rate = 1.0;
+        utterance.volume = 1;
+      }
+
+      if (selectedVoice) utterance.voice = selectedVoice;
 
       const estimatedDurationMs = Math.min(
         180_000,
         Math.max(700, text.trim().split(/\s+/).length * 310),
       );
-      lastBrowserSpeechRef.current = { text, language: normalizedLanguage };
+      lastBrowserSpeechRef.current = { text, language: normalizedLanguage, companionId };
       lastBlobRef.current = null;
       setHasReplay(true);
       visemeEvents.current = textToVisemeEvents(text, estimatedDurationMs);
@@ -463,6 +525,7 @@ export function useAudioPlayback(): PlaybackController {
       await speakBrowser(
         lastBrowserSpeechRef.current.text,
         lastBrowserSpeechRef.current.language,
+        (lastBrowserSpeechRef.current as any).companionId,
       );
     }
   }, [play, speakBrowser, stop]);
@@ -533,6 +596,34 @@ export function useAudioPlayback(): PlaybackController {
     },
     [],
   );
+
+  useEffect(() => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+    if (!synth) return;
+
+    if (typeof synth.getVoices === "function") {
+      synth.getVoices();
+    }
+    const onVoicesChanged = () => {
+      if (typeof synth.getVoices === "function") {
+        synth.getVoices();
+      }
+    };
+    if (typeof synth.addEventListener === "function") {
+      synth.addEventListener("voiceschanged", onVoicesChanged);
+      return () => {
+        synth.removeEventListener?.("voiceschanged", onVoicesChanged);
+      };
+    } else {
+      const prevHandler = synth.onvoiceschanged;
+      synth.onvoiceschanged = onVoicesChanged;
+      return () => {
+        if (synth && synth.onvoiceschanged === onVoicesChanged) {
+          synth.onvoiceschanged = prevHandler;
+        }
+      };
+    }
+  }, []);
 
   return {
     playing,

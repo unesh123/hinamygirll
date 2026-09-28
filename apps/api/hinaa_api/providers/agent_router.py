@@ -71,8 +71,14 @@ class AgentRouterOpenAIProvider(OpenAILLMProvider):
         self, prompt: PromptPackage, finish_reason_holder: dict[str, str | None] | None = None
     ) -> AsyncIterator[str]:
         try:
+            decoder = AdaptiveStreamDecoder()
             async for chunk in super()._stream_text(prompt, finish_reason_holder):
-                yield chunk
+                clean = decoder.feed(chunk)
+                if clean:
+                    yield clean
+            rest = decoder.finish()
+            if rest:
+                yield rest
         except Exception as e:
             if isinstance(e, HinaaError):
                 raise e

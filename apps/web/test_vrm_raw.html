@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Raw VRM Test</title>
+  <style>
+    body { margin: 0; background: #222; overflow: hidden; }
+    canvas { width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/node_modules/three/build/three.module.js",
+        "three/addons/": "/node_modules/three/examples/jsm/",
+        "@pixiv/three-vrm": "/node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+    import { optimizeVrm } from "/src/features/avatar/vrmOptimizer.ts";
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x333333);
+
+    const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20.0);
+    camera.position.set(0, 1.4, 1.0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    const light = new THREE.DirectionalLight(0xffffff, Math.PI);
+    light.position.set(1.0, 1.0, 1.0).normalize();
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+    const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
+
+    loader.load(
+      "/models/hinaa-original.vrm",
+      (gltf) => {
+        const vrm = gltf.userData.vrm;
+        try { VRMUtils.removeUnnecessaryVertices(vrm.scene); } catch (e) { console.error("removeUnnecessaryVertices error", e); }
+        try { VRMUtils.combineSkeletons(vrm.scene); } catch (e) { console.error("combineSkeletons error", e); }
+        try { optimizeVrm(vrm); } catch (e) { console.error("optimizeVrm error", e); }
+        VRMUtils.rotateVRM0(vrm);
+        vrm.scene.traverse((obj) => {
+          if (obj.isMesh) {
+            obj.visible = true;
+            obj.layers.enable(0);
+          }
+        });
+        scene.add(vrm.scene);
+
+        // Frame camera to head
+        const head = vrm.humanoid.getNormalizedBoneNode("head");
+        if (head) {
+          const headPos = new THREE.Vector3();
+          head.getWorldPosition(headPos);
+          camera.position.set(0, headPos.y, headPos.z + 0.8);
+          camera.lookAt(headPos);
+        }
+
+        window.__VRM_LOADED = true;
+        console.log("VRM loaded successfully!");
+      },
+      undefined,
+      (error) => console.error(error)
+    );
+
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

@@ -11,6 +11,8 @@ from hinaa_api.errors import HinaaError
 
 logger = logging.getLogger(__name__)
 
+from hinaa_api.config import get_settings
+
 # Global browser state
 _playwright = None
 _browser: Optional[Browser] = None
@@ -22,11 +24,30 @@ async def _get_page() -> Page:
         if _playwright is None:
             _playwright = await async_playwright().start()
         if _browser is None or not _browser.is_connected():
-            executable = os.environ.get("HINAA_BROWSER_EXECUTABLE") or shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
-            launch_options: dict[str, Any] = {"headless": False}
-            if executable:
-                launch_options["executable_path"] = executable
-            _browser = await _playwright.chromium.launch(**launch_options)
+            settings = get_settings()
+            remote_ws = None
+            if settings.bright_data_browser_ws and settings.bright_data_browser_ws.get_secret_value():
+                remote_ws = settings.bright_data_browser_ws.get_secret_value().strip()
+            elif os.environ.get("BRIGHT_DATA_BROWSER_WS"):
+                remote_ws = os.environ.get("BRIGHT_DATA_BROWSER_WS").strip()
+            elif os.environ.get("BRD_BROWSER_WS"):
+                remote_ws = os.environ.get("BRD_BROWSER_WS").strip()
+
+            if remote_ws and "**********" not in remote_ws and (remote_ws.startswith("wss://") or remote_ws.startswith("ws://")):
+                logger.info("Connecting to Bright Data remote Scraping Browser via CDP endpoint...")
+                try:
+                    _browser = await _playwright.chromium.connect_over_cdp(remote_ws)
+                    logger.info("Successfully connected to Bright Data remote Scraping Browser.")
+                except Exception as e:
+                    logger.warning("Failed to connect to Bright Data remote browser (%s); falling back to local chromium.", e)
+                    _browser = None
+
+            if _browser is None or not _browser.is_connected():
+                executable = os.environ.get("HINAA_BROWSER_EXECUTABLE") or shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+                launch_options: dict[str, Any] = {"headless": True}
+                if executable:
+                    launch_options["executable_path"] = executable
+                _browser = await _playwright.chromium.launch(**launch_options)
         context = await _browser.new_context(
             viewport={'width': 1280, 'height': 800},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'

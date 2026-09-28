@@ -289,7 +289,42 @@ class MagnificProvider:
             payload["seed"] = clamped_seed
 
         async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=True) as client:
-            response = await self._post(client, f"{base}{path}", payload)
+            try:
+                response = await self._post(client, f"{base}{path}", payload)
+            except MagnificError as exc:
+                if "api.magnific.com" in base and ("credits" in exc.message.lower() or exc.retryable):
+                    logger.warning("Magnific endpoint returned %s; falling back to Freepik direct engine", exc.message)
+                    fp_url = "https://api.freepik.com/v1/ai/text-to-image"
+                    fp_headers = {
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                        "x-freepik-api-key": key,
+                    }
+                    for engine_name in ("flux-realism", "flux-schnell"):
+                        fp_payload = {
+                            "prompt": final_prompt,
+                            "engine": engine_name,
+                            "image": {"size": _aspect_for(width, height)},
+                        }
+                        if negative_prompt.strip():
+                            fp_payload["negative_prompt"] = negative_prompt
+                        if clamped_seed is not None:
+                            fp_payload["seed"] = clamped_seed
+                        try:
+                            fp_resp = await client.post(fp_url, json=fp_payload, headers=fp_headers)
+                            if fp_resp.status_code == 200:
+                                body = fp_resp.json()
+                                urls = _extract_urls(body)
+                                if urls:
+                                    return MagnificImageResult(
+                                        image_urls=urls,
+                                        provider=f"freepik:{engine_name}",
+                                        seed=seed,
+                                        raw=body,
+                                    )
+                        except Exception as fp_exc:
+                            logger.warning("Freepik engine %s failed: %s", engine_name, fp_exc)
+                raise exc
             body = self._json(response)
             task_id = str((body.get("data") or {}).get("task_id") or body.get("task_id") or "")
             if not task_id:

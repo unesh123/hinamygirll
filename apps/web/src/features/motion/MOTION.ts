@@ -103,3 +103,42 @@ export function getHinaTransition(prefersReducedMotion: boolean | null, type: "s
   }
   return type === "settle" ? HINA_MOTION.settle : HINA_MOTION.spring;
 }
+
+/**
+ * LAW 4: The Walk morphs, it does not swap.
+ *
+ * A surface that arrives already on screen must TRANSFORM from what was there.
+ * Two mistakes made the walk read as a swap rather than a transform:
+ *   * the old surface was fully removed before the new one entered, leaving a
+ *     visible gap between two unrelated cards;
+ *   * the fade shared the layout spring, so a card's own transparency bounced.
+ * The morph keeps the spring; the fade is a plain tween; and the enter/exit
+ * offsets are mirrored so the surface settles on the same curve it left on.
+ */
+export function getSurfaceMotion(prefersReducedMotion: boolean | null): {
+  initial: TargetAndTransition;
+  animate: TargetAndTransition;
+  exit: TargetAndTransition;
+  transition: Transition;
+} {
+  if (prefersReducedMotion) {
+    return {
+      initial: { opacity: 0 },
+      animate: { opacity: 1 },
+      exit: { opacity: 0 },
+      transition: HINA_MOTION.reducedSnap,
+    };
+  }
+  return {
+    initial: { opacity: 0, scale: 0.96, y: -8 },
+    animate: { opacity: 1, scale: 1, y: 0 },
+    exit: { opacity: 0, scale: 0.96, y: -8 },
+    transition: {
+      type: "spring",
+      stiffness: 520,
+      damping: 34,
+      mass: 0.9,
+      opacity: { duration: 0.18, ease: "easeOut" },
+    } as Transition,
+  };
+}

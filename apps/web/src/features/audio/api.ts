@@ -11,7 +11,12 @@ export type ProviderMode =
   | "cx-gateway"
   | "gemini-live"
   | "codecraft"
-  | "ollama";
+  | "ollama"
+  | "pgsgrove"
+  | "seekai"
+  | "tokentable"
+  | "xkiro"
+  | "cavoti";
 
 export interface ProviderStatus {
   id: string;

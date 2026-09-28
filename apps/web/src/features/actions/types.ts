@@ -88,11 +88,15 @@ export interface ColorFields {
 
 export interface ImageJobFields {
   prompt: string;
-  stage: "seeing" | "generating" | "saved";
+  stage: "seeing" | "generating" | "saved" | "failed";
   progressPercent?: number;
   elapsedSeconds?: number;
   thumbnailUrl?: string;
   resultUrl?: string;
+  images?: string[];
+  slots?: any[];
+  model?: string;
+  resolution?: string;
   isSearchFallback?: boolean;
   note?: string;
 }

@@ -24,7 +24,10 @@ import {
   ArrowDown,
   Target,
   X,
+  FileDown,
+  Loader2,
 } from "lucide-react";
+import { downloadMarkdownPdf } from "../../features/documents/exportPdf";
 import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
 import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { ProviderHealth } from "../../features/providers/types/provider";
@@ -38,6 +41,8 @@ import { ResponseEnvelopeRenderer } from "../components/response/ResponseEnvelop
 import { CompanionDock, type DockMode } from "./CompanionDock";
 import { PowerUpMentions, type ContextItem, type CommandItem } from "../../components/ui/PowerUpMentions";
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
+import { HinaBrainThinking } from "../../components/ui/HinaBrainThinking";
+import { extractBrainThought } from "../../lib/brainThoughtExtractor";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
 import {
@@ -90,6 +95,11 @@ function getProviderDisplayName(mode?: string): string {
     case "custom": return "Custom Gateway";
     case "agent-router": return "Bynara Router";
     case "codecraft": return "CodeCraft AI";
+    case "pgsgrove": return "PGSGrove AI";
+    case "seekai": return "SeekAI";
+    case "tokentable": return "TokenTable";
+    case "xkiro": return "XKiro AI";
+    case "cavoti": return "Cavoti AI";
     default:
       return mode.charAt(0).toUpperCase() + mode.slice(1);
   }
@@ -392,12 +402,37 @@ export function WorkMode({
   const handleCommitAction = useCallback(
     (draft: HinaActionDraft) => {
       commitAction(draft);
+      const data = draft.fields?.data as any;
+      let text = `Action committed: ${data?.title || draft.intent}`;
+
+      if (draft.intent === "reminder.create") {
+        text = `Reminder scheduled: ${data?.title || "Reminder"} · ${data?.when || ""}`;
+      } else if (draft.intent === "pdf.doc") {
+        text = `Generating PDF document: "${data?.title || "Document"}"`;
+        // Trigger actual PDF generation command through chat so backend compiles it
+        if (data?.title) {
+          onSend(`/pdf ${data.title}`);
+        }
+      } else if (draft.intent === "image.job") {
+        text = `Generating artwork for "${data?.prompt || "image"}"`;
+        if (data?.prompt) {
+          onSend(`/image ${data.prompt}`);
+        }
+      } else if (draft.intent === "timer.start") {
+        text = `Timer started: ${data?.label || "Timer"} · ${Math.round((data?.durationSeconds || 0) / 60)}:00`;
+      } else if (draft.intent === "split") {
+        text = `Bill split: ${data?.currency || "₹"}${data?.totalAmount || 0} ÷ ${data?.peopleCount || 1} = ${data?.currency || "₹"}${data?.perPerson || 0} each`;
+      } else if (draft.intent === "checklist.create") {
+        text = `Checklist created: ${data?.title || "Checklist"} (${data?.items?.length || 0} items)`;
+      } else if (draft.intent === "event.create") {
+        text = `Event scheduled: ${data?.title || "Event"} · ${data?.dateStr || ""}, ${data?.timeStr || ""}`;
+      }
+
       if (onAddMessage) {
-        const data = draft.fields?.data as any;
         onAddMessage({
-          id: `action-reminder-${Date.now()}`,
+          id: `action-${draft.intent}-${Date.now()}`,
           role: "assistant",
-          text: `Reminder scheduled: ${data?.title || "Reminder"} · ${data?.when || ""}`,
+          text,
           createdAt: new Date().toISOString(),
           actionDraft: {
             ...draft,
@@ -406,7 +441,7 @@ export function WorkMode({
         });
       }
     },
-    [commitAction, onAddMessage]
+    [commitAction, onAddMessage, onSend]
   );
 
   const handleComposerSend = useCallback(
@@ -456,6 +491,17 @@ export function WorkMode({
             actionDraft: {
               ...detected,
               status: "success",
+            },
+          });
+        } else if (detected.intent === "pdf.doc") {
+          onAddMessage({
+            id: `action-pdf-${Date.now()}`,
+            role: "assistant",
+            text: `Compiling PDF document: "${data?.title || text}"`,
+            createdAt: new Date().toISOString(),
+            actionDraft: {
+              ...detected,
+              status: "running",
             },
           });
         } else if (detected.intent === "image.job") {
@@ -547,7 +593,7 @@ export function WorkMode({
     return [];
   }, [toolActivitySteps, agentSteps]);
 
-  const isAgentActive = Boolean(currentAgentRunId) || agentSteps.some((s) => s.status === "active" || s.status === "pending");
+  const isAgentActive = (Boolean(currentAgentRunId) || agentSteps.length > 0) && agentSteps.some((s) => s.status === "active" || s.status === "pending");
   const isToolActive = toolActivitySteps.some((s) => s.status === "running");
   const isExecutionLive = isAgentActive || isToolActive;
 
@@ -750,23 +796,29 @@ export function WorkMode({
           gap: 8,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-          <Sparkles size={16} color="var(--accent)" />
-          <span
-            style={{
-              fontSize: "var(--text-sm)",
-              fontWeight: 600,
-              color: "var(--text-primary)",
-            }}
-          >
-            Work
-          </span>
-          {messages.length > 0 && !isMobile && (
-            <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
-              · {messages.length} {messages.length === 1 ? "message" : "messages"}
+        {!isMobile ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            <Sparkles size={16} color="var(--accent)" />
+            <span
+              style={{
+                fontSize: "var(--text-sm)",
+                fontWeight: 600,
+                color: "var(--text-primary)",
+              }}
+            >
+              Work
             </span>
-          )}
-        </div>
+            {messages.length > 0 && (
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
+                · {messages.length} {messages.length === 1 ? "message" : "messages"}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", paddingRight: 4 }}>
+            <Sparkles size={16} color="var(--accent)" />
+          </div>
+        )}
 
         {/* Mobile View Switcher: [💬 Chat] [🌸 3D Avatar] */}
         {isMobile && avatarModel && (
@@ -820,29 +872,27 @@ export function WorkMode({
           </div>
         )}
 
-        {/* Desktop Model Control Bar */}
-        {!isMobile && (
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <ModelControlBar
-              currentMode={(activeProviderMode as any) || "auto"}
-              currentModel={activeProviderModel}
-              providerOptions={providerOptions || []}
-              getModelOptions={getModelOptions || (() => [])}
-              onSelectProvider={(mode, modelId) => onSelectProvider?.(mode, modelId ?? undefined)}
-              imageEngine={imageEngine || internalImageEngine}
-              onSelectImageEngine={(engine) => {
-                onSelectImageEngine?.(engine);
-                setInternalImageEngine(engine);
-              }}
-              voiceEngine={voiceEngine || internalVoiceEngine}
-              onSelectVoiceEngine={(engine) => {
-                onSelectVoiceEngine?.(engine);
-                setInternalVoiceEngine(engine);
-              }}
-              onOpenSettings={onOpenSettings}
-            />
-          </div>
-        )}
+        {/* Model Control Bar */}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <ModelControlBar
+            currentMode={(activeProviderMode as any) || "auto"}
+            currentModel={activeProviderModel}
+            providerOptions={providerOptions || []}
+            getModelOptions={getModelOptions || (() => [])}
+            onSelectProvider={(mode, modelId) => onSelectProvider?.(mode, modelId ?? undefined)}
+            imageEngine={imageEngine || internalImageEngine}
+            onSelectImageEngine={(engine) => {
+              onSelectImageEngine?.(engine);
+              setInternalImageEngine(engine);
+            }}
+            voiceEngine={voiceEngine || internalVoiceEngine}
+            onSelectVoiceEngine={(engine) => {
+              onSelectVoiceEngine?.(engine);
+              setInternalVoiceEngine(engine);
+            }}
+            onOpenSettings={onOpenSettings}
+          />
+        </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {/* Duplicate of the inline research card below, and the phone header
@@ -1096,7 +1146,7 @@ export function WorkMode({
             overflowX: "hidden",
             overscrollBehaviorY: "contain",
             WebkitOverflowScrolling: "touch",
-            padding: "var(--space-4) clamp(20px, 4vw, 56px) var(--space-2)",
+            padding: isMobile ? "8px 10px 14px" : "var(--space-4) clamp(20px, 4vw, 56px) var(--space-2)",
             display: "flex",
             flexDirection: "column",
             maxWidth: "100%",
@@ -1172,35 +1222,52 @@ export function WorkMode({
           {/* Welcome */}
           {showWelcome && <WorkWelcome onAction={onWelcomeAction} />}
 
-          {/* Messages */}
+          {/* Messages (Deduplicated: strictly one response at a time) */}
           {!showWelcome &&
-            messages.map((msg) => (
-              <WorkMessage key={msg.id} message={msg} />
-            ))}
+            messages
+              .filter((msg, idx, arr) => {
+                // Deduplicate identical message IDs
+                if (arr.findIndex((m) => m.id === msg.id) !== idx) return false;
+                // Deduplicate consecutive identical assistant messages
+                if (
+                  msg.role === "assistant" &&
+                  idx > 0 &&
+                  arr[idx - 1].role === "assistant" &&
+                  arr[idx - 1].text.trim() === msg.text.trim()
+                ) {
+                  return false;
+                }
+                return true;
+              })
+              .map((msg) => (
+                <WorkMessage key={msg.id} message={msg} />
+              ))}
 
-          {/* Execution progress — inline in the thread, between the trigger and
-           * the answer it produced. */}
-          <AgentActivityCard
-            isActive={isExecutionLive}
-            steps={convertedActivitySteps}
-            onCancel={currentAgentRunId || isThinking ? onCancelAgentRun ?? onStop : undefined}
-            onResume={currentAgentRunId ? onResumeAgentRun : undefined}
-            onConfirm={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(true) : undefined}
-            onReject={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(false) : undefined}
-            onRecover={currentAgentRunId ? onRecoverAgentRun : undefined}
-          />
-
-          {/* Web Search Live Research Animation Card */}
-          {isSearching && (
-            <WebSearchLoader visible={true} query={searchQuery} />
+          {/* Execution progress — only shown when execution is actually live with real steps */}
+          {isExecutionLive && convertedActivitySteps.length > 0 && (
+            <AgentActivityCard
+              isActive={isExecutionLive}
+              steps={convertedActivitySteps}
+              onCancel={() => {
+                onCancelAgentRun?.();
+                onStop?.();
+              }}
+              onResume={currentAgentRunId ? onResumeAgentRun : undefined}
+              onConfirm={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(true) : undefined}
+              onReject={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(false) : undefined}
+              onRecover={currentAgentRunId ? onRecoverAgentRun : undefined}
+            />
           )}
 
-          {/* Streaming */}
-          {streamingText && (() => {
+          {/* Single active in-progress response bubble: thinking, searching, or streaming */}
+          {(() => {
+            const hasActiveTurn = isThinking || isSearching || Boolean(streamingText);
+            if (!hasActiveTurn) return null;
             const lastMsg = messages[messages.length - 1];
             if (
               lastMsg &&
               lastMsg.role === "assistant" &&
+              streamingText &&
               (lastMsg.text.trim() === streamingText.trim() ||
                 lastMsg.text.trim().startsWith(streamingText.trim()))
             ) {
@@ -1212,11 +1279,14 @@ export function WorkMode({
                   {
                     id: "streaming",
                     role: "assistant",
-                    text: streamingText,
+                    text: streamingText || "",
                     createdAt: new Date().toISOString(),
                   } as TranscriptMessage
                 }
-                isStreaming
+                isStreaming={Boolean(streamingText)}
+                isThinkingLive={isThinking && !streamingText}
+                isSearchingLive={isSearching}
+                searchQueryLive={searchQuery}
               />
             );
           })()}
@@ -1280,7 +1350,7 @@ export function WorkMode({
         data-testid="work-composer"
         className="hinaa-work-composer"
         style={{
-          padding: "var(--space-2) clamp(20px, 4vw, 56px) var(--space-3)",
+          padding: isMobile ? "8px 10px calc(8px + env(safe-area-inset-bottom, 0px))" : "var(--space-2) clamp(20px, 4vw, 56px) var(--space-3)",
           maxWidth: "100%",
           width: "100%",
           margin: "0",
@@ -1541,9 +1611,15 @@ export function WorkMode({
 function WorkMessage({
   message,
   isStreaming,
+  isThinkingLive,
+  isSearchingLive,
+  searchQueryLive,
 }: {
   message: TranscriptMessage;
   isStreaming?: boolean;
+  isThinkingLive?: boolean;
+  isSearchingLive?: boolean;
+  searchQueryLive?: string;
 }) {
   const isUser = message.role === "user";
   const attachmentRole = ATTACHMENT_ROLES.find(
@@ -1551,6 +1627,7 @@ function WorkMessage({
   );
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const plan = message.plan;
   const answeredBy = plan?.resolvedModel || plan?.resolvedProvider || null;
@@ -1559,20 +1636,73 @@ function WorkMessage({
     ? `${answeredBy}${plan?.latencyMs ? ` · ${Math.round(plan.latencyMs / 100) / 10}s` : ""}`
     : null;
 
+  // Automatically extract internal reasoning / thinking process, clean response text, and sources
+  const { thought, cleanText, sources: extractedSources } = useMemo(() => {
+    if (isUser) return { thought: "", cleanText: message.text, sources: [] };
+    return extractBrainThought(message.text, plan?.thinking);
+  }, [isUser, message.text, plan?.thinking]);
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(message.text);
+      await navigator.clipboard.writeText(isUser ? message.text : (cleanText || message.text));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {}
   };
 
-  // Render tool results using GenericResultRenderer
+  const handleExportPdf = async () => {
+    try {
+      setExportingPdf(true);
+      const textToExport = cleanText || message.text;
+      const titleMatch = textToExport.match(/^#{1,3}\s+(.+)$/m);
+      const title = titleMatch ? titleMatch[1].trim() : "HINAA Report";
+      await downloadMarkdownPdf(title, textToExport);
+    } catch (err) {
+      console.error("Failed to export PDF:", err);
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  // Extract grounded sources from web_search tool results or parsed from markdown citations
+  const brainSources = useMemo(() => {
+    if (isUser) return [];
+    const webSearchTool = message.toolResults?.find((tr) => tr.toolName === "web_search");
+    const rawSources = webSearchTool?.result?.sources || webSearchTool?.result?.data?.sources;
+    if (Array.isArray(rawSources) && rawSources.length > 0) {
+      return rawSources.map((s: any, idx: number) => ({
+        id: s.id || `S${idx + 1}`,
+        title: s.title || "Web Source",
+        url: s.url,
+        domain: s.domain,
+        snippet: s.snippet,
+      }));
+    }
+    return extractedSources || [];
+  }, [isUser, message.toolResults, extractedSources]);
+
+  // Render external tool results using GenericResultRenderer (excluding web_search, which is inside Hina's brain)
   const renderToolResults = () => {
     if (!message.toolResults || message.toolResults.length === 0) return null;
+    const externalTools = message.toolResults.filter((tr) => {
+      if (tr.toolName === "web_search") return false;
+      // If an interactive ImageJobCard is already rendering this image generation draft,
+      // don't render a duplicate card from toolResults
+      if (
+        message.actionDraft?.intent === "image.job" &&
+        (tr.toolName === "image_generate" ||
+          tr.toolName === "magnific_image_generate" ||
+          tr.toolName === "freepik_image_generate" ||
+          tr.toolName === "comfy_ui")
+      ) {
+        return false;
+      }
+      return true;
+    });
+    if (externalTools.length === 0) return null;
     return (
       <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-        {message.toolResults.map((tr, idx) => (
+        {externalTools.map((tr, idx) => (
           <GenericResultRenderer key={`${tr.toolName}-${idx}`} toolName={tr.toolName} result={tr.result} />
         ))}
       </div>
@@ -1591,12 +1721,32 @@ function WorkMessage({
             compact={false}
           />
         )}
-        {draft.intent === "image.job" && (
-          <ImageJobCard
-            data={draft.fields?.data as any}
-            compact={false}
-          />
-        )}
+        {draft.intent === "image.job" && (() => {
+          const rawData = (draft.fields?.data || draft.fields || {}) as any;
+          const imageToolResult = message.toolResults?.find(
+            (tr) =>
+              tr.toolName === "image_generate" ||
+              tr.toolName === "magnific_image_generate" ||
+              tr.toolName === "freepik_image_generate"
+          )?.result;
+          const mergedData =
+            imageToolResult && (imageToolResult.images?.length || imageToolResult.status === "completed")
+              ? {
+                  ...rawData,
+                  stage: imageToolResult.status === "completed" ? "saved" : rawData.stage,
+                  images: imageToolResult.images || rawData.images,
+                  resultUrl: imageToolResult.images?.[0] || rawData.resultUrl,
+                  thumbnailUrl: imageToolResult.images?.[0] || rawData.thumbnailUrl,
+                  slots: imageToolResult.slots || rawData.slots,
+                  model: imageToolResult.mode
+                    ? imageToolResult.mode.includes("flux")
+                      ? "FLUX.1 [dev]"
+                      : imageToolResult.mode
+                    : rawData.model,
+                }
+              : rawData;
+          return <ImageJobCard data={mergedData} compact={false} />;
+        })()}
         {draft.intent === "split" && (
           <SplitCard
             data={draft.fields?.data as any}
@@ -1664,6 +1814,31 @@ function WorkMessage({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {(cleanText || message.text).length > 80 && (
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={exportingPdf}
+                title="Download formatted PDF report (< 1s)"
+                data-testid="message-export-pdf-btn"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: exportingPdf ? "var(--accent, #6366f1)" : "#94a3b8",
+                  cursor: exportingPdf ? "wait" : "pointer",
+                  padding: 4,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 11,
+                  fontWeight: 650,
+                  transition: "color 0.15s ease",
+                }}
+              >
+                {exportingPdf ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
+                <span>PDF</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleCopy}
@@ -1741,20 +1916,29 @@ function WorkMessage({
             )}
           </>
         )}
-        {isUser ? message.text : <ResponseEnvelopeRenderer rawText={message.text} />}
-        {isStreaming && (
-          <span
-            style={{
-              display: "inline-block",
-              width: 2,
-              height: "1.1em",
-              background: "#0f172a",
-              marginLeft: 4,
-              verticalAlign: "middle",
-              animation: "blink 1s step-end infinite",
-            }}
+
+        {/* Integrated Hina Brain & Grounded Sources */}
+        {!isUser && (
+          <HinaBrainThinking
+            thought={thought}
+            sources={brainSources}
+            isLive={isThinkingLive || isSearchingLive || (isStreaming && !cleanText)}
+            isSearching={isSearchingLive}
+            searchQuery={searchQueryLive}
+            latencyMs={plan?.latencyMs}
           />
         )}
+
+        {isUser ? (
+          message.text
+        ) : cleanText ? (
+          <ResponseEnvelopeRenderer rawText={cleanText} streaming={isStreaming} />
+        ) : isThinkingLive || isSearchingLive ? null : isStreaming && !thought ? (
+          <span style={{ color: "rgba(255, 255, 255, 0.5)", fontStyle: "italic", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span>Formulating response...</span>
+            <span className="hina-live-stream-cursor" />
+          </span>
+        ) : null}
       </div>
 
       {/* User message timestamp underneath on right */}

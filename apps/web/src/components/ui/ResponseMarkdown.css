@@ -44,3 +44,31 @@
 @media (prefers-reduced-motion: reduce) {
   .hinaa-work-surface *, .sakura-message *, .response-markdown * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Live streaming pulsing inline cursor */
+@keyframes hina-cursor-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 10px rgba(236, 72, 153, 0.9), 0 0 16px rgba(244, 63, 94, 0.5);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(0.85);
+    box-shadow: 0 0 2px rgba(236, 72, 153, 0.2);
+  }
+}
+
+.response-markdown[data-streaming="true"] > *:last-child::after,
+.hina-live-stream-cursor {
+  content: "";
+  display: inline-block;
+  width: 7.5px;
+  height: 15px;
+  margin-left: 5px;
+  vertical-align: -2px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #ec4899, #f43f5e);
+  animation: hina-cursor-glow 0.85s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+

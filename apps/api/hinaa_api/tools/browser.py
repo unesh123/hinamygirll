@@ -173,8 +173,59 @@ async def _legacy_search(query: str, count: int = 20) -> dict[str, Any]:
     }
 
 
+async def search_bright_data_serp(query: str, count: int = 20) -> list[dict[str, str]]:
+    """Search Google via Bright Data SERP API zone."""
+    import os
+    settings = get_settings()
+    api_key = None
+    if settings.bright_data_api_key and settings.bright_data_api_key.get_secret_value():
+        api_key = settings.bright_data_api_key.get_secret_value().strip()
+    elif os.environ.get("BRIGHT_DATA_API_KEY"):
+        api_key = os.environ.get("BRIGHT_DATA_API_KEY", "").strip()
+
+    if not api_key or "replace with" in api_key.lower():
+        return []
+
+    zone = settings.bright_data_serp_zone or "serp_api1"
+    url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    payload = {
+        "zone": zone,
+        "url": url,
+        "format": "raw",
+        "data_format": "html",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post("https://api.brightdata.com/request", json=payload, headers=headers)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                results = []
+                for g in soup.select("div.g"):
+                    a = g.select_one("a")
+                    h3 = g.select_one("h3")
+                    snippet_node = g.select_one("div.VwiC3b, div[style*='-webkit-line-clamp']")
+                    if a and h3 and a.get("href", "").startswith("http"):
+                        href = a["href"]
+                        results.append({
+                            "title": h3.get_text(" ", strip=True),
+                            "url": href,
+                            "snippet": snippet_node.get_text(" ", strip=True) if snippet_node else "",
+                            "domain": _extract_domain(href),
+                        })
+                        if len(results) >= count:
+                            break
+                return results
+    except Exception as exc:
+        logger.warning("Bright Data SERP search error: %s", exc)
+    return []
+
+
 async def search_web(params: dict[str, Any]) -> dict[str, Any]:
-    """Search current web/news sources through You.com or deep multi-source search (20+ sources)."""
+    """Search current web/news sources through Bright Data SERP, You.com, or deep multi-source search (20+ sources)."""
     query = str(
         params.get("query")
         or params.get("q")
@@ -188,6 +239,29 @@ async def search_web(params: dict[str, Any]) -> dict[str, Any]:
 
     count = int(params.get("count", 20) or 20)
     settings = get_settings()
+
+    # If Bright Data SERP is configured, try it as a premier search source
+    bright_results = await search_bright_data_serp(query, count=count)
+    if bright_results and len(bright_results) >= 5:
+        sources = [
+            {
+                "id": f"S{index}",
+                "title": r["title"],
+                "url": r["url"],
+                "snippet": r["snippet"],
+                "domain": r.get("domain", "Web"),
+            }
+            for index, r in enumerate(bright_results, start=1)
+        ]
+        return {
+            "provider": "brightdata-serp",
+            "mode": "search",
+            "query": query,
+            "results": bright_results,
+            "sources": sources,
+            "sourceCount": len(sources),
+        }
+
     if not settings.youcom_configured:
         return await _legacy_search(query, count=count)
     try:

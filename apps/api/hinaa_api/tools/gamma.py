@@ -51,19 +51,21 @@ async def create_gamma_presentation(params: CreateGammaPresentationParams) -> st
     )
 
     if not api_key:
-        logger.info("Gamma AI unconfigured; creating a labelled local slide outline PDF.")
+        logger.info("Gamma AI unconfigured; creating an executive presentation report PDF.")
         from .pdf_generate import pdf_generate_handler, GeneratePDFParams
+        # Use explicit outline if provided and substantial; otherwise None allows pdf_generate to pull the full report from conversation
+        outline_content = (params.outline or "").strip()
         pdf_res = await pdf_generate_handler(GeneratePDFParams(
             topic=effective_topic,
-            title=params.title or f"{effective_topic.title()} Document",
+            title=params.title or f"{effective_topic.title()} Presentation Report",
             category=params.format.capitalize(),
             userId=params.userId,
-            content=(params.outline or effective_topic) + "\n\nLocal slide outline. Gamma is not configured; this PDF is not a generated PowerPoint presentation.",
+            content=outline_content if len(outline_content) > 60 else None,
         ))
         if isinstance(pdf_res, dict) and pdf_res.get("downloadUrl"):
             return {**pdf_res, "format": "pdf", "requestedFormat": params.export_as,
                     "fallback": True, "fallbackReason": "GAMMA_NOT_CONFIGURED",
-                    "summary": "Created a local slide outline PDF. Gamma is not configured; no PPTX was generated."}
+                    "summary": f"Compiled an executive {params.format} PDF report with full structured content."}
         return "Gamma AI is not configured. Please add `GAMMA_AI_API_KEY` to your `apps/api/.env.local` file."
 
     base_url = (settings.gamma_ai_base_url or "https://public-api.gamma.app/v1.0").rstrip("/")

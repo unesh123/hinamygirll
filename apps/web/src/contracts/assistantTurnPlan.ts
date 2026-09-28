@@ -145,16 +145,18 @@ export function parseAssistantTurnPlan(input: unknown): AssistantTurnPlan {
     const raw = input as Record<string, any>;
     const displayText =
       typeof raw.displayText === "string" && raw.displayText.trim()
-        ? raw.displayText
+        ? raw.displayText.trim()
         : typeof raw.text === "string" && raw.text.trim()
-          ? raw.text
+          ? raw.text.trim()
           : typeof raw.content === "string" && raw.content.trim()
-            ? raw.content
+            ? raw.content.trim()
             : "I completed your request.";
     const spokenText =
       typeof raw.spokenText === "string" && raw.spokenText.trim()
         ? raw.spokenText
-        : displayText.slice(0, 160);
+        : displayText
+          ? displayText.slice(0, 160)
+          : "I completed your request.";
     const validLang = ["en-US", "hi-IN", "mixed"].includes(raw.language)
       ? raw.language
       : "mixed";
@@ -181,8 +183,8 @@ export function parseAssistantTurnPlan(input: unknown): AssistantTurnPlan {
     // metadata field never turns an otherwise useful answer into a formatting error.
     const salvaged = {
       schemaVersion: typeof raw.schemaVersion === "number" ? raw.schemaVersion : 1,
-      spokenText: spokenText.slice(0, 8000),
-      displayText: displayText.slice(0, 150000),
+      spokenText: spokenText.slice(0, 8000) || "I completed your request.",
+      displayText: displayText.slice(0, 150000) || "I completed your request.",
       language: validLang as "en-US" | "hi-IN" | "mixed",
       emotion: {
         primary: emotionNames.includes(emotion.primary as typeof emotionNames[number]) ? emotion.primary : "happy",

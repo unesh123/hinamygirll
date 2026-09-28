@@ -259,3 +259,15 @@ pre code {
     border: 2px solid ButtonText;
   }
 }
+
+/* ── Mobile Layout & Safe Areas ────────────────────────────── */
+:root {
+  --hinaa-mobile-nav-clearance: 0px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --hinaa-mobile-nav-clearance: calc(54px + env(safe-area-inset-bottom, 0px));
+  }
+}
+

@@ -21,6 +21,7 @@ import {
 } from "../source/CitationPopover";
 import { AlertTriangle, XCircle, Info, ExternalLink, Globe } from "lucide-react";
 import { ResponseMarkdown } from "@/components/ui/ResponseMarkdown";
+import { HinaBrainThinking } from "@/components/ui/HinaBrainThinking";
 
 /* ── Typed Envelope Block Definitions ──────────────────── */
 export interface ResponseEnvelopeBlock {
@@ -85,6 +86,7 @@ export interface ResponseEnvelopeBlock {
 export interface ResponseEnvelopeRendererProps {
   blocks?: ResponseEnvelopeBlock[];
   rawText?: string;
+  streaming?: boolean;
   toolResult?: any;
   toolName?: string;
   onApprove?: (id: string) => void;
@@ -101,6 +103,7 @@ export const ResponseEnvelopeRenderer: React.FC<ResponseEnvelopeRendererProps> =
   ({
     blocks: directBlocks,
     rawText,
+    streaming,
     toolResult,
     toolName,
     onApprove,
@@ -306,60 +309,11 @@ export const ResponseEnvelopeRenderer: React.FC<ResponseEnvelopeRendererProps> =
 
             case "research":
               return (
-                <div
+                <HinaBrainThinking
                   key={key}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                    padding: 12,
-                    background: "rgba(255,255,255,0.02)",
-                    borderRadius: 12,
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-tertiary, #a1a1aa)" }}>
-                    <Globe size={13} color="var(--accent, #ec4899)" />
-                    <span>Attributable Web Sources ({block.sources?.length || 0})</span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
-                    {(block.sources || []).map((s) => (
-                      <a
-                        key={s.id}
-                        href={s.url || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          background: "var(--bg-surface, #18181b)",
-                          border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))",
-                          textDecoration: "none",
-                          color: "inherit",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 4,
-                          transition: "border-color 150ms ease",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--accent, #ec4899)" }}>
-                            [{s.id}] {s.domain}
-                          </span>
-                          <ExternalLink size={10} color="#71717a" />
-                        </div>
-                        <span style={{ fontSize: "11px", fontWeight: 600, color: "#fff", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                          {s.title}
-                        </span>
-                        {s.snippet && (
-                          <span style={{ fontSize: "10px", color: "var(--text-secondary, #a1a1aa)", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                            {s.snippet}
-                          </span>
-                        )}
-                      </a>
-                    ))}
-                  </div>
-                </div>
+                  sources={block.sources || []}
+                  defaultExpanded={false}
+                />
               );
 
             case "warning":
@@ -414,8 +368,8 @@ export const ResponseEnvelopeRenderer: React.FC<ResponseEnvelopeRendererProps> =
             case "text":
             default:
               return (
-                <div key={key} style={{ fontSize: "14px", lineHeight: "1.6", color: "inherit" }}>
-                  <ResponseMarkdown text={block.content || ""} />
+                <div key={key} style={{ fontSize: "14px", lineHeight: "1.6", color: "inherit", position: "relative" }}>
+                  <ResponseMarkdown text={block.content || ""} streaming={streaming} />
                 </div>
               );
           }

@@ -342,3 +342,41 @@ def test_a_model_written_image_plan_gets_a_subject_not_his_sentence():
     assert request.parameters["query"] == "Tokyo Ghoul"
     assert request.parameters["canonicalSubject"] == "Tokyo Ghoul"
     assert request.parameters["count"] == 6
+
+
+def test_send_me_some_images_of_those_anime_resolves_anaphora(client):
+    """Verify that 'Send me some images of those anime' does NOT search for 'Send Anime',
+    but resolves to the active topic from the previous turn."""
+    owner = client.get("/v1/workspace/identity", headers={"X-HINAA-Dev-User": "alice"}).json()["userId"]
+    service = client.app.state.service
+    conversation_id = "anime-anaphora-test"
+
+    # Turn 1: User asks for anime to watch on Netflix
+    asyncio.run(service.create_plan(
+        TurnRequest(
+            sessionId=conversation_id,
+            conversationId=conversation_id,
+            text="Find some information about the latest Isekai anime to watch on Netflix.",
+            providerMode="mock",
+        ),
+        user_id=owner,
+    ))
+
+    # Turn 2: User says "Send me some images of those anime"
+    second = asyncio.run(service.create_plan(
+        TurnRequest(
+            sessionId=conversation_id,
+            conversationId=conversation_id,
+            text="Send me some images of those anime",
+            providerMode="mock",
+        ),
+        user_id=owner,
+    ))
+
+    assert any(t.toolName == "image_search" for t in second.value.toolRequests)
+    req = next(t for t in second.value.toolRequests if t.toolName == "image_search")
+    query = req.parameters["query"]
+    assert "Send Anime" not in query
+    assert "send anime" not in query.lower()
+    assert "Isekai" in query or "anime" in query.lower()
+

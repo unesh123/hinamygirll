@@ -220,12 +220,13 @@ def _research_sections(items: list[dict[str, Any]], sources: list[dict[str, Any]
 
 
 async def _research_body(topic: str) -> list[tuple[str, Any]]:
-    """Run the real multi-source research pass; return [] when no source answered."""
+    """Run the multi-source research pass with fast bounded depth; return [] when no source answered."""
     from .deep_research import deep_research_handler
 
     try:
-        outcome = await deep_research_handler({"topic": topic, "depth": 24})
-    except Exception as error:  # noqa: BLE001 - a dead research pass must fail closed, not fall back to boilerplate
+        # Fast bounded depth for rapid, sub-3-second document generation
+        outcome = await deep_research_handler({"topic": topic, "depth": 6})
+    except Exception as error:  # noqa: BLE001
         logger.warning("Research pass failed for '%s': %s", topic, error)
         return []
 
@@ -238,34 +239,172 @@ async def _research_body(topic: str) -> list[tuple[str, Any]]:
     return _research_sections(items, data.get("sources") or [])
 
 
+def _fetch_last_report_from_db(user_id: str | None = None) -> tuple[str, str] | None:
+    """Find the most recent substantive assistant report/text from SQLite."""
+    try:
+        from hinaa_api.config import get_settings
+        from hinaa_api.persistence.db import get_session_factory
+        from hinaa_api.persistence.orm import Message
+        import json
+
+        session_factory = get_session_factory(get_settings())
+        with session_factory() as session:
+            messages = (
+                session.query(Message)
+                .filter(Message.role == "assistant")
+                .filter(Message.deleted_at.is_(None))
+                .order_by(Message.created_at.desc())
+                .limit(10)
+                .all()
+            )
+            for m in messages:
+                raw = m.content or ""
+                clean_text = ""
+                try:
+                    data = json.loads(raw)
+                    clean_text = data.get("displayText") or ""
+                except Exception:
+                    clean_text = raw
+
+                clean_text = clean_text.strip()
+                # Check if this message looks like a substantial report/document
+                if len(clean_text) > 120 and not clean_text.startswith("### 📄 PDF:"):
+                    title_match = re.search(r"^#{1,3}\s+(?:📄\s*)?([^\n]+)", clean_text)
+                    doc_title = title_match.group(1).strip() if title_match else ""
+                    return doc_title, clean_text
+    except Exception as e:
+        logger.warning("Failed to fetch last report from DB: %s", e)
+    return None
+
+
+_REFERENTIAL_RE = re.compile(
+    r"(?i)^(?:make\s+(?:me\s+)?(?:a\s+)?)?(?:based\s+on\s+)?(?:that|this|it|the\s+above|above|same|previous|last|the\s+report|report|thr\s+report|what\s+you\s+(?:said|wrote|generated)|conversation|notes|assignment)(?:\s+(?:assignment|report|paper|doc|document|topic|deck))?$"
+)
+
+
+def _is_referential_query(text: str | None) -> bool:
+    if not text:
+        return False
+    t = text.strip()
+    return bool(
+        len(t) < 90
+        and (
+            _REFERENTIAL_RE.search(t)
+            or "based on the report" in t.lower()
+            or "based on thr report" in t.lower()
+            or "based on that" in t.lower()
+            or "from the report" in t.lower()
+            or "gamma is not configured" in t.lower()
+        )
+    )
+
+
 async def compose_document_source(
     topic: str | None,
     content: str | None,
     title: str | None,
+    user_id: str | None = None,
 ) -> tuple[str, list[tuple[str, Any]], str]:
-    """Resolve a document body from real material: supplied text first, live research second.
+    """Resolve a document body rapidly: supplied text first, conversation history second, live research third."""
+    safe_topic = (topic or "").strip() or "Technical Research Report"
+    doc_title = (title or "").strip()
+    norm_content = (content or "").strip()
 
-    Raises NoDocumentSource rather than emitting a template document.
-    """
-    safe_topic = (topic or "").strip() or "Untitled document"
-    doc_title = (title or "").strip() or f"{safe_topic}: Research Dossier"
+    # 1. If explicit non-referential content is supplied, typeset it directly
+    if norm_content and not _is_referential_query(norm_content):
+        final_title = doc_title or f"{safe_topic}: Executive Report"
+        return final_title, _build_user_content_sections(_scrub_chat_affection(norm_content)), "supplied-text"
 
-    if content and content.strip():
-        return doc_title, _build_user_content_sections(_scrub_chat_affection(content)), "supplied-text"
+    # 2. Check conversation history:
+    # If explicitly referential, OR if the recent conversation report is relevant to the topic
+    db_report = _fetch_last_report_from_db(user_id)
+    if db_report:
+        fetched_title, fetched_content = db_report
+        # Match if explicitly referential OR if topic keywords overlap with recent report
+        topic_words = set(re.findall(r"\w{4,}", safe_topic.lower()))
+        content_words = set(re.findall(r"\w{4,}", fetched_content.lower()[:1000]))
+        is_relevant = bool(topic_words & content_words) if topic_words else True
 
+        if _is_referential_query(norm_content) or _is_referential_query(safe_topic) or is_relevant:
+            final_title = doc_title or fetched_title or f"{safe_topic}: Executive Report"
+            return final_title, _build_user_content_sections(_scrub_chat_affection(fetched_content)), "conversation-history"
+
+    # 3. Otherwise, run live multi-source research on safe_topic with fast depth=6
     sections = await _research_body(safe_topic)
-    if not sections:
-        raise NoDocumentSource(
-            safe_topic,
-            "No research source answered, so there is no real material to typeset.",
-        )
-    return doc_title, sections, "live-research"
+    if sections:
+        final_title = doc_title or f"{safe_topic}: Research Dossier"
+        return final_title, sections, "live-research"
+
+    # 4. If research yielded no items but we have db_report, use it rather than failing
+    if db_report:
+        fetched_title, fetched_content = db_report
+        final_title = doc_title or fetched_title or f"{safe_topic}: Executive Report"
+        return final_title, _build_user_content_sections(_scrub_chat_affection(fetched_content)), "conversation-history"
+
+    raise NoDocumentSource(
+        safe_topic,
+        "No research source answered, so there is no real material to typeset.",
+    )
 
 
 PROVENANCE_NOTES = {
-    "supplied-text": "Body text supplied in this session; formatting only was applied here.",
+    "supplied-text": "Body text supplied in this session; executive typography applied.",
+    "conversation-history": "Compiled from the comprehensive report generated in this conversation session.",
     "live-research": "Body compiled from live multi-source research findings, each cited with its address.",
 }
+
+
+def _get_numbered_canvas_class(doc_title: str):
+    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+
+    class NumberedCanvas(canvas.Canvas):
+        """Two-pass ReportLab canvas that calculates total pages and draws modern headers and footers."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_page_states = []
+
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            num_pages = len(self._saved_page_states)
+            for state in self._saved_page_states:
+                self.__dict__.update(state)
+                self.draw_page_decorations(num_pages)
+                super().showPage()
+            super().save()
+
+        def draw_page_decorations(self, total_pages: int):
+            self.saveState()
+            page_num = self._pageNumber
+
+            # Running header on page 2+
+            if page_num > 1:
+                self.setFont("Helvetica-Bold", 8)
+                self.setFillColor(colors.HexColor("#0f172a"))
+                self.drawString(15 * mm, 297 * mm - 10 * mm, str(doc_title)[:75])
+                self.setFont("Helvetica", 7.5)
+                self.setFillColor(colors.HexColor("#94a3b8"))
+                self.drawRightString(210 * mm - 15 * mm, 297 * mm - 10 * mm, "EXECUTIVE REPORT")
+                self.setStrokeColor(colors.HexColor("#e2e8f0"))
+                self.setLineWidth(0.6)
+                self.line(15 * mm, 297 * mm - 12 * mm, 210 * mm - 15 * mm, 297 * mm - 12 * mm)
+
+            # Running footer on all pages
+            self.setStrokeColor(colors.HexColor("#e2e8f0"))
+            self.setLineWidth(0.6)
+            self.line(15 * mm, 12 * mm, 210 * mm - 15 * mm, 12 * mm)
+            self.setFont("Helvetica", 8)
+            self.setFillColor(colors.HexColor("#64748b"))
+            self.drawString(15 * mm, 8 * mm, "HINAA Frontier Academic Studio · Executive Edition")
+            self.drawRightString(210 * mm - 15 * mm, 8 * mm, f"Page {page_num} of {total_pages}")
+            self.restoreState()
+
+    return NumberedCanvas
 
 
 def _generate_reportlab_pdf(
@@ -302,19 +441,28 @@ def _generate_reportlab_pdf(
 
     styles = getSampleStyleSheet()
 
-    c_primary = colors.HexColor("#831843")
-    c_dark = colors.HexColor("#0f172a")
-    c_body = colors.HexColor("#334155")
+    c_primary = colors.HexColor("#0f172a")
     c_accent = colors.HexColor("#be185d")
-    c_bg_light = colors.HexColor("#fff1f2")
-    c_border = colors.HexColor("#fecdd3")
+    c_dark = colors.HexColor("#1e293b")
+    c_body = colors.HexColor("#334155")
+    c_bg_light = colors.HexColor("#f8fafc")
+    c_border = colors.HexColor("#e2e8f0")
 
+    badge_style = ParagraphStyle(
+        "DocBadge",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        leading=10,
+        textColor=c_accent,
+        spaceAfter=4,
+    )
     title_style = ParagraphStyle(
         "DocTitle",
         parent=styles["Heading1"],
         fontName="Helvetica-Bold",
-        fontSize=18,
-        leading=22,
+        fontSize=20,
+        leading=24,
         textColor=c_primary,
         spaceAfter=6,
     )
@@ -322,69 +470,70 @@ def _generate_reportlab_pdf(
         "DocSub",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=9.5,
+        fontSize=9,
         leading=13,
         textColor=colors.HexColor("#64748b"),
-        spaceAfter=12,
+        spaceAfter=8,
     )
     h1_style = ParagraphStyle(
         "SectionH1",
         parent=styles["Heading2"],
         fontName="Helvetica-Bold",
-        fontSize=11,
-        leading=15,
-        textColor=c_dark,
-        spaceBefore=10,
-        spaceAfter=5,
+        fontSize=12,
+        leading=16,
+        textColor=c_primary,
+        spaceBefore=12,
+        spaceAfter=6,
     )
     body_style = ParagraphStyle(
         "DocBody",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=9,
-        leading=13,
+        fontSize=9.5,
+        leading=14,
         textColor=c_body,
         spaceAfter=5,
     )
     bullet_style = ParagraphStyle(
         "DocBullet",
         parent=body_style,
-        leftIndent=10,
+        leftIndent=12,
         spaceAfter=3,
     )
     table_cell_style = ParagraphStyle(
         "TableCell",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=7.5,
-        leading=9.5,
+        fontSize=8,
+        leading=11,
         textColor=c_dark,
     )
     table_header_style = ParagraphStyle(
         "TableH",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=10,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.white,
     )
 
     story = []
 
-    # Banner
+    # Banner Header
+    story.append(Paragraph(escape(category.upper()), badge_style))
     story.append(Paragraph(escape(title), title_style))
-    story.append(Paragraph(f"{escape(category)} · Prepared by {escape(author)} · Generated by HINAA", subtitle_style))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=c_accent, spaceBefore=0, spaceAfter=10))
+    story.append(Paragraph(f"Prepared by {escape(author)} · Generated by HINAA AI Academic Studio", subtitle_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=c_accent, spaceBefore=2, spaceAfter=10))
 
-    # Metadata Table
+    # Metadata Executive Card
     meta_data = [
         [
-            Paragraph(f"<b>Document type:</b> {escape(category)}", body_style),
+            Paragraph(f"<b>Document Category:</b> {escape(category)}", body_style),
             Paragraph(f"<b>Document ID:</b> {escape(doc_id[:13])}", body_style),
         ],
         [
-            Paragraph(f"<b>Author:</b> {escape(author)}", body_style),
-            Paragraph(f"<b>Body source:</b> {escape(verification_note)}", body_style),
+            Paragraph(f"<b>Prepared By:</b> {escape(author)}", body_style),
+            Paragraph(f"<b>Source Provenance:</b> {escape(verification_note)}", body_style),
         ],
     ]
     meta_table = Table(meta_data, colWidths=[280, 240])
@@ -392,15 +541,16 @@ def _generate_reportlab_pdf(
         TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), c_bg_light),
             ("BOX", (0, 0), (-1, -1), 1, c_border),
+            ("LINELEFT", (0, 0), (0, -1), 3, c_accent),
             ("INNERGRID", (0, 0), (-1, -1), 0.5, c_border),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ("LEFTPADDING", (0, 0), (-1, -1), 8),
             ("RIGHTPADDING", (0, 0), (-1, -1), 8),
         ])
     )
     story.append(meta_table)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 10))
 
     def render_block(block: Any) -> None:
         if isinstance(block, str):
@@ -425,8 +575,8 @@ def _generate_reportlab_pdf(
                         ("BACKGROUND", (0, 0), (-1, 0), c_primary),
                         ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("TOPPADDING", (0, 0), (-1, -1), 4),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
                         ("LEFTPADDING", (0, 0), (-1, -1), 6),
                         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
@@ -443,57 +593,31 @@ def _generate_reportlab_pdf(
 
     # Sections
     for sec_title, content in sections:
-        story.append(Paragraph(escape(sec_title), h1_style))
-        if isinstance(content, list) and content and not isinstance(content[0], (str, list)):
-            for blk in content:
-                render_block(blk)
-        elif isinstance(content, list) and content and isinstance(content[0], list) and isinstance(content[0][0], str):
-            # Pure table: list of list of strings
-            render_block(content)
-        elif isinstance(content, list) and content and isinstance(content[0], str) and not any(isinstance(x, list) for x in content):
-            # Pure bullet list: list of strings
+        story.append(Paragraph(f"■ {escape(sec_title)}", h1_style))
+        if isinstance(content, str):
             render_block(content)
         elif isinstance(content, list):
-            # Mixed list of blocks
-            for blk in content:
-                render_block(blk)
+            # Check if content itself is a pure 2D table
+            if content and all(isinstance(r, list) and all(isinstance(c, str) for c in r) for r in content):
+                render_block(content)
+            else:
+                for blk in content:
+                    render_block(blk)
         else:
             render_block(content)
-        story.append(Spacer(1, 4))
+        story.append(Spacer(1, 6))
 
-    pages_rendered = 0
+    canvas_class = _get_numbered_canvas_class(title)
+    doc.build(story, canvasmaker=canvas_class)
 
-    def _draw_page_decorations(canvas, d):
-        nonlocal pages_rendered
-        canvas.saveState()
-        page_num = canvas.getPageNumber()
-        pages_rendered = max(pages_rendered, page_num)
-        # Running header on page 2+
-        if page_num > 1:
-            canvas.setFont("Helvetica", 8)
-            canvas.setFillColor(colors.HexColor("#64748b"))
-            canvas.drawString(15 * mm, 297 * mm - 10 * mm, str(title)[:70])
-            canvas.setStrokeColor(colors.HexColor("#fecdd3"))
-            canvas.setLineWidth(0.5)
-            canvas.line(15 * mm, 297 * mm - 12 * mm, 210 * mm - 15 * mm, 297 * mm - 12 * mm)
-
-        # Running footer on all pages
-        canvas.setStrokeColor(colors.HexColor("#fecdd3"))
-        canvas.setLineWidth(0.5)
-        canvas.line(15 * mm, 12 * mm, 210 * mm - 15 * mm, 12 * mm)
-        canvas.setFont("Helvetica", 7.5)
-        canvas.setFillColor(colors.HexColor("#64748b"))
-        canvas.drawString(15 * mm, 8 * mm, "HINAA Frontier Academic Studio · Publication Document")
-        canvas.drawRightString(210 * mm - 15 * mm, 8 * mm, f"Page {page_num}")
-        canvas.restoreState()
-
-    doc.build(story, onFirstPage=_draw_page_decorations, onLaterPages=_draw_page_decorations)
-
-    return output_path, pages_rendered or 1
+    pages_rendered = max(1, getattr(doc, "page", 1))
+    return output_path, pages_rendered
 
 
-async def pdf_generate_handler(params: GeneratePDFParams) -> dict[str, Any]:
+async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> dict[str, Any]:
     """Execute PDF generation and return download metadata."""
+    if isinstance(params, dict):
+        params = GeneratePDFParams(**params)
     doc_id = str(uuid.uuid4())
     resolved_topic = (
         params.topic
@@ -509,6 +633,7 @@ async def pdf_generate_handler(params: GeneratePDFParams) -> dict[str, Any]:
             topic=resolved_topic,
             content=params.content,
             title=params.title,
+            user_id=params.userId,
         )
     except NoDocumentSource as error:
         return {

@@ -46,6 +46,11 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   "gemini-live":  "Gemini Live (Native Speech-to-Speech)",
   codecraft:      "CodeCraft AI (codecraftapi.com)",
   ollama:         "Ollama (Local)",
+  pgsgrove:       "PGSGrove AI (api.pgsgrove.com)",
+  seekai:         "SeekAI (seekai.cc)",
+  tokentable:     "TokenTable (tokentable.asia)",
+  xkiro:          "XKiro AI (api.xkiro.com)",
+  cavoti:         "Cavoti AI (cavoti.com)",
 };
 
 const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
@@ -63,6 +68,11 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   "gemini-live":  "Google Gemini Live Bidi S2S (<300ms native multimodal audio).",
   codecraft:      "codecraftapi.com — 100M+ tokens, Claude Fable 5, and full unconstrained reasoning.",
   ollama:         "Fast local uncensored models (dolphin-mistral:7b, etc.) via local Ollama engine.",
+  pgsgrove:       "api.pgsgrove.com — high-speed GLM-5.3 & DeepSeek V4.1 Flash.",
+  seekai:         "seekai.cc — multi-model gateway (DeepSeek, Claude, Doubao).",
+  tokentable:     "tokentable.asia — Claude Fable 5, GPT-6, Claude Opus 5.",
+  xkiro:          "api.xkiro.com — fast free frontier models (Qwen 3.8 Max, Qwen 3.7 Flash).",
+  cavoti:         "cavoti.com — frontier models (Claude Fable 5, Claude Opus 5, Claude Haiku 4.5).",
 };
 
 export function ProviderSettings({ provider, providers, onChange, activeMode }: Props) {

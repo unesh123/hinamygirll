@@ -81,12 +81,14 @@ describe("tool autonomy", () => {
     vi.restoreAllMocks();
   });
 
+  const toolCalls = () => fetchMock.mock.calls.filter((c: any) => c[0] === "/api/v1/tools/execute");
+
   it("executes a proposed action without an approval click when autonomy is on", async () => {
     renderController(true);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(toolCalls().length).toBeGreaterThan(0));
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = toolCalls()[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/tools/execute");
     expect(JSON.parse(String(init.body))).toMatchObject({
       toolName: "diagnostic_echo",
@@ -111,7 +113,7 @@ describe("tool autonomy", () => {
       const activity = result.current.messages.at(-1)?.toolActivity ?? [];
       expect(activity[0]?.status).toBe("pending");
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toolCalls().length).toBe(0);
   });
 
   it("still executes on explicit approval while autonomy is off", async () => {
@@ -120,7 +122,7 @@ describe("tool autonomy", () => {
     await waitFor(() => {
       expect(result.current.messages.at(-1)?.toolActivity?.length).toBe(1);
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toolCalls().length).toBe(0);
 
     await result.current.resolveToolRequest(
       "assistant-with-action",
@@ -128,8 +130,8 @@ describe("tool autonomy", () => {
       true,
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(toolCalls().length).toBe(1);
+    const [, init] = toolCalls()[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       approvalSource: "user",
     });
@@ -148,7 +150,7 @@ describe("tool autonomy", () => {
       false,
     );
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toolCalls().length).toBe(0);
     await waitFor(() => {
       const activity = result.current.messages.at(-1)?.toolActivity ?? [];
       expect(activity[0]?.status).toBe("cancelled");
@@ -158,11 +160,11 @@ describe("tool autonomy", () => {
   it("does not execute the same proposed action twice under autonomy", async () => {
     const { rerender } = renderController(true);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(toolCalls().length).toBe(1));
     rerender();
     rerender();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(toolCalls().length).toBe(1);
   });
 
   it("keeps an in-band tool refusal visible after the turn ends", async () => {
