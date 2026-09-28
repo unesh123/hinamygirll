@@ -193,10 +193,10 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "Write every section out in complete prose — "
             "a heading with two sentences under it is an outline, not a report. Never compress a section into a "
             "placeholder, never say 'as above' or 'etc.', and never stop because the answer feels long. "
-            "spokenText MUST be a substantive, intelligent executive voice summary (600-1,400 "
-            "characters, roughly 45-90s of speech) "
-            "covering the main conclusions, core accomplishments, and key findings of the report naturally, "
-            "without reciting raw markdown, tables, or bullet symbols aloud."
+            "spokenText MUST be a lively, concise executive voice summary (under 300 "
+            "characters, 2 to 3 natural spoken sentences) "
+            "highlighting the core takeaway and encouraging him to review the comprehensive on-screen report. "
+            "Keep it speech-safe and instant so voice synthesis responds in under 2.5 seconds without delays."
         ),
         "supportive": (
             "Be calm, tender, and present. Validate their feelings first, hold their hand "

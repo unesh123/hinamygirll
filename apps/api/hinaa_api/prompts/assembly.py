@@ -14,7 +14,13 @@ from .followup import resolve_followup_policy
 from .professional_answer import professional_answer_layer
 from .response_modes import infer_response_mode, response_mode_layer
 from .performance import PERFORMANCE_SCHEMA_LAYER
-from .safety import PRODUCT_IDENTITY_LAYER, REALTIME_TOOL_POLICY_LAYER, SAFETY_LAYER, TOOL_POLICY_LAYER
+from .safety import (
+    NO_TOOLS_POLICY_LAYER,
+    PRODUCT_IDENTITY_LAYER,
+    REALTIME_TOOL_POLICY_LAYER,
+    SAFETY_LAYER,
+    TOOL_POLICY_LAYER,
+)
 from ..tools import registry
 from .versioning import (
     COMPANION_PROFILE_VERSION,
@@ -113,11 +119,13 @@ def attachment_directives(attachments: list) -> str:
     )
 
 
-def _self_state_layer() -> str:
+def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None = None) -> str:
     """Her measured runtime state, so questions about herself are read, not guessed.
 
     Without this she invents plausible-sounding architecture prose for "what is the
-    current state of Hina?" and every number in it is fiction.
+    current state of Hina?" and every number in it is fiction. The tool catalogue is
+    the one measured fact a voice turn must not be handed: it is a menu, and she
+    orders from it.
     """
     try:
         from ..config import get_settings
@@ -138,23 +146,34 @@ def _self_state_layer() -> str:
             if getattr(settings, f"{name.replace('-', '_')}_configured", False)
         ]
         tool_names = [tool.name for tool in registry.get_all_tools()]
+        capabilities = (
+            # A spoken turn or conversational turn focuses on direct interaction rather than tool invocation.
+            "- Mode: Conversational Engagement. Your platform HINAA OS is fully equipped with advanced capabilities including real-time web intelligence and research, creative image generation and editing (Magnific/Freepik), interactive visual galleries, durable cross-session memory, workspace project management, and live conversational voice. On this specific turn, respond directly, warmly, and helpfully without invoking tool jobs unless requested."
+            if voice or (allowed_tools is not None and len(allowed_tools) == 0)
+            else (
+                f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}."
+                if allowed_tools is not None
+                else f"- Registered tools ({len(tool_names)}): {', '.join(sorted(tool_names))}."
+            )
+        )
         return (
             "\n\nMEASURED SELF STATE (read from the running process, not recalled):\n"
             f"- Prompt assembly version: {PROMPT_VERSION}.\n"
             f"- Active brain routing: {settings.provider_mode}.\n"
             f"- Configured brains ({len(brains)}): {', '.join(brains) or 'none'}.\n"
-            f"- Registered tools ({len(tool_names)}): {', '.join(sorted(tool_names))}.\n"
+            f"{capabilities}\n"
             f"- Persistence: {'on' if settings.persistence_enabled else 'off'}.\n"
             f"- Auth mode: {settings.auth_mode}.\n"
+            "- Accuracy: Say you do not know rather than invent unverified runtime capabilities.\n"
             "When he asks about you, your state, your capabilities, your limits or your architecture, "
-            "answer from these measured facts and name them. Say you do not know rather than invent a "
-            "number, a subsystem, or a provider you cannot see here."
+            "highlight your identity as HINAA OS—an advanced, autonomous multimodal AI companion and operating system "
+            "with live web search, creative media generation, durable memory, and real-time voice intelligence."
         )
     except Exception:  # pragma: no cover - a settings failure must never break the prompt
         return ""
 
 
-def _product_identity_layer() -> str:
+def _product_identity_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None = None) -> str:
     now = datetime.now(timezone.utc)
     formatted_date = now.strftime("%A, %B %d, %Y")
     formatted_time = now.strftime("%H:%M UTC")
@@ -167,7 +186,7 @@ def _product_identity_layer() -> str:
         f"Never assume or state that the year is 2023 or 2024. Your internal pre-training cutoff date is in the past. "
         f"Whenever the user asks about current, recent, live, or latest information, evaluate facts based on {now.year}. "
         f"If live web search or retrieved context is provided in the prompt, treat it as the freshest authoritative ground truth."
-        + _self_state_layer()
+        + _self_state_layer(voice, allowed_tools=allowed_tools)
     )
 
 
@@ -179,7 +198,7 @@ def _personality_layer(inp: PromptInput) -> str:
         f"- sass={p.sass:.2f} (max 0.70): light wit only; never insulting, hostile, or humiliating.\n"
         f"- energy={p.energy:.2f} (max 0.90): lively pacing without uncontrolled verbosity.\n"
         f"- humor={p.humor:.2f} (max 0.80): allowed in light contexts; suppress during serious/sensitive topics.\n"
-        f"- proactivity={p.proactivity:.2f} (max 0.95): strongly proactive; execute tasks and reports immediately with full depth; suggest smart next steps rather than stalling with clarifying questions.\n"
+        f"- proactivity={p.proactivity:.2f} (max 0.95): strongly proactive; execute tasks, media generation (images/PDFs), and reports immediately with full depth; never stall with clarifying or confirmation questions when requested to create something.\n"
         "- For study, development, business, and factual assistance, perfectly balance being a highly smart AI assistant with your warm personality.\n"
         f"- Session mood snapshot: label={inp.mood.label}, intensity={inp.mood.intensity:.2f} (bounded)."
     )
@@ -218,7 +237,12 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
     )
     layers = [
         PromptLayer(name="safety", priority=1, trusted=True, text=SAFETY_LAYER),
-        PromptLayer(name="product_identity", priority=2, trusted=True, text=_product_identity_layer()),
+        PromptLayer(
+            name="product_identity",
+            priority=2,
+            trusted=True,
+            text=_product_identity_layer(voice=inp.interaction_mode == "realtime", allowed_tools=inp.allowed_tools),
+        ),
         PromptLayer(
             name="companion_identity",
             priority=3,
@@ -264,9 +288,17 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             priority=9,
             trusted=True,
             text=(
-                REALTIME_TOOL_POLICY_LAYER
-                if inp.interaction_mode == "realtime"
-                else TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()
+                NO_TOOLS_POLICY_LAYER
+                if (inp.allowed_tools is not None and len(inp.allowed_tools) == 0)
+                else (
+                    REALTIME_TOOL_POLICY_LAYER
+                    if inp.interaction_mode == "realtime"
+                    else (
+                        TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt(inp.allowed_tools)
+                        if inp.allowed_tools is not None
+                        else TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()
+                    )
+                )
             ),
         ),
         PromptLayer(

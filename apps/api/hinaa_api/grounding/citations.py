@@ -382,7 +382,7 @@ class CitationRenderer:
         if not sources:
             return ""
 
-        lines = ["### Sources & References"]
+        lines = ["### Sources & References\n"]
         for idx, s in enumerate(sources, 1):
             sanitized_title = self.sanitize_untrusted_text(s.title or "Untitled")
             pub = s.publisher or "Source"
@@ -394,4 +394,4 @@ class CitationRenderer:
             else:
                 lines.append(f"[{idx}] {pub} — {sanitized_title}{date_part}{stale_note}")
 
-        return "\n".join(lines)
+        return "\n\n".join(lines)

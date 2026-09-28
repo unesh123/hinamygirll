@@ -35,7 +35,11 @@ export const IMAGE_ENGINES = [
 ];
 
 export const VOICE_ENGINES = [
-  { id: "auto", label: "Auto Voice", desc: "Fastest responsive neural speech (ElevenLabs / Azure)", icon: "✨" },
+  { id: "auto", label: "Auto Voice", desc: "Fastest responsive neural speech (Deepgram Aura / Luna)", icon: "✨" },
+  { id: "deepgram", label: "Deepgram Aura (Luna / Anime Cute)", desc: "Cute, playful anime-style voice with $200 API credits", icon: "⚡" },
+  { id: "deepgram-thalia", label: "Deepgram Aura (Thalia / Expressive)", desc: "Expressive feminine conversational voice", icon: "🌸" },
+  { id: "deepgram-asteria", label: "Deepgram Aura (Asteria / Bright)", desc: "Bright youthful feminine voice", icon: "✨" },
+  { id: "fish-audio", label: "Fish Audio Studio", desc: "State-of-the-art multilingual voice (Fish Speech 1.5)", icon: "🐟" },
   { id: "elevenlabs", label: "ElevenLabs Neural", desc: "Ultra-expressive streaming neural voice (Turbo v2.5)", icon: "🎙" },
   { id: "gemini-live", label: "Gemini Live", desc: "Sub-300ms bidirectional speech stream", icon: "🎙" },
   { id: "azure-speech", label: "Azure Neural", desc: "Expressive high-fidelity voices", icon: "🌐" },
@@ -181,8 +185,9 @@ export function ModelControlBar({
             style={{
               position: "absolute",
               top: "calc(100% + 6px)",
-              left: 0,
-              minWidth: 290,
+              right: 0,
+              minWidth: 280,
+              maxWidth: "min(350px, calc(100vw - 24px))",
               maxHeight: 380,
               overflowY: "auto",
               background: "var(--bg-surface-raised, #ffffff)",
@@ -269,10 +274,50 @@ export function ModelControlBar({
                     { id: "claude-3-opus-20240229", label: "Claude 3 Opus", isDefault: false },
                   ],
                   real: [
-                    { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite", isDefault: true },
-                    { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite", isDefault: false },
-                    { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash", isDefault: false },
-                    { id: "gemini-flash-latest", label: "Gemini Flash Latest", isDefault: false },
+                    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", isDefault: true },
+                    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", isDefault: false },
+                  ],
+                  codecraft: [
+                    { id: "claude-fable-5", label: "Claude Fable 5", isDefault: true },
+                    { id: "claude-fable-5.1", label: "Claude Fable 5.1", isDefault: false },
+                    { id: "claude-sonnet-5", label: "Claude Sonnet 5", isDefault: false },
+                    { id: "claude-opus-5", label: "Claude Opus 5", isDefault: false },
+                    { id: "claude-3-7-sonnet", label: "Claude 3.7 Sonnet", isDefault: false },
+                  ],
+                  "agent-router": [
+                    { id: "agnes-2.5-flash", label: "Agnes 2.5 Flash", isDefault: true },
+                    { id: "nemotron-3.5-lightning-free", label: "Nemotron 3.5 Lightning Free", isDefault: false },
+                    { id: "laguna-s-2.1", label: "Laguna S 2.1", isDefault: false },
+                  ],
+                  pgsgrove: [
+                    { id: "glm-5.3-flash", label: "GLM 5.3 Flash", isDefault: true },
+                    { id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", isDefault: false },
+                    { id: "deepseek-v4.1-flash-turbo", label: "DeepSeek V4.1 Flash Turbo", isDefault: false },
+                    { id: "deepseek-v4-flash-0731", label: "DeepSeek V4 Flash 0731", isDefault: false },
+                  ],
+                  seekai: [
+                    { id: "glm-5.3-flash", label: "GLM 5.3 Flash", isDefault: true },
+                    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", isDefault: false },
+                    { id: "doubao-seed-2.0-code", label: "Doubao Seed 2.0 Code", isDefault: false },
+                    { id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", isDefault: false },
+                  ],
+                  tokentable: [
+                    { id: "auto", label: "TokenTable Auto", isDefault: true },
+                    { id: "claude-fable-5", label: "Claude Fable 5", isDefault: false },
+                    { id: "claude-opus-5", label: "Claude Opus 5", isDefault: false },
+                    { id: "gpt-6-astra", label: "GPT-6 Astra", isDefault: false },
+                    { id: "gpt-6-sol", label: "GPT-6 Sol", isDefault: false },
+                  ],
+                  xkiro: [
+                    { id: "qwen/qwen3.8-max:free", label: "Qwen 3.8 Max (Free)", isDefault: true },
+                    { id: "qwen/qwen3.7-flash:free", label: "Qwen 3.7 Flash (Free)", isDefault: false },
+                    { id: "qwen/qwen3.6-max-preview:free", label: "Qwen 3.6 Max Preview (Free)", isDefault: false },
+                    { id: "qwen/qwen3.5-flash:free", label: "Qwen 3.5 Flash (Free)", isDefault: false },
+                  ],
+                  cavoti: [
+                    { id: "claude-fable-5", label: "Claude Fable 5", isDefault: true },
+                    { id: "claude-opus-5", label: "Claude Opus 5", isDefault: false },
+                    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", isDefault: false },
                   ],
                 };
                 const allModels = rawModels.length > 0 ? rawModels : (fallbackModels[p.mode] ?? [{ id: p.mode, label: p.label, isDefault: true }]);
@@ -287,7 +332,13 @@ export function ModelControlBar({
                   p.mode === "cx-gateway" ? "⚡ CX Gateway" :
                   p.mode === "qwen" ? "🇨🇳 Qwen" :
                   p.mode === "ollama" ? "🦙 Ollama (Local)" :
-                  p.mode === "codecraft" ? "⚡ CodeCraft AI" : p.label;
+                  p.mode === "codecraft" ? "⚡ CodeCraft AI" :
+                  p.mode === "agent-router" ? "🔀 Agent Router (Bynara)" :
+                  p.mode === "pgsgrove" ? "🌿 PGSGrove AI" :
+                  p.mode === "seekai" ? "🔍 SeekAI Gateway" :
+                  p.mode === "tokentable" ? "💎 TokenTable Asia" :
+                  p.mode === "xkiro" ? "⚡ XKiro AI" :
+                  p.mode === "cavoti" ? "✨ Cavoti AI" : p.label;
 
                 if (!p.available || models.length === 0) return null;
 
@@ -403,8 +454,9 @@ export function ModelControlBar({
             style={{
               position: "absolute",
               top: "calc(100% + 6px)",
-              left: 0,
+              right: 0,
               minWidth: 260,
+              maxWidth: "min(320px, calc(100vw - 24px))",
               background: "var(--bg-surface-raised, #ffffff)",
               border: "1px solid var(--border-default, #e5e7eb)",
               borderRadius: 12,
@@ -493,6 +545,7 @@ export function ModelControlBar({
               top: "calc(100% + 6px)",
               right: 0,
               minWidth: 260,
+              maxWidth: "min(320px, calc(100vw - 24px))",
               background: "var(--bg-surface-raised, #ffffff)",
               border: "1px solid var(--border-default, #e5e7eb)",
               borderRadius: 12,

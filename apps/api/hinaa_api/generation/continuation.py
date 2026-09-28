@@ -12,6 +12,9 @@ It replaces the naive "ask the model to continue" loop with:
    segment boundaries so continuation never duplicates text.
 4. ``run_consistency_pass`` — final structural verification/repair of the
    concatenated output (open fences, placeholders, duplicated headings).
+5. ``CollapseGuard`` / ``detect_collapse`` — keeps a degenerate repetition
+   loop (one glyph or short span sprayed until the budget dies) out of the
+   text that reaches the browser.
 
 Design rules honored here (directive §2–§6, §37, §55):
 - Canonical text is NEVER modified during streaming; display repair is a

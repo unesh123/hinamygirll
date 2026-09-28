@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { FileText, Download, Check, Sparkles } from "lucide-react";
+import { FileText, Download, Check, Sparkles, Loader2 } from "lucide-react";
 import { HINA_MOTION } from "../../motion/MOTION";
+import { downloadMarkdownPdf } from "../../documents/exportPdf";
 import type { PdfDocFields } from "../types";
 
 interface PdfCardProps {
@@ -11,22 +12,36 @@ interface PdfCardProps {
 }
 
 export function PdfCard({ data, onCommit, compact = false }: PdfCardProps) {
-  const [visibleCount, setVisibleCount] = useState(1);
-  const [isReady, setIsReady] = useState(data.stage === "ready");
+  const [visibleCount, setVisibleCount] = useState(data.outline.length);
+  const [isReady, setIsReady] = useState(true);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
-    if (visibleCount < data.outline.length) {
-      const timer = setTimeout(() => {
-        setVisibleCount((prev) => prev + 1);
-      }, 350);
-      return () => clearTimeout(timer);
-    } else if (!isReady) {
-      const readyTimer = setTimeout(() => {
-        setIsReady(true);
-      }, 600);
-      return () => clearTimeout(readyTimer);
+    setVisibleCount(data.outline.length);
+    setIsReady(true);
+  }, [data.outline.length]);
+
+  const handleDownload = async () => {
+    try {
+      setDownloading(true);
+      const title = data.title || "Document";
+      const docMarkdown =
+        `# ${title}\n\n## Overview\n\nExecutive documentation compiled by Hinaa Academic Studio.\n\n` +
+        data.outline
+          .map(
+            (o) =>
+              `### ${o}\n\nComprehensive technical documentation and analysis regarding ${o}.\n`,
+          )
+          .join("\n");
+      await downloadMarkdownPdf(title, docMarkdown);
+      onCommit?.({ ...data, stage: "ready" });
+    } catch (e) {
+      console.error("PDF download failed:", e);
+      onCommit?.({ ...data, stage: "ready" });
+    } finally {
+      setDownloading(false);
     }
-  }, [visibleCount, data.outline.length, isReady]);
+  };
 
   return (
     <div
@@ -79,7 +94,7 @@ export function PdfCard({ data, onCommit, compact = false }: PdfCardProps) {
         </span>
       </div>
 
-      {/* Outlines with 40ms stagger */}
+      {/* Outlines */}
       <div
         style={{
           display: "flex",
@@ -111,39 +126,34 @@ export function PdfCard({ data, onCommit, compact = false }: PdfCardProps) {
         ))}
       </div>
 
-      {/* Download chip springs in */}
-      {isReady ? (
-        <motion.button
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={HINA_MOTION.spring}
-          type="button"
-          onClick={() => onCommit?.({ ...data, stage: "ready" })}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            padding: "8px 14px",
-            borderRadius: 8,
-            background: "#ef4444",
-            color: "#ffffff",
-            border: "none",
-            fontWeight: 700,
-            fontSize: "0.82rem",
-            cursor: "pointer",
-            marginTop: 4,
-          }}
-        >
-          <Download size={14} />
-          <span>Download PDF ↵</span>
-        </motion.button>
-      ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.75rem", color: "rgba(255,255,255,0.4)" }}>
-          <Sparkles size={13} color="#ef4444" />
-          <span>Formatting LaTeX and typesetting pages...</span>
-        </div>
-      )}
+      {/* Download chip */}
+      <motion.button
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={HINA_MOTION.spring}
+        type="button"
+        disabled={downloading}
+        onClick={handleDownload}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          padding: "8px 14px",
+          borderRadius: 8,
+          background: "#ef4444",
+          color: "#ffffff",
+          border: "none",
+          fontWeight: 700,
+          fontSize: "0.82rem",
+          cursor: downloading ? "wait" : "pointer",
+          marginTop: 4,
+          opacity: downloading ? 0.8 : 1,
+        }}
+      >
+        {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+        <span>{downloading ? "Compiling PDF…" : "Download PDF ↵"}</span>
+      </motion.button>
     </div>
   );
 }

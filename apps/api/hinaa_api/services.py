@@ -40,11 +40,30 @@ from .providers.gemini import GeminiLLMProvider
 from .providers.groq import GroqLLMProvider
 from .providers.local import LocalLLMProvider, make_local_stt, make_local_tts
 from .providers.mock import MockLLMProvider, MockSTTProvider, MockTTSProvider
-from .providers.elevenlabs import ElevenLabsConfig, ElevenLabsHTTPStreamingProvider, ElevenLabsSTTProvider
+from .providers.elevenlabs import (
+    ElevenLabsConfig,
+    ElevenLabsHTTPStreamingProvider,
+    ElevenLabsSTTProvider,
+    ElevenLabsWebSocketStreamingProvider,
+    choose_live_tts_model,
+    choose_text_tts_model,
+    make_elevenlabs_provider,
+)
 from .providers.fish_audio import FishAudioConfig, FishAudioTTSProvider
 from .providers.openai_llm import OpenAILLMProvider
 from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
+from .voice_performance import speech_text_for_tts
 from .voice_profiles import resolve_calibration, resolve_voice
+from .run_ledger import get_run_ledger
+from .reply_guard import check_reply
+from .voice_fallback import (
+    fallback_voice_id,
+    is_fallback_worthy,
+    note_voice_failure,
+    voice_on_cooldown,
+)
+
+_ELEVENLABS_PROVIDER = "elevenlabs"
 
 logger = logging.getLogger("hinaa.conversation")
 
@@ -232,6 +251,19 @@ def _fact_category(fact: str) -> str:
 def _comparison_key(text: str) -> str:
     """Create a tolerant key for checking accidental response repetition."""
     return re.sub(r"[^\w]+", "", text.casefold(), flags=re.UNICODE)
+
+
+def _image_fetch_count(text: str, *, default: int = 6) -> int:
+    """How many existing pictures he asked for, capped where the tool caps.
+
+    The search tool pools providers up to its own ceiling; a planner that always
+    asked for six made that ceiling unreachable from his words.
+    """
+    from .tools.browser import MAX_IMAGE_RESULTS
+    from .tools.intent_gate import requested_count
+
+    count = requested_count(text or "", maximum=MAX_IMAGE_RESULTS, default=default)
+    return min(max(1, count), MAX_IMAGE_RESULTS)
 
 
 def _dedupe_halves(text: str) -> str:
@@ -1012,17 +1044,76 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_pgsgrove_brain(self) -> None:
+        if self.settings.active_pgsgrove_key is None or self.settings.active_pgsgrove_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "PGSGrove is not configured. Add PGSGROVE_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_seekai_brain(self) -> None:
+        if self.settings.active_seekai_key is None or self.settings.active_seekai_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "SeekAI is not configured. Add SEEKAI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_tokentable_brain(self) -> None:
+        if self.settings.active_tokentable_key is None or self.settings.active_tokentable_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "TokenTable is not configured. Add TOKENTABLE_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_xkiro_brain(self) -> None:
+        if self.settings.active_xkiro_key is None or self.settings.active_xkiro_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "XKiro is not configured. Add XKIRO_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_cavoti_brain(self) -> None:
+        if self.settings.active_cavoti_key is None or self.settings.active_cavoti_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Cavoti is not configured. Add CAVOTI_AI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def stt(self, mode: str) -> STTProvider:
+        return self.stt_candidates(mode, "en-US")[0]
+
+    def stt_candidates(self, mode: str, language: str) -> list[STTProvider]:
+        """Speech-to-text options for this turn, primary provider first.
+
+        Deepgram Nova-2 is the primary speech recognition provider: funded ($200 balance),
+        supports dynamic language detection and multilingual transcription (Hindi, English, Nepali,
+        Hinglish), and returns transcripts in ~300ms.
+        """
         if mode == "mock":
-            return self.mock_stt
+            return [self.mock_stt]
         if mode == "local":
-            return self.local_stt
+            return [self.local_stt]
+
+        deepgram: STTProvider | None = None
         if self.settings.deepgram_configured:
             assert self.settings.deepgram_api_key
-            return DeepgramSTTProvider(
+            deepgram = DeepgramSTTProvider(
                 api_key=self.settings.deepgram_api_key.get_secret_value(),
-                base_url=self.settings.deepgram_base_url
+                base_url=self.settings.deepgram_base_url,
+                model=self.settings.deepgram_stt_model,
             )
+
+        elevenlabs: STTProvider | None = None
         if self.settings.elevenlabs_configured:
             assert self.settings.elevenlabs_api_key
             config = ElevenLabsConfig(
@@ -1031,8 +1122,10 @@ class ProviderRouter:
                 voice_id=self.settings.elevenlabs_voice_id,
                 model_id=self.settings.elevenlabs_stt_model_id,
             )
-            return ElevenLabsSTTProvider(config)
-        return self.local_stt
+            elevenlabs = ElevenLabsSTTProvider(config)
+
+        ordered = [deepgram, elevenlabs]
+        return [provider for provider in ordered if provider is not None] or [self.local_stt]
 
     def llm(
         self,
@@ -1222,6 +1315,81 @@ class ProviderRouter:
                 base_url=self.settings.active_omniroute_base_url,
                 provider_id="omniroute",
             )
+        if mode == "pgsgrove":
+            self._require_pgsgrove_brain()
+            active_pgsgrove_key = self.settings.active_pgsgrove_key
+            active_pgsgrove_base_url = self.settings.active_pgsgrove_base_url
+            assert active_pgsgrove_key and active_pgsgrove_base_url
+            try:
+                model = self.settings.resolve_pgsgrove_model(brain_model)
+            except ValueError:
+                model = self.settings.active_pgsgrove_model
+            return OpenAILLMProvider(
+                active_pgsgrove_key.get_secret_value(),
+                model,
+                base_url=active_pgsgrove_base_url,
+                provider_id="pgsgrove",
+            )
+        if mode == "seekai":
+            self._require_seekai_brain()
+            active_seekai_key = self.settings.active_seekai_key
+            active_seekai_base_url = self.settings.active_seekai_base_url
+            assert active_seekai_key and active_seekai_base_url
+            try:
+                model = self.settings.resolve_seekai_model(brain_model)
+            except ValueError:
+                model = self.settings.active_seekai_model
+            return OpenAILLMProvider(
+                active_seekai_key.get_secret_value(),
+                model,
+                base_url=active_seekai_base_url,
+                provider_id="seekai",
+            )
+        if mode == "tokentable":
+            self._require_tokentable_brain()
+            active_tokentable_key = self.settings.active_tokentable_key
+            active_tokentable_base_url = self.settings.active_tokentable_base_url
+            assert active_tokentable_key and active_tokentable_base_url
+            try:
+                model = self.settings.resolve_tokentable_model(brain_model)
+            except ValueError:
+                model = self.settings.active_tokentable_model
+            return OpenAILLMProvider(
+                active_tokentable_key.get_secret_value(),
+                model,
+                base_url=active_tokentable_base_url,
+                provider_id="tokentable",
+            )
+        if mode == "xkiro":
+            self._require_xkiro_brain()
+            active_xkiro_key = self.settings.active_xkiro_key
+            active_xkiro_base_url = self.settings.active_xkiro_base_url
+            assert active_xkiro_key and active_xkiro_base_url
+            try:
+                model = self.settings.resolve_xkiro_model(brain_model)
+            except ValueError:
+                model = self.settings.active_xkiro_model
+            return OpenAILLMProvider(
+                active_xkiro_key.get_secret_value(),
+                model,
+                base_url=active_xkiro_base_url,
+                provider_id="xkiro",
+            )
+        if mode == "cavoti":
+            self._require_cavoti_brain()
+            active_cavoti_key = self.settings.active_cavoti_key
+            active_cavoti_base_url = self.settings.active_cavoti_base_url
+            assert active_cavoti_key and active_cavoti_base_url
+            try:
+                model = self.settings.resolve_cavoti_model(brain_model)
+            except ValueError:
+                model = self.settings.active_cavoti_model
+            return OpenAILLMProvider(
+                active_cavoti_key.get_secret_value(),
+                model,
+                base_url=active_cavoti_base_url,
+                provider_id="cavoti",
+            )
         if mode == "real":
             # The historical "real" mode means Gemini brain + a voice provider.
             # Gate on full real-mode configuration so a missing key raises a
@@ -1242,27 +1410,74 @@ class ProviderRouter:
             ) from error
         return GeminiLLMProvider(self.settings.gemini_api_key.get_secret_value(), model)
 
+    def elevenlabs_config(self) -> ElevenLabsConfig:
+        """Server-side ElevenLabs config, in one place for every TTS path."""
+        assert self.settings.elevenlabs_api_key
+        return ElevenLabsConfig(
+            api_key=self.settings.elevenlabs_api_key.get_secret_value(),
+            base_url=self.settings.elevenlabs_base_url,
+            voice_id=self.settings.elevenlabs_voice_id,
+            model_id=self.settings.elevenlabs_model_id,
+            output_format=self.settings.elevenlabs_output_format,
+        )
+
     def tts(self, mode: str, companion_id: CompanionId | None = None) -> TTSProvider:
         if mode == "mock":
             return self.mock_tts
         if mode == "local":
             return self.local_tts
-        if companion_id == "hiro" and self.settings.deepgram_configured:
+        # Deepgram Aura is the preferred voice provider when configured or selected.
+        if (
+            self.settings.voice_provider == "deepgram"
+            or (self.settings.deepgram_configured and not self.settings.elevenlabs_configured)
+        ) and self.settings.deepgram_configured:
             assert self.settings.deepgram_api_key
             return DeepgramTTSProvider(
                 api_key=self.settings.deepgram_api_key.get_secret_value(),
-                base_url=self.settings.deepgram_base_url
+                base_url=self.settings.deepgram_base_url,
+            )
+        if self.settings.elevenlabs_configured and self.settings.voice_provider in {
+            "auto",
+            "elevenlabs",
+        }:
+            return make_elevenlabs_provider(
+                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+            )
+        if (
+            self.settings.voice_provider == "fish-audio"
+            or (self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0] and not self.settings.elevenlabs_configured)
+        ) and self.settings.fish_audio_configured:
+            assert self.settings.fish_audio_api_key
+            voice_id = (
+                self.settings.fish_audio_hiro_voice_id
+                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                else self.settings.fish_audio_hinaa_voice_id
+            )
+            return FishAudioTTSProvider(
+                FishAudioConfig(
+                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                    base_url=self.settings.fish_audio_base_url,
+                    voice_id=voice_id,
+                    model_id=self.settings.fish_audio_model_id,
+                    output_format=self.settings.fish_audio_output_format,
+                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                )
             )
         # Fish Audio is the preferred multilingual TTS (Nepali/English)
         # when configured WITH a voice id; ElevenLabs and Azure remain
         # fallbacks when the key exists but no voice is chosen yet.
         if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
             assert self.settings.fish_audio_api_key
+            voice_id = (
+                self.settings.fish_audio_hiro_voice_id
+                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                else self.settings.fish_audio_hinaa_voice_id
+            )
             return FishAudioTTSProvider(
                 FishAudioConfig(
                     api_key=self.settings.fish_audio_api_key.get_secret_value(),
                     base_url=self.settings.fish_audio_base_url,
-                    voice_id=self.settings.fish_audio_voice_ids[0],
+                    voice_id=voice_id,
                     model_id=self.settings.fish_audio_model_id,
                     output_format=self.settings.fish_audio_output_format,
                     request_timeout_s=self.settings.fish_audio_timeout_seconds,
@@ -1611,13 +1826,40 @@ class ConversationService:
                 logger.debug("Failed to record project fact", exc_info=True)
 
     async def transcribe(self, pcm: bytes, language: str, mode: str) -> ProviderResult[str]:
-        try:
-            async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                return await self.router.stt(mode).transcribe(pcm, language)
-        except TimeoutError as error:
-            raise HinaaError(
-                "PROVIDER_TIMEOUT", "Speech transcription took too long.", 504, True
-            ) from error
+        attempts: list[str] = []
+        for provider in self.router.stt_candidates(mode, language):
+            try:
+                async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                    result = await provider.transcribe(pcm, language)
+            except TimeoutError:
+                attempts.append(f"{provider.id}=timeout")
+                logger.warning("STT %s timed out; trying the next provider", provider.id)
+                continue
+            except HinaaError as error:
+                if not error.retryable:
+                    # "Not configured" is a fact about this vendor, not a flake.
+                    # Another provider cannot make it truer, so say it plainly.
+                    raise
+                attempts.append(f"{provider.id}={error.code}")
+                logger.warning(
+                    "STT %s rejected the audio (%s: %s); trying the next provider",
+                    provider.id, error.code, error.developer_message or error.message,
+                )
+                continue
+            except Exception as error:
+                attempts.append(f"{provider.id}={type(error).__name__}")
+                logger.warning("STT %s failed unexpectedly", provider.id, exc_info=True)
+                continue
+            if result.value.strip():
+                return result
+            attempts.append(f"{provider.id}=empty")
+        raise HinaaError(
+            "STT_UNAVAILABLE",
+            "I could not make out any words in that.",
+            504,
+            True,
+            developer_message="; ".join(attempts) or "no speech-to-text provider configured",
+        ) from None
 
     def _inject_deterministic_tool_intents(
         self,
@@ -1820,12 +2062,13 @@ class ConversationService:
                 try:
                     d_state = self.dialogue_state_service.load(session_id)
                     if d_state:
-                        # Prioritize active_topic if it is set and not a generic placeholder
-                        if d_state.active_topic and not any(k in d_state.active_topic.lower() for k in ("anime", "image", "general", "something")):
+                        # Prioritize active character entity if present, fallback to topic
+                        from hinaa_api.dialogue_state import EntityReferenceResolver
+                        active_char = EntityReferenceResolver.get_active_character(d_state)
+                        if active_char:
+                            active_subject = active_char
+                        elif d_state.active_topic and d_state.active_topic.strip().lower() not in ("anime", "image", "images", "general", "something", "chat"):
                             active_subject = d_state.active_topic
-                        else:
-                            from hinaa_api.dialogue_state import EntityReferenceResolver
-                            active_subject = EntityReferenceResolver.get_active_character(d_state) or d_state.active_topic
                 except Exception:
                     pass
 
@@ -1855,7 +2098,7 @@ class ConversationService:
                     plain_text,
                 ).strip()
                 query_candidate = re.sub(
-                    r"(?i)^\s*(?:search|find|look\s+for|show|sho|display|give\s+me|get|fetch|bring|see)\s+(?:me\s+)?(?:some\s+)?(?:public\s+)?(?:images?|pictures?|photos?|pics?|imgs?)?\s*(?:of|for|about)?\s*",
+                    r"(?i)^\s*(?:send(?:\s+me)?|search|find|look\s+for|show|sho|display|give\s+me|get|fetch|bring|see)\s+(?:me\s+)?(?:some\s+)?(?:public\s+)?(?:images?|pictures?|photos?|pics?|imgs?)?\s*(?:of|for|about|on)?\s*",
                     "",
                     query_candidate,
                 ).strip()
@@ -1889,33 +2132,53 @@ class ConversationService:
 
                 is_generic = (
                     not query_candidate
-                    or bool(re.search(r"(?i)^(?:them|it|these|those|fetch\s+them|see\s+them|show\s+them|images?|pics?)$", query_candidate))
-                    or bool(re.search(r"(?i)^(?:i\s+)?(?:just\s+)?(?:want|ont)\s+to\s+.*(?:see|fetch|show|get)", query_candidate))
+                    or bool(re.search(r"(?i)^(?:them|it|these|those|that|this|fetch\s+them|see\s+them|show\s+them|send\s+them|images?|pics?|(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)|(?:send\s+)?(?:some\s+)?anime)$", query_candidate))
+                    or bool(re.search(r"(?i)^(?:i\s+)?(?:just\s+)?(?:want|ont)\s+to\s+.*(?:see|fetch|show|get|send)", query_candidate))
                 )
 
                 resolved_query = "" if is_generic else query_candidate
                 if not resolved_query and d_state and getattr(d_state, "active_topic", None):
-                    if not any(k in d_state.active_topic.lower() for k in ("anime", "image", "general", "something")):
-                        resolved_query = d_state.active_topic
+                    clean_top = d_state.active_topic.strip()
+                    if clean_top.lower() not in ("anime", "image", "images", "general", "something", "chat"):
+                        resolved_query = clean_top
+                if not resolved_query and d_state and getattr(d_state, "active_entities", None):
+                    for ent in d_state.active_entities:
+                        if ent.get("name"):
+                            resolved_query = ent["name"]
+                            break
 
                 if not resolved_query and session_id:
                     try:
                         history = self.memory.context(session_id)
                         for role, content in reversed(history):
+                            if content.strip().casefold() == plain_text.strip().casefold():
+                                continue
+                            clean_prev = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", content).strip()
+                            for alias in CHARACTER_ENTITY_MAP:
+                                neg_pat = (
+                                    r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
+                                    r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
+                                    + re.escape(alias)
+                                    + r"\b|\b"
+                                    + re.escape(alias)
+                                    + r"\s+(?:mat|nahi|nhi|na|haina|chaidaina)\b"
+                                )
+                                clean_prev = re.sub(neg_pat, " ", clean_prev).strip()
+                                if re.search(rf"\b{re.escape(alias)}\b", clean_prev, re.IGNORECASE):
+                                    resolved_query = CHARACTER_ENTITY_MAP[alias]
+                                    break
+                            if resolved_query:
+                                break
                             if role == "user":
-                                if content.strip().casefold() == plain_text.strip().casefold():
-                                    continue
-                                clean_prev = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", content).strip()
-                                for alias in CHARACTER_ENTITY_MAP:
-                                    neg_pat = (
-                                        r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
-                                        r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
-                                        + re.escape(alias)
-                                        + r"\b|\b"
-                                        + re.escape(alias)
-                                        + r"\s+(?:mat|nahi|nhi|na|haina|chaidaina)\b"
-                                    )
-                                    clean_prev = re.sub(neg_pat, " ", clean_prev).strip()
+                                topic_m = re.search(r"(?i)\b(?:about|for|on)\s+([a-zA-Z0-9\s:_-]{3,60})", clean_prev)
+                                if topic_m:
+                                    resolved_query = topic_m.group(1).strip()
+                                    break
+                            elif role == "assistant":
+                                title_matches = re.findall(r"(?:[“\"'\*]{1,2}|(?:\b(?:titled|watch|anime)\s+))([A-Z][a-zA-Z0-9: \-]{3,35})(?:[”\"'\*]{1,2}|\b)", clean_prev)
+                                if title_matches:
+                                    resolved_query = title_matches[0].strip()
+                                    break
                                 for _ in range(3):
                                     clean_prev = re.sub(
                                         r"(?i)^(?:like|please|pls|can\s+you|could\s+you|sho\s+me|show\s+me|give\s+me|get\s+me|some|who is|what is|tell me about|explain|describe)\s+",
@@ -1957,13 +2220,16 @@ class ConversationService:
             # browser with an existing conversation, the compiler resolved the
             # turn to the user's own echoed words and the caption read
             # "Found 6 relevant i want pics of tokyo ghoul images.".
-            compiled = compiled_image_query_parameters({"query": final_query, "count": 6})
+            # He has to get "20 images" out of the tool that searches, not just
+            # out of the tool that draws; a hard-coded 6 here capped every ask.
+            fetch_count = _image_fetch_count(plain_text or text)
+            compiled = compiled_image_query_parameters({"query": final_query, "count": fetch_count})
             final_query = str(compiled.get("query") or final_query)
             canonical_subject = str(compiled.get("canonicalSubject") or canonical_subject)
 
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_subject},
+                parameters={"query": final_query, "count": fetch_count, "canonicalSubject": canonical_subject},
             ))
 
             if re.search(r"[\u0900-\u097F]", plain_text):
@@ -1971,8 +2237,8 @@ class ConversationService:
                 plan.spokenText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं!"
                 plan.language = "hi-IN"
             else:
-                plan.displayText = f"Found 6 relevant {canonical_subject} images."
-                plan.spokenText = f"Found 6 relevant {canonical_subject} images."
+                plan.displayText = f"Found {fetch_count} relevant {canonical_subject} images."
+                plan.spokenText = f"Found {fetch_count} relevant {canonical_subject} images."
                 plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
 
@@ -2000,12 +2266,15 @@ class ConversationService:
         if image_command and not any(t.toolName == "image_generate" for t in plan.toolRequests):
             prompt_str = plain_text
             prompt_str = re.sub(
-                r"(?i)^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?(?:generate|create|make|draw|paint|render)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|portrait)?\s*(?:of\s+)?",
+                r"(?i)^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?"
+                r"(?:generate|create|make|draw|paint|render)\s+(?:me\s+)?"
+                r"(?:\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s+)?"
+                r"(?:an?\s+)?(?:image|picture|photo|portrait)s?\s*(?:of\s+)?",
                 "",
                 prompt_str,
             ).strip()
             prompt_str = re.sub(
-                r"(?i)\s+(?:image|picture|photo|portrait|artwork|wallpaper)$",
+                r"(?i)\s+(?:image|picture|photo|portrait|artwork|wallpaper)s?$",
                 "",
                 prompt_str,
             ).strip()
@@ -2023,7 +2292,7 @@ class ConversationService:
             img_count = 1
             count_m = re.search(r"\b(\d+)\s*(?:images?|pictures?|photos?|variations?|series)\b", lower_text)
             if count_m:
-                img_count = min(max(1, int(count_m.group(1))), 4)
+                img_count = min(max(1, int(count_m.group(1))), 10)
             elif re.search(r"\b(?:series\s+of\s+images?|image\s+series|multiple\s+images?|few\s+images?)\b", lower_text):
                 img_count = 3
             elif re.search(r"\b(?:two|pair\s+of)\s+(?:images?|pictures?|photos?)\b", lower_text):
@@ -2064,7 +2333,30 @@ class ConversationService:
                     from hinaa_api.dialogue_state import AssetReferenceResolver
                     ref_asset_id = AssetReferenceResolver.resolve_asset_id(unquoted, d_state)
                 if not ref_entity:
-                    ref_entity = d_state.active_topic or (d_state.active_entities[0]["name"] if d_state.active_entities and isinstance(d_state.active_entities[0], dict) and "name" in d_state.active_entities[0] else None)
+                    candidates = [d_state.active_topic]
+                    if d_state.active_entities and isinstance(d_state.active_entities[0], dict):
+                        candidates.append(d_state.active_entities[0].get("name"))
+                    # subject_entity is who or what is in the picture, and it feeds
+                    # reference resolution and asset memory. Measured live: the
+                    # dialogue-state topic held his sentence verbatim, so
+                    # `generate mikasa images` was filed as the subject. A request
+                    # verb or the deliverable's own name means that candidate is a
+                    # sentence, not a subject, so the next one gets the chance and
+                    # an invented subject never reaches the job.
+                    ref_entity = next(
+                        (
+                            candidate.strip()
+                            for candidate in candidates
+                            if isinstance(candidate, str)
+                            and candidate.strip()
+                            and not re.search(
+                                r"(?i)\b(generate|create|make|draw|render|show|send|design|please"
+                                r"|image|images|picture|pictures|photo|photos|pic|pics|wallpaper|wallpapers)\b",
+                                candidate,
+                            )
+                        ),
+                        None,
+                    )
 
             if not ref_asset_id and self.cross_session_retriever and uid:
                 try:
@@ -2124,9 +2416,10 @@ class ConversationService:
                 ))
 
         pdf_command = bool(
-            re.search(r"\b(?:make|create|generate|give\s+me|build|write|download)\s+(?:me\s+)?(?:a\s+)?pdf\b", unquoted, re.I)
-            or re.search(r"\bpdf\s+(?:file|document|of|on|about|for)\b", unquoted, re.I)
-            or re.search(r"\b(?:assignment|report|paper|summary)\s+pdf\b", unquoted, re.I)
+            re.search(r"\b(?:make|create|generate|give\s+me|build|write|download|export)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?pdf\b", unquoted, re.I)
+            or re.search(r"\b(?:the|that|this)\s+pdf\b", unquoted, re.I)
+            or re.search(r"\bpdf\s+(?:file|document|of|on|about|for|bro|please|dinu|chahiye)\b", unquoted, re.I)
+            or re.search(r"\b(?:assignment|report|paper|summary|slides?|presentation)\s+pdf\b", unquoted, re.I)
             or re.search(r"\bpdf\s+(?:banao|banau|dinu)\b", unquoted, re.I)
         )
         if pdf_command and not any(t.toolName == "pdf_generate" for t in plan.toolRequests):
@@ -2135,9 +2428,9 @@ class ConversationService:
             topic_str = plain_text
             topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
             topic_str = re.sub(r"(?i)\b(?:i\s+need\s+to\s+complete\s+my\s+assignment|my\s+topic\s+is)\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download)\s+(?:me\s+)?(?:a\s+)?pdf\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?pdf\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
             topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*pdf\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\bpdf\s*(?:file|document|banao|banau|dinu)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:the\s+)?pdf\s*(?:file|document|banao|banau|dinu|bro|please|pls)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
             topic_str = re.sub(r"[\"']", "", topic_str).strip()
             topic_str = re.sub(r"\s+", " ", topic_str).strip()
 
@@ -2146,7 +2439,7 @@ class ConversationService:
                 or len(topic_str) < 4
                 or bool(
                     re.search(
-                        r"(?i)^(?:based\s+on\s+)?(?:that|this|it|her|the\s+above|above|same|previous|last|what\s+you\s+(?:said|wrote|generated))(?:\s+(?:assignment|report|paper|doc|document|topic|conversation))?$",
+                        r"(?i)^(?:based\s+on\s+)?(?:that|this|it|her|the\s+above|above|same|previous|last|what\s+you\s+(?:said|wrote|generated)|report|the\s+report|thr\s+report)(?:\s+(?:assignment|report|paper|doc|document|topic|conversation))?$",
                         topic_str,
                     )
                 )
@@ -2288,11 +2581,19 @@ class ConversationService:
                     parameters={"url": destination},
                 ))
 
+        has_substantive_answer = bool(
+            getattr(plan, "displayText", None) and len(str(plan.displayText).strip()) > 30
+        )
+
         cited_answer_command = is_command(
             [r"^\s*(please\s+)?(answer with sources|give (?:me )?a cited answer|verify online)\b"],
             target=r"\b(sources?|citations?|online|web|internet)\b|वेब|स्रोत",
         )
-        if cited_answer_command and not any(t.toolName == "web_answer" for t in plan.toolRequests):
+        if (
+            cited_answer_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_answer" for t in plan.toolRequests)
+        ):
             prompt_str = re.sub(
                 r"(?i)^\s*(?:please\s+)?(?:answer with sources|give (?:me )?a cited answer|verify online)\s*(?:for|about|:)?\s*",
                 "",
@@ -2307,7 +2608,11 @@ class ConversationService:
             [r"^\s*(please\s+)?(read|extract|summarize)\b"],
             target=r"https?://[^\s]+",
         )
-        if extract_command and not any(t.toolName == "web_extract" for t in plan.toolRequests):
+        if (
+            extract_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_extract" for t in plan.toolRequests)
+        ):
             urls = re.findall(r"https?://[^\s]+", text)
             plan.toolRequests.append(ToolRequest(
                 toolName="web_extract",
@@ -2318,7 +2623,11 @@ class ConversationService:
             [r"^\s*(please\s+)?(?:financial|finance) research\b"],
             target=r"\b(finance|financial|earnings|filing|stock|market|company)\b",
         )
-        if finance_command and not any(t.toolName == "finance_research" for t in plan.toolRequests):
+        if (
+            finance_command
+            and not has_substantive_answer
+            and not any(t.toolName == "finance_research" for t in plan.toolRequests)
+        ):
             prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:financial|finance) research\s*(?:on|about|:)?\s*", "", text).strip()
             plan.toolRequests.append(ToolRequest(
                 toolName="finance_research",
@@ -2329,7 +2638,11 @@ class ConversationService:
             [r"^\s*(please\s+)?(search and research|research|investigate|compare with sources|deep research)\b"],
             target=r"\b(web|internet|online|sources?|citations?|documentation|current|breakthrough|quantum|computing|technology|science|news|ai|market|development|history|theory)\b|वेब|स्रोत",
         )
-        if deep_research_command and not any(t.toolName == "web_research" for t in plan.toolRequests):
+        if (
+            deep_research_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_research" for t in plan.toolRequests)
+        ):
             prompt_str = re.sub(
                 r"(?i)^\s*(?:please\s+)?(?:search and research|research|investigate|compare with sources|deep research)\s*(?:the web for|online|with sources|about|into|on|:)?\s*",
                 "",
@@ -2352,7 +2665,11 @@ class ConversationService:
             ],
             target=r"\b(web|internet|online|google|documentation|sources?|links?|sites?|websites?|find|search|latest|current|recent|best|top|watch|stream|recommend|anime|movie|music|video)\b|वेब|इन्टरनेट|खोज",
         )
-        if search_command and not any(t.toolName == "web_search" for t in plan.toolRequests):
+        if (
+            search_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_search" for t in plan.toolRequests)
+        ):
             prompt_str = re.sub(
                 r"(?i)^\s*(?:please\s+)?(?:search the web for|look up|find information about|google search for)\s+",
                 "",
@@ -2362,6 +2679,193 @@ class ConversationService:
                 toolName="web_search",
                 parameters={"query": prompt_str or text},
             ))
+
+    def _turn_tool_whitelist(self, text: str, gate_intent) -> tuple[str, ...]:
+        """The tools his own words earned for this turn, decided before any brain speaks.
+
+        Both the prompt and the executed plan are cut from this one set. When the
+        streamed path built its prompt tool-free and the injector filed the action
+        afterwards, she was told "Tools on this turn: none" and then ran an image
+        job anyway, so the bubble denied a capability the same turn was using.
+        """
+        from .tools.intent_gate import sanction_tools
+        from hinaa_intent_gate import Intent as HinaaIntent
+
+        if gate_intent == HinaaIntent.IMAGE_GENERATE:
+            return ("image_generate", "magnific_image_generate", "freepik_image_generate")
+        if gate_intent == HinaaIntent.IMAGE_SEARCH:
+            return ("image_search",)
+        if gate_intent == HinaaIntent.WEB_SEARCH:
+            return ("web_search", "web_answer", "web_research")
+        if gate_intent == HinaaIntent.DOCUMENT_CREATE:
+            # Either builder answers the ask; the injector picks and the gate
+            # dedupes the family, so both names stay open.
+            return ("pdf_generate", "document_generate")
+        # The pre-LLM classifier only knows the loud intents. A turn it fell
+        # through on can still name an action in words the richer gate reads --
+        # "same one but darker", "generate hina again", "fetch Nepal incident
+        # images" -- so the whitelist comes from the same sanction that later
+        # filters the provider's own calls, not from this one regex pass.
+        sanction = sanction_tools(text, known_subjects=CHARACTER_ENTITY_MAP)
+        return tuple(sorted(sanction.allowed)) if sanction.allowed else ()
+
+    def _gate_tool_intents(
+        self, request: TurnRequest, plan: AssistantTurnPlan, *, user_id: str | None
+    ) -> None:
+        """Decide with his words, not with the answering brain, which tools run.
+
+        Every gated call a provider invented is removed before it can become a
+        ``tool.proposed`` event, and the two calls this gate can specify
+        completely -- the subject of a picture, the moment of a reminder -- are
+        added even when the brain never noticed he had asked. The reply is then
+        rewritten to match the actions, because a paragraph written before the
+        gate existed can only promise or refuse the wrong thing.
+        """
+        from .tools.intent_gate import (
+            blocked_note,
+            denies_capability,
+            gate_tool_requests,
+            strip_capability_denials,
+        )
+
+        kept, dropped, sanction = gate_tool_requests(
+            request.text, plan.toolRequests, known_subjects=CHARACTER_ENTITY_MAP
+        )
+        plan.toolRequests = kept
+
+        if kept:
+            # The answer was written before this decision existed, and a brain
+            # that invents its own call also pastes its arguments into the
+            # bubble. Now that a call is known to have been filed, the copy goes.
+            from .providers.display_stream_decoder import (
+                drop_echoed_call_arguments,
+                drop_inlined_page_source,
+            )
+
+            plan.displayText = drop_echoed_call_arguments(plan.displayText)
+            plan.spokenText = drop_echoed_call_arguments(plan.spokenText)
+
+            if any(req.toolName == "design_website" for req in kept):
+                # A weak brain answers "build me a site" by writing the whole
+                # page into its reply. He then reads 17K characters of markup in
+                # the bubble while the same turn quietly writes the real file.
+                plan.displayText = drop_inlined_page_source(plan.displayText or "")
+                plan.spokenText = drop_inlined_page_source(plan.spokenText or "")
+                if not plan.displayText.strip():
+                    fallback = self._action_confirmation(
+                        next(req for req in kept if req.toolName == "design_website")
+                    )
+                    plan.displayText = plan.spokenText = fallback
+
+        if sanction.abort and self._cancel_inflight_image_jobs(user_id=user_id) is None:
+            # Nothing was cancelled because nothing could be reached, so the
+            # plain "Stopped." would be a lie about work still running.
+            note = "I could not reach the queue, so the running job may still finish."
+            plan.displayText = self._blocked_reply(plan.displayText, note)
+            plan.spokenText = self._blocked_reply(plan.spokenText, note)
+            _apply_response_quality_guard(plan)
+            return
+
+        added = [tool for tool in kept if tool.reason == "deterministic-intent"]
+        if added:
+            confirmation = " ".join(self._action_confirmation(tool) for tool in added)
+            plan.displayText = confirmation
+            plan.spokenText = confirmation
+            _apply_response_quality_guard(plan)
+            return
+
+        if kept and denies_capability(plan.displayText or ""):
+            # She proposed this call herself, so it runs -- and a paragraph that
+            # says the tool is missing is false on his screen either way. The
+            # action leads, and whatever else still answers him stays under it.
+            confirmation = " ".join(self._action_confirmation(tool) for tool in kept)
+            for field in ("displayText", "spokenText"):
+                remaining = strip_capability_denials(getattr(plan, field) or "")
+                setattr(
+                    plan,
+                    field,
+                    f"{confirmation} {remaining}".strip() if remaining.strip() else confirmation,
+                )
+            _apply_response_quality_guard(plan)
+            return
+
+        if dropped or sanction.abort:
+            note = blocked_note(dropped, aborted=sanction.abort, unbound=bool(sanction.resolved))
+            plan.displayText = self._blocked_reply(plan.displayText, note)
+            plan.spokenText = self._blocked_reply(plan.spokenText, note)
+
+    @staticmethod
+    def _action_confirmation(tool: ToolRequest) -> str:
+        parameters = tool.parameters if isinstance(tool.parameters, dict) else {}
+        if tool.toolName == "reminder.create":
+            from .tools.reminder import display_time, parse_at
+
+            return f"Reminder — {parameters.get('title')}, {display_time(parse_at(parameters.get('at')))}."
+        if tool.toolName == "image_generate":
+            subject = parameters.get("prompt")
+            count = parameters.get("count") or 1
+            if count > 1:
+                return f"Generating {count} images of {subject}."
+            return f"Generating an image of {subject}."
+        if tool.toolName == "image_search":
+            subject = parameters.get("canonicalSubject") or parameters.get("query")
+            return f"Searching images for {subject}."
+        if tool.toolName == "design_website":
+            from .tools.website_design import _subject_line
+
+            subject = _subject_line(parameters.get("brief") or "")
+            return f"Building the website for {subject}." if subject else "Building that website for you."
+        return f"Running {tool.toolName}."
+
+    @staticmethod
+    def _blocked_reply(text: str, note: str) -> str:
+        """Keep whatever still answers him, drop the promise that does not."""
+        from .tools.intent_gate import strip_stale_promises
+
+        remaining = strip_stale_promises(text or "")
+        if not remaining:
+            return note
+        if note in remaining:
+            return remaining
+        # Stripping the promise can leave a clause with no end mark, and the
+        # note then fuses with it on his screen.
+        if remaining[-1] not in ".!?।॥":
+            remaining = f"{remaining}."
+        return f"{remaining} {note}"
+
+    def _cancel_inflight_image_jobs(self, *, user_id: str | None) -> int | None:
+        """Stop the renders he just told us to stop; None means we could not look.
+
+        ``image_generate`` checks its row before every status write and returns
+        early on ``cancelled``, so flipping these rows really does end the work
+        rather than only hiding it.
+        """
+        from sqlalchemy import select
+
+        from .persistence.db import get_session_factory
+        from .persistence.orm import GenerationSet, ImageJob
+
+        # Scoped by owner, not by conversation: the generate tool only files a
+        # conversation_id when that conversation already has a row, so a thread
+        # narrowed filter would match nothing and "Stopped." would be a lie.
+        owner = user_id or self.settings.dev_auth_subject
+        try:
+            session_factory = get_session_factory(self.settings)
+            with session_factory() as session:
+                query = (
+                    select(ImageJob)
+                    .join(GenerationSet, ImageJob.generation_set_id == GenerationSet.id)
+                    .where(GenerationSet.user_id == owner)
+                    .where(ImageJob.status.in_(("pending", "processing")))
+                )
+                rows = list(session.execute(query).scalars().all())
+                for row in rows:
+                    row.status = "cancelled"
+                session.commit()
+                return len(rows)
+        except Exception:
+            logger.warning("Failed to cancel in-flight image jobs", exc_info=True)
+            return None
 
     def _map_explicit_command(
         self, parsed_command: ParsedCommand, plan: AssistantTurnPlan, user_id: str | None = None
@@ -2401,12 +2905,13 @@ class ConversationService:
                 canonical_sub = CHARACTER_ENTITY_MAP[clean_args.lower()]
                 final_query = canonical_sub
             plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search", "image_generate"}]
+            lookup_count = _image_fetch_count(clean_args)
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_sub},
+                parameters={"query": final_query, "count": lookup_count, "canonicalSubject": canonical_sub},
             ))
-            plan.displayText = f"Found 6 relevant {canonical_sub} images."
-            plan.spokenText = f"Found 6 relevant {canonical_sub} images."
+            plan.displayText = f"Found {lookup_count} relevant {canonical_sub} images."
+            plan.spokenText = f"Found {lookup_count} relevant {canonical_sub} images."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
             return
@@ -2417,10 +2922,19 @@ class ConversationService:
             "generate image", "image_generate", "img", "dalle", "flux", "paint"
         }
         if is_generate_cmd:
+            from .tools.intent_gate import requested_count
+
             prompt_text = clean_args or "beautiful digital artwork"
+            # The batch size is a request for how many pictures, not part of the
+            # subject: strip the number with the noun it hangs off, range included.
+            prompt_text = re.sub(
+                r"(?i)\b\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s*(?:images?|imges?|pictures?|photos?|pics?|wallpapers?)\b",
+                " ",
+                prompt_text,
+            )
             # Strip trailing noise tokens like images, imges, pictures, pics, etc.
-            prompt_text = re.sub(r"(?i)\b(images?|imges?|pictures?|photos?|pics?|wallpapers?)\b", "", prompt_text).strip()
-            prompt_text = prompt_text or "beautiful digital artwork"
+            prompt_text = re.sub(r"(?i)\b(images?|imges?|pictures?|photos?|pics?|wallpapers?)\b", " ", prompt_text)
+            prompt_text = re.sub(r"\s{2,}", " ", prompt_text).strip(" ,") or "beautiful digital artwork"
             # Expand known character names to canonical full names
             _pt_lower = prompt_text.lower()
             for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
@@ -2428,14 +2942,17 @@ class ConversationService:
                 if re.search(_pattern, _pt_lower, re.IGNORECASE):
                     prompt_text = re.sub(_pattern, canonical, prompt_text, flags=re.IGNORECASE)
                     break
-            count = int(flags.get("count", 1))
+            flag_count = flags.get("count")
+            count = int(flag_count) if isinstance(flag_count, int) and flag_count > 0 else requested_count(
+                clean_args, maximum=10
+            )
             mode = flags.get("mode", "quality")
             seed = flags.get("seed")
             engine = flags.get("model") or flags.get("engine")
 
             gen_params: dict[str, Any] = {
                 "prompt": prompt_text,
-                "count": min(max(1, count), 4),
+                "count": min(max(1, count), 10),
                 "mode": mode,
             }
             if seed is not None:
@@ -2449,8 +2966,13 @@ class ConversationService:
                 parameters=gen_params,
             ))
             display_model = f" [{engine}]" if engine else ""
-            plan.displayText = f"Generating '{prompt_text}'{display_model} for you now! 🎨✨"
-            plan.spokenText = f"Generating that image for you now!"
+            batch = int(gen_params["count"])
+            if batch > 1:
+                plan.displayText = f"Generating {batch} of '{prompt_text}'{display_model} for you now! 🎨✨"
+                plan.spokenText = f"Generating {batch} images for you now!"
+            else:
+                plan.displayText = f"Generating '{prompt_text}'{display_model} for you now! 🎨✨"
+                plan.spokenText = "Generating that image for you now!"
             plan.language = "en-US"
             plan.emotion = Emotion(primary="excited", intensity=0.8, valence=0.8, arousal=0.6)
             return
@@ -2480,12 +3002,17 @@ class ConversationService:
                 final_query = clean_q or clean_args or "anime aesthetic"
                 canonical_sub = final_query.title()
             plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search"}]
+            flag_count = flags.get("count")
+            search_count = _image_fetch_count(
+                clean_args,
+                default=flag_count if isinstance(flag_count, int) and flag_count > 0 else 6,
+            )
             plan.toolRequests.append(ToolRequest(
                 toolName="image_search",
-                parameters={"query": final_query, "count": 6, "canonicalSubject": canonical_sub},
+                parameters={"query": final_query, "count": search_count, "canonicalSubject": canonical_sub},
             ))
-            plan.displayText = f"Found 6 relevant {canonical_sub} images."
-            plan.spokenText = f"Found 6 relevant {canonical_sub} images."
+            plan.displayText = f"Found {search_count} relevant {canonical_sub} images."
+            plan.spokenText = f"Found {search_count} relevant {canonical_sub} images."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
             return
@@ -2515,6 +3042,10 @@ class ConversationService:
             "document": ("document_generate", {"title": clean_args, "content": "", "format": flags.get("format", "pdf")}),
             "create doc": ("document_generate", {"title": clean_args, "content": "", "format": "docx"}),
             "pdf": ("pdf_generate", {"topic": clean_args, "title": clean_args, "content": ""}),
+            "site": ("design_website", {"brief": clean_args}),
+            "website": ("design_website", {"brief": clean_args}),
+            "webpage": ("design_website", {"brief": clean_args}),
+            "landing page": ("design_website", {"brief": clean_args}),
             "gamma": ("create_gamma_presentation", {"topic": clean_args or "Presentation", "format": "presentation"}),
             "deck": ("create_gamma_presentation", {"topic": clean_args or "Pitch Deck", "format": "presentation"}),
             "gamma doc": ("create_gamma_presentation", {"topic": clean_args or "Document", "format": "document"}),
@@ -2546,7 +3077,43 @@ class ConversationService:
                 # in a failed card. The turn stays conversational instead.
                 return
             existing_req = next((t for t in plan.toolRequests if t.toolName == tool_name), None)
-            if tool_name in {"pdf_generate", "document_generate"} and not clean_args and not existing_req:
+            is_referential_arg = bool(
+                not clean_args
+                or (
+                    len(clean_args) < 80
+                    and re.search(
+                        r"(?i)^(?:make\s+(?:me\s+)?(?:a\s+)?)?(?:based\s+on\s+)?(?:that|this|it|the\s+report|report|thr\s+report|above|same|previous|notes|conversation)",
+                        clean_args,
+                    )
+                )
+            )
+            if tool_name in {"pdf_generate", "document_generate", "create_gamma_presentation"} and is_referential_arg:
+                from hinaa_api.tools.pdf_generate import _fetch_last_report_from_db
+                db_report = _fetch_last_report_from_db(user_id)
+                if db_report:
+                    rep_title, rep_content = db_report
+                    if tool_name == "create_gamma_presentation":
+                        base_params["outline"] = rep_content
+                        base_params["topic"] = rep_title or "Executive Presentation"
+                    else:
+                        base_params["content"] = rep_content
+                        base_params["title"] = rep_title or "Executive Research Report"
+                        base_params["topic"] = rep_title or "Executive Research Report"
+                    self._set_command_text(
+                        plan,
+                        f"### 📄 Compiling Document: {rep_title or 'Executive Report'}\n\n"
+                        f"Typesetting the write-up from our conversation history into a publication-ready PDF.",
+                        spoken=f"Generating your document from our conversation write-up now.",
+                    )
+                elif not clean_args and not existing_req:
+                    self._set_command_text(
+                        plan,
+                        "What should the document be about? Try `/pdf World War II`. I typeset either the "
+                        "text you give me or a live research pass on the subject you name — I don't invent "
+                        "one from an empty command.",
+                    )
+                    return
+            elif tool_name in {"pdf_generate", "document_generate"} and not clean_args and not existing_req:
                 self._set_command_text(
                     plan,
                     "What should the document be about? Try `/pdf World War II`. I typeset either the "
@@ -2554,6 +3121,7 @@ class ConversationService:
                     "one from an empty command.",
                 )
                 return
+
             if existing_req:
                 for k, v in base_params.items():
                     if not existing_req.parameters.get(k):
@@ -2799,16 +3367,21 @@ class ConversationService:
         rather than as a failure.
         """
         configured: dict[str, tuple[bool, str | None]] = {
-            "claude": (self.settings.claude_configured, self.settings.active_claude_model),
             "codecraft": (self.settings.codecraft_configured, self.settings.active_codecraft_model),
-            "custom": (self.settings.custom_configured, self.settings.active_custom_model),
-            "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
-            "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
-            "openai": (self.settings.openai_configured, self.settings.active_openai_model),
             "agent-router": (
                 self.settings.agent_router_configured,
                 self.settings.active_agent_router_model,
             ),
+            "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
+            "seekai": (self.settings.seekai_configured, self.settings.active_seekai_model),
+            "tokentable": (self.settings.tokentable_configured, self.settings.active_tokentable_model),
+            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
+            "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
+            "claude": (self.settings.claude_configured, self.settings.active_claude_model),
+            "custom": (self.settings.custom_configured, self.settings.active_custom_model),
+            "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
+            "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
+            "openai": (self.settings.openai_configured, self.settings.active_openai_model),
             "groq": (self.settings.groq_configured, self.settings.groq_model),
             "real": (self.settings.gemini_configured, self.settings.gemini_model),
         }
@@ -3189,11 +3762,16 @@ class ConversationService:
         return any(re.search(pat, lowered) for pat in temporal_indicators)
 
     def _extract_search_query(self, text: str, d_state: Any = None) -> str:
-        """Normalize user text to an effective search query without assistant names."""
+        """Normalize user text to an effective search query with antecedent resolution."""
         query = re.sub(
-            r"(?i)^\s*(?:(?:hey\s+)?hinaa?\b|babe\b|bro\b|please\b|can\s+you\b|could\s+you\b|tell\s+me\b|check\b|search(?:\s+for)?\b|look\s+up\b|what\s+is\b|what\s+are\b|what's\b|find\b|[ ,!.-])+",
+            r"(?i)^\s*(?:(?:hey\s+)?hinaa?\b|babe\b|bro\b|please\b|can\s+you\b|could\s+you\b|tell\s+me\b|check\b|search(?:\s+for)?\b|look\s+up\b|what\s+is\b|what\s+are\b|what's\b|find(?:\s+me)?\b|send(?:\s+me)?\b|show(?:\s+me)?\b|give(?:\s+me)?\b|fetch(?:\s+me)?\b|bring(?:\s+me)?\b|[ ,!.-])+",
             "",
             text.strip(),
+        ).strip(" ?!.,;:")
+        query = re.sub(
+            r"(?i)^\s*(?:some\s+|a\s+few\s+|any\s+)?(?:images?|pictures?|photos?|pics?|imgs?|wallpaper)?\s*(?:of|for|about|on)?\s*",
+            "",
+            query,
         ).strip(" ?!.,;:")
         # Strip trailing companion address names (e.g. "find details about it hina" -> "details about it")
         query = re.sub(
@@ -3201,22 +3779,176 @@ class ConversationService:
             "",
             query,
         ).strip(" ?!.,;:")
-        # Resolve referential pronouns using active dialogue state topic if available
-        if d_state and getattr(d_state, "active_topic", None):
-            topic = d_state.active_topic
-            if re.search(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them)\b", query):
-                query = re.sub(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them)\b", f"about {topic}", query)
-            elif query.strip().lower() in {"it", "this", "that", "them", "her", "him", "details", "more details", "news"}:
-                query = f"{topic} latest {query}".strip()
+        # Resolve referential pronouns / anaphoric phrases using active dialogue state
+        if d_state:
+            topic = getattr(d_state, "active_topic", None)
+            if not topic and getattr(d_state, "active_entities", None):
+                for ent in d_state.active_entities:
+                    if ent.get("name"):
+                        topic = ent["name"]
+                        break
+            if topic and topic.strip().lower() not in {"anime", "image", "images", "general", "something", "chat"}:
+                if re.search(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them|those|these)\b", query):
+                    query = re.sub(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them|those|these)\b", f"about {topic}", query)
+                elif re.search(r"(?i)\b(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)\b", query):
+                    query = re.sub(r"(?i)\b(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)\b", topic, query)
+                elif query.strip().lower() in {"it", "this", "that", "them", "those", "these", "her", "him", "details", "more details", "news", "those anime", "these anime", "anime", "send anime"}:
+                    query = f"{topic} latest {query}".strip()
         return query if len(query) >= 3 else text.strip()
 
     async def create_plan(
         self, request: TurnRequest, *, user_id: str | None = None
     ) -> ProviderResult[AssistantTurnPlan]:
+        from .models import ToolRequest
+
         convo_id = request.conversationId or request.sessionId
         d_state = None
         dialogue_state_block = ""
         live_search_block = ""
+
+        # Gate First: evaluate intent before running LLM or routing
+        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
+        gate_decision = decide_intent(request.text)
+
+        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
+            from .tools.reminder import schedule_reminder
+            from .models import ToolRequest
+            saved = schedule_reminder(
+                user_id=user_id or "anonymous",
+                title=gate_decision.arguments["title"],
+                at=gate_decision.arguments["due_at"],
+                conversation_id=request.conversationId or request.sessionId,
+                settings=self.settings,
+            )
+            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
+            plan = build_plan_from_text(
+                text=confirm_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = confirm_text
+            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
+            plan.toolRequests = [
+                ToolRequest(
+                    toolName="reminder.create",
+                    parameters={
+                        "title": saved["title"],
+                        "at": saved["at"],
+                        "display": saved["display"],
+                        "id": saved["id"],
+                    },
+                    status="ready",
+                    reason="deterministic-intent",
+                )
+            ]
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
+            return result
+
+        if gate_decision.intent == HinaaIntent.CANCEL:
+            self._cancel_inflight_image_jobs(user_id=user_id)
+            cancel_text = "Stopped. I have cancelled any running jobs."
+            plan = build_plan_from_text(
+                text=cancel_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = cancel_text
+            plan.spokenText = cancel_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.CLARIFY:
+            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
+            plan = build_plan_from_text(
+                text=reason,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = reason
+            plan.spokenText = reason
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.WEB_SEARCH and not self.settings.youcom_configured:
+            offline_text = "Search is offline: You.com key or API tunnel is not on production."
+            plan = build_plan_from_text(
+                text=offline_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = offline_text
+            plan.spokenText = offline_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        allowed_tools = self._turn_tool_whitelist(request.text, gate_decision.intent)
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -3242,12 +3974,17 @@ class ConversationService:
         # Real-time pre-turn live web search grounding. Trivial FAST turns
         # never hit search (§39: simple chat must not suffer or pay for it).
         grounded_sources: list[Any] = []
+        search_query = ""
         if (
             request.providerMode != "mock"
             and not _route_meta.get("skip_recent_working_context")
-            and self._should_pre_search(request.text, d_state=d_state)
+            and (self._should_pre_search(request.text, d_state=d_state) or gate_decision.intent == HinaaIntent.WEB_SEARCH)
         ):
-            search_query = self._extract_search_query(request.text, d_state=d_state)
+            search_query = (
+                gate_decision.arguments.get("query")
+                if gate_decision.intent == HinaaIntent.WEB_SEARCH
+                else None
+            ) or self._extract_search_query(request.text, d_state=d_state)
             # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
             try:
                 from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
@@ -3271,7 +4008,7 @@ class ConversationService:
                 from datetime import datetime, timezone
                 search_res = await asyncio.wait_for(
                     search_web({"query": search_query, "count": search_budget}),
-                    timeout=5.0,
+                    timeout=8.0,
                 )
                 items = search_res.get("results") or search_res.get("sources") or []
                 if items:
@@ -3317,8 +4054,64 @@ class ConversationService:
                             self.dialogue_state_service.save(d_state)
                         except Exception:
                             pass
+                elif gate_decision.intent == HinaaIntent.WEB_SEARCH:
+                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
+                    plan = build_plan_from_text(
+                        text=offline_text,
+                        companion_id=request.companionId or "hinaa",
+                        language=request.language or "en-US",
+                        depth="conversational",
+                    )
+                    plan.displayText = offline_text
+                    plan.spokenText = offline_text
+                    plan.toolRequests = []
+                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+                    self.memory.append_turn(
+                        request.sessionId, request.text, result.value.model_dump_json()
+                    )
+                    if self.memory_service and user_id:
+                        try:
+                            self.memory_service.append_turn(
+                                user_id=user_id,
+                                companion_id=request.companionId or "hinaa",
+                                conversation_id=request.conversationId or request.sessionId,
+                                user_text=request.text,
+                                assistant_text=result.value.model_dump_json(),
+                                language=result.value.language or "mixed",
+                            )
+                        except Exception:
+                            pass
+                    return result
             except Exception:
                 logger.debug("Pre-search grounding skipped or timed out", exc_info=True)
+                if gate_decision.intent == HinaaIntent.WEB_SEARCH:
+                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
+                    plan = build_plan_from_text(
+                        text=offline_text,
+                        companion_id=request.companionId or "hinaa",
+                        language=request.language or "en-US",
+                        depth="conversational",
+                    )
+                    plan.displayText = offline_text
+                    plan.spokenText = offline_text
+                    plan.toolRequests = []
+                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+                    self.memory.append_turn(
+                        request.sessionId, request.text, result.value.model_dump_json()
+                    )
+                    if self.memory_service and user_id:
+                        try:
+                            self.memory_service.append_turn(
+                                user_id=user_id,
+                                companion_id=request.companionId or "hinaa",
+                                conversation_id=request.conversationId or request.sessionId,
+                                user_text=request.text,
+                                assistant_text=result.value.model_dump_json(),
+                                language=result.value.language or "mixed",
+                            )
+                        except Exception:
+                            pass
+                    return result
 
         if d_state is not None:
             try:
@@ -3358,6 +4151,7 @@ class ConversationService:
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
             history_preselected=True,
+            allowed_tools=allowed_tools,
         )
         self._log_prompt_meta(
             request.sessionId,
@@ -3405,6 +4199,10 @@ class ConversationService:
                         request.providerMode, request.brainModel
                     )
                 attempted_brain = getattr(provider, "id", None) or request.providerMode
+                # The router resolves aliases and allow-lists to a concrete model id,
+                # so the instance — not the request — is the only honest source of
+                # what went over the wire.
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
                 result = await provider.create_plan(
                     request.text,
                     request.companionId,
@@ -3412,9 +4210,8 @@ class ConversationService:
                     history,
                     prompt,
                 )
-                self._record_brain_call(
-                    attempted_brain, ok=True, model=request.brainModel or ""
-                )
+                resolved_model = served_model or resolved_model
+                self._record_brain_call(attempted_brain, ok=True, model=served_model)
                 if request.providerMode == "mock" and self.cross_session_retriever and user_id:
                     try:
                         evs = self.cross_session_retriever.retrieve_relevant_context(
@@ -3471,6 +4268,7 @@ class ConversationService:
                     request.providerMode, request.brainModel
                 )
                 attempted_brain = getattr(provider, "id", None) or request.providerMode
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
                 try:
                     async with asyncio.timeout(primary_plan_timeout):
                         result = await provider.create_plan(
@@ -3480,9 +4278,8 @@ class ConversationService:
                             history,
                             prompt,
                         )
-                    self._record_brain_call(
-                        attempted_brain, ok=True, model=request.brainModel or ""
-                    )
+                    resolved_model = served_model or resolved_model
+                    self._record_brain_call(attempted_brain, ok=True, model=served_model)
                     retry_succeeded = True
                 except Exception as retry_err:
                     if isinstance(retry_err, HinaaError):
@@ -3580,13 +4377,35 @@ class ConversationService:
                 except Exception:
                     logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
 
-        self._inject_deterministic_tool_intents(
-            request.text,
-            result.value,
-            session_id=request.sessionId,
-            turn_request=request,
-            user_id=user_id,
-        )
+        if allowed_tools == ():
+            result.value.toolRequests = []
+        else:
+            self._inject_deterministic_tool_intents(
+                request.text,
+                result.value,
+                session_id=request.sessionId,
+                turn_request=request,
+                user_id=user_id,
+            )
+            self._gate_tool_intents(request, result.value, user_id=user_id)
+            if gate_decision.intent == HinaaIntent.WEB_SEARCH and not any(t.toolName in ("web_search", "web_answer", "web_research") for t in result.value.toolRequests):
+                if not live_search_block:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="web_search",
+                            parameters={"query": search_query or request.text},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+            result.value.toolRequests = [
+                tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
+            ]
+            if live_search_block or (result.value.displayText and len(result.value.displayText.strip()) > 30):
+                SEARCH_TOOLS = {"web_search", "web_research", "web_answer", "finance_research", "web_extract"}
+                result.value.toolRequests = [
+                    tr for tr in result.value.toolRequests if tr.toolName not in SEARCH_TOOLS
+                ]
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
 
@@ -3615,6 +4434,14 @@ class ConversationService:
             assistant_text=result.value.displayText or result.value.spokenText or "",
         )
 
+        guard_spoken = check_reply(result.value.spokenText, user_text=request.text, language=request.language)
+        if guard_spoken.text != result.value.spokenText:
+            result.value.spokenText = guard_spoken.text
+        if result.value.displayText:
+            guard_display = check_reply(result.value.displayText, user_text=request.text, language=request.language)
+            if guard_display.text != result.value.displayText:
+                result.value.displayText = guard_display.text
+
         self._persist_learned_memories(user_id, request.sessionId)
 
         return result
@@ -3628,11 +4455,154 @@ class ConversationService:
         emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         from .providers.timing import ProviderTiming
+        from .models import ToolRequest
 
         convo_id = request.conversationId or request.sessionId
         d_state = None
         dialogue_state_block = ""
         live_search_block = ""
+
+        # Gate First: evaluate intent before running LLM or routing
+        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
+        gate_decision = decide_intent(request.text)
+
+        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
+            from .tools.reminder import schedule_reminder
+            from .models import ToolRequest
+            saved = schedule_reminder(
+                user_id=user_id or "anonymous",
+                title=gate_decision.arguments["title"],
+                at=gate_decision.arguments["due_at"],
+                conversation_id=request.conversationId or request.sessionId,
+                settings=self.settings,
+            )
+            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
+            plan = build_plan_from_text(
+                text=confirm_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = confirm_text
+            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
+            plan.toolRequests = [
+                ToolRequest(
+                    toolName="reminder.create",
+                    parameters={
+                        "title": saved["title"],
+                        "at": saved["at"],
+                        "display": saved["display"],
+                        "id": saved["id"],
+                    },
+                    status="ready",
+                    reason="deterministic-intent",
+                )
+            ]
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
+            return result
+
+        if gate_decision.intent == HinaaIntent.CANCEL:
+            self._cancel_inflight_image_jobs(user_id=user_id)
+            cancel_text = "Stopped. I have cancelled any running jobs."
+            plan = build_plan_from_text(
+                text=cancel_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = cancel_text
+            plan.spokenText = cancel_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.CLARIFY:
+            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
+            plan = build_plan_from_text(
+                text=reason,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = reason
+            plan.spokenText = reason
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.WEB_SEARCH and not self.settings.youcom_configured:
+            offline_text = "Search is offline: You.com key or API tunnel is not on production."
+            plan = build_plan_from_text(
+                text=offline_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = offline_text
+            plan.spokenText = offline_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -3683,19 +4653,6 @@ class ConversationService:
 
             if emit_event:
                 try:
-                    await emit_event("agent.step.started", {
-                        "runId": convo_id or "run",
-                        "stepId": "web_search",
-                        "event": {
-                            "event_type": "agent.step.started",
-                            "run_id": convo_id or "run",
-                            "step_id": "web_search",
-                            "payload": {
-                                "title": "Searching the live web",
-                                "message": f"Looking up live information: \"{search_query}\"",
-                            },
-                        },
-                    })
                     await emit_event("search.started", {
                         "query": search_query,
                         "correlationId": convo_id,
@@ -3713,19 +4670,6 @@ class ConversationService:
                 items = search_res.get("results") or search_res.get("sources") or []
                 if emit_event:
                     try:
-                        await emit_event("agent.step.completed", {
-                            "runId": convo_id or "run",
-                            "stepId": "web_search",
-                            "event": {
-                                "event_type": "agent.step.completed",
-                                "run_id": convo_id or "run",
-                                "step_id": "web_search",
-                                "payload": {
-                                    "title": "Web search completed",
-                                    "message": f"Retrieved {len(items)} live sources",
-                                },
-                            },
-                        })
                         await emit_event("search.completed", {
                             "query": search_query,
                             "sourcesCount": len(items),
@@ -3805,6 +4749,16 @@ class ConversationService:
             decision=route_decision_rt,
         )
         resolved_media = await self._resolve_turn_media(request)
+        # ``turns:stream`` carries typed chat as well as voice, so the tool-free
+        # contract is keyed on the mode that is actually voice. A typed turn gets
+        # the whitelist its own words earned: passing () here told her the turn
+        # had no tools while the injector below filed the action anyway.
+        is_voice_turn = request.responseMode == "concise_voice"
+        live_allowed_tools = (
+            ()
+            if is_voice_turn
+            else self._turn_tool_whitelist(request.text, gate_decision.intent)
+        )
         prompt = build_turn_prompt(
             request=request,
             history=history,
@@ -3817,6 +4771,7 @@ class ConversationService:
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
             history_preselected=True,
+            allowed_tools=live_allowed_tools,
         )
         timing.mark("prompt_built")
         self._log_prompt_meta(
@@ -3877,6 +4832,7 @@ class ConversationService:
                         request.providerMode, request.brainModel
                     )
                 attempted_brain = getattr(provider, "id", None) or request.providerMode
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
                 if isinstance(provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                     result = await provider.create_live_plan(
                         request.text,
@@ -3895,9 +4851,12 @@ class ConversationService:
                         result.latency_ms,
                         stages=stages,
                     )
-                    # The interface now names the brain that answered, so record
-                    # the one that actually ran rather than the one requested.
+                    # The interface now names the brain that answered, so record the
+                    # ones that actually ran rather than the ones requested. A badge
+                    # built from the request said "claude" for weeks while a flash-tier
+                    # gateway wrote every word.
                     resolved_provider = getattr(provider, "id", None) or resolved_provider
+                    resolved_model = served_model or resolved_model
                 else:
                     # Mock / non-streaming path: deltas are synthetic after full plan.
                     timing.mark("provider_client_ready")
@@ -3940,9 +4899,7 @@ class ConversationService:
                         result.latency_ms,
                         stages=timing.snapshot(),
                     )
-            self._record_brain_call(
-                attempted_brain, ok=True, model=request.brainModel or ""
-            )
+            self._record_brain_call(attempted_brain, ok=True, model=served_model)
         except (HinaaError, TimeoutError, Exception) as raw_error:
             if isinstance(raw_error, TimeoutError):
                 timed_out_idle = primary_idle_expired()
@@ -4033,7 +4990,11 @@ class ConversationService:
                                     prompt,
                                 )
                             self._record_brain_call(
-                                attempted_brain, ok=True, model=request.brainModel or ""
+                                attempted_brain,
+                                ok=True,
+                                model=getattr(selected_provider, "model", "")
+                                or request.brainModel
+                                or "",
                             )
                             live_retry_succeeded = True
                     except HinaaError as retry_err:
@@ -4130,13 +5091,30 @@ class ConversationService:
                 except Exception:
                     logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
 
-        self._inject_deterministic_tool_intents(
-            request.text,
-            result.value,
-            session_id=request.sessionId,
-            turn_request=request,
-            user_id=user_id,
-        )
+        # The live path used to receive a tool-free prompt and a blanket
+        # ``toolRequests = []`` afterwards. That wiped image and document
+        # actions for every streamed turn, not just voice ones, so "generate
+        # Hina in a cafe" on the web chat filed no job at all. Turns:stream now
+        # carries typed chat as well as voice, so the tool-free contract is
+        # decided once, above, from the mode that is actually voice: a
+        # ``concise_voice`` turn gets a tool-free prompt and zero tool execution,
+        # while a typed turn is told and then runs the same words-decided set.
+        if is_voice_turn:
+            result.value.toolRequests = []
+        else:
+            self._inject_deterministic_tool_intents(
+                request.text,
+                result.value,
+                session_id=request.sessionId,
+                turn_request=request,
+                user_id=user_id,
+            )
+            self._gate_tool_intents(request, result.value, user_id=user_id)
+            if live_search_block or (result.value.displayText and len(result.value.displayText.strip()) > 30):
+                SEARCH_TOOLS = {"web_search", "web_research", "web_answer", "finance_research", "web_extract"}
+                result.value.toolRequests = [
+                    tr for tr in result.value.toolRequests if tr.toolName not in SEARCH_TOOLS
+                ]
 
         self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
 
@@ -4156,6 +5134,14 @@ class ConversationService:
                 )
         except Exception:
             logger.warning("Failed to persist turn to database", exc_info=True)
+
+        guard_spoken = check_reply(result.value.spokenText, user_text=request.text, language=request.language)
+        if guard_spoken.text != result.value.spokenText:
+            result.value.spokenText = guard_spoken.text
+        if result.value.displayText:
+            guard_display = check_reply(result.value.displayText, user_text=request.text, language=request.language)
+            if guard_display.text != result.value.displayText:
+                result.value.displayText = guard_display.text
 
         self._persist_learned_memories(user_id, request.sessionId)
         
@@ -4190,8 +5176,20 @@ class ConversationService:
         # stream holds a trailing open construct back until it resolves, which
         # keeps the typed-out bubble identical to what lands in it.
         notation_stream = MathNotationStream()
+        # Decided from his words, before the brain speaks, by the same sanction
+        # that files the call below: on a turn already building the page, a
+        # document typed into the reply is machinery, and the client paints
+        # whatever reaches the wire. Prose either side of it still streams.
+        from .providers.display_stream_decoder import PageSourceGuard
+        from .tools.intent_gate import page_will_be_built
+
+        page_guard = PageSourceGuard() if page_will_be_built(request.text) else None
 
         async def emit_delta(delta: str) -> None:
+            if page_guard is not None:
+                delta = page_guard.feed(delta)
+                if not delta:
+                    return
             safe = notation_stream.feed(delta)
             if safe:
                 await queue.put(("delta", safe))
@@ -4251,6 +5249,12 @@ class ConversationService:
                 break
             # Anything still held back was never followed by a resolving delta;
             # ship it before the remainder comparison so it cannot be emitted twice.
+            held_page = page_guard.flush() if page_guard is not None else ""
+            if held_page:
+                safe = notation_stream.feed(held_page)
+                if safe:
+                    emitted.append(safe)
+                    yield _make_delta_event(safe)
             tail = notation_stream.flush()
             if tail:
                 emitted.append(tail)
@@ -4336,6 +5340,21 @@ class ConversationService:
                 "toolName": tool_req.toolName,
                 "status": "ready",
             })
+        # Self-check before she speaks. The generator occasionally leaves its
+        # own diagnostics in the text, or a fence it opened and never closed;
+        # he should never read either. Repairs are conservative and logged.
+        guard_spoken = check_reply(
+            result.value.spokenText, user_text=request.text, language=request.language
+        )
+        if guard_spoken.text != result.value.spokenText:
+            result.value.spokenText = guard_spoken.text
+
+        if result.value.displayText:
+            guard_display = check_reply(
+                result.value.displayText, user_text=request.text, language=request.language
+            )
+            if guard_display.text != result.value.displayText:
+                result.value.displayText = guard_display.text
         plan_payload: dict[str, object] = {
             "plan": result.value.model_dump(),
             "provider": result.provider,
@@ -4352,18 +5371,89 @@ class ConversationService:
         })
 
     async def synthesize(self, request: SpeechRequest) -> ProviderResult[bytes]:
+        # The speaker button reads the same text the bubble shows, so the voice
+        # channel gets the shaping the Talk path already applies: emoji and the
+        # pet name stay on screen and are never read aloud. A reply that is
+        # nothing but decoration keeps its original text instead of going silent.
+        text = speech_text_for_tts(request.text) or request.text
         try:
-            async with asyncio.timeout(self.settings.provider_timeout_seconds):
+            async with asyncio.timeout(max(20.0, self.settings.provider_timeout_seconds)):
                 provider = self.router.tts(request.providerMode, request.companionId)
                 if isinstance(provider, DeepgramTTSProvider):
-                    return await provider.synthesize(request.text, voice=self.settings.deepgram_tts_model_hiro)
-                if isinstance(provider, ElevenLabsHTTPStreamingProvider):
+                    dg_voice = (
+                        self.settings.deepgram_tts_model_hiro
+                        if request.companionId == "hiro"
+                        else self.settings.deepgram_tts_model_hinaa
+                    )
+                    try:
+                        return await provider.synthesize(text, voice=dg_voice)
+                    except Exception as dg_err:
+                        logger.warning("Deepgram synthesis failed (%s), attempting secondary voice fallback: %s", type(dg_err).__name__, dg_err)
+                        if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
+                            try:
+                                voice_id = (
+                                    self.settings.fish_audio_hiro_voice_id
+                                    if request.companionId == "hiro" and self.settings.fish_audio_hiro_voice_id
+                                    else self.settings.fish_audio_hinaa_voice_id
+                                )
+                                fa = FishAudioTTSProvider(
+                                    FishAudioConfig(
+                                        api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                                        base_url=self.settings.fish_audio_base_url,
+                                        voice_id=voice_id,
+                                        model_id=self.settings.fish_audio_model_id,
+                                        output_format=self.settings.fish_audio_output_format,
+                                        request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                                    )
+                                )
+                                return await fa.synthesize(
+                                    text,
+                                    voice=voice_id,
+                                    language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto",
+                                )
+                            except Exception as fa_err:
+                                logger.warning("Secondary Fish Audio fallback failed: %s", fa_err)
+                        if self.settings.elevenlabs_configured:
+                            try:
+                                el_provider = make_elevenlabs_provider(
+                                    self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+                                )
+                                el_voice = (
+                                    self.settings.elevenlabs_hiro_voice_id
+                                    if request.companionId == "hiro"
+                                    else self.settings.elevenlabs_hinaa_voice_id
+                                )
+                                return await el_provider.synthesize_full(text, voice_id=el_voice)
+                            except Exception as el_err:
+                                logger.warning("Secondary ElevenLabs fallback failed: %s", el_err)
+                        raise
+                if isinstance(
+                    provider,
+                    (
+                        ElevenLabsHTTPStreamingProvider,
+                        ElevenLabsWebSocketStreamingProvider,
+                    ),
+                ):
                     voice_id = (
                         self.settings.elevenlabs_hiro_voice_id
                         if request.companionId == "hiro"
                         else self.settings.elevenlabs_hinaa_voice_id
                     )
-                    return await provider.synthesize_full(request.text, voice=voice_id)
+                    return await self._voice_with_fallback(
+                        provider,
+                        text=text,
+                        companion_id=request.companionId,
+                        voice_id=voice_id,
+                        model_id=choose_text_tts_model(
+                            text,
+                            configured_model=self.settings.elevenlabs_model_id,
+                            nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                        ),
+                        # Without this the bubble voice falls back to the "warm"
+                        # performance pace, which is deliberately slow, and the
+                        # two speech channels disagree on how fast she talks.
+                        rate=resolve_calibration("natural").rate,
+                    )
                 voice = resolve_voice(
                     request.companionId,
                     self.settings.azure_speech_female_voice,
@@ -4372,12 +5462,172 @@ class ConversationService:
                 )
                 if isinstance(provider, FishAudioTTSProvider):
                     voice_id = self.settings.fish_audio_voice_ids[0 if request.companionId == "hinaa" else 1]
-                    return await provider.synthesize(request.text, voice=voice_id, language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto")
-                return await provider.synthesize(request.text, voice)
+                    try:
+                        return await provider.synthesize(
+                            text,
+                            voice=voice_id,
+                            language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto",
+                        )
+                    except Exception as fa_err:
+                        logger.warning("Fish Audio synthesis failed (%s), falling back to secondary voice: %s", type(fa_err).__name__, fa_err)
+                        if self.settings.deepgram_configured:
+                            dg_voice = (
+                                self.settings.deepgram_tts_model_hiro
+                                if request.companionId == "hiro"
+                                else self.settings.deepgram_tts_model_hinaa
+                            )
+                            dg = DeepgramTTSProvider(
+                                api_key=self.settings.deepgram_api_key.get_secret_value(),
+                                base_url=self.settings.deepgram_base_url,
+                            )
+                            return await dg.synthesize(text, voice=dg_voice)
+                        raise
+                return await provider.synthesize(text, voice)
         except TimeoutError as error:
             raise HinaaError(
                 "PROVIDER_TIMEOUT", "Voice synthesis took too long.", 504, True
             ) from error
+
+    async def _voice_with_fallback(
+        self,
+        provider,
+        *,
+        text: str,
+        companion_id: CompanionId,
+        voice_id: str,
+        model_id: str,
+        delivery_mode: str = "warm",
+        rate: float | None = None,
+        turn_id: str | None = None,
+    ) -> ProviderResult[bytes]:
+        """Speak with ElevenLabs, or with the Deepgram Aura fallback if it refuses.
+
+        Her voice is an identity, so the primary is never silently skipped. But an
+        account that runs out of characters must not leave her mute: when the
+        vendor answers with a status another vendor can cure, the reply is spoken
+        by the configured fallback and the degradation is written to the run
+        ledger, where the owner reads the reason instead of hearing silence.
+        """
+        if voice_on_cooldown(_ELEVENLABS_PROVIDER):
+            # The account already refused us inside this window; do not make the
+            # owner wait through the same vendor timeout before she speaks.
+            cooled = await self._deepgram_voice(
+                text=text, companion_id=companion_id, turn_id=turn_id
+            )
+            if cooled is not None:
+                return cooled
+        ledger = get_run_ledger()
+        started = time.perf_counter()
+        try:
+            async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                result = await provider.synthesize_full(
+                    text,
+                    voice=voice_id,
+                    delivery_mode=delivery_mode,
+                    companion_id=companion_id,
+                    model_id=model_id,
+                    rate=rate,
+                )
+            ledger.record_tts(
+                provider="elevenlabs",
+                voice_id=voice_id,
+                model_id=model_id,
+                output_format=self.settings.elevenlabs_output_format,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=True,
+                audio_bytes=len(result.value),
+                turn_id=turn_id,
+            )
+            return result
+        except Exception as error:
+            note_voice_failure(_ELEVENLABS_PROVIDER, error)
+            ledger.record_tts(
+                provider="elevenlabs",
+                voice_id=voice_id,
+                model_id=model_id,
+                output_format=self.settings.elevenlabs_output_format,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=False,
+                error=str(error),
+                turn_id=turn_id,
+            )
+            fallback = await self._deepgram_fallback(
+                text=text, companion_id=companion_id, cause=error, turn_id=turn_id
+            )
+            if fallback is not None:
+                return fallback
+            raise HinaaError(
+                "TTS_FAILED", f"ElevenLabs TTS failed: {error}", 503, True
+            ) from error
+
+    async def _deepgram_fallback(
+        self,
+        *,
+        text: str,
+        companion_id: CompanionId,
+        cause: Exception,
+        turn_id: str | None = None,
+    ) -> ProviderResult[bytes] | None:
+        """Last-resort voice. Returns None when there is nothing to fall back to."""
+        if not self.settings.deepgram_configured or not is_fallback_worthy(cause):
+            return None
+        return await self._deepgram_voice(
+            text=text, companion_id=companion_id, turn_id=turn_id
+        )
+
+    async def _deepgram_voice(
+        self,
+        *,
+        text: str,
+        companion_id: CompanionId,
+        turn_id: str | None = None,
+    ) -> ProviderResult[bytes] | None:
+        """Speak with the configured Aura fallback voice, or None if it fails."""
+        if not self.settings.deepgram_configured:
+            return None
+        assert self.settings.deepgram_api_key
+        voice = fallback_voice_id(
+            companion_id,
+            hinaa_voice=self.settings.deepgram_tts_model_hinaa,
+            hiro_voice=self.settings.deepgram_tts_model_hiro,
+        )
+        provider = DeepgramTTSProvider(
+            api_key=self.settings.deepgram_api_key.get_secret_value(),
+            base_url=self.settings.deepgram_base_url,
+        )
+        ledger = get_run_ledger()
+        started = time.perf_counter()
+        try:
+            async with asyncio.timeout(max(20.0, self.settings.provider_timeout_seconds)):
+                result = await provider.synthesize(text, voice=voice)
+            logger.warning(
+                "Voice fell back to Deepgram Aura %s: primary voice refused",
+                voice,
+            )
+            ledger.record_tts(
+                provider="deepgram-fallback",
+                voice_id=voice,
+                model_id=voice,
+                output_format="mp3",
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=True,
+                audio_bytes=len(result.value),
+                turn_id=turn_id,
+            )
+            return result
+        except Exception as error:
+            logger.error("Voice fallback also failed: %s", error)
+            ledger.record_tts(
+                provider="deepgram-fallback",
+                voice_id=voice,
+                model_id=voice,
+                output_format="mp3",
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=False,
+                error=str(error),
+                turn_id=turn_id,
+            )
+            return None
 
     async def synthesize_text(
         self,
@@ -4390,27 +5640,55 @@ class ConversationService:
         volume: float | None = None,
         delivery_mode: str = "warm",
         language: str = "mixed",
+        live: bool = False,
     ) -> ProviderResult[bytes]:
         provider = self.router.tts(mode, companion_id)
         if isinstance(provider, DeepgramTTSProvider):
+            dg_voice = (
+                self.settings.deepgram_tts_model_hiro
+                if companion_id == "hiro"
+                else self.settings.deepgram_tts_model_hinaa
+            )
             try:
-                async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                    return await provider.synthesize(text, voice=self.settings.deepgram_tts_model_hiro)
+                async with asyncio.timeout(max(30.0, self.settings.provider_timeout_seconds)):
+                    return await provider.synthesize(text, voice=dg_voice)
             except Exception as deepgram_err:
-                if self.settings.elevenlabs_configured:
-                    logger.warning("Deepgram failed for Hiro, falling back to ElevenLabs: %s", deepgram_err)
-                    provider = self.router.tts("cloud", companion_id) # ElevenLabs will be picked up if configured
-                    if isinstance(provider, DeepgramTTSProvider): # If router still returned Deepgram, fallback manually
-                        config = ElevenLabsConfig(
-                            api_key=self.settings.elevenlabs_api_key.get_secret_value(),
-                            base_url=self.settings.elevenlabs_base_url,
-                            voice_id=self.settings.elevenlabs_hiro_voice_id,
-                            model_id=self.settings.elevenlabs_model_id,
-                            output_format=self.settings.elevenlabs_output_format,
+                logger.warning("Deepgram synthesis failed (%s), attempting secondary fallback: %s", type(deepgram_err).__name__, deepgram_err)
+                if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
+                    try:
+                        voice_id = (
+                            self.settings.fish_audio_hiro_voice_id
+                            if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                            else self.settings.fish_audio_hinaa_voice_id
                         )
-                        provider = ElevenLabsHTTPStreamingProvider(config)
-                else:
-                    raise HinaaError("TTS_FAILED", f"Deepgram TTS failed and no fallback configured: {deepgram_err}", 503, True) from deepgram_err
+                        fa = FishAudioTTSProvider(
+                            FishAudioConfig(
+                                api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                                base_url=self.settings.fish_audio_base_url,
+                                voice_id=voice_id,
+                                model_id=self.settings.fish_audio_model_id,
+                                output_format=self.settings.fish_audio_output_format,
+                                request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                            )
+                        )
+                        return await fa.synthesize(text, voice=voice_id)
+                    except Exception:
+                        pass
+                if self.settings.azure_configured:
+                    try:
+                        azure_voice = (
+                            self.settings.azure_speech_male_voice
+                            if companion_id == "hiro"
+                            else self.settings.azure_speech_female_voice
+                        )
+                        azure_provider = AzureSpeechProvider(
+                            self.settings.azure_speech_key.get_secret_value(),
+                            self.settings.azure_speech_region,
+                        )
+                        return await azure_provider.synthesize_calibrated(text, azure_voice, 1.1, 0.5, 1.0)
+                    except Exception as az_err:
+                        logger.warning("Azure Speech fallback also failed: %s", az_err)
+                raise HinaaError("TTS_FAILED", f"Deepgram TTS failed: {deepgram_err}", 503, True) from deepgram_err
         
         if isinstance(provider, FishAudioTTSProvider):
             # Language hint auto-detects Nepali (Devanagari) vs English per turn.
@@ -4426,22 +5704,45 @@ class ConversationService:
                     return await provider.synthesize(text, voice=voice_id, language_hint=language.split("-")[0] if language != "mixed" else "auto")
             except Exception as error:
                 raise HinaaError("TTS_FAILED", f"Fish Audio TTS failed: {error}", 503, True) from error
-        if isinstance(provider, ElevenLabsHTTPStreamingProvider):
+        if isinstance(
+            provider,
+            (ElevenLabsHTTPStreamingProvider, ElevenLabsWebSocketStreamingProvider),
+        ):
             # Select per-companion voice ID
             if companion_id == "hiro":
                 voice_id = self.settings.elevenlabs_hiro_voice_id
             else:
                 voice_id = self.settings.elevenlabs_hinaa_voice_id
-            try:
-                async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                    return await provider.synthesize_full(
-                        text,
-                        voice=voice_id,
-                        delivery_mode=delivery_mode,
-                        companion_id=companion_id,
-                    )
-            except Exception as error:
-                raise HinaaError("TTS_FAILED", f"ElevenLabs TTS failed: {error}", 503, True) from error
+            # A live turn buys latency with the fast model; typed chat keeps the
+            # configured voice. Both go to a Nepali-capable model when the text
+            # is Nepali, which is the only case where the configured model is
+            # provably unable to say what she was asked to say.
+            chosen_model = (
+                choose_live_tts_model(
+                    text,
+                    configured_model=self.settings.elevenlabs_model_id,
+                    fast_model=self.settings.elevenlabs_tts_model_fast,
+                    nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                )
+                if live
+                else choose_text_tts_model(
+                    text,
+                    configured_model=self.settings.elevenlabs_model_id,
+                    nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                )
+            )
+            return await self._voice_with_fallback(
+                provider,
+                text=text,
+                companion_id=companion_id,
+                voice_id=voice_id,
+                model_id=chosen_model,
+                delivery_mode=delivery_mode,
+                # Same rule as the Azure path below: an explicit rate wins,
+                # otherwise the calibration decides. The live client sends
+                # "natural" and has no picker, so this value is her pace.
+                rate=rate if rate is not None else resolve_calibration(calibration).rate,
+            )
         if mode in {"mock", "local"}:
             return await self.synthesize(
                 SpeechRequest(text=text, companionId=companion_id, providerMode=mode)

@@ -11,6 +11,7 @@ import {
   Circle,
   History,
   Mic,
+  X,
 } from "lucide-react";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 
@@ -61,6 +62,7 @@ export function NavigationRail({
   const { runtime, features, providers } = capabilities;
   const configuredProviders = providers.filter((p) => p.configured).length;
   const backendOk = runtime.backendConnected && !capsError && isOnline;
+  const [dismissedAuthNotice, setDismissedAuthNotice] = React.useState(false);
 
   // Never assert health the rail has not measured — these literals stayed green
   // through a total backend outage.
@@ -258,23 +260,51 @@ export function NavigationRail({
       </div>
 
       {/* ── Measured exposure state ─────────────────── */}
-      {!capsLoading && !capsError && runtime.privateDataOpen && (
+      {!capsLoading && !capsError && runtime.privateDataOpen && !dismissedAuthNotice && (
         <div
           style={{
-            fontSize: 10,
-            lineHeight: 1.45,
+            fontSize: 10.5,
+            lineHeight: 1.4,
             fontWeight: 500,
             color: "#92400e",
-            background: "#fffbeb",
-            border: "1px solid #fde68a",
+            background: "rgba(254, 243, 199, 0.45)",
+            border: "1px solid rgba(253, 230, 138, 0.75)",
             borderRadius: 10,
-            padding: "7px 9px",
+            padding: "7px 10px",
             marginBottom: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 3,
+            position: "relative",
           }}
         >
-          Anyone with this URL can read memories, chats and tasks. Set{' '}
-          <code style={{ fontFamily: "inherit", fontWeight: 700 }}>HINAA_AUTH_MODE=clerk</code>{' '}
-          and a token-verified owner.
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 650, fontSize: 11 }}>
+              <span style={{ fontSize: 11 }}>🛡️</span>
+              <span>Local Dev Auth Active</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDismissedAuthNotice(true)}
+              aria-label="Dismiss auth notice"
+              title="Dismiss"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 1,
+                color: "#92400e",
+                opacity: 0.6,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <X size={12} />
+            </button>
+          </div>
+          <div style={{ fontSize: 9.5, color: "#92400e", opacity: 0.85 }}>
+            Shared workspace URL · clerk token disabled
+          </div>
         </div>
       )}
 

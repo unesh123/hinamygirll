@@ -242,6 +242,12 @@ class OpenAILLMProvider:
         self.id = provider_id
         self._circuit_breaker = get_circuit_breaker(provider_id)
 
+    @property
+    def model(self) -> str:
+        """The model id this instance sends. The router resolves aliases to it, so
+        diagnostics must name this rather than the model the client asked for."""
+        return self._model
+
     async def create_plan(
         self,
         text: str,

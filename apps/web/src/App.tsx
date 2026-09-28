@@ -134,11 +134,11 @@ const lazyPanelFallback = <div style={{ padding: 12, color: "#94a3b8", fontSize:
 const AVATAR_MODEL_STORAGE_KEY = "hinaa.avatar-model";
 const AVATAR_CAMERA_STORAGE_KEY = "hinaa.avatar-camera.v1";
 const HINAA_AVATAR_MODELS = [
+  { url: "/models/hinaa-original.vrm",                 label: "Original" },
   { url: "/models/hinaa.vrm",                          label: "Hinaa" },
   { url: "/models/model_6164.vrm",                     label: "Kimono" },
   { url: "/models/model_5447.vrm",                     label: "Casual" },
   { url: "/models/AvatarSample_E.vrm",                 label: "School" },
-  { url: "/models/5798998195377315936 (1).vrm",         label: "Original" },
 ] as const;
 const DEFAULT_AVATAR_MODEL = HINAA_AVATAR_MODELS[0].url;
 const MANAGED_AVATAR_URL = /^\/api\/v1\/avatar-assets\/avatar-[0-9a-f-]+\/file$/i;
@@ -374,16 +374,42 @@ export default function App() {
   const [audioBlocked, setAudioBlocked] = useState(false);
   const audioBlockedRef = useRef(false);
   useEffect(() => {
-    const checkAudioContext = () => {
-      const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
-      if (ctx && ctx.state === "suspended" && !audioBlockedRef.current) {
-        audioBlockedRef.current = true;
-        setAudioBlocked(true);
+    // The watchdog exists to answer one question: is audio blocked by the
+    // autoplay policy? Once it has an answer it must stop. A plain
+    // `setInterval(..., 2000)` here ran forever — residual work on an idle
+    // screen, and exactly the kind of quiet ''still executing'' the owner
+    // asked to be rid of.
+    let poll: number | undefined;
+    const stopPolling = () => {
+      if (poll !== undefined) {
+        window.clearInterval(poll);
+        poll = undefined;
       }
     };
-    // Check periodically (low frequency)
-    const interval = setInterval(checkAudioContext, 2000);
-    return () => clearInterval(interval);
+    const checkAudioContext = () => {
+      const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
+      if (!ctx) return; // no graph yet; keep watching
+      if (ctx.state === "running") {
+        // Audio is live and unlocked; the watchdog is done.
+        audioBlockedRef.current = false;
+        stopPolling();
+        return;
+      }
+      if (ctx.state === "suspended") {
+        // Surface the unlock button once, then stop: polling again cannot
+        // change anything until the user taps.
+        if (!audioBlockedRef.current) {
+          audioBlockedRef.current = true;
+          setAudioBlocked(true);
+        }
+        stopPolling();
+      }
+    };
+    checkAudioContext();
+    if (!audioBlockedRef.current) {
+      poll = window.setInterval(checkAudioContext, 2000);
+    }
+    return () => stopPolling();
   }, []);
   const unlockAudio = useCallback(async () => {
     try {
@@ -609,6 +635,8 @@ export default function App() {
     if (event && "preventDefault" in event) event.preventDefault();
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
     if ((!textToSend && !attachedImage) || live.active) return;
+    // Strict single response guard: ensure only one response at a time
+    if ((controller.state !== "idle" && controller.state !== "error") || playback.playing) return;
     void unlockAudio();
     interruptPlayback();
     const text = textToSend || (attachedImage ? "Look at this image" : "");
@@ -652,7 +680,7 @@ export default function App() {
       };
       const startBrowserFallback = async (detail: string) => {
         updateSession("preparing", { provider: "browser-speech" });
-        const started = await playback.speakBrowser(spoken, plan.language);
+        const started = await playback.speakBrowser(spoken, plan.language, controller.companionId);
         if (!started || activePlaybackId.current !== playbackId) {
           updateSession("failed", { error: "Browser speech could not start." });
           setVoiceReply({
@@ -675,18 +703,18 @@ export default function App() {
       }
 
       // Track TTS terminal state to prevent duplicate fallback.
-      // Backend has a 10s TTS timeout; frontend has 12s.
+      // Backend has a generous timeout; frontend has 25s to support longer responses.
       // Once one fires, the other must not start another voice.
       let ttsTerminalReached = false;
       const markTtsTerminal = () => { ttsTerminalReached = true; };
 
       try {
         updateSession("buffering", { provider: ttsMode });
-        // TTS with 12-second timeout — falls back to browser speech on timeout
+        // TTS with 25-second timeout — falls back to browser speech on timeout
         const ttsController = new AbortController();
         const ttsTimeout = setTimeout(() => {
           if (!ttsTerminalReached) ttsController.abort();
-        }, 12_000);
+        }, 25_000);
         const speech = await synthesizeSpeech(
           spoken,
           controller.companionId,
@@ -837,16 +865,6 @@ export default function App() {
       setSearching(controller.isSearching);
       setSearchQuery(controller.searchQuery);
       if (controller.isSearching) setContextMode("research");
-      if (controller.agentSteps.length === 0) {
-        setAgentSteps([
-          {
-            id: "awaiting-live-progress",
-            label: "Waiting for live execution updates",
-            detail: "The backend runtime will report each real step as it starts",
-            status: "active",
-          },
-        ]);
-      }
       return;
     }
 
@@ -1049,7 +1067,7 @@ export default function App() {
                 }
                 onAddMessage={(msg) => controller.setMessages((prev) => [...prev, msg])}
                 onStop={handleStop}
-                disabled={controller.state !== "idle" && controller.state !== "thinking"}
+                disabled={(controller.state !== "idle" && controller.state !== "error") || playback.playing}
                 isVoiceActive={live.active}
                 onStartVoice={() => { interruptPlayback(); live.start(); }}
                 onStopVoice={() => live.stop()}

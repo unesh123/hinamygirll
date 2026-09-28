@@ -89,6 +89,14 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
     if (providerId === "gemini") return "Google Gemini";
     if (providerId === "deepseek") return "DeepSeek AI";
     if (providerId === "openai") return "OpenAI / Codex";
+    if (providerId === "codecraft") return "CodeCraft AI";
+    if (providerId === "agent-router") return "Agent Router (Bynara)";
+    if (providerId === "pgsgrove") return "PGSGrove AI";
+    if (providerId === "xkiro") return "XKiro AI";
+    if (providerId === "seekai") return "SeekAI Gateway";
+    if (providerId === "tokentable") return "TokenTable Asia";
+    if (providerId === "cavoti") return "Cavoti AI";
+    if (providerId === "cx-gateway") return "CX Gateway";
     return providerId.toUpperCase();
   };
 

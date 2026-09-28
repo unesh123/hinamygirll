@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { X, CornerDownLeft } from "lucide-react";
-import { HINA_MOTION, getHinaTransition } from "../../motion/MOTION";
+import { HINA_MOTION, getSurfaceMotion } from "../../motion/MOTION";
 import type { HinaActionDraft, ActionFields } from "../types";
 
 // Individual cards
@@ -27,7 +27,7 @@ interface HinaSurfaceProps {
 
 export function HinaSurface({ draft, onCommit, onDismiss, compact = false }: HinaSurfaceProps) {
   const shouldReduceMotion = useReducedMotion();
-  const transition = getHinaTransition(shouldReduceMotion, "spring");
+  const walk = getSurfaceMotion(shouldReduceMotion);
 
   // Global Esc key listener to collapse the active card back to pill
   useEffect(() => {
@@ -147,15 +147,15 @@ export function HinaSurface({ draft, onCommit, onDismiss, compact = false }: Hin
   };
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="popLayout">
       <motion.div
         key={draft.id}
         layout
         layoutId={`action-${draft.id}`}
-        initial={{ opacity: 0, scale: 0.96, y: -8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: -4 }}
-        transition={transition}
+        initial={walk.initial}
+        animate={walk.animate}
+        exit={walk.exit}
+        transition={walk.transition}
         style={{
           width: "100%",
           display: "flex",

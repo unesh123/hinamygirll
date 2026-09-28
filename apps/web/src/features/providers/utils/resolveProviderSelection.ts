@@ -30,7 +30,7 @@ export interface ProviderRuntimeSelection {
 export type VoiceRoute = {
   sttProvider: "elevenlabs" | "deepgram" | "browser";
   brainProvider: "claude" | "cx" | "qwen" | "openai" | "gemini";
-  ttsProvider: "elevenlabs" | "azure" | "browser";
+  ttsProvider: "deepgram" | "fish-audio" | "elevenlabs" | "azure" | "browser";
   ready: boolean;
 };
 
@@ -48,18 +48,21 @@ export function resolveVoiceRoute(
     providers.statuses.find((s) => s.id === id)?.state ?? "unknown";
 
   const sttProvider: VoiceRoute["sttProvider"] =
-    health("elevenlabs") === "healthy" ? "elevenlabs"
-    : health("deepgram") === "healthy" ? "deepgram"
+    health("deepgram") === "healthy" ? "deepgram"
+    : health("elevenlabs") === "healthy" ? "elevenlabs"
     : "browser";
   const brainProvider: VoiceRoute["brainProvider"] =
-    providers.getHealth("real") === "healthy" ? "gemini"
+    providers.getHealth("codecraft") === "healthy" ? "claude"
+    : providers.getHealth("real") === "healthy" ? "gemini"
     : providers.getHealth("cx-gateway") === "healthy" ? "cx"
     : providers.getHealth("claude") === "healthy" ? "claude"
     : providers.getHealth("qwen") === "healthy" ? "qwen"
     : providers.getHealth("openai") === "healthy" ? "openai"
     : "gemini";
   const ttsProvider: VoiceRoute["ttsProvider"] =
-    health("elevenlabs") === "healthy" ? "elevenlabs"
+    health("deepgram") === "healthy" ? "deepgram"
+    : health("fish-audio") === "healthy" ? "fish-audio"
+    : health("elevenlabs") === "healthy" ? "elevenlabs"
     : health("azure-speech") === "healthy" ? "azure"
     : "browser";
   return {
@@ -78,11 +81,16 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "cx-gateway",
   "claude",
   "codecraft",
+  "pgsgrove",
+  "xkiro",
+  "agent-router",
+  "seekai",
+  "tokentable",
+  "cavoti",
   "custom",
   "real",
   "qwen",
   "openai",
-  "agent-router",
   "ollama",
   "local",
   "mock",

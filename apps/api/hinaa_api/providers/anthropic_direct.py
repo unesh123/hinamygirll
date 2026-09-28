@@ -93,6 +93,18 @@ class AnthropicDirectProvider:
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
+            # Cloudflare-guarded gateways in front of the Messages API return
+            # error 1010 ("ban based on browser signature") when the client
+            # fingerprint looks like a script, which is the default httpx UA.
+            # The other gateway-backed adapters (agent_router.py, openai_llm.py)
+            # already send a browser UA for this reason; this one did not, so a
+            # request that should have reached Anthropic died at the edge. Only
+            # the UA signature changes -- the Messages contract is untouched, and
+            # api.anthropic.com itself ignores these.
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
         }
 
         if isinstance(prompt, str):

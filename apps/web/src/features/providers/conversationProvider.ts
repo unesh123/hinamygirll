@@ -10,7 +10,10 @@ export type ConversationProviderEvent =
   | { type: "usage"; latencyMs: number }
   | { type: "agent.event"; event: AgentRuntimeEvent }
   | { type: "search.started"; query: string }
-  | { type: "search.completed"; query: string; sourcesCount?: number };
+  | { type: "search.completed"; query: string; sourcesCount?: number }
+  | { type: "astra.route"; route: string; confidence: number; goal: string; candidates: string[] }
+  | { type: "astra.entity"; canonicalName: string; groundedQuery: string }
+  | { type: "astra.tool"; status: "started" | "progress" | "completed" | "failed"; toolName: string; toolRunId: string; message?: string; parameters?: any };
 
 export interface AgentRuntimeEvent {
   event_id?: string;

@@ -48,6 +48,7 @@ PERFORMANCE_SCHEMA_LAYER = f"""ASSISTANT TURN PLAN CONTRACT:
 - headMotion ∈ ["none","subtle","nod","shake"]
 - blinkRate between 0.1 and 1.0
 - memoryCandidates: If the user reveals personal facts, preferences, name, location, interests, work context, or recurring patterns, emit them as memoryCandidates with {{"content": "...", "category": "fact|preference|workflow|task|conversation"}}. Keep entries concise (under 80 chars). Do NOT emit secrets, passwords, or API keys.
+- AUTONOMOUS TOOL EXECUTION DIRECTIVE: When the user asks to generate, create, make, draw, render, or export an image, artwork, illustration, PDF document, presentation, slides, or perform deep research, you MUST immediately emit the corresponding tool in `toolRequests` on that exact first turn (e.g. image_generate, pdf_generate, create_gamma_presentation, deep_research). NEVER ask confirmation questions like 'Want me to generate this?' or 'Which style should I do first?'. NEVER output fake generation markers without emitting the actual tool in `toolRequests`. Execute directly.
 - Never invent animation filenames, bone names, blendshapes, URLs, code, or tools.
 - Prefer restrained intensity. At most one major gesture cue per turn.
 - Serious, sensitive, uncertain, or error contexts: prefer neutral/thinking/concerned and avoid playful/celebrate.
@@ -277,13 +278,34 @@ def build_plan_from_text(
     valid_langs = {"en-US", "hi-IN", "ne-NP", "mixed"}
     lang_map = {"en": "en-US", "hi": "hi-IN", "ne": "ne-NP", "english": "en-US", "hindi": "hi-IN", "nepali": "ne-NP"}
     resolved_lang: Language = lang_map.get(str(language).lower(), language if language in valid_langs else "mixed")  # type: ignore[assignment]
+    extracted_thoughts: list[str] = []
+    # Extract closed thinking blocks
+    for m in re.finditer(r"<(?:think|thought)>([\s\S]*?)</(?:think|thought)>", text, flags=re.IGNORECASE):
+        t = m.group(1).strip()
+        if t:
+            extracted_thoughts.append(t)
+    # Remove closed thinking blocks
+    text_without_thoughts = re.sub(
+        r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Also handle unclosed thought at the beginning of text
+    unclosed_match = re.match(r"^\s*<(?:think|thought)>([\s\S]*)$", text_without_thoughts, flags=re.IGNORECASE)
+    if unclosed_match:
+        t = unclosed_match.group(1).strip()
+        if t:
+            extracted_thoughts.append(t)
+        text_without_thoughts = ""
+
     # Drop invented tool-call markup with its contents: the real call runs
     # through the tool pipeline, so keeping the text inside it would leave a
     # second copy of the prompt where the result card already shows one.
     cleaned = re.sub(
         r"</?(?:spokenText|displayText|think|thought|content|message)[^>]*>",
         "",
-        strip_simulated_tool_calls(text),
+        strip_simulated_tool_calls(text_without_thoughts),
         flags=re.IGNORECASE,
     )
     cleaned = re.sub(
@@ -296,6 +318,7 @@ def build_plan_from_text(
     emotion, performance = plan_performance(
         text=spoken, companion_id=companion_id, depth=depth, language=resolved_lang
     )
+    thinking_str = "\n\n".join(extracted_thoughts).strip() or None
     return AssistantTurnPlan(
         spokenText=spoken,
         displayText=display_full,
@@ -305,4 +328,5 @@ def build_plan_from_text(
         beats=[],
         memoryCandidates=[],
         toolRequests=[],
+        thinking=thinking_str,
     )

@@ -9,6 +9,8 @@ apps/api/.env.local
 .venv/
 **/__pycache__/
 .pytest_cache/
+.pytest_tmp/
+**/.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 *.py[cod]
@@ -76,6 +78,7 @@ Thumbs.db
 *.swp
 
 # Local test/audit scratch outputs (regenerated on every run)
+/*.pdf
 vitest-out.txt
 vitest-*.txt
 apps/web/vitest-*.txt

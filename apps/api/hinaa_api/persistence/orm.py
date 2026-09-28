@@ -699,6 +699,30 @@ class ConversationEpisode(Base):
     )
 
 
+class Reminder(Base):
+    """A future action he asked for in a sentence, kept in a row so a restart does not erase it.
+
+    `at` is the wall clock he spoke, not a UTC instant: the offset was never in
+    his message, and a guessed instant would make a wrong time look precise.
+    """
+
+    __tablename__ = "reminders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("conversations.id"), index=True, nullable=True
+    )
+    title: Mapped[str] = mapped_column(Text())
+    at: Mapped[datetime] = mapped_column(DateTime(), index=True)
+    timezone_name: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(20), default="scheduled")  # scheduled, fired, cancelled, missed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 
 
 

@@ -108,6 +108,11 @@ class GroqLLMProvider:
         self._key = key
         self._model = model
 
+    @property
+    def model(self) -> str:
+        """The model id this instance sends, for whoever has to report it honestly."""
+        return self._model
+
     async def create_plan(
         self,
         text: str,

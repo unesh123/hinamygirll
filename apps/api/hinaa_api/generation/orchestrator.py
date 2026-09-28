@@ -387,10 +387,7 @@ class GenerationOrchestrator:
                 )
                 segment_no += 1
                 run = collapse_guard.run
-                detail = (
-                    f"degenerate repetition: {run.describe()} suppressed after "
-                    f"{collapse_guard.suppressed_chars} characters"
-                )
+                detail = f"degenerate repetition: {run.describe()}, cut where the loop began"
                 self.trace.segments.append(
                     SegmentTraceRecord(
                         segment_number=segment_no,
@@ -417,6 +414,14 @@ class GenerationOrchestrator:
                 )
                 self.state.status = ContinuationStatus.TRUNCATED
                 break
+
+            if segment_no > 0:
+                await _release(seam_guard.finish_segment())
+                self.deduped_total += seam_guard.deduped_chars
+            tail = collapse_guard.finish()
+            if tail:
+                await emit_delta(tail)
+                emitted_chunks.append(tail)
 
             self.state.register_segment(segment_chars)
             raw_reason = (holder or {}).get("value")

@@ -68,10 +68,18 @@ def test_invalid_reference_rejected_without_fetching(reference):
 
 
 def test_offline_reference_does_not_silently_generate_unrelated_image(monkeypatch):
+    """Nothing here can carry his picture, so refuse rather than draw a stranger.
+
+    This is the no-cloud deployment. When the configured gateway posts the
+    reference itself, the same turn files a job instead -- see
+    test_image_reference_editing.py.
+    """
+
     async def offline():
         return False
 
     monkeypatch.setattr(image_generate.comfyui_provider, "health_check", offline)
+    monkeypatch.setattr(image_generate, "cloud_image_available", lambda: False)
     result = asyncio.run(image_generate.image_generate_handler(image_generate.ImageGenerateParams(
         prompt="Change the background", userId="local-user", reference_images=[reference_image()],
     )))

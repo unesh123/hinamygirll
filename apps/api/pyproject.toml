@@ -1,5 +1,5 @@
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q --basetemp=.pytest_tmp"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]

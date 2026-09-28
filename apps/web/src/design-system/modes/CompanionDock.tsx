@@ -7,6 +7,9 @@ import {
   X,
   Mic,
   Square,
+  PanelLeft,
+  PanelRight,
+  PictureInPicture,
 } from "lucide-react";
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
@@ -63,7 +66,14 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
   lastAssistantText = "",
 }) => {
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [dismissedSubtitle, setDismissedSubtitle] = useState(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
+
+  React.useEffect(() => {
+    if (streamingText || partialTranscript) {
+      setDismissedSubtitle(false);
+    }
+  }, [streamingText, partialTranscript]);
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel || a.id === avatarModel);
   const currentModelName = currentAvatarDef?.name || "Hinaa (Original)";
@@ -246,23 +256,27 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
         </div>
 
         {/* Dock and Close controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
           <button
             type="button"
             aria-label="Dock Left"
             title="Dock Left"
             onClick={() => onChangeDockMode("left")}
             style={{
-              padding: "4px 6px",
-              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              borderRadius: 6,
               border: "none",
-              background: dockMode === "left" ? "var(--accent-pale)" : "transparent",
-              color: dockMode === "left" ? "var(--accent)" : "var(--text-tertiary)",
+              background: dockMode === "left" ? "var(--accent-pale, rgba(236,72,153,0.15))" : "transparent",
+              color: dockMode === "left" ? "var(--accent, #ec4899)" : "var(--text-tertiary)",
               cursor: "pointer",
-              fontSize: "0.7rem",
+              transition: "all 0.15s ease",
             }}
           >
-            Dock Left
+            <PanelLeft size={14} />
           </button>
           <button
             type="button"
@@ -270,16 +284,20 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
             title="Float Companion"
             onClick={() => onChangeDockMode("floating")}
             style={{
-              padding: "4px 6px",
-              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              borderRadius: 6,
               border: "none",
-              background: dockMode === "floating" ? "var(--accent-pale)" : "transparent",
-              color: dockMode === "floating" ? "var(--accent)" : "var(--text-tertiary)",
+              background: dockMode === "floating" ? "var(--accent-pale, rgba(236,72,153,0.15))" : "transparent",
+              color: dockMode === "floating" ? "var(--accent, #ec4899)" : "var(--text-tertiary)",
               cursor: "pointer",
-              fontSize: "0.7rem",
+              transition: "all 0.15s ease",
             }}
           >
-            Float Companion
+            <PictureInPicture size={14} />
           </button>
           <button
             type="button"
@@ -287,16 +305,20 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
             title="Dock Right"
             onClick={() => onChangeDockMode("right")}
             style={{
-              padding: "4px 6px",
-              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              borderRadius: 6,
               border: "none",
-              background: dockMode === "right" ? "var(--accent-pale)" : "transparent",
-              color: dockMode === "right" ? "var(--accent)" : "var(--text-tertiary)",
+              background: dockMode === "right" ? "var(--accent-pale, rgba(236,72,153,0.15))" : "transparent",
+              color: dockMode === "right" ? "var(--accent, #ec4899)" : "var(--text-tertiary)",
               cursor: "pointer",
-              fontSize: "0.7rem",
+              transition: "all 0.15s ease",
             }}
           >
-            Dock Right
+            <PanelRight size={14} />
           </button>
           <button
             type="button"
@@ -304,16 +326,20 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
             title="Hide Companion"
             onClick={() => onChangeDockMode("hidden")}
             style={{
-              padding: "4px 6px",
-              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              borderRadius: 6,
               border: "none",
               background: "transparent",
               color: "var(--text-tertiary)",
               cursor: "pointer",
-              fontSize: "0.7rem",
+              transition: "all 0.15s ease",
             }}
           >
-            Hide Companion
+            <X size={14} />
           </button>
         </div>
       </div>
@@ -336,7 +362,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
         />
 
         {/* Live speech feedback */}
-        {(streamingText || partialTranscript || lastAssistantText) && (
+        {(streamingText || partialTranscript || lastAssistantText) && !dismissedSubtitle && (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -345,21 +371,41 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
               bottom: 12,
               left: 12,
               right: 12,
-              padding: "8px 12px",
-              borderRadius: 12,
-              background: "rgba(18,18,21,0.85)",
-              backdropFilter: "blur(12px)",
-              border: "1px solid rgba(255,255,255,0.1)",
+              padding: "10px 14px",
+              borderRadius: 14,
+              background: "rgba(18, 18, 22, 0.78)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
               fontSize: "11px",
-              lineHeight: 1.4,
+              lineHeight: 1.45,
               color: "#f4f4f5",
-              maxHeight: 70,
+              maxHeight: 72,
               overflowY: "auto",
               zIndex: 15,
             }}
           >
-            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--accent, #ec4899)", marginBottom: 2 }}>
-              {companionName}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+              <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--accent, #ec4899)", letterSpacing: "0.04em" }}>
+                {companionName}
+              </div>
+              <button
+                type="button"
+                onClick={() => setDismissedSubtitle(true)}
+                aria-label="Dismiss subtitles"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "rgba(255, 255, 255, 0.4)",
+                  cursor: "pointer",
+                  padding: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  borderRadius: 4,
+                }}
+              >
+                <X size={11} />
+              </button>
             </div>
             <div>{streamingText || partialTranscript || lastAssistantText}</div>
           </motion.div>

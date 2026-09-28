@@ -116,17 +116,17 @@ _ALIAS_TO_PROFILE: dict[str, EntityProfile] = {
 }
 
 _MEDIA_WORD_RE = re.compile(r"\b(images?|pictures?|photos?|pics?|imgs?|wallpapers?|gallery|references?)\b", re.I)
-_SEARCH_VERB_RE = re.compile(r"\b(fetch|find|search|show|sho|display|get|bring|see|load|look\s+for)\b", re.I)
+_SEARCH_VERB_RE = re.compile(r"\b(send|give|fetch|find|search|show|sho|display|get|bring|see|load|look\s+for)\b", re.I)
 _GENERIC_REF_RE = re.compile(
-    r"^(?:her|him|it|them|this|that|these|those|same|more|show\s+more(?:\s+of\s+(?:her|him|it|them))?|more\s+of\s+(?:her|him|it|them)|more\s+(?:her|him|them|it)|fetch\s+them|get\s+them|more\s+images?|another\s+one|images?|pics?)$",
+    r"^(?:her|him|it|them|this|that|these|those|same|more|show\s+more(?:\s+of\s+(?:her|him|it|them))?|more\s+of\s+(?:her|him|it|them)|more\s+(?:her|him|them|it)|fetch\s+them|get\s+them|more\s+images?|another\s+one|images?|pics?|(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)|(?:send\s+)?(?:some\s+)?anime)$",
     re.I,
 )
 _DEICTIC_PHRASE_RE = re.compile(
-    r"\b(show\s+more|fetch\s+them|get\s+them|see\s+them|another\s+one|same|(?:about|of|for|on|with|describe|explain|tell\s+me\s+about)\s+(?:her|him|them|it|character)|(?:about|of|for)\s+this\s+(?:character|person|topic)|about\s+her|about\s+him|about\s+them)\b",
+    r"\b(show\s+more|fetch\s+them|get\s+them|see\s+them|another\s+one|same|(?:about|of|for|on|with|describe|explain|tell\s+me\s+about)\s+(?:her|him|them|it|character)|(?:about|of|for)\s+this\s+(?:character|person|topic)|about\s+her|about\s+him|about\s+them|(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?))\b",
     re.I,
 )
 _COMMAND_NOISE_RE = re.compile(
-    r"\b(?:i|need|want|wanna|hinaa?|hina|please|pls|bro|babe|fetch|find|search|show|sho|display|get|bring|see|load|look|for|me|some|them|these|those|images?|imges|pictures?|photos?|pics?|gallery|of|about|full|description|details?|now|also|then|can\s+you|could\s+you)\b",
+    r"\b(?:i|need|want|wanna|hinaa?|hina|please|pls|bro|babe|send|give|fetch|find|search|show|sho|display|get|bring|see|load|look|for|me|some|them|these|those|images?|imges|pictures?|photos?|pics?|gallery|of|about|full|description|details?|now|also|then|can\s+you|could\s+you)\b",
     re.I,
 )
 
@@ -209,7 +209,7 @@ def clean_raw_image_query(text: str) -> str:
     )
     # Strip imperative query verbs + optional image noun phrase
     cleaned = re.sub(
-        r"(?i)^\s*(?:now|so)?\s*(?:i\s+)?(?:need|want|wanna|would\s+like)?\s*(?:to\s+)?(?:fetch|find|search|show|sho|display|get|bring|see|load|look\s+for)?\s*(?:me\s+)?(?:some\s+)?(?:images?|imges|pictures?|photos?|pics?|gallery)?\s*(?:of|for|about)?\s*",
+        r"(?i)^\s*(?:now|so)?\s*(?:i\s+)?(?:need|want|wanna|would\s+like)?\s*(?:to\s+)?(?:send|give|fetch|find|search|show|sho|display|get|bring|see|load|look\s+for)?\s*(?:me\s+)?(?:some\s+)?(?:images?|imges|pictures?|photos?|pics?|gallery)?\s*(?:of|for|about|on)?\s*",
         "",
         cleaned,
     )
@@ -377,7 +377,8 @@ def resolve_media_subject(
 
     # Tiers 5-6: Active thread & active entity (ONLY allowed when request is deictic or same topic)
     if active_subject and not _is_entity_negated(active_subject, text):
-        if not any(k in active_subject.lower() for k in ("anime", "image", "general", "something")):
+        clean_subj_lower = active_subject.strip().lower()
+        if clean_subj_lower not in ("anime", "image", "images", "general", "something", "chat"):
             prof = _profile_from_active(active_subject)
             canonical = prof.canonical_name if prof else active_subject
             return MediaSubjectResolution(

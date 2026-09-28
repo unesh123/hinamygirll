@@ -42,6 +42,8 @@ __all__ = [
     "DisplayTextChain",
     "AdaptiveStreamDecoder",
     "strip_simulated_tool_calls",
+    "drop_inlined_page_source",
+    "PageSourceGuard",
     "decode_display_field",
     "decode_all_display_fields",
     "DISPLAY_KEY_PATTERN",
@@ -485,6 +487,138 @@ _SPECIAL_TOKEN_CALL_PATTERN = re.compile(
     r"(?:<\|[^|<>]*(?:end|finish|complete)[^|<>]*\|>|\Z)",
     re.IGNORECASE,
 )
+# A close with no opening pair. TOOLISH_TAG_SOURCE demands a qualifier
+# (`tool_call`), so the bare `</tool>` that a gateway model tacks onto the end
+# of an image answer matches nothing here. Measured live on `make me a picture
+# of a red fox in the rain`, whose bubble ended `... right now. 🦊🌧️ </tool>`.
+# Only closing tags are matched: an opening `<tool>` can be real markup he asked
+# about, while a close that opens nothing is never prose.
+_DANGLING_CALL_CLOSE_PATTERN = re.compile(
+    r"<\s*/\s*(?:antml[_.:-])?(?:tool|function|invoke|invocation|argument|parameter|call)\w*\b[^<>]*>",
+    re.IGNORECASE,
+)
+# The same call fenced as though it were an example. Measured live on
+# `generate mikasa images`, whose bubble ended
+# ```tool_call:freepik_image_generate``` — a fence, so the rule below that keeps
+# code samples survived it. Only a fence whose entire body names an invocation
+# goes; an answer that discusses this markup inside a fenced example keeps it.
+_FENCED_CALL_PATTERN = re.compile(
+    r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*"
+    r"(?:(?:tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*)"
+    r"[ \t]*(?:\r?\n[ \t]*)?`{3,}[ \t]*\r?\n?",
+    re.IGNORECASE,
+)
+# The same fence with no closer, because the stream stopped inside it. Anchored
+# to the end of the answer: a fence that opens with a name and carries on is a
+# code sample whose language hint happens to start with "function".
+_UNCLOSED_FENCED_CALL_PATTERN = re.compile(
+    r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*"
+    r"(?:(?:tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*)"
+    r"[ \t]*\Z",
+    re.IGNORECASE,
+)
+
+
+def drop_echoed_call_arguments(text: str) -> str:
+    """Remove a fenced block that repeats the arguments of a call this turn filed.
+
+    Called only once the gate has confirmed a call exists: a block of call
+    arguments is machinery when there is a call to be machinery about, and on
+    its own it is just the code he asked for.
+    """
+
+    def _drop(match: re.Match[str]) -> str:
+        body = match.group("body")
+        if re.search(
+            r"[\"'](?:prompt|negative_prompt|aspect_ratio|tool_call_id|toolName|tool_name)[\"']\s*:",
+            body,
+        ):
+            return ""
+        return match.group(0)
+
+    return re.sub(r"[ \t]*`{3,}[^\S\n]*(?P<body>[\s\S]*?)(?:`{3,}|$)", _drop, text)
+
+
+# A page the builder writes is delivered as a document artifact; the same
+# markup printed into the bubble is machinery, not an answer. Deliberately
+# requires a page-opening token so ordinary prose, inline tags, and a fenced
+# example he asked for are never touched.
+_PAGE_SOURCE_PATTERN = re.compile(
+    r"""
+    (?:^[ \t]*`{3,}[ \t]*(?:html?|xml|svg)[ \t]*\n)?      # optional opening fence
+    [ \t]*(?:<!doctype[ \t]+html|<html\b)[\s\S]*?</html\s*>
+    (?:[ \t]*\n?[ \t]*`{3,})?                             # optional closing fence
+    |
+    (?:^[ \t]*`{3,}[ \t]*(?:html?|xml|svg)[ \t]*\n)?
+    [ \t]*(?:<!doctype[ \t]+html|<html\b)[\s\S]*$         # unclosed: the rest is the page
+    """,
+    re.IGNORECASE | re.MULTILINE | re.VERBOSE,
+)
+
+
+# The token that opens a whole document. Deliberately narrower than any tag:
+# inline markup is part of an answer, a page is the answer being retyped.
+_PAGE_OPEN_PATTERN = re.compile(r"(?i)<!doctype\s+html|<html\b")
+
+
+class PageSourceGuard:
+    """Streaming twin of :func:`drop_inlined_page_source`.
+
+    Forwards prose untouched and goes silent for good the moment the answer
+    starts typing an HTML document. A marker is not a word boundary --
+    ``"<!DOCTY"`` and ``"PE html>"`` can arrive as separate deltas -- so a
+    trailing fragment that could still grow into one is held back a few
+    characters at a time.
+    """
+
+    _HOLD_CHARS = 16
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self.closed = False
+
+    def feed(self, delta: str) -> str:
+        if self.closed:
+            return ""
+        self._pending += delta
+        # Search, not match: a provider that answers in whole paragraphs ships the
+        # prose and the page in one delta, and the page must not ride through on
+        # the coattails of a sentence that came before it.
+        opening = _PAGE_OPEN_PATTERN.search(self._pending)
+        if opening:
+            head = self._pending[: opening.start()]
+            self.closed = True
+            self._pending = ""
+            return head
+        split = len(self._pending)
+        for edge in range(len(self._pending) - 1, max(len(self._pending) - self._HOLD_CHARS, -1), -1):
+            if self._pending[edge] == "<":
+                split = edge
+                break
+        head, self._pending = self._pending[:split], self._pending[split:]
+        return head
+
+    def flush(self) -> str:
+        """Give back a trailing ``<`` fragment that never grew into a page.
+
+        The hold is a guess about the next delta, not a judgement about the text
+        already sent, so the stream must not end on it.
+        """
+        pending, self._pending = self._pending, ""
+        return "" if self.closed else pending
+
+
+def drop_inlined_page_source(text: str) -> str:
+    """Remove an HTML document a brain printed as its answer.
+
+    Called only once ``design_website`` is known to be running this turn. Until
+    then a page is plausibly what he asked to see; after it, the real page is on
+    its way to him as a file, and the source text has nothing left to say.
+    """
+    if "<" not in text:
+        return text
+    stripped = _PAGE_SOURCE_PATTERN.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", stripped).strip()
 
 
 def strip_simulated_tool_calls(text: str) -> str:
@@ -493,8 +627,12 @@ def strip_simulated_tool_calls(text: str) -> str:
     Runs over the assembled answer, not a stream delta: an unbalanced tag
     fragment cannot be told apart from real text until the text is complete.
     Code fences are left alone — when the user asks for an example of this
-    markup, the markup is the answer.
+    markup, the markup is the answer — except for a fence whose entire content
+    is the call itself, which is not an example of anything.
     """
+    text = _UNCLOSED_FENCED_CALL_PATTERN.sub(
+        "", _FENCED_CALL_PATTERN.sub("", text)
+    )
     if "<" not in text:
         return text
     parts = text.split("```")
@@ -504,8 +642,11 @@ def strip_simulated_tool_calls(text: str) -> str:
         if index % 2
         else _STRAY_TOOL_TAG_PATTERN.sub(
             "",
-            _SIMULATED_TOOL_CALL_PATTERN.sub(
-                "", _SPECIAL_TOKEN_CALL_PATTERN.sub("", part)
+            _DANGLING_CALL_CLOSE_PATTERN.sub(
+                "",
+                _SIMULATED_TOOL_CALL_PATTERN.sub(
+                    "", _SPECIAL_TOKEN_CALL_PATTERN.sub("", part)
+                ),
             ),
         )
         for index, part in enumerate(parts)

@@ -84,9 +84,59 @@ export function loadConversationMessages(conversationId: string): TranscriptMess
     return parsed.map((message: any) => {
       if (message.role !== "assistant" || !message.content) return message;
       const plan = deserializeAssistantTurn(message.content);
+      let actionDraft = message.actionDraft;
+      if (!actionDraft && plan?.toolRequests?.length) {
+        for (const tr of plan.toolRequests) {
+          if (tr.toolName === "reminder.create") {
+            actionDraft = {
+              intent: "reminder.create",
+              status: "ready",
+              fields: {
+                data: {
+                  title: tr.parameters?.title || "Reminder",
+                  when: tr.parameters?.at || tr.parameters?.display || "Today",
+                  isUrgent: false,
+                },
+              },
+            };
+            break;
+          } else if (tr.toolName === "image_generate" || tr.toolName === "magnific_image_generate" || tr.toolName === "freepik_image_generate") {
+            const isCompleted = Boolean(tr.parameters?.resultUrl || tr.status === "completed");
+            actionDraft = {
+              intent: "image.job",
+              status: "ready",
+              fields: {
+                data: {
+                  prompt: tr.parameters?.prompt || "",
+                  stage: isCompleted ? "saved" : "generating",
+                  isSearchFallback: false,
+                  thumbnailUrl: tr.parameters?.thumbnailUrl || tr.parameters?.resultUrl || "",
+                  resultUrl: tr.parameters?.resultUrl || "",
+                },
+              },
+            };
+            break;
+          } else if (tr.toolName === "image_search") {
+            actionDraft = {
+              intent: "image.job",
+              status: "ready",
+              fields: {
+                data: {
+                  prompt: tr.parameters?.query || "",
+                  stage: "saved",
+                  isSearchFallback: true,
+                  thumbnailUrl: tr.parameters?.thumbnailUrl || tr.parameters?.resultUrl || "",
+                  resultUrl: tr.parameters?.resultUrl || "",
+                },
+              },
+            };
+            break;
+          }
+        }
+      }
       return plan
-        ? { ...message, text: getAssistantDisplayText(message.content), plan }
-        : message;
+        ? { ...message, text: getAssistantDisplayText(message.content), plan, ...(actionDraft ? { actionDraft } : {}) }
+        : (actionDraft ? { ...message, actionDraft } : message);
     });
   } catch {
     return null;

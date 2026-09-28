@@ -34,12 +34,20 @@ class ToolRegistry:
     def get_all_tools(self) -> list[ToolDefinition]:
         return list(self._tools.values())
         
-    def generate_system_prompt(self) -> str:
+    def generate_system_prompt(self, allowed_names: Any | None = None) -> str:
         if not self._tools:
             return "No tools are registered."
-            
+
+        tools = (
+            [t for t in self._tools.values() if t.name in allowed_names]
+            if allowed_names is not None
+            else list(self._tools.values())
+        )
+        if not tools:
+            return "No tools are available for this turn."
+
         prompt = "REGISTERED TOOLS:\n"
-        for t in self._tools.values():
+        for t in tools:
             param_names = [
                 f"{p}{'*' if p in (t.required_parameters or []) else ''}"
                 for p in (t.parameters or {}).keys()

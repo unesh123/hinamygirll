@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 import time
 import httpx
@@ -24,6 +25,7 @@ from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse
+from .astra import AstraRequest, AstraRuntime
 from .creative import CreativeJobStore, CreativeModelRegistry, MagnificBudgetManager
 from .media import AssetSource, get_asset_store
 from .persistence import MemoryService, TaskService, init_db
@@ -39,13 +41,20 @@ from .dialogue_state import AssetReferenceResolver, AssetSelectionSource, Conver
 from .prompts import PROMPT_VERSION
 from .brain_ledger import (
     aliases_for,
+    configured,
     fingerprints_for,
+    is_local_brain,
+    newest_success,
     newest_verdict,
+    row_for_brain,
 )
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
+from .reminder_scheduler import run_scheduler as run_reminder_scheduler
 from .realtime import RealtimeGateway
+from .run_ledger import get_run_ledger
 from .services import ConversationService
 from .tools import policy as tool_policy, registry
+from .tools.reminder import cancel_reminder, list_reminders, schedule_reminder
 from .vmc_bridge import vmc_bridge
 from .voice_profiles import public_profiles
 from .artifacts import ArtifactFormat, ArtifactService
@@ -71,6 +80,12 @@ class MemoryToggleBody(BaseModel):
 
 class ConversationTitleBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=200)]
+
+
+class ReminderBody(BaseModel):
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+    at: Annotated[str, Field(min_length=1, max_length=40)]
+    conversationId: str | None = None
 
 
 class ProjectCreateBody(BaseModel):
@@ -269,6 +284,7 @@ def _correlation_id(value: str | None) -> str:
 _BRAIN_PROVIDER_IDS = frozenset(
     {
         "agent-router",
+        "cavoti",
         "claude",
         "codecraft",
         "custom",
@@ -279,9 +295,110 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "ollama",
         "omniroute",
         "openai",
+        "pgsgrove",
         "qwen",
+        "seekai",
+        "tokentable",
+        "xkiro",
     }
 )
+
+
+def _routing_truth(settings: Settings, requested_mode: str) -> dict[str, Any]:
+    """Who actually answered, as opposed to who this deployment is configured for.
+
+    `mode` answers "what did the owner ask for?". It stayed "claude" through weeks in
+    which every answer came from a flash-tier fallback, so any badge built from it
+    lied about the brain behind her voice. This reads the ledger of calls that
+    really happened, so a green routing statement costs a real answered turn.
+    """
+    answered = newest_success()
+    requested = newest_verdict(
+        aliases_for(requested_mode),
+        fingerprints=fingerprints_for(settings, requested_mode),
+    )
+    if is_local_brain(requested_mode):
+        # An in-process brain needs no socket, so configuration does prove it, and
+        # the absence of ledger records means nobody has asked it anything yet.
+        served_requested = requested_mode
+        reason = f"{requested_mode} answers in-process and needs no live call to prove it."
+    else:
+        served_requested = (
+            requested_mode
+            if answered and row_for_brain(answered.brain_id) == requested_mode
+            else ""
+        )
+        reason = answered.message if served_requested else ""
+    if not reason:
+        if not configured(settings, requested_mode):
+            reason = (
+                f"{requested_mode} is not configured, so it cannot answer; "
+                + (f"answers came from {answered.brain_id}." if answered else "nothing has.")
+            )
+        elif answered is None:
+            reason = (
+                "No brain has answered a live call recently enough to claim. "
+                + (
+                    requested.message
+                    if requested
+                    else f"{requested_mode} has no live-call evidence either."
+                )
+            )
+        elif requested is None:
+            reason = (
+                f"{requested_mode} has no live-call evidence in this window; "
+                f"answers came from {answered.brain_id}."
+            )
+        else:
+            reason = f"{requested.message} Answers came from {answered.brain_id} instead."
+    return {
+        "answeredBy": (
+            {
+                "brain": answered.brain_id,
+                "row": row_for_brain(answered.brain_id),
+                "model": answered.model or None,
+                "ageSeconds": round(answered.age_seconds, 1),
+            }
+            if answered
+            else None
+        ),
+        "requestedServed": bool(served_requested),
+        "fallback": answered is not None and not served_requested,
+        "reason": reason,
+    }
+
+
+_PROBE_CACHE: dict[str, tuple[float, Any]] = {}
+_PROBE_TTL_SECONDS = 45.0
+
+
+def _probe_cached(key: str, ttl: float = _PROBE_TTL_SECONDS) -> Any | None:
+    """A local probe answer remembered for a short window.
+
+    A configured-but-dead local engine (Ollama, ComfyUI) used to be re-probed by
+    every status poll, so one unhealthy service produced an endless stream of
+    connection timeouts in the log even while she sat idle. Remembering the last
+    answer for a few seconds turns "probe on every poll" into "probe every TTL".
+    """
+    entry = _PROBE_CACHE.get(key)
+    if entry is not None and (time.time() - entry[0]) < ttl:
+        return entry[1]
+    return None
+
+
+def _probe_store(key: str, value: Any) -> None:
+    _PROBE_CACHE[key] = (time.time(), value)
+
+
+def _ledger_response_text(plan: Any) -> str | None:
+    """The text she actually said, for the turn ledger's stop row."""
+    if not isinstance(plan, dict):
+        return None
+    for key in ("spokenText", "message", "text", "summary"):
+        value = plan.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -305,6 +422,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         TaskService(session_factory) if session_factory is not None else None
     )
     service = ConversationService(active_settings, memory_service=memory_service, task_service=task_service, session_factory=session_factory)
+    astra_runtime = AstraRuntime(
+        memory_service=memory_service,
+        conversation_service=service,
+    )
     workspace_service = LocalProjectService(
         get_session_factory(active_settings), active_settings.local_workspace_dir
     )
@@ -790,7 +911,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 agent_runtime.recover(saved_run.run_id, saved_run.user_id)
         if task_service:
             task_service.recover_interrupted_tasks()
+        # "Reminder set" is only true if something advances the row. This dies
+        # with the process, so a reminder due during a restart fires on the
+        # first tick after it comes back rather than being lost.
+        scheduler_stop = asyncio.Event()
+        scheduler_task = None
+        if active_settings.reminder_scheduler_enabled and active_settings.persistence_enabled:
+            scheduler_task = asyncio.create_task(
+                run_reminder_scheduler(
+                    settings=active_settings,
+                    stop=scheduler_stop,
+                    tick_seconds=active_settings.reminder_tick_seconds,
+                ),
+                name="hinaa-reminder-scheduler",
+            )
         yield
+        scheduler_stop.set()
+        if scheduler_task is not None:
+            await asyncio.gather(scheduler_task, return_exceptions=True)
         tasks = [*project_tasks.values(), *tool_tasks]
         for task in tasks:
             task.cancel()
@@ -1104,11 +1242,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else:
             missing = []
         ready = not missing
+        # The HTTP code stays a readiness contract: only absent configuration
+        # fails it. `status` is held to a higher bar than "the env vars exist",
+        # because a deployment whose configured brain never answered used to report
+        # ok while every reply came from a fallback.
+        routing = _routing_truth(active_settings, active_settings.provider_mode)
         return JSONResponse(
             status_code=200 if ready else 503,
             content={
-                "status": "ok" if ready else "degraded",
+                "status": "ok" if ready and routing["requestedServed"] else "degraded",
                 "mode": active_settings.provider_mode,
+                "answeredBy": routing["answeredBy"],
+                "requestedServed": routing["requestedServed"],
+                "fallback": routing["fallback"],
+                "routing": routing["reason"],
                 "missingConfiguration": missing if not ready else [],
                 "persistenceEnabled": active_settings.persistence_enabled,
                 "authMode": active_settings.auth_mode,
@@ -1284,6 +1431,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "defaultModel": active_settings.groq_model,
                 "allowedModels": [active_settings.groq_model],
                 "protocol": "groq-sdk",
+            },
+            {
+                "id": "pgsgrove",
+                "name": "PGSGrove AI",
+                "configured": bool(getattr(active_settings, "pgsgrove_configured", False)),
+                "defaultModel": active_settings.active_pgsgrove_model,
+                "allowedModels": list(active_settings.pgsgrove_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "seekai",
+                "name": "SeekAI Gateway",
+                "configured": bool(getattr(active_settings, "seekai_configured", False)),
+                "defaultModel": active_settings.active_seekai_model,
+                "allowedModels": list(active_settings.seekai_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "tokentable",
+                "name": "TokenTable Asia",
+                "configured": bool(getattr(active_settings, "tokentable_configured", False)),
+                "defaultModel": active_settings.active_tokentable_model,
+                "allowedModels": list(active_settings.tokentable_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "xkiro",
+                "name": "XKiro AI",
+                "configured": bool(getattr(active_settings, "xkiro_configured", False)),
+                "defaultModel": active_settings.active_xkiro_model,
+                "allowedModels": list(active_settings.xkiro_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "cavoti",
+                "name": "Cavoti AI",
+                "configured": bool(getattr(active_settings, "cavoti_configured", False)),
+                "defaultModel": active_settings.active_cavoti_model,
+                "allowedModels": list(active_settings.cavoti_allowed_models),
+                "protocol": "openai-compatible",
             },
             # Local fallback gateway, measured rather than assumed. `declared`
             # says the operator opted in; `configured` says the container is
@@ -1468,7 +1655,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         base = active_settings.active_ollama_base_url.rstrip("/")
         is_loopback = "127.0.0.1" in base or "localhost" in base or "0.0.0.0" in base
         if active_settings.ollama_configured:
-            if is_server_remote and is_loopback:
+            cached_ollama = _probe_cached("ollama")
+            if cached_ollama is not None:
+                ollama_state, ollama_message, ollama_models = cached_ollama
+            elif is_server_remote and is_loopback:
                 # `desktop_bridge` is not a legal ProviderStatus.state, so it is
                 # kept out of the status field and named in the message instead.
                 ollama_state = "unavailable"
@@ -1504,6 +1694,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         f"Ollama is configured at {active_settings.active_ollama_base_url} but unreachable. "
                         "Ensure Ollama is running (`ollama serve`)."
                     )
+                    # Remember the failure so the next poll does not repeat
+                    # the same 1.5s timeout for a service that is still down.
+                    _probe_store("ollama", (ollama_state, ollama_message, ollama_models))
 
         # OmniRoute is a stopped-or-running fact about a local container, and a
         # stopped one keeps its environment, so only a live /v1/models answer can
@@ -1709,6 +1902,91 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"CodeCraft AI is configured with default model {active_settings.active_codecraft_model}."
                     if active_settings.codecraft_configured
                     else "CodeCraft AI needs CODECRAFT_API_KEY and CODECRAFT_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="pgsgrove",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.pgsgrove_model}",
+                    *[f"model:{model}" for model in active_settings.pgsgrove_allowed_models],
+                ],
+                state="healthy" if active_settings.pgsgrove_configured else "unavailable",
+                userMessage=(
+                    f"PGSGrove AI is configured with default model {active_settings.pgsgrove_model}."
+                    if active_settings.pgsgrove_configured
+                    else "PGSGrove AI needs PGSGROVE_API_KEY and PGSGROVE_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="xkiro",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.xkiro_model}",
+                    *[f"model:{model}" for model in active_settings.xkiro_allowed_models],
+                ],
+                state="healthy" if active_settings.xkiro_configured else "unavailable",
+                userMessage=(
+                    f"XKiro AI is configured with default model {active_settings.xkiro_model}."
+                    if active_settings.xkiro_configured
+                    else "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="seekai",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.seekai_model}",
+                    *[f"model:{model}" for model in active_settings.seekai_allowed_models],
+                ],
+                state="healthy" if active_settings.seekai_configured else "unavailable",
+                userMessage=(
+                    f"SeekAI is configured with default model {active_settings.seekai_model}."
+                    if active_settings.seekai_configured
+                    else "SeekAI needs SEEKAI_API_KEY and SEEKAI_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="tokentable",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.tokentable_model}",
+                    *[f"model:{model}" for model in active_settings.tokentable_allowed_models],
+                ],
+                state="healthy" if active_settings.tokentable_configured else "unavailable",
+                userMessage=(
+                    f"TokenTable is configured with default model {active_settings.tokentable_model}."
+                    if active_settings.tokentable_configured
+                    else "TokenTable needs TOKENTABLE_API_KEY and TOKENTABLE_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="cavoti",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.cavoti_model}",
+                    *[f"model:{model}" for model in active_settings.cavoti_allowed_models],
+                ],
+                state="healthy" if active_settings.cavoti_configured else "unavailable",
+                userMessage=(
+                    f"Cavoti AI is configured with default model {active_settings.cavoti_model}."
+                    if active_settings.cavoti_configured
+                    else "Cavoti AI needs CAVOTI_AI_API_KEY and CAVOTI_AI_BASE_URL."
                 ),
             ),
             ProviderStatus(
@@ -2281,6 +2559,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{resolved_path.name}"'},
         )
+
+    # A designed page is meant to be looked at, not filed away, so it gets a route
+    # that sends it inline instead of as an attachment. The generator emits no
+    # script tag at all; ``sandbox`` plus ``default-src 'none'`` make that a
+    # guarantee rather than a habit — nothing in the document can run, phone home,
+    # or reach back into this origin even if escaping ever failed.
+    @app.get("/v1/generated-docs/{doc_id}/preview")
+    @app.get("/api/v1/generated-docs/{doc_id}/preview")
+    async def preview_generated_document(doc_id: str):
+        from .artifacts.inventory import document_roots
+
+        # Validated first: the id becomes a glob pattern below, and only hex and
+        # dashes survive, so no metacharacter can widen the search.
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", doc_id):
+            raise HTTPException(status_code=404, detail="Preview not found")
+
+        for root in document_roots():
+            if not root.exists():
+                continue
+            for candidate in sorted(root.glob(f"{doc_id}_*.html")):
+                if candidate.is_file():
+                    return FileResponse(
+                        candidate,
+                        media_type="text/html; charset=utf-8",
+                        headers={
+                            "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+                            "X-Content-Type-Options": "nosniff",
+                        },
+                    )
+        raise HTTPException(status_code=404, detail="Preview not found")
 
 
     @app.get("/v1/workspace/identity")
@@ -3254,6 +3562,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             project_state=body.projectState,
         )
 
+    @app.get("/v1/reminders")
+    @app.get("/api/v1/reminders")
+    async def get_reminders(
+        auth: AuthContext | None = Depends(conversation_auth),
+        status: str = "scheduled",
+    ) -> list[dict[str, Any]]:
+        # An empty list here would read as "no reminders", so an anonymous
+        # request has to fail instead of looking like an honest answer.
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for reminders", 401, True)
+        return list_reminders(user_id=auth.user_id, status=status, settings=active_settings)
+
+    @app.post("/v1/reminders")
+    @app.post("/api/v1/reminders")
+    async def create_reminder(
+        request: Request,
+        body: ReminderBody,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for reminders", 401, True)
+        return schedule_reminder(
+            user_id=auth.user_id,
+            title=body.title,
+            at=body.at,
+            conversation_id=body.conversationId or request.headers.get("X-Conversation-ID"),
+            settings=active_settings,
+        )
+
+    @app.post("/v1/reminders/{reminder_id}/cancel")
+    @app.post("/api/v1/reminders/{reminder_id}/cancel")
+    async def cancel_scheduled_reminder(
+        reminder_id: str,
+        auth: AuthContext | None = Depends(conversation_auth),
+    ) -> dict[str, Any]:
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required for reminders", 401, True)
+        return cancel_reminder(user_id=auth.user_id, reminder_id=reminder_id, settings=active_settings)
+
     @app.get("/v1/training/candidates")
     async def list_training_candidates(
         auth: AuthContext | None = Depends(conversation_auth),
@@ -3518,12 +3865,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = _resolve_user_id(request)
 
         agent_run = None
-        # The dev subject is a local-only owner. Filing an unidentified public
-        # turn under it put strangers' runs in the same bucket as his own.
         owner_id = user_id or (
             active_settings.dev_auth_subject if not reached_through_edge(request) else None
         )
-        if active_settings.agent_runtime_enabled and agent_runtime is not None and owner_id:
+        is_agent_request = (
+            body.text.strip().startswith(("/deep", "/agent", "/plan", "/workflow"))
+            or body.responseMode in ("automation", "research")
+            or body.providerMode == "agent-router"
+            or bool(re.search(r"\b(deep\s+research|audit\s+the\s+entire|refactor\s+the\s+entire|step\s+by\s+step\s+plan\s+and\s+execute)\b", body.text, re.I))
+        )
+        if active_settings.agent_runtime_enabled and agent_runtime is not None and owner_id and is_agent_request:
             agent_run = agent_runtime.create_run(
                 goal=body.text,
                 user_id=owner_id,
@@ -3531,6 +3882,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         async def guarded_stream():  # type: ignore[no-untyped-def]
+            # The run ledger is the audit trail for "did she actually stop?":
+            # a start row here and a stop/idle row in the finally below.
+            turn_id = request.state.correlation_id
+            stream_ledger = get_run_ledger()
+            stream_ledger.record_turn_start(
+                turn_id,
+                session_id=body.sessionId,
+                provider=body.providerMode,
+            )
+            turn_completed = False
+            ledger_plan: dict[str, Any] | None = None
             stream_plan = None
             stream_step = None
             pending_runtime_events: list[AgentEvent] = []
@@ -3590,6 +3952,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         decoded = json.loads(event.decode("utf-8"))
                         if decoded.get("type") == "plan" and isinstance(decoded.get("plan"), dict):
                             final_plan_payload = decoded["plan"]
+                            ledger_plan = final_plan_payload
                     except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
                         pass
                     yield event
@@ -3607,6 +3970,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     for runtime_event in completed_events:
                         yield _runtime_event_payload(runtime_event)
+                turn_completed = True
             except HinaaError as error:
                 logger.warning(
                     "Streamed turn failed: code=%s message=%s cause=%s",
@@ -3629,6 +3993,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "message": error.message,
                         "retryable": error.retryable,
                         "correlationId": request.state.correlation_id,
+                        # A turn that dies before its plan event used to leave the
+                        # client holding nothing but the mode it asked for, so a
+                        # Claude request that 403'd kept a Claude badge on screen.
+                        "routing": _routing_truth(active_settings, body.providerMode),
                     },
                 )
             except Exception as error:
@@ -3641,8 +4009,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     ):
                         yield _runtime_event_payload(runtime_event)
                 raise
+            finally:
+                # One terminal row per turn: the delivered text and the idle
+                # timestamp the stop-fix is judged by.
+                stream_ledger.record_turn_stop(
+                    turn_id,
+                    response_text=_ledger_response_text(ledger_plan),
+                    status="completed" if turn_completed else "aborted",
+                    provider=body.providerMode,
+                )
 
         return StreamingResponse(guarded_stream(), media_type="application/x-ndjson")
+
+    @app.post("/v1/astra/turns:stream")
+    @app.post("/api/v1/astra/turns:stream")
+    async def stream_astra_turn(request: Request, body: AstraRequest = Body(...)) -> StreamingResponse:
+        user_id = _resolve_user_id(request)
+        if user_id and not body.user_id:
+            body = body.model_copy(update={"user_id": user_id})
+
+        async def astra_event_generator():
+            async for event in astra_runtime.stream_turn(body):
+                yield event.to_sse()
+
+        return StreamingResponse(
+            astra_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.delete("/v1/sessions/{session_id}", status_code=204)
     async def clear_session(session_id: str) -> Response:
@@ -3810,7 +4208,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def synthesize(body: SpeechRequest) -> Response:
         started = perf_counter()
         result = await service.synthesize(body)
-        media_type = "audio/mpeg" if result.provider == "elevenlabs" else "audio/wav"
+        media_type = (
+            "audio/mpeg"
+            if result.provider in ("elevenlabs", "fish-audio")
+            or result.value[:3] == b"ID3"
+            or result.value[:2] == b"\xff\xfb"
+            else "audio/wav"
+        )
         return Response(
             result.value,
             media_type=media_type,
@@ -3987,6 +4391,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 name=f"api_alias_{route_name}_{method.lower()}",
                 include_in_schema=False,
             )
+
+    @app.get("/v1/ledger/turns")
+    @app.get("/api/v1/ledger/turns")
+    async def ledger_turns(limit: int = 20) -> dict[str, Any]:
+        """Recent conversation turns with their stop/idle timestamps."""
+        return {"turns": [t.as_dict() for t in get_run_ledger().recent_turns(limit)]}
+
+    @app.get("/v1/ledger/tts")
+    @app.get("/api/v1/ledger/tts")
+    async def ledger_tts(limit: int = 20) -> dict[str, Any]:
+        """Recent voice requests: provider, voice, model, latency, outcome."""
+        return {"events": get_run_ledger().recent_tts(limit)}
+
+    @app.get("/v1/ledger/motion")
+    @app.get("/api/v1/ledger/motion")
+    async def ledger_motion(limit: int = 50) -> dict[str, Any]:
+        """Recent animation/idle state changes reported by the client."""
+        return {"events": get_run_ledger().recent_motion(limit)}
+
+    @app.post("/v1/ledger/motion")
+    @app.post("/api/v1/ledger/motion")
+    async def ledger_motion_write(payload: dict[str, Any] = Body(...)) -> dict[str, bool]:
+        get_run_ledger().record_motion(
+            state=str(payload.get("state") or "unknown"),
+            session_id=payload.get("sessionId"),
+            detail=payload.get("detail"),
+        )
+        return {"ok": True}
 
     return app
 

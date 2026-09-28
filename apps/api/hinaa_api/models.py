@@ -25,6 +25,10 @@ ProviderMode = Literal[
     "codecraft",
     "ollama",
     "omniroute",
+    "pgsgrove",
+    "seekai",
+    "tokentable",
+    "xkiro",
 ]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal[
@@ -127,6 +131,7 @@ class ToolRequest(BaseModel):
     id: str | None = None
     intent: str | None = None
     reason: str | None = None
+    status: str | None = None
     confirmed: bool = False
     approvalSource: Literal["none", "standing-consent", "user", "policy-engine"] = "none"
     idempotencyKey: str | None = Field(default=None, max_length=160)
@@ -179,6 +184,7 @@ class AssistantTurnPlan(BaseModel):
     fallback: bool = False
     fallbackReason: str | None = None
     latencyMs: int | None = None
+    thinking: str | None = None
 
 
 def safe_extract_display_text(content: str) -> str:

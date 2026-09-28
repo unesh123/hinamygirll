@@ -19,6 +19,11 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   "gemini-live":   { label: "Gemini Live",  description: "Native Speech-to-Speech (<300ms multimodal voice)." },
   codecraft:      { label: "CodeCraft AI",  description: "codecraftapi.com — 100M+ tokens, Claude Fable 5 & frontier models." },
   ollama:         { label: "Ollama (Local)", description: "Fast local uncensored models (dolphin-mistral, llama, etc.) via localhost:11434." },
+  pgsgrove:       { label: "PGSGrove AI",   description: "api.pgsgrove.com — high-speed GLM-5.3 & DeepSeek V4.1 Flash." },
+  seekai:         { label: "SeekAI",        description: "seekai.cc — DeepSeek & Claude multi-model gateway." },
+  tokentable:     { label: "TokenTable",    description: "tokentable.asia — Claude Fable 5, GPT-6, Opus 5." },
+  xkiro:          { label: "XKiro AI",      description: "api.xkiro.com — fast free Qwen 3.8 Max, Qwen 3.7 Flash." },
+  cavoti:         { label: "Cavoti AI",     description: "cavoti.com — frontier Claude Fable 5, Opus 5, Haiku 4.5." },
 };
 
 export function getProviderLabel(mode: ProviderMode): string {
@@ -75,7 +80,7 @@ export function buildProviderOptions(statuses: ProviderStatus[]): ProviderOption
   const byId = new Map(statuses.map((s) => [s.id, s]));
 
   const alwaysPresent: ProviderMode[] = ["mock", "local"];
-  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "gemini-live", "ollama"];
+  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti"];
 
   const options: ProviderOption[] = [];
 

@@ -87,6 +87,9 @@ class PromptInput(StrictModel):
     # The assembler must render it verbatim (FORMAT_ONLY) — no further truncation,
     # no independent selection. Legacy callers (offline eval suite) leave False.
     history_preselected: bool = False
+    # When allowed_tools is (), tool definitions are completely omitted from prompt (pure chat).
+    # When allowed_tools has specific tool names, only those tools are exposed.
+    allowed_tools: tuple[str, ...] | None = None
 
 
     @field_validator("session_memories")

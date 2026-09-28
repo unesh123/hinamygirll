@@ -152,6 +152,16 @@ async function loadAndOptimizeVrm(url: string): Promise<VRM> {
   } catch {
     // Non-fatal.
   }
+  try {
+    vrm.scene.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        obj.visible = true;
+        obj.layers.enable(0);
+      }
+    });
+  } catch {
+    // Non-fatal.
+  }
   return vrm;
 }
 
@@ -173,6 +183,8 @@ function gestureHeadTarget(
       return { x: Math.sin(t * 2.4) * 0.1 * intensity, y: 0, z: 0.03 };
     case "listening_lean":
       return { x: 0.09, y: 0, z: 0.07 };
+    case "thinking":
+      return { x: -0.06 * intensity, y: Math.sin(t * 1.3) * 0.07 * intensity, z: -0.09 * intensity };
     case "wave":
       return { x: 0, y: 0, z: 0 };
     default:
@@ -272,16 +284,23 @@ function VrmRig({
   const speechBridge = speechBridgeRef ?? speechBridgeContext;
   const camera = useThree((state) => state.camera);
   const lookTarget = useMemo(() => new THREE.Object3D(), []);
+  const camLookAtRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 1.45, 0));
   const metrics = useMemo(() => normalizeVrmAvatar(vrm), [vrm]);
   const performanceDirector = useMemo(() => new PerformanceDirector(), []);
   if (typeof window !== "undefined") {
     (window as any).__HINAA_DEBUG_VRM = { vrm, metrics, camera };
   }
 
+  useEffect(() => {
+    try {
+      camera.layers.enableAll();
+    } catch {}
+  }, [camera]);
+
   const frameCountRef = useRef(0);
   const lastParamsRef = useRef({ closeUp: input.closeUp, codeMode: input.codeMode, vrm });
 
-  useFrame((_, rawDelta) => {
+  useFrame((threeState, rawDelta) => {
     const delta = Math.min(rawDelta, 0.05);
     const time = performance.now() / 1000;
 
@@ -441,11 +460,7 @@ function VrmRig({
       }
     }
 
-    // Gaze — emotion-aware look target with gentle drift driven by performance director
-    if (vrm.lookAt) {
-      lookTarget.position.set(perf.gaze.x, perf.gaze.y, perf.gaze.z);
-      vrm.lookAt.target = lookTarget;
-    }
+
 
     // Head + arms — gestures and idle sway.
     const humanoid = vrm.humanoid;
@@ -471,11 +486,25 @@ function VrmRig({
       );
       const chest = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Chest);
       const hips = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Hips);
+      const spine = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Spine);
+      const leftUpperLeg = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.LeftUpperLeg,
+      );
+      const rightUpperLeg = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.RightUpperLeg,
+      );
+      const leftLowerLeg = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.LeftLowerLeg,
+      );
+      const rightLowerLeg = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.RightLowerLeg,
+      );
 
       const headTarget = gestureHeadTarget(input.gesture, time, input.intensity);
       // Listening: shoulders settle — idle sway nearly stops, head gives a
       // soft attentive tilt toward you instead of random wander.
       const quiet = input.state === "listening";
+      const isThinking = input.state === "thinking" || input.gesture === "thinking";
       const idleY = quiet
         ? Math.sin(time * 0.8) * 0.005
         : Math.sin(time * 0.5) * 0.02;
@@ -488,18 +517,25 @@ function VrmRig({
       const microRoll = Math.sin(time * 0.37 + 2) * 0.0028;
       const settled = quiet
         ? { x: 0.08 + perf.head.x, y: perf.head.y, z: 0.06 + perf.head.z }
-        : { x: headTarget.x + perf.head.x, y: headTarget.y + perf.head.y, z: headTarget.z + perf.head.z };
+        : isThinking
+          ? { x: -0.05 + perf.head.x, y: Math.sin(time * 1.2) * 0.06 + perf.head.y, z: -0.08 + perf.head.z }
+          : { x: headTarget.x + perf.head.x, y: headTarget.y + perf.head.y, z: headTarget.z + perf.head.z };
+      // Interactive Gaze & Head Tracking: follow cursor / touch pointer smoothly
+      const pointer = threeState.pointer;
+      const cursorHeadY = pointer ? THREE.MathUtils.clamp(pointer.x * 0.16, -0.14, 0.14) : 0;
+      const cursorHeadX = pointer ? THREE.MathUtils.clamp(-pointer.y * 0.12, -0.10, 0.10) : 0;
+
       if (head) {
         head.rotation.x = THREE.MathUtils.damp(
           head.rotation.x,
-          settled.x,
-          6,
+          settled.x + cursorHeadX,
+          5,
           delta,
         );
         head.rotation.y = THREE.MathUtils.damp(
           head.rotation.y,
-          settled.y + idleY + saccade,
-          6,
+          settled.y + idleY + saccade + cursorHeadY,
+          5,
           delta,
         );
         head.rotation.z = THREE.MathUtils.damp(
@@ -544,18 +580,55 @@ function VrmRig({
         if (rightLowerArm) {
           rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -0.6, 8, delta);
         }
-      } else if (input.gesture === "explain" && rightArm) {
-        rightArm.rotation.x = THREE.MathUtils.damp(
-          rightArm.rotation.x,
-          -0.5 + Math.sin(time * 2.6) * 0.15,
-          8,
-          delta,
-        );
-        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.45 * armZSign, 8, delta);
+      } else if ((input.state === "thinking" || input.gesture === "thinking") && rightArm) {
+        // Anime thinking pose: right hand resting near chin/cheek, thoughtful contemplative posture
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.68 + Math.sin(time * 1.2) * 0.04, 7, delta);
+        rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, 0.45 * armZSign, 7, delta);
+        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.62 * armZSign, 7, delta);
+        if (rightLowerArm) {
+          rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.35, 7, delta);
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -1.35 + Math.sin(time * 1.4) * 0.05, 7, delta);
+          rightLowerArm.rotation.z = THREE.MathUtils.damp(rightLowerArm.rotation.z, -0.2 * armZSign, 7, delta);
+        }
+        if (rightHand) {
+          rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, 0.35, 7, delta);
+        }
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.12, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.05 * armZSign, 6, delta);
+        }
+        if (leftLowerArm) {
+          leftLowerArm.rotation.y = THREE.MathUtils.damp(leftLowerArm.rotation.y, 0.35 * -armZSign, 6, delta);
+        }
+      } else if (input.gesture === "reassure" && rightArm) {
+        // Hand over heart pose: gentle comfort and emotional connection
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.55, 7, delta);
+        rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, 0.35 * armZSign, 7, delta);
+        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.42 * armZSign, 7, delta);
+        if (rightLowerArm) {
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -1.15, 7, delta);
+        }
+        if (rightHand) {
+          rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, 0.25, 7, delta);
+        }
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.08, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.2 * armZSign, 6, delta);
+        }
+      } else if (input.gesture === "explain") {
+        if (rightArm) {
+          rightArm.rotation.x = THREE.MathUtils.damp(
+            rightArm.rotation.x,
+            -0.5 + Math.sin(time * 2.4) * 0.15,
+            8,
+            delta,
+          );
+          rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.45 * armZSign, 8, delta);
+        }
         if (rightLowerArm) {
           rightLowerArm.rotation.y = THREE.MathUtils.damp(
             rightLowerArm.rotation.y,
-            -0.65 + Math.sin(time * 2.8) * 0.12,
+            -0.65 + Math.sin(time * 2.6) * 0.12,
             8,
             delta,
           );
@@ -563,7 +636,24 @@ function VrmRig({
         if (rightHand) {
           rightHand.rotation.z = THREE.MathUtils.damp(
             rightHand.rotation.z,
-            Math.sin(time * 2.6) * 0.15,
+            Math.sin(time * 2.4) * 0.15,
+            8,
+            delta,
+          );
+        }
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(
+            leftArm.rotation.x,
+            -0.35 + Math.cos(time * 2.0) * 0.12,
+            8,
+            delta,
+          );
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 0.5 * armZSign, 8, delta);
+        }
+        if (leftLowerArm) {
+          leftLowerArm.rotation.y = THREE.MathUtils.damp(
+            leftLowerArm.rotation.y,
+            0.55 * -armZSign + Math.cos(time * 2.2) * 0.1,
             8,
             delta,
           );
@@ -609,71 +699,117 @@ function VrmRig({
       const inhale = Math.sin(time * rate);
       const breath = inhale * (quiet ? 0.0018 : 0.0042) * drift;
       if (chest) {
-        chest.position.y = breath;
         chest.rotation.x = Math.max(0, inhale) * (quiet ? 0.0012 : 0.0032) * drift;
       }
+      // Natural bipedal locomotion rhythm & contrapposto weight-shift (cadence ~0.65 Hz)
+      // Gives organic life, relaxed balance, and natural walking/standing posture rather than stiff rigidity.
+      const motionScale = input.reducedMotion ? 0.2 : (quiet ? 0.5 : 1.0);
+      const weightCycle = time * 0.65;
+      const weightShift = Math.sin(weightCycle);
+      const hipRoll = 0.018 * weightShift * motionScale;
+
       if (hips) {
-        hips.position.z = 0;
-        hips.position.y = 0;
-        hips.position.x = 0;
+        hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, hipRoll, 4, delta);
+        hips.rotation.y = THREE.MathUtils.damp(
+          hips.rotation.y,
+          0.014 * Math.sin(weightCycle * 0.7) * motionScale,
+          4,
+          delta,
+        );
+        hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.008 * motionScale, 4, delta);
+      }
+
+      if (spine) {
+        // Spine counter-rotates against pelvic roll to keep torso & head vertically aligned
+        spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, -hipRoll * 0.75, 4, delta);
+        if (hips) {
+          spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, -hips.rotation.y * 0.5, 4, delta);
+        }
+        spine.rotation.x = THREE.MathUtils.damp(spine.rotation.x, Math.max(0, -inhale) * 0.002 * motionScale, 4, delta);
+      }
+
+      // Subtle leg stance flex: supporting leg stays straight while relaxed leg has micro-flex
+      const leftKneeBend = Math.max(0, weightShift) * 0.045 * motionScale;
+      const rightKneeBend = Math.max(0, -weightShift) * 0.045 * motionScale;
+      if (leftLowerLeg) {
+        leftLowerLeg.rotation.x = THREE.MathUtils.damp(leftLowerLeg.rotation.x, leftKneeBend, 4, delta);
+      }
+      if (rightLowerLeg) {
+        rightLowerLeg.rotation.x = THREE.MathUtils.damp(rightLowerLeg.rotation.x, rightKneeBend, 4, delta);
+      }
+      if (leftUpperLeg) {
+        leftUpperLeg.rotation.z = THREE.MathUtils.damp(leftUpperLeg.rotation.z, -hipRoll * 0.25, 4, delta);
+      }
+      if (rightUpperLeg) {
+        rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, -hipRoll * 0.25, 4, delta);
       }
     }
 
     vrm.update(delta);
 
-    // Dynamic Landmark Camera: Frame camera directly to the character's true face position
+    // Dynamic Landmark Camera & Gaze: Frame camera directly to the character's true face position
     // AFTER vrm.update has fully resolved humanoid bone solvers, inverse kinematics, and matrix transforms.
-    const paramsChanged =
-      lastParamsRef.current.closeUp !== input.closeUp ||
-      lastParamsRef.current.codeMode !== input.codeMode ||
-      lastParamsRef.current.vrm !== vrm;
+    if (humanoid) {
+      const head = humanoid.getRawBoneNode(VRMHumanBoneName.Head) || humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head);
+      const leftEye = humanoid.getRawBoneNode(VRMHumanBoneName.LeftEye) || humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftEye) || head;
+      const rightEye = humanoid.getRawBoneNode(VRMHumanBoneName.RightEye) || humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightEye) || head;
 
-    if (frameCountRef.current < 5 || paramsChanged) {
-      frameCountRef.current += 1;
-      if (paramsChanged) frameCountRef.current = 1;
-      lastParamsRef.current = { closeUp: input.closeUp, codeMode: input.codeMode, vrm };
-      const humanoid = vrm.humanoid;
-      if (humanoid) {
-        const head = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head);
-        const leftEye = humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftEye) || head;
-        if (head) {
-          head.updateWorldMatrix(true, false);
-          const headMat = head.matrixWorld.elements;
-          const headX = headMat[12];
-          const headY = headMat[13];
-          const headZ = headMat[14];
+      if (head) {
+        head.updateWorldMatrix(true, false);
+        const headPos = new THREE.Vector3();
+        head.getWorldPosition(headPos);
 
-          let eyeX = headX;
-          let eyeY = headY;
-          let eyeZ = headZ;
-          if (leftEye) {
-            leftEye.updateWorldMatrix(true, false);
-            const eyeMat = leftEye.matrixWorld.elements;
-            eyeX = eyeMat[12];
-            eyeY = eyeMat[13];
-            eyeZ = eyeMat[14];
-          }
-
-          const faceCenterX = (headX + eyeX) / 2;
-          const faceCenterY = (headY + eyeY) / 2;
-          const faceCenterZ = (headZ + eyeZ) / 2;
-          const isCloseUp = input.closeUp ?? true;
-
-          const camDistance = isCloseUp ? 1.18 : 1.75;
-          const camYOffset = isCloseUp ? 0.04 : 0.10;
-
-          camera.position.set(
-            faceCenterX + (input.codeMode ? -0.35 : 0),
-            faceCenterY + camYOffset,
-            faceCenterZ + camDistance
-          );
-          camera.lookAt(new THREE.Vector3(
-            faceCenterX,
-            faceCenterY + (isCloseUp ? 0.01 : -0.04),
-            faceCenterZ
-          ));
-          camera.updateProjectionMatrix();
+        const eyePos = new THREE.Vector3();
+        if (leftEye && rightEye) {
+          leftEye.updateWorldMatrix(true, false);
+          rightEye.updateWorldMatrix(true, false);
+          const lPos = new THREE.Vector3();
+          const rPos = new THREE.Vector3();
+          leftEye.getWorldPosition(lPos);
+          rightEye.getWorldPosition(rPos);
+          eyePos.addVectors(lPos, rPos).multiplyScalar(0.5);
+        } else {
+          eyePos.copy(headPos);
         }
+
+        const faceCenterX = (headPos.x + eyePos.x) / 2;
+        const faceCenterY = (headPos.y + eyePos.y) / 2;
+        const faceCenterZ = (headPos.z + eyePos.z) / 2;
+
+        // Gaze — emotion-aware look target at true eye level with gentle drift + cursor tracking
+        if (vrm.lookAt) {
+          const isThinking = input.state === "thinking";
+          const pointer = threeState.pointer;
+          const cursorEyeX = pointer ? THREE.MathUtils.clamp(pointer.x * 0.45, -0.4, 0.4) : 0;
+          const cursorEyeY = pointer ? THREE.MathUtils.clamp(pointer.y * 0.35, -0.3, 0.3) : 0;
+
+          const gazeTargetX = faceCenterX + perf.gaze.x + cursorEyeX + (isThinking ? 0.10 : 0);
+          const gazeTargetY = faceCenterY + perf.gaze.y + cursorEyeY + (isThinking ? 0.14 : 0);
+          const gazeTargetZ = faceCenterZ + 1.2 + (isThinking ? -0.2 : 0);
+          lookTarget.position.set(gazeTargetX, gazeTargetY, gazeTargetZ);
+          lookTarget.updateMatrixWorld();
+          vrm.lookAt.target = lookTarget;
+        }
+
+        const isCloseUp = input.closeUp ?? true;
+        const camDistance = isCloseUp ? 0.88 : 1.45;
+        const targetCamX = faceCenterX + (input.codeMode ? -0.28 : 0);
+        const targetCamY = faceCenterY + 0.02;
+        const targetCamZ = faceCenterZ + camDistance;
+
+        const dampSpeed = frameCountRef.current < 3 ? 30 : 6;
+        frameCountRef.current += 1;
+
+        camera.position.x = THREE.MathUtils.damp(camera.position.x, targetCamX, dampSpeed, delta);
+        camera.position.y = THREE.MathUtils.damp(camera.position.y, targetCamY, dampSpeed, delta);
+        camera.position.z = THREE.MathUtils.damp(camera.position.z, targetCamZ, dampSpeed, delta);
+
+        camLookAtRef.current.x = THREE.MathUtils.damp(camLookAtRef.current.x, faceCenterX, dampSpeed, delta);
+        camLookAtRef.current.y = THREE.MathUtils.damp(camLookAtRef.current.y, faceCenterY - 0.06, dampSpeed, delta);
+        camLookAtRef.current.z = THREE.MathUtils.damp(camLookAtRef.current.z, faceCenterZ, dampSpeed, delta);
+
+        camera.lookAt(camLookAtRef.current);
+        camera.updateProjectionMatrix();
       }
     }
   });
@@ -686,13 +822,15 @@ function VrmRig({
   const finalScale = metrics.scale * (input.codeMode ? 1.0 : 1.12);
 
   return (
-    <group
-      position={[baseX, baseY, baseZ]}
-      scale={finalScale}
-    >
+    <>
       <primitive object={lookTarget} />
-      <primitive object={vrm.scene} />
-    </group>
+      <group
+        position={[baseX, baseY, baseZ]}
+        scale={finalScale}
+      >
+        <primitive object={vrm.scene} />
+      </group>
+    </>
   );
 }
 
@@ -901,7 +1039,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
               powerPreference: glContextLost ? "low-power" : "default",
             }}
             camera={{
-              position: [0, 0.54, 0.90],
+              position: [0, 1.45, 0.88],
               fov: (props.closeUp ?? true) ? 32 : 38,
             }}
           >

@@ -13,6 +13,7 @@ same job contract, so the studio UI never needs to know which brain rendered.
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -230,32 +231,98 @@ def _image_store() -> Path:
     return store
 
 
-_LOCAL_REF = re.compile(r"/v1/generated-images/(?P<job_id>[0-9a-fA-F-]+)")
+_LOCAL_REF = re.compile(r"/(?:api/)?v1/generated-images/(?P<image_id>[a-zA-Z0-9_.-]+)")
+
+# A scheme means the gateway can read it itself -- a link it fetches or a data URL
+# it decodes. Two letters minimum, so a Windows path is not mistaken for one.
+_FETCHABLE = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.\-]+:|//)")
+
+_STORE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+
+def _reference_file(image_id: str, user_id: str) -> Optional[Path]:
+    """The picture on disk behind a generated-images link, in either shape.
+
+    A job id carries an owner and is refused across users; a saved file name has
+    no job row at all (Freepik renders are written straight to the store) and is
+    only accepted when it resolves inside the image store.
+    """
+    session_factory = get_session_factory(settings)
+    with session_factory() as session:
+        job = session.get(ImageJob, image_id)
+        if job:
+            owner = session.get(GenerationSet, job.generation_set_id)
+            if owner is None or owner.user_id != user_id:
+                raise HinaaError("IMAGE_NOT_FOUND", "Reference image not found.", 404)
+            if job.file_path and Path(job.file_path).is_file():
+                return Path(job.file_path)
+
+    store = _image_store()
+    name = Path(image_id).name
+    candidates = [store / name, *(store / f"{name}{ext}" for ext in _STORE_MIME)]
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved.is_relative_to(store.resolve()):
+            return resolved
+    return None
+
+
+def _reference_candidate(params: ImageGenerateParams) -> str:
+    """The one reference this workflow takes, in whichever shape it arrived."""
+    candidate = params.reference_url or ""
+    if not candidate and not params.reference_image_b64 and params.reference_images:
+        # A picture from his own grid arrives as the serve route's link, in
+        # whichever shape that route answers: a job id or a saved file name.
+        candidate = params.reference_images[0]
+    return candidate.strip()
+
+
+def _resolve_reference_target(candidate: str, user_id: str) -> tuple[Optional[str], Optional[Path]]:
+    """Return (link the gateway opens, picture on this server) for a reference.
+
+    A scheme means the gateway reads it itself: a link it fetches or a data URL
+    it decodes. Anything else names a picture this server already has, and is
+    looked up here. Posted to the vendor as it arrived, a bare job id cost a
+    credit and came back "Invalid or corrupted image" after this server had
+    already said the reference applied.
+    """
+    url = candidate.strip()
+    if _FETCHABLE.match(url):
+        return url, None
+    local = _LOCAL_REF.search(url)
+    image_id = local.group("image_id") if local else url
+    path = _reference_file(image_id, user_id)
+    if path is None:
+        if local:
+            raise HinaaError("IMAGE_NOT_FOUND", "Reference image not found.", 404)
+        raise HinaaError(
+            "IMAGE_REFERENCE_UNREADABLE",
+            f"That reference ({image_id[:60]}) is not a web address and not a picture "
+            "this server has. Attach the image again, or ask for it by its link.",
+            400,
+        )
+    return None, path
 
 
 async def _resolve_reference(params: ImageGenerateParams) -> tuple[Optional[str], Optional[str]]:
     """Return (reference_url, reference_b64) from explicit inputs or context."""
-    if params.reference_url:
-        url = params.reference_url.strip()
-        local = _LOCAL_REF.search(url)
-        if local:
-            factory = get_session_factory(get_settings())
-            with factory() as lookup:
-                source_job = lookup.get(ImageJob, local.group("job_id"))
-                owner = lookup.get(GenerationSet, source_job.generation_set_id) if source_job else None
-                if owner is None or owner.user_id != params.userId:
-                    raise HinaaError("IMAGE_NOT_FOUND", "Reference image not found.", 404)
-                if source_job and source_job.file_path and Path(source_job.file_path).exists():
-                    import base64 as _b64
-
-                    mime = "image/png" if source_job.file_path.lower().endswith(".png") else "image/jpeg"
-                    data = _b64.b64encode(Path(source_job.file_path).read_bytes()).decode("ascii")
-                    return None, f"data:{mime};base64,{data}"
-        return url, None
+    candidate = _reference_candidate(params)
+    if candidate:
+        url, path = _resolve_reference_target(candidate, params.userId)
+        if url is not None:
+            return url, None
+        # The gateway reads bytes, not a link to this machine: a relative
+        # path or a tunnel URL would either fail or fetch the wrong thing.
+        mime = _STORE_MIME.get(path.suffix.lower(), "image/png")
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        return None, f"data:{mime};base64,{data}"
     if params.reference_image_b64 and params.reference_image_b64.startswith("data:image"):
         return None, params.reference_image_b64.strip()
-    if params.reference_images:
-        return params.reference_images[0], None
     query = (params.reference_query or "").strip()
     if query:
         try:
@@ -356,6 +423,7 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                             reference_image_b64=reference_b64,
                         )
                         source = result.image_urls[0]
+                        blob = None
                         if should_upscale:
                             try:
                                 upscale_profile = {
@@ -365,15 +433,33 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                                     "realistic": "films_n_photography",
                                     "cinematic": "films_n_photography",
                                 }.get(params.style, "standard")
-                                source = await cloud.upscale(
+                                upscaled = await cloud.upscale(
                                     source,
                                     scale=2.0,
                                     prompt=final_prompt,
                                     optimized_for=upscale_profile,
                                 )
+                                # The fabric upscale writes its own file and hands
+                                # back an asset ref whose URL is a route on this
+                                # server, so the bytes come from the store, not a fetch.
+                                asset_ref = getattr(upscaled, "asset_ref", None)
+                                if asset_ref is not None:
+                                    blob = cloud.asset_store.read_bytes(asset_ref.id)
+                                elif isinstance(upscaled, str):
+                                    source = upscaled
                             except Exception:
-                                pass
-                        blob = await cloud.download(source)
+                                logger.warning(
+                                    "Upscale pass failed for job %s; the render is kept",
+                                    job.id,
+                                    exc_info=True,
+                                )
+                            if blob is None:
+                                logger.warning(
+                                    "Upscale pass gave no usable image for job %s; the render is kept",
+                                    job.id,
+                                )
+                        if blob is None:
+                            blob = await cloud.download(source)
                         file_path = store / f"HINAA_{job.id}_{job.seed}.png"
                         file_path.write_bytes(blob)
                         job.file_path = str(file_path)
@@ -384,6 +470,11 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                     except MagnificError as error:
                         job.status = "failed"
                         session.commit()
+                        logger.warning(
+                            "Image job %s failed on %s: [%s] %s",
+                            job.id, cloud.settings.magnific_base_url or "magnific",
+                            error.code, error,
+                        )
                         if error.code in {"MAGNIFIC_KEY_INVALID", "MAGNIFIC_NOT_CONFIGURED"}:
                             for rest in jobs:
                                 if rest.status in {"pending", "processing"}:
@@ -393,6 +484,7 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                     except Exception:
                         job.status = "failed"
                         session.commit()
+                        logger.exception("Image job %s failed after the render started", job.id)
             return
 
         # ── local fallback (ComfyUI) ─────────────────────────────────────
@@ -447,6 +539,7 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
         await asyncio.gather(*(collect_one(job_id, prompt_id) for job_id, prompt_id in enqueued))
 
     except Exception:
+        logger.exception("Image workflow %s failed before any render landed", generation_set_id)
         with session_factory() as session:
             for job in session.query(ImageJob).filter_by(generation_set_id=generation_set_id).all():
                 if job.status in {"pending", "processing"}:
@@ -466,12 +559,17 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
 
     cloud_ready = cloud_image_available()
     comfy_ready = await comfyui_provider.health_check()
+    gateway_carries_reference = cloud_ready and MagnificProvider(get_settings()).honours_reference_image()
 
-    if not comfy_ready and params.reference_images:
+    if params.reference_images and not (gateway_carries_reference or comfy_ready):
         return {
             "status": "error",
             "code": "REFERENCE_RENDERER_UNAVAILABLE",
-            "error": "Reference editing needs local ComfyUI running. Cloud text-to-image fallback cannot preserve your reference; no job was started.",
+            "error": (
+                "No renderer in this deployment can take your picture: the cloud gateway here "
+                "generates from text only and local ComfyUI is not running. Nothing was started; "
+                "ask for a new image from the description instead."
+            ),
         }
 
     if not comfy_ready and not cloud_ready:
@@ -483,6 +581,15 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
                 "Start ComfyUI on http://127.0.0.1:8188 or configure Freepik/Codex keys."
             ),
         }
+
+    candidate = _reference_candidate(params)
+    if candidate:
+        # The same check the worker runs, before this server promises the
+        # reference applied and files a job that can only fail.
+        try:
+            _resolve_reference_target(candidate, params.userId)
+        except HinaaError as error:
+            return {"status": "error", "code": error.code, "error": error.message}
 
     generation_set_id = str(uuid.uuid4())
     session_factory = get_session_factory(settings)

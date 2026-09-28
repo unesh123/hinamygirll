@@ -34,6 +34,7 @@ def build_turn_prompt(
     live_search_block: str = "",
     history_preselected: bool = False,
     durable_memory: bool = True,
+    allowed_tools: tuple[str, ...] | None = None,
 ) -> PromptPackage:
     inp = PromptInput(
         companion_id=request.companionId,
@@ -53,5 +54,6 @@ def build_turn_prompt(
         dialogue_state_block=dialogue_state_block,
         live_search_block=live_search_block,
         history_preselected=history_preselected,
+        allowed_tools=allowed_tools,
     )
     return assemble_prompt(inp)

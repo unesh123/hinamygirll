@@ -852,6 +852,7 @@ export function useLiveConversation({
           const started = await current.playback.speakBrowser(
             spokenText,
             browserSpeechLocale(spokenText, languagePolicyRef.current),
+            callbacks.current.controller.companionId,
           );
           if (started) {
             latency.current.mark("playback_started");
@@ -1096,7 +1097,9 @@ export function useLiveConversation({
       // stay open so the next sentence needs no "Start" press.
       if (event.retryable) {
         manualAudioStop.current = false;
+        turnTaking.current.resetSpeech();
         turnTaking.current.setSessionState("listening");
+        current.controller.setLiveState("idle");
         setStatus("listening");
         setDetail(`${friendly} · still listening`);
         return;
@@ -1104,6 +1107,7 @@ export function useLiveConversation({
       turnTaking.current.setSessionState(
         liveProviderUnavailable ? "provider_unavailable" : "error",
       );
+      current.controller.setLiveState("idle");
       setStatus("error");
       setDetail(friendly);
       // Release mic/websocket so Start button works for retry.
@@ -1136,12 +1140,18 @@ export function useLiveConversation({
         companionId: callbacks.current.controller.companionId,
         providerMode: effectiveMode,
         brainModel:
+          effectiveMode === "codecraft" ||
           effectiveMode === "custom" ||
           effectiveMode === "openai" ||
           effectiveMode === "real" ||
           effectiveMode === "agent-router" ||
           effectiveMode === "claude" ||
           effectiveMode === "cx-gateway" ||
+          effectiveMode === "pgsgrove" ||
+          effectiveMode === "seekai" ||
+          effectiveMode === "tokentable" ||
+          effectiveMode === "xkiro" ||
+          effectiveMode === "cavoti" ||
           effectiveMode === "qwen"
             ? callbacks.current.controller.routing.activeModel ?? undefined
             : undefined,
@@ -1159,7 +1169,7 @@ export function useLiveConversation({
         voiceRoute: {
           ...prev.voiceRoute,
           brainProvider: effectiveMode === "mock" ? "mock" : "claude",
-          ttsProvider: effectiveMode === "mock" ? "mock" : "elevenlabs",
+          ttsProvider: effectiveMode === "mock" ? "mock" : "deepgram",
         },
       }));
       turnTaking.current.setSessionState("listening");

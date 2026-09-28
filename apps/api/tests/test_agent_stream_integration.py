@@ -28,7 +28,10 @@ def test_stream_turn_creates_and_completes_agent_run_when_enabled():
         "/v1/conversations/turns:stream",
         json={
             "sessionId": "sess-stream-1",
-            "text": "Tell me about Tokyo",
+            # A slash command is an explicit agent request: plain chat no
+            # longer routes to the agent runtime (81692fc), so this is the
+            # request shape that must still produce a full agent lifecycle.
+            "text": "/agent Tell me about Tokyo",
             "companionId": "hinaa",
             "language": "mixed",
             "providerMode": "mock",
@@ -47,7 +50,8 @@ def test_stream_turn_creates_and_completes_agent_run_when_enabled():
     # Verify AgentRun was created and tracked to COMPLETED
     runs = list(runtime.runs.values())
     assert len(runs) >= 1
-    stream_run = next((run for run in runs if run.goal == "Tell me about Tokyo"), None)
+    # Runs are keyed by goal, and create_run stores the full text.
+    stream_run = next((run for run in runs if run.goal.endswith("Tell me about Tokyo")), None)
     assert stream_run is not None
     assert stream_run.status == RunStatus.COMPLETED
     assert stream_run.started_at is not None
@@ -94,7 +98,9 @@ def test_stream_turn_enforces_runtime_deadline_and_persists_failure():
         "/v1/conversations/turns:stream",
         json={
             "sessionId": "sess-stream-timeout",
-            "text": "Wait forever",
+            # Explicit agent request -- plain chat no longer reaches the agent
+            # runtime, and this test exercises the agent run deadline.
+            "text": "/agent Wait forever",
             "companionId": "hinaa",
             "language": "mixed",
             "providerMode": "mock",
@@ -105,7 +111,7 @@ def test_stream_turn_enforces_runtime_deadline_and_persists_failure():
     lines = [json.loads(line) for line in response.text.split("\n") if line.strip()]
     assert any(line.get("type") == "agent.run.failed" for line in lines)
     assert any(line.get("type") == "error" and line.get("code") == "RUN_TIMEOUT" for line in lines)
-    timed_out_run = next(run for run in runtime.runs.values() if run.goal == "Wait forever")
+    timed_out_run = next(run for run in runtime.runs.values() if run.goal.endswith("Wait forever"))
     assert timed_out_run.status == RunStatus.FAILED
     assert timed_out_run.failure_code == "RUN_TIMEOUT"
     assert timed_out_run.completed_at is not None

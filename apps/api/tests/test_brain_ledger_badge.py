@@ -416,3 +416,140 @@ class TestVerdictsComeFromRealTurns:
         assert "/v1/chat/completions" in served.paths, "the badge must follow a completion, not a probe"
         plans = [event["plan"] for event in events if event.get("type") == "plan"]
         assert plans and plans[-1]["resolvedProvider"] == "cx-gateway"
+
+
+class TestHealthNamesTheAnsweringBrain:
+    """/health used to answer "which brain is configured?", and that stayed true
+    for weeks in which a flash-tier gateway wrote every word. A status built this
+    way has to come from a call that really happened.
+    """
+
+    def _health(self, settings: Settings) -> dict:
+        with TestClient(create_app(settings)) as client:
+            response = client.get("/health")
+        assert response.status_code == 200, "readiness stays a configuration contract"
+        return response.json()
+
+    def test_the_brain_that_answered_is_named_when_it_is_not_the_one_asked(self) -> None:
+        settings = MULTI_BRAIN
+        record_call(
+            "claude",
+            ok=False,
+            code="PROVIDER_KEY_INVALID",
+            detail="Claude gateway rejected this credential (HTTP 403).",
+            fingerprint=_fingerprint(settings, "claude"),
+        )
+        record_call("agent-router-openai", ok=True, model="agnes-2.5-flash")
+
+        health = self._health(settings)
+
+        assert health["mode"] == "claude", "what the owner asked for is still a fact"
+        assert health["answeredBy"]["brain"] == "agent-router-openai"
+        assert health["answeredBy"]["row"] == "agent-router"
+        assert health["answeredBy"]["model"] == "agnes-2.5-flash"
+        assert health["requestedServed"] is False
+        assert health["fallback"] is True
+        assert health["status"] == "degraded"
+        assert "403" in health["routing"]
+        assert "agent-router-openai" in health["routing"]
+
+    def test_ok_requires_the_configured_brain_to_have_answered(self) -> None:
+        settings = MULTI_BRAIN
+        record_call(
+            "claude",
+            ok=True,
+            model="claude-sonnet-4-6",
+            fingerprint=_fingerprint(settings, "claude"),
+        )
+
+        health = self._health(settings)
+
+        assert health["status"] == "ok"
+        assert health["requestedServed"] is True
+        assert health["fallback"] is False
+        assert "answered the last live call" in health["routing"]
+        assert "claude-sonnet-4-6" in health["routing"]
+
+    def test_with_no_live_answer_the_claim_is_not_made(self) -> None:
+        health = self._health(MULTI_BRAIN)
+
+        assert health["answeredBy"] is None
+        assert health["status"] == "degraded"
+        assert "recently enough" in health["routing"]
+
+    def test_a_missing_credential_is_reported_as_not_configured(self) -> None:
+        # "untested" promises a call could have happened. With no key there is
+        # nothing to have measured, and the endpoint has to say that out loud.
+        health = self._health(brain_settings(HINAA_PROVIDER_MODE="claude"))
+
+        assert health["status"] == "degraded"
+        assert "not configured" in health["routing"]
+
+    def test_an_in_process_brain_needs_no_socket_to_be_believed(self) -> None:
+        health = self._health(brain_settings(HINAA_PROVIDER_MODE="mock"))
+
+        assert health["status"] == "ok"
+        assert "in-process" in health["routing"]
+
+    def test_a_real_turn_is_what_changes_the_sentence(self, stub) -> None:
+        # Written by the turn path and read back here, so neither half can be
+        # asserted in isolation from the other.
+        served = stub(completion="I love you. That is the whole sentence.")
+        settings = brain_settings(
+            HINAA_PROVIDER_MODE="cx-gateway",
+            CX_GATEWAY_API_KEY="test-cx-key",
+            CX_GATEWAY_BASE_URL=served.url,
+        )
+
+        with TestClient(create_app(settings)) as client:
+            before = client.get("/health").json()
+            response = client.post(
+                "/v1/conversations/turns:stream",
+                json={
+                    "sessionId": "health-routing-e2e",
+                    "text": "Tell me you love me and finish your sentence.",
+                    "companionId": "hinaa",
+                    "language": "mixed",
+                    "providerMode": "cx-gateway",
+                },
+            )
+            assert response.status_code == 200
+            after = client.get("/health").json()
+
+        assert before["answeredBy"] is None
+        assert after["answeredBy"]["brain"] == "cx-gateway"
+        assert after["requestedServed"] is True
+        assert after["status"] == "ok"
+        assert after["answeredBy"]["model"], "name the model that ran, not the one requested"
+
+    def test_a_turn_that_died_before_its_plan_still_names_a_brain(self, stub) -> None:
+        # The client learns the failure from the error event alone, and that event
+        # used to carry no routing at all — so a rejected Claude request kept its
+        # Claude badge on screen even though nothing had answered.
+        served = stub(status=403)
+        settings = brain_settings(
+            HINAA_PROVIDER_MODE="cx-gateway",
+            CX_GATEWAY_API_KEY="test-cx-key",
+            CX_GATEWAY_BASE_URL=served.url,
+        )
+
+        with TestClient(create_app(settings)) as client:
+            response = client.post(
+                "/v1/conversations/turns:stream",
+                json={
+                    "sessionId": "health-error-routing",
+                    "text": "Say something kind.",
+                    "companionId": "hinaa",
+                    "language": "mixed",
+                    "providerMode": "cx-gateway",
+                },
+            )
+
+        errors = [
+            event for event in (json.loads(line) for line in response.text.splitlines() if line.strip())
+            if event.get("type") == "error"
+        ]
+        assert errors, "the turn must report its failure"
+        routing = errors[-1]["routing"]
+        assert routing["answeredBy"] is None, "nothing answered, and the event must not imply otherwise"
+        assert "403" in routing["reason"]

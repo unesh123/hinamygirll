@@ -23,12 +23,12 @@ from hinaa_api.persistence.orm import (
 def test_migrations_fresh_database():
     engine = make_engine("sqlite+pysqlite:///:memory:")
     applied = run_migrations(engine)
-    assert applied == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013"]
+    assert applied == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014"]
 
     status = get_migration_status(engine)
-    assert len(status["applied"]) == 13
+    assert len(status["applied"]) == 14
     assert len(status["pending"]) == 0
-    assert status["current_version"] == "0013"
+    assert status["current_version"] == "0014"
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
@@ -54,6 +54,7 @@ def test_migrations_fresh_database():
     assert "user_continuity_states" in tables
     assert "conversation_turn_states" in tables
     assert "conversation_episodes" in tables
+    assert "reminders" in tables
 
     # Verify expires_at column on explicit_memories
     cols = [c["name"] for c in inspector.get_columns("explicit_memories")]
@@ -78,13 +79,13 @@ def test_migrations_fresh_database():
 def test_migrations_idempotency():
     engine = make_engine("sqlite+pysqlite:///:memory:")
     applied_first = run_migrations(engine)
-    assert len(applied_first) == 13
+    assert len(applied_first) == 14
 
     applied_second = run_migrations(engine)
     assert applied_second == []
 
     status = get_migration_status(engine)
-    assert len(status["applied"]) == 13
+    assert len(status["applied"]) == 14
     assert len(status["pending"]) == 0
 
 
