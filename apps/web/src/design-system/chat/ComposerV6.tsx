@@ -65,6 +65,8 @@ export interface ComposerV6Props {
   disabled?: boolean;
   isVoiceActive?: boolean;
   onVoiceToggle?: () => void;
+  isLiveVisionActive?: boolean;
+  onToggleLiveVision?: () => void;
   // Context Chips V2
   contextChips?: ContextChip[];
   onRemoveChip?: (id: string) => void;
@@ -114,6 +116,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   compact = false,
   isVoiceActive = false,
   onVoiceToggle,
+  isLiveVisionActive = false,
+  onToggleLiveVision,
   contextChips = [],
   onRemoveChip,
   activeTopic,
@@ -909,6 +913,31 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             <span>send ↵</span>
             <span>newline ⇧↵</span>
           </div>
+          {onToggleLiveVision && (
+            <button
+              type="button"
+              data-testid="composer-live-vision-btn"
+              onClick={onToggleLiveVision}
+              title={isLiveVisionActive ? "Stop Live Eyes (Screen Share)" : "Enable Live Eyes (Watch Screen)"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: isLiveVisionActive ? "rgba(16, 185, 129, 0.2)" : "var(--surface-subtle, #f6f3f7)",
+                border: isLiveVisionActive ? "1px solid #10b981" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                color: isLiveVisionActive ? "#10b981" : "var(--text-secondary, #5e545d)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                boxShadow: isLiveVisionActive ? "0 0 10px rgba(16, 185, 129, 0.4)" : "none",
+              }}
+            >
+              <Eye size={15} />
+            </button>
+          )}
+
           {onVoiceToggle && (
             <button
               type="button"

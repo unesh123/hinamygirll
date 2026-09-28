@@ -185,6 +185,14 @@ function gestureHeadTarget(
       return { x: 0.09, y: 0, z: 0.07 };
     case "thinking":
       return { x: -0.06 * intensity, y: Math.sin(t * 1.3) * 0.07 * intensity, z: -0.09 * intensity };
+    case "agree":
+      return { x: Math.sin(t * 4.8) * 0.15 * intensity, y: 0, z: 0.02 * intensity };
+    case "point":
+      return { x: -0.04 * intensity, y: 0.05 * intensity, z: 0 };
+    case "shy":
+      return { x: 0.07 * intensity, y: -0.04 * intensity, z: -0.11 * intensity };
+    case "curious":
+      return { x: 0.04 * intensity, y: 0.06 * intensity, z: 0.13 * intensity };
     case "wave":
       return { x: 0, y: 0, z: 0 };
     default:
@@ -657,6 +665,45 @@ function VrmRig({
             8,
             delta,
           );
+        }
+      } else if (input.gesture === "point" && rightArm) {
+        // Pointing gesture: right arm smoothly extended toward screen/viewer
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.85, 8, delta);
+        rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, -0.15 * armZSign, 8, delta);
+        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.25 * armZSign, 8, delta);
+        if (rightLowerArm) {
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -0.2, 8, delta);
+        }
+        if (rightHand) {
+          rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, 0.1, 8, delta);
+        }
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.05, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.15 * armZSign, 6, delta);
+        }
+      } else if (input.gesture === "shy" && rightArm) {
+        // Anime shy / bashful pose: hand near cheek, soft posture
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.45, 7, delta);
+        rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, 0.45 * armZSign, 7, delta);
+        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.45 * armZSign, 7, delta);
+        if (rightLowerArm) {
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -1.2, 7, delta);
+        }
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.1, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.1 * armZSign, 6, delta);
+        }
+      } else if (input.gesture === "agree" && rightArm) {
+        // Affirmative acknowledgement gesture
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.4, 8, delta);
+        rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, 0.2 * armZSign, 8, delta);
+        rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -0.4 * armZSign, 8, delta);
+        if (rightLowerArm) {
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -0.65, 8, delta);
+        }
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.08, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.2 * armZSign, 6, delta);
         }
       } else {
         // Natural resting companion pose: arms relaxed alongside torso, hands resting naturally

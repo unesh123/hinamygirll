@@ -18,6 +18,10 @@ const GESTURE_TO_SEMANTIC: Record<string, SemanticMotion> = {
   celebrate: "mild_celebrate",
   reassure: "calm_reassure",
   listening_lean: "listening",
+  point: "point",
+  shy: "shy",
+  agree: "agree",
+  curious: "curious",
 };
 
 export interface ActivePerformanceFrame {

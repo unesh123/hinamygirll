@@ -119,6 +119,19 @@ class DocumentPdfBody(BaseModel):
     subtitle: Annotated[str, Field(max_length=240)] | None = None
 
 
+class VisionObserveBody(BaseModel):
+    frame: str
+    query: str | None = None
+    conversationId: str | None = None
+    companionId: str | None = "hinaa"
+
+
+class SwarmExecutionBody(BaseModel):
+    mission: str
+    tasks: list[str] | None = None
+    conversationId: str | None = None
+
+
 class ProjectAgentRunStatusBody(BaseModel):
     status: Annotated[str, Field(pattern="^(queued|running|waiting_approval|completed|failed|cancelled)$")]
     summary: Annotated[str, Field(max_length=20_000)] | None = None
@@ -3245,6 +3258,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Cache-Control": "no-store",
             },
+        )
+
+    @app.post("/v1/vision/observe")
+    @app.post("/api/v1/vision/observe")
+    async def observe_vision_frame(body: VisionObserveBody):
+        """Analyze a live screen or webcam frame via Gemini 3.8 Flash multimodal vision."""
+        from .intelligence.live_vision import live_vision_service
+        return await live_vision_service.observe_frame(
+            frame_base64=body.frame,
+            query=body.query,
+            conversation_id=body.conversationId,
+            companion_id=body.companionId or "hinaa",
+        )
+
+    @app.get("/v1/companion/briefing")
+    @app.get("/api/v1/companion/briefing")
+    async def get_companion_briefing(request: Request, companion_id: str = "hinaa"):
+        """Generate a contextual, proactive morning/work briefing."""
+        user_id = "dev_user"
+        try:
+            auth = _require_auth(request)
+            user_id = auth.user_id
+        except Exception:
+            pass
+        from .intelligence.proactive_briefing import generate_proactive_briefing
+        return await generate_proactive_briefing(
+            user_id=user_id,
+            memory_service=memory_service,
+            companion_id=companion_id,
+        )
+
+    @app.post("/v1/agents/swarm/execute")
+    @app.post("/api/v1/agents/swarm/execute")
+    async def execute_agent_swarm(body: SwarmExecutionBody):
+        """Execute an autonomous background multi-agent swarm mission."""
+        from .agents.worker_hive import worker_hive
+        return await worker_hive.execute_mission(
+            mission=body.mission,
+            tasks=body.tasks,
+            conversation_id=body.conversationId,
         )
 
     @app.get("/v1/projects/artifacts/{artifact_id}/export")

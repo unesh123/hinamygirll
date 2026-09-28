@@ -21,6 +21,10 @@ export const semanticMotionSchema = z.enum([
   "mild_celebrate",
   "apology_correction",
   "return_neutral",
+  "point",
+  "shy",
+  "agree",
+  "curious",
   "none",
 ]);
 
@@ -70,4 +74,8 @@ export const SEMANTIC_RUNTIME_MAP: Record<
   mild_celebrate: { cssGesture: "celebrate", cssEmotion: "excited" },
   apology_correction: { cssGesture: "small_nod", cssEmotion: "shy" },
   return_neutral: { cssGesture: "none", cssEmotion: "neutral" },
+  point: { cssGesture: "point" },
+  shy: { cssGesture: "shy", cssEmotion: "shy" },
+  agree: { cssGesture: "agree", cssEmotion: "happy" },
+  curious: { cssGesture: "curious", cssEmotion: "thinking" },
 };

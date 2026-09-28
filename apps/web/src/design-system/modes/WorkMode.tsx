@@ -26,7 +26,9 @@ import {
   X,
   FileDown,
   Loader2,
+  Eye,
 } from "lucide-react";
+import { useLiveVision } from "../../features/vision/useLiveVision";
 import { downloadMarkdownPdf } from "../../features/documents/exportPdf";
 import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
 import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
@@ -177,6 +179,7 @@ interface WorkModeProps {
   voiceEngine?: string;
   onSelectVoiceEngine?: (engine: string) => void;
   onOpenSettings?: () => void;
+  conversationId?: string;
 }
 
 export function WorkMode({
@@ -238,6 +241,7 @@ export function WorkMode({
   voiceEngine,
   onSelectVoiceEngine,
   onOpenSettings,
+  conversationId,
 }: WorkModeProps) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText]);
   // Real capability discovery: providers + models actually configured on the
@@ -272,6 +276,7 @@ export function WorkMode({
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const liveVision = useLiveVision(conversationId);
 
   const handleImageFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -454,6 +459,14 @@ export function WorkMode({
       // Flow B: Enter ALWAYS sends normal chat text! Never block or hijack user input!
       let text = input.trim();
       if (!text && !attachedImage) return;
+
+      // Auto-attach Live Eyes screen frame if active and no manual picture attached
+      if (liveVision.isActive && !attachedImage) {
+        const frame = liveVision.grabFrame() || liveVision.latestFrame;
+        if (frame) {
+          onImageAttach(frame, "inspection");
+        }
+      }
 
       // Clear any pending suggestion strip or draft so conversation proceeds cleanly
       if (suggestion) {
@@ -1533,6 +1546,79 @@ export function WorkMode({
           </div>
         )}
 
+        {/* Live Eyes Floating Indicator Bar */}
+        {liveVision.isActive && (
+          <div
+            data-testid="live-eyes-indicator"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 14px",
+              margin: "0 16px 8px",
+              background: "rgba(16, 185, 129, 0.12)",
+              border: "1px solid rgba(16, 185, 129, 0.35)",
+              borderRadius: 12,
+              fontSize: 12,
+              color: "#10b981",
+              boxShadow: "0 4px 12px rgba(16, 185, 129, 0.1)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: "#10b981",
+                  boxShadow: "0 0 8px #10b981",
+                }}
+              />
+              <span style={{ fontWeight: 650, letterSpacing: "0.02em" }}>
+                LIVE EYES: {liveVision.mode === "screen" ? "Watching Screen" : "Camera Active"}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  void liveVision.observeScreen("Look at my screen and give me sharp observations and feedback.");
+                }}
+                disabled={liveVision.isObserving}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: 6,
+                  background: "#10b981",
+                  color: "#ffffff",
+                  border: "none",
+                  fontSize: 11,
+                  fontWeight: 650,
+                  cursor: "pointer",
+                }}
+              >
+                {liveVision.isObserving ? "Analyzing..." : "Ask Hina About Screen"}
+              </button>
+              <button
+                type="button"
+                onClick={liveVision.stopCapture}
+                title="Stop Live Eyes"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "inherit",
+                  cursor: "pointer",
+                  fontSize: 15,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  padding: "2px 4px",
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Frontier V6 Composer */}
         <ComposerV6
           compact={isMobile}
@@ -1577,6 +1663,8 @@ export function WorkMode({
           disabled={disabled}
           isVoiceActive={isVoiceActive}
           onVoiceToggle={isVoiceActive ? onStopVoice : onStartVoice}
+          isLiveVisionActive={liveVision.isActive}
+          onToggleLiveVision={liveVision.isActive ? liveVision.stopCapture : liveVision.startScreenShare}
           contextChips={contextChips}
           onRemoveChip={handleRemoveChip}
           activeTopic={activeTopic}
@@ -2040,21 +2128,46 @@ function WorkWelcome({
 }) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
+  const [briefing, setBriefing] = useState<{
+    greeting?: string;
+    suggestions?: Array<{ id: string; title: string; subtitle: string; prompt: string }>;
+  } | null>(null);
 
   const hour = new Date().getHours();
   const daypart = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
-  const greetingText = `Good ${daypart} — I'm Hina, your AI workspace companion. Ask me anything, research the live web with citations, create documents and images, or switch brains anytime from the model menu.`;
+  const defaultGreetingText = `Good ${daypart} — I'm Hina, your AI workspace companion. Ask me anything, research the live web with citations, create documents and images, or switch brains anytime from the model menu.`;
 
-  const suggestions = [
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/v1/companion/briefing")
+      .then((r) => r.json())
+      .then((d) => {
+        if (mounted && d.status === "success") {
+          setBriefing(d);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const activeGreeting = briefing?.greeting || defaultGreetingText;
+
+  const defaultSuggestions = [
     { label: "Explain a concept", prompt: "Explain Retrieval-Augmented Generation in simple terms with an example: " },
     { label: "Research live", prompt: "Research the latest developments in " },
     { label: "Create a document", prompt: "Create a comprehensive document about " },
     { label: "Generate an image", prompt: "/image " },
   ];
 
+  const activeSuggestions = briefing?.suggestions?.length
+    ? briefing.suggestions.map((s) => ({ label: s.title, prompt: s.prompt }))
+    : defaultSuggestions;
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(greetingText);
+      await navigator.clipboard.writeText(activeGreeting);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {}
@@ -2082,7 +2195,9 @@ function WorkWelcome({
           <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: "#1e293b" }}>
             HINA
           </span>
-          <span style={{ fontSize: 11, color: "#94a3b8" }}>09:41</span>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>
+            {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -2114,7 +2229,7 @@ function WorkWelcome({
           color: "#334155",
         }}
       >
-        {greetingText}
+        {activeGreeting}
       </div>
 
       {/* Subtle feedback reaction buttons */}
@@ -2151,27 +2266,11 @@ function WorkWelcome({
         >
           <Copy size={13} />
         </button>
-        <button
-          type="button"
-          onClick={() => onAction("research")}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "#94a3b8",
-            display: "flex",
-            alignItems: "center",
-            padding: 2,
-          }}
-          title="Regenerate"
-        >
-          <RefreshCw size={13} />
-        </button>
       </div>
 
       {/* Starter suggestion chips — real prompts, one click to start */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 34, marginTop: 14 }}>
-        {suggestions.map((s) => (
+        {activeSuggestions.map((s) => (
           <button
             key={s.label}
             type="button"
