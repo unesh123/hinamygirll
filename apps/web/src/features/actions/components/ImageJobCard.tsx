@@ -87,7 +87,8 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .slice(0, 40);
-      const filename = `hina-flux-${slug}-${index + 1}.png`;
+      const prefix = (data.model || "seedance").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const filename = `hina-${prefix}-${slug}-${index + 1}.png`;
 
       const res = await fetch(url);
       const blob = await res.blob();
@@ -102,7 +103,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
     } catch {
       const a = document.createElement("a");
       a.href = url;
-      a.download = `hina-flux-image-${index + 1}.png`;
+      a.download = `hina-image-${index + 1}.png`;
       a.target = "_blank";
       a.click();
     } finally {
@@ -163,7 +164,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
                     border: "1px solid rgba(147, 51, 234, 0.18)",
                   }}
                 >
-                  {data.model || "✨ FLUX.1 [dev]"}
+                  {data.model || "✨ Seedance 5.0"}
                 </span>
                 <span
                   style={{
@@ -410,10 +411,10 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
 
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: "0.86rem", fontWeight: 700, color: "#ffffff", letterSpacing: "0.01em" }}>
-                  Synthesizing FLUX Latent Diffusion
+                  {data.model ? `Synthesizing ${data.model}` : "Synthesizing Seedance 5.0 Visuals"}
                 </span>
                 <span style={{ fontSize: "0.72rem", color: "rgba(255, 255, 255, 0.65)", fontWeight: 500 }}>
-                  High-res 1024×1024 · 28 denoising steps
+                  High-res 1024×1024 · Ultra High Fidelity
                 </span>
               </div>
 
@@ -754,7 +755,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
                     {data.prompt}
                   </span>
                   <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.6)" }}>
-                    {data.model || "FLUX.1 [dev]"} · {data.resolution || "1024 × 1024 PNG"}
+                    {data.model || "Seedance 5.0"} · {data.resolution || "1024 × 1024 PNG"}
                   </span>
                 </div>
               </div>

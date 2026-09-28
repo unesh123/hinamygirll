@@ -189,12 +189,10 @@ class MagnificProvider:
         return httpx.Timeout(seconds, connect=15.0)
 
     def _base_url(self) -> str:
-        if self.settings.freepik_api_key and not self.settings.magnific_api_key:
-            return "https://api.freepik.com"
         if getattr(self.settings, "magnific_base_url", None):
             return self.settings.magnific_base_url.rstrip("/")
-        if self.settings.magnific_api_key:
-            return "https://api.magnific.com"
+        if self.settings.freepik_api_key:
+            return "https://api.freepik.com"
         return "https://api.freepik.com"
 
     async def health_check(self) -> bool:
@@ -237,18 +235,19 @@ class MagnificProvider:
         if "freepik.com" in base:
             path = "/v1/ai/text-to-image"
             aspect = _aspect_for(width, height)
+            engine = model or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
             payload: dict[str, Any] = {
                 "prompt": final_prompt,
                 "negative_prompt": negative_prompt,
                 "num_images": 1,
                 "image": {"size": aspect},
+                "engine": engine,
             }
             clamped_seed = _vendor_seed(seed)
             if clamped_seed is not None:
                 payload["seed"] = clamped_seed
 
-            flux_model = model or getattr(self.settings, "magnific_model_quality", "flux-dev")
-            provider_name = f"freepik:{flux_model}"
+            provider_name = f"freepik:{engine}"
 
             async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=True) as client:
                 response = await self._post(client, f"{base}{path}", payload)
@@ -560,8 +559,8 @@ class MagnificProvider:
 
         lowered_model = model.lower()
         if "seedance" in lowered_model:
-            model = "flux-2-flex"
-            lowered_model = "flux-2-flex"
+            model = "seedance-5.0"
+            lowered_model = "seedance-5.0"
         elif any(marker in lowered_model for marker in ("video", "animate", "motion", "clip")):
             raise MagnificProviderError(
                 "VIDEO_GENERATION_FORBIDDEN",

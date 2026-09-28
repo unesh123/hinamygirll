@@ -40,7 +40,7 @@ def _image_store_dir() -> Path:
     return store
 
 
-async def _generate_via_freepik(prompt: str, count: int, key: str, store: Path) -> list[dict]:
+async def _generate_via_freepik(prompt: str, count: int, key: str, store: Path, model: str | None = None) -> list[dict]:
     url = "https://api.freepik.com/v1/ai/text-to-image"
     headers = {
         "x-freepik-api-key": key,
@@ -48,8 +48,10 @@ async def _generate_via_freepik(prompt: str, count: int, key: str, store: Path) 
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    chosen_engine = model or getattr(get_settings(), "magnific_model_quality", "seedance-5.0")
     payload = {
         "prompt": prompt,
+        "engine": chosen_engine,
         "num_images": min(max(1, count), 4),
         "image": {"size": "square_1_1"},
     }
@@ -194,9 +196,9 @@ async def generate_cloud_images(
     store = _image_store_dir()
     entries: list[dict] = []
 
-    # Map Seedance image requests to FLUX rather than raising an error
+    # Retain Seedance 5.0 image engine requests
     if model and "seedance" in model.lower():
-        model = "flux"
+        model = "seedance-5.0"
     elif model and any(marker in model.lower() for marker in ("video", "animate", "motion", "clip")):
         from ..errors import HinaaError
         raise HinaaError(
@@ -221,9 +223,9 @@ async def generate_cloud_images(
     active_image_key = settings.active_freepik_key
     if active_image_key:
         try:
-            logger.info("Generating cloud image via Freepik/Magnific AI Suite...")
+            logger.info("Generating cloud image via Freepik/Magnific AI Suite (Seedance 5.0)...")
             entries = await _generate_via_freepik(
-                prompt, count, active_image_key.get_secret_value(), store
+                prompt, count, active_image_key.get_secret_value(), store, model=model
             )
             if entries:
                 return entries
