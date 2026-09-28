@@ -586,6 +586,7 @@ class OpenAILLMProvider:
                 json=payload,
             ) as response:
                 self._raise_for_status(response)
+                in_thought = False
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -605,11 +606,21 @@ class OpenAILLMProvider:
                         raw_fr = choices[0].get("finish_reason")
                         if raw_fr:
                             finish_reason_holder["value"] = str(raw_fr)
-                    delta = choices[0].get("delta", {}).get("content")
-                    # reasoning_content (private chain-of-thought) is
-                    # intentionally never yielded or spoken.
-                    if isinstance(delta, str):
-                        yield delta
+                    delta_dict = choices[0].get("delta") or {}
+                    content_chunk = delta_dict.get("content")
+                    reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
+                    if isinstance(reasoning_chunk, str) and reasoning_chunk:
+                        if not in_thought:
+                            in_thought = True
+                            yield "<think>"
+                        yield reasoning_chunk
+                    if isinstance(content_chunk, str) and content_chunk:
+                        if in_thought:
+                            in_thought = False
+                            yield "</think>\n\n"
+                        yield content_chunk
+                if in_thought:
+                    yield "</think>\n\n"
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {

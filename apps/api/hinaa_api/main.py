@@ -3212,6 +3212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return artifact
 
     @app.post("/v1/documents/pdf")
+    @app.post("/api/v1/documents/pdf")
     async def export_document_pdf(body: DocumentPdfBody) -> Response:
         """Render any markdown document (chat answer, research brief, plan)
         into a real multi-page PDF — branded, paginated, table-aware."""

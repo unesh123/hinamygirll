@@ -54,13 +54,13 @@ class Settings(BaseSettings):
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
     azure_speech_region: str | None = Field(None, alias="AZURE_SPEECH_REGION")
     gemini_api_key: SecretStr | None = Field(None, alias="GEMINI_API_KEY")
-    gemini_model: str = Field("gemini-3.5-flash-lite", alias="GEMINI_MODEL")
-    gemini_planner_model: str = Field("gemini-3.5-flash-lite", alias="GEMINI_PLANNER_MODEL")
+    gemini_model: str = Field("gemini-3.8-flash", alias="GEMINI_MODEL")
+    gemini_planner_model: str = Field("gemini-3.8-flash", alias="GEMINI_PLANNER_MODEL")
     gemini_allowed_models_raw: str = Field(
         (
-            "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,"
-            "gemini-3.8-flash,gemini-3.5-flash,gemini-3-flash-preview,"
-            "gemini-flash-latest,gemini-flash-lite-latest,gemini-pro-latest"
+            "gemini-3.8-flash,gemini-flash-latest,gemini-pro-latest,gemini-3.1-pro-preview,"
+            "gemini-2.5-flash-lite,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,"
+            "gemini-3.5-flash,gemini-3-flash-preview,gemini-flash-lite-latest"
         ),
         alias="GEMINI_ALLOWED_MODELS",
     )

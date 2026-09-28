@@ -5,6 +5,7 @@ import { ImageGeneration } from '@/components/ui/image-generation';
 import { SourceCard, type SourceItem } from '@/components/ui/SourceCard';
 import { WorkTree } from './WorkTree';
 import { downloadMarkdownPdf } from '@/features/documents/exportPdf';
+import { renderMarkdownHtml } from '@/lib/markdown';
 import type { WorkTreeNode } from './WorkTree';
 
 interface GenericResultRendererProps {
@@ -740,8 +741,9 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
   if (toolName === 'deep_research') {
     const sources: any[] = Array.isArray(data.sources) ? data.sources : [];
     const items: any[] = Array.isArray(data.items) ? data.items : [];
-    const reportHtml: string = typeof data.report === 'string' ? data.report : '';
-    const isWorking = sources.length === 0 && !data.error && result.status !== 'error' && !reportHtml;
+    const reportMarkdown: string = typeof data.report === 'string' ? data.report : '';
+    const reportHtml = reportMarkdown ? renderMarkdownHtml(reportMarkdown) : '';
+    const isWorking = sources.length === 0 && !data.error && result.status !== 'error' && !reportMarkdown;
     const nodes: WorkTreeNode[] = [
       { id: 'fan', status: 'success', title: 'Fanning out research probes', detail: `${sources.length || 6} independent sources queried in parallel${data.depth ? ` · depth ${data.depth}` : ''}` },
       ...(sources.length ? sources.map((source: any) => ({
@@ -777,13 +779,13 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
             ))}
           </div>
         )}
-        {reportHtml && (
+        {reportMarkdown && (
           <details style={{ margin: '12px 16px 0' }}>
             <summary style={{ cursor: 'pointer', fontSize: 11.5, fontWeight: 750, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#cbbca8' }}>Full cited brief</summary>
           <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '6px 0 0' }}>
             <button
               type="button"
-              onClick={() => { void downloadMarkdownPdf(`HINAA research — ${data.topic || 'dossier'}`, reportHtml, 'Deep research dossier').catch(() => undefined); }}
+              onClick={() => { void downloadMarkdownPdf(`HINAA research — ${data.topic || 'dossier'}`, reportMarkdown, 'Deep research dossier').catch(() => undefined); }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,.18)', background: 'rgba(255,255,255,.05)', color: '#e9def1', fontSize: 10.5, fontWeight: 750, letterSpacing: '0.04em', cursor: 'pointer' }}
             >
               <Download size={11} /> Download PDF

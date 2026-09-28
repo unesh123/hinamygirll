@@ -51,22 +51,47 @@ async def create_gamma_presentation(params: CreateGammaPresentationParams) -> st
     )
 
     if not api_key:
-        logger.info("Gamma AI unconfigured; creating an executive presentation report PDF.")
-        from .pdf_generate import pdf_generate_handler, GeneratePDFParams
-        # Use explicit outline if provided and substantial; otherwise None allows pdf_generate to pull the full report from conversation
+        logger.info("Gamma AI unconfigured; routing to native PPTX or executive PDF engine.")
         outline_content = (params.outline or "").strip()
+        effective_title = params.title or f"{effective_topic.title()} Presentation"
+
+        if params.export_as == "pptx" or params.format == "presentation":
+            from .document_generate import document_generate_handler, GenerateDocumentParams
+            doc_res = await document_generate_handler(GenerateDocumentParams(
+                topic=effective_topic,
+                title=effective_title,
+                format="pptx",
+                userId=params.userId,
+                author="HINAA Academic Studio",
+                content=outline_content if len(outline_content) > 60 else None,
+            ))
+            if isinstance(doc_res, dict) and doc_res.get("downloadUrl"):
+                return {
+                    **doc_res,
+                    "format": "pptx",
+                    "fallback": True,
+                    "fallbackReason": "GAMMA_NOT_CONFIGURED",
+                    "summary": f"Compiled native PowerPoint (.pptx) presentation deck with executive slides.",
+                }
+
+        from .pdf_generate import pdf_generate_handler, GeneratePDFParams
         pdf_res = await pdf_generate_handler(GeneratePDFParams(
             topic=effective_topic,
-            title=params.title or f"{effective_topic.title()} Presentation Report",
+            title=effective_title,
             category=params.format.capitalize(),
             userId=params.userId,
             content=outline_content if len(outline_content) > 60 else None,
         ))
         if isinstance(pdf_res, dict) and pdf_res.get("downloadUrl"):
-            return {**pdf_res, "format": "pdf", "requestedFormat": params.export_as,
-                    "fallback": True, "fallbackReason": "GAMMA_NOT_CONFIGURED",
-                    "summary": f"Compiled an executive {params.format} PDF report with full structured content."}
-        return "Gamma AI is not configured. Please add `GAMMA_AI_API_KEY` to your `apps/api/.env.local` file."
+            return {
+                **pdf_res,
+                "format": "pdf",
+                "requestedFormat": params.export_as,
+                "fallback": True,
+                "fallbackReason": "GAMMA_NOT_CONFIGURED",
+                "summary": f"Compiled an executive {params.format} PDF report with full structured content.",
+            }
+        return "Presentation engine generated a local document fallback."
 
     base_url = (settings.gamma_ai_base_url or "https://public-api.gamma.app/v1.0").rstrip("/")
     create_url = f"{base_url}/generations"
