@@ -2518,9 +2518,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/v1/generated-docs/{doc_id}")
     @app.get("/api/v1/generated-docs/{doc_id}")
-    async def get_generated_document(doc_id: str):
+    async def get_generated_document(
+        doc_id: str,
+        filename: str | None = None,
+        inline: bool = False,
+    ):
         from fastapi.responses import FileResponse
         from pathlib import Path
+        import json
 
         from .artifacts.inventory import document_roots
 
@@ -2567,30 +2572,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         elif suffix == ".md":
             media_type = "text/markdown"
 
+        # Determine clean display filename
+        final_filename = filename
+        if not final_filename:
+            meta_path = resolved_path.parent / f"{clean_name}.metadata.json"
+            if meta_path.exists():
+                try:
+                    with open(meta_path, "r", encoding="utf-8") as mf:
+                        m_data = json.load(mf)
+                        final_filename = m_data.get("filename")
+                except Exception:
+                    pass
+        if not final_filename:
+            final_filename = resolved_path.name
+            if "_" in final_filename and len(final_filename.split("_")[0]) == 36:
+                final_filename = "_".join(final_filename.split("_")[1:])
+
+        disposition_type = "inline" if inline else "attachment"
         return FileResponse(
             resolved_path,
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="{resolved_path.name}"'},
+            headers={"Content-Disposition": f'{disposition_type}; filename="{final_filename}"'},
         )
 
     # A designed page is meant to be looked at, not filed away, so it gets a route
-    # that sends it inline instead of as an attachment. The generator emits no
-    # script tag at all; ``sandbox`` plus ``default-src 'none'`` make that a
-    # guarantee rather than a habit — nothing in the document can run, phone home,
-    # or reach back into this origin even if escaping ever failed.
+    # that sends it inline instead of as an attachment.
     @app.get("/v1/generated-docs/{doc_id}/preview")
     @app.get("/api/v1/generated-docs/{doc_id}/preview")
     async def preview_generated_document(doc_id: str):
         from .artifacts.inventory import document_roots
 
-        # Validated first: the id becomes a glob pattern below, and only hex and
-        # dashes survive, so no metacharacter can widen the search.
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", doc_id):
             raise HTTPException(status_code=404, detail="Preview not found")
 
         for root in document_roots():
             if not root.exists():
                 continue
+            # 1. HTML preview
             for candidate in sorted(root.glob(f"{doc_id}_*.html")):
                 if candidate.is_file():
                     return FileResponse(
@@ -2598,6 +2616,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         media_type="text/html; charset=utf-8",
                         headers={
                             "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+                            "X-Content-Type-Options": "nosniff",
+                        },
+                    )
+            # 2. PDF preview inline
+            for candidate in sorted(root.glob(f"*{doc_id}*.pdf")):
+                if candidate.is_file():
+                    return FileResponse(
+                        candidate,
+                        media_type="application/pdf",
+                        headers={
+                            "Content-Disposition": f'inline; filename="{candidate.name}"',
                             "X-Content-Type-Options": "nosniff",
                         },
                     )
