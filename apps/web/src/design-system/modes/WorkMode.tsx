@@ -1708,7 +1708,7 @@ export function WorkMode({
 }
 
 /* ── Message Component ───────────────────────────────────── */
-function WorkMessage({
+export function WorkMessage({
   message,
   isStreaming,
   isThinkingLive,

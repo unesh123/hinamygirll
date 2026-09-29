@@ -144,21 +144,23 @@ WEB_SEARCH_PATTERN = re.compile(
 # A document ask names the artifact. "Make me a pdf about photosynthesis",
 # "turn that assignment into a docx" — the format is the request.
 DOCUMENT_MENTION = re.compile(
-    r"\b(?:pdf|docx?|document|report\s+file|slides?|deck|spreadsheet|excel)\b",
+    r"\b(?:pdfs?|docx?|documents?|reports?|report\s+files?|slides?|decks?|spreadsheets?|excels?|sheets?|csvs?)\b",
     re.IGNORECASE,
 )
 DOCUMENT_ASK = re.compile(
     r"\b(?:make|create|generate|write|prepare|build|turn\s+\w+\s+into|download)\b"
-    r"[^.?!]*\b(?:pdf|docx?|document|report|deck|slides?|spreadsheet|excel)\b",
+    r"[^.?!]*\b(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|csvs?)\b",
     re.IGNORECASE,
 )
-# A question about documents is not a request to build one.
+# A question about documents or capability is not a request to build one.
 DOCUMENT_META = re.compile(
     r"""(?ix)
-    \b(?:why|how\s+come|what\s+happened|didn'?t|dont|don'?t|do\s+not|never|stop|"
-    "cancel|broken|fail(?:ed|ing)?|error|wrong|not\s+working|can'?t|cannot|"
-    "fix|suggest|recommend|do\s+you\s+(?:have|support|can))\b""",
-    re.IGNORECASE,
+    \b(?:why|how\s+come|what\s+happened|didn'?t|dont|don'?t|do\s+not|never|stop|
+    cancel|broken|fail(?:ed|ing)?|error|wrong|not\s+working|can'?t|cannot|
+    fix|suggest|recommend|do\s+you\s+(?:have|support|can)|can\s+you\s+(?:have|support|also)?)\b
+    | ^\s*(?:can|could|do|are|will)\s+you\s+(?:generate|make|create|build|prepare|support|do)?\s*(?:a\s+|me\s+)?(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|images?|pictures?)\s*[?]?\s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
 
 
@@ -401,10 +403,17 @@ def decide(
     if generate_match:
         verb, requested_subject = generate_match.groups()
 
+        # Any document mention or non-image deliverable is NEVER an image generation job.
+        if (
+            DOCUMENT_MENTION.search(requested_subject)
+            or re.search(r"\b(?:code|program|script|summary|essay|text|table|json|csv|website|landing\s+page|decision|reminder)\b", requested_subject, re.I)
+        ):
+            return Decision(Intent.CHAT)
+
         # "Make a decision" and "create a reminder" are not image jobs.
         if verb.casefold() in {"make", "create"} and not (
             IMAGE_WORDS.search(requested_subject)
-            or requested_subject.strip().casefold() in ENTITY_ALIASES
+            or any(alias in requested_subject.casefold() for alias in (*ENTITY_ALIASES.keys(), "hina", "hinaa", "naruto", "goku"))
             or requested_subject.strip().casefold() in {"it", "this", "that"}
         ):
             return Decision(Intent.CHAT)

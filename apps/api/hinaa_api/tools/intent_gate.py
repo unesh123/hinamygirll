@@ -99,6 +99,12 @@ META_FRAMING = re.compile(
     """
 )
 
+_CAPABILITY_INQUIRY = re.compile(
+    r"""(?ix)
+    ^\s*(?:can|could|do|are|will)\s+you\s+(?:generate|make|create|build|prepare|support|do)?\s*(?:a\s+|me\s+)?(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|images?|pictures?)\s*[?]?\s*$
+    """
+)
+
 ABORT = re.compile(
     r"""(?ix)
     ^ \s*
@@ -123,12 +129,12 @@ _WEB = re.compile(
 )
 _RESEARCH = re.compile(r"(?ix)^\s*(?:please\s+)?(?:research|investigate|dig\s+into|look\s+into)\s+\S")
 _DOCUMENT = re.compile(
-    r"""(?ix) \b (?: pdf | docx? | document(?:s|ation)? | report\s+file | slides? |
-        deck | word\s+doc | excel | spreadsheet ) \b"""
+    r"""(?ix) \b (?: pdfs? | docx? | document(?:s|ation)? | report\s+files? | slides? |
+        decks? | word\s+docs? | excels? | spreadsheets? | sheets? | csvs? ) \b"""
 )
 _DOCUMENT_ASK = re.compile(
     r"(?ix) \b(?:make|create|generate|write|prepare|build|turn\s+\w+\s+into)\b[^.?!]*\b"
-    r"(?:pdf|docx?|document|report|deck|slides?|spreadsheet|excel)\b"
+    r"(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|csvs?)\b"
 )
 # Two registered tools build documents and the injector picks between them, so
 # "make me a pdf" sanctions the family. Naming one of them would drop the other
@@ -169,7 +175,7 @@ _TEXT_DELIVERABLE = re.compile(
     r"(?ix) \b (?: list | summary | summaries | episode(?:s)? | season(?:s)? | story | essay |"
     r" paragraph | ideas? | names? | code | script | translate | translation | meaning |"
     r" definition | quote(?:s)? | lyrics? | plot | explanation | notes? | article |"
-    r" review | wiki | fandom ) \b"
+    r" review | wiki | fandom | pdfs? | docx? | documents? | reports? | decks? | slides? | spreadsheets? | excels? | sheets? ) \b"
 )
 
 DEFAULT_KNOWN_SUBJECTS = (
@@ -518,7 +524,7 @@ def sanction_tools(
         return sanction
 
     if _DOCUMENT_ASK.search(lowered) or (_DOCUMENT.search(lowered) and (generate_verb or fetch_verb)):
-        if not META_FRAMING.search(lowered):
+        if not META_FRAMING.search(lowered) and not _CAPABILITY_INQUIRY.search(lowered):
             _allow_document(sanction)
         return sanction
 
@@ -583,7 +589,7 @@ def sanction_tools(
         and _names_known_subject(lowered, known_subjects)
     )
     if (has_image_noun and generate_verb) or pure_visual or named_subject:
-        if not META_FRAMING.search(lowered):
+        if not META_FRAMING.search(lowered) and not _CAPABILITY_INQUIRY.search(lowered):
             subject = extract_image_subject(raw)
             if subject:
                 sanction.allowed.add("image_generate")

@@ -131,3 +131,29 @@ def test_multi_turn_affirmative_resolves_image() -> None:
     ]
     result = decide("yes", now=NOW, history=history)
     assert result.intent is Intent.IMAGE_GENERATE
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "CAN YOU GENERATE PDFS ?",
+        "Can you generate a PDF?",
+        "can you generate pdfs?",
+        "can you make documents?",
+        "can you generate reports?",
+        "generate code for binary search",
+        "generate a summary of World War 2",
+    ],
+)
+def test_document_capability_and_text_are_not_image_jobs(query: str) -> None:
+    result = decide(query, now=NOW)
+    assert result.intent is Intent.CHAT
+    assert result.intent is not Intent.IMAGE_GENERATE
+
+
+def test_explicit_document_generation_triggers_document_create() -> None:
+    result = decide("generate a pdf about machine learning", now=NOW)
+    assert result.intent is Intent.DOCUMENT_CREATE
+
+    result2 = decide("make me a pdf report on solar system", now=NOW)
+    assert result2.intent is Intent.DOCUMENT_CREATE

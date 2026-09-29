@@ -32,7 +32,8 @@ import {
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { CipherDecoderText, GyroOrbLoader } from "../../components/ui/HinaCyberLoaders";
 import type { VisemeEvent } from "../../features/audio/textToViseme";
-import type { CompanionState } from "../../features/companion/types";
+import type { CompanionState, TranscriptMessage } from "../../features/companion/types";
+import { WorkMessage } from "./WorkMode";
 
 export interface ShowroomModeProps {
   onEnterWorkspace?: () => void;
@@ -56,7 +57,7 @@ export interface ShowroomModeProps {
   onSendText?: (text: string) => void;
   onOpenTerminal?: (cmd?: string) => void;
   onOpenVault?: () => void;
-  messages?: Array<{ role: string; text?: string; content?: string }>;
+  messages?: TranscriptMessage[];
   isMuted?: boolean;
   onToggleMute?: () => void;
 }
@@ -1936,113 +1937,26 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   </div>
                 )}
 
-                {/* Render Past Messages */}
+                {/* Render Past Messages with full Markdown, Code, Sources, and Artifacts */}
                 {messages.map((msg, idx) => {
-                  const isUser = msg.role === "user";
                   const text = msg.text || (msg as any).content || "";
-                  if (!text.trim()) return null;
-
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: isUser ? "flex-end" : "flex-start",
-                        maxWidth: "100%",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 650,
-                          color: isUser ? "#787574" : activeItem.accentColor,
-                          marginBottom: 3,
-                          paddingLeft: isUser ? 0 : 4,
-                          paddingRight: isUser ? 4 : 0,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        {isUser ? <User size={10} /> : <Bot size={10} />}
-                        <span>{isUser ? "You" : companionName}</span>
-                      </div>
-                      <div
-                        style={{
-                          maxWidth: "88%",
-                          padding: "10px 14px",
-                          borderRadius: isUser ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-                          background: isUser ? "#17191c" : "rgba(247, 239, 228, 0.8)",
-                          color: isUser ? "#ffffff" : "#17191c",
-                          fontSize: 13,
-                          lineHeight: 1.5,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-                          border: isUser ? "none" : "1px solid rgba(23, 25, 28, 0.08)",
-                          wordBreak: "break-word",
-                          whiteSpace: "pre-wrap",
-                        }}
-                      >
-                        {text}
-                      </div>
-                    </div>
-                  );
+                  if (!text.trim() && !msg.imageUrl) return null;
+                  return <WorkMessage key={msg.id || idx} message={msg} />;
                 })}
 
                 {/* Streaming Response Bubble */}
                 {streamingText && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "flex-start",
-                      maxWidth: "100%",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 650,
-                        color: activeItem.accentColor,
-                        marginBottom: 3,
-                        paddingLeft: 4,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <Bot size={10} />
-                      <span>{companionName} (Speaking)</span>
-                    </div>
-                    <div
-                      style={{
-                        maxWidth: "92%",
-                        padding: "10px 14px",
-                        borderRadius: "16px 16px 16px 4px",
-                        background: "rgba(247, 239, 228, 0.9)",
-                        color: "#17191c",
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        boxShadow: `0 4px 16px ${activeItem.accentColor}22`,
-                        border: `1.5px solid ${activeItem.accentColor}55`,
-                        wordBreak: "break-word",
-                        whiteSpace: "pre-wrap",
-                      }}
-                    >
-                      {streamingText}
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: 6,
-                          height: 14,
-                          background: activeItem.accentColor,
-                          marginLeft: 4,
-                          verticalAlign: "middle",
-                          animation: "pulse 1s infinite",
-                        }}
-                      />
-                    </div>
-                  </div>
+                  <WorkMessage
+                    message={
+                      {
+                        id: "showroom-streaming",
+                        role: "assistant",
+                        text: streamingText,
+                        createdAt: new Date().toISOString(),
+                      } as TranscriptMessage
+                    }
+                    isStreaming={true}
+                  />
                 )}
 
                 {/* Partial Transcript when user is speaking */}
@@ -2124,6 +2038,47 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       background: "rgba(247, 239, 228, 0.3)",
                     }}
                   />
+                  {isVoiceActive ? (
+                    <button
+                      type="button"
+                      onClick={onStopVoice}
+                      title="Stop Voice"
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: "50%",
+                        border: "none",
+                        background: "#ef4444",
+                        color: "#ffffff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <MicOff size={14} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onStartVoice}
+                      title="Start Voice"
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: "50%",
+                        border: "1px solid rgba(23, 25, 28, 0.12)",
+                        background: "rgba(255,255,255,0.8)",
+                        color: "#5e545d",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Mic size={14} />
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={!drawerInput.trim()}

@@ -637,8 +637,13 @@ export default function App() {
     if (event && "preventDefault" in event) event.preventDefault();
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
     if ((!textToSend && !attachedImage) || live.active) return;
-    // Strict single response guard: ensure only one response at a time
-    if ((controller.state !== "idle" && controller.state !== "error") || playback.playing) return;
+    // Barge-in: if audio is playing or generation is ongoing, interrupt playback and cleanly transition turn
+    if (playback.playing) {
+      interruptPlayback();
+    }
+    if (controller.state !== "idle" && controller.state !== "error") {
+      controller.stop();
+    }
     void unlockAudio();
     interruptPlayback();
     const text = textToSend || (attachedImage ? "Look at this image" : "");
@@ -1046,7 +1051,7 @@ export default function App() {
                 }
                 onAddMessage={(msg) => controller.setMessages((prev) => [...prev, msg])}
                 onStop={handleStop}
-                disabled={(controller.state !== "idle" && controller.state !== "error") || playback.playing}
+                disabled={false}
                 isVoiceActive={live.active}
                 onStartVoice={() => { interruptPlayback(); live.start(); }}
                 onStopVoice={() => live.stop()}

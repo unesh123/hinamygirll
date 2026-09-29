@@ -233,15 +233,18 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (isGenerating) {
-        onStop?.();
-      } else if (value.trim() || attachedImage) {
+      if (value.trim() || attachedImage) {
+        if (isGenerating) {
+          onStop?.();
+        }
         onSend({
           mode: isGoalMode ? "goal" : actionMode,
           intelligence: intelligenceLevel,
           attachmentRole: selectedRole,
           isGoalMode,
         });
+      } else if (isGenerating) {
+        onStop?.();
       }
     }
   };
@@ -962,7 +965,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             </button>
           )}
 
-          {isGenerating ? (
+          {isGenerating && !value.trim() && !attachedImage ? (
             <button
               type="button"
               onClick={onStop}
@@ -986,14 +989,15 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             <button
               type="button"
               data-testid="composer-send-btn"
-              onClick={() =>
+              onClick={() => {
+                if (isGenerating) onStop?.();
                 onSend({
                   mode: isGoalMode ? "goal" : actionMode,
                   intelligence: intelligenceLevel,
                   attachmentRole: selectedRole,
                   isGoalMode,
-                })
-              }
+                });
+              }}
               disabled={disabled || (!value.trim() && !attachedImage)}
               title="Send Message (Enter)"
               style={{

@@ -290,6 +290,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const turnSequence = useRef(0);
   const activeTurnId = useRef<string | null>(null);
   const finalizedTurnIds = useRef<Set<string>>(new Set());
+  const latestStreamedTextRef = useRef<string>("");
 
   const clearTimers = useCallback(() => {
     for (const timer of timers.current) window.clearTimeout(timer);
@@ -310,13 +311,21 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     currentAbort.current = undefined;
     clearTimers();
     if (!result.preservePartial) setPartialTranscript("");
+
+    // Commit any partially streamed text so user never loses generated content on pause or stop
+    const partialToSave = latestStreamedTextRef.current.trim();
+    if (partialToSave) {
+      setMessages((current) => [...current, createMessage("assistant", partialToSave)]);
+      latestStreamedTextRef.current = "";
+    }
+
     setStreamingText("");
     setActivePlan(undefined);
     setCurrentAgentRunId(undefined);
     setCurrentAgentConfirmationStepId(undefined);
     setAgentSteps([]);
     const errorText = result.errorText;
-    if (errorText) {
+    if (errorText && !partialToSave) {
       setMessages((current) => [...current, createMessage("assistant", errorText)]);
     }
     setState("idle");
@@ -545,6 +554,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             setIsSearching(false);
             rawStreamed += event.delta;
             sentenceBuffer += event.delta;
+            latestStreamedTextRef.current = getSafeAssistantStreamingText(rawStreamed) || rawStreamed;
             
             // Check for sentence/clause boundary to stream speech concurrently with generation
             const sentenceMatch = sentenceBuffer.match(/^([\s\S]*?[.!?\n\u0964\u0965;])(?:\s+|$)/);
@@ -579,6 +589,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               });
             }
           } else if (event.type === "plan") {
+            latestStreamedTextRef.current = "";
             if (sentenceBuffer.trim().length > 2 && options?.onSentenceChunk) {
               try {
                 options.onSentenceChunk(sentenceBuffer.trim(), isFirstSentence);

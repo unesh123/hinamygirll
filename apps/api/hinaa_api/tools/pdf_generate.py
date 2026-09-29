@@ -447,7 +447,7 @@ async def compose_document_source(
         fetched_title, fetched_content = db_report
         topic_words = set(re.findall(r"\w{4,}", safe_topic.lower()))
         content_words = set(re.findall(r"\w{4,}", fetched_content.lower()[:1000]))
-        is_relevant = bool(topic_words & content_words) if topic_words else True
+        is_relevant = bool(topic_words & content_words) if topic_words else False
 
         if _is_referential_query(norm_content) or _is_referential_query(safe_topic) or is_relevant:
             final_title = doc_title or fetched_title or f"{safe_topic}: Executive Report"
@@ -460,8 +460,8 @@ async def compose_document_source(
         final_title = doc_title or f"{safe_topic}: Research Dossier"
         return final_title, _enrich_sparse_sections(safe_topic, sections), "live-research"
 
-    # 4. If research yielded no items but we have db_report, use it rather than failing
-    if db_report:
+    # 4. If research yielded no items and the query was explicitly referential, use db_report
+    if db_report and (_is_referential_query(norm_content) or _is_referential_query(safe_topic)):
         fetched_title, fetched_content = db_report
         final_title = doc_title or fetched_title or f"{safe_topic}: Executive Report"
         base_sections = _build_user_content_sections(_scrub_chat_affection(fetched_content))
