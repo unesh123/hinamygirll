@@ -2,6 +2,8 @@ import React, { useState, useEffect, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, ChevronDown, ChevronUp, Globe, ExternalLink, Sparkles, Search } from "lucide-react";
 
+import { COGNITIVE_PHRASES } from "../../features/companion/cognitiveStatuses";
+
 export interface BrainSource {
   id: string;
   title: string;
@@ -20,13 +22,6 @@ export interface HinaBrainThinkingProps {
   defaultExpanded?: boolean;
 }
 
-const PROGRESSIVE_STAGES = [
-  "Decomposing problem & identifying constraints...",
-  "Retrieving neural memory & context...",
-  "Evaluating architectural trade-offs & edge cases...",
-  "Synthesizing high-signal reasoned answer...",
-];
-
 export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
   ({
     thought,
@@ -44,13 +39,23 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
     }
 
     const [isExpanded, setIsExpanded] = useState<boolean>(defaultExpanded || isLive);
+    const [stages, setStages] = useState<string[]>(() => {
+      // Pick 8 randomized phrases from the 100+ bank on each turn
+      const shuffled = [...COGNITIVE_PHRASES].sort(() => 0.5 - Math.random());
+      return shuffled.slice(0, 8);
+    });
     const [stageIndex, setStageIndex] = useState(0);
 
     useEffect(() => {
       if (!isLive) return;
+      // Reshuffle on new live turn
+      const shuffled = [...COGNITIVE_PHRASES].sort(() => 0.5 - Math.random());
+      setStages(shuffled.slice(0, 8));
+      setStageIndex(0);
+
       const interval = window.setInterval(() => {
-        setStageIndex((prev) => (prev + 1) % PROGRESSIVE_STAGES.length);
-      }, 2200);
+        setStageIndex((prev) => (prev + 1) % 8);
+      }, 2000);
       return () => window.clearInterval(interval);
     }, [isLive]);
 
@@ -62,7 +67,7 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
     const sourcesCount = sources.length;
     const currentStageText = isSearching
       ? `Hina is searching web: ${searchQuery || "information"}...`
-      : PROGRESSIVE_STAGES[stageIndex];
+      : stages[stageIndex] || "Sincronizando pensamientos profundos...";
 
     return (
       <div

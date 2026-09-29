@@ -144,22 +144,25 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
         <div
           ref={menuRef}
           data-testid="composer-model-dropdown"
+          className="model-selector-v7__dropdown"
           style={{
             position: "absolute",
             top: placement === "bottom" ? "calc(100% + 8px)" : undefined,
             bottom: placement === "top" ? "calc(100% + 8px)" : undefined,
-            right: placement === "bottom" ? 0 : undefined,
-            left: placement === "top" ? 0 : undefined,
-            width: 280,
-            maxHeight: 420,
+            right: 0,
+            width: "min(300px, calc(100vw - 20px))",
+            maxWidth: "calc(100vw - 20px)",
+            maxHeight: "min(420px, 65vh)",
             overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
             padding: 6,
             background: "var(--surface-overlay, #ffffff)",
             borderRadius: 12,
-            boxShadow: "0 12px 32px -4px rgba(0,0,0,0.14), 0 4px 12px -2px rgba(0,0,0,0.06)",
-            border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
-            zIndex: 90,
+            boxShadow: "0 12px 32px -4px rgba(0,0,0,0.18), 0 4px 12px -2px rgba(0,0,0,0.08)",
+            border: "1px solid var(--border-default, rgba(0,0,0,0.12))",
+            zIndex: 9999,
             fontFamily: "inherit",
+            boxSizing: "border-box",
           }}
         >
           {/* Header */}

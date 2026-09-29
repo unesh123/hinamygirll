@@ -58,6 +58,7 @@ from .tools.reminder import cancel_reminder, list_reminders, schedule_reminder
 from .vmc_bridge import vmc_bridge
 from .voice_profiles import public_profiles
 from .artifacts import ArtifactFormat, ArtifactService
+from .college.vault import StudentRegistrationRequest, college_vault_service
 
 
 logger = logging.getLogger(__name__)
@@ -4440,6 +4441,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if root.exists()
             ],
         }
+
+    # ── College & VIP Deep Vault Endpoints ─────────────────────────
+    @app.post("/v1/college/students/register", status_code=201)
+    async def college_register_student(payload: StudentRegistrationRequest) -> dict[str, Any]:
+        """Register or verify student ID for VIP Deep Vault access."""
+        return college_vault_service.register_student(payload)
+
+    @app.get("/v1/college/students/{student_id}")
+    async def college_verify_student(student_id: str) -> dict[str, Any]:
+        """Verify institutional student enrollment status."""
+        student = college_vault_service.verify_student(student_id)
+        if not student:
+            raise HTTPException(status_code=404, detail=f"Student ID '{student_id}' not found in registry.")
+        return {"status": "verified", "student": student}
+
+    @app.get("/v1/college/vault/resources")
+    async def college_list_resources(category: str | None = None) -> dict[str, Any]:
+        """Access curated VIP Deep Vault resources."""
+        resources = college_vault_service.list_vip_resources(category=category)
+        return {"resources": resources, "count": len(resources)}
+
+    @app.get("/v1/college/admin/dashboard")
+    async def college_admin_dashboard() -> dict[str, Any]:
+        """College administration and faculty analytics overview."""
+        return college_vault_service.get_admin_dashboard_stats()
 
     # ── Generic /api/v1 aliases ─────────────────────────────────────
     # Routes are canonically declared at /v1/... but the frontend addresses

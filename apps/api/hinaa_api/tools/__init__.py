@@ -16,5 +16,6 @@ from . import document_generate
 from . import website_design
 from . import github_tools
 from . import reminder
+from . import terminal_hands
 
 __all__ = ["registry"]

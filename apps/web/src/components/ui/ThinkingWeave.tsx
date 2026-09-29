@@ -1,22 +1,22 @@
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import styles from "./ThinkingWeave.module.css";
+import { COGNITIVE_PHRASES } from "../../features/companion/cognitiveStatuses";
 
 /**
  * ThinkingWeave — Hinaa's cognitive presence while a turn is composed.
  *
  * Three counter-rotating arcs (a "thought gyre") orbit a breathing core; a
  * travelling light sweeps the inner ring and the status line advances through
- * the actual stages of the turn. GSAP drives the animation on GPU transforms
- * and a single reduced-motion check keeps it calm when the OS asks for less.
+ * dynamic, hyper-captivating multi-lingual & neuro-symbolic cognitive phrases.
  */
 
 type Phase = "reading" | "reasoning" | "composing";
 
 const PHRASES: Record<Phase, string> = {
-  reading: "Reading your words",
-  reasoning: "Weaving the answer",
-  composing: "Polishing each line",
+  reading: "Sincronizando pensamientos",
+  reasoning: "Traversing deduction trees",
+  composing: "Sintetizando respuesta perfecta",
 };
 
 interface ThinkingWeaveProps {
@@ -79,24 +79,20 @@ export function ThinkingWeave({ mode = "default" }: ThinkingWeaveProps) {
         },
       );
 
-      // Stage narration: reading → reasoning → composing, on a soft loop.
-      const phases: Phase[] = mode === "research"
-        ? ["reading", "reasoning", "reasoning", "composing"]
-        : ["reading", "reasoning", "composing"];
-      let step = 0;
+      // Stage narration: cycle through dynamic cognitive phrases on a soft loop.
+      let phraseIdx = 0;
+      const phraseBank = [...COGNITIVE_PHRASES].sort(() => 0.5 - Math.random());
       const tl = gsap.timeline({ repeat: -1, repeatDelay: 0 });
       const cycle = () => {
-        const next = phases[step % phases.length];
-        step += 1;
-        if (next === phaseRef.current) return;
-        phaseRef.current = next;
+        const nextPhrase = phraseBank[phraseIdx % phraseBank.length];
+        phraseIdx += 1;
         tl.to(label, {
           opacity: 0,
           y: -4,
           duration: 0.22,
           ease: "power2.in",
           onComplete: () => {
-            label.textContent = `${PHRASES[next]}…`;
+            label.textContent = nextPhrase;
             gsap.fromTo(label, { opacity: 0, y: 5 }, { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" });
           },
         });
