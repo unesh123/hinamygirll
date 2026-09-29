@@ -464,7 +464,7 @@ export function WorkMode({
       if (liveVision.isActive && !attachedImage) {
         const frame = liveVision.grabFrame() || liveVision.latestFrame;
         if (frame) {
-          onImageAttach(frame, "inspection");
+          onImageAttach(frame);
         }
       }
 

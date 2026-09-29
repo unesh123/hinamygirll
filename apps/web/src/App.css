@@ -3383,3 +3383,173 @@ body {
 
   .fullscreen-companion-overlay { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* ═══════════════════════════════════════════════════════
+   CYBER-EDITORIAL & ADVANCED ANIMATION TOKENS
+   GSAP Motion · Steep Editorial · Shop Constellation · DICH Haute-Couture
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Gyro Orb 3D Loader ───────────────────────────────── */
+.hina-gyro-orb {
+  overflow: visible;
+}
+.hina-gyro-orb .orb-plane {
+  transform-box: view-box;
+  transform-origin: center;
+  transform: rotate(var(--tilt, 0deg)) scale(1, var(--k, 1));
+}
+.hina-gyro-orb .orb-track {
+  stroke: currentColor;
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.25;
+}
+.hina-gyro-orb .orb-arm {
+  transform-box: view-box;
+  transform-origin: center;
+  animation: orb-arm calc(var(--dur, 3s) * var(--rate, 1)) linear infinite;
+}
+.hina-gyro-orb .orb-bead {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: orb-bead calc(var(--dur, 3s) * var(--rate, 1)) linear infinite;
+}
+.hina-gyro-orb .orb-core {
+  fill: currentColor;
+  opacity: 0.45;
+}
+
+@keyframes orb-arm {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(calc(var(--dir, 1) * 360deg)); }
+}
+@keyframes orb-bead {
+  from { transform: rotate(0deg) scale(1, var(--inv, 1)); }
+  to { transform: rotate(calc(var(--dir, 1) * -360deg)) scale(1, var(--inv, 1)); }
+}
+
+/* ── Infinity Lemniscate Path Tracer ─────────────────── */
+.hina-infinity-lis {
+  overflow: visible;
+  --dur: 3.2s;
+}
+.hina-infinity-lis .lis-rig {
+  transform-box: view-box;
+  transform-origin: center;
+  animation: lis-drift calc(var(--dur) * var(--rate, 1) * 5) linear infinite;
+}
+.hina-infinity-lis .lis-track,
+.hina-infinity-lis .lis-tail,
+.hina-infinity-lis .lis-mid,
+.hina-infinity-lis .lis-head {
+  stroke: currentColor;
+  stroke-linecap: round;
+  fill: none;
+}
+.hina-infinity-lis .lis-track {
+  stroke-width: 1;
+  opacity: 0.16;
+}
+.hina-infinity-lis .lis-tail,
+.hina-infinity-lis .lis-mid,
+.hina-infinity-lis .lis-head {
+  animation-duration: calc(var(--dur) * var(--rate, 1));
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.hina-infinity-lis .lis-head {
+  stroke-width: 2.2;
+  stroke-dasharray: 3 97;
+  stroke-dashoffset: 0;
+  animation-name: lis-head;
+}
+.hina-infinity-lis .lis-mid {
+  stroke-width: 1.8;
+  stroke-dasharray: 9 91;
+  stroke-dashoffset: 9;
+  opacity: 0.5;
+  animation-name: lis-mid;
+}
+.hina-infinity-lis .lis-tail {
+  stroke-width: 1.3;
+  stroke-dasharray: 20 80;
+  stroke-dashoffset: 29;
+  opacity: 0.22;
+  animation-name: lis-tail;
+}
+
+@keyframes lis-head { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
+@keyframes lis-mid { from { stroke-dashoffset: 9; } to { stroke-dashoffset: -91; } }
+@keyframes lis-tail { from { stroke-dashoffset: 29; } to { stroke-dashoffset: -71; } }
+@keyframes lis-drift { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Cipher Text Decoder ─────────────────────────────── */
+.fx-decoder {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--accent, #dc5f8b);
+}
+.fx-decoder::after {
+  content: "▓K#R1&Q";
+  animation: fx-decoder-anim 4s steps(1) infinite;
+}
+@keyframes fx-decoder-anim {
+  0% { content: "▓K#R1&Q"; color: #4FF8FF; }
+  8% { content: "H%#N4▒"; }
+  16% { content: "HI☰N*A"; }
+  24% { content: "H1N0£R"; }
+  32% { content: "HINAA€"; }
+  40%, 82% { content: "HINAA_OS"; color: var(--accent, #dc5f8b); }
+  88% { content: "H3N0*€R"; color: #FF4FD8; }
+  94% { content: "▒#COGN1Q"; }
+}
+
+/* ── DICH Cyber-Editorial HUD Elements ─────────────────── */
+.dich-hud-matrix {
+  background-image: radial-gradient(rgba(220, 95, 139, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.dich-hud-dark-matrix {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.dich-corner-bracket {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: currentColor;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.dich-corner-tl { top: 8px; left: 8px; border-top: 2px solid; border-left: 2px solid; }
+.dich-corner-tr { top: 8px; right: 8px; border-top: 2px solid; border-right: 2px solid; }
+.dich-corner-bl { bottom: 8px; left: 8px; border-bottom: 2px solid; border-left: 2px solid; }
+.dich-corner-br { bottom: 8px; right: 8px; border-bottom: 2px solid; border-right: 2px solid; }
+
+.dich-pulse-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hina-gyro-orb .orb-arm,
+  .hina-gyro-orb .orb-bead,
+  .hina-infinity-lis .lis-rig,
+  .hina-infinity-lis .lis-head,
+  .hina-infinity-lis .lis-mid,
+  .hina-infinity-lis .lis-tail {
+    animation: none !important;
+  }
+}

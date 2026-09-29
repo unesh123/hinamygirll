@@ -126,6 +126,13 @@ export function NavigationRail({
       active: isChatActive,
     },
     {
+      id: "studio" as NavSection,
+      title: "Runway 3D",
+      subtitle: "DICH Haute-Couture",
+      icon: Sparkles,
+      active: active === "studio" || (active as string) === "showroom",
+    },
+    {
       id: "dashboard" as NavSection,
       title: "Dashboard",
       subtitle: "System overview",

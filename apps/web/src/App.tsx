@@ -16,6 +16,7 @@ import { WorkMode } from "./design-system/modes/WorkMode";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
 import type { AttachmentRole } from "./design-system/chat/ComposerV6";
 import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
+import { ShowroomMode } from "./design-system/modes/ShowroomMode";
 import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
@@ -426,7 +427,7 @@ export default function App() {
   }, [playback]);
 
   // ─── Sakura OS mode state ──────────────────────────────
-  const [sakuraView, setSakuraView] = useState<"talk" | "work" | "operate">("work");
+  const [sakuraView, setSakuraView] = useState<WorkspaceMode>("work");
   const [executiveMode, setExecutiveMode] = useState<ExecutiveMode>(() => {
     try {
       const stored = window.localStorage.getItem("hinaa-executive-mode");
@@ -954,6 +955,7 @@ export default function App() {
               setNavSection(section);
               if (section === "talk" || section === "voice") setSakuraView("talk");
               else if (section === "chat") setSakuraView("work");
+              else if (section === "studio" || section === "showroom") setSakuraView("showroom");
               else if (section === "dashboard" || section === "tasks" || section === "operate") { setSakuraView("operate"); setOperateTab("tasks"); }
               else if (section === "models" || section === "tools") { setSakuraView("operate"); setOperateTab("capabilities"); }
               else if (section === "reports") { setSakuraView("operate"); setOperateTab("reports"); }
@@ -1132,6 +1134,15 @@ export default function App() {
 
             {sakuraView === "operate" && (
               <OperateMode key={operateTab} initialTab={operateTab} />
+            )}
+
+            {sakuraView === "showroom" && (
+              <ShowroomMode
+                onEnterWorkspace={() => setSakuraView("work")}
+                onEnterTalk={() => setSakuraView("talk")}
+                selectedAvatarModel={avatarModel}
+                onSelectAvatarModel={selectAvatarModel}
+              />
             )}
           </AppShell>
 

@@ -9,11 +9,12 @@ import {
   Sun,
   Moon,
   Settings,
+  Sparkles,
 } from "lucide-react";
 import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 
-export type WorkspaceMode = "talk" | "work" | "operate";
+export type WorkspaceMode = "talk" | "work" | "operate" | "showroom";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
 
 export interface TopBarV6Props {
@@ -211,6 +212,32 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           onSelectModel={(model) => onSelectModel?.(model.id, model.provider)}
           backendConnected={runtime.backendConnected}
         />
+        {/* Runway 3D Showroom button */}
+        <button
+          type="button"
+          data-testid="topbar-showroom-btn"
+          onClick={() => onModeChange(currentMode === "showroom" ? "work" : "showroom")}
+          title="DICH Haute-Couture 3D Runway Showroom"
+          style={{
+            height: 32,
+            padding: "0 12px",
+            borderRadius: 9999,
+            border: currentMode === "showroom" ? "1.5px solid #ff7a00" : "1px solid #e2e8f0",
+            background: currentMode === "showroom" ? "#17191c" : "#ffffff",
+            color: currentMode === "showroom" ? "#ff7a00" : "#64748b",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 650,
+            cursor: "pointer",
+            boxShadow: currentMode === "showroom" ? "0 2px 10px rgba(255, 122, 0, 0.25)" : "none",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <Sparkles size={13} color={currentMode === "showroom" ? "#ff7a00" : "#64748b"} />
+          <span>Runway 3D</span>
+        </button>
 
         {/* Search button */}
         <button

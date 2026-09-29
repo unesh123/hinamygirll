@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Brain, ChevronDown, ChevronUp, Globe, ExternalLink, Sparkles, Search } from "lucide-react";
 
 import { COGNITIVE_PHRASES } from "../../features/companion/cognitiveStatuses";
+import { CipherDecoderText, GyroOrbLoader, InfinityPathLoader } from "./HinaCyberLoaders";
 
 export interface BrainSource {
   id: string;
@@ -126,7 +127,7 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
               {isSearching ? (
                 <Search size={12} className={isLive ? "animate-pulse" : ""} />
               ) : isLive ? (
-                <Sparkles size={12} className="animate-spin" />
+                <GyroOrbLoader size={18} color="#ffffff" />
               ) : (
                 <Brain size={12} color="#ec4899" />
               )}
@@ -370,25 +371,27 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
                     fontSize: 12,
                     fontWeight: 500,
                     color: "var(--text-secondary, #475569)",
-                    fontStyle: "italic",
                     display: "flex",
                     alignItems: "center",
-                    gap: 8,
-                    padding: "4px 2px",
+                    gap: 12,
+                    padding: "8px 6px",
+                    background: "rgba(236, 72, 153, 0.04)",
+                    borderRadius: 8,
+                    border: "1px solid rgba(236, 72, 153, 0.12)",
                   }}
                 >
-                  <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: "50%",
-                      background: "#ec4899",
-                      display: "inline-block",
-                      boxShadow: "0 0 8px #ec4899",
-                    }}
-                    className="animate-ping"
-                  />
-                  <span>{isSearching ? "Querying real-time search index & evidence..." : currentStageText}</span>
+                  <GyroOrbLoader size={32} color="#ec4899" />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <CipherDecoderText
+                      text={isSearching ? "SEARCH_INDEX_QUERY" : currentStageText}
+                      color="#db2777"
+                      accentColor="#4FF8FF"
+                      style={{ fontSize: 13, fontWeight: 650 }}
+                    />
+                    <span style={{ fontSize: 10, color: "var(--text-tertiary, #64748b)" }}>
+                      {isSearching ? "Synthesizing external multi-domain groundings..." : "Dual-Cognitive Synapse · Autonomous Agentic Co-Processor"}
+                    </span>
+                  </div>
                 </div>
               )}
             </motion.div>
