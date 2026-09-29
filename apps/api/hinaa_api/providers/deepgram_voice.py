@@ -142,10 +142,11 @@ class DeepgramSTTProvider(STTProvider):
             return ProviderResult("", self.id, 0)
 
         url = f"{self._base_url}/v1/listen"
-        params = {
+        params: dict[str, Any] = {
             "model": self._model or "nova-2-general",
             "smart_format": "true",
             "punctuate": "true",
+            "keywords": ["Hina:3", "HINAA:3", "Unesh:3", "babe:2", "kya:2", "kaise:2", "suno:2", "batao:2"],
         }
         supported_langs = {
             "en", "hi", "es", "fr", "de", "it", "pt", "nl", "ja", "ko", "zh", "ru",
@@ -219,4 +220,18 @@ class DeepgramSTTProvider(STTProvider):
         channels = payload.get("results", {}).get("channels", [])
         alternatives = channels[0].get("alternatives", []) if channels else []
         transcript = (alternatives[0].get("transcript", "") if alternatives else "").strip()
+        if transcript:
+            import re
+            transcript = re.sub(
+                r'^(?:है\s*ही\s*ना|हे\s*ही\s*ना|है\s*हिना|हाय\s*हिना|हे\s*हिना)\b',
+                'Hina',
+                transcript,
+                flags=re.IGNORECASE,
+            )
+            transcript = re.sub(
+                r'\b(?:है\s*ही\s*ना|हे\s*ही\s*ना)\b',
+                'Hina',
+                transcript,
+                flags=re.IGNORECASE,
+            )
         return ProviderResult(value=transcript, provider=self.id, latency_ms=latency_ms)

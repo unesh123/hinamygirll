@@ -132,20 +132,20 @@ def _tts_media_type(provider_id: str, elevenlabs_output_format: str) -> str:
 # synthesis request and its own audio blip. The wrap width matches
 # segment_phrases so both spoken paths cut text the same way.
 SPEECH_MIN_PHRASE_CHARS = 40
+SPEECH_MIN_FIRST_PHRASE_CHARS = 16
 SPEECH_PHRASE_WRAP_CHARS = 160
 
 
-def spoken_phrase_is_complete(buffer: str) -> bool:
+def spoken_phrase_is_complete(buffer: str, is_first: bool = False) -> bool:
     """Whether streamed text so far should be handed to the voice vendor as one phrase.
 
-    Every flush is a separate synthesis request and a separate audio blip.
-    Ending a phrase at the first punctuation in the buffer turned one measured
-    live turn into 144 fragments, because markdown list markers and the dot in
-    a version number each closed a two-word request.
+    First phrase starts at 16+ chars on sentence boundary so Hina begins talking
+    instantly while the remainder streams. Standard phrases batch at 40+ chars.
     """
     if len(buffer) >= SPEECH_PHRASE_WRAP_CHARS:
         return True
-    return any(p in buffer for p in ".!?।;\n") and len(buffer) >= SPEECH_MIN_PHRASE_CHARS
+    min_chars = SPEECH_MIN_FIRST_PHRASE_CHARS if is_first else SPEECH_MIN_PHRASE_CHARS
+    return any(p in buffer for p in ".!?।;\n") and len(buffer) >= min_chars
 
 
 def segment_phrases(text: str, limit: int = 160) -> list[str]:
@@ -814,7 +814,7 @@ class RealtimeGateway:
                     {"delta": delta},
                 )
                 sentence_buffer += delta
-                if spoken_phrase_is_complete(sentence_buffer):
+                if spoken_phrase_is_complete(sentence_buffer, is_first=len(sentence_tasks) == 0):
                     phrase_text = speech_text_for_tts(sentence_buffer.strip())
                     sentence_buffer = ""
                     if phrase_text and len(phrase_text) >= 2:

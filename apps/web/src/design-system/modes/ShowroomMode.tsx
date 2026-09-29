@@ -23,6 +23,11 @@ import {
   MessageSquare,
   Play,
   RotateCcw,
+  X,
+  Bot,
+  User,
+  Copy,
+  CheckCircle2,
 } from "lucide-react";
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { CipherDecoderText, GyroOrbLoader } from "../../components/ui/HinaCyberLoaders";
@@ -171,6 +176,31 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
   const [mouseCoords, setMouseCoords] = useState({ x: 0.0412, y: 0.0306 });
   const [viewMode, setViewMode] = useState<"lookbook" | "runway" | "steep_analytics">("lookbook");
   const [promptInput, setPromptInput] = useState("");
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [drawerInput, setDrawerInput] = useState("");
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth <= 768;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Auto-scroll chat thread to bottom when new message or stream chunk arrives
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [messages, streamingText, isChatOpen]);
 
   // Sync selectedAvatarModel prop with active collection item
   useEffect(() => {
@@ -211,7 +241,9 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         overflowY: "auto",
         overflowX: "hidden",
         boxSizing: "border-box",
-        padding: "16px 24px 60px 24px",
+        padding: isMobile
+          ? "8px 8px calc(76px + env(safe-area-inset-bottom, 0px)) 8px"
+          : "16px 24px 60px 24px",
       }}
     >
       {/* ── Outer HUD Framing ──────────────────────────────── */}
@@ -222,7 +254,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
           maxWidth: 1360,
           margin: "0 auto",
           border: "1.5px solid rgba(23, 25, 28, 0.12)",
-          borderRadius: 24,
+          borderRadius: isMobile ? 18 : 24,
           background: "#f7efe4",
           boxShadow: "0 20px 48px -8px rgba(0, 0, 0, 0.08)",
           overflow: "hidden",
@@ -235,33 +267,97 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         <div className="dich-corner-bracket dich-corner-br" />
 
         {/* ── Top Cyber HUD Bar ────────────────────────────── */}
+        {/* ── Top Cyber HUD Bar ────────────────────────────── */}
         <header
           style={{
             display: "flex",
-            alignItems: "center",
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "center",
             justifyContent: "space-between",
-            padding: "12px 24px",
+            padding: isMobile ? "10px 12px" : "12px 24px",
+            gap: isMobile ? 8 : 12,
             borderBottom: "1px solid rgba(23, 25, 28, 0.08)",
-            background: "rgba(255, 255, 255, 0.4)",
+            background: "rgba(255, 255, 255, 0.65)",
             backdropFilter: "blur(12px)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div className="dich-pulse-wave">
-              <span>/\/\/\-</span>
-              <span>LIVE</span>
+          {/* Top row: Brand & Primary Controls */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="dich-pulse-wave">
+                <span>/\/\/\-</span>
+                <span>LIVE</span>
+              </div>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: isMobile ? 11 : 11,
+                  letterSpacing: "0.08em",
+                  color: "#5d2a1a",
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {isMobile ? "HINAA // 3D RUNWAY" : "HINAA // OMEGA HAUTE-COUTURE"}
+              </span>
             </div>
-            <span
+
+            {/* Right Telemetry & Actions */}
+            <div
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 11,
-                letterSpacing: "0.08em",
-                color: "#5d2a1a",
-                fontWeight: 600,
+                color: "#787574",
               }}
             >
-              HINAA // OMEGA HAUTE-COUTURE
-            </span>
+              {!isMobile && (
+                <span>X .0{Math.floor(mouseCoords.x * 1000)} // Y .0{Math.floor(mouseCoords.y * 1000)}</span>
+              )}
+              <button
+                type="button"
+                data-testid="showroom-toggle-chat-btn"
+                onClick={() => setIsChatOpen(!isChatOpen)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  background: isChatOpen ? activeItem.accentColor : "rgba(23, 25, 28, 0.08)",
+                  color: isChatOpen ? "#ffffff" : "#17191c",
+                  border: "none",
+                  padding: isMobile ? "5px 10px" : "5px 13px",
+                  borderRadius: 9999,
+                  fontSize: 11,
+                  fontWeight: 650,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  boxShadow: isChatOpen ? `0 2px 10px ${activeItem.accentColor}55` : "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <MessageSquare size={12} />
+                <span>LIVE CHAT {messages.length > 0 ? `(${messages.length})` : ""}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onEnterWorkspace}
+                style={{
+                  background: "#17191c",
+                  color: "#ffffff",
+                  border: "none",
+                  padding: isMobile ? "5px 10px" : "5px 14px",
+                  borderRadius: 9999,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {isMobile ? "CANVAS →" : "WORKSPACE →"}
+              </button>
+            </div>
           </div>
 
           {/* Navigation Pill Switcher */}
@@ -269,10 +365,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
             style={{
               display: "flex",
               alignItems: "center",
+              justifyContent: isMobile ? "flex-start" : "center",
               gap: 4,
               background: "rgba(23, 25, 28, 0.06)",
               padding: "3px 4px",
               borderRadius: 9999,
+              overflowX: "auto",
+              maxWidth: "100%",
             }}
           >
             <button
@@ -284,9 +383,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 color: viewMode === "lookbook" ? "#ffffff" : "#5d2a1a",
                 fontSize: 11,
                 fontWeight: 600,
-                padding: "4px 14px",
+                padding: "4px 12px",
                 borderRadius: 9999,
                 cursor: "pointer",
+                whiteSpace: "nowrap",
                 transition: "all 0.15s ease",
               }}
             >
@@ -301,9 +401,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 color: viewMode === "runway" ? "#ffffff" : "#5d2a1a",
                 fontSize: 11,
                 fontWeight: 600,
-                padding: "4px 14px",
+                padding: "4px 12px",
                 borderRadius: 9999,
                 cursor: "pointer",
+                whiteSpace: "nowrap",
                 transition: "all 0.15s ease",
               }}
             >
@@ -318,384 +419,218 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 color: viewMode === "steep_analytics" ? "#ffffff" : "#5d2a1a",
                 fontSize: 11,
                 fontWeight: 600,
-                padding: "4px 14px",
+                padding: "4px 12px",
                 borderRadius: 9999,
                 cursor: "pointer",
+                whiteSpace: "nowrap",
                 transition: "all 0.15s ease",
               }}
             >
               EDITORIAL ANALYTICS
             </button>
           </div>
-
-          {/* Right Telemetry */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 11,
-              color: "#787574",
-            }}
-          >
-            <span>X .0{Math.floor(mouseCoords.x * 1000)} // Y .0{Math.floor(mouseCoords.y * 1000)}</span>
-            <button
-              type="button"
-              onClick={onEnterWorkspace}
-              style={{
-                background: "#17191c",
-                color: "#ffffff",
-                border: "none",
-                padding: "5px 14px",
-                borderRadius: 9999,
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              WORKSPACE →
-            </button>
-          </div>
         </header>
 
         {/* ── VIEW 1: DICH FASHION LOOKBOOK HERO (Screenshot 1) ── */}
         {viewMode === "lookbook" && (
-          <div
-            style={{
-              padding: "36px 32px 48px 32px",
-              display: "grid",
-              gridTemplateColumns: "1.1fr 1.6fr 1.1fr",
-              gap: 24,
-              alignItems: "center",
-              minHeight: 580,
-            }}
-          >
-            {/* Left Column: Cyber Code Metadata & Micro Ticks */}
+          isMobile ? (
             <div
               style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 20,
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 11,
-                lineHeight: 1.65,
-                color: "#332f2d",
-              }}
-            >
-              <div style={{ color: "#787574", letterSpacing: "0.08em" }}>
-                +++ <br />
-                DARE_TO_DISRUPT <br />
-                &lt;META CHARSET=UTF-8&gt;
-              </div>
-
-              <div
-                style={{
-                  background: "rgba(255, 255, 255, 0.6)",
-                  padding: "16px 18px",
-                  borderRadius: 16,
-                  border: "1px solid rgba(23, 25, 28, 0.08)",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
-                }}
-              >
-                <div style={{ color: activeItem.accentColor, fontWeight: 700, marginBottom: 4 }}>
-                  &lt;BODY (
-                </div>
-                <div>SERIE#OMEGA_V2</div>
-                <div>ENERGY-PULSE: {activeItem.energyPulse}</div>
-                <div style={{ margin: "6px 0", opacity: 0.4 }}>+++</div>
-                <div>STYLE-DNA: {activeItem.styleDna}</div>
-                <div>CODE-ESSENCE: {activeItem.codeEssence}</div>
-                <div style={{ marginTop: 8, fontWeight: 700, color: "#17191c" }}>
-                  DISRUPT. CREATE. DOMINATE )
-                </div>
-              </div>
-
-              {/* Reticle Crosshair */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, opacity: 0.6 }}>
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    border: "1px dashed #17191c",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <div style={{ width: 6, height: 6, background: activeItem.accentColor }} />
-                </div>
-                <span>STYLE=UTF-1 // LIVE</span>
-              </div>
-            </div>
-
-            {/* Center Column: Iconic Circular Cyber-Fashion Viewport */}
-            <div
-              style={{
+                padding: "16px 12px 28px 12px",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                justifyContent: "center",
-                position: "relative",
+                gap: 18,
+                minHeight: 480,
               }}
             >
+              {/* 1. Iconic Circular Cyber-Fashion Viewport (Centered) */}
               <div
-                className="dich-circular-lens"
                 style={{
-                  position: "relative",
-                  width: 380,
-                  height: 380,
-                  borderRadius: "50%",
-                  border: isVoiceActive
-                    ? `2.5px solid ${activeItem.accentColor}`
-                    : "2px solid #17191c",
-                  boxShadow: isVoiceActive
-                    ? `0 0 0 ${10 + Math.round((microphoneLevel || 0) * 20)}px ${activeItem.accentColor}33, 0 0 50px ${activeItem.accentColor}88, 0 20px 48px -10px ${activeItem.accentColor}44`
-                    : companionState === "speaking" || (speakingRef?.current ?? false)
-                    ? `0 0 0 12px ${activeItem.accentColor}44, 0 0 40px ${activeItem.accentColor}88, 0 20px 48px -10px ${activeItem.accentColor}33`
-                    : `0 0 0 10px rgba(255,255,255,0.7), 0 20px 48px -10px ${activeItem.accentColor}33`,
-                  background: activeItem.bgGradient,
-                  overflow: "hidden",
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
-                  transition: "box-shadow 0.15s ease, border-color 0.2s ease",
+                  position: "relative",
+                  width: "100%",
                 }}
               >
-                {/* Real 3D VRM Model Loaded in the circular lens */}
-                <div style={{ width: "100%", height: "100%", transform: "scale(1.15)" }}>
-                  <VRMAvatar
-                    companionId="hinaa"
-                    state={companionState}
-                    modelUrl={activeItem.modelUrl}
-                    reducedMotion={false}
-                    textOnly={false}
-                    closeUp={true}
-                    jawEnergy={jawEnergy}
-                    speakingRef={speakingRef}
-                    visemeEvents={visemeEvents}
-                    audioStartTimeRef={audioStartTimeRef}
-                  />
-                </div>
-
-                {/* Top Status Pill on the Lens */}
                 <div
+                  className="dich-circular-lens"
                   style={{
-                    position: "absolute",
-                    top: 18,
-                    background: isVoiceActive
-                      ? "rgba(16, 185, 129, 0.95)"
+                    position: "relative",
+                    width: "min(300px, 82vw)",
+                    height: "min(300px, 82vw)",
+                    borderRadius: "50%",
+                    border: isVoiceActive
+                      ? `2.5px solid ${activeItem.accentColor}`
+                      : "2px solid #17191c",
+                    boxShadow: isVoiceActive
+                      ? `0 0 0 ${8 + Math.round((microphoneLevel || 0) * 16)}px ${activeItem.accentColor}33, 0 0 40px ${activeItem.accentColor}88, 0 16px 36px -8px ${activeItem.accentColor}44`
                       : companionState === "speaking" || (speakingRef?.current ?? false)
-                      ? "rgba(255, 122, 0, 0.95)"
-                      : "rgba(23, 25, 28, 0.85)",
-                    color: "#ffffff",
-                    backdropFilter: "blur(8px)",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    padding: "4px 12px",
-                    borderRadius: 9999,
+                      ? `0 0 0 10px ${activeItem.accentColor}44, 0 0 32px ${activeItem.accentColor}88, 0 16px 36px -8px ${activeItem.accentColor}33`
+                      : `0 0 0 8px rgba(255,255,255,0.7), 0 16px 36px -8px ${activeItem.accentColor}33`,
+                    background: activeItem.bgGradient,
+                    overflow: "hidden",
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
-                    zIndex: 10,
+                    justifyContent: "center",
+                    transition: "box-shadow 0.15s ease, border-color 0.2s ease",
                   }}
                 >
-                  {isVoiceActive ? (
-                    <>
-                      <Mic size={11} />
-                      <span>LISTENING...</span>
-                    </>
-                  ) : companionState === "speaking" || (speakingRef?.current ?? false) ? (
-                    <>
-                      <Volume2 size={11} />
-                      <span>SPEAKING...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: activeItem.accentColor }} />
-                      <span>{activeItem.badge} // 3D VRM</span>
-                    </>
-                  )}
-                </div>
+                  {/* Real 3D VRM Model */}
+                  <div style={{ width: "100%", height: "100%", transform: "scale(1.15)" }}>
+                    <VRMAvatar
+                      companionId="hinaa"
+                      state={companionState}
+                      modelUrl={activeItem.modelUrl}
+                      reducedMotion={false}
+                      textOnly={false}
+                      closeUp={true}
+                      jawEnergy={jawEnergy}
+                      speakingRef={speakingRef}
+                      visemeEvents={visemeEvents}
+                      audioStartTimeRef={audioStartTimeRef}
+                    />
+                  </div>
 
-                {/* Floating Dialogue HUD inside the Lens */}
-                <AnimatePresence>
-                  {(partialTranscript || streamingText) && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      style={{
-                        position: "absolute",
-                        bottom: 60,
-                        maxWidth: "85%",
-                        background: "rgba(23, 25, 28, 0.9)",
-                        color: "#ffffff",
-                        backdropFilter: "blur(12px)",
-                        padding: "8px 14px",
-                        borderRadius: 14,
-                        boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-                        border: `1px solid ${activeItem.accentColor}88`,
-                        zIndex: 15,
-                        textAlign: "center",
-                        fontSize: 11,
-                        lineHeight: 1.45,
-                        pointerEvents: "none",
-                      }}
-                    >
-                      {partialTranscript ? (
-                        <div style={{ color: "#fbe1d1" }}>
-                          <span style={{ fontWeight: 700, color: activeItem.accentColor }}>You: </span>
-                          {partialTranscript}
-                        </div>
-                      ) : (
-                        <div>
-                          <span style={{ fontWeight: 700, color: activeItem.accentColor }}>Hinaa: </span>
-                          {streamingText.slice(-180)}
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Subtitle Badge */}
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: 24,
-                    background: "rgba(23, 25, 28, 0.85)",
-                    color: "#ffffff",
-                    backdropFilter: "blur(8px)",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: "0.08em",
-                    padding: "4px 12px",
-                    borderRadius: 9999,
-                    zIndex: 5,
-                  }}
-                >
-                  {activeItem.badge}
-                </div>
-              </div>
-
-              {/* Massive Geometric Title below the Lens */}
-              <div
-                style={{
-                  marginTop: 20,
-                  fontFamily: "'Signifier', Georgia, ui-serif, serif",
-                  fontSize: 52,
-                  fontWeight: 400,
-                  letterSpacing: "-0.03em",
-                  color: "#17191c",
-                  textAlign: "center",
-                  lineHeight: 1,
-                }}
-              >
-                {activeItem.name}
-              </div>
-              <div
-                style={{
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11,
-                  color: "#787574",
-                  marginTop: 4,
-                  letterSpacing: "0.1em",
-                }}
-              >
-                X .0412 // Y .0306 // 3D_VRM_LIVE
-              </div>
-            </div>
-
-            {/* Right Column: Collection Metric, Discover CTA, and Carousel Thumbnails */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 20,
-              }}
-            >
-              {/* Giant Index Number */}
-              <div
-                style={{
-                  fontSize: 76,
-                  fontFamily: "'Signifier', Georgia, serif",
-                  lineHeight: 0.9,
-                  fontWeight: 400,
-                  color: "#17191c",
-                }}
-              >
-                {activeItem.index}
-              </div>
-
-              {/* Discover Pill Button */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isVoiceActive) onStopVoice?.();
-                    else onStartVoice?.();
-                  }}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 12,
-                    background: isVoiceActive ? "#059669" : "#17191c",
-                    color: "#ffffff",
-                    border: isVoiceActive ? "2px solid #34d399" : "none",
-                    borderRadius: 9999,
-                    padding: "10px 22px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    letterSpacing: "0.04em",
-                    cursor: "pointer",
-                    boxShadow: isVoiceActive
-                      ? "0 0 20px rgba(16, 185, 129, 0.5)"
-                      : "0 6px 16px rgba(0,0,0,0.15)",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
-                >
-                  <span>{isVoiceActive ? "STOP VOICE" : "COMMUNICATE"}</span>
-                  <span
+                  {/* Top Status Pill on the Lens */}
+                  <div
                     style={{
-                      background: isVoiceActive ? "#ffffff" : activeItem.accentColor,
-                      color: "#17191c",
-                      width: 22,
-                      height: 22,
+                      position: "absolute",
+                      top: 14,
+                      background: isVoiceActive
+                        ? "rgba(16, 185, 129, 0.95)"
+                        : companionState === "speaking" || (speakingRef?.current ?? false)
+                        ? "rgba(255, 122, 0, 0.95)"
+                        : "rgba(23, 25, 28, 0.85)",
+                      color: "#ffffff",
+                      backdropFilter: "blur(8px)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      padding: "4px 12px",
                       borderRadius: 9999,
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      fontWeight: 800,
-                      fontSize: 11,
+                      gap: 6,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                      zIndex: 10,
                     }}
                   >
-                    {isVoiceActive ? "■" : ">>"}
-                  </span>
-                </button>
-              </div>
+                    {isVoiceActive ? (
+                      <>
+                        <Mic size={11} />
+                        <span>LISTENING...</span>
+                      </>
+                    ) : companionState === "speaking" || (speakingRef?.current ?? false) ? (
+                      <>
+                        <Volume2 size={11} />
+                        <span>SPEAKING...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: activeItem.accentColor }} />
+                        <span>{activeItem.badge} // 3D VRM</span>
+                      </>
+                    )}
+                  </div>
 
-              {/* Editorial Description */}
-              <div
-                style={{
-                  fontSize: 13,
-                  lineHeight: 1.6,
-                  color: "#5d2a1a",
-                  maxWidth: 280,
-                }}
-              >
-                {activeItem.tagline} {activeItem.description}
-              </div>
+                  {/* Floating Dialogue HUD inside the Lens */}
+                  <AnimatePresence>
+                    {(partialTranscript || streamingText) && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                        style={{
+                          position: "absolute",
+                          bottom: 50,
+                          maxWidth: "90%",
+                          background: "rgba(23, 25, 28, 0.92)",
+                          color: "#ffffff",
+                          backdropFilter: "blur(12px)",
+                          padding: "8px 12px",
+                          borderRadius: 12,
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                          border: `1px solid ${activeItem.accentColor}88`,
+                          zIndex: 15,
+                          textAlign: "center",
+                          fontSize: 11,
+                          lineHeight: 1.4,
+                          pointerEvents: "none",
+                        }}
+                      >
+                        {partialTranscript ? (
+                          <div style={{ color: "#fbe1d1" }}>
+                            <span style={{ fontWeight: 700, color: activeItem.accentColor }}>You: </span>
+                            {partialTranscript}
+                          </div>
+                        ) : (
+                          <div>
+                            <span style={{ fontWeight: 700, color: activeItem.accentColor }}>Hinaa: </span>
+                            {streamingText.slice(-160)}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
-              {/* Collection Carousel Thumbnails */}
-              <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#787574", marginBottom: 8 }}>
-                  HAUTE-COUTURE SELECTION
+                  {/* Subtitle Badge */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: 16,
+                      background: "rgba(23, 25, 28, 0.85)",
+                      color: "#ffffff",
+                      backdropFilter: "blur(8px)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      padding: "3px 10px",
+                      borderRadius: 9999,
+                      zIndex: 5,
+                    }}
+                  >
+                    {activeItem.badge}
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+
+                {/* Title below lens */}
+                <div
+                  style={{
+                    marginTop: 14,
+                    fontFamily: "'Signifier', Georgia, ui-serif, serif",
+                    fontSize: 34,
+                    fontWeight: 400,
+                    letterSpacing: "-0.02em",
+                    color: "#17191c",
+                    textAlign: "center",
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {activeItem.name}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#5d2a1a",
+                    textAlign: "center",
+                    maxWidth: 320,
+                    marginTop: 4,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {activeItem.tagline}
+                </div>
+              </div>
+
+              {/* 2. Haute-Couture Switcher (All 6 Models) */}
+              <div style={{ width: "100%", textAlign: "center" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#787574", marginBottom: 8 }}>
+                  HAUTE-COUTURE SELECTION ({COLLECTIONS.length} AVATARS)
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                   {COLLECTIONS.map((c) => {
                     const isSelected = c.id === activeItem.id;
                     return (
@@ -704,37 +639,438 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                         type="button"
                         onClick={() => handleSelectItem(c)}
                         style={{
-                          width: 48,
-                          height: 56,
+                          padding: "6px 12px",
                           borderRadius: 8,
                           border: isSelected ? `2px solid ${c.accentColor}` : "1px solid rgba(23, 25, 28, 0.15)",
                           background: isSelected ? "#ffffff" : "rgba(255,255,255,0.5)",
                           display: "flex",
-                          flexDirection: "column",
                           alignItems: "center",
-                          justifyContent: "center",
-                          gap: 2,
+                          gap: 6,
                           cursor: "pointer",
                           transition: "all 0.15s ease",
                           boxShadow: isSelected ? `0 4px 12px ${c.accentColor}44` : "none",
                         }}
                       >
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#17191c" }}>{c.index}</span>
                         <div
                           style={{
-                            width: 6,
-                            height: 6,
+                            width: 8,
+                            height: 8,
                             borderRadius: "50%",
                             background: c.accentColor,
                           }}
                         />
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#17191c" }}>{c.index}</span>
+                        <span style={{ fontSize: 10, color: "#5d2a1a" }}>{c.name}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
+
+              {/* 3. Cyber Metadata Badge */}
+              <div
+                style={{
+                  background: "rgba(255, 255, 255, 0.7)",
+                  padding: "12px 16px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(23, 25, 28, 0.08)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 10.5,
+                  lineHeight: 1.5,
+                  color: "#332f2d",
+                  width: "100%",
+                  maxWidth: 380,
+                  boxSizing: "border-box",
+                }}
+              >
+                <div style={{ color: activeItem.accentColor, fontWeight: 700, marginBottom: 4 }}>
+                  &lt;BODY ( SERIE#OMEGA_V2 )
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span>PULSE: {activeItem.energyPulse}</span>
+                  <span>DNA: {activeItem.styleDna}</span>
+                </div>
+                <div style={{ marginTop: 4, fontWeight: 600, color: "#17191c" }}>
+                  {activeItem.codeEssence}
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div
+              style={{
+                padding: "36px 32px 48px 32px",
+                display: "grid",
+                gridTemplateColumns: "1.1fr 1.6fr 1.1fr",
+                gap: 24,
+                alignItems: "center",
+                minHeight: 580,
+              }}
+            >
+              {/* Left Column: Cyber Code Metadata & Micro Ticks */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 20,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 11,
+                  lineHeight: 1.65,
+                  color: "#332f2d",
+                }}
+              >
+                <div style={{ color: "#787574", letterSpacing: "0.08em" }}>
+                  +++ <br />
+                  DARE_TO_DISRUPT <br />
+                  &lt;META CHARSET=UTF-8&gt;
+                </div>
+
+                <div
+                  style={{
+                    background: "rgba(255, 255, 255, 0.6)",
+                    padding: "16px 18px",
+                    borderRadius: 16,
+                    border: "1px solid rgba(23, 25, 28, 0.08)",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
+                  }}
+                >
+                  <div style={{ color: activeItem.accentColor, fontWeight: 700, marginBottom: 4 }}>
+                    &lt;BODY (
+                  </div>
+                  <div>SERIE#OMEGA_V2</div>
+                  <div>ENERGY-PULSE: {activeItem.energyPulse}</div>
+                  <div style={{ margin: "6px 0", opacity: 0.4 }}>+++</div>
+                  <div>STYLE-DNA: {activeItem.styleDna}</div>
+                  <div>CODE-ESSENCE: {activeItem.codeEssence}</div>
+                  <div style={{ marginTop: 8, fontWeight: 700, color: "#17191c" }}>
+                    DISRUPT. CREATE. DOMINATE )
+                  </div>
+                </div>
+
+                {/* Reticle Crosshair */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, opacity: 0.6 }}>
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      border: "1px dashed #17191c",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div style={{ width: 6, height: 6, background: activeItem.accentColor }} />
+                  </div>
+                  <span>STYLE=UTF-1 // LIVE</span>
+                </div>
+              </div>
+
+              {/* Center Column: Iconic Circular Cyber-Fashion Viewport */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  position: "relative",
+                }}
+              >
+                <div
+                  className="dich-circular-lens"
+                  style={{
+                    position: "relative",
+                    width: 380,
+                    height: 380,
+                    borderRadius: "50%",
+                    border: isVoiceActive
+                      ? `2.5px solid ${activeItem.accentColor}`
+                      : "2px solid #17191c",
+                    boxShadow: isVoiceActive
+                      ? `0 0 0 ${10 + Math.round((microphoneLevel || 0) * 20)}px ${activeItem.accentColor}33, 0 0 50px ${activeItem.accentColor}88, 0 20px 48px -10px ${activeItem.accentColor}44`
+                      : companionState === "speaking" || (speakingRef?.current ?? false)
+                      ? `0 0 0 12px ${activeItem.accentColor}44, 0 0 40px ${activeItem.accentColor}88, 0 20px 48px -10px ${activeItem.accentColor}33`
+                      : `0 0 0 10px rgba(255,255,255,0.7), 0 20px 48px -10px ${activeItem.accentColor}33`,
+                    background: activeItem.bgGradient,
+                    overflow: "hidden",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "box-shadow 0.15s ease, border-color 0.2s ease",
+                  }}
+                >
+                  {/* Real 3D VRM Model Loaded in the circular lens */}
+                  <div style={{ width: "100%", height: "100%", transform: "scale(1.15)" }}>
+                    <VRMAvatar
+                      companionId="hinaa"
+                      state={companionState}
+                      modelUrl={activeItem.modelUrl}
+                      reducedMotion={false}
+                      textOnly={false}
+                      closeUp={true}
+                      jawEnergy={jawEnergy}
+                      speakingRef={speakingRef}
+                      visemeEvents={visemeEvents}
+                      audioStartTimeRef={audioStartTimeRef}
+                    />
+                  </div>
+
+                  {/* Top Status Pill on the Lens */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 18,
+                      background: isVoiceActive
+                        ? "rgba(16, 185, 129, 0.95)"
+                        : companionState === "speaking" || (speakingRef?.current ?? false)
+                        ? "rgba(255, 122, 0, 0.95)"
+                        : "rgba(23, 25, 28, 0.85)",
+                      color: "#ffffff",
+                      backdropFilter: "blur(8px)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      padding: "4px 12px",
+                      borderRadius: 9999,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                      zIndex: 10,
+                    }}
+                  >
+                    {isVoiceActive ? (
+                      <>
+                        <Mic size={11} />
+                        <span>LISTENING...</span>
+                      </>
+                    ) : companionState === "speaking" || (speakingRef?.current ?? false) ? (
+                      <>
+                        <Volume2 size={11} />
+                        <span>SPEAKING...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: activeItem.accentColor }} />
+                        <span>{activeItem.badge} // 3D VRM</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Floating Dialogue HUD inside the Lens */}
+                  <AnimatePresence>
+                    {(partialTranscript || streamingText) && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        style={{
+                          position: "absolute",
+                          bottom: 60,
+                          maxWidth: "85%",
+                          background: "rgba(23, 25, 28, 0.9)",
+                          color: "#ffffff",
+                          backdropFilter: "blur(12px)",
+                          padding: "8px 14px",
+                          borderRadius: 14,
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                          border: `1px solid ${activeItem.accentColor}88`,
+                          zIndex: 15,
+                          textAlign: "center",
+                          fontSize: 11,
+                          lineHeight: 1.45,
+                          pointerEvents: "none",
+                        }}
+                      >
+                        {partialTranscript ? (
+                          <div style={{ color: "#fbe1d1" }}>
+                            <span style={{ fontWeight: 700, color: activeItem.accentColor }}>You: </span>
+                            {partialTranscript}
+                          </div>
+                        ) : (
+                          <div>
+                            <span style={{ fontWeight: 700, color: activeItem.accentColor }}>Hinaa: </span>
+                            {streamingText.slice(-180)}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Subtitle Badge */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: 24,
+                      background: "rgba(23, 25, 28, 0.85)",
+                      color: "#ffffff",
+                      backdropFilter: "blur(8px)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      padding: "4px 12px",
+                      borderRadius: 9999,
+                      zIndex: 5,
+                    }}
+                  >
+                    {activeItem.badge}
+                  </div>
+                </div>
+
+                {/* Massive Geometric Title below the Lens */}
+                <div
+                  style={{
+                    marginTop: 20,
+                    fontFamily: "'Signifier', Georgia, ui-serif, serif",
+                    fontSize: 52,
+                    fontWeight: 400,
+                    letterSpacing: "-0.03em",
+                    color: "#17191c",
+                    textAlign: "center",
+                    lineHeight: 1,
+                  }}
+                >
+                  {activeItem.name}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 11,
+                    color: "#787574",
+                    marginTop: 4,
+                    letterSpacing: "0.1em",
+                  }}
+                >
+                  X .0412 // Y .0306 // 3D_VRM_LIVE
+                </div>
+              </div>
+
+              {/* Right Column: Collection Metric, Discover CTA, and Carousel Thumbnails */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 20,
+                }}
+              >
+                {/* Giant Index Number */}
+                <div
+                  style={{
+                    fontSize: 76,
+                    fontFamily: "'Signifier', Georgia, serif",
+                    lineHeight: 0.9,
+                    fontWeight: 400,
+                    color: "#17191c",
+                  }}
+                >
+                  {activeItem.index}
+                </div>
+
+                {/* Discover Pill Button */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isVoiceActive) onStopVoice?.();
+                      else onStartVoice?.();
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 12,
+                      background: isVoiceActive ? "#059669" : "#17191c",
+                      color: "#ffffff",
+                      border: isVoiceActive ? "2px solid #34d399" : "none",
+                      borderRadius: 9999,
+                      padding: "10px 22px",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      letterSpacing: "0.04em",
+                      cursor: "pointer",
+                      boxShadow: isVoiceActive
+                        ? "0 0 20px rgba(16, 185, 129, 0.5)"
+                        : "0 6px 16px rgba(0,0,0,0.15)",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
+                  >
+                    <span>{isVoiceActive ? "STOP VOICE" : "COMMUNICATE"}</span>
+                    <span
+                      style={{
+                        background: isVoiceActive ? "#ffffff" : activeItem.accentColor,
+                        color: "#17191c",
+                        width: 22,
+                        height: 22,
+                        borderRadius: 9999,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 800,
+                        fontSize: 11,
+                      }}
+                    >
+                      {isVoiceActive ? "■" : ">>"}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Editorial Description */}
+                <div
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    color: "#5d2a1a",
+                    maxWidth: 280,
+                  }}
+                >
+                  {activeItem.tagline} {activeItem.description}
+                </div>
+
+                {/* Collection Carousel Thumbnails */}
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#787574", marginBottom: 8 }}>
+                    HAUTE-COUTURE SELECTION
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {COLLECTIONS.map((c) => {
+                      const isSelected = c.id === activeItem.id;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => handleSelectItem(c)}
+                          style={{
+                            width: 48,
+                            height: 56,
+                            borderRadius: 8,
+                            border: isSelected ? `2px solid ${c.accentColor}` : "1px solid rgba(23, 25, 28, 0.15)",
+                            background: isSelected ? "#ffffff" : "rgba(255,255,255,0.5)",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 2,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                            boxShadow: isSelected ? `0 4px 12px ${c.accentColor}44` : "none",
+                          }}
+                        >
+                          <span style={{ fontSize: 10, fontWeight: 700, color: "#17191c" }}>{c.index}</span>
+                          <div
+                            style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: "50%",
+                              background: c.accentColor,
+                            }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
         )}
 
         {/* ── VIEW 2: DICH RUNWAY GALLERY (Screenshot 2 ANTURAX) ── */}
@@ -1114,16 +1450,16 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         <div
           style={{
             borderTop: "1px solid rgba(23, 25, 28, 0.08)",
-            background: "rgba(255, 255, 255, 0.8)",
+            background: "rgba(255, 255, 255, 0.85)",
             backdropFilter: "blur(16px)",
-            padding: "14px 28px",
+            padding: isMobile ? "10px 12px 14px" : "14px 28px",
             display: "flex",
             flexDirection: "column",
-            gap: 10,
+            gap: isMobile ? 8 : 10,
           }}
         >
           {/* Quick Action Chips */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
             <span
               style={{
                 fontFamily: "'JetBrains Mono', monospace",
@@ -1144,14 +1480,14 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 background: "rgba(23, 25, 28, 0.05)",
                 border: "1px solid rgba(23, 25, 28, 0.1)",
                 borderRadius: 9999,
-                padding: "4px 12px",
-                fontSize: 11,
+                padding: "4px 10px",
+                fontSize: isMobile ? 10.5 : 11,
                 fontWeight: 600,
                 color: "#17191c",
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 5,
+                gap: 4,
                 whiteSpace: "nowrap",
                 transition: "all 0.15s ease",
               }}
@@ -1166,14 +1502,14 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 background: "rgba(23, 25, 28, 0.05)",
                 border: "1px solid rgba(23, 25, 28, 0.1)",
                 borderRadius: 9999,
-                padding: "4px 12px",
-                fontSize: 11,
+                padding: "4px 10px",
+                fontSize: isMobile ? 10.5 : 11,
                 fontWeight: 600,
                 color: "#17191c",
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 5,
+                gap: 4,
                 whiteSpace: "nowrap",
               }}
             >
@@ -1187,14 +1523,14 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 background: "rgba(23, 25, 28, 0.05)",
                 border: "1px solid rgba(23, 25, 28, 0.1)",
                 borderRadius: 9999,
-                padding: "4px 12px",
-                fontSize: 11,
+                padding: "4px 10px",
+                fontSize: isMobile ? 10.5 : 11,
                 fontWeight: 600,
                 color: "#17191c",
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 5,
+                gap: 4,
                 whiteSpace: "nowrap",
               }}
             >
@@ -1209,14 +1545,14 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   background: "rgba(23, 25, 28, 0.05)",
                   border: "1px solid rgba(23, 25, 28, 0.1)",
                   borderRadius: 9999,
-                  padding: "4px 12px",
-                  fontSize: 11,
+                  padding: "4px 10px",
+                  fontSize: isMobile ? 10.5 : 11,
                   fontWeight: 600,
                   color: "#17191c",
                   cursor: "pointer",
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 5,
+                  gap: 4,
                   whiteSpace: "nowrap",
                 }}
               >
@@ -1232,14 +1568,14 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   background: "rgba(23, 25, 28, 0.05)",
                   border: "1px solid rgba(23, 25, 28, 0.1)",
                   borderRadius: 9999,
-                  padding: "4px 12px",
-                  fontSize: 11,
+                  padding: "4px 10px",
+                  fontSize: isMobile ? 10.5 : 11,
                   fontWeight: 600,
                   color: "#17191c",
                   cursor: "pointer",
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 5,
+                  gap: 4,
                   whiteSpace: "nowrap",
                 }}
               >
@@ -1250,7 +1586,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
           </div>
 
           {/* Quick Voice / Text Input Row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 12, width: "100%" }}>
             {/* Live Mic Button */}
             <button
               type="button"
@@ -1261,13 +1597,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 8,
+                gap: isMobile ? 5 : 8,
                 background: isVoiceActive ? "#059669" : "#17191c",
                 color: "#ffffff",
                 border: isVoiceActive ? "2px solid #34d399" : "none",
                 borderRadius: 9999,
-                padding: "8px 18px",
-                fontSize: 12,
+                padding: isMobile ? "8px 12px" : "8px 18px",
+                fontSize: isMobile ? 11 : 12,
                 fontWeight: 700,
                 cursor: "pointer",
                 boxShadow: isVoiceActive
@@ -1275,10 +1611,11 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   : "0 2px 8px rgba(0,0,0,0.1)",
                 transition: "all 0.15s ease",
                 flexShrink: 0,
+                whiteSpace: "nowrap",
               }}
             >
-              {isVoiceActive ? <MicOff size={14} /> : <Mic size={14} />}
-              <span>{isVoiceActive ? "END VOICE" : "LIVE VOICE"}</span>
+              {isVoiceActive ? <MicOff size={13} /> : <Mic size={13} />}
+              <span>{isVoiceActive ? (isMobile ? "END" : "END VOICE") : (isMobile ? "VOICE" : "LIVE VOICE")}</span>
             </button>
 
             {/* Quick Text Input */}
@@ -1288,9 +1625,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 if (promptInput.trim()) {
                   onSendText?.(promptInput.trim());
                   setPromptInput("");
+                  setIsChatOpen(true);
                 }
               }}
-              style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}
+              style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}
             >
               <div
                 style={{
@@ -1298,24 +1636,26 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   position: "relative",
                   display: "flex",
                   alignItems: "center",
+                  minWidth: 0,
                 }}
               >
                 <input
                   type="text"
                   value={promptInput}
                   onChange={(e) => setPromptInput(e.target.value)}
-                  placeholder="Talk or type to Hina in 3D Runway..."
+                  placeholder={isMobile ? "Talk or type..." : "Talk or type to Hina in 3D Runway..."}
                   style={{
                     width: "100%",
-                    background: "rgba(255, 255, 255, 0.85)",
+                    background: "rgba(255, 255, 255, 0.9)",
                     border: "1px solid rgba(23, 25, 28, 0.15)",
                     borderRadius: 9999,
-                    padding: "9px 40px 9px 18px",
-                    fontSize: 13,
+                    padding: isMobile ? "8px 34px 8px 12px" : "9px 40px 9px 18px",
+                    fontSize: isMobile ? 12 : 13,
                     color: "#17191c",
                     outline: "none",
                     fontFamily: "inherit",
                     boxShadow: "inset 0 1px 3px rgba(0,0,0,0.03)",
+                    minWidth: 0,
                   }}
                 />
                 <button
@@ -1324,8 +1664,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   style={{
                     position: "absolute",
                     right: 4,
-                    width: 28,
-                    height: 28,
+                    width: 26,
+                    height: 26,
                     borderRadius: "50%",
                     background: promptInput.trim() ? "#17191c" : "transparent",
                     color: promptInput.trim() ? "#ffffff" : "#9ca3af",
@@ -1336,31 +1676,478 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                     cursor: promptInput.trim() ? "pointer" : "default",
                   }}
                 >
-                  <Send size={13} />
+                  <Send size={12} />
                 </button>
               </div>
             </form>
 
-            {/* Workspace Button */}
+            {/* Live Chat Toggle Button */}
             <button
               type="button"
-              onClick={onEnterWorkspace}
+              data-testid="showroom-footer-chat-btn"
+              onClick={() => setIsChatOpen(!isChatOpen)}
               style={{
-                background: "transparent",
-                border: "1px solid rgba(23, 25, 28, 0.12)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                background: isChatOpen ? activeItem.accentColor : "#17191c",
+                color: "#ffffff",
+                border: "none",
                 borderRadius: 9999,
-                padding: "8px 14px",
-                fontSize: 12,
-                fontWeight: 600,
-                color: "#17191c",
+                padding: isMobile ? "8px 10px" : "8px 16px",
+                fontSize: isMobile ? 11 : 12,
+                fontWeight: 650,
                 cursor: "pointer",
                 flexShrink: 0,
+                boxShadow: isChatOpen ? `0 2px 12px ${activeItem.accentColor}66` : "0 2px 8px rgba(0,0,0,0.15)",
+                transition: "all 0.15s ease",
+                whiteSpace: "nowrap",
               }}
             >
-              Canvas →
+              <MessageSquare size={12} />
+              <span>{isChatOpen ? "HIDE" : `CHAT (${messages.length})`}</span>
             </button>
+
+            {!isMobile && (
+              <button
+                type="button"
+                onClick={onEnterWorkspace}
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(23, 25, 28, 0.12)",
+                  borderRadius: 9999,
+                  padding: "8px 14px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#17191c",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                Canvas →
+              </button>
+            )}
           </div>
         </div>
+
+        {/* ── Cyber-Runway Live Chat Drawer (Full Interactive Dialogue Experience) ── */}
+        <AnimatePresence>
+          {isChatOpen && (
+            <motion.div
+              initial={isMobile ? { y: "100%", opacity: 0 } : { x: "100%", opacity: 0 }}
+              animate={isMobile ? { y: 0, opacity: 1 } : { x: 0, opacity: 1 }}
+              exit={isMobile ? { y: "100%", opacity: 0 } : { x: "100%", opacity: 0 }}
+              transition={{ type: "spring", damping: 28, stiffness: 240 }}
+              style={{
+                position: "fixed",
+                bottom: 0,
+                right: 0,
+                left: isMobile ? 0 : "auto",
+                top: isMobile ? "auto" : 0,
+                height: isMobile ? "82vh" : "100%",
+                width: isMobile ? "100%" : "min(460px, 94vw)",
+                background: "rgba(255, 255, 255, 0.98)",
+                backdropFilter: "blur(28px) saturate(1.2)",
+                WebkitBackdropFilter: "blur(28px) saturate(1.2)",
+                borderLeft: isMobile ? "none" : "1.5px solid rgba(23, 25, 28, 0.12)",
+                borderTop: isMobile ? "1.5px solid rgba(23, 25, 28, 0.15)" : "none",
+                borderRadius: isMobile ? "22px 22px 0 0" : 0,
+                boxShadow: isMobile ? "0 -16px 48px rgba(0, 0, 0, 0.22)" : "-12px 0 40px rgba(0, 0, 0, 0.16)",
+                zIndex: 99999,
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+              }}
+            >
+              {/* Mobile Drag Indicator */}
+              {isMobile && (
+                <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(23, 25, 28, 0.2)", margin: "8px auto 0 auto" }} />
+              )}
+              {/* Drawer Header */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "14px 18px",
+                  borderBottom: "1px solid rgba(23, 25, 28, 0.08)",
+                  background: "rgba(247, 239, 228, 0.7)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      background: activeItem.accentColor,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#ffffff",
+                    }}
+                  >
+                    <Sparkles size={14} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#17191c", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>Runway Dialogue</span>
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: "0.06em",
+                          background: isVoiceActive ? "#10b981" : "#17191c",
+                          color: "#ffffff",
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        {isVoiceActive ? "VOICE ACTIVE" : "3D STREAM"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#787574", fontFamily: "'JetBrains Mono', monospace" }}>
+                      COLLECTION // {activeItem.name} ({activeItem.styleDna})
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isVoiceActive) onStopVoice?.();
+                      else onStartVoice?.();
+                    }}
+                    title={isVoiceActive ? "Stop Voice" : "Start Live Voice"}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      border: "none",
+                      background: isVoiceActive ? "#ef4444" : "rgba(23, 25, 28, 0.08)",
+                      color: isVoiceActive ? "#ffffff" : "#17191c",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isVoiceActive ? <MicOff size={14} /> : <Mic size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsChatOpen(false)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      border: "none",
+                      background: "rgba(23, 25, 28, 0.08)",
+                      color: "#17191c",
+                      cursor: "pointer",
+                      fontSize: 16,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Message History Thread */}
+              <div
+                ref={chatScrollRef}
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  padding: "16px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  WebkitOverflowScrolling: "touch",
+                }}
+              >
+                {messages.length === 0 && !streamingText && !partialTranscript && (
+                  <div
+                    style={{
+                      margin: "auto 0",
+                      textAlign: "center",
+                      padding: "24px 16px",
+                      borderRadius: 16,
+                      background: "rgba(247, 239, 228, 0.6)",
+                      border: "1px dashed rgba(23, 25, 28, 0.15)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: "50%",
+                        background: activeItem.accentColor,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        margin: "0 auto 12px auto",
+                        color: "#ffffff",
+                        boxShadow: `0 8px 24px ${activeItem.accentColor}55`,
+                      }}
+                    >
+                      <Bot size={24} />
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#17191c", marginBottom: 4 }}>
+                      Hina Live 3D Runway
+                    </div>
+                    <div style={{ fontSize: 12, color: "#5d2a1a", lineHeight: 1.5, maxWidth: 280, margin: "0 auto 14px auto" }}>
+                      I am standing in the 3D Runway with full lip-sync visemes and voice recognition. Ask me anything or click below to talk!
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+                      {[
+                        "Tell me about this 3D model",
+                        "नमस्ते हिना! कैसी हो?",
+                        "What is your energy pulse?",
+                        "Help me write an essay",
+                      ].map((prompt) => (
+                        <button
+                          key={prompt}
+                          type="button"
+                          onClick={() => {
+                            onSendText?.(prompt);
+                          }}
+                          style={{
+                            fontSize: 11,
+                            padding: "5px 10px",
+                            borderRadius: 9999,
+                            border: "1px solid rgba(23, 25, 28, 0.12)",
+                            background: "#ffffff",
+                            color: "#17191c",
+                            cursor: "pointer",
+                            transition: "all 0.12s ease",
+                          }}
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Render Past Messages */}
+                {messages.map((msg, idx) => {
+                  const isUser = msg.role === "user";
+                  const text = msg.text || (msg as any).content || "";
+                  if (!text.trim()) return null;
+
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: isUser ? "flex-end" : "flex-start",
+                        maxWidth: "100%",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 650,
+                          color: isUser ? "#787574" : activeItem.accentColor,
+                          marginBottom: 3,
+                          paddingLeft: isUser ? 0 : 4,
+                          paddingRight: isUser ? 4 : 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        {isUser ? <User size={10} /> : <Bot size={10} />}
+                        <span>{isUser ? "You" : companionName}</span>
+                      </div>
+                      <div
+                        style={{
+                          maxWidth: "88%",
+                          padding: "10px 14px",
+                          borderRadius: isUser ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                          background: isUser ? "#17191c" : "rgba(247, 239, 228, 0.8)",
+                          color: isUser ? "#ffffff" : "#17191c",
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                          border: isUser ? "none" : "1px solid rgba(23, 25, 28, 0.08)",
+                          wordBreak: "break-word",
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {text}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Streaming Response Bubble */}
+                {streamingText && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-start",
+                      maxWidth: "100%",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 650,
+                        color: activeItem.accentColor,
+                        marginBottom: 3,
+                        paddingLeft: 4,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Bot size={10} />
+                      <span>{companionName} (Speaking)</span>
+                    </div>
+                    <div
+                      style={{
+                        maxWidth: "92%",
+                        padding: "10px 14px",
+                        borderRadius: "16px 16px 16px 4px",
+                        background: "rgba(247, 239, 228, 0.9)",
+                        color: "#17191c",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        boxShadow: `0 4px 16px ${activeItem.accentColor}22`,
+                        border: `1.5px solid ${activeItem.accentColor}55`,
+                        wordBreak: "break-word",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {streamingText}
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 6,
+                          height: 14,
+                          background: activeItem.accentColor,
+                          marginLeft: 4,
+                          verticalAlign: "middle",
+                          animation: "pulse 1s infinite",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Partial Transcript when user is speaking */}
+                {partialTranscript && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                      maxWidth: "100%",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 650,
+                        color: "#059669",
+                        marginBottom: 3,
+                        paddingRight: 4,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Mic size={10} />
+                      <span>Hearing you…</span>
+                    </div>
+                    <div
+                      style={{
+                        maxWidth: "88%",
+                        padding: "8px 12px",
+                        borderRadius: "16px 16px 4px 16px",
+                        background: "rgba(16, 185, 129, 0.12)",
+                        color: "#065f46",
+                        fontSize: 12,
+                        fontStyle: "italic",
+                        border: "1px dashed #10b981",
+                      }}
+                    >
+                      {partialTranscript}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Drawer Composer */}
+              <div
+                style={{
+                  padding: isMobile
+                    ? "10px 14px calc(14px + env(safe-area-inset-bottom, 0px)) 14px"
+                    : "12px 16px",
+                  borderTop: "1px solid rgba(23, 25, 28, 0.08)",
+                  background: "#ffffff",
+                }}
+              >
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (drawerInput.trim()) {
+                      onSendText?.(drawerInput.trim());
+                      setDrawerInput("");
+                    }
+                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 8 }}
+                >
+                  <input
+                    type="text"
+                    value={drawerInput}
+                    onChange={(e) => setDrawerInput(e.target.value)}
+                    placeholder="Type to Hina..."
+                    style={{
+                      flex: 1,
+                      padding: "9px 14px",
+                      borderRadius: 9999,
+                      border: "1px solid rgba(23, 25, 28, 0.15)",
+                      fontSize: 13,
+                      color: "#17191c",
+                      outline: "none",
+                      background: "rgba(247, 239, 228, 0.3)",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!drawerInput.trim()}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: "50%",
+                      border: "none",
+                      background: drawerInput.trim() ? activeItem.accentColor : "rgba(23, 25, 28, 0.08)",
+                      color: drawerInput.trim() ? "#ffffff" : "#9ca3af",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: drawerInput.trim() ? "pointer" : "default",
+                      transition: "all 0.12s ease",
+                    }}
+                  >
+                    <Send size={14} />
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

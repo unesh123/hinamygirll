@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Mic, MessageCircle, FolderKanban, MoreHorizontal } from "lucide-react";
+import { MessageCircle, Sparkles, FolderKanban, ShieldCheck, MoreHorizontal } from "lucide-react";
 import type { NavSection } from "./NavigationRail";
 
 interface MobileNavigationProps {
@@ -13,9 +13,10 @@ const TAB_ITEMS: Array<{
   label: string;
   icon: React.ReactNode;
 }> = [
-  { id: "talk", label: "Talk", icon: <Mic size={20} /> },
   { id: "chat", label: "Chat", icon: <MessageCircle size={20} /> },
+  { id: "studio", label: "Runway 3D", icon: <Sparkles size={20} /> },
   { id: "projects", label: "Projects", icon: <FolderKanban size={20} /> },
+  { id: "vault", label: "VIP Vault", icon: <ShieldCheck size={20} /> },
 ];
 
 export function MobileNavigation({

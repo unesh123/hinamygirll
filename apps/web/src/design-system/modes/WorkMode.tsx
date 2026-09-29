@@ -803,7 +803,7 @@ export function WorkMode({
              unreachable dead code. ─────────────────────────────────────────── */}
       <header
         style={{
-          display: "flex",
+          display: isMobile ? "none" : "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0 var(--space-4)",

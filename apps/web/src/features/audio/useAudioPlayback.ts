@@ -371,14 +371,34 @@ export function useAudioPlayback(): PlaybackController {
         return femalePatterns.some((pattern) => pattern.test(lower));
       };
 
+      const isIndianFemaleVoice = (voice: SpeechSynthesisVoice): boolean => {
+        const lower = voice.name.toLowerCase();
+        const vLang = voice.lang.toLowerCase();
+        const indianPatterns = [
+          /\bswara\b/i, /\bheera\b/i, /\bneerja\b/i, /\bhemkala\b/i,
+          /\bkalpana\b/i, /\bshruti\b/i, /\bsunita\b/i, /google हिन्दी/i,
+          /hi-in/i, /hindi/i,
+        ];
+        return (
+          vLang.startsWith("hi") ||
+          (vLang.includes("in") && !isMaleVoice(voice.name)) ||
+          indianPatterns.some((pattern) => pattern.test(lower))
+        );
+      };
+
       let selectedVoice: SpeechSynthesisVoice | undefined;
 
       if (isHinaa) {
-        // Priority 1: Candidate language female voice
-        selectedVoice = candidateVoices.find((v) => isFemaleVoice(v.name));
-        // Priority 2: Any female voice on the entire machine, regardless of locale
-        if (!selectedVoice) {
-          selectedVoice = allVoices.find((v) => isFemaleVoice(v.name));
+        const isHindiContext = normalizedLanguage.startsWith("hi") || /[\u0900-\u097F]/.test(text);
+        if (isHindiContext) {
+          selectedVoice =
+            allVoices.find((v) => isIndianFemaleVoice(v)) ||
+            candidateVoices.find((v) => isFemaleVoice(v.name));
+        } else {
+          selectedVoice =
+            candidateVoices.find((v) => isFemaleVoice(v.name)) ||
+            allVoices.find((v) => isIndianFemaleVoice(v)) ||
+            allVoices.find((v) => isFemaleVoice(v.name));
         }
         // Priority 3: Any voice in candidates that is NOT male
         if (!selectedVoice) {
@@ -593,16 +613,42 @@ export function useAudioPlayback(): PlaybackController {
         return femalePatterns.some((pattern) => pattern.test(lower));
       };
 
+      const isIndianFemaleVoice = (voice: SpeechSynthesisVoice): boolean => {
+        const lower = voice.name.toLowerCase();
+        const vLang = voice.lang.toLowerCase();
+        const indianPatterns = [
+          /\bswara\b/i, /\bheera\b/i, /\bneerja\b/i, /\bhemkala\b/i,
+          /\bkalpana\b/i, /\bshruti\b/i, /\bsunita\b/i, /google हिन्दी/i,
+          /hi-in/i, /hindi/i,
+        ];
+        return (
+          vLang.startsWith("hi") ||
+          (vLang.includes("in") && !isMaleVoice(voice.name)) ||
+          indianPatterns.some((pattern) => pattern.test(lower))
+        );
+      };
+
       let selectedVoice: SpeechSynthesisVoice | undefined;
       if (isHinaa) {
-        selectedVoice =
-          candidateVoices.find((v) => isFemaleVoice(v.name)) ||
-          allVoices.find((v) => isFemaleVoice(v.name)) ||
-          candidateVoices.find((v) => !isMaleVoice(v.name)) ||
-          allVoices.find((v) => !isMaleVoice(v.name));
-        utterance.pitch = selectedVoice ? 1.18 : 1.35;
+        const isHindiContext = normalizedLanguage.startsWith("hi") || /[\u0900-\u097F]/.test(clean);
+        if (isHindiContext) {
+          selectedVoice =
+            allVoices.find((v) => isIndianFemaleVoice(v)) ||
+            candidateVoices.find((v) => isFemaleVoice(v.name));
+        } else {
+          selectedVoice =
+            candidateVoices.find((v) => isFemaleVoice(v.name)) ||
+            allVoices.find((v) => isIndianFemaleVoice(v)) ||
+            allVoices.find((v) => isFemaleVoice(v.name));
+        }
+        if (!selectedVoice) {
+          selectedVoice =
+            candidateVoices.find((v) => !isMaleVoice(v.name)) ||
+            allVoices.find((v) => !isMaleVoice(v.name));
+        }
+        utterance.pitch = selectedVoice ? 1.15 : 1.35;
         // High speed speech generation as requested by user
-        utterance.rate = 1.15;
+        utterance.rate = 1.18;
         utterance.volume = 1;
       } else {
         selectedVoice =

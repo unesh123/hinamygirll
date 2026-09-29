@@ -546,11 +546,15 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             rawStreamed += event.delta;
             sentenceBuffer += event.delta;
             
-            // Check for sentence boundary to stream speech concurrently with generation
-            const sentenceMatch = sentenceBuffer.match(/^([\s\S]*?[.!?\n])(?:\s+|$)/);
-            if (sentenceMatch) {
-              const fullSentence = sentenceMatch[1].trim();
-              sentenceBuffer = sentenceBuffer.slice(sentenceMatch[0].length);
+            // Check for sentence/clause boundary to stream speech concurrently with generation
+            const sentenceMatch = sentenceBuffer.match(/^([\s\S]*?[.!?\n\u0964\u0965;])(?:\s+|$)/);
+            const clauseMatch = (!sentenceMatch && sentenceBuffer.length > 45)
+              ? sentenceBuffer.match(/^([\s\S]*?[,:\-–—])(?:\s+)/)
+              : null;
+            const match = sentenceMatch || clauseMatch;
+            if (match) {
+              const fullSentence = match[1].trim();
+              sentenceBuffer = sentenceBuffer.slice(match[0].length);
               if (fullSentence.length > 2 && options?.onSentenceChunk) {
                 try {
                   options.onSentenceChunk(fullSentence, isFirstSentence);

@@ -92,6 +92,7 @@ export function SteepAnalyticsBar({
 
   return (
     <div
+      className="steep-analytics-bar"
       style={{
         display: "flex",
         alignItems: "center",

@@ -5760,6 +5760,24 @@ class ConversationService:
     ) -> ProviderResult[bytes]:
         provider = self.router.tts(mode, companion_id)
         if isinstance(provider, DeepgramTTSProvider):
+            has_devanagari = bool(re.search(r"[\u0900-\u097F]", text))
+            if has_devanagari and self.settings.azure_configured:
+                # Deepgram Aura is English-only and cannot pronounce Devanagari.
+                # Azure hi-IN-SwaraNeural is the authentic native Indian Hindi voice!
+                try:
+                    azure_voice = (
+                        self.settings.azure_speech_male_voice
+                        if companion_id == "hiro"
+                        else self.settings.azure_speech_female_voice
+                    )
+                    azure_provider = AzureSpeechProvider(
+                        self.settings.azure_speech_key.get_secret_value(),
+                        self.settings.azure_speech_region,
+                    )
+                    return await azure_provider.synthesize_calibrated(text, azure_voice, 1.15, 0.5, 1.0)
+                except Exception as az_err:
+                    logger.warning("Azure Hindi speech synthesis attempt: %s", az_err)
+
             dg_voice = (
                 self.settings.deepgram_tts_model_hiro
                 if companion_id == "hiro"

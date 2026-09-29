@@ -3360,7 +3360,23 @@ body {
   .topbar-v6__mode-btn { padding: 5px 8px; font-size: 11px; }
   .topbar-v6__actions { flex-shrink: 0; gap: 8px; margin-left: auto; }
   .topbar-v6 .model-selector-v7__label { max-width: 92px; }
-  .model-selector-v7__dropdown { right: 0 !important; left: auto !important; max-width: calc(100vw - 20px) !important; width: min(300px, calc(100vw - 20px)) !important; }
+  .steep-analytics-bar { display: none !important; }
+  .model-selector-v7__dropdown {
+    position: fixed !important;
+    left: 10px !important;
+    right: 10px !important;
+    top: 54px !important;
+    bottom: auto !important;
+    width: auto !important;
+    max-width: calc(100vw - 20px) !important;
+    max-height: 65vh !important;
+    z-index: 99999 !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3) !important;
+  }
+  .composer-v6 .model-selector-v7__dropdown {
+    top: auto !important;
+    bottom: 68px !important;
+  }
 
   .talk-status-header { padding: 4px 12px; }
   .talk-status-header__models { min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
