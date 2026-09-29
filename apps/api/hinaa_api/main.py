@@ -899,6 +899,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 memory_service,
                 authorization=request.headers.get("Authorization"),
                 x_hinaa_dev_user=request.headers.get("X-HINAA-Dev-User"),
+                allow_default_subject=not reached_through_edge(request),
             )
         except HinaaError:
             return None
@@ -3991,7 +3992,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
                 final_plan_payload: dict[str, Any] | None = None
                 stream_iter = service.stream_turn(
-                    body, request.state.correlation_id, user_id=user_id
+                    body, request.state.correlation_id, user_id=owner_id or user_id
                 ).__aiter__()
                 # Liveness decides, not wall clock. A documented report is a long
                 # generation, and a recovery chain that has to hand the turn to a
