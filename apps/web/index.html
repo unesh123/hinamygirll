@@ -15,27 +15,28 @@
     />
     <title>HINAA — AI Workspace</title>
 
-    <!-- HINAA typography: Space Grotesk carries the technical display voice,
-         Outfit the warm companion body, JetBrains Mono the telemetry. -->
+    <!-- Air Style Typography: Inter (Control/TNT), Anton (Control Compressed 900), Caveat (Control Cursive) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@400;500;600;700&family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!--
       Theme sync: applies the saved theme before first paint to prevent flash.
-      Reads hinaa_settings_v1 from localStorage; falls back to system preference.
+      Air default is dark ("midnight sky through glass sculpture").
     -->
     <script>
       (function () {
         try {
           var s = JSON.parse(localStorage.getItem("hinaa_settings_v1") || "{}");
-          var theme = (s.appearance && s.appearance.theme) || "light";
-          if (theme === "dark") {
-            document.documentElement.setAttribute("data-theme", "dark");
-          } else {
+          var theme = (s.appearance && s.appearance.theme) || "dark";
+          if (theme === "light") {
             document.documentElement.setAttribute("data-theme", "light");
+          } else {
+            document.documentElement.setAttribute("data-theme", "dark");
           }
-        } catch (_) {}
+        } catch (_) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
       })();
     </script>
   </head>

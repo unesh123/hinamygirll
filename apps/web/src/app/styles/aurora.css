@@ -1239,3 +1239,229 @@ input, textarea, select { color-scheme: dark; }
   .composer-send-btn:hover:not(:disabled) { transform: none; }
   .hinaa-veil-spot { transition: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AIR DESIGN SYSTEM — Midnight sky through glass sculpture
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 14. Midnight Sky & Glass Sculpture Ambient System ──────────────────── */
+.air-midnight-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+/* Drifting midnight clouds with deep celestial contrast */
+.air-midnight-sky {
+  position: absolute;
+  inset: -10%;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% -10%, rgba(66, 97, 136, 0.35) 0%, transparent 68%),
+    radial-gradient(circle 800px at 85% 20%, rgba(43, 127, 255, 0.12) 0%, transparent 70%),
+    radial-gradient(circle 900px at 15% 75%, rgba(66, 97, 136, 0.22) 0%, transparent 65%),
+    #000000;
+  mix-blend-mode: normal;
+  pointer-events: none;
+}
+
+/* Sculptural 3D Glass Objects */
+.air-glass-sculpture-wrapper {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.air-glass-form {
+  position: absolute;
+  border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 40%, rgba(66, 97, 136, 0.08) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.3),
+    inset -2px -2px 10px rgba(0, 0, 0, 0.4),
+    0 12px 40px rgba(0, 0, 0, 0.35);
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.air-glass-form--primary {
+  top: 8vh;
+  right: 5vw;
+  width: min(38vw, 480px);
+  height: min(38vw, 480px);
+  animation: air-sculpture-float-a 24s ease-in-out infinite alternate;
+}
+
+.air-glass-form--secondary {
+  bottom: 6vh;
+  left: 3vw;
+  width: min(30vw, 360px);
+  height: min(30vw, 360px);
+  border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  animation: air-sculpture-float-b 32s ease-in-out infinite alternate;
+  opacity: 0.75;
+}
+
+@keyframes air-sculpture-float-a {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+  50% { transform: translate3d(-3vw, 4vh, 0) rotate(8deg) scale(1.05); }
+  100% { transform: translate3d(2vw, -3vh, 0) rotate(-6deg) scale(0.97); }
+}
+
+@keyframes air-sculpture-float-b {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(0.96); }
+  50% { transform: translate3d(4vw, -5vh, 0) rotate(-10deg) scale(1.08); }
+  100% { transform: translate3d(-2vw, 3vh, 0) rotate(6deg) scale(1); }
+}
+
+/* ── 15. Air Component Primitives ────────────────────────────────────────── */
+
+/* Ghost Navigation Button: transparent background, 1px white border, white text, 8px radius */
+.air-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent !important;
+  border: 1px solid var(--color-whiteout, #ffffff) !important;
+  color: var(--color-whiteout, #ffffff) !important;
+  border-radius: 8px !important;
+  padding: 10px 16px !important;
+  font-family: var(--font-control, ui-sans-serif, system-ui, sans-serif) !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  cursor: pointer;
+  box-shadow: none !important;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+}
+.air-ghost-btn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+.air-ghost-btn:active {
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* Solid Light Button: #f5f5f5 background, #1b1b1b text, 1px #1b1b1b border, 8px radius */
+.air-solid-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--color-haze, #f5f5f5) !important;
+  color: var(--color-ink, #1b1b1b) !important;
+  border: 1px solid var(--color-ink, #1b1b1b) !important;
+  border-radius: 8px !important;
+  padding: 8px 16px !important;
+  font-family: var(--font-control, ui-sans-serif, system-ui, sans-serif) !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  cursor: pointer;
+  box-shadow: none !important;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+.air-solid-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+/* Pill Toggle Button: fully rounded (9999px), semi-transparent dark background */
+.air-pill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 9999px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--color-whiteout, #ffffff) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  padding: 6px 14px !important;
+  font-family: var(--font-control, ui-sans-serif, system-ui, sans-serif) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer;
+  box-shadow: none !important;
+  transition: all 0.15s ease;
+}
+.air-pill-toggle:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+.air-pill-toggle.active {
+  background: var(--color-haze, #f5f5f5) !important;
+  color: var(--color-ink, #1b1b1b) !important;
+  border-color: var(--color-haze, #f5f5f5) !important;
+}
+
+/* Underline Link: Transparent background, 2px bottom underline in Signal Blue (#2b7fff) */
+.air-link {
+  background: transparent !important;
+  color: var(--color-signal-blue, #2b7fff) !important;
+  border-bottom: 2px solid var(--color-signal-blue, #2b7fff) !important;
+  text-decoration: none !important;
+  padding: 0 4px !important;
+  font-family: var(--font-control, ui-sans-serif, system-ui, sans-serif) !important;
+  font-weight: 500 !important;
+  transition: opacity 0.15s ease;
+}
+.air-link:hover {
+  opacity: 0.8;
+}
+
+/* Haze Card: #f5f5f5 background, 12px radius, 20px padding, no shadow, no border */
+.air-haze-card {
+  background: var(--color-haze, #f5f5f5) !important;
+  color: var(--color-ink, #1b1b1b) !important;
+  border-radius: 12px !important;
+  padding: 20px !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), opacity 0.15s ease;
+}
+.air-haze-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Text Input: #f5f5f5 background, #1b1b1b text, 1px border at rgba(0,0,0,0.1), 4px radius */
+.air-input {
+  background: var(--color-haze, #f5f5f5) !important;
+  color: var(--color-ink, #1b1b1b) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  border-radius: 4px !important;
+  padding: 10px !important;
+  font-family: var(--font-control, ui-sans-serif, system-ui, sans-serif) !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+  outline: none;
+  box-shadow: none !important;
+}
+
+/* Compressed Display Headline */
+.air-display {
+  font-family: var(--font-control-compressed, 'Anton', ui-sans-serif, system-ui, sans-serif) !important;
+  font-weight: 900 !important;
+  line-height: 0.85 !important;
+  text-transform: uppercase !important;
+  color: var(--color-whiteout, #ffffff) !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* Control Cursive Italic Accent */
+.air-cursive {
+  font-family: var(--font-control-cursive, 'Caveat', cursive, ui-sans-serif, system-ui, sans-serif) !important;
+  font-style: italic !important;
+  font-weight: 500 !important;
+}
+
+/* Twilight Blue Heading Accent */
+.air-twilight {
+  color: var(--color-twilight-blue, #426188) !important;
+}
+

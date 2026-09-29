@@ -64,15 +64,19 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        background: "#ffffff",
-        borderBottom: "1px solid #e2e8f0",
+        background: "rgba(0, 0, 0, 0.78)",
+        backdropFilter: "blur(18px)",
+        WebkitBackdropFilter: "blur(18px)",
+        borderBottom: "1px solid var(--border-subtle, rgba(255, 255, 255, 0.1))",
         zIndex: 25,
         userSelect: "none",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+        fontFamily: "var(--font-control, ui-sans-serif, system-ui, sans-serif)",
+        padding: "0 16px",
+        height: "52px",
       }}
     >
       {/* ── Left: Breadcrumb ────────────────────────────── */}
-      <div className="topbar-v6__breadcrumb">
+      <div className="topbar-v6__breadcrumb" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <button
           type="button"
           style={{
@@ -81,33 +85,34 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             gap: 4,
             background: "transparent",
             border: "none",
-            color: "#64748b",
+            color: "var(--color-twilight-blue, #426188)",
             fontSize: 13,
             fontWeight: 500,
             cursor: "pointer",
             padding: 0,
+            fontFamily: "inherit",
           }}
         >
           <span>Workspace</span>
           <ChevronDown size={12} style={{ opacity: 0.7 }} />
         </button>
-        <span style={{ color: "#cbd5e1", fontSize: 13 }}>/</span>
-        <span style={{ fontSize: 13, fontWeight: 650, color: "#0f172a" }}>
-          Chat
+        <span style={{ color: "rgba(255, 255, 255, 0.2)", fontSize: 13 }}>/</span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-whiteout, #ffffff)", letterSpacing: "0.02em" }}>
+          Intelligence
         </span>
       </div>
 
-      {/* ── Center: Executive Modes Pills ──────────────── */}
+      {/* ── Center: Executive Modes Pills (Air Pill Toggle Buttons) ──────────────── */}
       <div
         className="topbar-v6__modes"
         style={{
           display: "flex",
           alignItems: "center",
           gap: 4,
-          background: "#f8fafc",
+          background: "rgba(255, 255, 255, 0.06)",
           padding: "3px 4px",
-          borderRadius: 10,
-          border: "1px solid #f1f5f9",
+          borderRadius: "var(--radius-pills, 9999px)",
+          border: "1px solid rgba(255, 255, 255, 0.1)",
         }}
       >
         <button
@@ -119,14 +124,16 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            borderRadius: 7,
+            borderRadius: 9999,
             border: "none",
-            fontWeight: executiveMode === "chat" ? 600 : 500,
-            background: executiveMode === "chat" ? "#1a232b" : "transparent",
-            color: executiveMode === "chat" ? "#ffffff" : "#64748b",
+            fontWeight: 500,
+            fontSize: 12,
+            padding: "5px 12px",
+            background: executiveMode === "chat" ? "var(--color-haze, #f5f5f5)" : "transparent",
+            color: executiveMode === "chat" ? "var(--color-ink, #1b1b1b)" : "rgba(255, 255, 255, 0.72)",
             cursor: "pointer",
-            transition: "all 0.12s ease",
-            boxShadow: executiveMode === "chat" ? "0 1px 2px rgba(0,0,0,0.1)" : "none",
+            transition: "all 0.14s ease",
+            fontFamily: "inherit",
           }}
         >
           <MessageSquare size={13} />
@@ -142,19 +149,21 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            borderRadius: 7,
+            borderRadius: 9999,
             border: "none",
-            fontWeight: executiveMode === "deep-reasoning" ? 600 : 500,
-            background: executiveMode === "deep-reasoning" ? "#1a232b" : "transparent",
-            color: executiveMode === "deep-reasoning" ? "#ffffff" : "#64748b",
+            fontWeight: 500,
+            fontSize: 12,
+            padding: "5px 12px",
+            background: executiveMode === "deep-reasoning" ? "var(--color-haze, #f5f5f5)" : "transparent",
+            color: executiveMode === "deep-reasoning" ? "var(--color-ink, #1b1b1b)" : "rgba(255, 255, 255, 0.72)",
             cursor: "pointer",
-            transition: "all 0.12s ease",
+            transition: "all 0.14s ease",
+            fontFamily: "inherit",
           }}
         >
           <Brain size={13} />
-          <span>Deep Reasoning</span>
+          <span>Reasoning</span>
         </button>
-
         <button
           type="button"
           data-testid="mode-report"
@@ -164,13 +173,16 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            borderRadius: 7,
+            borderRadius: 9999,
             border: "none",
-            fontWeight: executiveMode === "report" ? 600 : 500,
-            background: executiveMode === "report" ? "#1a232b" : "transparent",
-            color: executiveMode === "report" ? "#ffffff" : "#64748b",
+            fontWeight: 500,
+            fontSize: 12,
+            padding: "5px 12px",
+            background: executiveMode === "report" ? "var(--color-haze, #f5f5f5)" : "transparent",
+            color: executiveMode === "report" ? "var(--color-ink, #1b1b1b)" : "rgba(255, 255, 255, 0.72)",
             cursor: "pointer",
-            transition: "all 0.12s ease",
+            transition: "all 0.14s ease",
+            fontFamily: "inherit",
           }}
         >
           <FileText size={13} />
@@ -186,13 +198,16 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            borderRadius: 7,
+            borderRadius: 9999,
             border: "none",
-            fontWeight: executiveMode === "research" ? 600 : 500,
-            background: executiveMode === "research" ? "#1a232b" : "transparent",
-            color: executiveMode === "research" ? "#ffffff" : "#64748b",
+            fontWeight: 500,
+            fontSize: 12,
+            padding: "5px 12px",
+            background: executiveMode === "research" ? "var(--color-haze, #f5f5f5)" : "transparent",
+            color: executiveMode === "research" ? "var(--color-ink, #1b1b1b)" : "rgba(255, 255, 255, 0.72)",
             cursor: "pointer",
-            transition: "all 0.12s ease",
+            transition: "all 0.14s ease",
+            fontFamily: "inherit",
           }}
         >
           <Search size={13} />
@@ -201,7 +216,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
       </div>
 
       {/* ── Right: Real Model Selector & Actions ─── */}
-      <div className="topbar-v6__actions">
+      <div className="topbar-v6__actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {/* Real Model Selector V7 */}
         <ModelSelectorV7
           models={models}
@@ -212,30 +227,26 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           onSelectModel={(model) => onSelectModel?.(model.id, model.provider)}
           backendConnected={runtime.backendConnected}
         />
-        {/* Runway 3D Showroom button */}
+        {/* Runway 3D Showroom Ghost Button */}
         <button
           type="button"
           data-testid="topbar-showroom-btn"
           onClick={() => onModeChange(currentMode === "showroom" ? "work" : "showroom")}
-          title="DICH Haute-Couture 3D Runway Showroom"
+          title="Haute-Couture 3D Runway Showroom"
+          className={currentMode === "showroom" ? "air-solid-btn" : "air-ghost-btn"}
           style={{
             height: 32,
             padding: "0 12px",
-            borderRadius: 9999,
-            border: currentMode === "showroom" ? "1.5px solid #ff7a00" : "1px solid #e2e8f0",
-            background: currentMode === "showroom" ? "#17191c" : "#ffffff",
-            color: currentMode === "showroom" ? "#ff7a00" : "#64748b",
-            display: "flex",
+            borderRadius: 8,
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: "pointer",
+            display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            fontSize: 12,
-            fontWeight: 650,
-            cursor: "pointer",
-            boxShadow: currentMode === "showroom" ? "0 2px 10px rgba(255, 122, 0, 0.25)" : "none",
-            transition: "all 0.15s ease",
           }}
         >
-          <Sparkles size={13} color={currentMode === "showroom" ? "#ff7a00" : "#64748b"} />
+          <Sparkles size={13} />
           <span>Runway 3D</span>
         </button>
 

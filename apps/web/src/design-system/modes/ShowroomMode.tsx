@@ -236,9 +236,9 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         position: "relative",
         width: "100%",
         minHeight: "calc(100vh - 56px)",
-        background: "#fbf6f0",
-        color: "#17191c",
-        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+        background: "transparent",
+        color: "#ffffff",
+        fontFamily: "var(--font-control, inherit)",
         overflowY: "auto",
         overflowX: "hidden",
         boxSizing: "border-box",
@@ -254,10 +254,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
           position: "relative",
           maxWidth: 1360,
           margin: "0 auto",
-          border: "1.5px solid rgba(23, 25, 28, 0.12)",
+          border: "1px solid rgba(255, 255, 255, 0.12)",
           borderRadius: isMobile ? 18 : 24,
-          background: "#f7efe4",
-          boxShadow: "0 20px 48px -8px rgba(0, 0, 0, 0.08)",
+          background: "rgba(0, 0, 0, 0.76)",
+          backdropFilter: "blur(24px)",
+          WebkitBackdropFilter: "blur(24px)",
+          boxShadow: "none",
           overflow: "hidden",
         }}
       >
@@ -268,7 +270,6 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         <div className="dich-corner-bracket dich-corner-br" />
 
         {/* ── Top Cyber HUD Bar ────────────────────────────── */}
-        {/* ── Top Cyber HUD Bar ────────────────────────────── */}
         <header
           style={{
             display: "flex",
@@ -277,9 +278,9 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
             justifyContent: "space-between",
             padding: isMobile ? "10px 12px" : "12px 24px",
             gap: isMobile ? 8 : 12,
-            borderBottom: "1px solid rgba(23, 25, 28, 0.08)",
-            background: "rgba(255, 255, 255, 0.65)",
-            backdropFilter: "blur(12px)",
+            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+            background: "rgba(0, 0, 0, 0.55)",
+            backdropFilter: "blur(16px)",
           }}
         >
           {/* Top row: Brand & Primary Controls */}
@@ -294,7 +295,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: isMobile ? 11 : 11,
                   letterSpacing: "0.08em",
-                  color: "#5d2a1a",
+                  color: "#ffffff",
                   fontWeight: 700,
                   whiteSpace: "nowrap",
                 }}
@@ -311,7 +312,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 gap: 8,
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 11,
-                color: "#787574",
+                color: "var(--color-twilight-blue, #426188)",
               }}
             >
               {!isMobile && (
@@ -325,16 +326,16 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  background: isChatOpen ? activeItem.accentColor : "rgba(23, 25, 28, 0.08)",
-                  color: isChatOpen ? "#ffffff" : "#17191c",
-                  border: "none",
+                  background: isChatOpen ? "var(--color-signal-blue, #2b7fff)" : "rgba(255, 255, 255, 0.08)",
+                  color: "#ffffff",
+                  border: "1px solid rgba(255, 255, 255, 0.12)",
                   padding: isMobile ? "5px 10px" : "5px 13px",
-                  borderRadius: 9999,
+                  borderRadius: "var(--radius-pills, 9999px)",
                   fontSize: 11,
-                  fontWeight: 650,
+                  fontWeight: 600,
                   cursor: "pointer",
                   transition: "all 0.15s ease",
-                  boxShadow: isChatOpen ? `0 2px 10px ${activeItem.accentColor}55` : "none",
+                  boxShadow: "none",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -345,15 +346,16 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 type="button"
                 onClick={onEnterWorkspace}
                 style={{
-                  background: "#17191c",
-                  color: "#ffffff",
-                  border: "none",
+                  background: "var(--color-haze, #f5f5f5)",
+                  color: "var(--color-ink, #1b1b1b)",
+                  border: "1px solid #ffffff",
                   padding: isMobile ? "5px 10px" : "5px 14px",
-                  borderRadius: 9999,
+                  borderRadius: "var(--radius-pills, 9999px)",
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: "pointer",
                   whiteSpace: "nowrap",
+                  boxShadow: "none",
                 }}
               >
                 {isMobile ? "CANVAS →" : "WORKSPACE →"}
@@ -368,9 +370,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               alignItems: "center",
               justifyContent: isMobile ? "flex-start" : "center",
               gap: 4,
-              background: "rgba(23, 25, 28, 0.06)",
+              background: "rgba(255, 255, 255, 0.06)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
               padding: "3px 4px",
-              borderRadius: 9999,
+              borderRadius: "var(--radius-pills, 9999px)",
               overflowX: "auto",
               maxWidth: "100%",
             }}
@@ -380,12 +383,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               onClick={() => setViewMode("lookbook")}
               style={{
                 border: "none",
-                background: viewMode === "lookbook" ? "#17191c" : "transparent",
-                color: viewMode === "lookbook" ? "#ffffff" : "#5d2a1a",
+                background: viewMode === "lookbook" ? "var(--color-haze, #f5f5f5)" : "transparent",
+                color: viewMode === "lookbook" ? "var(--color-ink, #1b1b1b)" : "rgba(255, 255, 255, 0.7)",
                 fontSize: 11,
                 fontWeight: 600,
                 padding: "4px 12px",
-                borderRadius: 9999,
+                borderRadius: "var(--radius-pills, 9999px)",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
                 transition: "all 0.15s ease",
@@ -398,12 +401,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               onClick={() => setViewMode("runway")}
               style={{
                 border: "none",
-                background: viewMode === "runway" ? "#17191c" : "transparent",
-                color: viewMode === "runway" ? "#ffffff" : "#5d2a1a",
+                background: viewMode === "runway" ? "var(--color-haze, #f5f5f5)" : "transparent",
+                color: viewMode === "runway" ? "var(--color-ink, #1b1b1b)" : "rgba(255, 255, 255, 0.7)",
                 fontSize: 11,
                 fontWeight: 600,
                 padding: "4px 12px",
-                borderRadius: 9999,
+                borderRadius: "var(--radius-pills, 9999px)",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
                 transition: "all 0.15s ease",
@@ -416,12 +419,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               onClick={() => setViewMode("steep_analytics")}
               style={{
                 border: "none",
-                background: viewMode === "steep_analytics" ? "#17191c" : "transparent",
-                color: viewMode === "steep_analytics" ? "#ffffff" : "#5d2a1a",
+                background: viewMode === "steep_analytics" ? "var(--color-haze, #f5f5f5)" : "transparent",
+                color: viewMode === "steep_analytics" ? "var(--color-ink, #1b1b1b)" : "rgba(255, 255, 255, 0.7)",
                 fontSize: 11,
                 fontWeight: 600,
                 padding: "4px 12px",
-                borderRadius: 9999,
+                borderRadius: "var(--radius-pills, 9999px)",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
                 transition: "all 0.15s ease",
@@ -601,11 +604,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 <div
                   style={{
                     marginTop: 14,
-                    fontFamily: "'Signifier', Georgia, ui-serif, serif",
+                    fontFamily: "var(--font-control-compressed, Anton, sans-serif)",
                     fontSize: 34,
-                    fontWeight: 400,
-                    letterSpacing: "-0.02em",
-                    color: "#17191c",
+                    fontWeight: 900,
+                    letterSpacing: "0.02em",
+                    textTransform: "uppercase",
+                    color: "#ffffff",
                     textAlign: "center",
                     lineHeight: 1.1,
                   }}
@@ -615,7 +619,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 <div
                   style={{
                     fontSize: 12,
-                    color: "#5d2a1a",
+                    color: "var(--color-twilight-blue, #426188)",
                     textAlign: "center",
                     maxWidth: 320,
                     marginTop: 4,
@@ -628,7 +632,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
 
               {/* 2. Haute-Couture Switcher (All 6 Models) */}
               <div style={{ width: "100%", textAlign: "center" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#787574", marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--color-twilight-blue, #426188)", marginBottom: 8 }}>
                   HAUTE-COUTURE SELECTION ({COLLECTIONS.length} AVATARS)
                 </div>
                 <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
@@ -642,14 +646,14 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                         style={{
                           padding: "6px 12px",
                           borderRadius: 8,
-                          border: isSelected ? `2px solid ${c.accentColor}` : "1px solid rgba(23, 25, 28, 0.15)",
-                          background: isSelected ? "#ffffff" : "rgba(255,255,255,0.5)",
+                          border: isSelected ? "2px solid #ffffff" : "1px solid rgba(255, 255, 255, 0.12)",
+                          background: isSelected ? "var(--color-haze, #f5f5f5)" : "rgba(255, 255, 255, 0.05)",
                           display: "flex",
                           alignItems: "center",
                           gap: 6,
                           cursor: "pointer",
                           transition: "all 0.15s ease",
-                          boxShadow: isSelected ? `0 4px 12px ${c.accentColor}44` : "none",
+                          boxShadow: "none",
                         }}
                       >
                         <div
@@ -660,8 +664,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                             background: c.accentColor,
                           }}
                         />
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#17191c" }}>{c.index}</span>
-                        <span style={{ fontSize: 10, color: "#5d2a1a" }}>{c.name}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: isSelected ? "var(--color-ink, #1b1b1b)" : "#ffffff" }}>{c.index}</span>
+                        <span style={{ fontSize: 10, color: isSelected ? "#333333" : "rgba(255, 255, 255, 0.7)" }}>{c.name}</span>
                       </button>
                     );
                   })}
@@ -716,10 +720,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: 11,
                   lineHeight: 1.65,
-                  color: "#332f2d",
+                  color: "rgba(255, 255, 255, 0.8)",
                 }}
               >
-                <div style={{ color: "#787574", letterSpacing: "0.08em" }}>
+                <div style={{ color: "var(--color-twilight-blue, #426188)", letterSpacing: "0.08em" }}>
                   +++ <br />
                   DARE_TO_DISRUPT <br />
                   &lt;META CHARSET=UTF-8&gt;
@@ -727,11 +731,11 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
 
                 <div
                   style={{
-                    background: "rgba(255, 255, 255, 0.6)",
+                    background: "rgba(255, 255, 255, 0.05)",
                     padding: "16px 18px",
-                    borderRadius: 16,
-                    border: "1px solid rgba(23, 25, 28, 0.08)",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
+                    borderRadius: "var(--radius-cards, 12px)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    boxShadow: "none",
                   }}
                 >
                   <div style={{ color: activeItem.accentColor, fontWeight: 700, marginBottom: 4 }}>
@@ -742,7 +746,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   <div style={{ margin: "6px 0", opacity: 0.4 }}>+++</div>
                   <div>STYLE-DNA: {activeItem.styleDna}</div>
                   <div>CODE-ESSENCE: {activeItem.codeEssence}</div>
-                  <div style={{ marginTop: 8, fontWeight: 700, color: "#17191c" }}>
+                  <div style={{ marginTop: 8, fontWeight: 700, color: "#ffffff" }}>
                     DISRUPT. CREATE. DOMINATE )
                   </div>
                 </div>
@@ -920,11 +924,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 <div
                   style={{
                     marginTop: 20,
-                    fontFamily: "'Signifier', Georgia, ui-serif, serif",
+                    fontFamily: "var(--font-control-compressed, Anton, sans-serif)",
                     fontSize: 52,
-                    fontWeight: 400,
-                    letterSpacing: "-0.03em",
-                    color: "#17191c",
+                    fontWeight: 900,
+                    letterSpacing: "0.02em",
+                    textTransform: "uppercase",
+                    color: "#ffffff",
                     textAlign: "center",
                     lineHeight: 1,
                   }}
@@ -935,7 +940,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   style={{
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: 11,
-                    color: "#787574",
+                    color: "var(--color-twilight-blue, #426188)",
                     marginTop: 4,
                     letterSpacing: "0.1em",
                   }}
@@ -956,10 +961,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 <div
                   style={{
                     fontSize: 76,
-                    fontFamily: "'Signifier', Georgia, serif",
+                    fontFamily: "var(--font-control-compressed, Anton, sans-serif)",
                     lineHeight: 0.9,
-                    fontWeight: 400,
-                    color: "#17191c",
+                    fontWeight: 900,
+                    color: "#ffffff",
                   }}
                 >
                   {activeItem.index}
@@ -977,18 +982,16 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 12,
-                      background: isVoiceActive ? "#059669" : "#17191c",
-                      color: "#ffffff",
-                      border: isVoiceActive ? "2px solid #34d399" : "none",
-                      borderRadius: 9999,
+                      background: isVoiceActive ? "var(--color-signal-blue, #2b7fff)" : "var(--color-haze, #f5f5f5)",
+                      color: isVoiceActive ? "#ffffff" : "var(--color-ink, #1b1b1b)",
+                      border: isVoiceActive ? "1px solid #ffffff" : "1px solid #ffffff",
+                      borderRadius: "var(--radius-pills, 9999px)",
                       padding: "10px 22px",
                       fontSize: 13,
                       fontWeight: 600,
                       letterSpacing: "0.04em",
                       cursor: "pointer",
-                      boxShadow: isVoiceActive
-                        ? "0 0 20px rgba(16, 185, 129, 0.5)"
-                        : "0 6px 16px rgba(0,0,0,0.15)",
+                      boxShadow: "none",
                       transition: "all 0.15s ease",
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
@@ -997,8 +1000,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                     <span>{isVoiceActive ? "STOP VOICE" : "COMMUNICATE"}</span>
                     <span
                       style={{
-                        background: isVoiceActive ? "#ffffff" : activeItem.accentColor,
-                        color: "#17191c",
+                        background: isVoiceActive ? "#ffffff" : "var(--color-ink, #1b1b1b)",
+                        color: isVoiceActive ? "var(--color-signal-blue, #2b7fff)" : "#ffffff",
                         width: 22,
                         height: 22,
                         borderRadius: 9999,
@@ -1019,7 +1022,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   style={{
                     fontSize: 13,
                     lineHeight: 1.6,
-                    color: "#5d2a1a",
+                    color: "rgba(255, 255, 255, 0.8)",
                     maxWidth: 280,
                   }}
                 >
@@ -1028,7 +1031,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
 
                 {/* Collection Carousel Thumbnails */}
                 <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#787574", marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--color-twilight-blue, #426188)", marginBottom: 8 }}>
                     HAUTE-COUTURE SELECTION
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -1043,8 +1046,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                             width: 48,
                             height: 56,
                             borderRadius: 8,
-                            border: isSelected ? `2px solid ${c.accentColor}` : "1px solid rgba(23, 25, 28, 0.15)",
-                            background: isSelected ? "#ffffff" : "rgba(255,255,255,0.5)",
+                            border: isSelected ? "2px solid #ffffff" : "1px solid rgba(255, 255, 255, 0.12)",
+                            background: isSelected ? "var(--color-haze, #f5f5f5)" : "rgba(255, 255, 255, 0.05)",
                             display: "flex",
                             flexDirection: "column",
                             alignItems: "center",
@@ -1052,10 +1055,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                             gap: 2,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
-                            boxShadow: isSelected ? `0 4px 12px ${c.accentColor}44` : "none",
+                            boxShadow: "none",
                           }}
                         >
-                          <span style={{ fontSize: 10, fontWeight: 700, color: "#17191c" }}>{c.index}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: isSelected ? "var(--color-ink, #1b1b1b)" : "#ffffff" }}>{c.index}</span>
                           <div
                             style={{
                               width: 6,

@@ -330,11 +330,13 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
         flexDirection: "column",
         gap: 8,
         padding: "12px 14px",
-        background: "var(--surface-card, #ffffff)",
-        border: "1px solid var(--border-default, rgba(0, 0, 0, 0.1))",
-        borderRadius: "var(--radius-lg, 16px)",
-        boxShadow: "var(--shadow-card, 0 2px 8px -2px rgba(0,0,0,0.05))",
-        transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+        background: "rgba(255, 255, 255, 0.05)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        border: "1px solid rgba(255, 255, 255, 0.12)",
+        borderRadius: "var(--radius-cards, 12px)",
+        boxShadow: "none",
+        transition: "border-color 0.15s ease",
         position: "relative",
       }}
     >
@@ -538,7 +540,9 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           outline: "none",
           fontSize: 14,
           lineHeight: "1.5",
-          color: "var(--text-primary, #1e191d)",
+          color: "var(--text-primary, #ffffff)",
+          caretColor: "var(--color-signal-blue, #2b7fff)",
+          fontFamily: "var(--font-control, inherit)",
           minHeight: 38,
           maxHeight: 200,
           padding: "2px 0",
@@ -555,7 +559,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           // Compact: one 40px line. Wrapping here cost the phone 141px of transcript.
           flexWrap: compact ? "nowrap" : "wrap",
           paddingTop: 8,
-          borderTop: "1px solid #f1f5f9",
+          borderTop: "1px solid rgba(255, 255, 255, 0.08)",
         }}
       >
         {/* Left cluster: Badges [🔴 Command Center] [📎 N attached] [status from /v1/capabilities] */}
@@ -580,12 +584,12 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               alignItems: "center",
               gap: 6,
               padding: "3px 9px",
-              borderRadius: 6,
-              background: "var(--surface-subtle, #f8fafc)",
-              border: "1px solid var(--border-subtle, #e2e8f0)",
+              borderRadius: "var(--radius-buttons, 8px)",
+              background: "rgba(255, 255, 255, 0.06)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
               fontSize: 11,
               fontWeight: 550,
-              color: "var(--text-secondary, #475569)",
+              color: "rgba(255, 255, 255, 0.75)",
             }}
           >
             <span
@@ -593,8 +597,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: backendConnected ? "var(--accent-primary, #dc5f8b)" : "#ef4444",
-                boxShadow: backendConnected ? "0 0 6px rgba(220, 95, 139, 0.4)" : "none",
+                background: backendConnected ? "var(--color-signal-blue, #2b7fff)" : "#ef4444",
+                boxShadow: backendConnected ? "0 0 6px rgba(43, 127, 255, 0.6)" : "none",
               }}
             />
             <span>Command Center</span>
@@ -608,15 +612,15 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 alignItems: "center",
                 gap: 5,
                 padding: "3px 9px",
-                borderRadius: 6,
-                background: "var(--surface-subtle, #f8fafc)",
-                border: "1px solid var(--border-subtle, #e2e8f0)",
+                borderRadius: "var(--radius-buttons, 8px)",
+                background: "rgba(255, 255, 255, 0.06)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
                 fontSize: 11,
                 fontWeight: 500,
-                color: "var(--text-secondary, #475569)",
+                color: "rgba(255, 255, 255, 0.75)",
               }}
             >
-              <Paperclip size={11} style={{ color: "#64748b" }} />
+              <Paperclip size={11} style={{ color: "var(--color-twilight-blue, #426188)" }} />
               <span>{contextCount} attached</span>
             </div>
           )}
@@ -628,12 +632,12 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               alignItems: "center",
               gap: 5,
               padding: "3px 9px",
-              borderRadius: 6,
-              background: "var(--surface-subtle, #f8fafc)",
-              border: "1px solid var(--border-subtle, #e2e8f0)",
+              borderRadius: "var(--radius-buttons, 8px)",
+              background: "rgba(255, 255, 255, 0.06)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
               fontSize: 11,
               fontWeight: 500,
-              color: "var(--text-secondary, #475569)",
+              color: "rgba(255, 255, 255, 0.75)",
             }}
           >
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusTone.dot }} />
@@ -658,10 +662,10 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 justifyContent: "center",
                 width: 28,
                 height: 28,
-                borderRadius: "50%",
-                background: showPlusMenu ? "var(--surface-active, #ece7ed)" : "var(--surface-subtle, #f6f3f7)",
-                border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-                color: "var(--text-secondary, #5e545d)",
+                borderRadius: "var(--radius-buttons, 8px)",
+                background: showPlusMenu ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.06)",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                color: "#ffffff",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
@@ -680,15 +684,17 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   maxHeight: 360,
                   overflowY: "auto",
                   padding: 6,
-                  background: "var(--surface-overlay, #ffffff)",
-                  borderRadius: "var(--radius-md, 12px)",
-                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
-                  border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
+                  background: "rgba(12, 13, 16, 0.95)",
+                  backdropFilter: "blur(24px)",
+                  WebkitBackdropFilter: "blur(24px)",
+                  borderRadius: "var(--radius-cards, 12px)",
+                  boxShadow: "none",
+                  border: "1px solid rgba(255, 255, 255, 0.14)",
                   zIndex: 60,
                 }}
               >
                 {/* 1. Files & Media */}
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-twilight-blue, #426188)", padding: "4px 8px" }}>
                   FILES & MEDIA
                 </div>
                 {/* One attachment is real: the hidden input below accepts image/* and
@@ -709,23 +715,23 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                       alignItems: "center",
                       gap: 8,
                       padding: "6px 8px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-buttons, 8px)",
                       border: "none",
                       background: "transparent",
                       fontSize: 12,
-                      color: "var(--text-primary, #1e191d)",
+                      color: "#ffffff",
                       cursor: "pointer",
                       textAlign: "left",
                     }}
                   >
-                    <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+                    <item.icon size={13} style={{ color: "var(--color-signal-blue, #2b7fff)" }} />
                     <span>{item.label}</span>
                   </button>
                 ))}
 
                 {/* 3. Create */}
-                <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
+                <div style={{ height: 1, background: "rgba(255, 255, 255, 0.08)", margin: "4px 0" }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-twilight-blue, #426188)", padding: "4px 8px" }}>
                   CREATE
                 </div>
                 {[
@@ -749,16 +755,16 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                       alignItems: "center",
                       gap: 8,
                       padding: "6px 8px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-buttons, 8px)",
                       border: "none",
                       background: "transparent",
                       fontSize: 12,
-                      color: "var(--text-primary, #1e191d)",
+                      color: "#ffffff",
                       cursor: "pointer",
                       textAlign: "left",
                     }}
                   >
-                    <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+                    <item.icon size={13} style={{ color: "var(--color-signal-blue, #2b7fff)" }} />
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -835,19 +841,19 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 4,
-                padding: "4px 8px",
-                borderRadius: "var(--radius-full, 9999px)",
-                background: "var(--surface-subtle, #f6f3f7)",
-                border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                padding: "4px 10px",
+                borderRadius: "var(--radius-pills, 9999px)",
+                background: showCreateMenu ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.06)",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
                 fontSize: 11,
                 fontWeight: 500,
-                color: "var(--text-secondary, #5e545d)",
+                color: "#ffffff",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
               title="Create Artifacts & Deliverables"
             >
-              <Sparkles size={11} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+              <Sparkles size={11} style={{ color: "var(--color-twilight-blue, #426188)" }} />
               <span>Create</span>
               <ChevronDown size={10} style={{ opacity: 0.6 }} />
             </button>
@@ -860,14 +866,16 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   left: 0,
                   width: 180,
                   padding: 4,
-                  background: "var(--surface-overlay, #ffffff)",
-                  borderRadius: "var(--radius-md, 12px)",
-                  boxShadow: "var(--shadow-dropdown, 0 10px 25px -5px rgba(0,0,0,0.1))",
-                  border: "1px solid var(--border-default, rgba(0,0,0,0.1))",
+                  background: "rgba(12, 13, 16, 0.95)",
+                  backdropFilter: "blur(24px)",
+                  WebkitBackdropFilter: "blur(24px)",
+                  borderRadius: "var(--radius-cards, 12px)",
+                  boxShadow: "none",
+                  border: "1px solid rgba(255, 255, 255, 0.14)",
                   zIndex: 60,
                 }}
               >
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", padding: "4px 8px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-twilight-blue, #426188)", padding: "4px 8px" }}>
                   CREATE ARTIFACT
                 </div>
                 {[
@@ -891,16 +899,16 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                       alignItems: "center",
                       gap: 8,
                       padding: "6px 8px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-buttons, 8px)",
                       border: "none",
                       background: "transparent",
                       fontSize: 12,
-                      color: "var(--text-primary)",
+                      color: "#ffffff",
                       cursor: "pointer",
                       textAlign: "left",
                     }}
                   >
-                    <item.icon size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+                    <item.icon size={13} style={{ color: "var(--color-signal-blue, #2b7fff)" }} />
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -912,7 +920,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
 
         {/* Right cluster of controls: Shortcuts + 🎙 Voice & ↑ Send */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div className="composer-v6__shortcuts" style={{ fontSize: 11, color: "#94a3b8" }}>
+          <div className="composer-v6__shortcuts" style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.35)" }}>
             <span>send ↵</span>
             <span>newline ⇧↵</span>
           </div>
@@ -928,13 +936,12 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 justifyContent: "center",
                 width: 32,
                 height: 32,
-                borderRadius: "50%",
-                background: isLiveVisionActive ? "rgba(16, 185, 129, 0.2)" : "var(--surface-subtle, #f6f3f7)",
-                border: isLiveVisionActive ? "1px solid #10b981" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-                color: isLiveVisionActive ? "#10b981" : "var(--text-secondary, #5e545d)",
+                borderRadius: "var(--radius-buttons, 8px)",
+                background: isLiveVisionActive ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.06)",
+                border: isLiveVisionActive ? "1px solid #10b981" : "1px solid rgba(255, 255, 255, 0.12)",
+                color: isLiveVisionActive ? "#10b981" : "rgba(255, 255, 255, 0.85)",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
-                boxShadow: isLiveVisionActive ? "0 0 10px rgba(16, 185, 129, 0.4)" : "none",
               }}
             >
               <Eye size={15} />
@@ -953,12 +960,13 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 justifyContent: "center",
                 width: 32,
                 height: 32,
-                borderRadius: "50%",
-                background: isVoiceActive ? "var(--accent-subtle, rgba(220, 95, 139, 0.15))" : "var(--surface-subtle, #f6f3f7)",
-                border: isVoiceActive ? "1px solid var(--accent-primary, #dc5f8b)" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-                color: isVoiceActive ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
+                borderRadius: "var(--radius-buttons, 8px)",
+                background: isVoiceActive ? "rgba(43, 127, 255, 0.2)" : "rgba(255, 255, 255, 0.06)",
+                border: isVoiceActive ? "1px solid var(--color-signal-blue, #2b7fff)" : "1px solid rgba(255, 255, 255, 0.12)",
+                color: isVoiceActive ? "var(--color-signal-blue, #2b7fff)" : "rgba(255, 255, 255, 0.85)",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
+                boxShadow: isVoiceActive ? "0 0 10px rgba(43, 127, 255, 0.4)" : "none",
               }}
             >
               <Mic size={15} />
@@ -976,8 +984,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 justifyContent: "center",
                 width: 32,
                 height: 32,
-                borderRadius: "50%",
-                background: "var(--semantic-danger-fg, #b91c1c)",
+                borderRadius: "var(--radius-buttons, 8px)",
+                background: "#ef4444",
                 color: "#ffffff",
                 border: "none",
                 cursor: "pointer",
@@ -1006,13 +1014,14 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 justifyContent: "center",
                 width: 32,
                 height: 32,
-                borderRadius: "50%",
+                borderRadius: "var(--radius-buttons, 8px)",
                 background:
-                  !value.trim() && !attachedImage ? "#f1f5f9" : "#1a232b",
-                color: !value.trim() && !attachedImage ? "var(--text-muted, #a198a0)" : "#ffffff",
-                border: "none",
+                  !value.trim() && !attachedImage ? "rgba(255, 255, 255, 0.05)" : "var(--color-haze, #f5f5f5)",
+                color: !value.trim() && !attachedImage ? "rgba(255, 255, 255, 0.25)" : "var(--color-ink, #1b1b1b)",
+                border: !value.trim() && !attachedImage ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #ffffff",
+                fontWeight: 600,
                 cursor: !value.trim() && !attachedImage ? "not-allowed" : "pointer",
-                boxShadow: !value.trim() && !attachedImage ? "none" : "var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
+                boxShadow: "none",
                 transition: "all 0.15s ease",
               }}
             >

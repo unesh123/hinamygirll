@@ -94,6 +94,15 @@ export function AuroraVeil({ state = "idle" }: AuroraVeilProps) {
       data-veil-state={state}
       aria-hidden="true"
     >
+      {/* Air Midnight Sky (Atmospheric clouds & twilight depth) */}
+      <div className="air-midnight-sky" />
+
+      {/* Sculptural 3D Glass Forms with caustic refraction & specular hairlines */}
+      <div className="air-glass-sculpture-wrapper">
+        <div className="air-glass-form air-glass-form--primary" />
+        <div className="air-glass-form air-glass-form--secondary" />
+      </div>
+
       <div className="hinaa-veil-aurora">
         <i className="hinaa-veil-blob hinaa-veil-blob--a" />
         <i className="hinaa-veil-blob hinaa-veil-blob--b" />
