@@ -21,10 +21,23 @@ export function useSettingsPersistence(settings: HinaaSettings): void {
   // ── Theme ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     const { theme } = settings.appearance;
+    const applyTheme = (isDark: boolean) => {
+      document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    };
+
     if (theme === "system") {
-      document.documentElement.removeAttribute("data-theme");
+      const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+      applyTheme(Boolean(media?.matches));
+      const listener = (e: MediaQueryListEvent) => applyTheme(e.matches);
+      media?.addEventListener?.("change", listener);
+      return () => media?.removeEventListener?.("change", listener);
     } else {
-      document.documentElement.setAttribute("data-theme", theme);
+      applyTheme(theme === "dark");
     }
   }, [settings.appearance.theme]);
 

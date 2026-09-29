@@ -12,6 +12,12 @@
   --font-mono: 'Space Mono', 'JetBrains Mono', 'Fira Code', monospace;
   --font-retro: 'Space Mono', monospace;
 
+  /* ── Air Style Reference Type Tokens ─────────────────── */
+  --font-control: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-control-compressed: 'Anton', 'Impact', sans-serif;
+  --font-control-cursive: 'Caveat', 'Reenie Beanie', cursive;
+  --font-control-tnt: 'Inter', sans-serif;
+
   /* ── Font Sizes ────────────────────────────────────────── */
   --text-xs: 0.75rem;     /* 12px */
   --text-sm: 0.875rem;    /* 14px */

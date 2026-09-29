@@ -104,6 +104,13 @@ export function AuroraVeil({ state = "idle" }: AuroraVeilProps) {
       <div className="hinaa-veil-beam" />
       <div className="hinaa-veil-spot" />
       <div className="hinaa-veil-grain" />
+
+      {/* Air Midnight Sky & Glass Sculpture Layer (Active only in Dark Mode via CSS) */}
+      <div className="air-midnight-sky" />
+      <div className="air-glass-sculpture-wrapper">
+        <div className="air-glass-form air-glass-form--primary" />
+        <div className="air-glass-form air-glass-form--secondary" />
+      </div>
     </div>
   );
 }

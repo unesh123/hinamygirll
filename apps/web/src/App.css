@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+@theme {
+  --color-whiteout: #ffffff;
+  --color-haze: #f5f5f5;
+  --color-ink: #1b1b1b;
+  --color-black-void: #000000;
+  --color-twilight-blue: #426188;
+  --color-signal-blue: #2b7fff;
+
+  --font-control: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-control-compressed: "Anton", "Impact", sans-serif;
+  --font-control-cursive: "Caveat", "Reenie Beanie", cursive;
+}
+
 /* ═══════════════════════════════════════════════════════
    HINAA — Sakura OS Design System
    Light neutral surfaces · Sakura rose accent · Semantic tokens

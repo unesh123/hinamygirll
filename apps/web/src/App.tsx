@@ -354,6 +354,27 @@ export default function App() {
   const { settings, setAppearance, setLanguage, setProvider, setAutomation } = useSettings();
   useSettingsPersistence(settings);
 
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() => {
+    if (typeof window !== "undefined" && window.matchMedia) {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
+    mq.addEventListener?.("change", handler);
+    return () => mq.removeEventListener?.("change", handler);
+  }, []);
+
+  const isDark = settings.appearance.theme === "dark" || (settings.appearance.theme === "system" && systemPrefersDark);
+
+  const handleToggleTheme = useCallback(() => {
+    setAppearance({ theme: isDark ? "light" : "dark" });
+  }, [isDark, setAppearance]);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [musicPlayerOpen, setMusicPlayerOpen] = useState(false);
@@ -999,6 +1020,8 @@ export default function App() {
             historyOpen={historyOpen}
             activeConversationId={activeConversationId}
             hasClaudeAnswered={hasClaudeAnswered}
+            isDark={isDark}
+            onToggleTheme={handleToggleTheme}
           >
             {/* Unified Frontier TopBar V6 */}
             <TopBarV6
@@ -1010,6 +1033,8 @@ export default function App() {
                   ? { id: "current-goal", title: typeof controller.activePlan.topic === "string" ? controller.activePlan.topic : String(controller.activePlan.topic) }
                   : null
               }
+              isDark={isDark}
+              onToggleTheme={handleToggleTheme}
               onOpenSearch={() => setHistoryOpen(true)}
               onOpenProjectSettings={openProjectWorkspace}
               onOpenGoalDetails={() => setSakuraView("work")}
@@ -1035,6 +1060,7 @@ export default function App() {
 
             {sakuraView === "work" && (
               <WorkMode
+                isDark={isDark}
                 companionId={controller.companionId}
                 companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
                 plan={controller.activePlan}
@@ -1122,6 +1148,7 @@ export default function App() {
 
             {sakuraView === "showroom" && (
               <ShowroomMode
+                isDark={isDark}
                 onEnterWorkspace={() => setSakuraView("work")}
                 selectedAvatarModel={avatarModel}
                 onSelectAvatarModel={selectAvatarModel}

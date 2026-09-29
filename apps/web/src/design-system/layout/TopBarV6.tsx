@@ -64,8 +64,10 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        background: "#ffffff",
-        borderBottom: "1px solid #e2e8f0",
+        background: isDark ? "rgba(0, 0, 0, 0.78)" : "#ffffff",
+        borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+        backdropFilter: isDark ? "blur(18px)" : "none",
+        WebkitBackdropFilter: isDark ? "blur(18px)" : "none",
         zIndex: 25,
         userSelect: "none",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -81,7 +83,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             gap: 4,
             background: "transparent",
             border: "none",
-            color: "#64748b",
+            color: isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b",
             fontSize: 13,
             fontWeight: 500,
             cursor: "pointer",
@@ -91,8 +93,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <span>Workspace</span>
           <ChevronDown size={12} style={{ opacity: 0.7 }} />
         </button>
-        <span style={{ color: "#cbd5e1", fontSize: 13 }}>/</span>
-        <span style={{ fontSize: 13, fontWeight: 650, color: "#0f172a" }}>
+        <span style={{ color: isDark ? "rgba(255, 255, 255, 0.2)" : "#cbd5e1", fontSize: 13 }}>/</span>
+        <span style={{ fontSize: 13, fontWeight: 650, color: isDark ? "#ffffff" : "#0f172a" }}>
           Chat
         </span>
       </div>
@@ -104,10 +106,10 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           display: "flex",
           alignItems: "center",
           gap: 4,
-          background: "#f8fafc",
+          background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f8fafc",
           padding: "3px 4px",
           borderRadius: 10,
-          border: "1px solid #f1f5f9",
+          border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #f1f5f9",
         }}
       >
         <button
@@ -122,11 +124,11 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             borderRadius: 7,
             border: "none",
             fontWeight: executiveMode === "chat" ? 600 : 500,
-            background: executiveMode === "chat" ? "#1a232b" : "transparent",
-            color: executiveMode === "chat" ? "#ffffff" : "#64748b",
+            background: executiveMode === "chat" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
+            color: executiveMode === "chat" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
             cursor: "pointer",
             transition: "all 0.12s ease",
-            boxShadow: executiveMode === "chat" ? "0 1px 2px rgba(0,0,0,0.1)" : "none",
+            boxShadow: executiveMode === "chat" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
           }}
         >
           <MessageSquare size={13} />
@@ -145,10 +147,11 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             borderRadius: 7,
             border: "none",
             fontWeight: executiveMode === "deep-reasoning" ? 600 : 500,
-            background: executiveMode === "deep-reasoning" ? "#1a232b" : "transparent",
-            color: executiveMode === "deep-reasoning" ? "#ffffff" : "#64748b",
+            background: executiveMode === "deep-reasoning" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
+            color: executiveMode === "deep-reasoning" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
             cursor: "pointer",
             transition: "all 0.12s ease",
+            boxShadow: executiveMode === "deep-reasoning" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
           }}
         >
           <Brain size={13} />
@@ -167,10 +170,11 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             borderRadius: 7,
             border: "none",
             fontWeight: executiveMode === "report" ? 600 : 500,
-            background: executiveMode === "report" ? "#1a232b" : "transparent",
-            color: executiveMode === "report" ? "#ffffff" : "#64748b",
+            background: executiveMode === "report" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
+            color: executiveMode === "report" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
             cursor: "pointer",
             transition: "all 0.12s ease",
+            boxShadow: executiveMode === "report" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
           }}
         >
           <FileText size={13} />
@@ -189,10 +193,11 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             borderRadius: 7,
             border: "none",
             fontWeight: executiveMode === "research" ? 600 : 500,
-            background: executiveMode === "research" ? "#1a232b" : "transparent",
-            color: executiveMode === "research" ? "#ffffff" : "#64748b",
+            background: executiveMode === "research" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
+            color: executiveMode === "research" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
             cursor: "pointer",
             transition: "all 0.12s ease",
+            boxShadow: executiveMode === "research" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
           }}
         >
           <Search size={13} />
@@ -222,20 +227,28 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             height: 32,
             padding: "0 12px",
             borderRadius: 9999,
-            border: currentMode === "showroom" ? "1.5px solid #ff7a00" : "1px solid #e2e8f0",
-            background: currentMode === "showroom" ? "#17191c" : "#ffffff",
-            color: currentMode === "showroom" ? "#ff7a00" : "#64748b",
+            border: currentMode === "showroom"
+              ? (isDark ? "1.5px solid #2b7fff" : "1.5px solid #ff7a00")
+              : (isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0"),
+            background: currentMode === "showroom"
+              ? (isDark ? "rgba(43, 127, 255, 0.15)" : "#17191c")
+              : (isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff"),
+            color: currentMode === "showroom"
+              ? (isDark ? "#2b7fff" : "#ff7a00")
+              : (isDark ? "rgba(255, 255, 255, 0.75)" : "#64748b"),
             display: "flex",
             alignItems: "center",
             gap: 6,
             fontSize: 12,
             fontWeight: 650,
             cursor: "pointer",
-            boxShadow: currentMode === "showroom" ? "0 2px 10px rgba(255, 122, 0, 0.25)" : "none",
+            boxShadow: currentMode === "showroom"
+              ? (isDark ? "0 2px 12px rgba(43, 127, 255, 0.3)" : "0 2px 10px rgba(255, 122, 0, 0.25)")
+              : "none",
             transition: "all 0.15s ease",
           }}
         >
-          <Sparkles size={13} color={currentMode === "showroom" ? "#ff7a00" : "#64748b"} />
+          <Sparkles size={13} color={currentMode === "showroom" ? (isDark ? "#2b7fff" : "#ff7a00") : (isDark ? "rgba(255, 255, 255, 0.75)" : "#64748b")} />
           <span>Runway 3D</span>
         </button>
 
@@ -248,9 +261,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             width: 32,
             height: 32,
             borderRadius: 8,
-            border: "1px solid #e2e8f0",
-            background: "#ffffff",
-            color: "#64748b",
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+            background: isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff",
+            color: isDark ? "rgba(255, 255, 255, 0.8)" : "#64748b",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -268,9 +281,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             width: 32,
             height: 32,
             borderRadius: 8,
-            border: "1px solid #e2e8f0",
-            background: "#ffffff",
-            color: "#64748b",
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+            background: isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff",
+            color: isDark ? "rgba(255, 255, 255, 0.8)" : "#64748b",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -290,9 +303,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
               width: 32,
               height: 32,
               borderRadius: 8,
-              border: "1px solid #e2e8f0",
-              background: "#ffffff",
-              color: "#64748b",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+              background: isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff",
+              color: isDark ? "rgba(255, 255, 255, 0.8)" : "#64748b",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

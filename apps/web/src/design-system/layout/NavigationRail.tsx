@@ -174,8 +174,10 @@ export function NavigationRail({
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        background: "#ffffff",
-        borderRight: "1px solid #e2e8f0",
+        background: isDark ? "rgba(0, 0, 0, 0.82)" : "#ffffff",
+        borderRight: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+        backdropFilter: isDark ? "blur(20px)" : "none",
+        WebkitBackdropFilter: isDark ? "blur(20px)" : "none",
         padding: "16px 14px",
         flexShrink: 0,
         zIndex: 30,
@@ -190,12 +192,12 @@ export function NavigationRail({
             width: 32,
             height: 32,
             borderRadius: 10,
-            background: "#1a232b",
-            color: "#ffffff",
+            background: isDark ? "#ffffff" : "#1a232b",
+            color: isDark ? "#000000" : "#ffffff",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 2px 6px rgba(26, 35, 43, 0.2)",
+            boxShadow: isDark ? "0 2px 10px rgba(255, 255, 255, 0.2)" : "0 2px 6px rgba(26, 35, 43, 0.2)",
           }}
         >
           <Sparkles size={16} />
@@ -206,13 +208,13 @@ export function NavigationRail({
               fontWeight: 800,
               fontSize: 14,
               letterSpacing: "0.14em",
-              color: "#0f172a",
+              color: isDark ? "#ffffff" : "#0f172a",
               lineHeight: 1.1,
             }}
           >
             H I N A
           </div>
-          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500, letterSpacing: "0.02em" }}>
+          <div style={{ fontSize: 10, color: isDark ? "#426188" : "#94a3b8", fontWeight: 500, letterSpacing: "0.02em" }}>
             Intelligence OS
           </div>
         </div>
@@ -225,10 +227,10 @@ export function NavigationRail({
           alignItems: "center",
           gap: 10,
           padding: "8px 10px",
-          background: "#ffffff",
+          background: isDark ? "rgba(255, 255, 255, 0.04)" : "#ffffff",
           borderRadius: 12,
-          border: "1px solid #f1f5f9",
-          boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.03)",
+          border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #f1f5f9",
+          boxShadow: isDark ? "none" : "0 1px 2px 0 rgba(0, 0, 0, 0.03)",
           marginBottom: 12,
         }}
       >
@@ -254,7 +256,7 @@ export function NavigationRail({
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: "#1e293b",
+              color: isDark ? "#ffffff" : "#1e293b",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -262,7 +264,7 @@ export function NavigationRail({
           >
             {ownerName || "Not reported"}
           </div>
-          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>
+          <div style={{ fontSize: 10, color: isDark ? "#426188" : "#94a3b8", fontWeight: 500 }}>
             {sessionLine}
           </div>
         </div>
@@ -328,13 +330,13 @@ export function NavigationRail({
             alignItems: "center",
             justifyContent: "space-between",
             padding: "9px 12px",
-            background: "#1a232b",
-            color: "#ffffff",
+            background: isDark ? "#f5f5f5" : "#1a232b",
+            color: isDark ? "#1b1b1b" : "#ffffff",
             borderRadius: 12,
             border: "none",
             cursor: "pointer",
             marginBottom: 14,
-            boxShadow: "0 2px 4px rgba(26, 35, 43, 0.15)",
+            boxShadow: isDark ? "0 4px 14px rgba(255, 255, 255, 0.15)" : "0 2px 4px rgba(26, 35, 43, 0.15)",
             transition: "all 0.15s ease",
           }}
         >
@@ -348,8 +350,8 @@ export function NavigationRail({
               fontWeight: 600,
               padding: "1px 6px",
               borderRadius: 5,
-              background: "rgba(255, 255, 255, 0.15)",
-              color: "rgba(255, 255, 255, 0.8)",
+              background: isDark ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.15)",
+              color: isDark ? "#555555" : "rgba(255, 255, 255, 0.8)",
             }}
           >
             ⌘N
@@ -373,9 +375,15 @@ export function NavigationRail({
             marginBottom: 14,
             fontSize: 12,
             fontWeight: 600,
-            color: historyOpen ? "#ffffff" : "#475569",
-            background: historyOpen ? "#1a232b" : "#ffffff",
-            border: `1px solid ${historyOpen ? "#1a232b" : "#e2e8f0"}`,
+            color: historyOpen
+              ? (isDark ? "#1b1b1b" : "#ffffff")
+              : (isDark ? "rgba(255, 255, 255, 0.8)" : "#475569"),
+            background: historyOpen
+              ? (isDark ? "#f5f5f5" : "#1a232b")
+              : (isDark ? "transparent" : "#ffffff"),
+            border: historyOpen
+              ? (isDark ? "1px solid #f5f5f5" : "1px solid #1a232b")
+              : (isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #e2e8f0"),
             borderRadius: 12,
             cursor: "pointer",
             transition: "all 0.15s ease",
@@ -405,8 +413,12 @@ export function NavigationRail({
                 justifyContent: "space-between",
                 padding: "8px 10px",
                 borderRadius: 10,
-                border: isActive ? "1px solid rgba(226, 232, 240, 0.8)" : "1px solid transparent",
-                background: isActive ? "#f1f5f9" : "transparent",
+                border: isActive
+                  ? (isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(226, 232, 240, 0.8)")
+                  : "1px solid transparent",
+                background: isActive
+                  ? (isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9")
+                  : "transparent",
                 cursor: "pointer",
                 textAlign: "left",
                 transition: "all 0.12s ease",
@@ -417,7 +429,9 @@ export function NavigationRail({
                 <Icon
                   size={16}
                   style={{
-                    color: isActive ? "#0f172a" : "#64748b",
+                    color: isActive
+                      ? (isDark ? "#2b7fff" : "#0f172a")
+                      : (isDark ? "rgba(255, 255, 255, 0.6)" : "#64748b"),
                     flexShrink: 0,
                   }}
                 />
@@ -426,7 +440,9 @@ export function NavigationRail({
                     style={{
                       fontSize: 12,
                       fontWeight: isActive ? 650 : 500,
-                      color: isActive ? "#0f172a" : "#475569",
+                      color: isActive
+                        ? (isDark ? "#ffffff" : "#0f172a")
+                        : (isDark ? "rgba(255, 255, 255, 0.7)" : "#475569"),
                       lineHeight: 1.2,
                     }}
                   >
@@ -435,7 +451,7 @@ export function NavigationRail({
                   <div
                     style={{
                       fontSize: 10,
-                      color: "#94a3b8",
+                      color: isDark ? "#426188" : "#94a3b8",
                       lineHeight: 1.2,
                       marginTop: 1,
                     }}
@@ -451,7 +467,7 @@ export function NavigationRail({
                     width: 3,
                     height: 18,
                     borderRadius: 9999,
-                    background: "#f43f5e",
+                    background: isDark ? "#2b7fff" : "#f43f5e",
                   }}
                 />
               )}
@@ -467,7 +483,7 @@ export function NavigationRail({
             fontSize: 9,
             fontWeight: 700,
             letterSpacing: "0.08em",
-            color: "#94a3b8",
+            color: isDark ? "#426188" : "#94a3b8",
             textTransform: "uppercase",
             padding: "4px 8px 8px 8px",
           }}
@@ -481,7 +497,7 @@ export function NavigationRail({
               key={src.label}
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: isDark ? "rgba(255, 255, 255, 0.7)" : "#475569" }}>
                 <span
                   style={{
                     width: 6,
@@ -496,7 +512,7 @@ export function NavigationRail({
               <span
                 style={{
                   fontSize: 10,
-                  color: !capsLoading && src.ready ? "#10b981" : "#94a3b8",
+                  color: !capsLoading && src.ready ? (isDark ? "#2b7fff" : "#10b981") : (isDark ? "#426188" : "#94a3b8"),
                   fontWeight: 500,
                 }}
               >
@@ -508,7 +524,7 @@ export function NavigationRail({
       </div>
 
       {/* ── Footer ─────────────────────────────────── */}
-      <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid #f1f5f9" }}>
+      <div style={{ marginTop: "auto", paddingTop: 16, borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #f1f5f9" }}>
         {!capsLoading && !backendOk && (
           <div
             data-testid="rail-degraded-banner"
@@ -519,11 +535,11 @@ export function NavigationRail({
               marginBottom: 8,
               padding: "6px 8px",
               borderRadius: 8,
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
+              background: isDark ? "rgba(239, 68, 68, 0.15)" : "#fef2f2",
+              border: isDark ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid #fecaca",
               fontSize: 10,
               lineHeight: 1.4,
-              color: "#991b1b",
+              color: isDark ? "#fca5a5" : "#991b1b",
             }}
           >
             <Circle size={8} fill="#ef4444" stroke="#ef4444" style={{ flexShrink: 0 }} />
@@ -540,11 +556,11 @@ export function NavigationRail({
               background: status.dot,
             }}
           />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#1e293b" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: isDark ? "#ffffff" : "#1e293b" }}>
             {status.headline}
           </span>
         </div>
-        <div style={{ fontSize: 10, color: "#94a3b8", paddingLeft: 19 }}>{status.detail}</div>
+        <div style={{ fontSize: 10, color: isDark ? "#426188" : "#94a3b8", paddingLeft: 19 }}>{status.detail}</div>
 
         <button
           type="button"
@@ -558,7 +574,7 @@ export function NavigationRail({
             borderRadius: 8,
             border: "none",
             background: "transparent",
-            color: "#64748b",
+            color: isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b",
             fontSize: 11,
             cursor: "pointer",
             width: "100%",

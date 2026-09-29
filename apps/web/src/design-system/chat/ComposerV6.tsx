@@ -104,6 +104,7 @@ export interface ComposerV6Props {
   compact?: boolean;
   onTabAdopt?: () => boolean | void;
   onEscDismiss?: () => void;
+  isDark?: boolean;
 }
 
 export const ComposerV6: React.FC<ComposerV6Props> = ({
@@ -114,6 +115,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   isGenerating = false,
   disabled = false,
   compact = false,
+  isDark = false,
   isVoiceActive = false,
   onVoiceToggle,
   isLiveVisionActive = false,
@@ -330,10 +332,12 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
         flexDirection: "column",
         gap: 8,
         padding: "12px 14px",
-        background: "var(--surface-card, #ffffff)",
-        border: "1px solid var(--border-default, rgba(0, 0, 0, 0.1))",
+        background: isDark ? "rgba(255, 255, 255, 0.05)" : "var(--surface-card, #ffffff)",
+        border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid var(--border-default, rgba(0, 0, 0, 0.1))",
+        backdropFilter: isDark ? "blur(20px)" : "none",
+        WebkitBackdropFilter: isDark ? "blur(20px)" : "none",
         borderRadius: "var(--radius-lg, 16px)",
-        boxShadow: "var(--shadow-card, 0 2px 8px -2px rgba(0,0,0,0.05))",
+        boxShadow: isDark ? "0 10px 40px -10px rgba(0, 0, 0, 0.5)" : "var(--shadow-card, 0 2px 8px -2px rgba(0,0,0,0.05))",
         transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         position: "relative",
       }}
@@ -538,7 +542,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           outline: "none",
           fontSize: 14,
           lineHeight: "1.5",
-          color: "var(--text-primary, #1e191d)",
+          color: isDark ? "#ffffff" : "var(--text-primary, #1e191d)",
           minHeight: 38,
           maxHeight: 200,
           padding: "2px 0",
@@ -555,7 +559,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           // Compact: one 40px line. Wrapping here cost the phone 141px of transcript.
           flexWrap: compact ? "nowrap" : "wrap",
           paddingTop: 8,
-          borderTop: "1px solid #f1f5f9",
+          borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #f1f5f9",
         }}
       >
         {/* Left cluster: Badges [🔴 Command Center] [📎 N attached] [status from /v1/capabilities] */}
@@ -581,11 +585,11 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               gap: 6,
               padding: "3px 9px",
               borderRadius: 6,
-              background: "var(--surface-subtle, #f8fafc)",
-              border: "1px solid var(--border-subtle, #e2e8f0)",
+              background: isDark ? "rgba(255, 255, 255, 0.06)" : "var(--surface-subtle, #f8fafc)",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid var(--border-subtle, #e2e8f0)",
               fontSize: 11,
               fontWeight: 550,
-              color: "var(--text-secondary, #475569)",
+              color: isDark ? "rgba(255, 255, 255, 0.7)" : "var(--text-secondary, #475569)",
             }}
           >
             <span
@@ -593,8 +597,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: backendConnected ? "var(--accent-primary, #dc5f8b)" : "#ef4444",
-                boxShadow: backendConnected ? "0 0 6px rgba(220, 95, 139, 0.4)" : "none",
+                background: backendConnected ? (isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)") : "#ef4444",
+                boxShadow: backendConnected ? (isDark ? "0 0 8px rgba(43, 127, 255, 0.5)" : "0 0 6px rgba(220, 95, 139, 0.4)") : "none",
               }}
             />
             <span>Command Center</span>
@@ -609,14 +613,14 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 gap: 5,
                 padding: "3px 9px",
                 borderRadius: 6,
-                background: "var(--surface-subtle, #f8fafc)",
-                border: "1px solid var(--border-subtle, #e2e8f0)",
+                background: isDark ? "rgba(255, 255, 255, 0.06)" : "var(--surface-subtle, #f8fafc)",
+                border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid var(--border-subtle, #e2e8f0)",
                 fontSize: 11,
                 fontWeight: 500,
-                color: "var(--text-secondary, #475569)",
+                color: isDark ? "rgba(255, 255, 255, 0.7)" : "var(--text-secondary, #475569)",
               }}
             >
-              <Paperclip size={11} style={{ color: "#64748b" }} />
+              <Paperclip size={11} style={{ color: isDark ? "rgba(255, 255, 255, 0.6)" : "#64748b" }} />
               <span>{contextCount} attached</span>
             </div>
           )}
@@ -629,11 +633,11 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               gap: 5,
               padding: "3px 9px",
               borderRadius: 6,
-              background: "var(--surface-subtle, #f8fafc)",
-              border: "1px solid var(--border-subtle, #e2e8f0)",
+              background: isDark ? "rgba(255, 255, 255, 0.06)" : "var(--surface-subtle, #f8fafc)",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid var(--border-subtle, #e2e8f0)",
               fontSize: 11,
               fontWeight: 500,
-              color: "var(--text-secondary, #475569)",
+              color: isDark ? "rgba(255, 255, 255, 0.7)" : "var(--text-secondary, #475569)",
             }}
           >
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusTone.dot }} />
@@ -659,9 +663,11 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 width: 28,
                 height: 28,
                 borderRadius: "50%",
-                background: showPlusMenu ? "var(--surface-active, #ece7ed)" : "var(--surface-subtle, #f6f3f7)",
-                border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-                color: "var(--text-secondary, #5e545d)",
+                background: showPlusMenu
+                  ? (isDark ? "rgba(255, 255, 255, 0.15)" : "var(--surface-active, #ece7ed)")
+                  : (isDark ? "rgba(255, 255, 255, 0.08)" : "var(--surface-subtle, #f6f3f7)"),
+                border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                color: isDark ? "#ffffff" : "var(--text-secondary, #5e545d)",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
@@ -1008,11 +1014,19 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 height: 32,
                 borderRadius: "50%",
                 background:
-                  !value.trim() && !attachedImage ? "#f1f5f9" : "#1a232b",
-                color: !value.trim() && !attachedImage ? "var(--text-muted, #a198a0)" : "#ffffff",
+                  !value.trim() && !attachedImage
+                    ? (isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9")
+                    : (isDark ? "#f5f5f5" : "#1a232b"),
+                color:
+                  !value.trim() && !attachedImage
+                    ? (isDark ? "rgba(255, 255, 255, 0.3)" : "var(--text-muted, #a198a0)")
+                    : (isDark ? "#1b1b1b" : "#ffffff"),
                 border: "none",
                 cursor: !value.trim() && !attachedImage ? "not-allowed" : "pointer",
-                boxShadow: !value.trim() && !attachedImage ? "none" : "var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
+                boxShadow:
+                  !value.trim() && !attachedImage
+                    ? "none"
+                    : (isDark ? "0 2px 10px rgba(255, 255, 255, 0.25)" : "var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.1))"),
                 transition: "all 0.15s ease",
               }}
             >

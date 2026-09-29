@@ -15,6 +15,8 @@ interface AppShellProps {
   onSelectConversation?: (id: string) => void;
   onDeleteConversation?: (id: string) => void;
   hasClaudeAnswered?: boolean;
+  isDark?: boolean;
+  onToggleTheme?: () => void;
 }
 
 export function AppShell({
@@ -29,19 +31,22 @@ export function AppShell({
   onSelectConversation,
   onDeleteConversation,
   hasClaudeAnswered,
+  isDark: externalIsDark,
+  onToggleTheme: externalToggleTheme,
 }: AppShellProps) {
   const [internalActiveSection, setInternalActiveSection] = useState<NavSection>("chat");
   const activeSection = controlledActiveSection ?? internalActiveSection;
-  const [isDark, setIsDark] = useState(() => {
+  const [internalIsDark, setInternalIsDark] = useState(() => {
     if (typeof window !== "undefined") {
       return document.documentElement.getAttribute("data-theme") === "dark";
     }
     return false;
   });
+  const isDark = externalIsDark !== undefined ? externalIsDark : internalIsDark;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const toggleTheme = useCallback(() => {
-    setIsDark((prev) => {
+  const toggleTheme = externalToggleTheme ?? useCallback(() => {
+    setInternalIsDark((prev) => {
       const next = !prev;
       document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
       try {

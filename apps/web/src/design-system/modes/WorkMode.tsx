@@ -183,6 +183,7 @@ interface WorkModeProps {
   conversationId?: string;
   onOpenTerminal?: (initialCommand?: string) => void;
   onOpenVault?: () => void;
+  isDark?: boolean;
 }
 
 export function WorkMode({
@@ -195,6 +196,7 @@ export function WorkMode({
   isThinking,
   isSearching = false,
   searchQuery,
+  isDark = false,
   input,
   onInputChange,
   onSend,
@@ -1245,7 +1247,7 @@ export function WorkMode({
           )}
 
           {/* Welcome */}
-          {showWelcome && <WorkWelcome onAction={onWelcomeAction} />}
+          {showWelcome && <WorkWelcome isDark={isDark} onAction={onWelcomeAction} />}
 
           {/* Messages (Deduplicated: strictly one response at a time) */}
           {!showWelcome &&
@@ -1265,7 +1267,7 @@ export function WorkMode({
                 return true;
               })
               .map((msg) => (
-                <WorkMessage key={msg.id} message={msg} />
+                <WorkMessage key={msg.id} message={msg} isDark={isDark} />
               ))}
 
           {/* Execution progress — only shown when execution is actually live with real steps */}
@@ -1312,6 +1314,7 @@ export function WorkMode({
                 isThinkingLive={isThinking && !streamingText}
                 isSearchingLive={isSearching}
                 searchQueryLive={searchQuery}
+                isDark={isDark}
               />
             );
           })()}
@@ -1633,6 +1636,7 @@ export function WorkMode({
 
         {/* Frontier V6 Composer */}
         <ComposerV6
+          isDark={isDark}
           compact={isMobile}
           value={input}
           onTabAdopt={() => {
@@ -1714,12 +1718,14 @@ export function WorkMessage({
   isThinkingLive,
   isSearchingLive,
   searchQueryLive,
+  isDark = false,
 }: {
   message: TranscriptMessage;
   isStreaming?: boolean;
   isThinkingLive?: boolean;
   isSearchingLive?: boolean;
   searchQueryLive?: string;
+  isDark?: boolean;
 }) {
   const isUser = message.role === "user";
   const attachmentRole = ATTACHMENT_ROLES.find(
@@ -1886,8 +1892,8 @@ export function WorkMessage({
                 width: 26,
                 height: 26,
                 borderRadius: 8,
-                background: "#1a232b",
-                color: "#ffffff",
+                background: isDark ? "#f5f5f5" : "#1a232b",
+                color: isDark ? "#1b1b1b" : "#ffffff",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -1895,17 +1901,17 @@ export function WorkMessage({
             >
               <Sparkles size={13} />
             </div>
-            <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: "#1e293b" }}>
+            <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: isDark ? "#ffffff" : "#1e293b" }}>
               HINA
             </span>
             {message.createdAt && (
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              <span style={{ fontSize: 11, color: isDark ? "#426188" : "#94a3b8" }}>
                 {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             )}
             {answeredByLabel && (
               <span
-                style={{ fontSize: 10, color: plan?.fallback ? "#b45309" : "#94a3b8", fontWeight: plan?.fallback ? 600 : 400 }}
+                style={{ fontSize: 10, color: plan?.fallback ? "#b45309" : (isDark ? "#426188" : "#94a3b8"), fontWeight: plan?.fallback ? 600 : 400 }}
                 title={plan?.fallback ? plan.fallbackReason ?? undefined : undefined}
               >
                 {answeredByLabel}
@@ -1924,7 +1930,7 @@ export function WorkMessage({
                 style={{
                   background: "none",
                   border: "none",
-                  color: exportingPdf ? "var(--accent, #6366f1)" : "#94a3b8",
+                  color: exportingPdf ? "var(--accent, #6366f1)" : (isDark ? "rgba(255, 255, 255, 0.6)" : "#94a3b8"),
                   cursor: exportingPdf ? "wait" : "pointer",
                   padding: 4,
                   display: "inline-flex",
@@ -1943,7 +1949,7 @@ export function WorkMessage({
               type="button"
               onClick={handleCopy}
               title="Copy message"
-              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
+              style={{ background: "none", border: "none", color: isDark ? "rgba(255, 255, 255, 0.6)" : "#94a3b8", cursor: "pointer", padding: 4 }}
             >
               {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
             </button>
@@ -1983,10 +1989,10 @@ export function WorkMessage({
           maxWidth: isUser ? 580 : "100%",
           padding: isUser ? "12px 18px" : "4px 0 8px 34px",
           borderRadius: isUser ? "18px 18px 4px 18px" : "0",
-          background: isUser ? "#1a232b" : "transparent",
+          background: isUser ? (isDark ? "#2b7fff" : "#1a232b") : "transparent",
           border: "none",
-          boxShadow: isUser ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-          color: isUser ? "#ffffff" : "#334155",
+          boxShadow: isUser ? (isDark ? "0 2px 12px rgba(43, 127, 255, 0.3)" : "0 1px 3px rgba(0,0,0,0.1)") : "none",
+          color: isUser ? "#ffffff" : (isDark ? "#ffffff" : "#334155"),
           fontSize: 14,
           lineHeight: 1.65,
           whiteSpace: isUser ? "pre-wrap" : "normal",
@@ -2135,8 +2141,10 @@ function StatusDot({ state }: { state: CompanionState }) {
 /* ── Welcome Screen ──────────────────────────────────────── */
 function WorkWelcome({
   onAction,
+  isDark = false,
 }: {
   onAction: (action: string) => void;
+  isDark?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -2147,7 +2155,9 @@ function WorkWelcome({
 
   const hour = new Date().getHours();
   const daypart = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
-  const defaultGreetingText = `Good ${daypart} — I'm Hina, your AI workspace companion. Ask me anything, research the live web with citations, create documents and images, or switch brains anytime from the model menu.`;
+  const defaultGreetingText = isDark
+    ? "Midnight sky through glass sculpture. Ask anything, orchestrate deep reasoning, or compose live intelligence."
+    : `Good ${daypart} — I'm Hina, your AI workspace companion. Ask me anything, research the live web with citations, create documents and images, or switch brains anytime from the model menu.`;
 
   useEffect(() => {
     let mounted = true;
@@ -2184,6 +2194,124 @@ function WorkWelcome({
       setTimeout(() => setCopied(false), 2000);
     } catch {}
   };
+
+  if (isDark) {
+    return (
+      <div style={{ maxWidth: 820, width: "100%", margin: "20px 0 28px 0" }}>
+        {/* Air Hero Section: Anton 900 + Caveat cursive */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+            <h1
+              style={{
+                fontFamily: "var(--font-control-compressed, 'Anton', sans-serif)",
+                fontSize: "clamp(2.6rem, 6.5vw, 4rem)",
+                fontWeight: 900,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                lineHeight: 0.95,
+                color: "#ffffff",
+                margin: 0,
+              }}
+            >
+              MAKE IT
+            </h1>
+            <span
+              style={{
+                fontFamily: "var(--font-control-cursive, 'Caveat', cursive)",
+                fontSize: "clamp(3rem, 7.5vw, 4.6rem)",
+                fontStyle: "italic",
+                fontWeight: 600,
+                color: "#ffffff",
+                lineHeight: 0.9,
+              }}
+            >
+              real.
+            </span>
+          </div>
+          <p
+            style={{
+              fontFamily: "var(--font-control, 'Inter', sans-serif)",
+              fontSize: 14.5,
+              lineHeight: 1.6,
+              color: "rgba(255, 255, 255, 0.7)",
+              maxWidth: 620,
+              margin: 0,
+            }}
+          >
+            {activeGreeting}
+          </p>
+        </div>
+
+        {/* Air Pure Haze Cards Grid (#f5f5f5) */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 12,
+            marginTop: 18,
+          }}
+        >
+          {activeSuggestions.map((s, idx) => (
+            <button
+              key={s.label}
+              type="button"
+              onClick={() => onAction(s.prompt)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                padding: "16px 18px",
+                minHeight: 104,
+                borderRadius: 14,
+                background: "#f5f5f5",
+                border: "1px solid rgba(255, 255, 255, 0.6)",
+                color: "#1b1b1b",
+                textAlign: "left",
+                cursor: "pointer",
+                boxShadow: "0 4px 20px -2px rgba(0, 0, 0, 0.35)",
+                transition: "transform 0.15s ease, box-shadow 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.boxShadow = "0 8px 24px -2px rgba(0, 0, 0, 0.45)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "none";
+                e.currentTarget.style.boxShadow = "0 4px 20px -2px rgba(0, 0, 0, 0.35)";
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 8 }}>
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "#426188",
+                  }}
+                >
+                  0{idx + 1} // PROMPT
+                </span>
+                <span style={{ fontSize: 13, color: "#2b7fff", fontWeight: 700 }}>→</span>
+              </div>
+              <div
+                style={{
+                  fontFamily: "var(--font-control, 'Inter', sans-serif)",
+                  fontSize: 14,
+                  fontWeight: 650,
+                  color: "#1b1b1b",
+                  lineHeight: 1.3,
+                }}
+              >
+                {s.label}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 768, width: "100%", margin: "16px 0 24px 0" }}>

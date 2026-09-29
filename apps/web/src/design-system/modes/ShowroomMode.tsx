@@ -60,6 +60,7 @@ export interface ShowroomModeProps {
   messages?: TranscriptMessage[];
   isMuted?: boolean;
   onToggleMute?: () => void;
+  isDark?: boolean;
 }
 
 interface FashionCollectionItem {
@@ -166,6 +167,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
   messages = [],
   isMuted = false,
   onToggleMute,
+  isDark = false,
 }) => {
   const [activeItem, setActiveItem] = useState<FashionCollectionItem>(() => {
     if (selectedAvatarModel) {
@@ -236,8 +238,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         position: "relative",
         width: "100%",
         minHeight: "calc(100vh - 56px)",
-        background: "#fbf6f0",
-        color: "#17191c",
+        background: isDark ? "transparent" : "#fbf6f0",
+        color: isDark ? "#ffffff" : "#17191c",
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
         overflowY: "auto",
         overflowX: "hidden",
@@ -254,10 +256,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
           position: "relative",
           maxWidth: 1360,
           margin: "0 auto",
-          border: "1.5px solid rgba(23, 25, 28, 0.12)",
+          border: isDark ? "1.5px solid rgba(255, 255, 255, 0.12)" : "1.5px solid rgba(23, 25, 28, 0.12)",
           borderRadius: isMobile ? 18 : 24,
-          background: "#f7efe4",
-          boxShadow: "0 20px 48px -8px rgba(0, 0, 0, 0.08)",
+          background: isDark ? "rgba(0, 0, 0, 0.76)" : "#f7efe4",
+          backdropFilter: isDark ? "blur(24px)" : "none",
+          WebkitBackdropFilter: isDark ? "blur(24px)" : "none",
+          boxShadow: isDark ? "0 25px 60px -12px rgba(0, 0, 0, 0.7)" : "0 20px 48px -8px rgba(0, 0, 0, 0.08)",
           overflow: "hidden",
         }}
       >
@@ -268,7 +272,6 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         <div className="dich-corner-bracket dich-corner-br" />
 
         {/* ── Top Cyber HUD Bar ────────────────────────────── */}
-        {/* ── Top Cyber HUD Bar ────────────────────────────── */}
         <header
           style={{
             display: "flex",
@@ -277,8 +280,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
             justifyContent: "space-between",
             padding: isMobile ? "10px 12px" : "12px 24px",
             gap: isMobile ? 8 : 12,
-            borderBottom: "1px solid rgba(23, 25, 28, 0.08)",
-            background: "rgba(255, 255, 255, 0.65)",
+            borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(23, 25, 28, 0.08)",
+            background: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(255, 255, 255, 0.65)",
             backdropFilter: "blur(12px)",
           }}
         >
@@ -294,7 +297,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: isMobile ? 11 : 11,
                   letterSpacing: "0.08em",
-                  color: "#5d2a1a",
+                  color: isDark ? "#2b7fff" : "#5d2a1a",
                   fontWeight: 700,
                   whiteSpace: "nowrap",
                 }}
@@ -1450,8 +1453,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
         {/* ── Interactive Runway Voice & Prompt Dock ────────── */}
         <div
           style={{
-            borderTop: "1px solid rgba(23, 25, 28, 0.08)",
-            background: "rgba(255, 255, 255, 0.85)",
+            borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(23, 25, 28, 0.08)",
+            background: isDark ? "rgba(11, 14, 20, 0.9)" : "rgba(255, 255, 255, 0.85)",
             backdropFilter: "blur(16px)",
             padding: isMobile ? "10px 12px 14px" : "14px 28px",
             display: "flex",
@@ -1465,7 +1468,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               style={{
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 10,
-                color: "#787574",
+                color: isDark ? "#426188" : "#787574",
                 fontWeight: 600,
                 letterSpacing: "0.06em",
                 marginRight: 4,
@@ -1478,13 +1481,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               type="button"
               onClick={() => onSendText?.("Tell me about your current outfit, cyber aesthetic, and style DNA!")}
               style={{
-                background: "rgba(23, 25, 28, 0.05)",
-                border: "1px solid rgba(23, 25, 28, 0.1)",
+                background: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(23, 25, 28, 0.05)",
+                border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(23, 25, 28, 0.1)",
                 borderRadius: 9999,
                 padding: "4px 10px",
                 fontSize: isMobile ? 10.5 : 11,
                 fontWeight: 600,
-                color: "#17191c",
+                color: isDark ? "#f5f5f5" : "#17191c",
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
@@ -1500,13 +1503,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               type="button"
               onClick={() => onSendText?.("Let's review our code architecture and check our recent test runs.")}
               style={{
-                background: "rgba(23, 25, 28, 0.05)",
-                border: "1px solid rgba(23, 25, 28, 0.1)",
+                background: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(23, 25, 28, 0.05)",
+                border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(23, 25, 28, 0.1)",
                 borderRadius: 9999,
                 padding: "4px 10px",
                 fontSize: isMobile ? 10.5 : 11,
                 fontWeight: 600,
-                color: "#17191c",
+                color: isDark ? "#f5f5f5" : "#17191c",
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
@@ -1521,13 +1524,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               type="button"
               onClick={() => onSendText?.("Give me a fast update on the 2026 global crisis and technology trends.")}
               style={{
-                background: "rgba(23, 25, 28, 0.05)",
-                border: "1px solid rgba(23, 25, 28, 0.1)",
+                background: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(23, 25, 28, 0.05)",
+                border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(23, 25, 28, 0.1)",
                 borderRadius: 9999,
                 padding: "4px 10px",
                 fontSize: isMobile ? 10.5 : 11,
                 fontWeight: 600,
-                color: "#17191c",
+                color: isDark ? "#f5f5f5" : "#17191c",
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
@@ -1543,13 +1546,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 type="button"
                 onClick={() => onOpenTerminal("git status")}
                 style={{
-                  background: "rgba(23, 25, 28, 0.05)",
-                  border: "1px solid rgba(23, 25, 28, 0.1)",
+                  background: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(23, 25, 28, 0.05)",
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(23, 25, 28, 0.1)",
                   borderRadius: 9999,
                   padding: "4px 10px",
                   fontSize: isMobile ? 10.5 : 11,
                   fontWeight: 600,
-                  color: "#17191c",
+                  color: isDark ? "#f5f5f5" : "#17191c",
                   cursor: "pointer",
                   display: "inline-flex",
                   alignItems: "center",
@@ -1566,13 +1569,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 type="button"
                 onClick={onOpenVault}
                 style={{
-                  background: "rgba(23, 25, 28, 0.05)",
-                  border: "1px solid rgba(23, 25, 28, 0.1)",
+                  background: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(23, 25, 28, 0.05)",
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(23, 25, 28, 0.1)",
                   borderRadius: 9999,
                   padding: "4px 10px",
                   fontSize: isMobile ? 10.5 : 11,
                   fontWeight: 600,
-                  color: "#17191c",
+                  color: isDark ? "#f5f5f5" : "#17191c",
                   cursor: "pointer",
                   display: "inline-flex",
                   alignItems: "center",
@@ -1599,8 +1602,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 display: "inline-flex",
                 alignItems: "center",
                 gap: isMobile ? 5 : 8,
-                background: isVoiceActive ? "#059669" : "#17191c",
-                color: "#ffffff",
+                background: isVoiceActive ? "#059669" : (isDark ? "#f5f5f5" : "#17191c"),
+                color: isVoiceActive ? "#ffffff" : (isDark ? "#1b1b1b" : "#ffffff"),
                 border: isVoiceActive ? "2px solid #34d399" : "none",
                 borderRadius: 9999,
                 padding: isMobile ? "8px 12px" : "8px 18px",
@@ -1647,12 +1650,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   placeholder={isMobile ? "Talk or type..." : "Talk or type to Hina in 3D Runway..."}
                   style={{
                     width: "100%",
-                    background: "rgba(255, 255, 255, 0.9)",
-                    border: "1px solid rgba(23, 25, 28, 0.15)",
+                    background: isDark ? "rgba(20, 24, 33, 0.9)" : "rgba(255, 255, 255, 0.9)",
+                    border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(23, 25, 28, 0.15)",
                     borderRadius: 9999,
                     padding: isMobile ? "8px 34px 8px 12px" : "9px 40px 9px 18px",
                     fontSize: isMobile ? 12 : 13,
-                    color: "#17191c",
+                    color: isDark ? "#ffffff" : "#17191c",
                     outline: "none",
                     fontFamily: "inherit",
                     boxShadow: "inset 0 1px 3px rgba(0,0,0,0.03)",
@@ -1715,12 +1718,12 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 onClick={onEnterWorkspace}
                 style={{
                   background: "transparent",
-                  border: "1px solid rgba(23, 25, 28, 0.12)",
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(23, 25, 28, 0.12)",
                   borderRadius: 9999,
                   padding: "8px 14px",
                   fontSize: 12,
                   fontWeight: 600,
-                  color: "#17191c",
+                  color: isDark ? "#f5f5f5" : "#17191c",
                   cursor: "pointer",
                   flexShrink: 0,
                 }}
@@ -1747,13 +1750,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 top: isMobile ? "auto" : 0,
                 height: isMobile ? "82vh" : "100%",
                 width: isMobile ? "100%" : "min(460px, 94vw)",
-                background: "rgba(255, 255, 255, 0.98)",
+                background: isDark ? "rgba(11, 14, 20, 0.98)" : "rgba(255, 255, 255, 0.98)",
                 backdropFilter: "blur(28px) saturate(1.2)",
                 WebkitBackdropFilter: "blur(28px) saturate(1.2)",
-                borderLeft: isMobile ? "none" : "1.5px solid rgba(23, 25, 28, 0.12)",
-                borderTop: isMobile ? "1.5px solid rgba(23, 25, 28, 0.15)" : "none",
+                borderLeft: isMobile ? "none" : (isDark ? "1.5px solid rgba(255, 255, 255, 0.1)" : "1.5px solid rgba(23, 25, 28, 0.12)"),
+                borderTop: isMobile ? (isDark ? "1.5px solid rgba(255, 255, 255, 0.1)" : "1.5px solid rgba(23, 25, 28, 0.15)") : "none",
                 borderRadius: isMobile ? "22px 22px 0 0" : 0,
-                boxShadow: isMobile ? "0 -16px 48px rgba(0, 0, 0, 0.22)" : "-12px 0 40px rgba(0, 0, 0, 0.16)",
+                boxShadow: isMobile ? "0 -16px 48px rgba(0, 0, 0, 0.35)" : "-12px 0 40px rgba(0, 0, 0, 0.25)",
                 zIndex: 99999,
                 display: "flex",
                 flexDirection: "column",
@@ -1763,7 +1766,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
             >
               {/* Mobile Drag Indicator */}
               {isMobile && (
-                <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(23, 25, 28, 0.2)", margin: "8px auto 0 auto" }} />
+                <div style={{ width: 36, height: 4, borderRadius: 2, background: isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(23, 25, 28, 0.2)", margin: "8px auto 0 auto" }} />
               )}
               {/* Drawer Header */}
               <div
@@ -1772,8 +1775,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   alignItems: "center",
                   justifyContent: "space-between",
                   padding: "14px 18px",
-                  borderBottom: "1px solid rgba(23, 25, 28, 0.08)",
-                  background: "rgba(247, 239, 228, 0.7)",
+                  borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(23, 25, 28, 0.08)",
+                  background: isDark ? "rgba(18, 22, 31, 0.9)" : "rgba(247, 239, 228, 0.7)",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1792,14 +1795,14 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                     <Sparkles size={14} />
                   </div>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#17191c", display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? "#ffffff" : "#17191c", display: "flex", alignItems: "center", gap: 6 }}>
                       <span>Runway Dialogue</span>
                       <span
                         style={{
                           fontSize: 9,
                           fontWeight: 700,
                           letterSpacing: "0.06em",
-                          background: isVoiceActive ? "#10b981" : "#17191c",
+                          background: isVoiceActive ? "#10b981" : (isDark ? "#2b7fff" : "#17191c"),
                           color: "#ffffff",
                           padding: "1px 6px",
                           borderRadius: 4,
@@ -1808,7 +1811,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                         {isVoiceActive ? "VOICE ACTIVE" : "3D STREAM"}
                       </span>
                     </div>
-                    <div style={{ fontSize: 10, color: "#787574", fontFamily: "'JetBrains Mono', monospace" }}>
+                    <div style={{ fontSize: 10, color: isDark ? "#426188" : "#787574", fontFamily: "'JetBrains Mono', monospace" }}>
                       COLLECTION // {activeItem.name} ({activeItem.styleDna})
                     </div>
                   </div>
@@ -1830,8 +1833,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       height: 30,
                       borderRadius: "50%",
                       border: "none",
-                      background: isVoiceActive ? "#ef4444" : "rgba(23, 25, 28, 0.08)",
-                      color: isVoiceActive ? "#ffffff" : "#17191c",
+                      background: isVoiceActive ? "#ef4444" : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(23, 25, 28, 0.08)"),
+                      color: isVoiceActive ? "#ffffff" : (isDark ? "#ffffff" : "#17191c"),
                       cursor: "pointer",
                     }}
                   >
@@ -1848,8 +1851,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       height: 30,
                       borderRadius: "50%",
                       border: "none",
-                      background: "rgba(23, 25, 28, 0.08)",
-                      color: "#17191c",
+                      background: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(23, 25, 28, 0.08)",
+                      color: isDark ? "#ffffff" : "#17191c",
                       cursor: "pointer",
                       fontSize: 16,
                       fontWeight: 700,
@@ -1880,8 +1883,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       textAlign: "center",
                       padding: "24px 16px",
                       borderRadius: 16,
-                      background: "rgba(247, 239, 228, 0.6)",
-                      border: "1px dashed rgba(23, 25, 28, 0.15)",
+                      background: isDark ? "rgba(18, 22, 31, 0.6)" : "rgba(247, 239, 228, 0.6)",
+                      border: isDark ? "1px dashed rgba(255, 255, 255, 0.15)" : "1px dashed rgba(23, 25, 28, 0.15)",
                     }}
                   >
                     <div
@@ -1900,10 +1903,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                     >
                       <Bot size={24} />
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#17191c", marginBottom: 4 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: isDark ? "#ffffff" : "#17191c", marginBottom: 4 }}>
                       Hina Live 3D Runway
                     </div>
-                    <div style={{ fontSize: 12, color: "#5d2a1a", lineHeight: 1.5, maxWidth: 280, margin: "0 auto 14px auto" }}>
+                    <div style={{ fontSize: 12, color: isDark ? "#94a3b8" : "#5d2a1a", lineHeight: 1.5, maxWidth: 280, margin: "0 auto 14px auto" }}>
                       I am standing in the 3D Runway with full lip-sync visemes and voice recognition. Ask me anything or click below to talk!
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
@@ -1923,9 +1926,9 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                             fontSize: 11,
                             padding: "5px 10px",
                             borderRadius: 9999,
-                            border: "1px solid rgba(23, 25, 28, 0.12)",
-                            background: "#ffffff",
-                            color: "#17191c",
+                            border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(23, 25, 28, 0.12)",
+                            background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+                            color: isDark ? "#ffffff" : "#17191c",
                             cursor: "pointer",
                             transition: "all 0.12s ease",
                           }}
@@ -1941,7 +1944,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 {messages.map((msg, idx) => {
                   const text = msg.text || (msg as any).content || "";
                   if (!text.trim() && !msg.imageUrl) return null;
-                  return <WorkMessage key={msg.id || idx} message={msg} />;
+                  return <WorkMessage key={msg.id || idx} message={msg} isDark={isDark} />;
                 })}
 
                 {/* Streaming Response Bubble */}
@@ -1956,6 +1959,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       } as TranscriptMessage
                     }
                     isStreaming={true}
+                    isDark={isDark}
                   />
                 )}
 
@@ -2008,8 +2012,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   padding: isMobile
                     ? "10px 14px calc(14px + env(safe-area-inset-bottom, 0px)) 14px"
                     : "12px 16px",
-                  borderTop: "1px solid rgba(23, 25, 28, 0.08)",
-                  background: "#ffffff",
+                  borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(23, 25, 28, 0.08)",
+                  background: isDark ? "rgba(11, 14, 20, 1)" : "#ffffff",
                 }}
               >
                 <form
@@ -2031,11 +2035,11 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       flex: 1,
                       padding: "9px 14px",
                       borderRadius: 9999,
-                      border: "1px solid rgba(23, 25, 28, 0.15)",
+                      border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(23, 25, 28, 0.15)",
                       fontSize: 13,
-                      color: "#17191c",
+                      color: isDark ? "#ffffff" : "#17191c",
                       outline: "none",
-                      background: "rgba(247, 239, 228, 0.3)",
+                      background: isDark ? "rgba(20, 24, 33, 0.9)" : "rgba(247, 239, 228, 0.3)",
                     }}
                   />
                   {isVoiceActive ? (
@@ -2067,9 +2071,9 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                         width: 34,
                         height: 34,
                         borderRadius: "50%",
-                        border: "1px solid rgba(23, 25, 28, 0.12)",
-                        background: "rgba(255,255,255,0.8)",
-                        color: "#5e545d",
+                        border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(23, 25, 28, 0.12)",
+                        background: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255,255,255,0.8)",
+                        color: isDark ? "#f5f5f5" : "#5e545d",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
