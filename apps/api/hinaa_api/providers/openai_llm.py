@@ -47,13 +47,34 @@ def _orchestrator_continuations() -> int:
         return 4
 
 
-def _llm_budget_tokens() -> int:
+def _llm_budget_tokens(prompt: Any = None) -> int:
     try:
         from ..config import get_settings
 
-        return int(get_settings().llm_max_output_tokens)
+        default_budget = int(get_settings().llm_max_output_tokens)
     except Exception:  # pragma: no cover
-        return 16_384
+        default_budget = 16_384
+
+    if prompt is None:
+        return default_budget
+
+    depth = getattr(prompt, "response_depth", None)
+    mode = getattr(prompt, "interaction_mode", None)
+    raw_text = (getattr(prompt, "raw_user_text", "") or "").strip().lower()
+
+    # Fast casual / voice / minimal check-in: 384 tokens (instant sub-second response)
+    if depth in {"minimal", "clarification", "safety_redirect"}:
+        return 384
+    if depth in {"conversational", "supportive"}:
+        if mode == "realtime" or len(raw_text) < 45:
+            return 384
+        return 768
+    if depth in {"explanatory", "procedural"}:
+        return min(default_budget, 4096)
+    if depth == "report":
+        return default_budget
+
+    return default_budget
 
 
 def _llm_stream_char_budget() -> int:
@@ -489,7 +510,7 @@ class OpenAILLMProvider:
         }
         # QwenCloud & custom gateways document `max_tokens`; standard
         # OpenAI uses `max_completion_tokens`. Both get the full budget.
-        payload["max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"] = _llm_budget_tokens()
+        payload["max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"] = _llm_budget_tokens(prompt)
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 self._chat_url(),
@@ -507,9 +528,8 @@ class OpenAILLMProvider:
             "model": self._model_for_payload(),
             "messages": _messages(prompt),
             "temperature": 0.35,
-            # Generous token budget so high-level reasoning and rich technical/creative
-            # responses are never truncated prematurely.
-            "max_tokens": _llm_budget_tokens(),
+            # Dynamically budgeted tokens based on turn depth and interaction mode
+            "max_tokens": _llm_budget_tokens(prompt),
         }
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
@@ -534,7 +554,7 @@ class OpenAILLMProvider:
                 {"role": "user", "content": "\n\n".join(schema_repair_contents(invalid_raw))},
             ],
             "temperature": 0.0,
-            "max_completion_tokens": _llm_budget_tokens(),
+            "max_completion_tokens": 4096,
             "response_format": {"type": "json_object"},
         }
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -557,6 +577,7 @@ class OpenAILLMProvider:
         Metadata only — continuation POLICY lives in the shared
         GenerationOrchestrator (Phase B1.1).
         """
+        budget = _llm_budget_tokens(prompt)
         if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:
             # Gateways host reasoning models (e.g. Kimi, Claude Fable, cx/gpt-5.6-sol)
             # that spend tokens on hidden reasoning_content before any visible content.
@@ -565,7 +586,7 @@ class OpenAILLMProvider:
                 "model": self._model_for_payload(),
                 "messages": _messages(prompt),
                 "temperature": 0.45,
-                "max_tokens": _llm_budget_tokens(),
+                "max_tokens": budget,
                 "stream": True,
             }
             timeout = 300.0
@@ -574,7 +595,7 @@ class OpenAILLMProvider:
                 "model": self._model,
                 "messages": _messages(prompt),
                 "temperature": 0.45,
-                "max_completion_tokens": _llm_budget_tokens(),
+                "max_completion_tokens": budget,
                 "stream": True,
             }
             timeout = 300.0

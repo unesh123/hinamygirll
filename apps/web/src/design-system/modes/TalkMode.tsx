@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { PushToTalkButton } from "../../features/audio/PushToTalkButton";
 import type { PresenceMode } from "../../components/ui/AvatarPresence";
@@ -112,6 +112,37 @@ const STATE_COLORS: Record<CompanionState, string> = {
   error: "var(--danger)",
 };
 
+function formatTalkCaption(text: string, maxLen: number = 240): string {
+  if (!text) return "";
+  const clean = text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[\^?\d+\](?:\([^)]*\))?/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/#{1,6}\s+/g, "")
+    .replace(/[*_~]{1,3}/g, "")
+    .replace(/>\s+/g, "")
+    .replace(/\|[^\n]+\|/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (clean.length <= maxLen) return clean;
+
+  const sentences = clean.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [clean];
+  let accumulated = "";
+  for (const s of sentences) {
+    if ((accumulated + s).length > maxLen) {
+      if (!accumulated) {
+        accumulated = s.slice(0, maxLen).trim() + "…";
+      }
+      break;
+    }
+    accumulated += s;
+    if (accumulated.length >= 80) break;
+  }
+  return accumulated.trim() || clean.slice(0, maxLen).trim() + "…";
+}
+
 export function TalkMode({
   companionState,
   companionName,
@@ -161,10 +192,10 @@ export function TalkMode({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAmbientInput, setShowAmbientInput] = useState(false);
   const [ambientText, setAmbientText] = useState("");
-
-  // Get last assistant message for captions
+  // Get last assistant message for captions (prefer dedicated spoken text, fallback to text)
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-  const captionText = streamingText || lastAssistant?.plan?.spokenText || lastAssistant?.text || "";
+  const rawCaption = streamingText || lastAssistant?.plan?.spokenText || lastAssistant?.text || "";
+  const captionText = useMemo(() => formatTalkCaption(rawCaption), [rawCaption]);
 
   // Get user's last message for live transcript
   const lastUser = [...messages].reverse().find((m) => m.role === "user");

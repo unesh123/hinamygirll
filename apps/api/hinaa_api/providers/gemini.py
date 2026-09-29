@@ -40,15 +40,35 @@ def _sanitize_delta(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
 
 
-def _llm_budgets() -> tuple[int, int]:
+def _llm_budgets(prompt: Any = None) -> tuple[int, int]:
     """(max_output_tokens, stream_char_budget) from settings with safe defaults."""
     try:
         from ..config import get_settings
 
         settings = get_settings()
-        return settings.llm_max_output_tokens, settings.llm_stream_char_budget
+        default_tokens, default_chars = settings.llm_max_output_tokens, settings.llm_stream_char_budget
     except Exception:  # pragma: no cover - settings unavailable in some tests
-        return 16_384, 200_000
+        default_tokens, default_chars = 16_384, 200_000
+
+    if prompt is None:
+        return default_tokens, default_chars
+
+    depth = getattr(prompt, "response_depth", None)
+    mode = getattr(prompt, "interaction_mode", None)
+    raw_text = (getattr(prompt, "raw_user_text", "") or "").strip().lower()
+
+    if depth in {"minimal", "clarification", "safety_redirect"}:
+        return 384, 4000
+    if depth in {"conversational", "supportive"}:
+        if mode == "realtime" or len(raw_text) < 45:
+            return 384, 4000
+        return 768, 8000
+    if depth in {"explanatory", "procedural"}:
+        return min(default_tokens, 4096), 50_000
+    if depth == "report":
+        return default_tokens, default_chars
+
+    return default_tokens, default_chars
 
 
 def _max_continuations() -> int:
@@ -214,7 +234,7 @@ class GeminiLLMProvider:
             )
         started = perf_counter()
         timing = ProviderTiming()
-        max_output_tokens, char_budget = _llm_budgets()
+        max_output_tokens, char_budget = _llm_budgets(prompt)
         for warning in _validate_generation_budgets():
             logger.warning("generation config: %s", warning)
         # Fresh client per call today — no shared HTTP session across turns.
@@ -326,7 +346,7 @@ class GeminiLLMProvider:
         )
 
     async def _stream_json(self, client: genai.Client, prompt: PromptPackage) -> str:
-        max_output_tokens, _ = _llm_budgets()
+        max_output_tokens, _ = _llm_budgets(prompt)
         for attempt in range(2):
             try:
                 chunks: list[str] = []
@@ -357,7 +377,7 @@ class GeminiLLMProvider:
     async def _repair_json(
         self, client: genai.Client, prompt: PromptPackage, invalid_raw: str
     ) -> str:
-        max_output_tokens, _ = _llm_budgets()
+        max_output_tokens, _ = _llm_budgets(prompt)
         chunks: list[str] = []
         stream = await client.aio.models.generate_content_stream(
             model=self._model,

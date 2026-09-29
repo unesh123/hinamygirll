@@ -442,8 +442,11 @@ export default function App() {
   };
   // `chat` deliberately sends nothing: the backend then infers the mode from the
   // wording, so a greeting stays a greeting even with the chip selected.
+  // When in Talk mode (voice avatar), always request concise voice mode (1-3 sentences)
+  // When in Work mode, use the selected executive mode (report, research, deep-reasoning, chat)
   const requestResponseMode: ResponseMode | undefined =
-    executiveMode === "report" ? "professional"
+    sakuraView === "talk" ? "concise_voice"
+      : executiveMode === "report" ? "professional"
       : executiveMode === "research" ? "research"
       : executiveMode === "deep-reasoning" ? "technical"
       : undefined;

@@ -105,6 +105,12 @@ async function resolveCachedModelUrl(): Promise<string | null> {
 
 let sharedGltfLoader: GLTFLoader | null = null;
 
+// Reusable scratch vectors to prevent 240+ GC allocations per second in useFrame
+const _scratchHeadPos = new THREE.Vector3();
+const _scratchEyePos = new THREE.Vector3();
+const _scratchLPos = new THREE.Vector3();
+const _scratchRPos = new THREE.Vector3();
+
 /** Shared GLTFLoader with the VRM plugin registered exactly once. */
 function getGltfLoader(): GLTFLoader {
   if (!sharedGltfLoader) {
@@ -803,25 +809,21 @@ function VrmRig({
 
       if (head) {
         head.updateWorldMatrix(true, false);
-        const headPos = new THREE.Vector3();
-        head.getWorldPosition(headPos);
+        head.getWorldPosition(_scratchHeadPos);
 
-        const eyePos = new THREE.Vector3();
         if (leftEye && rightEye) {
           leftEye.updateWorldMatrix(true, false);
           rightEye.updateWorldMatrix(true, false);
-          const lPos = new THREE.Vector3();
-          const rPos = new THREE.Vector3();
-          leftEye.getWorldPosition(lPos);
-          rightEye.getWorldPosition(rPos);
-          eyePos.addVectors(lPos, rPos).multiplyScalar(0.5);
+          leftEye.getWorldPosition(_scratchLPos);
+          rightEye.getWorldPosition(_scratchRPos);
+          _scratchEyePos.addVectors(_scratchLPos, _scratchRPos).multiplyScalar(0.5);
         } else {
-          eyePos.copy(headPos);
+          _scratchEyePos.copy(_scratchHeadPos);
         }
 
-        const faceCenterX = (headPos.x + eyePos.x) / 2;
-        const faceCenterY = (headPos.y + eyePos.y) / 2;
-        const faceCenterZ = (headPos.z + eyePos.z) / 2;
+        const faceCenterX = (_scratchHeadPos.x + _scratchEyePos.x) / 2;
+        const faceCenterY = (_scratchHeadPos.y + _scratchEyePos.y) / 2;
+        const faceCenterZ = (_scratchHeadPos.z + _scratchEyePos.z) / 2;
 
         // Gaze — emotion-aware look target at true eye level with gentle drift + cursor tracking
         if (vrm.lookAt) {
@@ -1079,7 +1081,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
           <Canvas
             key={glContextLost ? "conservative" : "full"}
             className="vrm-canvas"
-            dpr={glContextLost || props.lowPerformance ? 1 : [1, 1.5]}
+            dpr={glContextLost || props.lowPerformance ? 1 : [1, 1.25]}
             gl={{
               antialias: !glContextLost,
               alpha: true,

@@ -101,13 +101,33 @@ class AgentRouterOpenAIProvider(OpenAILLMProvider):
             raise self._map_provider_error(e)
 
 
-def _llm_budget_tokens() -> int:
+def _llm_budget_tokens(prompt: Any = None) -> int:
     try:
         from ..config import get_settings
 
-        return int(get_settings().llm_max_output_tokens)
+        default_budget = int(get_settings().llm_max_output_tokens)
     except Exception:  # pragma: no cover
-        return 16_384
+        default_budget = 16_384
+
+    if prompt is None:
+        return default_budget
+
+    depth = getattr(prompt, "response_depth", None)
+    mode = getattr(prompt, "interaction_mode", None)
+    raw_text = (getattr(prompt, "raw_user_text", "") or "").strip().lower()
+
+    if depth in {"minimal", "clarification", "safety_redirect"}:
+        return 384
+    if depth in {"conversational", "supportive"}:
+        if mode == "realtime" or len(raw_text) < 45:
+            return 384
+        return 768
+    if depth in {"explanatory", "procedural"}:
+        return min(default_budget, 4096)
+    if depth == "report":
+        return default_budget
+
+    return default_budget
 
 
 def _anthropic_messages(prompt: PromptPackage) -> list[dict[str, Any]]:
@@ -285,7 +305,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         try:
             async with self.anthropic_client.messages.stream(
                 model=self._model,
-                max_tokens=_llm_budget_tokens(),
+                max_tokens=_llm_budget_tokens(prompt),
                 system=system,
                 messages=messages
             ) as stream:
@@ -310,7 +330,7 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
         try:
             response = await self.anthropic_client.messages.create(
                 model=self._model,
-                max_tokens=_llm_budget_tokens(),
+                max_tokens=_llm_budget_tokens(prompt),
                 system=system,
                 messages=messages
             )

@@ -3705,7 +3705,18 @@ class ConversationService:
             return False
         if re.search(r"\b(who\s+are\s+you|what\s+is\s+your\s+name|do\s+you\s+love\s+me|tell\s+me\s+a\s+joke|say\s+something)\b", lowered):
             return False
-        if re.search(r"^(hi|hello|hey|yo|namaste|good\s+(?:morning|evening|afternoon|night)|k\s+cha|kasto\s+cha)[!., ]*$", lowered):
+        # Suppress greetings, check-ins, and personal relational queries
+        if re.search(
+            r"\b(how\s+are\s+you|how\s+are\s+you\s+doing|how\s+do\s+you\s+feel|how\'?s\s+it\s+going|"
+            r"how\s+are\s+things|how\s+is\s+your\s+day|how\s+was\s+your\s+day|"
+            r"are\s+you\s+there|can\s+you\s+hear\s+me|can\s+you\s+listen|"
+            r"can\s+you\s+talk|can\s+you\s+speak|talk\s+in\s+english|talk\s+in\s+hindi|"
+            r"kya\s+haal|kaise\s+ho|kaisi\s+ho|kya\s+kar\s+rahi\s+ho|suno\s+na|suno)\b",
+            lowered,
+        ):
+            return False
+
+        if re.search(r"^(?:hi|hello|hey|yo|namaste|good\s+(?:morning|evening|afternoon|night)|k\s+cha|kasto\s+cha)(?:\s+(?:hina|hinaa|babe|bro|dear))?[!., ]*$", lowered):
             return False
 
         # CRITICAL: She must not Google herself.
@@ -3716,13 +3727,14 @@ class ConversationService:
         # runtime. Questions about her are answered from MEASURED SELF STATE.
         _SELF_TOPIC = (
             r"(?:system|state|status|architecture|subsystem|capabilit\w*|memory|memories|"
-            r"tool\w*|brain|model|provider|limit\w*|feature\w*|voice|ability|abilities|dashboard)"
+            r"tool\w*|brain|model|provider|limit\w*|feature\w*|voice|ability|abilities|dashboard|well[- ]being|health)"
         )
         is_about_herself = bool(
             re.search(rf"\b(?:your|her)\s+{_SELF_TOPIC}\b", lowered)
             or re.search(rf"\bhinaa?'s\s+{_SELF_TOPIC}\b", lowered)
             or re.search(rf"\b{_SELF_TOPIC}\s+of\s+hinaa?\b", lowered)
             or re.search(r"\bhow\s+(?:do|does)\s+(?:you|she|hinaa?)\s+work\b", lowered)
+            or re.search(r"\bhow\s+are\s+you\b", lowered)
             or re.search(r"\bhinaa?\b[^?.]{0,40}\bexplain\b", lowered)
         )
         if is_about_herself:
