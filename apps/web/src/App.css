@@ -1,84 +1,12 @@
 @import "tailwindcss";
 
-@theme {
-  /* Air Colors */
-  --color-whiteout: #ffffff;
-  --color-haze: #f5f5f5;
-  --color-ink: #1b1b1b;
-  --color-black-void: #000000;
-  --color-twilight-blue: #426188;
-  --color-signal-blue: #2b7fff;
-
-  /* Air Typography */
-  --font-control: 'Control', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-control-compressed: 'Control Compressed', 'Anton', ui-sans-serif, system-ui, sans-serif;
-  --font-control-cursive: 'Control Cursive', 'Caveat', cursive, ui-sans-serif, system-ui, sans-serif;
-  --font-control-tnt: 'Control TNT', 'Inter', ui-sans-serif, system-ui, sans-serif;
-
-  /* Typography — Scale */
-  --text-caption: 13px;
-  --leading-caption: 1.5;
-  --text-body: 16px;
-  --leading-body: 1.5;
-  --text-subheading: 20px;
-  --leading-subheading: 1.4;
-  --text-heading: 32px;
-  --leading-heading: 1.1;
-  --text-heading-lg: 56px;
-  --leading-heading-lg: 1;
-  --text-display: 259px;
-  --leading-display: 0.85;
-
-  /* Spacing */
-  --spacing-4: 4px;
-  --spacing-8: 8px;
-  --spacing-12: 12px;
-  --spacing-16: 16px;
-  --spacing-20: 20px;
-  --spacing-24: 24px;
-  --spacing-32: 32px;
-  --spacing-48: 48px;
-  --spacing-52: 52px;
-  --spacing-64: 64px;
-  --spacing-80: 80px;
-  --spacing-120: 120px;
-
-  /* Border Radius */
-  --radius-md: 4px;
-  --radius-lg: 8px;
-  --radius-lg-2: 11px;
-  --radius-xl: 14px;
-}
-
 /* ═══════════════════════════════════════════════════════
-   HINAA — Air Design System & Architecture
-   Midnight sky through glass sculpture · Dark Canvas
+   HINAA — Sakura OS Design System
+   Light neutral surfaces · Sakura rose accent · Semantic tokens
    ═══════════════════════════════════════════════════════ */
 
 /* ── 1. DESIGN TOKENS ───────────────────────────────── */
 :root {
-  /* ── Air Tokens ───────────────────────────────────── */
-  --color-whiteout: #ffffff;
-  --color-haze: #f5f5f5;
-  --color-ink: #1b1b1b;
-  --color-black-void: #000000;
-  --color-twilight-blue: #426188;
-  --color-signal-blue: #2b7fff;
-
-  --surface-dark-canvas: #000000;
-  --surface-haze-card: #f5f5f5;
-  --surface-whiteout: #ffffff;
-
-  --font-control: 'Control', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-control-compressed: 'Control Compressed', 'Anton', ui-sans-serif, system-ui, sans-serif;
-  --font-control-cursive: 'Control Cursive', 'Caveat', cursive, ui-sans-serif, system-ui, sans-serif;
-  --font-control-tnt: 'Control TNT', 'Inter', ui-sans-serif, system-ui, sans-serif;
-
-  --radius-cards: 12px;
-  --radius-pills: 9999px;
-  --radius-images: 11px;
-  --radius-inputs: 4px;
-  --radius-buttons: 8px;
   /* ── Legacy color aliases → Sakura OS tokens ─────── */
   --pearl: var(--bg-canvas, #fbfafc);
   --pearl-warm: var(--bg-subtle, #f7f3f7);

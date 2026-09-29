@@ -1380,10 +1380,8 @@ export function WorkMode({
           width: "100%",
           margin: "0",
           flexShrink: 0,
-          borderTop: "1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))",
-          background: "rgba(0, 0, 0, 0.75)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
+          borderTop: "1px solid var(--border-subtle)",
+          background: "var(--bg-surface)",
         }}
       >
         {/* Provider micro-status — the composer's own model chip already shows
@@ -1885,30 +1883,29 @@ export function WorkMessage({
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div
               style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                background: "transparent",
-                border: "1px solid var(--color-whiteout, #ffffff)",
+                width: 26,
+                height: 26,
+                borderRadius: 8,
+                background: "#1a232b",
                 color: "#ffffff",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Sparkles size={12} />
+              <Sparkles size={13} />
             </div>
-            <span style={{ fontWeight: 600, fontSize: 13, letterSpacing: "0.04em", color: "var(--color-whiteout, #ffffff)" }}>
+            <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: "#1e293b" }}>
               HINA
             </span>
             {message.createdAt && (
-              <span style={{ fontSize: 11, color: "var(--color-twilight-blue, #426188)" }}>
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
                 {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             )}
             {answeredByLabel && (
               <span
-                style={{ fontSize: 10, color: plan?.fallback ? "#f59e0b" : "var(--color-twilight-blue, #426188)", fontWeight: plan?.fallback ? 500 : 400 }}
+                style={{ fontSize: 10, color: plan?.fallback ? "#b45309" : "#94a3b8", fontWeight: plan?.fallback ? 600 : 400 }}
                 title={plan?.fallback ? plan.fallbackReason ?? undefined : undefined}
               >
                 {answeredByLabel}
@@ -1925,19 +1922,17 @@ export function WorkMessage({
                 title="Download formatted PDF report (< 1s)"
                 data-testid="message-export-pdf-btn"
                 style={{
-                  background: "transparent",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  color: exportingPdf ? "var(--color-signal-blue, #2b7fff)" : "var(--color-whiteout, #ffffff)",
+                  background: "none",
+                  border: "none",
+                  color: exportingPdf ? "var(--accent, #6366f1)" : "#94a3b8",
                   cursor: exportingPdf ? "wait" : "pointer",
-                  padding: "2px 8px",
-                  borderRadius: 6,
+                  padding: 4,
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 4,
+                  gap: 3,
                   fontSize: 11,
-                  fontWeight: 500,
+                  fontWeight: 650,
                   transition: "color 0.15s ease",
-                  fontFamily: "inherit",
                 }}
               >
                 {exportingPdf ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
@@ -1948,7 +1943,7 @@ export function WorkMessage({
               type="button"
               onClick={handleCopy}
               title="Copy message"
-              style={{ background: "none", border: "none", color: "rgba(255, 255, 255, 0.5)", cursor: "pointer", padding: 4 }}
+              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
             >
               {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
             </button>
@@ -1961,9 +1956,9 @@ export function WorkMessage({
           style={{
             fontSize: 11,
             lineHeight: 1.4,
-            color: "#f59e0b",
-            background: "rgba(245, 158, 11, 0.1)",
-            border: "1px solid rgba(245, 158, 11, 0.25)",
+            color: "#b45309",
+            background: "rgba(254, 243, 199, 0.45)",
+            border: "1px solid rgba(251, 191, 36, 0.35)",
             borderRadius: 6,
             padding: "4px 8px",
             marginBottom: 6,
@@ -1986,15 +1981,14 @@ export function WorkMessage({
         style={{
           width: isUser ? "auto" : "100%",
           maxWidth: isUser ? 580 : "100%",
-          padding: isUser ? "10px 16px" : "4px 0 8px 34px",
-          borderRadius: isUser ? "12px 12px 4px 12px" : "0",
-          background: isUser ? "rgba(255, 255, 255, 0.08)" : "transparent",
-          border: isUser ? "1px solid rgba(255, 255, 255, 0.16)" : "none",
-          boxShadow: "none",
-          color: "var(--color-whiteout, #ffffff)",
+          padding: isUser ? "12px 18px" : "4px 0 8px 34px",
+          borderRadius: isUser ? "18px 18px 4px 18px" : "0",
+          background: isUser ? "#1a232b" : "transparent",
+          border: "none",
+          boxShadow: isUser ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+          color: isUser ? "#ffffff" : "#334155",
           fontSize: 14,
-          lineHeight: 1.6,
-          fontFamily: "var(--font-control, ui-sans-serif, system-ui, sans-serif)",
+          lineHeight: 1.65,
           whiteSpace: isUser ? "pre-wrap" : "normal",
           wordBreak: "break-word",
         }}
@@ -2192,81 +2186,28 @@ function WorkWelcome({
   };
 
   return (
-    <div style={{ maxWidth: 820, width: "100%", margin: "24px 0 36px 0", animation: "fade-in 0.3s ease" }}>
-      {/* Air Atmospheric Hero */}
-      <div style={{ marginBottom: 28, textAlign: "left" }}>
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 7,
-            padding: "4px 12px",
-            borderRadius: "var(--radius-pills, 9999px)",
-            background: "rgba(255, 255, 255, 0.07)",
-            border: "1px solid rgba(255, 255, 255, 0.12)",
-            color: "var(--color-twilight-blue, #426188)",
-            fontSize: 11,
-            fontWeight: 500,
-            letterSpacing: "0.08em",
-            marginBottom: 16,
-            textTransform: "uppercase",
-          }}
-        >
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-signal-blue, #2b7fff)" }} />
-          <span>Midnight Sky & Glass Sculpture</span>
-        </div>
-
-        {/* Dual-Style Display Headline: Compressed Anton + Cursive Accent */}
-        <h1
-          className="air-display"
-          style={{
-            fontSize: "clamp(34px, 5.5vw, 68px)",
-            color: "var(--color-whiteout, #ffffff)",
-            margin: "0 0 12px 0",
-            lineHeight: 0.9,
-            letterSpacing: "-0.03em",
-          }}
-        >
-          MAKE IT <span className="air-cursive" style={{ textTransform: "none", color: "var(--color-twilight-blue, #426188)", fontSize: "1.15em", paddingLeft: 4 }}>real.</span>
-        </h1>
-
-        <p
-          style={{
-            fontSize: 15,
-            lineHeight: 1.55,
-            color: "rgba(255, 255, 255, 0.76)",
-            maxWidth: 640,
-            margin: "0 0 8px 0",
-            fontFamily: "var(--font-control, ui-sans-serif, system-ui, sans-serif)",
-            fontWeight: 400,
-          }}
-        >
-          {activeGreeting}
-        </p>
-      </div>
-
-      {/* Header action controls */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+    <div style={{ maxWidth: 768, width: "100%", margin: "16px 0 24px 0" }}>
+      {/* Header line */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div
             style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              background: "transparent",
-              border: "1px solid var(--color-whiteout, #ffffff)",
+              width: 26,
+              height: 26,
+              borderRadius: 8,
+              background: "#1a232b",
               color: "#ffffff",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Sparkles size={12} />
+            <Sparkles size={13} />
           </div>
-          <span style={{ fontWeight: 600, fontSize: 13, letterSpacing: "0.04em", color: "var(--color-whiteout, #ffffff)" }}>
+          <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", color: "#1e293b" }}>
             HINA
           </span>
-          <span style={{ fontSize: 11, color: "var(--color-twilight-blue, #426188)" }}>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>
             {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
         </div>
@@ -2276,7 +2217,7 @@ function WorkWelcome({
             type="button"
             onClick={handleCopy}
             title="Copy message"
-            style={{ background: "none", border: "none", color: "rgba(255, 255, 255, 0.5)", cursor: "pointer", padding: 4 }}
+            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
           >
             {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
           </button>
@@ -2284,52 +2225,80 @@ function WorkWelcome({
             type="button"
             onClick={() => onAction("research")}
             title="Regenerate"
-            style={{ background: "none", border: "none", color: "rgba(255, 255, 255, 0.5)", cursor: "pointer", padding: 4 }}
+            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 4 }}
           >
             <RefreshCw size={14} />
           </button>
         </div>
       </div>
 
-      {/* Starter suggestion cards — Air Haze Cards (#f5f5f5 background, #1b1b1b text, 12px radius, no shadow, no border) */}
+      {/* Greeting text */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: 12,
-          width: "100%",
-          marginTop: 10,
+          padding: "6px 0 12px 34px",
+          fontSize: 14,
+          lineHeight: 1.65,
+          color: "#334155",
         }}
       >
+        {activeGreeting}
+      </div>
+
+      {/* Subtle feedback reaction buttons */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 34 }}>
+        <button
+          type="button"
+          onClick={() => setLiked(!liked)}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: liked ? "#10b981" : "#94a3b8",
+            display: "flex",
+            alignItems: "center",
+            padding: 2,
+          }}
+          title="Good response"
+        >
+          <ThumbsUp size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={handleCopy}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "#94a3b8",
+            display: "flex",
+            alignItems: "center",
+            padding: 2,
+          }}
+          title="Copy"
+        >
+          <Copy size={13} />
+        </button>
+      </div>
+
+      {/* Starter suggestion chips — real prompts, one click to start */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 34, marginTop: 14 }}>
         {activeSuggestions.map((s) => (
           <button
             key={s.label}
             type="button"
             onClick={() => onAction(s.prompt)}
-            className="air-haze-card"
             style={{
+              padding: "6px 12px",
+              borderRadius: 999,
+              border: "1px solid var(--border-default, #e2e8f0)",
+              background: "var(--bg-surface, #ffffff)",
+              color: "var(--text-secondary, #475569)",
+              fontSize: 12,
+              fontWeight: 600,
               cursor: "pointer",
-              textAlign: "left",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              background: "var(--color-haze, #f5f5f5)",
-              color: "var(--color-ink, #1b1b1b)",
-              borderRadius: "var(--radius-cards, 12px)",
-              padding: "16px 20px",
-              border: "none",
-              boxShadow: "none",
-              transition: "transform 0.2s cubic-bezier(0.2, 0, 0, 1), opacity 0.15s ease",
-              fontFamily: "var(--font-control, ui-sans-serif, system-ui, sans-serif)",
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 500, color: "#1b1b1b", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span>{s.label}</span>
-              <span style={{ fontSize: 13, opacity: 0.6 }}>→</span>
-            </div>
-            <div style={{ fontSize: 12, color: "rgba(27, 27, 27, 0.65)", lineHeight: 1.45, fontWeight: 400 }}>
-              {s.prompt.replace(/^(\/image|\/search|\/goal)\s*/, "").slice(0, 60)}
-            </div>
+            {s.label}
           </button>
         ))}
       </div>

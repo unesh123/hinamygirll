@@ -8,19 +8,6 @@
 :root {
   color-scheme: light;
 
-  /* ── Air Design Tokens (midnight sky through glass sculpture) ── */
-  --color-whiteout: #ffffff;
-  --color-haze: #f5f5f5;
-  --color-ink: #1b1b1b;
-  --color-black-void: #000000;
-  --color-twilight-blue: #426188;
-  --color-signal-blue: #2b7fff;
-
-  /* Surfaces */
-  --surface-dark-canvas: #000000;
-  --surface-haze-card: #f5f5f5;
-  --surface-whiteout: #ffffff;
-
   /* ── Foundational Surfaces ────────────────────────────── */
   --bg-canvas: #fbfafc;
   --bg-subtle: #f7f3f7;
@@ -132,77 +119,67 @@
   --z-tooltip: 700;
 }
 
-/* ── Dark Theme (Air — midnight sky through glass sculpture) ── */
+/* ── Dark Theme ────────────────────────────────────────────── */
 [data-theme="dark"],
 .dark {
   color-scheme: dark;
 
-  /* ── Air Midnight Canvas (Level 0) ─────────────────── */
-  --bg-canvas: #000000;
-  --bg-subtle: #080a0f;
-  --bg-surface: #000000;
-  --bg-surface-raised: #10141d;
-  --bg-surface-hover: #161b26;
-  --bg-surface-active: #1e2533;
+  --bg-canvas: #171218;
+  --bg-subtle: #1e1720;
+  --bg-surface: #241c22;
+  --bg-surface-raised: #2c2229;
+  --bg-surface-hover: #302630;
+  --bg-surface-active: #3a2e38;
 
-  --bg-primary: #000000;
-  --bg-secondary: #080a0f;
-  --bg-tertiary: #10141d;
-  --bg-elevated: #161b26;
-  --bg-muted: #0b0e14;
-  --bg-glass: rgba(0, 0, 0, 0.76);
+  --bg-primary: #171218;
+  --bg-secondary: #1e1720;
+  --bg-tertiary: #241c22;
+  --bg-elevated: #2c2229;
+  --bg-muted: #1e1720;
+  --bg-glass: rgba(36, 28, 34, 0.88);
 
-  --surface-canvas: #000000;
-  --surface-subtle: #080a0f;
-  --surface-card: #f5f5f5;
-  --surface-raised: #10141d;
-  --surface-overlay: rgba(8, 10, 15, 0.96);
-  --surface-glass: rgba(0, 0, 0, 0.72);
-
-  /* ── Air High-Contrast Typography ─────────────────── */
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.82);
-  --text-tertiary: #426188; /* Twilight Blue */
-  --text-disabled: rgba(255, 255, 255, 0.38);
-  --text-inverse: #1b1b1b;
+  --text-primary: #f5eef3;
+  --text-secondary: #c4b5c0;
+  --text-tertiary: #8e7f8a;
+  --text-disabled: #5c4f58;
+  --text-inverse: #211a20;
   --text-on-accent: #ffffff;
-  --text-link: #2b7fff; /* Signal Blue */
+  --text-link: #ff82ad;
 
-  --brand-50: rgba(43, 127, 255, 0.08);
-  --brand-100: rgba(43, 127, 255, 0.14);
-  --brand-200: rgba(43, 127, 255, 0.20);
-  --brand-300: #426188;
-  --brand-400: #2b7fff;
-  --brand-500: #2b7fff;
-  --brand-600: #1d6fe6;
-  --brand-700: #1558bf;
-  --brand-800: #0f4296;
-  --brand-900: #0a2d6b;
+  --brand-50: rgba(255, 130, 173, 0.08);
+  --brand-100: rgba(255, 130, 173, 0.14);
+  --brand-200: rgba(255, 130, 173, 0.20);
+  --brand-300: #f9a8c2;
+  --brand-400: #ef7fa5;
+  --brand-500: #ff82ad;
+  --brand-600: #ff6b9a;
+  --brand-700: #ff5488;
+  --brand-800: #e04070;
+  --brand-900: #b83060;
 
-  --accent: #ffffff;
-  --accent-hover: #f5f5f5;
-  --accent-active: #e5e5e5;
-  --accent-soft: rgba(255, 255, 255, 0.12);
-  --accent-pale: rgba(255, 255, 255, 0.06);
-  --accent-glow: rgba(43, 127, 255, 0.24);
-  --accent-muted: rgba(255, 255, 255, 0.08);
+  --accent: #ff82ad;
+  --accent-hover: #ff6b9a;
+  --accent-active: #ff5488;
+  --accent-soft: rgba(255, 130, 173, 0.16);
+  --accent-pale: rgba(255, 130, 173, 0.08);
+  --accent-glow: rgba(255, 130, 173, 0.24);
+  --accent-muted: rgba(255, 130, 173, 0.10);
 
   --peach-soft: rgba(232, 132, 90, 0.12);
   --lavender-soft: rgba(124, 107, 196, 0.12);
   --mint-soft: rgba(45, 157, 120, 0.12);
-  --sky-soft: rgba(43, 127, 255, 0.14);
+  --sky-soft: rgba(58, 138, 181, 0.12);
   --yellow-soft: rgba(184, 134, 11, 0.12);
 
-  /* ── Air Hairline Strokes ─────────────────────────── */
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-default: rgba(255, 255, 255, 0.14);
-  --border-strong: rgba(255, 255, 255, 0.32);
-  --border-focus: #ffffff;
-  --divider: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(245, 238, 243, 0.08);
+  --border-default: rgba(245, 238, 243, 0.14);
+  --border-strong: rgba(245, 238, 243, 0.22);
+  --border-focus: #ff82ad;
+  --divider: rgba(245, 238, 243, 0.08);
 
-  --focus-ring: #ffffff;
-  --selection-bg: rgba(43, 127, 255, 0.32);
-  --selection-text: #ffffff;
+  --focus-ring: #ff82ad;
+  --selection-bg: rgba(255, 130, 173, 0.20);
+  --selection-text: #f5eef3;
 
   --success: #4fb989;
   --success-bg: rgba(45, 157, 120, 0.12);

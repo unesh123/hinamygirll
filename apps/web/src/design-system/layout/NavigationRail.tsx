@@ -174,15 +174,13 @@ export function NavigationRail({
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        background: "rgba(0, 0, 0, 0.82)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderRight: "1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))",
+        background: "#ffffff",
+        borderRight: "1px solid #e2e8f0",
         padding: "16px 14px",
         flexShrink: 0,
         zIndex: 30,
         userSelect: "none",
-        fontFamily: "var(--font-control, ui-sans-serif, system-ui, sans-serif)",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       }}
     >
       {/* ── Brand / Header ──────────────────────────── */}
@@ -191,13 +189,13 @@ export function NavigationRail({
           style={{
             width: 32,
             height: 32,
-            borderRadius: 8,
-            background: "transparent",
-            border: "1px solid var(--color-whiteout, #ffffff)",
-            color: "var(--color-whiteout, #ffffff)",
+            borderRadius: 10,
+            background: "#1a232b",
+            color: "#ffffff",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            boxShadow: "0 2px 6px rgba(26, 35, 43, 0.2)",
           }}
         >
           <Sparkles size={16} />
@@ -205,16 +203,16 @@ export function NavigationRail({
         <div>
           <div
             style={{
-              fontWeight: 600,
+              fontWeight: 800,
               fontSize: 14,
-              letterSpacing: "0.12em",
-              color: "var(--color-whiteout, #ffffff)",
+              letterSpacing: "0.14em",
+              color: "#0f172a",
               lineHeight: 1.1,
             }}
           >
             H I N A
           </div>
-          <div style={{ fontSize: 10, color: "var(--color-twilight-blue, #426188)", fontWeight: 500, letterSpacing: "0.02em" }}>
+          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500, letterSpacing: "0.02em" }}>
             Intelligence OS
           </div>
         </div>
@@ -227,24 +225,24 @@ export function NavigationRail({
           alignItems: "center",
           gap: 10,
           padding: "8px 10px",
-          background: "rgba(255, 255, 255, 0.04)",
-          borderRadius: "var(--radius-cards, 12px)",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
+          background: "#ffffff",
+          borderRadius: 12,
+          border: "1px solid #f1f5f9",
+          boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.03)",
           marginBottom: 12,
         }}
       >
         <div
           style={{
-            width: 28,
-            height: 28,
+            width: 30,
+            height: 30,
             borderRadius: 9999,
-            background: "rgba(255, 255, 255, 0.12)",
-            color: "var(--color-whiteout, #ffffff)",
-            border: "1px solid rgba(255, 255, 255, 0.2)",
+            background: "#fecdd3",
+            color: "#be123c",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontWeight: 600,
+            fontWeight: 700,
             fontSize: 11,
             flexShrink: 0,
           }}
@@ -255,8 +253,8 @@ export function NavigationRail({
           <div
             style={{
               fontSize: 12,
-              fontWeight: 500,
-              color: "var(--color-whiteout, #ffffff)",
+              fontWeight: 600,
+              color: "#1e293b",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -319,7 +317,7 @@ export function NavigationRail({
         </div>
       )}
 
-      {/* ── Primary Action: + New Session (Air Solid Light Button) ──────────── */}
+      {/* ── Primary Action: + New Session ──────────── */}
       {onNewChat && (
         <button
           type="button"
@@ -329,29 +327,29 @@ export function NavigationRail({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "8px 12px",
-            background: "var(--color-haze, #f5f5f5)",
-            color: "var(--color-ink, #1b1b1b)",
-            borderRadius: "var(--radius-buttons, 8px)",
-            border: "1px solid var(--color-ink, #1b1b1b)",
+            padding: "9px 12px",
+            background: "#1a232b",
+            color: "#ffffff",
+            borderRadius: 12,
+            border: "none",
             cursor: "pointer",
             marginBottom: 14,
-            transition: "opacity 0.15s ease",
-            fontFamily: "inherit",
+            boxShadow: "0 2px 4px rgba(26, 35, 43, 0.15)",
+            transition: "all 0.15s ease",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600 }}>
             <Plus size={15} />
             <span>New Session</span>
           </div>
           <span
             style={{
               fontSize: 10,
-              fontWeight: 500,
+              fontWeight: 600,
               padding: "1px 6px",
-              borderRadius: 4,
-              background: "rgba(0, 0, 0, 0.08)",
-              color: "var(--color-ink, #1b1b1b)",
+              borderRadius: 5,
+              background: "rgba(255, 255, 255, 0.15)",
+              color: "rgba(255, 255, 255, 0.8)",
             }}
           >
             ⌘N
@@ -359,7 +357,7 @@ export function NavigationRail({
         </button>
       )}
 
-      {/* ── Conversation History (Air Ghost Button) ── */}
+      {/* ── Conversation History: opens the saved-thread panel ── */}
       {onToggleHistory && (
         <button
           type="button"
@@ -373,15 +371,14 @@ export function NavigationRail({
             width: "100%",
             padding: "8px 12px",
             marginBottom: 14,
-            fontSize: 13,
-            fontWeight: 500,
-            color: "var(--color-whiteout, #ffffff)",
-            background: historyOpen ? "rgba(255, 255, 255, 0.12)" : "transparent",
-            border: `1px solid ${historyOpen ? "var(--color-whiteout, #ffffff)" : "rgba(255, 255, 255, 0.18)"}`,
-            borderRadius: "var(--radius-buttons, 8px)",
+            fontSize: 12,
+            fontWeight: 600,
+            color: historyOpen ? "#ffffff" : "#475569",
+            background: historyOpen ? "#1a232b" : "#ffffff",
+            border: `1px solid ${historyOpen ? "#1a232b" : "#e2e8f0"}`,
+            borderRadius: 12,
             cursor: "pointer",
             transition: "all 0.15s ease",
-            fontFamily: "inherit",
           }}
         >
           <History size={15} />
@@ -389,8 +386,8 @@ export function NavigationRail({
         </button>
       )}
 
-      {/* ── Nav Tabs List (Air Minimal Nav) ───────────────────── */}
-      <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {/* ── Nav Tabs List ───────────────────────────── */}
+      <nav style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.active;
@@ -407,30 +404,29 @@ export function NavigationRail({
                 alignItems: "center",
                 justifyContent: "space-between",
                 padding: "8px 10px",
-                borderRadius: "var(--radius-buttons, 8px)",
-                border: isActive ? "1px solid rgba(255, 255, 255, 0.18)" : "1px solid transparent",
-                background: isActive ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                borderRadius: 10,
+                border: isActive ? "1px solid rgba(226, 232, 240, 0.8)" : "1px solid transparent",
+                background: isActive ? "#f1f5f9" : "transparent",
                 cursor: "pointer",
                 textAlign: "left",
                 transition: "all 0.12s ease",
                 position: "relative",
-                fontFamily: "inherit",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <Icon
                   size={16}
                   style={{
-                    color: isActive ? "var(--color-whiteout, #ffffff)" : "var(--color-twilight-blue, #426188)",
+                    color: isActive ? "#0f172a" : "#64748b",
                     flexShrink: 0,
                   }}
                 />
                 <div>
                   <div
                     style={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: isActive ? "var(--color-whiteout, #ffffff)" : "rgba(255, 255, 255, 0.72)",
+                      fontSize: 12,
+                      fontWeight: isActive ? 650 : 500,
+                      color: isActive ? "#0f172a" : "#475569",
                       lineHeight: 1.2,
                     }}
                   >
@@ -439,9 +435,9 @@ export function NavigationRail({
                   <div
                     style={{
                       fontSize: 10,
-                      color: "rgba(255, 255, 255, 0.4)",
+                      color: "#94a3b8",
                       lineHeight: 1.2,
-                      marginTop: 2,
+                      marginTop: 1,
                     }}
                   >
                     {item.subtitle}
@@ -452,10 +448,10 @@ export function NavigationRail({
               {isActive && (
                 <div
                   style={{
-                    width: 2,
-                    height: 16,
+                    width: 3,
+                    height: 18,
                     borderRadius: 9999,
-                    background: "var(--color-whiteout, #ffffff)",
+                    background: "#f43f5e",
                   }}
                 />
               )}
