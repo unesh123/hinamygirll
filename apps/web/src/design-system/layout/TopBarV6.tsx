@@ -52,7 +52,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
 
   const handleModeClick = (mode: ExecutiveMode) => {
     onExecutiveModeChange(mode);
-    if (!(mode === "chat" && currentMode === "talk")) onModeChange("work");
+    onModeChange("work");
   };
 
   return (

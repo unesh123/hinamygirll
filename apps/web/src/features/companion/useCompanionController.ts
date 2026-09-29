@@ -158,6 +158,7 @@ export interface SendTextOptions {
   attachments?: import("./types").MessageAttachment[];
   imageEngine?: string;
   voiceEngine?: string;
+  onSentenceChunk?: (sentence: string, isFirst: boolean) => void;
 }
 
 export interface CompanionController {
@@ -467,16 +468,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const sendText = useCallback(
     async (
       rawText: string,
-      options?: {
-        forceBackend?: boolean;
-        responseMode?: ResponseMode;
-        imageUrl?: string;
-        attachment_ids?: string[];
-        reference_images?: string[];
-        attachments?: import("./types").MessageAttachment[];
-        imageEngine?: string;
-        voiceEngine?: string;
-      },
+      options?: SendTextOptions,
     ) => {
       const text = rawText.trim();
       if (!text) return;
@@ -508,6 +500,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       try {
         let rawStreamed = "";
         let streamed = "";
+        let sentenceBuffer = "";
+        let isFirstSentence = true;
         let completedPlan: AssistantTurnPlan | undefined;
         let providerLatencyMs: number | undefined;
         const language = resolveTurnLanguage(text, languagePolicy);
@@ -550,6 +544,23 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           } else if (event.type === "text.delta") {
             setIsSearching(false);
             rawStreamed += event.delta;
+            sentenceBuffer += event.delta;
+            
+            // Check for sentence boundary to stream speech concurrently with generation
+            const sentenceMatch = sentenceBuffer.match(/^([\s\S]*?[.!?\n])(?:\s+|$)/);
+            if (sentenceMatch) {
+              const fullSentence = sentenceMatch[1].trim();
+              sentenceBuffer = sentenceBuffer.slice(sentenceMatch[0].length);
+              if (fullSentence.length > 2 && options?.onSentenceChunk) {
+                try {
+                  options.onSentenceChunk(fullSentence, isFirstSentence);
+                } catch {
+                  // Non-blocking
+                }
+                isFirstSentence = false;
+              }
+            }
+
             // Batch streaming deltas via requestAnimationFrame to avoid React thrashing during 50K/100K streams
             if (!streamRafId) {
               const scheduleFrame =
@@ -564,6 +575,14 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               });
             }
           } else if (event.type === "plan") {
+            if (sentenceBuffer.trim().length > 2 && options?.onSentenceChunk) {
+              try {
+                options.onSentenceChunk(sentenceBuffer.trim(), isFirstSentence);
+              } catch {
+                // Non-blocking
+              }
+              sentenceBuffer = "";
+            }
             if (streamRafId) {
               const cancelFrame =
                 typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"

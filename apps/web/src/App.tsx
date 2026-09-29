@@ -11,7 +11,6 @@ import {
 } from "./design-system/layout/TopBarV6";
 import type { ResponseMode } from "./features/providers/conversationProvider";
 
-import { TalkMode, type VisualMode } from "./design-system/modes/TalkMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
 import type { AttachmentRole } from "./design-system/chat/ComposerV6";
@@ -450,23 +449,14 @@ export default function App() {
   };
   // `chat` deliberately sends nothing: the backend then infers the mode from the
   // wording, so a greeting stays a greeting even with the chip selected.
-  // When in Talk mode (voice avatar), always request concise voice mode (1-3 sentences)
+  // When in Runway 3D mode (voice avatar), request concise conversational voice mode
   // When in Work mode, use the selected executive mode (report, research, deep-reasoning, chat)
   const requestResponseMode: ResponseMode | undefined =
-    sakuraView === "talk" ? "concise_voice"
+    sakuraView === "showroom" ? "concise_voice"
       : executiveMode === "report" ? "professional"
       : executiveMode === "research" ? "research"
       : executiveMode === "deep-reasoning" ? "technical"
       : undefined;
-  const [visualMode, setVisualMode] = useState<VisualMode>(() => {
-    try {
-      return (window.localStorage.getItem("hinaa-visual-mode") as VisualMode) || "vrm";
-    } catch { return "vrm"; }
-  });
-  const changeVisualMode = (mode: VisualMode) => {
-    setVisualMode(mode);
-    try { window.localStorage.setItem("hinaa-visual-mode", mode); } catch {}
-  };
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -656,6 +646,7 @@ export default function App() {
     setInput("");
     setAttachedImage(null);
     void (async () => {
+      let streamSpoken = false;
       const result = await controller.sendText(text, {
         imageUrl: imageData || undefined,
         attachments: imageData
@@ -664,9 +655,30 @@ export default function App() {
         reference_images:
           imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
         responseMode: requestResponseMode,
+        onSentenceChunk: (chunk: string, isFirst: boolean) => {
+          if (!playback.muted) {
+            streamSpoken = true;
+            void playback.speakStreamChunk(
+              chunk,
+              isFirst,
+              settings.language.activePolicy,
+              controller.companionId,
+            );
+          }
+        },
       });
       const plan = result?.plan;
       if (!result || !plan) return;
+
+      if (streamSpoken) {
+        setVoiceReply({
+          kind: "browser",
+          label: "Live streaming voice active",
+          detail: "Vocalized in real-time as tokens generated",
+        });
+        return;
+      }
+
       // Derive spokenText from displayText when the model omits it.
       // Strip markdown, URLs, code blocks, and keep it under 200 chars.
       const spoken = plan.spokenText?.trim() || deriveSpokenText(plan.displayText);
@@ -964,7 +976,7 @@ export default function App() {
             onNavigate={(section: any) => {
               if (section === "memory") { setMemoryOpen(true); return; }
               setNavSection(section);
-              if (section === "talk" || section === "voice") setSakuraView("talk");
+              if (section === "talk" || section === "voice") setSakuraView("showroom");
               else if (section === "chat") setSakuraView("work");
               else if (section === "studio" || section === "showroom") setSakuraView("showroom");
               else if (section === "dashboard" || section === "tasks" || section === "operate") { setSakuraView("operate"); setOperateTab("tasks"); }
@@ -1014,54 +1026,7 @@ export default function App() {
 
 
 
-            {/* Mode content */}
-            {sakuraView === "talk" && (
-              <TalkMode
-                companionState={mapCompanionState(controller.state)}
-                companionName={companionProfiles[controller.companionId].name}
-                visualMode={visualMode}
-                onVisualModeChange={changeVisualMode}
-                isVoiceActive={live.active}
-                isPaused={live.paused}
-                voiceDetail={live.detail}
-                microphoneLevel={live.microphoneLevel}
-                onStartVoice={() => { interruptPlayback(); live.start(); }}
-                onStopVoice={() => live.stop()}
-                onPauseVoice={() => live.pause()}
-                onResumeVoice={() => live.resume()}
-                partialTranscript={controller.partialTranscript}
-                streamingText={controller.streamingText}
-                avatarModel={avatarModel}
-                avatarMode={avatarMode}
-                onCameraChange={changeAvatarMode}
-                languagePolicy={settings.language.activePolicy}
-                onLanguageChange={(policy) => setLanguage({ activePolicy: policy })}
-                jawEnergy={playback.jawEnergy}
-                speakingRef={playback.playingRef}
-                visemeEvents={playback.visemeEvents}
-                audioStartTimeRef={playback.audioStartTimeRef}
-                faceExpressions={facialSignalActive ? faceTrack.expressionsRef.current : null}
-                faceBones={faceActive ? faceTrack.bonesRef.current : null}
-                faceTrackingActive={faceActive}
-                trackingCalibration={faceTrack.calibration}
-                expressionText={latestAssistantExpressionText ?? ""}
-                avatarPresentation={avatarPresentation}
-                messages={controller.messages}
-                onOpenAvatarLab={openAvatarLab}
-                onToggleFullscreen={() => {}}
-                onTypeInstead={() => setSakuraView("work")}
-                onSendText={(text: string) => submit(undefined, text)}
-                isMuted={playback.muted}
-                onToggleMute={playback.toggleMute}
-                onReplay={() => void playback.replay()}
-                hasReplay={playback.hasReplay}
-                diagnostics={live.diagnostics}
-                onManualCommit={live.manualCommit}
-                onToggleDiagnostics={() => setDiagnosticsOpen((v) => !v)}
-                onSelectModel={selectAvatarModel}
-                availableModels={HINAA_AVATAR_MODELS}
-              />
-            )}
+
 
             {sakuraView === "work" && (
               <WorkMode
@@ -1153,9 +1118,28 @@ export default function App() {
             {sakuraView === "showroom" && (
               <ShowroomMode
                 onEnterWorkspace={() => setSakuraView("work")}
-                onEnterTalk={() => setSakuraView("talk")}
                 selectedAvatarModel={avatarModel}
                 onSelectAvatarModel={selectAvatarModel}
+                isVoiceActive={live.active}
+                isPaused={live.paused}
+                voiceDetail={live.detail}
+                microphoneLevel={live.microphoneLevel}
+                onStartVoice={() => { interruptPlayback(); live.start(); }}
+                onStopVoice={() => live.stop()}
+                partialTranscript={controller.partialTranscript}
+                streamingText={controller.streamingText}
+                companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+                companionName={companionProfiles[controller.companionId]?.name || "Hinaa"}
+                jawEnergy={playback.jawEnergy}
+                speakingRef={playback.playingRef}
+                visemeEvents={playback.visemeEvents}
+                audioStartTimeRef={playback.audioStartTimeRef}
+                onSendText={(text: string) => submit(undefined, text)}
+                onOpenTerminal={openTerminalHands}
+                onOpenVault={() => setSakuraView("vault")}
+                messages={controller.messages}
+                isMuted={playback.muted}
+                onToggleMute={playback.toggleMute}
               />
             )}
 

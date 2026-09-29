@@ -114,13 +114,6 @@ export function NavigationRail({
 
   const navItems = [
     {
-      id: "talk" as NavSection,
-      title: "Talk",
-      subtitle: "Voice and avatar",
-      icon: Mic,
-      active: isTalkActive,
-    },
-    {
       id: "chat" as NavSection,
       title: "Chat",
       subtitle: "Converse with HINA",
@@ -130,7 +123,7 @@ export function NavigationRail({
     {
       id: "studio" as NavSection,
       title: "Runway 3D",
-      subtitle: "DICH Haute-Couture",
+      subtitle: "3D Voice AI & Couture",
       icon: Sparkles,
       active: active === "studio" || (active as string) === "showroom",
     },

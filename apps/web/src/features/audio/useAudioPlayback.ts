@@ -27,6 +27,12 @@ export interface PlaybackController {
   ) => Promise<void>;
   /** Speak through the browser's local speech engine when no intelligible TTS provider is available. */
   speakBrowser: (spokenText: string, language?: string, companionId?: string) => Promise<boolean>;
+  speakStreamChunk: (
+    chunkText: string,
+    isFirst: boolean,
+    language?: string,
+    companionId?: string,
+  ) => Promise<boolean>;
   replay: () => Promise<void>;
   stop: () => void;
   toggleMute: () => void;
@@ -59,6 +65,8 @@ export function useAudioPlayback(): PlaybackController {
   const mutedRef = useRef(false);
   const playingRef = useRef(false);
   const browserSpeechActiveRef = useRef(false);
+  const streamChunkQueueRef = useRef<SpeechSynthesisUtterance[]>([]);
+  const streamActiveRef = useRef(false);
   const browserWatchdogRef = useRef<number | undefined>(undefined);
   const lastBrowserSpeechRef = useRef<{ text: string; language: string; companionId?: string } | null>(null);
 
@@ -100,6 +108,8 @@ export function useAudioPlayback(): PlaybackController {
   const stop = useCallback(() => {
     sessionRef.current += 1;
     browserSpeechActiveRef.current = false;
+    streamActiveRef.current = false;
+    streamChunkQueueRef.current = [];
     if (browserWatchdogRef.current !== undefined) {
       window.clearTimeout(browserWatchdogRef.current);
       browserWatchdogRef.current = undefined;
@@ -515,6 +525,165 @@ export function useAudioPlayback(): PlaybackController {
     [stop, syncPlaying],
   );
 
+  const speakStreamChunk = useCallback(
+    async (
+      chunkText: string,
+      isFirst: boolean,
+      language: string = "en-US",
+      companionId?: string,
+    ): Promise<boolean> => {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
+      const engine = window.speechSynthesis;
+      if (!engine) return false;
+
+      // Clean chunk text: strip markdown code, asterisks, URLs, brackets
+      const clean = chunkText
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/https?:\/\/\S+/g, "")
+        .replace(/[*_~#|]/g, "")
+        .trim();
+
+      if (clean.length < 2) return false;
+
+      if (isFirst) {
+        stop();
+        streamChunkQueueRef.current = [];
+        streamActiveRef.current = true;
+      } else if (!streamActiveRef.current) {
+        return false;
+      }
+
+      const session = sessionRef.current;
+      const utterance = new SpeechSynthesisUtterance(clean);
+      const normalizedLanguage = language === "mixed" ? "hi-IN" : language;
+      utterance.lang = normalizedLanguage;
+
+      const isHinaa = companionId !== "hiro";
+      const allVoices = engine.getVoices();
+      const langPrefix = normalizedLanguage.slice(0, 2).toLowerCase();
+      const langVoices = allVoices.filter((v) =>
+        v.lang.toLowerCase().startsWith(langPrefix),
+      );
+      const candidateVoices = langVoices.length > 0 ? langVoices : allVoices;
+
+      const isMaleVoice = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        if (lower.includes("female") || lower.includes("girl") || lower.includes("woman")) {
+          return false;
+        }
+        const malePatterns = [
+          /\bdavid\b/i, /\bmark\b/i, /\bgeorge\b/i, /\bguy\b/i, /\bravi\b/i,
+          /\bmadhur\b/i, /\bsagar\b/i, /\brichard\b/i, /\bjames\b/i, /\bsean\b/i,
+          /\bboy\b/i, /\bmale\b/i, /microsoft david/i, /microsoft mark/i, /microsoft guy/i,
+        ];
+        return malePatterns.some((pattern) => pattern.test(lower));
+      };
+
+      const isFemaleVoice = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        const femalePatterns = [
+          /\bzira\b/i, /\bjenny\b/i, /\baria\b/i, /\bswara\b/i, /\bhemkala\b/i,
+          /\bsamantha\b/i, /\bvictoria\b/i, /\bkaren\b/i, /\bsonia\b/i, /\bheera\b/i,
+          /\bneerja\b/i, /\bhazel\b/i, /\bsusan\b/i, /\bgirl\b/i, /\bfemale\b/i,
+          /\bwoman\b/i, /natural.*female/i, /google us english/i, /microsoft zira/i,
+          /microsoft jenny/i, /microsoft aria/i,
+        ];
+        return femalePatterns.some((pattern) => pattern.test(lower));
+      };
+
+      let selectedVoice: SpeechSynthesisVoice | undefined;
+      if (isHinaa) {
+        selectedVoice =
+          candidateVoices.find((v) => isFemaleVoice(v.name)) ||
+          allVoices.find((v) => isFemaleVoice(v.name)) ||
+          candidateVoices.find((v) => !isMaleVoice(v.name)) ||
+          allVoices.find((v) => !isMaleVoice(v.name));
+        utterance.pitch = selectedVoice ? 1.18 : 1.35;
+        // High speed speech generation as requested by user
+        utterance.rate = 1.15;
+        utterance.volume = 1;
+      } else {
+        selectedVoice =
+          candidateVoices.find((v) => isMaleVoice(v.name)) ||
+          allVoices.find((v) => isMaleVoice(v.name));
+        utterance.pitch = 0.96;
+        utterance.rate = 1.05;
+        utterance.volume = 1;
+      }
+      if (selectedVoice) utterance.voice = selectedVoice;
+
+      const chunkDurationMs = Math.min(
+        60_000,
+        Math.max(500, clean.trim().split(/\s+/).length * 270),
+      );
+
+      const chunkVisemes = textToVisemeEvents(clean, chunkDurationMs);
+      if (isFirst) {
+        visemeEvents.current = chunkVisemes;
+      } else {
+        visemeEvents.current = [...visemeEvents.current, ...chunkVisemes];
+      }
+
+      let startedAt: number | null = null;
+      let finished = false;
+
+      const finish = () => {
+        if (session !== sessionRef.current || finished) return;
+        finished = true;
+        const idx = streamChunkQueueRef.current.indexOf(utterance);
+        if (idx !== -1) streamChunkQueueRef.current.splice(idx, 1);
+        if (streamChunkQueueRef.current.length === 0) {
+          streamActiveRef.current = false;
+          browserSpeechActiveRef.current = false;
+          jawEnergy.current = 0;
+          if (frameRef.current !== undefined) {
+            window.cancelAnimationFrame(frameRef.current);
+            frameRef.current = undefined;
+          }
+          syncPlaying();
+        }
+      };
+
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      utterance.onstart = () => {
+        if (session !== sessionRef.current || finished) return;
+        startedAt = performance.now();
+        browserSpeechActiveRef.current = true;
+        speech.current.state = "playing";
+        syncPlaying();
+        if (frameRef.current !== undefined) {
+          window.cancelAnimationFrame(frameRef.current);
+          frameRef.current = undefined;
+        }
+        const tick = () => {
+          if (session !== sessionRef.current || !browserSpeechActiveRef.current || finished) {
+            jawEnergy.current = 0;
+            return;
+          }
+          const elapsedMs = performance.now() - (startedAt || performance.now());
+          const currentViseme = getActiveViseme(elapsedMs, chunkVisemes);
+          const targetEnergy = currentViseme?.mouth !== "closed" ? currentViseme?.weight ?? 0 : 0;
+          jawEnergy.current += (targetEnergy - jawEnergy.current) * (targetEnergy > jawEnergy.current ? 0.55 : 0.25);
+          frameRef.current = window.requestAnimationFrame(tick);
+        };
+        frameRef.current = window.requestAnimationFrame(tick);
+      };
+
+      streamChunkQueueRef.current.push(utterance);
+      try {
+        engine.speak(utterance);
+        return true;
+      } catch {
+        finish();
+        return false;
+      }
+    },
+    [stop, syncPlaying],
+  );
+
   const replay = useCallback(async () => {
     if (lastBlobRef.current) {
       stop();
@@ -638,6 +807,7 @@ export function useAudioPlayback(): PlaybackController {
     unlockAudio,
     play,
     speakBrowser,
+    speakStreamChunk,
     replay,
     stop,
     toggleMute,

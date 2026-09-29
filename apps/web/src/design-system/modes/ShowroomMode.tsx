@@ -15,15 +15,45 @@ import {
   Code,
   Compass,
   Check,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Send,
+  MessageSquare,
+  Play,
+  RotateCcw,
 } from "lucide-react";
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { CipherDecoderText, GyroOrbLoader } from "../../components/ui/HinaCyberLoaders";
+import type { VisemeEvent } from "../../features/audio/textToViseme";
+import type { CompanionState } from "../../features/companion/types";
 
 export interface ShowroomModeProps {
   onEnterWorkspace?: () => void;
   onEnterTalk?: () => void;
   selectedAvatarModel?: string;
   onSelectAvatarModel?: (modelUrl: string) => void;
+  isVoiceActive?: boolean;
+  isPaused?: boolean;
+  voiceDetail?: string;
+  microphoneLevel?: number;
+  onStartVoice?: () => void;
+  onStopVoice?: () => void;
+  partialTranscript?: string;
+  streamingText?: string;
+  companionState?: CompanionState;
+  companionName?: string;
+  jawEnergy?: React.MutableRefObject<number>;
+  speakingRef?: React.MutableRefObject<boolean>;
+  visemeEvents?: React.MutableRefObject<VisemeEvent[]>;
+  audioStartTimeRef?: React.MutableRefObject<number>;
+  onSendText?: (text: string) => void;
+  onOpenTerminal?: (cmd?: string) => void;
+  onOpenVault?: () => void;
+  messages?: Array<{ role: string; text?: string; content?: string }>;
+  isMuted?: boolean;
+  onToggleMute?: () => void;
 }
 
 interface FashionCollectionItem {
@@ -110,11 +140,47 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
   onEnterTalk,
   selectedAvatarModel = "/models/hinaa-original.vrm",
   onSelectAvatarModel,
+  isVoiceActive = false,
+  isPaused = false,
+  voiceDetail,
+  microphoneLevel = 0,
+  onStartVoice,
+  onStopVoice,
+  partialTranscript = "",
+  streamingText = "",
+  companionState = "idle",
+  companionName = "Hinaa",
+  jawEnergy,
+  speakingRef,
+  visemeEvents,
+  audioStartTimeRef,
+  onSendText,
+  onOpenTerminal,
+  onOpenVault,
+  messages = [],
+  isMuted = false,
+  onToggleMute,
 }) => {
-  const [activeItem, setActiveItem] = useState<FashionCollectionItem>(COLLECTIONS[0]);
+  const [activeItem, setActiveItem] = useState<FashionCollectionItem>(() => {
+    if (selectedAvatarModel) {
+      const match = COLLECTIONS.find((c) => c.modelUrl === selectedAvatarModel);
+      if (match) return match;
+    }
+    return COLLECTIONS[0];
+  });
   const [mouseCoords, setMouseCoords] = useState({ x: 0.0412, y: 0.0306 });
   const [viewMode, setViewMode] = useState<"lookbook" | "runway" | "steep_analytics">("lookbook");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [promptInput, setPromptInput] = useState("");
+
+  // Sync selectedAvatarModel prop with active collection item
+  useEffect(() => {
+    if (selectedAvatarModel) {
+      const match = COLLECTIONS.find((c) => c.modelUrl === selectedAvatarModel);
+      if (match && match.id !== activeItem.id) {
+        setActiveItem(match);
+      }
+    }
+  }, [selectedAvatarModel, activeItem.id]);
 
   // Track mouse coordinates for the cyber HUD telemetry
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -380,26 +446,119 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                   width: 380,
                   height: 380,
                   borderRadius: "50%",
-                  border: "2px solid #17191c",
-                  boxShadow: `0 0 0 10px rgba(255,255,255,0.7), 0 20px 48px -10px ${activeItem.accentColor}33`,
+                  border: isVoiceActive
+                    ? `2.5px solid ${activeItem.accentColor}`
+                    : "2px solid #17191c",
+                  boxShadow: isVoiceActive
+                    ? `0 0 0 ${10 + Math.round((microphoneLevel || 0) * 20)}px ${activeItem.accentColor}33, 0 0 50px ${activeItem.accentColor}88, 0 20px 48px -10px ${activeItem.accentColor}44`
+                    : companionState === "speaking" || (speakingRef?.current ?? false)
+                    ? `0 0 0 12px ${activeItem.accentColor}44, 0 0 40px ${activeItem.accentColor}88, 0 20px 48px -10px ${activeItem.accentColor}33`
+                    : `0 0 0 10px rgba(255,255,255,0.7), 0 20px 48px -10px ${activeItem.accentColor}33`,
                   background: activeItem.bgGradient,
                   overflow: "hidden",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  transition: "box-shadow 0.15s ease, border-color 0.2s ease",
                 }}
               >
                 {/* Real 3D VRM Model Loaded in the circular lens */}
                 <div style={{ width: "100%", height: "100%", transform: "scale(1.15)" }}>
                   <VRMAvatar
                     companionId="hinaa"
-                    state="idle"
+                    state={companionState}
                     modelUrl={activeItem.modelUrl}
                     reducedMotion={false}
                     textOnly={false}
                     closeUp={true}
+                    jawEnergy={jawEnergy}
+                    speakingRef={speakingRef}
+                    visemeEvents={visemeEvents}
+                    audioStartTimeRef={audioStartTimeRef}
                   />
                 </div>
+
+                {/* Top Status Pill on the Lens */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 18,
+                    background: isVoiceActive
+                      ? "rgba(16, 185, 129, 0.95)"
+                      : companionState === "speaking" || (speakingRef?.current ?? false)
+                      ? "rgba(255, 122, 0, 0.95)"
+                      : "rgba(23, 25, 28, 0.85)",
+                    color: "#ffffff",
+                    backdropFilter: "blur(8px)",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    padding: "4px 12px",
+                    borderRadius: 9999,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                    zIndex: 10,
+                  }}
+                >
+                  {isVoiceActive ? (
+                    <>
+                      <Mic size={11} />
+                      <span>LISTENING...</span>
+                    </>
+                  ) : companionState === "speaking" || (speakingRef?.current ?? false) ? (
+                    <>
+                      <Volume2 size={11} />
+                      <span>SPEAKING...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: activeItem.accentColor }} />
+                      <span>{activeItem.badge} // 3D VRM</span>
+                    </>
+                  )}
+                </div>
+
+                {/* Floating Dialogue HUD inside the Lens */}
+                <AnimatePresence>
+                  {(partialTranscript || streamingText) && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      style={{
+                        position: "absolute",
+                        bottom: 60,
+                        maxWidth: "85%",
+                        background: "rgba(23, 25, 28, 0.9)",
+                        color: "#ffffff",
+                        backdropFilter: "blur(12px)",
+                        padding: "8px 14px",
+                        borderRadius: 14,
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                        border: `1px solid ${activeItem.accentColor}88`,
+                        zIndex: 15,
+                        textAlign: "center",
+                        fontSize: 11,
+                        lineHeight: 1.45,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {partialTranscript ? (
+                        <div style={{ color: "#fbe1d1" }}>
+                          <span style={{ fontWeight: 700, color: activeItem.accentColor }}>You: </span>
+                          {partialTranscript}
+                        </div>
+                      ) : (
+                        <div>
+                          <span style={{ fontWeight: 700, color: activeItem.accentColor }}>Hinaa: </span>
+                          {streamingText.slice(-180)}
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Subtitle Badge */}
                 <div
@@ -414,6 +573,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                     letterSpacing: "0.08em",
                     padding: "4px 12px",
                     borderRadius: 9999,
+                    zIndex: 5,
                   }}
                 >
                   {activeItem.badge}
@@ -473,30 +633,35 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               <div>
                 <button
                   type="button"
-                  onClick={onEnterTalk || onEnterWorkspace}
+                  onClick={() => {
+                    if (isVoiceActive) onStopVoice?.();
+                    else onStartVoice?.();
+                  }}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 12,
-                    background: "#17191c",
+                    background: isVoiceActive ? "#059669" : "#17191c",
                     color: "#ffffff",
-                    border: "none",
+                    border: isVoiceActive ? "2px solid #34d399" : "none",
                     borderRadius: 9999,
                     padding: "10px 22px",
                     fontSize: 13,
                     fontWeight: 600,
                     letterSpacing: "0.04em",
                     cursor: "pointer",
-                    boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
-                    transition: "transform 0.15s ease",
+                    boxShadow: isVoiceActive
+                      ? "0 0 20px rgba(16, 185, 129, 0.5)"
+                      : "0 6px 16px rgba(0,0,0,0.15)",
+                    transition: "all 0.15s ease",
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
                   onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
                 >
-                  <span>COMMUNICATE</span>
+                  <span>{isVoiceActive ? "STOP VOICE" : "COMMUNICATE"}</span>
                   <span
                     style={{
-                      background: activeItem.accentColor,
+                      background: isVoiceActive ? "#ffffff" : activeItem.accentColor,
                       color: "#17191c",
                       width: 22,
                       height: 22,
@@ -508,7 +673,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       fontSize: 11,
                     }}
                   >
-                    &gt;&gt;
+                    {isVoiceActive ? "■" : ">>"}
                   </span>
                 </button>
               </div>
@@ -669,11 +834,15 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       >
                         <VRMAvatar
                           companionId="hinaa"
-                          state="idle"
+                          state={isSelected ? companionState : "idle"}
                           modelUrl={c.modelUrl}
-                          reducedMotion={true}
+                          reducedMotion={!isSelected}
                           textOnly={false}
                           closeUp={true}
+                          jawEnergy={isSelected ? jawEnergy : undefined}
+                          speakingRef={isSelected ? speakingRef : undefined}
+                          visemeEvents={isSelected ? visemeEvents : undefined}
+                          audioStartTimeRef={isSelected ? audioStartTimeRef : undefined}
                         />
                       </div>
 
@@ -940,6 +1109,258 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
             </div>
           </div>
         )}
+
+        {/* ── Interactive Runway Voice & Prompt Dock ────────── */}
+        <div
+          style={{
+            borderTop: "1px solid rgba(23, 25, 28, 0.08)",
+            background: "rgba(255, 255, 255, 0.8)",
+            backdropFilter: "blur(16px)",
+            padding: "14px 28px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+          }}
+        >
+          {/* Quick Action Chips */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10,
+                color: "#787574",
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+                marginRight: 4,
+                flexShrink: 0,
+              }}
+            >
+              ACTIONS:
+            </span>
+            <button
+              type="button"
+              onClick={() => onSendText?.("Tell me about your current outfit, cyber aesthetic, and style DNA!")}
+              style={{
+                background: "rgba(23, 25, 28, 0.05)",
+                border: "1px solid rgba(23, 25, 28, 0.1)",
+                borderRadius: 9999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#17191c",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                whiteSpace: "nowrap",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Sparkles size={11} color={activeItem.accentColor} />
+              <span>Explain Outfit</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSendText?.("Let's review our code architecture and check our recent test runs.")}
+              style={{
+                background: "rgba(23, 25, 28, 0.05)",
+                border: "1px solid rgba(23, 25, 28, 0.1)",
+                borderRadius: 9999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#17191c",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <Code size={11} />
+              <span>Code Craft</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSendText?.("Give me a fast update on the 2026 global crisis and technology trends.")}
+              style={{
+                background: "rgba(23, 25, 28, 0.05)",
+                border: "1px solid rgba(23, 25, 28, 0.1)",
+                borderRadius: 9999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#17191c",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <Compass size={11} />
+              <span>2026 World Pulse</span>
+            </button>
+            {onOpenTerminal && (
+              <button
+                type="button"
+                onClick={() => onOpenTerminal("git status")}
+                style={{
+                  background: "rgba(23, 25, 28, 0.05)",
+                  border: "1px solid rgba(23, 25, 28, 0.1)",
+                  borderRadius: 9999,
+                  padding: "4px 12px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#17191c",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Terminal size={11} />
+                <span>Terminal Hands</span>
+              </button>
+            )}
+            {onOpenVault && (
+              <button
+                type="button"
+                onClick={onOpenVault}
+                style={{
+                  background: "rgba(23, 25, 28, 0.05)",
+                  border: "1px solid rgba(23, 25, 28, 0.1)",
+                  borderRadius: 9999,
+                  padding: "4px 12px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#17191c",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Shield size={11} />
+                <span>VIP Vault</span>
+              </button>
+            )}
+          </div>
+
+          {/* Quick Voice / Text Input Row */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* Live Mic Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isVoiceActive) onStopVoice?.();
+                else onStartVoice?.();
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                background: isVoiceActive ? "#059669" : "#17191c",
+                color: "#ffffff",
+                border: isVoiceActive ? "2px solid #34d399" : "none",
+                borderRadius: 9999,
+                padding: "8px 18px",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: isVoiceActive
+                  ? "0 0 16px rgba(16, 185, 129, 0.4)"
+                  : "0 2px 8px rgba(0,0,0,0.1)",
+                transition: "all 0.15s ease",
+                flexShrink: 0,
+              }}
+            >
+              {isVoiceActive ? <MicOff size={14} /> : <Mic size={14} />}
+              <span>{isVoiceActive ? "END VOICE" : "LIVE VOICE"}</span>
+            </button>
+
+            {/* Quick Text Input */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (promptInput.trim()) {
+                  onSendText?.(promptInput.trim());
+                  setPromptInput("");
+                }
+              }}
+              style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <div
+                style={{
+                  flex: 1,
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  type="text"
+                  value={promptInput}
+                  onChange={(e) => setPromptInput(e.target.value)}
+                  placeholder="Talk or type to Hina in 3D Runway..."
+                  style={{
+                    width: "100%",
+                    background: "rgba(255, 255, 255, 0.85)",
+                    border: "1px solid rgba(23, 25, 28, 0.15)",
+                    borderRadius: 9999,
+                    padding: "9px 40px 9px 18px",
+                    fontSize: 13,
+                    color: "#17191c",
+                    outline: "none",
+                    fontFamily: "inherit",
+                    boxShadow: "inset 0 1px 3px rgba(0,0,0,0.03)",
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!promptInput.trim()}
+                  style={{
+                    position: "absolute",
+                    right: 4,
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: promptInput.trim() ? "#17191c" : "transparent",
+                    color: promptInput.trim() ? "#ffffff" : "#9ca3af",
+                    border: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: promptInput.trim() ? "pointer" : "default",
+                  }}
+                >
+                  <Send size={13} />
+                </button>
+              </div>
+            </form>
+
+            {/* Workspace Button */}
+            <button
+              type="button"
+              onClick={onEnterWorkspace}
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(23, 25, 28, 0.12)",
+                borderRadius: 9999,
+                padding: "8px 14px",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#17191c",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Canvas →
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
