@@ -14,7 +14,7 @@ import {
 import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 
-export type WorkspaceMode = "talk" | "work" | "operate" | "showroom";
+export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
 
 export interface TopBarV6Props {

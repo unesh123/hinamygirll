@@ -44,6 +44,7 @@ import { CompanionDock, type DockMode } from "./CompanionDock";
 import { PowerUpMentions, type ContextItem, type CommandItem } from "../../components/ui/PowerUpMentions";
 import { SourceCard, type SourceItem } from "../../components/ui/SourceCard";
 import { HinaBrainThinking } from "../../components/ui/HinaBrainThinking";
+import { SteepAnalyticsBar } from "../../features/telemetry/SteepAnalyticsBar";
 import { extractBrainThought } from "../../lib/brainThoughtExtractor";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
@@ -180,6 +181,8 @@ interface WorkModeProps {
   onSelectVoiceEngine?: (engine: string) => void;
   onOpenSettings?: () => void;
   conversationId?: string;
+  onOpenTerminal?: (initialCommand?: string) => void;
+  onOpenVault?: () => void;
 }
 
 export function WorkMode({
@@ -201,6 +204,8 @@ export function WorkMode({
   isVoiceActive,
   onStartVoice,
   onStopVoice,
+  onOpenTerminal,
+  onOpenVault,
   onResolveTool,
   agentSteps,
   currentAgentRunId,
@@ -936,6 +941,13 @@ export function WorkMode({
           <StatusDot state={companionState} />
         </div>
       </header>
+
+      {/* ── Steep Editorial Analytics Bar (Pillar 4) ── */}
+      <SteepAnalyticsBar
+        activeModel={activeProviderModel || activeProviderMode || "qwen3.8-max"}
+        onOpenTerminal={() => onOpenTerminal?.()}
+        onOpenVault={onOpenVault}
+      />
 
       {/* ── Voice Active Banner ───────────────────────── */}
       {isVoiceActive && (

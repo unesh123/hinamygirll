@@ -34,6 +34,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
+import { SaaSBridgePanel } from "../../features/integrations/SaaSBridgePanel";
 
 /* ── Types ───────────────────────────────────────────── */
 export interface RuntimeTaskStep {
@@ -158,7 +159,7 @@ function LoadFault({ line }: { line: string }) {
 }
 
 /* ── Main Component ─────────────────────────────────── */
-export type OperateTab = "tasks" | "capabilities" | "approvals" | "reports";
+export type OperateTab = "tasks" | "capabilities" | "approvals" | "reports" | "integrations";
 
 interface GeneratedDocSummary {
   docId: string;
@@ -597,6 +598,27 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
               }}>
                 {tools.length}
               </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("integrations")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 6,
+                fontSize: "12px",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "integrations" ? "var(--bg-surface-active, rgba(255,255,255,0.15))" : "transparent",
+                color: activeTab === "integrations" ? "#fff" : "var(--text-secondary, #a1a1aa)",
+                transition: "all 150ms ease",
+              }}
+            >
+              <GitBranch size={13} />
+              Enterprise SaaS Bridges
             </button>
           </div>
 
@@ -1445,6 +1467,11 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Tab: Enterprise SaaS Bridges ── */}
+        {activeTab === "integrations" && (
+          <SaaSBridgePanel />
         )}
       </div>
     </div>

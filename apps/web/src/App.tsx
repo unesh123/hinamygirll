@@ -66,6 +66,8 @@ const MagnificImageStudio = lazy(() => import("./components/ui/MagnificImageStud
 const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
 const HumanizerStudio = lazy(() => import("./features/tools/HumanizerStudio").then((module) => ({ default: module.HumanizerStudio })));
 const MusicMiniPlayer = lazy(() => import("./components/ui/MusicMiniPlayer").then((module) => ({ default: module.MusicMiniPlayer })));
+const VIPCollegeVault = lazy(() => import("./features/college/VIPCollegeVault").then((module) => ({ default: module.VIPCollegeVault })));
+import { TerminalHandsDrawer } from "./features/terminal/TerminalHandsDrawer";
 
 function ClerkAuthWrapper() {
   const { isSignedIn } = useAuth();
@@ -428,6 +430,12 @@ export default function App() {
 
   // ─── Sakura OS mode state ──────────────────────────────
   const [sakuraView, setSakuraView] = useState<WorkspaceMode>("work");
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalInitialCmd, setTerminalInitialCmd] = useState("");
+  const openTerminalHands = useCallback((cmd?: string) => {
+    if (cmd) setTerminalInitialCmd(cmd);
+    setTerminalOpen(true);
+  }, []);
   const [executiveMode, setExecutiveMode] = useState<ExecutiveMode>(() => {
     try {
       const stored = window.localStorage.getItem("hinaa-executive-mode");
@@ -965,6 +973,7 @@ export default function App() {
               else if (section === "images") openImageStudio();
               else if (section === "library" || section === "projects" || section === "files") openProjectWorkspace();
               else if (section === "creations") openHumanizerStudio();
+              else if (section === "vault") setSakuraView("vault");
               else if (section === "settings") setSettingsOpen(true);
             }}
             onNewChat={handleNewChat}
@@ -1132,6 +1141,8 @@ export default function App() {
                 onOpenImages={openImageStudio}
                 providerOptions={providers.providerOptions}
                 getModelOptions={providers.getModelOptions}
+                onOpenTerminal={openTerminalHands}
+                onOpenVault={() => setSakuraView("vault")}
               />
             )}
 
@@ -1146,6 +1157,15 @@ export default function App() {
                 selectedAvatarModel={avatarModel}
                 onSelectAvatarModel={selectAvatarModel}
               />
+            )}
+
+            {sakuraView === "vault" && (
+              <Suspense fallback={lazyPanelFallback}>
+                <VIPCollegeVault
+                  onOpenTerminal={openTerminalHands}
+                  onNavigateHome={() => setSakuraView("work")}
+                />
+              </Suspense>
             )}
           </AppShell>
 
@@ -1216,6 +1236,11 @@ export default function App() {
             }}
           />
         </Suspense>
+        <TerminalHandsDrawer
+          isOpen={terminalOpen}
+          onClose={() => setTerminalOpen(false)}
+          initialCommand={terminalInitialCmd}
+        />
       </div>
     </SidebarProvider>
     </SpeechPlaybackContext.Provider>

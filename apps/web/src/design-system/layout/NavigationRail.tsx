@@ -12,6 +12,7 @@ import {
   History,
   Mic,
   X,
+  GraduationCap,
 } from "lucide-react";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 
@@ -31,7 +32,8 @@ export type NavSection =
   | "settings"
   | "dashboard"
   | "models"
-  | "reports";
+  | "reports"
+  | "vault";
 
 interface NavigationRailProps {
   active: NavSection;
@@ -152,6 +154,13 @@ export function NavigationRail({
       subtitle: "Generated documents",
       icon: FileText,
       active: active === "reports" || active === "files" || active === "library",
+    },
+    {
+      id: "vault" as NavSection,
+      title: "VIP Deep Vault",
+      subtitle: "DIP World & College",
+      icon: GraduationCap,
+      active: active === "vault",
     },
     {
       id: "settings" as NavSection,

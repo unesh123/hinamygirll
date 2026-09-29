@@ -940,7 +940,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
                 name="hinaa-reminder-scheduler",
             )
+        # Autonomous Heartbeat Daemon initialization & background loop
+        from .intelligence.heartbeat import heartbeat_daemon
+        heartbeat_daemon.initialize(
+            memory_service=memory_service,
+            agent_runtime=agent_runtime,
+            owner_id=active_settings.dev_auth_subject,
+        )
+        heartbeat_daemon.start()
         yield
+        heartbeat_daemon.stop()
         scheduler_stop.set()
         if scheduler_task is not None:
             await asyncio.gather(scheduler_task, return_exceptions=True)
@@ -958,6 +967,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         lifespan=lifespan,
     )
+    from .omega_router import omega_router
+    app.include_router(omega_router)
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service

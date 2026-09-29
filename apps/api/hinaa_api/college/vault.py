@@ -173,6 +173,18 @@ class CollegeVaultService:
             res = [r for r in res if r["category"] == category.lower()]
         return res
 
+    def get_resource_by_id(self, resource_id: str) -> dict[str, Any] | None:
+        """Lookup a specific resource from the VIP Deep Vault."""
+        for item in INITIAL_VIP_RESOURCES:
+            if item.id == resource_id:
+                return item.model_dump()
+        return None
+
+    def add_vip_resource(self, resource: VIPResourceItem) -> dict[str, Any]:
+        """Add a new item to the VIP Deep Vault."""
+        INITIAL_VIP_RESOURCES.append(resource)
+        return {"status": "created", "resource": resource.model_dump()}
+
     def get_admin_dashboard_stats(self) -> dict[str, Any]:
         """Return analytics summary for teachers and college administration."""
         total_students = len(self._students)
