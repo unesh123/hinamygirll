@@ -331,12 +331,13 @@ function VrmRig({
       }
     }
     const speechSample = speechBridge?.current ? sampleSpeechPlayback(speechBridge) : null;
-    const isSpeaking = speechSample
-      ? speechSample.speaking
-      : (speakingRef && "current" in speakingRef ? speakingRef.current : false) ||
-        input.speaking ||
-        input.state === "speaking" ||
-        liveJaw > 0.03;
+    const speechSpeaking = Boolean(speechSample?.speaking);
+    const isSpeaking =
+      speechSpeaking ||
+      (speakingRef && "current" in speakingRef ? Boolean(speakingRef.current) : false) ||
+      Boolean(input.speaking) ||
+      input.state === "speaking" ||
+      liveJaw > 0.025;
 
     if (!isSpeaking) {
       liveJaw = 0;
@@ -375,7 +376,7 @@ function VrmRig({
     let activeVisemeName: string | undefined;
     let activeVisemeWeight: number | undefined;
 
-    if (isSpeaking && speechSample) {
+    if (isSpeaking && speechSpeaking && speechSample) {
       const active = speechSample.viseme;
       if (active && active.mouth !== "closed") {
         activeVisemeName = active.mouth;
@@ -400,14 +401,14 @@ function VrmRig({
     // closed. The old unconditional fallback flapped lips during silence,
     // which read as broken lip-sync.
     const hasVisemeTimeline =
-      (speechSample?.events?.length ?? 0) > 0 ||
+      (speechSpeaking && (speechSample?.events?.length ?? 0) > 0) ||
       (visemeEventsRef?.current?.length ?? 0) > 0 ||
-      Boolean(speechBridge?.current?.timing);
+      (speechSpeaking && Boolean(speechBridge?.current?.timing));
     if (isSpeaking && !hasVisemeTimeline && (!activeVisemeName || activeVisemeName === "closed")) {
       const visemes = ["aa", "oh", "aa", "ih", "ou", "ee"] as const;
-      const idx = Math.floor((time * 6.5) % visemes.length);
+      const idx = Math.floor((time * 7.5) % visemes.length);
       activeVisemeName = visemes[idx];
-      activeVisemeWeight = Math.max(0.4, liveJaw);
+      activeVisemeWeight = Math.max(0.45, Math.min(0.9, liveJaw * 1.6));
     }
 
     const frameInput: VrmExpressionInput = {
@@ -427,15 +428,36 @@ function VrmRig({
     if (perf.lipSync.ee > 0) weights.ee = Math.max(weights.ee, perf.lipSync.ee);
     if (perf.lipSync.oh > 0) weights.oh = Math.max(weights.oh, perf.lipSync.oh);
 
+    // Audio energy dynamic lipsync fallback for all VRM models (VRM 0.0 & 1.0)
+    if (isSpeaking && liveJaw > 0.025) {
+      const jawVowel = Math.min(0.9, liveJaw * 1.7);
+      if (weights.aa === 0 && weights.oh === 0 && weights.ih === 0 && weights.ee === 0 && weights.ou === 0) {
+        // Dynamic syllable-based vowel cycle synced to speech energy
+        const vowelCycle = Math.floor((time * 8.5) % 5);
+        if (vowelCycle === 0) {
+          weights.aa = jawVowel;
+        } else if (vowelCycle === 1) {
+          weights.oh = jawVowel * 0.85;
+        } else if (vowelCycle === 2) {
+          weights.ih = jawVowel * 0.75;
+        } else if (vowelCycle === 3) {
+          weights.ee = jawVowel * 0.7;
+        } else {
+          weights.ou = jawVowel * 0.8;
+        }
+      }
+    }
+
     const manager = vrm.expressionManager;
     if (manager) {
       try {
         for (const key of VRM_EXPRESSION_KEYS) {
           manager.setValue(key, weights[key]);
         }
-        if (perf.lipSync.jawOpen > 0) {
+        const effectiveJawOpen = Math.max(perf.lipSync.jawOpen, liveJaw > 0.025 ? Math.min(0.85, liveJaw * 1.5) : 0);
+        if (effectiveJawOpen > 0) {
           try {
-            manager.setValue("jawOpen", perf.lipSync.jawOpen);
+            manager.setValue("jawOpen", effectiveJawOpen);
           } catch {}
         }
         // Map to VRM 0.0 uppercase vowel presets if present on the model
@@ -754,47 +776,33 @@ function VrmRig({
       if (chest) {
         chest.rotation.x = Math.max(0, inhale) * (quiet ? 0.0012 : 0.0032) * drift;
       }
-      // Natural bipedal locomotion rhythm & contrapposto weight-shift (cadence ~0.65 Hz)
-      // Gives organic life, relaxed balance, and natural walking/standing posture rather than stiff rigidity.
-      const motionScale = input.reducedMotion ? 0.2 : (quiet ? 0.5 : 1.0);
-      const weightCycle = time * 0.65;
-      const weightShift = Math.sin(weightCycle);
-      const hipRoll = 0.018 * weightShift * motionScale;
-
+      // Stable standing posture: legs firmly grounded, poised balance, organic breathing
       if (hips) {
-        hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, hipRoll, 4, delta);
-        hips.rotation.y = THREE.MathUtils.damp(
-          hips.rotation.y,
-          0.014 * Math.sin(weightCycle * 0.7) * motionScale,
-          4,
-          delta,
-        );
-        hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.008 * motionScale, 4, delta);
+        hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, 0, 6, delta);
+        hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, 0, 6, delta);
+        hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.005, 6, delta);
       }
 
       if (spine) {
-        // Spine counter-rotates against pelvic roll to keep torso & head vertically aligned
-        spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, -hipRoll * 0.75, 4, delta);
+        spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, 0, 6, delta);
         if (hips) {
-          spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, -hips.rotation.y * 0.5, 4, delta);
+          spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, 0, 6, delta);
         }
-        spine.rotation.x = THREE.MathUtils.damp(spine.rotation.x, Math.max(0, -inhale) * 0.002 * motionScale, 4, delta);
+        spine.rotation.x = THREE.MathUtils.damp(spine.rotation.x, Math.max(0, -inhale) * 0.002, 6, delta);
       }
 
-      // Subtle leg stance flex: supporting leg stays straight while relaxed leg has micro-flex
-      const leftKneeBend = Math.max(0, weightShift) * 0.045 * motionScale;
-      const rightKneeBend = Math.max(0, -weightShift) * 0.045 * motionScale;
+      // Stable grounded legs: zero wobbling or unnatural knee bending
       if (leftLowerLeg) {
-        leftLowerLeg.rotation.x = THREE.MathUtils.damp(leftLowerLeg.rotation.x, leftKneeBend, 4, delta);
+        leftLowerLeg.rotation.x = THREE.MathUtils.damp(leftLowerLeg.rotation.x, 0, 6, delta);
       }
       if (rightLowerLeg) {
-        rightLowerLeg.rotation.x = THREE.MathUtils.damp(rightLowerLeg.rotation.x, rightKneeBend, 4, delta);
+        rightLowerLeg.rotation.x = THREE.MathUtils.damp(rightLowerLeg.rotation.x, 0, 6, delta);
       }
       if (leftUpperLeg) {
-        leftUpperLeg.rotation.z = THREE.MathUtils.damp(leftUpperLeg.rotation.z, -hipRoll * 0.25, 4, delta);
+        leftUpperLeg.rotation.z = THREE.MathUtils.damp(leftUpperLeg.rotation.z, 0, 6, delta);
       }
       if (rightUpperLeg) {
-        rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, -hipRoll * 0.25, 4, delta);
+        rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, 0, 6, delta);
       }
     }
 
@@ -841,9 +849,9 @@ function VrmRig({
         }
 
         const isCloseUp = input.closeUp ?? true;
-        const camDistance = isCloseUp ? 0.88 : 1.45;
+        const camDistance = isCloseUp ? 0.98 : 1.50;
         const targetCamX = faceCenterX + (input.codeMode ? -0.28 : 0);
-        const targetCamY = faceCenterY + 0.02;
+        const targetCamY = faceCenterY - 0.01;
         const targetCamZ = faceCenterZ + camDistance;
 
         const dampSpeed = frameCountRef.current < 3 ? 30 : 6;
@@ -854,7 +862,7 @@ function VrmRig({
         camera.position.z = THREE.MathUtils.damp(camera.position.z, targetCamZ, dampSpeed, delta);
 
         camLookAtRef.current.x = THREE.MathUtils.damp(camLookAtRef.current.x, faceCenterX, dampSpeed, delta);
-        camLookAtRef.current.y = THREE.MathUtils.damp(camLookAtRef.current.y, faceCenterY - 0.06, dampSpeed, delta);
+        camLookAtRef.current.y = THREE.MathUtils.damp(camLookAtRef.current.y, faceCenterY - 0.02, dampSpeed, delta);
         camLookAtRef.current.z = THREE.MathUtils.damp(camLookAtRef.current.z, faceCenterZ, dampSpeed, delta);
 
         camera.lookAt(camLookAtRef.current);

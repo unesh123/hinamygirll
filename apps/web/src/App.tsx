@@ -554,8 +554,25 @@ export default function App() {
   const handleNewChat = useCallback(() => {
     const nextId = createNextConversationId();
     setActiveConversationId(nextId);
+    saveActiveSession({ conversationId: nextId, sakuraView: "work" });
+    setNavSection("chat");
+    setSakuraView("work");
+    setInput("");
+    setAttachedImage(null);
     controller.resetConversation(nextId);
   }, [controller]);
+
+  // Global ⌘N / Ctrl+N shortcut for starting a new session
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        handleNewChat();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNewChat]);
 
   const handleSelectConversation = useCallback((id: string) => {
     if (!id) return;
@@ -1048,9 +1065,11 @@ export default function App() {
                   preferredModelByProvider: { ...settings.provider.preferredModelByProvider, [providerId]: modelId },
                 });
               }}
-              selectedModelId={routing.activeModel}
+              selectedModelId={settings.provider.preferredMode === "auto" ? null : routing.activeModel}
+              isAutoRouter={settings.provider.preferredMode === "auto"}
               executiveMode={executiveMode}
               onExecutiveModeChange={changeExecutiveMode}
+              onNewChat={handleNewChat}
             />
 
 

@@ -101,17 +101,35 @@ export function loadConversationMessages(conversationId: string): TranscriptMess
             };
             break;
           } else if (tr.toolName === "image_generate" || tr.toolName === "magnific_image_generate" || tr.toolName === "freepik_image_generate") {
-            const isCompleted = Boolean(tr.parameters?.resultUrl || tr.status === "completed");
+            const toolResult = message.toolResults?.find((res: any) => res.toolName === tr.toolName)?.result;
+            const hasResultImages = Boolean(
+              toolResult?.images?.length ||
+              toolResult?.resultUrl ||
+              toolResult?.thumbnailUrl ||
+              tr.parameters?.resultUrl ||
+              tr.parameters?.thumbnailUrl ||
+              tr.status === "completed" ||
+              toolResult?.status === "completed"
+            );
+            const resolvedUrl =
+              toolResult?.images?.[0] ||
+              toolResult?.resultUrl ||
+              toolResult?.thumbnailUrl ||
+              tr.parameters?.resultUrl ||
+              tr.parameters?.thumbnailUrl ||
+              "";
             actionDraft = {
               intent: "image.job",
-              status: "ready",
+              status: hasResultImages ? "success" : "ready",
               fields: {
                 data: {
-                  prompt: tr.parameters?.prompt || "",
-                  stage: isCompleted ? "saved" : "generating",
+                  prompt: tr.parameters?.prompt || toolResult?.prompt || "",
+                  stage: hasResultImages ? "saved" : "generating",
                   isSearchFallback: false,
-                  thumbnailUrl: tr.parameters?.thumbnailUrl || tr.parameters?.resultUrl || "",
-                  resultUrl: tr.parameters?.resultUrl || "",
+                  thumbnailUrl: resolvedUrl,
+                  resultUrl: resolvedUrl,
+                  images: toolResult?.images || (resolvedUrl ? [resolvedUrl] : []),
+                  model: toolResult?.mode || tr.parameters?.model || "FLUX.1 [dev]",
                 },
               },
             };

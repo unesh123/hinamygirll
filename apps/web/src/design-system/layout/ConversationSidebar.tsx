@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircle, Trash2, Pencil, Check, X, Search } from "lucide-react";
+import { MessageCircle, Trash2, Pencil, Check, X, Search, Plus } from "lucide-react";
 
 interface ConversationItem {
   id: string;
@@ -18,6 +18,7 @@ interface ConversationSidebarProps {
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
   onDeleteConversation?: (id: string) => void;
+  onNewChat?: () => void;
 }
 
 function groupByDate(conversations: ConversationItem[]): Record<string, ConversationItem[]> {
@@ -49,6 +50,7 @@ export function ConversationSidebar({
   activeConversationId,
   onSelectConversation,
   onDeleteConversation,
+  onNewChat,
 }: ConversationSidebarProps) {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -188,20 +190,49 @@ export function ConversationSidebar({
               >
                 Conversations
               </span>
-              <button
-                onClick={onClose}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-tertiary)",
-                  cursor: "pointer",
-                  padding: 4,
-                  borderRadius: "var(--radius-sm)",
-                }}
-                title="Close"
-              >
-                <X size={18} />
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {onNewChat && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNewChat();
+                      onClose();
+                    }}
+                    title="Start new conversation"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      background: "rgba(236, 72, 153, 0.12)",
+                      border: "1px solid rgba(236, 72, 153, 0.3)",
+                      color: "#ec4899",
+                      cursor: "pointer",
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 650,
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <Plus size={13} strokeWidth={2.4} />
+                    <span>New Chat</span>
+                  </button>
+                )}
+                <button
+                  onClick={onClose}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-tertiary)",
+                    cursor: "pointer",
+                    padding: 4,
+                    borderRadius: "var(--radius-sm)",
+                  }}
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {/* Search */}

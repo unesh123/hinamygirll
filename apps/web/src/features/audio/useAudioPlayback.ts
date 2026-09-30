@@ -137,6 +137,9 @@ export function useAudioPlayback(): PlaybackController {
     }
     jawEnergy.current = 0;
     visemeEvents.current = [];
+    if (typeof window !== "undefined") {
+      (window as any).__hinaaAudioStartTime = 0;
+    }
     syncPlaying();
   }, [syncPlaying]);
 
@@ -239,6 +242,9 @@ export function useAudioPlayback(): PlaybackController {
         }
       }
       if (!isContinuation) audioStartTimeRef.current = startAt;
+      if (typeof window !== "undefined") {
+        (window as any).__hinaaAudioStartTime = audioStartTimeRef.current;
+      }
       const calibrationMs = speech.current.calibrationMs;
       const totalDurationSec = isContinuation
         ? Math.max(buffer.duration, endedAtRef.current - audioStartTimeRef.current)

@@ -10,6 +10,7 @@ import {
   Moon,
   Settings,
   Sparkles,
+  Plus,
 } from "lucide-react";
 import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
@@ -29,8 +30,10 @@ export interface TopBarV6Props {
   onOpenGoalDetails?: () => void;
   onSelectModel?: (modelId: string, providerId: string) => void;
   selectedModelId?: string | null;
+  isAutoRouter?: boolean;
   executiveMode: ExecutiveMode;
   onExecutiveModeChange: (mode: ExecutiveMode) => void;
+  onNewChat?: () => void;
 }
 
 export const TopBarV6: React.FC<TopBarV6Props> = ({
@@ -42,13 +45,15 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   onOpenSearch,
   onSelectModel,
   selectedModelId,
+  isAutoRouter,
   executiveMode,
   onExecutiveModeChange,
+  onNewChat,
 }) => {
   const { models, providers, runtime } = useCapabilities();
   // Derived, not copied: a local snapshot kept showing "Auto (Router)" after
   // the model had been chosen somewhere else.
-  const isAuto = !selectedModelId;
+  const isAuto = isAutoRouter ?? !selectedModelId;
 
   const handleModeClick = (mode: ExecutiveMode) => {
     onExecutiveModeChange(mode);
@@ -95,7 +100,18 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         </button>
         <span style={{ color: isDark ? "rgba(255, 255, 255, 0.2)" : "#cbd5e1", fontSize: 13 }}>/</span>
         <span style={{ fontSize: 13, fontWeight: 650, color: isDark ? "#ffffff" : "#0f172a" }}>
-          Chat
+          {{
+            chat: "Chat",
+            work: "Chat",
+            talk: "Talk",
+            showroom: "Runway 3D",
+            operate: "Dashboard",
+            dashboard: "Dashboard",
+            models: "Models",
+            reports: "Reports",
+            vault: "VIP College Vault",
+            settings: "Settings",
+          }[currentMode] || "Chat"}
         </span>
       </div>
 
@@ -216,7 +232,35 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           onSelectAuto={() => onSelectModel?.("auto", "auto")}
           onSelectModel={(model) => onSelectModel?.(model.id, model.provider)}
           backendConnected={runtime.backendConnected}
+          isDark={isDark}
         />
+        {/* + New Session button */}
+        {onNewChat && (
+          <button
+            type="button"
+            data-testid="topbar-new-chat-btn"
+            onClick={onNewChat}
+            title="Start new conversation (⌘N / Ctrl+N)"
+            style={{
+              height: 32,
+              padding: "0 10px",
+              borderRadius: 8,
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #cbd5e1",
+              background: isDark ? "rgba(255, 255, 255, 0.08)" : "#f8fafc",
+              color: isDark ? "#ffffff" : "#0f172a",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 12,
+              fontWeight: 650,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Plus size={13} strokeWidth={2.5} />
+            <span>New Chat</span>
+          </button>
+        )}
         {/* Runway 3D Showroom button */}
         <button
           type="button"

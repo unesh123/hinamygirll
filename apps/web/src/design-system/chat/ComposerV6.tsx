@@ -796,6 +796,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             }}
             backendConnected={backendConnected}
             placement="top"
+            isDark={isDark}
           />
 
           {/* 3. `Goal Mode` Toggle Button */}

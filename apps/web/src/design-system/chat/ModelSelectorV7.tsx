@@ -21,6 +21,7 @@ export interface ModelSelectorV7Props {
   onSelectModel: (model: DiscoveredModel) => void;
   backendConnected?: boolean;
   placement?: "top" | "bottom";
+  isDark?: boolean;
 }
 
 export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
@@ -33,6 +34,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   onSelectModel,
   backendConnected = true,
   placement = "bottom",
+  isDark = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -115,17 +117,17 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
           gap: 5,
           padding: "4px 9px",
           borderRadius: 9999,
-          background: isAutoRouter
-            ? "var(--surface-subtle, #f6f3f7)"
-            : "rgba(220, 95, 139, 0.1)",
-          border: isAutoRouter
-            ? "1px solid var(--border-subtle, rgba(0,0,0,0.08))"
-            : "1px solid rgba(220, 95, 139, 0.35)",
+          background: isDark
+            ? (isAutoRouter ? "rgba(255, 255, 255, 0.06)" : "rgba(43, 127, 255, 0.15)")
+            : (isAutoRouter ? "var(--surface-subtle, #f6f3f7)" : "rgba(220, 95, 139, 0.1)"),
+          border: isDark
+            ? (isAutoRouter ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(43, 127, 255, 0.35)")
+            : (isAutoRouter ? "1px solid var(--border-subtle, rgba(0,0,0,0.08))" : "1px solid rgba(220, 95, 139, 0.35)"),
           fontSize: 11,
           fontWeight: 600,
-          color: isAutoRouter
-            ? "var(--text-secondary, #5e545d)"
-            : "var(--accent-primary, #dc5f8b)",
+          color: isDark
+            ? (isAutoRouter ? "rgba(255, 255, 255, 0.75)" : "#2b7fff")
+            : (isAutoRouter ? "var(--text-secondary, #5e545d)" : "var(--accent-primary, #dc5f8b)"),
           cursor: "pointer",
           transition: "all 0.15s ease",
         }}
@@ -134,7 +136,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
         {isAutoRouter ? (
           <Cpu size={11} style={{ opacity: 0.8 }} />
         ) : (
-          <Brain size={11} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+          <Brain size={11} style={{ color: isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)" }} />
         )}
         <span className="model-selector-v7__label">{activeLabel}</span>
         <ChevronDown size={10} style={{ opacity: 0.6 }} />
@@ -157,10 +159,12 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
             overflowY: "auto",
             WebkitOverflowScrolling: "touch",
             padding: 6,
-            background: "var(--surface-overlay, #ffffff)",
+            background: isDark ? "rgba(11, 14, 20, 0.98)" : "var(--surface-overlay, #ffffff)",
             borderRadius: 12,
-            boxShadow: "0 12px 32px -4px rgba(0,0,0,0.18), 0 4px 12px -2px rgba(0,0,0,0.08)",
-            border: "1px solid var(--border-default, rgba(0,0,0,0.12))",
+            boxShadow: isDark
+              ? "0 16px 40px rgba(0,0,0,0.6)"
+              : "0 12px 32px -4px rgba(0,0,0,0.18), 0 4px 12px -2px rgba(0,0,0,0.08)",
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid var(--border-default, rgba(0,0,0,0.12))",
             zIndex: 9999,
             fontFamily: "inherit",
             boxSizing: "border-box",
@@ -173,11 +177,11 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
               alignItems: "center",
               justifyContent: "space-between",
               padding: "6px 8px 4px 8px",
-              borderBottom: "1px solid var(--border-subtle, rgba(0,0,0,0.06))",
+              borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid var(--border-subtle, rgba(0,0,0,0.06))",
               marginBottom: 4,
             }}
           >
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "var(--text-tertiary, #847a83)" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: isDark ? "#426188" : "var(--text-tertiary, #847a83)" }}>
               INTELLIGENCE & ROUTING
             </span>
             <span
@@ -211,7 +215,9 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
               padding: "7px 8px",
               borderRadius: 8,
               border: "none",
-              background: isAutoRouter ? "var(--surface-subtle, #f6f3f7)" : "transparent",
+              background: isAutoRouter
+                ? (isDark ? "rgba(255, 255, 255, 0.08)" : "var(--surface-subtle, #f6f3f7)")
+                : "transparent",
               cursor: "pointer",
               textAlign: "left",
               marginBottom: 4,
@@ -223,7 +229,9 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                 size={14}
                 style={{
                   marginTop: 2,
-                  color: isAutoRouter ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
+                  color: isAutoRouter
+                    ? (isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)")
+                    : (isDark ? "rgba(255, 255, 255, 0.5)" : "var(--text-secondary, #5e545d)"),
                 }}
               />
               <div>
@@ -231,20 +239,27 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                   style={{
                     fontSize: 12,
                     fontWeight: 600,
-                    color: isAutoRouter ? "var(--accent-primary, #dc5f8b)" : "var(--text-primary, #1e191d)",
+                    color: isAutoRouter
+                      ? (isDark ? "#ffffff" : "var(--accent-primary, #dc5f8b)")
+                      : (isDark ? "#e2e8f0" : "var(--text-primary, #1e191d)"),
                   }}
                 >
                   Auto (Adaptive Router)
                 </div>
-                <div style={{ fontSize: 10, color: "var(--text-tertiary, #847a83)", marginTop: 1 }}>
+                <div style={{ fontSize: 10, color: isDark ? "#426188" : "var(--text-tertiary, #847a83)", marginTop: 1 }}>
                   Infers task depth & routes to optimal model
                 </div>
               </div>
             </div>
-            {isAutoRouter && <CheckCircle2 size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />}
+            {isAutoRouter && (
+              <CheckCircle2
+                size={13}
+                style={{ color: isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)" }}
+              />
+            )}
           </button>
 
-          <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
+          <div style={{ height: 1, background: isDark ? "rgba(255, 255, 255, 0.06)" : "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
 
           {/* Empty / loading state — never silently show only "Auto" */}
           {Object.keys(providerGroups).length === 0 && (
@@ -331,7 +346,9 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                         padding: "6px 8px",
                         borderRadius: 6,
                         border: "none",
-                        background: isSelected ? "var(--surface-subtle, #f6f3f7)" : "transparent",
+                        background: isSelected
+                          ? (isDark ? "rgba(43, 127, 255, 0.15)" : "var(--surface-subtle, #f6f3f7)")
+                          : "transparent",
                         cursor: "pointer",
                         textAlign: "left",
                         marginTop: 1,
@@ -343,7 +360,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                           size={11}
                           style={{
                             marginTop: 3,
-                            color: model.configured ? "#10b981" : "#94a3b8",
+                            color: model.configured ? "#10b981" : (isDark ? "#64748b" : "#94a3b8"),
                           }}
                         />
                         <div>
@@ -351,7 +368,9 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                             style={{
                               fontSize: 12,
                               fontWeight: isSelected ? 600 : 500,
-                              color: isSelected ? "var(--accent-primary, #dc5f8b)" : "var(--text-primary, #1e191d)",
+                              color: isSelected
+                                ? (isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)")
+                                : (isDark ? "#ffffff" : "var(--text-primary, #1e191d)"),
                               display: "flex",
                               alignItems: "center",
                               gap: 6,
@@ -364,8 +383,8 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                                   fontSize: 9,
                                   padding: "0 4px",
                                   borderRadius: 3,
-                                  background: "rgba(220, 95, 139, 0.1)",
-                                  color: "var(--accent-primary, #dc5f8b)",
+                                  background: isDark ? "rgba(43, 127, 255, 0.2)" : "rgba(220, 95, 139, 0.1)",
+                                  color: isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)",
                                   fontWeight: 600,
                                 }}
                               >
@@ -376,7 +395,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                           <div
                             style={{
                               fontSize: 10,
-                              color: "var(--text-tertiary, #847a83)",
+                              color: isDark ? "#426188" : "var(--text-tertiary, #847a83)",
                               marginTop: 1,
                               lineHeight: 1.25,
                             }}
@@ -386,7 +405,13 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                         </div>
                       </div>
                       {isSelected && (
-                        <CheckCircle2 size={13} style={{ color: "var(--accent-primary, #dc5f8b)", flexShrink: 0 }} />
+                        <CheckCircle2
+                          size={13}
+                          style={{
+                            color: isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)",
+                            flexShrink: 0,
+                          }}
+                        />
                       )}
                     </button>
                   );

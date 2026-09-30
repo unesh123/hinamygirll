@@ -41,6 +41,7 @@ export interface CompanionDockProps {
   streamingText?: string;
   partialTranscript?: string;
   lastAssistantText?: string;
+  isDark?: boolean;
 }
 
 export const CompanionDock: React.FC<CompanionDockProps> = ({
@@ -64,6 +65,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
   streamingText = "",
   partialTranscript = "",
   lastAssistantText = "",
+  isDark = false,
 }) => {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [dismissedSubtitle, setDismissedSubtitle] = useState(false);
@@ -373,13 +375,13 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
               right: 12,
               padding: "10px 14px",
               borderRadius: 14,
-              background: "rgba(18, 18, 22, 0.78)",
+              background: isDark ? "rgba(18, 18, 22, 0.85)" : "rgba(255, 255, 255, 0.9)",
               backdropFilter: "blur(16px)",
-              border: "1px solid rgba(255, 255, 255, 0.12)",
-              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(23, 25, 28, 0.1)",
+              boxShadow: isDark ? "0 8px 32px rgba(0, 0, 0, 0.4)" : "0 8px 24px rgba(0, 0, 0, 0.08)",
               fontSize: "11px",
               lineHeight: 1.45,
-              color: "#f4f4f5",
+              color: isDark ? "#f4f4f5" : "#17191c",
               maxHeight: 72,
               overflowY: "auto",
               zIndex: 15,
@@ -396,7 +398,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
                 style={{
                   background: "none",
                   border: "none",
-                  color: "rgba(255, 255, 255, 0.4)",
+                  color: isDark ? "rgba(255, 255, 255, 0.5)" : "rgba(23, 25, 28, 0.4)",
                   cursor: "pointer",
                   padding: 2,
                   display: "flex",

@@ -465,6 +465,16 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
     cleaned = re.sub(r"(?im)^\s*svg\s*$\n?", "", cleaned)
     # Strip internal workflow tokens
     cleaned = re.sub(r"\b(?:workflow_mode|generation_set_id)\b\s*", "", cleaned)
+    # Strip emojis, hearts, and decorative symbols
+    cleaned = re.sub(
+        r"[\U0001F000-\U0001FFFF\u2600-\u26FF\u2700-\u27BF\uFE00-\uFE0F]",
+        "",
+        cleaned,
+    )
+    # Strip greeting stutters (e.g. "HeyHey'm", "Hey babe, hey!", "Hey, hey")
+    cleaned = re.sub(r"\bHeyHey(?:'m|’m)\b", "Hey, I'm", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bHeyHey\b", "Hey", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(Hey(?:\s+babe)?),\s*hey[!,.]?", r"\1!", cleaned, flags=re.IGNORECASE)
     # Normalize leftover whitespace
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)

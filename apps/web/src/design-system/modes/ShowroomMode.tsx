@@ -28,6 +28,7 @@ import {
   User,
   Copy,
   CheckCircle2,
+  Brain,
 } from "lucide-react";
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { CipherDecoderText, GyroOrbLoader } from "../../components/ui/HinaCyberLoaders";
@@ -276,7 +277,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
           style={{
             display: "flex",
             flexDirection: isMobile ? "column" : "row",
-            alignItems: isMobile ? "stretch" : "center",
+            alignItems: "center",
             justifyContent: "space-between",
             padding: isMobile ? "10px 12px" : "12px 24px",
             gap: isMobile ? 8 : 12,
@@ -285,97 +286,38 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
             backdropFilter: "blur(12px)",
           }}
         >
-          {/* Top row: Brand & Primary Controls */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div className="dich-pulse-wave">
-                <span>/\/\/\-</span>
-                <span>LIVE</span>
-              </div>
-              <span
-                style={{
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: isMobile ? 11 : 11,
-                  letterSpacing: "0.08em",
-                  color: isDark ? "#2b7fff" : "#5d2a1a",
-                  fontWeight: 700,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {isMobile ? "HINAA // 3D RUNWAY" : "HINAA // OMEGA HAUTE-COUTURE"}
-              </span>
+          {/* Left Brand */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <div className="dich-pulse-wave">
+              <span>/\/\/\-</span>
+              <span>LIVE</span>
             </div>
-
-            {/* Right Telemetry & Actions */}
-            <div
+            <span
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 11,
-                color: "#787574",
+                letterSpacing: "0.08em",
+                color: isDark ? "#2b7fff" : "#5d2a1a",
+                fontWeight: 700,
+                whiteSpace: "nowrap",
               }}
             >
-              {!isMobile && (
-                <span>X .0{Math.floor(mouseCoords.x * 1000)} // Y .0{Math.floor(mouseCoords.y * 1000)}</span>
-              )}
-              <button
-                type="button"
-                data-testid="showroom-toggle-chat-btn"
-                onClick={() => setIsChatOpen(!isChatOpen)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  background: isChatOpen ? activeItem.accentColor : "rgba(23, 25, 28, 0.08)",
-                  color: isChatOpen ? "#ffffff" : "#17191c",
-                  border: "none",
-                  padding: isMobile ? "5px 10px" : "5px 13px",
-                  borderRadius: 9999,
-                  fontSize: 11,
-                  fontWeight: 650,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                  boxShadow: isChatOpen ? `0 2px 10px ${activeItem.accentColor}55` : "none",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <MessageSquare size={12} />
-                <span>LIVE CHAT {messages.length > 0 ? `(${messages.length})` : ""}</span>
-              </button>
-              <button
-                type="button"
-                onClick={onEnterWorkspace}
-                style={{
-                  background: "#17191c",
-                  color: "#ffffff",
-                  border: "none",
-                  padding: isMobile ? "5px 10px" : "5px 14px",
-                  borderRadius: 9999,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {isMobile ? "CANVAS →" : "WORKSPACE →"}
-              </button>
-            </div>
+              {isMobile ? "HINAA // 3D RUNWAY" : "HINAA // OMEGA HAUTE-COUTURE"}
+            </span>
           </div>
 
-          {/* Navigation Pill Switcher */}
+          {/* Center Navigation Pill Switcher */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: isMobile ? "flex-start" : "center",
+              justifyContent: "center",
               gap: 4,
-              background: "rgba(23, 25, 28, 0.06)",
+              background: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(23, 25, 28, 0.06)",
               padding: "3px 4px",
               borderRadius: 9999,
               overflowX: "auto",
-              maxWidth: "100%",
+              flexShrink: 0,
             }}
           >
             <button
@@ -383,8 +325,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               onClick={() => setViewMode("lookbook")}
               style={{
                 border: "none",
-                background: viewMode === "lookbook" ? "#17191c" : "transparent",
-                color: viewMode === "lookbook" ? "#ffffff" : "#5d2a1a",
+                background: viewMode === "lookbook" ? (isDark ? "#f5f5f5" : "#17191c") : "transparent",
+                color: viewMode === "lookbook" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "#94a3b8" : "#5d2a1a"),
                 fontSize: 11,
                 fontWeight: 600,
                 padding: "4px 12px",
@@ -401,8 +343,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               onClick={() => setViewMode("runway")}
               style={{
                 border: "none",
-                background: viewMode === "runway" ? "#17191c" : "transparent",
-                color: viewMode === "runway" ? "#ffffff" : "#5d2a1a",
+                background: viewMode === "runway" ? (isDark ? "#f5f5f5" : "#17191c") : "transparent",
+                color: viewMode === "runway" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "#94a3b8" : "#5d2a1a"),
                 fontSize: 11,
                 fontWeight: 600,
                 padding: "4px 12px",
@@ -419,8 +361,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               onClick={() => setViewMode("steep_analytics")}
               style={{
                 border: "none",
-                background: viewMode === "steep_analytics" ? "#17191c" : "transparent",
-                color: viewMode === "steep_analytics" ? "#ffffff" : "#5d2a1a",
+                background: viewMode === "steep_analytics" ? (isDark ? "#f5f5f5" : "#17191c") : "transparent",
+                color: viewMode === "steep_analytics" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "#94a3b8" : "#5d2a1a"),
                 fontSize: 11,
                 fontWeight: 600,
                 padding: "4px 12px",
@@ -431,6 +373,64 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               }}
             >
               EDITORIAL ANALYTICS
+            </button>
+          </div>
+
+          {/* Right Telemetry & Actions */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              color: isDark ? "#426188" : "#787574",
+              flexShrink: 0,
+            }}
+          >
+            {!isMobile && (
+              <span>X .0{Math.floor(mouseCoords.x * 1000)} // Y .0{Math.floor(mouseCoords.y * 1000)}</span>
+            )}
+            <button
+              type="button"
+              data-testid="showroom-toggle-chat-btn"
+              onClick={() => setIsChatOpen(!isChatOpen)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: isChatOpen ? activeItem.accentColor : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(23, 25, 28, 0.08)"),
+                color: isChatOpen ? "#ffffff" : (isDark ? "#ffffff" : "#17191c"),
+                border: "none",
+                padding: isMobile ? "5px 10px" : "5px 13px",
+                borderRadius: 9999,
+                fontSize: 11,
+                fontWeight: 650,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                boxShadow: isChatOpen ? `0 2px 10px ${activeItem.accentColor}55` : "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <MessageSquare size={12} />
+              <span>LIVE CHAT {messages.length > 0 ? `(${messages.length})` : ""}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onEnterWorkspace}
+              style={{
+                background: isDark ? "#f5f5f5" : "#17191c",
+                color: isDark ? "#1b1b1b" : "#ffffff",
+                border: "none",
+                padding: isMobile ? "5px 10px" : "5px 14px",
+                borderRadius: 9999,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isMobile ? "CANVAS →" : "WORKSPACE →"}
             </button>
           </div>
         </header>
@@ -824,6 +824,8 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       top: 18,
                       background: isVoiceActive
                         ? "rgba(16, 185, 129, 0.95)"
+                        : companionState === "thinking"
+                        ? "linear-gradient(135deg, rgba(168, 85, 247, 0.95), rgba(236, 72, 153, 0.95))"
                         : companionState === "speaking" || (speakingRef?.current ?? false)
                         ? "rgba(255, 122, 0, 0.95)"
                         : "rgba(23, 25, 28, 0.85)",
@@ -837,7 +839,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                      boxShadow: companionState === "thinking" ? "0 4px 18px rgba(168, 85, 247, 0.45)" : "0 4px 12px rgba(0,0,0,0.2)",
                       zIndex: 10,
                     }}
                   >
@@ -845,6 +847,11 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       <>
                         <Mic size={11} />
                         <span>LISTENING...</span>
+                      </>
+                    ) : companionState === "thinking" ? (
+                      <>
+                        <Brain size={11} className="animate-pulse" style={{ color: "#ffffff" }} />
+                        <span>DEEP REASONING...</span>
                       </>
                     ) : companionState === "speaking" || (speakingRef?.current ?? false) ? (
                       <>
@@ -861,7 +868,7 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
 
                   {/* Floating Dialogue HUD inside the Lens */}
                   <AnimatePresence>
-                    {(partialTranscript || streamingText) && (
+                    {(partialTranscript || streamingText || companionState === "thinking") && (
                       <motion.div
                         initial={{ opacity: 0, y: 10, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -870,13 +877,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                           position: "absolute",
                           bottom: 60,
                           maxWidth: "85%",
-                          background: "rgba(23, 25, 28, 0.9)",
-                          color: "#ffffff",
-                          backdropFilter: "blur(12px)",
+                          background: isDark ? "rgba(18, 22, 31, 0.92)" : "rgba(255, 255, 255, 0.94)",
+                          color: isDark ? "#ffffff" : "#17191c",
+                          backdropFilter: "blur(14px)",
                           padding: "8px 14px",
                           borderRadius: 14,
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-                          border: `1px solid ${activeItem.accentColor}88`,
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                          border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(23, 25, 28, 0.12)",
                           zIndex: 15,
                           textAlign: "center",
                           fontSize: 11,
@@ -885,16 +892,24 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                         }}
                       >
                         {partialTranscript ? (
-                          <div style={{ color: "#fbe1d1" }}>
+                          <div style={{ color: isDark ? "#fbe1d1" : "#854d0e" }}>
                             <span style={{ fontWeight: 700, color: activeItem.accentColor }}>You: </span>
                             {partialTranscript}
                           </div>
-                        ) : (
+                        ) : streamingText ? (
                           <div>
                             <span style={{ fontWeight: 700, color: activeItem.accentColor }}>Hinaa: </span>
-                            {streamingText.slice(-180)}
+                            {streamingText.length > 180
+                              ? "…" + streamingText.slice(Math.max(0, streamingText.lastIndexOf(" ", streamingText.length - 140)))
+                              : streamingText}
                           </div>
-                        )}
+                        ) : companionState === "thinking" ? (
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: isDark ? "#ffffff" : "#17191c" }}>
+                            <Brain size={12} className="animate-pulse" style={{ color: activeItem.accentColor }} />
+                            <span style={{ fontWeight: 700, color: activeItem.accentColor }}>Hinaa: </span>
+                            <span style={{ fontStyle: "italic", opacity: 0.85 }}>Synthesizing deep reasoning...</span>
+                          </div>
+                        ) : null}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1333,21 +1348,21 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               {/* Card 2: Neutral Metric Artifact Card */}
               <div
                 style={{
-                  background: "#ffffff",
+                  background: isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff",
                   borderRadius: 20,
                   padding: 24,
-                  border: "1px solid rgba(4, 23, 43, 0.05)",
-                  boxShadow: "0 20px 25px -5px rgba(0,0,0,0.06), 0 8px 10px -6px rgba(0,0,0,0.04)",
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(4, 23, 43, 0.05)",
+                  boxShadow: isDark ? "0 20px 25px -5px rgba(0,0,0,0.3)" : "0 20px 25px -5px rgba(0,0,0,0.06), 0 8px 10px -6px rgba(0,0,0,0.04)",
                   display: "flex",
                   flexDirection: "column",
                   justifyContent: "space-between",
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 13, color: "#777b86", fontWeight: 500 }}>
+                  <div style={{ fontSize: 13, color: isDark ? "#426188" : "#777b86", fontWeight: 500 }}>
                     Cognitive Response Latency
                   </div>
-                  <div style={{ fontSize: 36, fontWeight: 600, color: "#17191c", marginTop: 4 }}>
+                  <div style={{ fontSize: 36, fontWeight: 600, color: isDark ? "#ffffff" : "#17191c", marginTop: 4 }}>
                     142ms
                   </div>
                   <div style={{ fontSize: 13, color: "#10b981", fontWeight: 600, marginTop: 2 }}>
@@ -1360,7 +1375,9 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                       height: 48,
                       width: "100%",
                       marginTop: 20,
-                      background: "linear-gradient(90deg, #f2f2f3 0%, rgba(220, 95, 139, 0.2) 100%)",
+                      background: isDark
+                        ? "linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(43, 127, 255, 0.2) 100%)"
+                        : "linear-gradient(90deg, #f2f2f3 0%, rgba(220, 95, 139, 0.2) 100%)",
                       borderRadius: 8,
                       position: "relative",
                       overflow: "hidden",
@@ -1373,13 +1390,13 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                         left: 0,
                         right: 0,
                         height: 2,
-                        background: "#5d2a1a",
+                        background: isDark ? "#2b7fff" : "#5d2a1a",
                       }}
                     />
                   </div>
                 </div>
 
-                <div style={{ fontSize: 12, color: "#979799", marginTop: 16 }}>
+                <div style={{ fontSize: 12, color: isDark ? "#426188" : "#979799", marginTop: 16 }}>
                   Active Engine: OmniRoute (Claude 3.5 Sonnet + Gemini 2.5 Flash)
                 </div>
               </div>
@@ -1387,22 +1404,23 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
               {/* Card 3: Shop Style Discovery Pill Card */}
               <div
                 style={{
-                  background: "#f2f4f5",
+                  background: isDark ? "rgba(255, 255, 255, 0.04)" : "#f2f4f5",
                   borderRadius: 28,
                   padding: 24,
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "none",
                   display: "flex",
                   flexDirection: "column",
                   justifyContent: "space-between",
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#5433eb" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? "#2b7fff" : "#5433eb" }}>
                     SHOP CONSTELLATION
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 600, color: "#000000", marginTop: 6 }}>
+                  <div style={{ fontSize: 22, fontWeight: 600, color: isDark ? "#ffffff" : "#000000", marginTop: 6 }}>
                     Hands & Automation
                   </div>
-                  <p style={{ fontSize: 14, color: "#787574", marginTop: 8, lineHeight: 1.45 }}>
+                  <p style={{ fontSize: 14, color: isDark ? "rgba(255, 255, 255, 0.65)" : "#787574", marginTop: 8, lineHeight: 1.45 }}>
                     Execute terminal shell commands, manage git branches, and send Office 365 Outlook emails directly.
                   </p>
                 </div>
@@ -1948,17 +1966,19 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                 })}
 
                 {/* Streaming Response Bubble */}
-                {streamingText && (
+                {/* In-progress Response Bubble: Thinking or Streaming */}
+                {(Boolean(streamingText) || companionState === "thinking") && (
                   <WorkMessage
                     message={
                       {
                         id: "showroom-streaming",
                         role: "assistant",
-                        text: streamingText,
+                        text: streamingText || "",
                         createdAt: new Date().toISOString(),
                       } as TranscriptMessage
                     }
-                    isStreaming={true}
+                    isStreaming={Boolean(streamingText)}
+                    isThinkingLive={companionState === "thinking" && !streamingText}
                     isDark={isDark}
                   />
                 )}

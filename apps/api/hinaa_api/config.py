@@ -151,6 +151,7 @@ class Settings(BaseSettings):
             "ROUTER_BYNARA_API_KEY",
             "ROUTER_BYNARA_AOI_kEY",
             "BYNARA_API_KEY",
+            "ORCAROUTER_API_KEY",
         ),
     )
     agent_router_model: str = Field(
@@ -163,6 +164,7 @@ class Settings(BaseSettings):
             "AGENT_ROUTER_BASE_URL",
             "ROUTER_BYNARA_BASE_URL",
             "BYNARA_BASE_URL",
+            "ORCAROUTER_BASE_URL",
         ),
     )
     agent_router_allowed_models_raw: str = Field(
@@ -575,8 +577,36 @@ class Settings(BaseSettings):
     github_token: SecretStr | None = Field(None, alias="GITHUB_TOKEN")
     github_default_repo: str | None = Field(None, alias="HINAA_GITHUB_DEFAULT_REPO")
     tinyfish_search_timeout_seconds: float = Field(10.0, alias="HINAA_TINYFISH_SEARCH_TIMEOUT_SECONDS")
-    tinyfish_fetch_timeout_seconds: float = Field(150.0, alias="HINAA_TINYFISH_FETCH_TIMEOUT_SECONDS")
     gamma_ai_api_key: SecretStr | None = Field(None, alias="GAMMA_AI_API_KEY")
+    gamma_ai_base_url: str = Field("https://public-api.gamma.app/v1.0", alias="GAMMA_AI_BASE_URL")
+    browser_use_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "BROWSER_USE_API_KEY",
+            "BROWSER_USE_API_KEY1",
+            "BROWSER_USE_API_KEY2",
+            "BROWSER_USE_API_KEY3",
+        ),
+    )
+    browser_use_base_url: str = Field("https://api.browser-use.com/api/v2", alias="BROWSER_USE_BASE_URL")
+    customgpt_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "APP_CUSTOMGPT_AI_API_KEY",
+            "APP_COUSTOMGPT_AI_API_KEY",
+            "CUSTOMGPT_API_KEY",
+        ),
+    )
+    customgpt_base_url: str = Field(
+        "https://app.customgpt.ai",
+        validation_alias=AliasChoices(
+            "APP_CUSTOMGPT_AI_BASE_URL",
+            "APP_COUSTOMGPT_AI_BASE-URL",
+            "CUSTOMGPT_BASE_URL",
+        ),
+    )
+    beautiful_ai_api_key: SecretStr | None = Field(None, alias="BEAUTIFUL_AI_API_KEY")
+    beautiful_ai_base_url: str = Field("https://beautiful.ai/api/v1", alias="BEAUTIFUL_AI_BASE_URL")
     zyte_api_key: SecretStr | None = Field(None, alias="ZYTE_API_KEY")
     freepik_api_key: SecretStr | None = Field(None, alias="FREEPIK_API_KEY")
     magnific_api_key: SecretStr | None = Field(None, alias="MAGNIFIC_API_KEY")
@@ -1351,6 +1381,18 @@ class Settings(BaseSettings):
     @property
     def stabilityai_configured(self) -> bool:
         return bool(self.stabilityai_api_key and self.stabilityai_api_key.get_secret_value().strip())
+
+    @property
+    def browser_use_configured(self) -> bool:
+        return bool(self.browser_use_api_key and self.browser_use_api_key.get_secret_value().strip())
+
+    @property
+    def customgpt_configured(self) -> bool:
+        return bool(self.customgpt_api_key and self.customgpt_api_key.get_secret_value().strip())
+
+    @property
+    def beautiful_ai_configured(self) -> bool:
+        return bool(self.beautiful_ai_api_key and self.beautiful_ai_api_key.get_secret_value().strip())
 
     @property
     def active_omniroute_key(self) -> str:

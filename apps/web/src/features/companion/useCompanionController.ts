@@ -264,10 +264,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         const restored = restoreMessages(storedMessages);
         if (restored && restored.length > 0) {
           setMessages(restored);
+          processedToolMessageIds.current = new Set(restored.map((m) => m.id));
           return;
         }
       } catch {}
-      setMessages([createMessage("assistant", companionProfiles[companionId]?.greeting ?? companionProfiles.hinaa.greeting)]);
+      const fallbackGreeting = [createMessage("assistant", companionProfiles[companionId]?.greeting ?? companionProfiles.hinaa.greeting)];
+      setMessages(fallbackGreeting);
+      processedToolMessageIds.current = new Set(fallbackGreeting.map((m) => m.id));
     }
   }, [conversationId, companionId]);
 
@@ -282,7 +285,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const provider = useRef(new MockConversationProvider());
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
-  const processedToolMessageIds = useRef<Set<string>>(new Set());
+  const processedToolMessageIds = useRef<Set<string>>(new Set(messages.map((m) => m.id)));
   // Confirmation-gated actions must be idempotent at the interaction layer.
   // A double click, touch event replay, or a transient rerender may not submit
   // the same external request twice or append duplicate terminal result cards.
@@ -381,7 +384,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     setSearchQuery("");
     setCurrentAgentRunId(undefined);
     setCurrentAgentConfirmationStepId(undefined);
-    setMessages([createMessage("assistant", companionProfiles[companionId].greeting)]);
+    const initialGreeting = [createMessage("assistant", companionProfiles[companionId].greeting)];
+    setMessages(initialGreeting);
+    if (newId) {
+      prevConvoIdRef.current = newId;
+      saveConversationMessages(newId, initialGreeting);
+    }
+    processedToolMessageIds.current.clear();
     setState("idle");
   }, [clearTimers, companionId, finalizeTurn]);
 
@@ -996,9 +1005,6 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     if (!lastMessage || !rawToolRequests?.length) return;
     if (processedToolMessageIds.current.has(lastMessage.id)) return;
 
-    processedToolMessageIds.current.add(lastMessage.id);
-    const messageId = lastMessage.id;
-
     // Filter out informational search tools: they belong to the pre-generation retrieval
     // phase and must never be shown as pending actions or auto-run after an answer is generated.
     const SEARCH_TOOL_NAMES = new Set([
@@ -1011,7 +1017,26 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       "image_search",
     ]);
     const toolRequests = rawToolRequests.filter((r) => !SEARCH_TOOL_NAMES.has(r.toolName));
-    if (!toolRequests.length) return;
+    if (!toolRequests.length) {
+      processedToolMessageIds.current.add(lastMessage.id);
+      return;
+    }
+
+    // Never re-execute tools that were already resolved (e.g. restored from persistent storage)
+    const allAlreadyDone = toolRequests.every(
+      (r) =>
+        lastMessage.toolResults?.some((tr) => tr.toolName === r.toolName) ||
+        lastMessage.toolActivity?.some((ta) => ta.id === r.toolName && (ta.status === "complete" || ta.status === "error")) ||
+        lastMessage.actionDraft?.status === "success" ||
+        lastMessage.actionDraft?.fields?.data?.stage === "saved",
+    );
+    if (allAlreadyDone) {
+      processedToolMessageIds.current.add(lastMessage.id);
+      return;
+    }
+
+    processedToolMessageIds.current.add(lastMessage.id);
+    const messageId = lastMessage.id;
 
     // Autonomy mode carries standing consent from Settings, so a proposal is
     // executed immediately. With autonomy off, a model proposal is still not

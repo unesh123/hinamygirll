@@ -45,7 +45,13 @@ comfyui_provider = LocalComfyUIProvider(
 
 
 def cloud_image_available() -> bool:
-    """Check if Magnific or Freepik cloud image rendering is configured."""
+    """Check if Stability AI, Magnific, or Freepik cloud image rendering is configured."""
+    try:
+        from ..providers.stability_ai import StabilityAIProvider
+        if StabilityAIProvider(get_settings()).available():
+            return True
+    except Exception:
+        pass
     try:
         return MagnificProvider(get_settings()).available()
     except Exception:
@@ -392,7 +398,16 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
         session.commit()
 
     cloud = MagnificProvider(settings)
-    use_cloud = cloud.available()
+    stability = None
+    try:
+        from ..providers.stability_ai import StabilityAIProvider
+        stability_cand = StabilityAIProvider(settings)
+        if stability_cand.available():
+            stability = stability_cand
+    except Exception:
+        pass
+
+    use_cloud = cloud.available() or (stability is not None and stability.available())
 
     try:
         reference_url, reference_b64 = (await _resolve_reference(params)) if use_cloud else (None, None)
@@ -408,62 +423,86 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                     job.status = "processing"
                     session.commit()
                     try:
-                        result = await cloud.generate(
-                            final_prompt,
-                            negative_prompt=negative,
-                            width=job.width,
-                            height=job.height,
-                            seed=job.seed,
-                            model=(
-                                cloud.settings.magnific_model_fast
-                                if params.mode == "fast"
-                                else cloud.settings.magnific_model_quality
-                            ),
-                            reference_image_url=reference_url,
-                            reference_image_b64=reference_b64,
-                        )
-                        source = result.image_urls[0]
                         blob = None
-                        if should_upscale:
+                        provider_tag = "magnific"
+                        if cloud.available():
                             try:
-                                upscale_profile = {
-                                    "anime": "art_n_illustration",
-                                    "watercolor": "art_n_illustration",
-                                    "3d-art": "3d_renders",
-                                    "realistic": "films_n_photography",
-                                    "cinematic": "films_n_photography",
-                                }.get(params.style, "standard")
-                                upscaled = await cloud.upscale(
-                                    source,
-                                    scale=2.0,
-                                    prompt=final_prompt,
-                                    optimized_for=upscale_profile,
+                                result = await cloud.generate(
+                                    final_prompt,
+                                    negative_prompt=negative,
+                                    width=job.width,
+                                    height=job.height,
+                                    seed=job.seed,
+                                    model=(
+                                        cloud.settings.magnific_model_fast
+                                        if params.mode == "fast"
+                                        else cloud.settings.magnific_model_quality
+                                    ),
+                                    reference_image_url=reference_url,
+                                    reference_image_b64=reference_b64,
                                 )
-                                # The fabric upscale writes its own file and hands
-                                # back an asset ref whose URL is a route on this
-                                # server, so the bytes come from the store, not a fetch.
-                                asset_ref = getattr(upscaled, "asset_ref", None)
-                                if asset_ref is not None:
-                                    blob = cloud.asset_store.read_bytes(asset_ref.id)
-                                elif isinstance(upscaled, str):
-                                    source = upscaled
-                            except Exception:
+                                source = result.image_urls[0]
+                                if should_upscale:
+                                    try:
+                                        upscale_profile = {
+                                            "anime": "art_n_illustration",
+                                            "watercolor": "art_n_illustration",
+                                            "3d-art": "3d_renders",
+                                            "realistic": "films_n_photography",
+                                            "cinematic": "films_n_photography",
+                                        }.get(params.style, "standard")
+                                        upscaled = await cloud.upscale(
+                                            source,
+                                            scale=2.0,
+                                            prompt=final_prompt,
+                                            optimized_for=upscale_profile,
+                                        )
+                                        asset_ref = getattr(upscaled, "asset_ref", None)
+                                        if asset_ref is not None:
+                                            blob = cloud.asset_store.read_bytes(asset_ref.id)
+                                        elif isinstance(upscaled, str):
+                                            source = upscaled
+                                    except Exception:
+                                        logger.warning(
+                                            "Upscale pass failed for job %s; the render is kept",
+                                            job.id,
+                                            exc_info=True,
+                                        )
+                                if blob is None:
+                                    blob = await cloud.download(source)
+                                provider_tag = result.provider
+                            except Exception as m_err:
                                 logger.warning(
-                                    "Upscale pass failed for job %s; the render is kept",
-                                    job.id,
-                                    exc_info=True,
+                                    "Magnific/Freepik render failed (%s); failing over to Stability AI...",
+                                    m_err,
                                 )
-                            if blob is None:
-                                logger.warning(
-                                    "Upscale pass gave no usable image for job %s; the render is kept",
-                                    job.id,
-                                )
-                        if blob is None:
-                            blob = await cloud.download(source)
+                                if stability and stability.available():
+                                    st_res = await stability.generate_image(
+                                        final_prompt,
+                                        negative_prompt=negative,
+                                        seed=job.seed,
+                                        style_preset=params.style,
+                                    )
+                                    blob = st_res.image_bytes
+                                    provider_tag = st_res.provider
+                                else:
+                                    raise
+                        elif stability and stability.available():
+                            st_res = await stability.generate_image(
+                                final_prompt,
+                                negative_prompt=negative,
+                                seed=job.seed,
+                                style_preset=params.style,
+                            )
+                            blob = st_res.image_bytes
+                            provider_tag = st_res.provider
+                        else:
+                            raise RuntimeError("No cloud image provider is configured.")
+
                         file_path = store / f"HINAA_{job.id}_{job.seed}.png"
                         file_path.write_bytes(blob)
                         job.file_path = str(file_path)
-                        job.comfy_prompt_id = result.provider
+                        job.comfy_prompt_id = provider_tag
                         job.status = "completed"
                         job.completed_at = datetime.now(timezone.utc)
                         session.commit()

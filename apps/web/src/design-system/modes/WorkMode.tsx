@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo, memo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   ThumbsUp,
@@ -781,6 +781,7 @@ export function WorkMode({
             }
           })()
         }
+        isDark={isDark}
       />
     );
   };
@@ -1687,10 +1688,9 @@ export function WorkMode({
           onClearTopic={() => setLocalTopic("")}
           onOpenModelSelector={onOpenSettings}
           discoveredModels={discoveredModels}
-          discoveredProviders={discoveredProviders}
-          selectedModelId={activeProviderModel ?? null}
+          selectedModelId={activeProviderMode === "auto" ? null : (activeProviderModel ?? null)}
           selectedProviderId={activeProviderMode ?? null}
-          isAutoRouter={!activeProviderModel}
+          isAutoRouter={activeProviderMode === "auto" || !activeProviderModel}
           backendConnected={backendConnected}
           onSelectAuto={() => onSelectProvider?.("auto")}
           onSelectModel={(model: DiscoveredModel) => onSelectProvider?.(model.provider, model.id)}
@@ -1712,7 +1712,7 @@ export function WorkMode({
 }
 
 /* ── Message Component ───────────────────────────────────── */
-export function WorkMessage({
+export const WorkMessage = React.memo(function WorkMessage({
   message,
   isStreaming,
   isThinkingLive,
@@ -1792,14 +1792,12 @@ export function WorkMessage({
     if (!message.toolResults || message.toolResults.length === 0) return null;
     const externalTools = message.toolResults.filter((tr) => {
       if (tr.toolName === "web_search") return false;
-      // If an interactive ImageJobCard is already rendering this image generation draft,
-      // don't render a duplicate card from toolResults
+      // Image jobs are rendered cleanly by ImageJobCard below
       if (
-        message.actionDraft?.intent === "image.job" &&
-        (tr.toolName === "image_generate" ||
-          tr.toolName === "magnific_image_generate" ||
-          tr.toolName === "freepik_image_generate" ||
-          tr.toolName === "comfy_ui")
+        tr.toolName === "image_generate" ||
+        tr.toolName === "magnific_image_generate" ||
+        tr.toolName === "freepik_image_generate" ||
+        tr.toolName === "comfy_ui"
       ) {
         return false;
       }
@@ -1817,7 +1815,34 @@ export function WorkMessage({
 
   // Render interactive action objects (Reminder, Image Job, Split) directly in the thread
   const renderActionObject = () => {
-    const draft = message.actionDraft;
+    let draft = message.actionDraft;
+    if (!draft) {
+      const imageResult = message.toolResults?.find(
+        (tr) =>
+          tr.toolName === "image_generate" ||
+          tr.toolName === "magnific_image_generate" ||
+          tr.toolName === "freepik_image_generate"
+      );
+      if (imageResult) {
+        const res = imageResult.result;
+        const resUrl = res?.images?.[0] || res?.resultUrl || res?.thumbnailUrl || "";
+        draft = {
+          intent: "image.job",
+          status: "success",
+          fields: {
+            data: {
+              prompt: res?.prompt || "",
+              stage: "saved",
+              isSearchFallback: false,
+              thumbnailUrl: resUrl,
+              resultUrl: resUrl,
+              images: res?.images || (resUrl ? [resUrl] : []),
+              model: res?.mode || "FLUX.1 [dev]",
+            },
+          },
+        } as any;
+      }
+    }
     if (!draft) return null;
     return (
       <div style={{ marginTop: 8, paddingLeft: isUser ? 0 : 34, width: "100%", maxWidth: 540 }}>
@@ -2119,7 +2144,7 @@ export function WorkMessage({
       {!isUser && renderToolResults()}
     </div>
   );
-}
+});
 
 
 function StatusDot({ state }: { state: CompanionState }) {

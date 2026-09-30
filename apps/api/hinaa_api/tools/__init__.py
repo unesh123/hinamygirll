@@ -17,5 +17,7 @@ from . import website_design
 from . import github_tools
 from . import reminder
 from . import terminal_hands
+from . import browser_cloud
+from . import customgpt
 
 __all__ = ["registry"]
