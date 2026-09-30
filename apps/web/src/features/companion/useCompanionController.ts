@@ -264,13 +264,11 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         const restored = restoreMessages(storedMessages);
         if (restored && restored.length > 0) {
           setMessages(restored);
-          processedToolMessageIds.current = new Set(restored.map((m) => m.id));
           return;
         }
       } catch {}
       const fallbackGreeting = [createMessage("assistant", companionProfiles[companionId]?.greeting ?? companionProfiles.hinaa.greeting)];
       setMessages(fallbackGreeting);
-      processedToolMessageIds.current = new Set(fallbackGreeting.map((m) => m.id));
     }
   }, [conversationId, companionId]);
 
@@ -285,7 +283,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const provider = useRef(new MockConversationProvider());
   const currentAbort = useRef<AbortController | undefined>(undefined);
   const timers = useRef<number[]>([]);
-  const processedToolMessageIds = useRef<Set<string>>(new Set(messages.map((m) => m.id)));
+  const processedToolMessageIds = useRef<Set<string>>(new Set());
   // Confirmation-gated actions must be idempotent at the interaction layer.
   // A double click, touch event replay, or a transient rerender may not submit
   // the same external request twice or append duplicate terminal result cards.
@@ -1050,7 +1048,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               ...message,
               toolActivity: toolRequests.map((request) => ({
                 id: request.toolName,
-                status: "pending" as const,
+                status: autoRunTools ? ("running" as const) : ("pending" as const),
                 label: autoRunTools
                   ? `Auto-running: ${request.toolName}`
                   : `Proposed action: ${request.toolName}`,

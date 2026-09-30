@@ -94,6 +94,7 @@ def _run(monkeypatch, cloud, tmp_path, **params_kw):
     factory = _db(monkeypatch)
     monkeypatch.setattr(image_generate, "_image_store", lambda: tmp_path)
     monkeypatch.setattr(image_generate, "MagnificProvider", lambda _settings: cloud)
+    monkeypatch.setattr("hinaa_api.providers.stability_ai.StabilityAIProvider.available", lambda self: False)
     asyncio.run(image_generate.run_image_job("set-1", _params(**params_kw)))
     with factory() as session:
         return session.query(ImageJob).one()

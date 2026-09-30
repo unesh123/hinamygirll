@@ -422,74 +422,60 @@ function VrmRig({
 
     // Expressions — face presets + jaw lip-sync + blink.
     const weights = buildVrmExpressionWeights(frameInput);
-    if (perf.lipSync.aa > 0) weights.aa = Math.max(weights.aa, perf.lipSync.aa);
-    if (perf.lipSync.ih > 0) weights.ih = Math.max(weights.ih, perf.lipSync.ih);
-    if (perf.lipSync.ou > 0) weights.ou = Math.max(weights.ou, perf.lipSync.ou);
-    if (perf.lipSync.ee > 0) weights.ee = Math.max(weights.ee, perf.lipSync.ee);
-    if (perf.lipSync.oh > 0) weights.oh = Math.max(weights.oh, perf.lipSync.oh);
+    
+    // Lip-sync: prioritize sophisticated LipSyncRuntime blendshapes, with clean syllable fallback
+    const hasLipSyncVowels =
+      perf.lipSync.aa > 0 || perf.lipSync.ih > 0 || perf.lipSync.ou > 0 || perf.lipSync.ee > 0 || perf.lipSync.oh > 0;
 
-    // Audio energy dynamic lipsync fallback for all VRM models (VRM 0.0 & 1.0)
-    if (isSpeaking && liveJaw > 0.025) {
-      const jawVowel = Math.min(0.9, liveJaw * 1.7);
-      if (weights.aa === 0 && weights.oh === 0 && weights.ih === 0 && weights.ee === 0 && weights.ou === 0) {
-        // Dynamic syllable-based vowel cycle synced to speech energy
-        const vowelCycle = Math.floor((time * 8.5) % 5);
-        if (vowelCycle === 0) {
-          weights.aa = jawVowel;
-        } else if (vowelCycle === 1) {
-          weights.oh = jawVowel * 0.85;
-        } else if (vowelCycle === 2) {
-          weights.ih = jawVowel * 0.75;
-        } else if (vowelCycle === 3) {
-          weights.ee = jawVowel * 0.7;
-        } else {
-          weights.ou = jawVowel * 0.8;
-        }
-      }
+    if (hasLipSyncVowels) {
+      weights.aa = perf.lipSync.aa;
+      weights.ih = perf.lipSync.ih;
+      weights.ou = perf.lipSync.ou;
+      weights.ee = perf.lipSync.ee;
+      weights.oh = perf.lipSync.oh;
+    } else if (isSpeaking && liveJaw > 0.025) {
+      // Dynamic syllable-based vowel cycle synced to speech energy (avoiding all-vowel mesh distortion)
+      const jawVowel = Math.min(0.85, liveJaw * 1.6);
+      const vowelCycle = Math.floor((time * 8.5) % 5);
+      weights.aa = vowelCycle === 0 ? jawVowel : 0;
+      weights.oh = vowelCycle === 1 ? jawVowel * 0.85 : 0;
+      weights.ih = vowelCycle === 2 ? jawVowel * 0.75 : 0;
+      weights.ee = vowelCycle === 3 ? jawVowel * 0.7 : 0;
+      weights.ou = vowelCycle === 4 ? jawVowel * 0.8 : 0;
+    } else {
+      weights.aa = 0;
+      weights.ih = 0;
+      weights.ou = 0;
+      weights.ee = 0;
+      weights.oh = 0;
     }
 
     const manager = vrm.expressionManager;
     if (manager) {
       try {
+        // VRM 1.0 standard keys (and mapped VRM 0.0 equivalents inside @pixiv/three-vrm)
         for (const key of VRM_EXPRESSION_KEYS) {
           manager.setValue(key, weights[key]);
         }
         const effectiveJawOpen = Math.max(perf.lipSync.jawOpen, liveJaw > 0.025 ? Math.min(0.85, liveJaw * 1.5) : 0);
-        if (effectiveJawOpen > 0) {
-          try {
-            manager.setValue("jawOpen", effectiveJawOpen);
-          } catch {}
-        }
-        // Map to VRM 0.0 uppercase vowel presets if present on the model
-        if (weights.aa > 0) {
-          try { manager.setValue("A" as any, weights.aa); } catch {}
-        }
-        if (weights.ih > 0) {
-          try { manager.setValue("I" as any, weights.ih); } catch {}
-        }
-        if (weights.ou > 0) {
-          try { manager.setValue("U" as any, weights.ou); } catch {}
-        }
-        if (weights.ee > 0) {
-          try { manager.setValue("E" as any, weights.ee); } catch {}
-        }
-        if (weights.oh > 0) {
-          try { manager.setValue("O" as any, weights.oh); } catch {}
-        }
-        // Map to VRM 0.0 emotion presets if present
-        if (weights.happy > 0) {
-          try { manager.setValue("Joy" as any, weights.happy); } catch {}
-          try { manager.setValue("Fun" as any, weights.happy); } catch {}
-        }
-        if (weights.angry > 0) {
-          try { manager.setValue("Angry" as any, weights.angry); } catch {}
-        }
-        if (weights.sad > 0) {
-          try { manager.setValue("Sorrow" as any, weights.sad); } catch {}
-        }
-        if (weights.blink > 0) {
-          try { manager.setValue("Blink" as any, weights.blink); } catch {}
-        }
+        try {
+          manager.setValue("jawOpen", effectiveJawOpen);
+        } catch {}
+
+        // Map to VRM 0.0 presets UNCONDITIONALLY so expressions and vowels actively close/release to 0
+        try { manager.setValue("A" as any, weights.aa); } catch {}
+        try { manager.setValue("I" as any, weights.ih); } catch {}
+        try { manager.setValue("U" as any, weights.ou); } catch {}
+        try { manager.setValue("E" as any, weights.ee); } catch {}
+        try { manager.setValue("O" as any, weights.oh); } catch {}
+        try { manager.setValue("Joy" as any, weights.happy); } catch {}
+        try { manager.setValue("Fun" as any, weights.happy); } catch {}
+        try { manager.setValue("Angry" as any, weights.angry); } catch {}
+        try { manager.setValue("Sorrow" as any, weights.sad); } catch {}
+        try { manager.setValue("Surprised" as any, weights.surprised); } catch {}
+        try { manager.setValue("Blink" as any, weights.blink); } catch {}
+        try { manager.setValue("Blink_L" as any, weights.blinkLeft); } catch {}
+        try { manager.setValue("Blink_R" as any, weights.blinkRight); } catch {}
         manager.update();
       } catch {
         // Expression API drift — never let it break the frame.

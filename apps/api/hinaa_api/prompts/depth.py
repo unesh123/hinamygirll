@@ -56,10 +56,6 @@ _VISUAL_ASK = re.compile(
     re.IGNORECASE,
 )
 
-_CASUAL_QUERY = re.compile(
-    r"^(?:what is|what's|who is|who's|tell me about|what are|why is|why are|meaning of)\s+[^?!.]{1,40}\??$",
-    re.IGNORECASE,
-)
 
 
 _MODE_DEPTH: dict[str, ResponseDepth] = {
@@ -143,8 +139,6 @@ def infer_response_depth(
             return mapped
     if len(text) <= 12 or _CLARIFY.match(text):
         return "clarification" if len(text) <= 8 else "minimal"
-    if _CASUAL_QUERY.match(text):
-        return "conversational"
     if _REPORT.search(text):
         return "report"
     if _PROCEDURAL.search(text):
@@ -185,7 +179,8 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "because he asked to be explained to, not summarised. Cover every part of the question, give the "
             "concrete details that make it actionable, and finish with what he can do next. Do not pad, but do "
             "not stop early and do not hand back an outline with one line under each heading. "
-            "Conclude naturally with an invitation for relevant next steps or deeper exploration if appropriate."
+            "MANDATORY LAST LINE: finish the answer by asking him, in one short sentence, whether you "
+            "should write this up as a full documented report. He should never have to ask twice."
         ),
         "procedural": "Give clear ordered steps with complete code or commands. Be thorough and actionable.",
         "report": (
