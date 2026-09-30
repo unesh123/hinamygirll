@@ -3316,6 +3316,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    @app.post("/v1/documents/pptx")
+    @app.post("/api/v1/documents/pptx")
+    async def export_document_pptx(body: DocumentPdfBody) -> Response:
+        """Render any markdown document into an executive 16:9 PowerPoint (.pptx) presentation deck."""
+        from fastapi.responses import Response as _Response
+        from .artifacts.document_ast import DocumentParser
+        from .artifacts.exporters.pptx_exporter import PptxExporter
+        from .documents.pdf import safe_filename
+        try:
+            parser = DocumentParser()
+            doc_ast = parser.parse(body.markdown, title=body.title or "Executive Briefing")
+            exporter = PptxExporter()
+            data = exporter.export(doc_ast)
+        except HTTPException:
+            raise
+        except Exception as error:
+            logger.exception("PPTX rendering failed")
+            raise HinaaError(
+                "DOCUMENT_PPTX_FAILED",
+                f"The presentation deck could not be rendered ({type(error).__name__}).",
+                500,
+                True,
+                False,
+            ) from error
+        if not data or len(data) > 50_000_000:
+            raise HTTPException(status_code=413, detail="Presentation deck too large to render")
+        raw_name = safe_filename(body.title)
+        filename = raw_name[:-4] + ".pptx" if raw_name.lower().endswith(".pdf") else f"{raw_name}.pptx"
+        return _Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+
     @app.post("/v1/vision/observe")
     @app.post("/api/v1/vision/observe")
     async def observe_vision_frame(body: VisionObserveBody):

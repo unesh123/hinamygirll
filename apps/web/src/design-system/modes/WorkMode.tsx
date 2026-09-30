@@ -25,11 +25,12 @@ import {
   Target,
   X,
   FileDown,
+  Presentation,
   Loader2,
   Eye,
 } from "lucide-react";
 import { useLiveVision } from "../../features/vision/useLiveVision";
-import { downloadMarkdownPdf } from "../../features/documents/exportPdf";
+import { downloadMarkdownPdf, downloadMarkdownPptx } from "../../features/documents/exportPdf";
 import { useAutoScroll } from "../../features/chat/hooks/useAutoScroll";
 import type { CompanionId, CompanionState, TranscriptMessage } from "../../features/companion/types";
 import type { ProviderHealth } from "../../features/providers/types/provider";
@@ -1734,6 +1735,7 @@ export const WorkMessage = React.memo(function WorkMessage({
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingPptx, setExportingPptx] = useState(false);
 
   const plan = message.plan;
   const answeredBy = plan?.resolvedModel || plan?.resolvedProvider || null;
@@ -1767,6 +1769,20 @@ export const WorkMessage = React.memo(function WorkMessage({
       console.error("Failed to export PDF:", err);
     } finally {
       setExportingPdf(false);
+    }
+  };
+
+  const handleExportPptx = async () => {
+    try {
+      setExportingPptx(true);
+      const textToExport = cleanText || message.text;
+      const titleMatch = textToExport.match(/^#{1,3}\s+(.+)$/m);
+      const title = titleMatch ? titleMatch[1].trim() : "HINAA Keynote";
+      await downloadMarkdownPptx(title, textToExport);
+    } catch (err) {
+      console.error("Failed to export PowerPoint presentation:", err);
+    } finally {
+      setExportingPptx(false);
     }
   };
 
@@ -1968,6 +1984,31 @@ export const WorkMessage = React.memo(function WorkMessage({
               >
                 {exportingPdf ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
                 <span>PDF</span>
+              </button>
+            )}
+            {(cleanText || message.text).length > 80 && (
+              <button
+                type="button"
+                onClick={handleExportPptx}
+                disabled={exportingPptx}
+                title="Download 16:9 PowerPoint presentation deck (< 1s)"
+                data-testid="message-export-pptx-btn"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: exportingPptx ? "var(--accent, #6366f1)" : (isDark ? "rgba(255, 255, 255, 0.6)" : "#94a3b8"),
+                  cursor: exportingPptx ? "wait" : "pointer",
+                  padding: 4,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 11,
+                  fontWeight: 650,
+                  transition: "color 0.15s ease",
+                }}
+              >
+                {exportingPptx ? <Loader2 size={12} className="animate-spin" /> : <Presentation size={12} />}
+                <span>Slides</span>
               </button>
             )}
             <button

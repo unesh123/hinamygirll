@@ -114,12 +114,13 @@ class _HinaaDoc(FPDF):
         self.cell(110, 5, self.footer_sanitize(f"{self.footer_note} | AUTONOMOUS AGENT SYSTEM"), align="L")
         self.set_font(self.footer_family, "B", 7.5)
         self.set_text_color(100, 116, 139)
-        self.cell(68, 5, self.footer_sanitize(f"PAGE {self.page_no()}"), align="R")
+        self.cell(68, 5, self.footer_sanitize(f"PAGE {self.page_no()} OF {{nb}}"), align="R")
 
 
 def render_markdown_pdf(markdown: str, *, title: str = "HINAA Report", subtitle: str | None = None) -> bytes:
     """Render markdown into an executive publication-grade A4 PDF; returns the file bytes."""
     pdf = _HinaaDoc(orientation="P", format="A4")
+    pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.set_margins(16, 16, 16)
 
@@ -305,6 +306,10 @@ def render_markdown_pdf(markdown: str, *, title: str = "HINAA Report", subtitle:
         if heading:
             level = len(heading.group(1))
             text = _inline(heading.group(2))
+            try:
+                pdf.start_section(sanitize(text), level=min(level - 1, 2))
+            except Exception:
+                pass
             if level == 1:
                 if pdf.will_page_break(18):
                     pdf.add_page()

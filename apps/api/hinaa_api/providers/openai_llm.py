@@ -238,6 +238,7 @@ def _custom_text_from_raw(raw: str) -> str:
 # `response_format: json_object` is a 400 on several of them, and
 # `max_completion_tokens` is ignored, which silently drops the output budget.
 _GATEWAY_PROVIDERS = {
+    "codecraft",
     "custom",
     "cx-gateway",
     "claude",

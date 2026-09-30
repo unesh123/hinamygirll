@@ -544,3 +544,17 @@ class TestArtifactEndpoints:
         )
         assert pkg_resp.status_code == 200
         assert pkg_resp.content.startswith(b"PK")
+
+    def test_direct_document_pptx_endpoint(self, client: TestClient):
+        resp = client.post(
+            "/v1/documents/pptx",
+            json={
+                "title": "Frontier Blueprint",
+                "markdown": "# Architecture\n\n## Performance\n- **Throughput**: 100k req/s\n- **Latency**: 12ms\n\n## Pipeline\n- Step 1: Input\n- Step 2: Output\n",
+            },
+        )
+        assert resp.status_code == 200
+        assert "presentation" in resp.headers["content-type"]
+        assert "frontier-blueprint.pptx" in resp.headers["content-disposition"]
+        assert resp.content.startswith(b"PK")
+        assert len(resp.content) > 1000

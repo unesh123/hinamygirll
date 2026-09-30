@@ -50,6 +50,20 @@ export const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiag
   const [renderError, setRenderError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"diagram" | "code">("diagram");
   const [copied, setCopied] = useState(false);
+  const [zoom, setZoom] = useState(1);
+
+  const handleExportSvg = () => {
+    if (!svgContent) return;
+    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "architecture-blueprint.svg";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
 
   useEffect(() => {
     ensureMermaidInit();
@@ -138,6 +152,51 @@ export const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiag
             </button>
           </div>
 
+          {/* Zoom & Canvas Controls */}
+          {viewMode === "diagram" && svgContent && (
+            <div className="flex items-center rounded-lg bg-slate-900 p-0.5 ring-1 ring-slate-800 text-[11px] font-mono text-slate-300">
+              <button
+                type="button"
+                onClick={() => setZoom((z) => Math.max(0.4, Math.round((z - 0.2) * 10) / 10))}
+                title="Zoom out"
+                className="px-1.5 py-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100"
+              >
+                -
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoom(1)}
+                title="Reset zoom"
+                className="px-1.5 py-0.5 rounded hover:bg-slate-800 text-[10px]"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoom((z) => Math.min(2.5, Math.round((z + 0.2) * 10) / 10))}
+                title="Zoom in"
+                className="px-1.5 py-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100"
+              >
+                +
+              </button>
+            </div>
+          )}
+
+          {/* Export SVG Button */}
+          {svgContent && (
+            <button
+              type="button"
+              onClick={handleExportSvg}
+              title="Download vector SVG blueprint"
+              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-slate-300 ring-1 ring-slate-800 transition hover:bg-slate-800 hover:text-slate-100"
+            >
+              <svg className="h-3.5 w-3.5 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              <span>SVG</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => void handleCopy()}
@@ -170,6 +229,7 @@ export const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiag
             {svgContent ? (
               <div
                 ref={containerRef}
+                style={{ transform: `scale(${zoom})`, transformOrigin: "top center", transition: "transform 0.15s ease" }}
                 className="mermaid-svg-container max-w-full [&>svg]:mx-auto [&>svg]:h-auto [&>svg]:max-w-full"
                 dangerouslySetInnerHTML={{ __html: svgContent }}
               />

@@ -1643,7 +1643,7 @@ class ConversationService:
         cached and casual chat silently uses Gemini, and if neither fast brain
         is available the configured reasoning brain answers as before.
         """
-        if mode not in {"cx-gateway", "agent-router"}:
+        if mode not in {"cx-gateway"}:
             return None
         if not is_casual_chat(text, history):
             return None
