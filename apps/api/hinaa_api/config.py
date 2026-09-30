@@ -1416,9 +1416,13 @@ class Settings(BaseSettings):
 
     @property
     def has_voice_provider(self) -> bool:
-        return self.elevenlabs_configured or (
-            bool(self.azure_speech_key and self.azure_speech_key.get_secret_value())
-            and bool(self.azure_speech_region)
+        return (
+            self.deepgram_configured
+            or self.elevenlabs_configured
+            or (
+                bool(self.azure_speech_key and self.azure_speech_key.get_secret_value())
+                and bool(self.azure_speech_region)
+            )
         )
 
     def missing_real_configuration(self) -> list[str]:

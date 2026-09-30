@@ -544,9 +544,15 @@ class RealtimeGateway:
             # Browser fallback speech needs the final complete spoken text. Real
             # configured voice output can safely begin on a stable clause while
             # later text continues to stream, as long as delivery remains ordered.
-            stream_real_audio = session.hello.providerMode in {
-                "real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen", "codecraft"
-            } or (session.hello.providerMode == "groq" and self.settings.azure_configured)
+            stream_real_audio = (
+                session.hello.providerMode not in {"mock", "local"}
+                and (
+                    self.settings.elevenlabs_configured
+                    or self.settings.azure_configured
+                    or self.settings.deepgram_configured
+                    or self.settings.fish_audio_configured
+                )
+            )
             streamed_delivery_tail: asyncio.Task[None] | None = None
 
             voice = resolve_voice(
@@ -602,8 +608,15 @@ class RealtimeGateway:
                         "provider": speech.provider,
                         "requestedVoice": voice,
                         "actualVoice": voice
-                        if session.hello.providerMode in {"real", "openai", "custom", "cx-gateway", "agent-router", "claude", "qwen", "codecraft"}
-                        or (session.hello.providerMode == "groq" and self.settings.azure_configured)
+                        if (
+                            session.hello.providerMode not in {"mock", "local"}
+                            and (
+                                self.settings.elevenlabs_configured
+                                or self.settings.azure_configured
+                                or self.settings.deepgram_configured
+                                or self.settings.fish_audio_configured
+                            )
+                        )
                         else f"{session.hello.providerMode}-tone",
                         "calibration": session.hello.calibration,
                         "voiceMode": voice_plan.mode,

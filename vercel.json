@@ -7,15 +7,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://mentor-mix-association-bush.trycloudflare.com/api/:path*"
+      "destination": "https://competitive-runner-expires-henry.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://mentor-mix-association-bush.trycloudflare.com/v1/:path*"
+      "destination": "https://competitive-runner-expires-henry.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://mentor-mix-association-bush.trycloudflare.com/health"
+      "destination": "https://competitive-runner-expires-henry.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",
