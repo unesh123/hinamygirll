@@ -412,6 +412,17 @@ class Settings(BaseSettings):
     # Drives the Magnific second pass for `quality`-tier /image requests.
     magnific_upscale_default: bool = Field(True, alias="MAGNIFIC_UPSCALE_DEFAULT")
 
+    # ProdCamp / Feedback1 — product roadmap, feature requests, and user feedback
+    prodcamp_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("PRODCAMP_API_KEY", "ProdCamp_API_KEY"),
+    )
+    prodcamp_base_url: str = Field(
+        "https://app.prodcamp.com/api/v1",
+        validation_alias=AliasChoices("PRODCAMP_BASE_URL", "ProdCamp_BASE_URL"),
+    )
+    prodcamp_timeout_seconds: float = Field(30.0, alias="PRODCAMP_TIMEOUT_SECONDS")
+
     azure_speech_female_voice: str = Field("hi-IN-SwaraNeural", alias="AZURE_SPEECH_FEMALE_VOICE")
     azure_speech_male_voice: str = Field("hi-IN-MadhurNeural", alias="AZURE_SPEECH_MALE_VOICE")
     elevenlabs_api_key: SecretStr | None = Field(None, alias="ELEVENLABS_API_KEY")

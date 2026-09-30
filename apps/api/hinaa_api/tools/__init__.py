@@ -19,5 +19,6 @@ from . import reminder
 from . import terminal_hands
 from . import browser_cloud
 from . import customgpt
+from . import prodcamp
 
 __all__ = ["registry"]

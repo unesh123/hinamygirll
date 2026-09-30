@@ -3353,6 +3353,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/v1/prodcamp/features")
+    @app.get("/api/v1/prodcamp/features")
+    async def get_prodcamp_features(status: str | None = None, search: str | None = None, limit: int = 20):
+        """Retrieve features and roadmap from ProdCamp."""
+        from .tools.prodcamp import prodcamp_list_features, ListFeaturesParams
+        result = await prodcamp_list_features(ListFeaturesParams(status=status, search=search, limit=limit))
+        return {"result": result}
+
+    @app.post("/v1/prodcamp/feedback")
+    @app.post("/api/v1/prodcamp/feedback")
+    async def post_prodcamp_feedback(request: Request):
+        """Submit feedback or feature requests into ProdCamp."""
+        body = await request.json()
+        from .tools.prodcamp import prodcamp_submit_feedback, SubmitFeedbackParams
+        result = await prodcamp_submit_feedback(
+            SubmitFeedbackParams(
+                content=body.get("content", ""),
+                account_name=body.get("accountName") or body.get("account_name"),
+                source_url=body.get("sourceUrl") or body.get("source_url"),
+            )
+        )
+        return {"result": result}
+
+    @app.post("/v1/prodcamp/features")
+    @app.post("/api/v1/prodcamp/features")
+    async def post_prodcamp_feature(request: Request):
+        """Create a new roadmap feature in ProdCamp."""
+        body = await request.json()
+        from .tools.prodcamp import prodcamp_create_feature, CreateFeatureParams
+        result = await prodcamp_create_feature(
+            CreateFeatureParams(
+                name=body.get("name", ""),
+                status_caption=body.get("statusCaption") or body.get("status_caption") or "Backlog",
+                priority_caption=body.get("priorityCaption") or body.get("priority_caption") or "Normal",
+                is_public=body.get("isPublic", True),
+            )
+        )
+        return {"result": result}
+
     @app.post("/v1/vision/observe")
     @app.post("/api/v1/vision/observe")
     async def observe_vision_frame(body: VisionObserveBody):
