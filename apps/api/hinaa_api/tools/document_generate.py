@@ -163,6 +163,7 @@ async def document_generate_handler(params: GenerateDocumentParams) -> dict[str,
         mime_type = "text/markdown"
         provider = "local-markdown-engine"
 
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(output_bytes)
     file_size_bytes = len(output_bytes)
     file_size_kb = round(file_size_bytes / 1024, 1)

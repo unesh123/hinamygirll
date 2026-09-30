@@ -1643,7 +1643,7 @@ class ConversationService:
         cached and casual chat silently uses Gemini, and if neither fast brain
         is available the configured reasoning brain answers as before.
         """
-        if mode not in {"cx-gateway"}:
+        if mode not in {"cx-gateway", "agent-router"}:
             return None
         if not is_casual_chat(text, history):
             return None
@@ -1663,8 +1663,9 @@ class ConversationService:
                     model,
                 )
                 return OpenAILLMProvider(key.get_secret_value(), model)
-        # 2) Gemini flash as the fast brain when OpenAI is unavailable.
-        if self.settings.gemini_configured and not self._fast_key_bad("gemini"):
+        # 2) Gemini flash as the fast brain when OpenAI is unavailable (for cx-gateway only;
+        # agent-router already runs agnes-2.5-flash and must not stall on 503-unavailable Gemini).
+        if mode != "agent-router" and self.settings.gemini_configured and not self._fast_key_bad("gemini"):
             key = self.settings.gemini_api_key
             if key is not None:
                 model = self.settings.gemini_model
