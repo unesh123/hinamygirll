@@ -899,7 +899,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 memory_service,
                 authorization=request.headers.get("Authorization"),
                 x_hinaa_dev_user=request.headers.get("X-HINAA-Dev-User"),
-                allow_default_subject=not reached_through_edge(request),
+                allow_default_subject=active_settings.allow_tunnel_dev_auth or not reached_through_edge(request),
             )
         except HinaaError:
             return None
@@ -915,6 +915,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             memory_service,
             authorization=request.headers.get("Authorization"),
             x_hinaa_dev_user=request.headers.get("X-HINAA-Dev-User"),
+            allow_default_subject=active_settings.allow_tunnel_dev_auth or not reached_through_edge(request),
         )
 
     @asynccontextmanager
@@ -4052,7 +4053,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         agent_run = None
         owner_id = user_id or (
-            active_settings.dev_auth_subject if not reached_through_edge(request) else None
+            active_settings.dev_auth_subject
+            if (active_settings.allow_tunnel_dev_auth or not reached_through_edge(request))
+            else None
         )
         is_agent_request = (
             body.text.strip().startswith(("/deep", "/agent", "/plan", "/workflow"))

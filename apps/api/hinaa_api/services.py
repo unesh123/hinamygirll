@@ -4417,6 +4417,7 @@ class ConversationService:
                             content=candidate.content,
                             category=getattr(candidate, 'category', None) or "conversation",
                             source_turn_ref=f"auto:{request.conversationId or request.sessionId}",
+                            explicit=True,
                         )
                 except Exception:
                     logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
@@ -5172,6 +5173,7 @@ class ConversationService:
                             content=candidate.content,
                             category=getattr(candidate, 'category', None) or "conversation",
                             source_turn_ref=f"auto:{request.conversationId or request.sessionId}",
+                            explicit=True,
                         )
                 except Exception:
                     logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)

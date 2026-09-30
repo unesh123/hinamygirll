@@ -80,8 +80,8 @@ def resolve_auth(
     if mode == "dev":
         # The dev header is a self-declared name and its expected value ships in
         # the browser bundle, so it can only be trusted on a request that never
-        # left this machine or his LAN.
-        if reached_through_edge(request):
+        # left this machine or his LAN - UNLESS allow_tunnel_dev_auth is enabled.
+        if reached_through_edge(request) and not getattr(settings, "allow_tunnel_dev_auth", False):
             raise HinaaError(
                 "AUTH_REQUIRED",
                 "This HINAA instance is reachable from the internet, where the dev "
@@ -90,7 +90,7 @@ def resolve_auth(
                 True,
             )
         subject = (x_hinaa_dev_user or "").strip()
-        if not subject and allow_default_subject:
+        if not subject and (allow_default_subject or getattr(settings, "allow_tunnel_dev_auth", False)):
             subject = settings.dev_auth_subject.strip()
         # A network caller has to name itself. Falling back to the configured
         # subject made every anonymous request on the public URL the owner, and
@@ -210,6 +210,7 @@ def auth_dependency_factory(settings: Settings, memory: MemoryService):
             memory,
             authorization=authorization,
             x_hinaa_dev_user=x_hinaa_dev_user,
+            allow_default_subject=getattr(settings, "allow_tunnel_dev_auth", False),
         )
 
     return dependency

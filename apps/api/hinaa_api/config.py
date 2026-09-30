@@ -576,6 +576,8 @@ class Settings(BaseSettings):
     # Machine-touching tools (clipboard, screen, file I/O, process launch) stay on
     # the host until a verified session can replace the origin check. See tools/policy.py.
     allow_remote_local_tools: bool = Field(False, alias="HINAA_ALLOW_REMOTE_LOCAL_TOOLS")
+    allow_tunnel_dev_auth: bool = Field(False, alias="HINAA_ALLOW_TUNNEL_DEV_AUTH")
+    magnific_disabled: bool = Field(False, alias="HINAA_MAGNIFIC_DISABLED")
     clerk_jwt_key: str | None = Field(None, alias="CLERK_JWT_KEY")
     # Without a PEM, the Clerk SDK fetches this instance's public keys over the
     # network to verify session JWTs, so a secret key alone is enough to authenticate.
@@ -896,6 +898,8 @@ class Settings(BaseSettings):
 
     @property
     def magnific_configured(self) -> bool:
+        if self.magnific_disabled:
+            return False
         primary = self.magnific_api_key and self.magnific_api_key.get_secret_value().strip()
         fallback = self.freepik_api_key and self.freepik_api_key.get_secret_value().strip()
         return bool(primary or fallback)

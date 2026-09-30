@@ -25,6 +25,7 @@ import {
   loadConversationMessages,
   saveConversationMessages,
 } from "./sessionManager";
+import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { singleLine } from "../../lib/turnFailure";
 import { recordMotionState } from "./motionLedger";
 
@@ -277,6 +278,54 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     if (conversationId) saveConversationMessages(conversationId, messages);
     else localStorage.setItem(key, JSON.stringify(messages));
   }, [messages, conversationId, companionId]);
+
+  // Synchronize conversation messages from backend database for persistent continuity across reloads
+  useEffect(() => {
+    if (typeof conversationId !== "string" || !conversationId.trim()) return;
+    const targetConvoId: string = conversationId.trim();
+    let isCancelled = false;
+    async function syncBackendMessages() {
+      try {
+        const res = await fetch(`/api/v1/conversations/${encodeURIComponent(targetConvoId)}/messages?limit=100`, {
+          headers: { "X-HINAA-Dev-User": HINAA_DEV_USER },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const serverMessages: any[] = Array.isArray(data) ? data : data?.messages ?? [];
+        if (serverMessages.length > 0 && !isCancelled) {
+          const restored: TranscriptMessage[] = serverMessages.map((m) => {
+            const rawContent = m.content || m.text || "";
+            const plan = m.role === "assistant" && rawContent ? deserializeAssistantTurn(rawContent) : undefined;
+            return {
+              id: m.id || createId(),
+              role: m.role || "assistant",
+              text: plan ? getAssistantDisplayText(rawContent) : (m.text || m.content || ""),
+              content: rawContent,
+              plan,
+              createdAt: m.createdAt || m.created_at || new Date().toISOString(),
+              actionDraft: m.actionDraft || m.action_draft,
+              attachments: m.attachments,
+            };
+          });
+          if (restored.length > 0 && !isCancelled) {
+            setMessages((current) => {
+              if (current.length <= 1 || restored.length >= current.length) {
+                saveConversationMessages(targetConvoId, restored);
+                return restored;
+              }
+              return current;
+            });
+          }
+        }
+      } catch (err) {
+        // Non-blocking background sync
+      }
+    }
+    syncBackendMessages();
+    return () => {
+      isCancelled = true;
+    };
+  }, [conversationId]);
   const [partialTranscript, setPartialTranscript] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [activePlan, setActivePlan] = useState<AssistantTurnPlan>();

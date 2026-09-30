@@ -32,7 +32,9 @@ def _memory() -> MagicMock:
 
 
 def _dev_settings(**overrides) -> Settings:
-    return Settings(HINAA_AUTH_MODE="dev", HINAA_ALLOWED_USER_IDS="", **overrides)
+    opts = {"HINAA_AUTH_MODE": "dev", "HINAA_ALLOWED_USER_IDS": "", "HINAA_ALLOW_TUNNEL_DEV_AUTH": False}
+    opts.update(overrides)
+    return Settings(**opts)
 
 
 @pytest.mark.parametrize(
@@ -86,3 +88,16 @@ def test_clerk_mode_reports_missing_credentials_as_not_configured() -> None:
     with pytest.raises(HinaaError) as caught:
         resolve_auth(_request("hinaa-workspace.vercel.app"), settings, _memory())
     assert caught.value.code == "AUTH_NOT_CONFIGURED"
+
+
+def test_dev_identity_allowed_when_tunnel_dev_auth_enabled() -> None:
+    settings = _dev_settings(HINAA_ALLOW_TUNNEL_DEV_AUTH=True)
+    auth = resolve_auth(
+        _request("same-regulation-crafts-aims.trycloudflare.com", {}),
+        settings,
+        _memory(),
+        x_hinaa_dev_user="local-dev-user",
+    )
+    assert auth.mode == "dev"
+    assert auth.auth_subject == "local-dev-user"
+    assert auth.user_id == "user_owner_1"

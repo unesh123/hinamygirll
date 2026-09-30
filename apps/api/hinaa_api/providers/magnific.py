@@ -113,6 +113,9 @@ class MagnificImageResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+_magnific_quota_exhausted: bool = False
+
+
 class MagnificProvider:
     """Async client and creative fabric provider for Magnific / Freepik FLUX APIs."""
 
@@ -125,6 +128,16 @@ class MagnificProvider:
         self.settings = settings or get_settings()
         self._asset_store = asset_store
         self._resolver = resolver
+
+    @classmethod
+    def mark_quota_exhausted(cls, exhausted: bool = True) -> None:
+        global _magnific_quota_exhausted
+        _magnific_quota_exhausted = exhausted
+
+    @classmethod
+    def is_quota_exhausted(cls) -> bool:
+        global _magnific_quota_exhausted
+        return _magnific_quota_exhausted
 
     @property
     def asset_store(self) -> AssetStore:
@@ -148,6 +161,8 @@ class MagnificProvider:
         return value.strip() or None
 
     def available(self) -> bool:
+        if getattr(self.settings, "magnific_disabled", False) or _magnific_quota_exhausted:
+            return False
         return self.api_key is not None
 
     @property

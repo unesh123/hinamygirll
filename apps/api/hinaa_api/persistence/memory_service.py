@@ -455,17 +455,17 @@ class MemoryService:
             session.refresh(new_mem)
             return self._public_memory(old_mem), self._public_memory(new_mem)
 
-    def approved_memory_blocks(self, user_id: str, limit: int = 8) -> tuple[str, ...]:
+    def approved_memory_blocks(self, user_id: str, limit: int = 24) -> tuple[str, ...]:
         with self._factory() as session:
-            user = session.scalar(select(User).where(User.id == user_id))
+            user = session.scalar(select(User).where((User.id == user_id) | (User.auth_subject == user_id)))
             if user is None or not user.memory_enabled:
                 return ()
             rows = session.scalars(
                 select(ExplicitMemory)
                 .where(
-                    ExplicitMemory.user_id == user_id,
+                    (ExplicitMemory.user_id == user.id) | (ExplicitMemory.user_id == user_id),
                     ExplicitMemory.deleted_at.is_(None),
-                    ExplicitMemory.status == "approved",
+                    ExplicitMemory.status.in_(("approved", "pending")),
                     or_(ExplicitMemory.expires_at.is_(None), ExplicitMemory.expires_at > datetime.now(UTC)),
                 )
                 .order_by(ExplicitMemory.updated_at.desc())
@@ -721,8 +721,11 @@ class MemoryService:
         """Return recent conversations for a user, newest first."""
         with self._factory() as session:
             from sqlalchemy import func, select
-            from .orm import Conversation, Message
+            from .orm import Conversation, Message, User
             
+            u = session.scalar(select(User).where((User.id == user_id) | (User.auth_subject == user_id)))
+            target_user_id = u.id if u else user_id
+
             # Subquery for last message and count
             msg_count = (
                 select(func.count(Message.id))
@@ -734,7 +737,7 @@ class MemoryService:
             
             convos = (
                 session.query(Conversation)
-                .filter(Conversation.user_id == user_id)
+                .filter((Conversation.user_id == target_user_id) | (Conversation.user_id == user_id))
                 .filter(Conversation.ended_at.is_(None))
                 .order_by(Conversation.created_at.desc())
                 .offset(offset)
@@ -900,9 +903,11 @@ class MemoryService:
                     "id": m.id,
                     "role": m.role,
                     "content": display_text,
+                    "text": display_text,
                     "spoken_text": spoken_text,
                     "language": m.language,
                     "created_at": m.created_at.isoformat() if m.created_at else None,
+                    "createdAt": m.created_at.isoformat() if m.created_at else None,
                     "attachments": msg_attachments,
                     "action_draft": action_draft,
                     "actionDraft": action_draft,

@@ -472,6 +472,9 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                                     blob = await cloud.download(source)
                                 provider_tag = result.provider
                             except Exception as m_err:
+                                err_str = str(m_err).lower()
+                                if any(term in err_str for term in ("credit", "plan", "quota", "balance", "insufficient", "payment", "402", "403", "429")):
+                                    cloud.mark_quota_exhausted(True)
                                 logger.warning(
                                     "Magnific/Freepik render failed (%s); failing over to Stability AI...",
                                     m_err,
