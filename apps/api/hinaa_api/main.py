@@ -1759,6 +1759,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "owner's prompts never leave the machine through it."
             )
 
+        # Probe XKiro AI Gateway if configured
+        xkiro_state = "unavailable"
+        xkiro_message = "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
+        if active_settings.xkiro_configured:
+            xkiro_probe = await probe_gateway_models(
+                active_settings.active_xkiro_base_url,
+                api_key=active_settings.active_xkiro_key.get_secret_value() if active_settings.active_xkiro_key else None,
+            )
+            if xkiro_probe.serving:
+                xkiro_state = "healthy"
+                probe_measured.add("xkiro")
+                xkiro_message = (
+                    f"XKiro AI is connected ({xkiro_probe.model_count} models serving; default: {active_settings.xkiro_model})."
+                )
+            else:
+                xkiro_state = "unavailable"
+                xkiro_message = f"XKiro AI probe failed: {xkiro_probe.detail}"
+
         statuses = [
             ProviderStatus(
                 id="mock",
@@ -1957,12 +1975,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"default-model:{active_settings.xkiro_model}",
                     *[f"model:{model}" for model in active_settings.xkiro_allowed_models],
                 ],
-                state="healthy" if active_settings.xkiro_configured else "unavailable",
-                userMessage=(
-                    f"XKiro AI is configured with default model {active_settings.xkiro_model}."
-                    if active_settings.xkiro_configured
-                    else "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
-                ),
+                state=xkiro_state,
+                userMessage=xkiro_message,
             ),
             ProviderStatus(
                 id="seekai",

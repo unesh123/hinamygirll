@@ -237,7 +237,18 @@ def _custom_text_from_raw(raw: str) -> str:
 # to treat them as such costs the owner a clipped or canned reply:
 # `response_format: json_object` is a 400 on several of them, and
 # `max_completion_tokens` is ignored, which silently drops the output budget.
-_GATEWAY_PROVIDERS = {"custom", "cx-gateway", "claude", "ollama", "omniroute"}
+_GATEWAY_PROVIDERS = {
+    "custom",
+    "cx-gateway",
+    "claude",
+    "ollama",
+    "omniroute",
+    "xkiro",
+    "pgsgrove",
+    "seekai",
+    "tokentable",
+    "cavoti",
+}
 
 
 class OpenAILLMProvider:

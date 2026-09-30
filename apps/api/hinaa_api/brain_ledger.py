@@ -45,6 +45,7 @@ LOCAL_BRAIN_PREFIXES = ("mock", "local")
 
 _lock = threading.Lock()
 _cache: dict[str, dict[str, Any]] | None = None
+_cache_mtime: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -68,14 +69,22 @@ def ledger_path() -> Path:
 
 
 def _read() -> dict[str, dict[str, Any]]:
-    global _cache
-    if _cache is not None:
+    global _cache, _cache_mtime
+    path = ledger_path()
+    try:
+        current_mtime = path.stat().st_mtime
+    except Exception:
+        current_mtime = 0.0
+
+    if _cache is not None and current_mtime <= _cache_mtime:
         return _cache
+
     outcomes: dict[str, dict[str, Any]] = {}
     try:
-        raw = json.loads(ledger_path().read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             outcomes = {k: v for k, v in raw.items() if isinstance(v, dict)}
+            _cache_mtime = current_mtime
     except FileNotFoundError:
         pass
     except Exception:  # a corrupt ledger must never break a status endpoint
@@ -85,7 +94,7 @@ def _read() -> dict[str, dict[str, Any]]:
 
 
 def _write(outcomes: dict[str, dict[str, Any]]) -> None:
-    global _cache
+    global _cache, _cache_mtime
     _cache = outcomes
     path = ledger_path()
     try:
@@ -93,6 +102,10 @@ def _write(outcomes: dict[str, dict[str, Any]]) -> None:
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(outcomes, sort_keys=True), encoding="utf-8")
         os.replace(tmp, path)
+        try:
+            _cache_mtime = path.stat().st_mtime
+        except Exception:
+            _cache_mtime = time.time()
     except Exception:  # a badge is never worth failing a turn over
         logger.warning("Brain ledger unwritable", exc_info=True)
 

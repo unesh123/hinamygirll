@@ -313,6 +313,10 @@ export function ModelControlBar({
                     { id: "qwen/qwen3.7-flash:free", label: "Qwen 3.7 Flash (Free)", isDefault: false },
                     { id: "qwen/qwen3.6-max-preview:free", label: "Qwen 3.6 Max Preview (Free)", isDefault: false },
                     { id: "qwen/qwen3.5-flash:free", label: "Qwen 3.5 Flash (Free)", isDefault: false },
+                    { id: "deepseek/deepseek-v4.1-flash:free", label: "DeepSeek V4.1 Flash (Free)", isDefault: false },
+                    { id: "minimax/minimax-m2.7:free", label: "MiniMax M2.7 (Free)", isDefault: false },
+                    { id: "qwen/qwen3-coder-plus:free", label: "Qwen 3 Coder Plus (Free)", isDefault: false },
+                    { id: "qwen/qwen3-vl-plus:free", label: "Qwen 3 VL Plus (Free)", isDefault: false },
                   ],
                   cavoti: [
                     { id: "claude-fable-5", label: "Claude Fable 5", isDefault: true },

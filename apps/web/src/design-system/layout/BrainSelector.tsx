@@ -23,9 +23,16 @@ interface ProviderMeta {
 
 const FEATURED_PROVIDERS: Record<string, ProviderMeta> = {
   auto: { label: "Auto", desc: "Intelligently routes to fastest healthy model", icon: "✨", featured: true },
-  "cx-gateway": { label: "CX Gateway", desc: "cx/gpt-5.6-sol — private premium gateway", icon: "⚡", featured: true },
-  real: { label: "Gemini", desc: "Google Gemini Multimodal Flash", icon: "🌐", featured: true },
+  xkiro: { label: "XKiro AI", desc: "api.xkiro.com — fast free Qwen 3.8 Max & frontier models", icon: "⚡", featured: true },
+  codecraft: { label: "CodeCraft AI", desc: "codecraftapi.com — Claude Fable 5 & frontier models", icon: "⚡", featured: true },
+  "cx-gateway": { label: "CX Gateway", desc: "cx/gpt-5.6-sol — private premium gateway", icon: "💎", featured: true },
+  pgsgrove: { label: "PGSGrove AI", desc: "api.pgsgrove.com — high-speed GLM-5.3 & DeepSeek V4.1", icon: "🌿", featured: true },
+  seekai: { label: "SeekAI", desc: "seekai.cc — DeepSeek & Claude multi-model gateway", icon: "🔍", featured: true },
+  tokentable: { label: "TokenTable", desc: "tokentable.asia — Claude Fable 5 & GPT-6 Astra", icon: "💎", featured: true },
+  cavoti: { label: "Cavoti AI", desc: "cavoti.com — Claude Fable 5, Opus 5, Haiku 4.5", icon: "✨", featured: true },
+  "agent-router": { label: "Agent Router", desc: "router.bynara.id — free & premium AI models", icon: "🔀", featured: true },
   claude: { label: "Claude", desc: "Anthropic Messages / Deep Reasoning", icon: "🧠", featured: true },
+  real: { label: "Gemini", desc: "Google Gemini Multimodal Flash", icon: "🌐", featured: true },
   qwen: { label: "Qwen", desc: "Multilingual & Coding Specialist", icon: "🏮", featured: true },
   ollama: { label: "Ollama (Local)", desc: "Fast uncensored local models (dolphin-mistral, etc.)", icon: "🦙", featured: true },
   local: { label: "Local", desc: "Zero-credit on-device model (offline)", icon: "💻", featured: true },
@@ -246,7 +253,7 @@ export function BrainSelector({
 
             {/* 2. Primary Providers List */}
             {providerOptions
-              .filter((opt) => ["cx-gateway", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
+              .filter((opt) => ["xkiro", "codecraft", "cx-gateway", "pgsgrove", "seekai", "tokentable", "cavoti", "agent-router", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
               .map((opt) => {
                 const isSelected = opt.mode === currentMode;
                 const meta = FEATURED_PROVIDERS[opt.mode] || { label: opt.label, desc: opt.description, icon: "🤖" };
@@ -434,7 +441,7 @@ export function BrainSelector({
             {showAdvanced && (
               <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
                 {providerOptions
-                  .filter((opt) => !["cx-gateway", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
+                  .filter((opt) => !["xkiro", "codecraft", "cx-gateway", "pgsgrove", "seekai", "tokentable", "cavoti", "agent-router", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
                   .map((opt) => {
                     const isSelected = opt.mode === currentMode;
                     return (
