@@ -34,6 +34,7 @@ from hinaa_api.artifacts import (
     MarkdownExporter,
     PdfExporter,
     PptxExporter,
+    SlideNode,
     XlsxExporter,
     parse_inline_spans,
 )
@@ -219,6 +220,57 @@ class TestExporters:
             pres_xml = zf.read("ppt/presentation.xml").decode("utf-8")
             assert "p:presentation" in pres_xml
 
+    def test_pptx_exporter_advanced_layouts(self):
+        doc = DocumentAST(title="Executive Keynote")
+        # Slide 1: Title
+        doc.slides.append(SlideNode(title="HINAA Keynote", subtitle="AI 2026", layout="title"))
+        # Slide 2: Stat Metrics (KPI Dashboard)
+        doc.slides.append(SlideNode(
+            title="Performance Metrics",
+            bullets=[
+                "99.9% Uptime: Enterprise SLA guarantee",
+                "< 120ms Latency: Sub-human reaction threshold",
+                "25+ Models: Multi-provider failover routing",
+                "60 FPS Lip-Sync: Direct WebGL viseme blending",
+            ]
+        ))
+        # Slide 3: Process Flow (Pipeline)
+        doc.slides.append(SlideNode(
+            title="Execution Pipeline",
+            bullets=[
+                "Ingress Normalization: Realtime audio and text streaming",
+                "Multi-Agent Decomposition: Specialized agent routing",
+                "State Synthesis: Durable SQLite commit",
+            ]
+        ))
+        # Slide 4: Comparison
+        doc.slides.append(SlideNode(
+            title="Architecture Comparison: Legacy vs Frontier",
+            bullets=[
+                "Legacy: Monolithic single-turn responses",
+                "Frontier: Realtime multimodal avatar with persistent memory",
+            ]
+        ))
+
+        exporter = PptxExporter()
+        pptx_bytes = exporter.export(doc)
+        assert isinstance(pptx_bytes, bytes)
+        assert len(pptx_bytes) > 2000
+
+        buf = io.BytesIO(pptx_bytes)
+        with zipfile.ZipFile(buf, "r") as zf:
+            slide2_xml = zf.read("ppt/slides/slide2.xml").decode("utf-8")
+            assert "99.9%" in slide2_xml
+            assert "StatCard" in slide2_xml
+
+            slide3_xml = zf.read("ppt/slides/slide3.xml").decode("utf-8")
+            assert "PHASE 01" in slide3_xml
+            assert "Stage" in slide3_xml
+
+            slide4_xml = zf.read("ppt/slides/slide4.xml").decode("utf-8")
+            assert "LEGACY" in slide4_xml
+            assert "FRONTIER STANDARD" in slide4_xml
+
     def test_xlsx_exporter(self, parsed_doc: DocumentAST):
         exporter = XlsxExporter()
         xlsx_bytes = exporter.export(parsed_doc)
@@ -245,6 +297,28 @@ class TestExporters:
         assert isinstance(pdf_bytes, bytes)
         assert pdf_bytes.startswith(b"%PDF")
         assert len(pdf_bytes) > 1000
+
+    def test_pdf_exporter_executive_formatting(self):
+        from hinaa_api.documents.pdf import render_markdown_pdf
+        md = (
+            "# Executive Blueprint\n"
+            "> [!NOTE]\n"
+            "> Ingress payload passes security verification.\n\n"
+            "> [!TIP]\n"
+            "> Cache intermediate representations for 60 FPS animation loop.\n\n"
+            "| Service | Latency | Status |\n"
+            "|---|---|---|\n"
+            "| Realtime Voice | 120ms | Active |\n"
+            "| Brain Router | 180ms | Active |\n\n"
+            "```mermaid\n"
+            "graph TD\n"
+            "  User --> Gateway\n"
+            "```\n"
+        )
+        pdf_bytes = render_markdown_pdf(md, title="Executive Blueprint", subtitle="Confidential Specification")
+        assert isinstance(pdf_bytes, bytes)
+        assert pdf_bytes.startswith(b"%PDF")
+        assert len(pdf_bytes) > 2000
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,8 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import React, { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MermaidDiagram } from "./MermaidDiagram";
+import { LiveArtifactPreview } from "./LiveArtifactPreview";
 import "./ResponseMarkdown.css";
 
 /** No raw HTML or executable URL protocols may enter a conversation surface. */
@@ -14,6 +16,14 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   const block = useRef<HTMLPreElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  let detectedLang = "Code";
+  if (React.isValidElement(children)) {
+    const childClass = (children.props as any)?.className || "";
+    const match = /language-(\w+)/.exec(childClass);
+    if (match) detectedLang = match[1].toUpperCase();
+  }
+
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const copy = async () => {
     try {
@@ -28,7 +38,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   return (
     <div className="response-code-block">
       <div className="response-code-toolbar">
-        <span>Code</span>
+        <span className="font-mono text-[11px] font-semibold tracking-wider text-pink-400">{detectedLang}</span>
         <button type="button" onClick={() => void copy()} aria-label="Copy code">
           {copyState === "copied" ? "Copied ✓" : copyState === "failed" ? "Copy failed — retry" : "Copy code"}
         </button>
@@ -40,7 +50,33 @@ function CodeBlock({ children }: { children?: ReactNode }) {
 }
 
 const components: Components = {
-  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+  pre: ({ children }) => {
+    if (React.isValidElement(children)) {
+      const childProps = children.props as any;
+      const childClass = childProps?.className || "";
+      if (
+        childClass.includes("language-mermaid") ||
+        childClass.includes("language-html") ||
+        childClass.includes("language-svg")
+      ) {
+        return <>{children}</>;
+      }
+    }
+    return <CodeBlock>{children}</CodeBlock>;
+  },
+  code: ({ className, children, ...props }) => {
+    const match = /language-(\w+)/.exec(className || "");
+    const lang = match ? match[1].toLowerCase() : "";
+    const raw = String(children).replace(/\n$/, "");
+
+    if (lang === "mermaid") {
+      return <MermaidDiagram code={raw} />;
+    }
+    if (lang === "html" || lang === "svg") {
+      return <LiveArtifactPreview code={raw} language={lang} />;
+    }
+    return <code className={className} {...props}>{children}</code>;
+  },
   table: ({ children }) => <div className="response-table-scroll" role="region" aria-label="Response table" tabIndex={0}><table>{children}</table></div>,
   a: ({ href, children }) => href ? <a href={href} target={href.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">{children}</a> : <span>{children}</span>,
   // Model-authored image URLs remain explicit links; artifacts use the protected artifact UI.

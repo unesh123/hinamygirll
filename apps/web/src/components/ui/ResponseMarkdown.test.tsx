@@ -36,4 +36,16 @@ describe("ResponseMarkdown", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Unable to copy code"));
   });
+
+  it("renders Mermaid diagram block as an interactive architecture visualizer", () => {
+    render(<ResponseMarkdown text={'```mermaid\ngraph TD\n  Client --> Server\n```'} />);
+    expect(screen.getByText("Architecture Blueprint")).toBeInTheDocument();
+    expect(screen.getByText("Mermaid 2.0")).toBeInTheDocument();
+  });
+
+  it("renders HTML block with interactive sandbox preview toggle", () => {
+    render(<ResponseMarkdown text={'```html\n<div class="test">Hello World</div>\n```'} />);
+    expect(screen.getByText("Interactive Artifact")).toBeInTheDocument();
+    expect(screen.getByText("Preview")).toBeInTheDocument();
+  });
 });

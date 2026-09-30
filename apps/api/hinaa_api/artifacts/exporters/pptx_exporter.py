@@ -90,6 +90,33 @@ def _split_bullet_title(bullet: str) -> tuple[str, str]:
     return "", bullet.strip()
 
 
+def _parse_stat_bullet(bullet: str, idx: int) -> tuple[str, str, str]:
+    """Parse a bullet string into (metric_value, metric_label, metric_desc)."""
+    b = bullet.strip()
+    m_bold = re.match(r"^\*\*([^*]+)\*\*:?\s*(.*)$", b)
+    if m_bold:
+        target = m_bold.group(1).strip()
+        rest = m_bold.group(2).strip()
+    else:
+        parts = re.split(r"\s*[:—–-]\s*", b, maxsplit=1)
+        target = parts[0].strip()
+        rest = parts[1].strip() if len(parts) > 1 else ""
+
+    m_num = re.search(r"([<>~±]?\s*[$€£]?\d+[\d.,]*\s*(?:%|\+|ms|s|x|k|m|b|gb|fps|tps|req/s)?)", target, re.I)
+    if m_num:
+        val = m_num.group(1).strip()
+        lbl = target.replace(val, "").strip(" :—–-")
+        if not lbl and rest:
+            rest_words = rest.split()
+            lbl = " ".join(rest_words[:3])
+            desc = " ".join(rest_words[3:])
+        else:
+            desc = rest
+        return val, lbl or f"Metric 0{idx + 1}", desc or rest
+
+    return f"0{idx + 1}", target or f"Metric 0{idx + 1}", rest
+
+
 class PptxExporter(BaseExporter):
     """Generates standard Microsoft PowerPoint (.pptx) presentation decks with executive obsidian themes."""
 
@@ -198,6 +225,12 @@ class PptxExporter(BaseExporter):
 
         if is_title:
             return self._build_title_slide(slide, slide_idx, total_slides)
+        elif slide.layout in ("stat_metrics", "kpi") or self._is_stat_slide(slide):
+            return self._build_stat_metrics_slide(slide, slide_idx, total_slides)
+        elif slide.layout in ("process_flow", "pipeline", "architecture") or self._is_process_flow_slide(slide):
+            return self._build_process_flow_slide(slide, slide_idx, total_slides)
+        elif slide.layout in ("comparison", "versus") or self._is_comparison_slide(slide):
+            return self._build_comparison_slide(slide, slide_idx, total_slides)
         elif num_bullets == 2 or slide.layout == "two_column":
             return self._build_two_column_slide(slide, slide_idx, total_slides)
         elif num_bullets == 3:
@@ -206,6 +239,165 @@ class PptxExporter(BaseExporter):
             return self._build_four_card_slide(slide, slide_idx, total_slides)
         else:
             return self._build_content_slide(slide, slide_idx, total_slides)
+
+    def _is_stat_slide(self, slide: SlideNode) -> bool:
+        if len(slide.bullets) not in (2, 3, 4):
+            return False
+        title_l = (slide.title or "").lower()
+        if any(kw in title_l for kw in ("metric", "kpi", "benchmark", "performance", "results", "stats", "telemetry", "speed", "throughput", "latency")):
+            return True
+        stat_count = 0
+        for b in slide.bullets:
+            lead, _ = _split_bullet_title(b)
+            target = lead or b
+            if re.search(r"([<>~±]?\s*[$€£]?\d+[\d.,]*\s*(?:%|\+|ms|s|x|k|m|b|gb|fps|tps|req/s)?)", target, re.I):
+                stat_count += 1
+        return stat_count >= 2
+
+    def _is_process_flow_slide(self, slide: SlideNode) -> bool:
+        if len(slide.bullets) not in (3, 4):
+            return False
+        title_l = (slide.title or "").lower()
+        if any(kw in title_l for kw in ("pipeline", "architecture", "lifecycle", "workflow", "stages", "flow", "journey", "step-by-step")):
+            return True
+        step_count = sum(1 for b in slide.bullets if re.match(r"^\s*(?:step|phase|stage)\s*\d+", b, re.I))
+        return step_count >= 2
+
+    def _is_comparison_slide(self, slide: SlideNode) -> bool:
+        if len(slide.bullets) != 2:
+            return False
+        title_l = (slide.title or "").lower()
+        return any(kw in title_l for kw in ("vs", "versus", "comparison", "matrix", "trade-off", "tradeoff", "evaluation"))
+
+    # -----------------------------------------------------------------------
+    # Slide Layout: KPI Stat Metrics (Executive Performance Dashboard)
+    # -----------------------------------------------------------------------
+    def _build_stat_metrics_slide(self, slide: SlideNode, slide_idx: int, total_slides: int) -> str:
+        header_shapes = self._build_slide_header(2, slide.title)
+        footer_shapes = self._build_footer_shapes(5, slide_idx, total_slides)
+
+        n = min(len(slide.bullets), 4)
+        accent_colors = ["38BDF8", "34D399", "F472B6", "FBBF24"]
+
+        if n == 2:
+            card_width = 5050000
+            card_height = 4300000
+            x_offsets = [838200, 6303800]
+            y_offsets = [1750000, 1750000]
+        elif n == 3:
+            card_width = 3300000
+            card_height = 4300000
+            x_offsets = [838200, 4446000, 8053800]
+            y_offsets = [1750000, 1750000, 1750000]
+        else:
+            card_width = 5050000
+            card_height = 2050000
+            x_offsets = [838200, 6303800, 838200, 6303800]
+            y_offsets = [1750000, 1750000, 4000000, 4000000]
+
+        cards: list[str] = []
+        for idx, bullet in enumerate(slide.bullets[:n]):
+            shape_id = 10 + idx
+            stat_val, stat_lbl, stat_desc = _parse_stat_bullet(bullet, idx)
+            cards.append(self._render_stat_card(
+                shape_id=shape_id,
+                x=x_offsets[idx],
+                y=y_offsets[idx],
+                cx=card_width,
+                cy=card_height,
+                badge=f"BENCHMARK 0{idx + 1}",
+                stat_value=stat_val,
+                stat_label=stat_lbl,
+                stat_desc=stat_desc,
+                accent_color=accent_colors[idx % len(accent_colors)],
+            ))
+
+        return self._wrap_slide_tree(f"{header_shapes}\n{''.join(cards)}\n{footer_shapes}")
+
+    # -----------------------------------------------------------------------
+    # Slide Layout: Process Flow / Sequential Architecture Pipeline
+    # -----------------------------------------------------------------------
+    def _build_process_flow_slide(self, slide: SlideNode, slide_idx: int, total_slides: int) -> str:
+        header_shapes = self._build_slide_header(2, slide.title)
+        footer_shapes = self._build_footer_shapes(5, slide_idx, total_slides)
+
+        n = len(slide.bullets[:4])
+        if n == 3:
+            card_width = 3300000
+            card_height = 4300000
+            card_y = 1750000
+            x_offsets = [838200, 4446000, 8053800]
+            accent_colors = ["38BDF8", "A78BFA", "34D399"]
+        else:
+            card_width = 2450000
+            card_height = 4300000
+            card_y = 1750000
+            x_offsets = [838200, 3500000, 6161800, 8823600]
+            accent_colors = ["38BDF8", "818CF8", "C084FC", "34D399"]
+
+        cards: list[str] = []
+        for idx, bullet in enumerate(slide.bullets[:n]):
+            shape_id = 10 + idx
+            b_title, b_desc = _split_bullet_title(bullet)
+            card_title = b_title or f"Phase 0{idx + 1}"
+            card_desc = b_desc or bullet
+            cards.append(self._render_stage_card(
+                shape_id=shape_id,
+                x=x_offsets[idx],
+                y=card_y,
+                cx=card_width,
+                cy=card_height,
+                stage_num=idx + 1,
+                title=card_title,
+                desc=card_desc,
+                accent_color=accent_colors[idx % len(accent_colors)],
+            ))
+
+        return self._wrap_slide_tree(f"{header_shapes}\n{''.join(cards)}\n{footer_shapes}")
+
+    # -----------------------------------------------------------------------
+    # Slide Layout: Comparison / Trade-offs Matrix
+    # -----------------------------------------------------------------------
+    def _build_comparison_slide(self, slide: SlideNode, slide_idx: int, total_slides: int) -> str:
+        header_shapes = self._build_slide_header(2, slide.title)
+        footer_shapes = self._build_footer_shapes(5, slide_idx, total_slides)
+
+        card_width = 5050000
+        card_height = 4300000
+        card_y = 1750000
+        x_offsets = [838200, 6303800]
+
+        bullet1 = slide.bullets[0] if len(slide.bullets) > 0 else "Conventional Architecture"
+        bullet2 = slide.bullets[1] if len(slide.bullets) > 1 else "HINAA Frontier Standard"
+
+        b1_title, b1_desc = _split_bullet_title(bullet1)
+        b2_title, b2_desc = _split_bullet_title(bullet2)
+
+        card1 = self._render_card_shape(
+            shape_id=10,
+            x=x_offsets[0],
+            y=card_y,
+            cx=card_width,
+            cy=card_height,
+            badge="LEGACY // CONVENTIONAL BASELINE",
+            title=b1_title or "Conventional Baseline",
+            desc=b1_desc or bullet1,
+            accent_color="64748B",
+        )
+
+        card2 = self._render_card_shape(
+            shape_id=11,
+            x=x_offsets[1],
+            y=card_y,
+            cx=card_width,
+            cy=card_height,
+            badge="FRONTIER STANDARD // RECOMMENDED",
+            title=b2_title or "HINAA Autonomous Architecture",
+            desc=b2_desc or bullet2,
+            accent_color="38BDF8",
+        )
+
+        return self._wrap_slide_tree(f"{header_shapes}\n{card1}\n{card2}\n{footer_shapes}")
 
     # -----------------------------------------------------------------------
     # Slide Layout 1: Executive Title Slide
@@ -513,6 +705,121 @@ class PptxExporter(BaseExporter):
         return (
             '<p:sp>'
             f'<p:nvSpPr><p:cNvPr id="{shape_id}" name="Card {shape_id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+            '<p:spPr>'
+            f'<a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+            '<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 6000"/></a:avLst></a:prstGeom>'
+            '<a:solidFill><a:srgbClr val="161B26"/></a:solidFill>'
+            f'<a:ln w="15000"><a:solidFill><a:srgbClr val="334155"/></a:solidFill></a:ln>'
+            '</p:spPr>'
+            f'<p:txBody><a:bodyPr tIns="254000" bIns="254000" lIns="254000" rIns="254000" anchor="t"/><a:lstStyle/>'
+            f'{badge_xml}{title_xml}{desc_xml}'
+            '</p:txBody>'
+            '</p:sp>'
+        )
+
+    def _render_stat_card(
+        self,
+        shape_id: int,
+        x: int,
+        y: int,
+        cx: int,
+        cy: int,
+        badge: str,
+        stat_value: str,
+        stat_label: str,
+        stat_desc: str,
+        accent_color: str = "38BDF8",
+    ) -> str:
+        badge_xml = ""
+        if badge:
+            badge_xml = (
+                '<a:p>'
+                f'<a:r><a:rPr lang="en-US" sz="1100" b="1"><a:solidFill><a:srgbClr val="{accent_color}"/></a:solidFill></a:rPr>'
+                f'<a:t>{_escape(badge.upper())}</a:t></a:r>'
+                '</a:p>'
+            )
+
+        stat_xml = (
+            '<a:p>'
+            '<a:pPr spaceBefore="80000" spaceAfter="60000"/>'
+            f'<a:r><a:rPr lang="en-US" sz="4400" b="1"><a:solidFill><a:srgbClr val="{accent_color}"/></a:solidFill></a:rPr>'
+            f'<a:t>{_escape(stat_value)}</a:t></a:r>'
+            '</a:p>'
+        )
+
+        label_xml = (
+            '<a:p>'
+            '<a:pPr spaceAfter="40000"/>'
+            f'<a:r><a:rPr lang="en-US" sz="1600" b="1"><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill></a:rPr>'
+            f'<a:t>{_escape(stat_label)}</a:t></a:r>'
+            '</a:p>'
+        )
+
+        desc_xml = ""
+        if stat_desc:
+            desc_xml = (
+                '<a:p>'
+                f'<a:r><a:rPr lang="en-US" sz="1300"><a:solidFill><a:srgbClr val="94A3B8"/></a:solidFill></a:rPr>'
+                f'<a:t>{_escape(stat_desc)}</a:t></a:r>'
+                '</a:p>'
+            )
+
+        return (
+            '<p:sp>'
+            f'<p:nvSpPr><p:cNvPr id="{shape_id}" name="StatCard {shape_id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+            '<p:spPr>'
+            f'<a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+            '<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 6000"/></a:avLst></a:prstGeom>'
+            '<a:solidFill><a:srgbClr val="161B26"/></a:solidFill>'
+            f'<a:ln w="15000"><a:solidFill><a:srgbClr val="334155"/></a:solidFill></a:ln>'
+            '</p:spPr>'
+            f'<p:txBody><a:bodyPr tIns="254000" bIns="254000" lIns="254000" rIns="254000" anchor="t"/><a:lstStyle/>'
+            f'{badge_xml}{stat_xml}{label_xml}{desc_xml}'
+            '</p:txBody>'
+            '</p:sp>'
+        )
+
+    def _render_stage_card(
+        self,
+        shape_id: int,
+        x: int,
+        y: int,
+        cx: int,
+        cy: int,
+        stage_num: int,
+        title: str,
+        desc: str,
+        accent_color: str = "38BDF8",
+    ) -> str:
+        badge_xml = (
+            '<a:p>'
+            f'<a:r><a:rPr lang="en-US" sz="1100" b="1"><a:solidFill><a:srgbClr val="{accent_color}"/></a:solidFill></a:rPr>'
+            f'<a:t>PHASE 0{stage_num} // PIPELINE</a:t></a:r>'
+            '</a:p>'
+        )
+
+        title_xml = ""
+        if title:
+            title_xml = (
+                '<a:p>'
+                '<a:pPr spaceBefore="60000" spaceAfter="60000"/>'
+                f'<a:r><a:rPr lang="en-US" sz="1800" b="1"><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill></a:rPr>'
+                f'<a:t>{_escape(title)}</a:t></a:r>'
+                '</a:p>'
+            )
+
+        desc_xml = ""
+        if desc:
+            desc_xml = (
+                '<a:p>'
+                f'<a:r><a:rPr lang="en-US" sz="1300"><a:solidFill><a:srgbClr val="94A3B8"/></a:solidFill></a:rPr>'
+                f'<a:t>{_escape(desc)}</a:t></a:r>'
+                '</a:p>'
+            )
+
+        return (
+            '<p:sp>'
+            f'<p:nvSpPr><p:cNvPr id="{shape_id}" name="Stage {shape_id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
             '<p:spPr>'
             f'<a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
             '<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 6000"/></a:avLst></a:prstGeom>'
