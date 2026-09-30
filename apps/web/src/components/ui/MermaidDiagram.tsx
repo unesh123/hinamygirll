@@ -62,10 +62,11 @@ function ensureMermaidInit() {
   }
 }
 
-const INJECTED_SVG_STYLES = `
+function buildInjectedSvgStyles(renderId: string): string {
+  return `
   <style>
-    /* High contrast glowing node styling */
-    .node rect, .node circle, .node ellipse, .node polygon, .node path {
+    /* High contrast glowing node styling scoped to diagram #${renderId} */
+    #${renderId} .node rect, #${renderId} .node circle, #${renderId} .node ellipse, #${renderId} .node polygon, #${renderId} .node path {
       fill: #0b1528 !important;
       stroke: #38bdf8 !important;
       stroke-width: 2px !important;
@@ -73,8 +74,8 @@ const INJECTED_SVG_STYLES = `
       rx: 8px !important;
       ry: 8px !important;
     }
-    /* ALL text: nodes, labels, foreignObjects, spans, divs */
-    text, .label, .label text, .nodeLabel, span.nodeLabel, p, div, .actor, .actor text, tspan {
+    /* SVG text, labels, and foreignObject content scoped exclusively inside #${renderId} */
+    #${renderId} text, #${renderId} .label, #${renderId} .label text, #${renderId} .nodeLabel, #${renderId} span.nodeLabel, #${renderId} foreignObject p, #${renderId} foreignObject div, #${renderId} .actor, #${renderId} .actor text, #${renderId} tspan {
       fill: #ffffff !important;
       color: #ffffff !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
@@ -84,17 +85,17 @@ const INJECTED_SVG_STYLES = `
       text-shadow: 0 1px 3px rgba(0,0,0,0.9) !important;
     }
     /* Flow lines and arrows */
-    .flowchart-link, .edgePath path, path.path {
+    #${renderId} .flowchart-link, #${renderId} .edgePath path, #${renderId} path.path {
       stroke: #60a5fa !important;
       stroke-width: 2px !important;
       opacity: 0.95 !important;
     }
-    .marker, #statediagram-barbEnd {
+    #${renderId} .marker, #${renderId} #statediagram-barbEnd {
       fill: #60a5fa !important;
       stroke: #60a5fa !important;
     }
     /* Edge condition labels */
-    .edgeLabel {
+    #${renderId} .edgeLabel {
       background-color: #030712 !important;
       fill: #e0f2fe !important;
       color: #e0f2fe !important;
@@ -103,21 +104,21 @@ const INJECTED_SVG_STYLES = `
       padding: 3px 8px !important;
       border-radius: 4px !important;
     }
-    .edgeLabel rect {
+    #${renderId} .edgeLabel rect {
       fill: #030712 !important;
       stroke: #1e293b !important;
       opacity: 0.95 !important;
       rx: 4px !important;
     }
     /* Subgraphs and clusters */
-    .cluster rect {
+    #${renderId} .cluster rect {
       fill: #060b18 !important;
       stroke: #6366f1 !important;
       stroke-width: 1.5px !important;
       stroke-dasharray: 4 4 !important;
       rx: 10px !important;
     }
-    .cluster-label text, .cluster-label span {
+    #${renderId} .cluster-label text, #${renderId} .cluster-label span {
       fill: #c7d2fe !important;
       color: #c7d2fe !important;
       font-size: 14px !important;
@@ -127,6 +128,7 @@ const INJECTED_SVG_STYLES = `
     }
   </style>
 `;
+}
 
 interface MermaidDiagramProps {
   code: string;
@@ -172,8 +174,8 @@ export const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiag
       try {
         const { svg } = await mermaid.render(renderId, cleanCode);
         if (isMounted) {
-          // Inject scoped styles into the SVG header for maximum contrast
-          const enhancedSvg = svg.replace(/<svg\b([^>]*)>/, `<svg$1>${INJECTED_SVG_STYLES}`);
+          // Inject strictly scoped styles into the SVG header for maximum contrast without leaking to page
+          const enhancedSvg = svg.replace(/<svg\b([^>]*)>/, `<svg$1>${buildInjectedSvgStyles(renderId)}`);
           setSvgContent(enhancedSvg);
           setRenderError(null);
         }
