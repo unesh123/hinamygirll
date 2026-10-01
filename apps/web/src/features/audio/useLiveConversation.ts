@@ -1152,6 +1152,7 @@ export function useLiveConversation({
           effectiveMode === "tokentable" ||
           effectiveMode === "xkiro" ||
           effectiveMode === "cavoti" ||
+          effectiveMode === "apmix" ||
           effectiveMode === "qwen"
             ? callbacks.current.controller.routing.activeModel ?? undefined
             : undefined,

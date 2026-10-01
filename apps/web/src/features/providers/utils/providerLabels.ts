@@ -24,6 +24,7 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   tokentable:     { label: "TokenTable",    description: "tokentable.asia — Claude Fable 5, GPT-6, Opus 5." },
   xkiro:          { label: "XKiro AI",      description: "api.xkiro.com — fast free Qwen 3.8 Max, Qwen 3.7 Flash." },
   cavoti:         { label: "Cavoti AI",     description: "cavoti.com — frontier Claude Fable 5, Opus 5, Haiku 4.5." },
+  apmix:          { label: "APMIX.AI",      description: "api.apmix.ai — fast free DeepSeek V4 Flash & frontier models." },
 };
 
 export function getProviderLabel(mode: ProviderMode): string {
@@ -80,7 +81,7 @@ export function buildProviderOptions(statuses: ProviderStatus[]): ProviderOption
   const byId = new Map(statuses.map((s) => [s.id, s]));
 
   const alwaysPresent: ProviderMode[] = ["mock", "local"];
-  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti"];
+  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix"];
 
   const options: ProviderOption[] = [];
 

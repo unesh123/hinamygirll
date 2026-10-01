@@ -98,6 +98,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
     if (providerId === "seekai") return "SeekAI Gateway";
     if (providerId === "tokentable") return "TokenTable Asia";
     if (providerId === "cavoti") return "Cavoti AI";
+    if (providerId === "apmix") return "APMIX.AI";
     if (providerId === "cx-gateway") return "CX Gateway";
     return providerId.toUpperCase();
   };

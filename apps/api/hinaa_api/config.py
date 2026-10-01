@@ -345,6 +345,23 @@ class Settings(BaseSettings):
         "claude-fable-5,claude-fable-5-1,claude-fable-5.1,claude-haiku-4-5,claude-haiku-4-5-20251001,claude-opus-4-6,claude-opus-4-7,claude-opus-4-8,claude-opus-5,claude-opus-5-5",
         validation_alias=AliasChoices("CAVOTI_AI_ALLOWED_MODELS", "CAVOTI_ALLOWED_MODELS"),
     )
+    # APMIX.AI Gateway — free fast DeepSeek V4 Flash, GPT-6 Luna
+    apmix_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("APMIX_AI_API_KEY", "APMIX_API_KEY", "AMPIX_AI_API_KEY"),
+    )
+    apmix_base_url: str = Field(
+        "https://api.apmix.ai/v1",
+        validation_alias=AliasChoices("APMIX_AI_BASE_URL", "APMIX_BASE_URL", "AMPIX_AI_BASE_URL"),
+    )
+    apmix_model: str = Field(
+        "deepseek-v4-flash-free",
+        validation_alias=AliasChoices("APMIX_AI_MODEL", "APMIX_MODEL"),
+    )
+    apmix_allowed_models_raw: str = Field(
+        "deepseek-v4-flash-free,gpt-6-luna-free",
+        validation_alias=AliasChoices("APMIX_AI_ALLOWED_MODELS", "APMIX_ALLOWED_MODELS"),
+    )
     # Bright Data Scraping Browser & SERP API
     bright_data_browser_ws: SecretStr | None = Field(
         None,
@@ -1377,6 +1394,46 @@ class Settings(BaseSettings):
         if "*" not in self.cavoti_allowed_models and model not in self.cavoti_allowed_models:
             allowed = ", ".join(self.cavoti_allowed_models)
             raise ValueError(f"Cavoti model is not in CAVOTI_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def apmix_configured(self) -> bool:
+        return bool(
+            self.apmix_api_key
+            and self.apmix_api_key.get_secret_value()
+            and self.active_apmix_base_url
+        )
+
+    @property
+    def active_apmix_key(self) -> SecretStr | None:
+        if self.apmix_api_key and self.apmix_api_key.get_secret_value():
+            return self.apmix_api_key
+        return None
+
+    @property
+    def active_apmix_base_url(self) -> str | None:
+        value = (self.apmix_base_url or "").strip().rstrip("/")
+        if value and not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value or None
+
+    @property
+    def active_apmix_model(self) -> str:
+        return self.apmix_model or "deepseek-v4-flash-free"
+
+    @property
+    def apmix_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.apmix_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_apmix_model]
+        if self.active_apmix_model and self.active_apmix_model not in models:
+            models.insert(0, self.active_apmix_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_apmix_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_apmix_model
+        if "*" not in self.apmix_allowed_models and model not in self.apmix_allowed_models:
+            allowed = ", ".join(self.apmix_allowed_models)
+            raise ValueError(f"APMIX model is not in APMIX_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

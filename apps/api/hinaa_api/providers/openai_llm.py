@@ -249,6 +249,7 @@ _GATEWAY_PROVIDERS = {
     "seekai",
     "tokentable",
     "cavoti",
+    "apmix",
 }
 
 

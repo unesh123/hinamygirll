@@ -51,6 +51,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   tokentable:     "TokenTable (tokentable.asia)",
   xkiro:          "XKiro AI (api.xkiro.com)",
   cavoti:         "Cavoti AI (cavoti.com)",
+  apmix:          "APMIX.AI (api.apmix.ai)",
 };
 
 const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
@@ -73,6 +74,7 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   tokentable:     "tokentable.asia — Claude Fable 5, GPT-6, Claude Opus 5.",
   xkiro:          "api.xkiro.com — fast free frontier models (Qwen 3.8 Max, Qwen 3.7 Flash).",
   cavoti:         "cavoti.com — frontier models (Claude Fable 5, Claude Opus 5, Claude Haiku 4.5).",
+  apmix:          "api.apmix.ai — fast free DeepSeek V4 Flash & upcoming GPT-6 Luna.",
 };
 
 export function ProviderSettings({ provider, providers, onChange, activeMode }: Props) {

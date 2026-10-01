@@ -16,7 +16,8 @@ export type ProviderMode =
   | "seekai"
   | "tokentable"
   | "xkiro"
-  | "cavoti";
+  | "cavoti"
+  | "apmix";
 
 export interface ProviderStatus {
   id: string;

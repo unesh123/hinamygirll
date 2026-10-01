@@ -65,7 +65,8 @@ export type ProviderPreferenceMode =
   | "seekai"
   | "tokentable"
   | "xkiro"
-  | "cavoti";
+  | "cavoti"
+  | "apmix";
 
 /** Saved model selection per provider. Null = automatic. */
 export type ModelByProvider = Partial<

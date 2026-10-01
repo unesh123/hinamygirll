@@ -314,6 +314,8 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "seekai",
         "tokentable",
         "xkiro",
+        "cavoti",
+        "apmix",
     }
 )
 
@@ -1499,6 +1501,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowedModels": list(active_settings.cavoti_allowed_models),
                 "protocol": "openai-compatible",
             },
+            {
+                "id": "apmix",
+                "name": "APMIX.AI",
+                "configured": bool(getattr(active_settings, "apmix_configured", False)),
+                "defaultModel": active_settings.active_apmix_model,
+                "allowedModels": list(active_settings.apmix_allowed_models),
+                "protocol": "openai-compatible",
+            },
             # Local fallback gateway, measured rather than assumed. `declared`
             # says the operator opted in; `configured` says the container is
             # answering right now, which is the only combination the ladder
@@ -1778,6 +1788,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 xkiro_state = "unavailable"
                 xkiro_message = f"XKiro AI probe failed: {xkiro_probe.detail}"
 
+        # Probe APMIX.AI Gateway if configured
+        apmix_state = "unavailable"
+        apmix_message = "APMIX.AI needs APMIX_AI_API_KEY and APMIX_AI_BASE_URL."
+        if active_settings.apmix_configured:
+            apmix_probe = await probe_gateway_models(
+                active_settings.active_apmix_base_url,
+                api_key=active_settings.active_apmix_key.get_secret_value() if active_settings.active_apmix_key else None,
+            )
+            if apmix_probe.serving:
+                apmix_state = "healthy"
+                probe_measured.add("apmix")
+                apmix_message = (
+                    f"APMIX.AI is connected ({apmix_probe.model_count} models serving; default: {active_settings.apmix_model})."
+                )
+            else:
+                apmix_state = "unavailable"
+                apmix_message = f"APMIX.AI probe failed: {apmix_probe.detail}"
+
         statuses = [
             ProviderStatus(
                 id="mock",
@@ -1978,6 +2006,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ],
                 state=xkiro_state,
                 userMessage=xkiro_message,
+            ),
+            ProviderStatus(
+                id="apmix",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.apmix_model}",
+                    *[f"model:{model}" for model in active_settings.apmix_allowed_models],
+                ],
+                state=apmix_state,
+                userMessage=apmix_message,
             ),
             ProviderStatus(
                 id="seekai",

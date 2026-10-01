@@ -30,6 +30,7 @@ const FEATURED_PROVIDERS: Record<string, ProviderMeta> = {
   seekai: { label: "SeekAI", desc: "seekai.cc — DeepSeek & Claude multi-model gateway", icon: "🔍", featured: true },
   tokentable: { label: "TokenTable", desc: "tokentable.asia — Claude Fable 5 & GPT-6 Astra", icon: "💎", featured: true },
   cavoti: { label: "Cavoti AI", desc: "cavoti.com — Claude Fable 5, Opus 5, Haiku 4.5", icon: "✨", featured: true },
+  apmix: { label: "APMIX.AI", desc: "api.apmix.ai — fast free DeepSeek V4 Flash", icon: "⚡", featured: true },
   "agent-router": { label: "Agent Router", desc: "router.bynara.id — free & premium AI models", icon: "🔀", featured: true },
   claude: { label: "Claude", desc: "Anthropic Messages / Deep Reasoning", icon: "🧠", featured: true },
   real: { label: "Gemini", desc: "Google Gemini Multimodal Flash", icon: "🌐", featured: true },
@@ -253,7 +254,7 @@ export function BrainSelector({
 
             {/* 2. Primary Providers List */}
             {providerOptions
-              .filter((opt) => ["xkiro", "codecraft", "cx-gateway", "pgsgrove", "seekai", "tokentable", "cavoti", "agent-router", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
+              .filter((opt) => ["xkiro", "codecraft", "apmix", "cx-gateway", "pgsgrove", "seekai", "tokentable", "cavoti", "agent-router", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
               .map((opt) => {
                 const isSelected = opt.mode === currentMode;
                 const meta = FEATURED_PROVIDERS[opt.mode] || { label: opt.label, desc: opt.description, icon: "🤖" };
@@ -441,7 +442,7 @@ export function BrainSelector({
             {showAdvanced && (
               <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
                 {providerOptions
-                  .filter((opt) => !["xkiro", "codecraft", "cx-gateway", "pgsgrove", "seekai", "tokentable", "cavoti", "agent-router", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
+                  .filter((opt) => !["xkiro", "codecraft", "apmix", "cx-gateway", "pgsgrove", "seekai", "tokentable", "cavoti", "agent-router", "real", "claude", "qwen", "ollama", "local", "mock"].includes(opt.mode))
                   .map((opt) => {
                     const isSelected = opt.mode === currentMode;
                     return (

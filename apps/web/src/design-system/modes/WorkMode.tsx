@@ -104,6 +104,7 @@ function getProviderDisplayName(mode?: string): string {
     case "tokentable": return "TokenTable";
     case "xkiro": return "XKiro AI";
     case "cavoti": return "Cavoti AI";
+    case "apmix": return "APMIX.AI";
     default:
       return mode.charAt(0).toUpperCase() + mode.slice(1);
   }

@@ -30,6 +30,7 @@ ProviderMode = Literal[
     "tokentable",
     "xkiro",
     "cavoti",
+    "apmix",
 ]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal[

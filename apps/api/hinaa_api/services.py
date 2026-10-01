@@ -1099,6 +1099,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_apmix_brain(self) -> None:
+        if self.settings.active_apmix_key is None or self.settings.active_apmix_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "APMIX is not configured. Add APMIX_AI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def stt(self, mode: str) -> STTProvider:
         return self.stt_candidates(mode, "en-US")[0]
 
@@ -1399,6 +1408,21 @@ class ProviderRouter:
                 model,
                 base_url=active_cavoti_base_url,
                 provider_id="cavoti",
+            )
+        if mode == "apmix":
+            self._require_apmix_brain()
+            active_apmix_key = self.settings.active_apmix_key
+            active_apmix_base_url = self.settings.active_apmix_base_url
+            assert active_apmix_key and active_apmix_base_url
+            try:
+                model = self.settings.resolve_apmix_model(brain_model)
+            except ValueError:
+                model = self.settings.active_apmix_model
+            return OpenAILLMProvider(
+                active_apmix_key.get_secret_value(),
+                model,
+                base_url=active_apmix_base_url,
+                provider_id="apmix",
             )
         if mode == "real":
             # The historical "real" mode means Gemini brain + a voice provider.
@@ -3407,6 +3431,7 @@ class ConversationService:
             "tokentable": (self.settings.tokentable_configured, self.settings.active_tokentable_model),
             "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
             "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
+            "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),

@@ -323,6 +323,10 @@ export function ModelControlBar({
                     { id: "claude-opus-5", label: "Claude Opus 5", isDefault: false },
                     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", isDefault: false },
                   ],
+                  apmix: [
+                    { id: "deepseek-v4-flash-free", label: "DeepSeek V4 Flash (Free)", isDefault: true },
+                    { id: "gpt-6-luna-free", label: "GPT-6 Luna (Free)", isDefault: false },
+                  ],
                 };
                 const allModels = rawModels.length > 0 ? rawModels : (fallbackModels[p.mode] ?? [{ id: p.mode, label: p.label, isDefault: true }]);
                 const query = modelSearchQuery.trim().toLowerCase();
@@ -342,7 +346,8 @@ export function ModelControlBar({
                   p.mode === "seekai" ? "🔍 SeekAI Gateway" :
                   p.mode === "tokentable" ? "💎 TokenTable Asia" :
                   p.mode === "xkiro" ? "⚡ XKiro AI" :
-                  p.mode === "cavoti" ? "✨ Cavoti AI" : p.label;
+                  p.mode === "cavoti" ? "✨ Cavoti AI" :
+                  p.mode === "apmix" ? "⚡ APMIX.AI" : p.label;
 
                 if (!p.available || models.length === 0) return null;
 

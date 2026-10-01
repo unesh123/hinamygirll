@@ -123,6 +123,7 @@ export class BackendConversationProvider implements ConversationProvider {
         this.mode === "tokentable" ||
         this.mode === "xkiro" ||
         this.mode === "cavoti" ||
+        this.mode === "apmix" ||
         this.mode === "real") &&
       request.brainModel
     ) {
