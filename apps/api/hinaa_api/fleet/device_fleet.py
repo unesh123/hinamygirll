@@ -52,18 +52,27 @@ class DeviceFleetManager:
     def get_device(self, device_id: str) -> Optional[DeviceNode]:
         return self._devices.get(device_id)
 
+    def list_devices(self, include_offline: bool = True) -> List[DeviceNode]:
+        now = time.time()
+        results: List[DeviceNode] = []
+        for dev in self._devices.values():
+            if dev.device_id == "dev_local_primary":
+                dev.last_heartbeat = now
+                dev.status = "online"
+            elif now - dev.last_heartbeat > 60.0:
+                dev.status = "offline"
+
+            if not include_offline and dev.status != "online":
+                continue
+            results.append(dev)
+        return results
+
     def list_healthy_devices(self, required_capability: Optional[str] = None) -> List[DeviceNode]:
         now = time.time()
         healthy: List[DeviceNode] = []
-        for dev in self._devices.values():
-            # Device considered offline if no heartbeat for 60 seconds
-            if now - dev.last_heartbeat > 60.0:
-                dev.status = "offline"
-                continue
-
+        for dev in self.list_devices(include_offline=False):
             if required_capability and required_capability not in dev.capabilities:
                 continue
-
             healthy.append(dev)
         return healthy
 

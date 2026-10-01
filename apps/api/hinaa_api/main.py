@@ -3198,11 +3198,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Lists online companion devices and their hardware/capability inventories."""
         from hinaa_api.fleet.device_fleet import get_fleet_manager
         mgr = get_fleet_manager()
-        devices = mgr.list_healthy_devices()
+        devices = mgr.list_devices(include_offline=True)
         return {
             "status": "success",
             "devices": [d.model_dump(mode="json") for d in devices],
-            "totalOnline": len(devices),
+            "totalOnline": len([d for d in devices if d.status == "online"]),
         }
 
     @app.post("/v1/fleet/devices/heartbeat")
@@ -3210,7 +3210,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def fleet_device_heartbeat(request: Request) -> dict[str, Any]:
         """Records a heartbeat from an edge companion device."""
         from hinaa_api.fleet.device_fleet import get_fleet_manager
-        body = await request.json()
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
         device_id = body.get("device_id", "dev_local_primary")
         tasks_count = int(body.get("current_tasks_count", 0))
         mgr = get_fleet_manager()
