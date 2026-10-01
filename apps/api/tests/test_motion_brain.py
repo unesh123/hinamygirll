@@ -14,7 +14,9 @@ from hinaa_api.harness import (
 
 
 def test_motion_director_initialization():
-    director = get_motion_director()
+    global_dir = get_motion_director()
+    assert global_dir is not None
+    director = MotionDirector()
     assert director is not None
     assert director.current_state.intent in (SemanticIntent.WAITING, SemanticIntent.THINKING)
     assert director.current_profile.locomotion in ("idle", "walk")

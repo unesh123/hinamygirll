@@ -462,12 +462,21 @@ function VrmRig({
           manager.setValue("jawOpen", effectiveJawOpen);
         } catch {}
 
-        // Map to VRM 0.0 presets UNCONDITIONALLY so expressions and vowels actively close/release to 0
+        // Map to VRM 0.0 & ARKit presets UNCONDITIONALLY so expressions and vowels actively close/release to 0
+        try { manager.setValue("a" as any, weights.aa); } catch {}
+        try { manager.setValue("i" as any, weights.ih); } catch {}
+        try { manager.setValue("u" as any, weights.ou); } catch {}
+        try { manager.setValue("e" as any, weights.ee); } catch {}
+        try { manager.setValue("o" as any, weights.oh); } catch {}
         try { manager.setValue("A" as any, weights.aa); } catch {}
         try { manager.setValue("I" as any, weights.ih); } catch {}
         try { manager.setValue("U" as any, weights.ou); } catch {}
         try { manager.setValue("E" as any, weights.ee); } catch {}
         try { manager.setValue("O" as any, weights.oh); } catch {}
+        try { manager.setValue("mouthOpen" as any, effectiveJawOpen); } catch {}
+        try { manager.setValue("mouthSmile" as any, weights.happy); } catch {}
+        try { manager.setValue("mouthFunnel" as any, (weights.oh + weights.ou) * 0.5); } catch {}
+        try { manager.setValue("mouthPucker" as any, weights.ou * 0.8); } catch {}
         try { manager.setValue("Joy" as any, weights.happy); } catch {}
         try { manager.setValue("Fun" as any, weights.happy); } catch {}
         try { manager.setValue("Angry" as any, weights.angry); } catch {}
