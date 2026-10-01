@@ -3189,6 +3189,67 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     # -----------------------------------------------------------------------
+    # Enterprise Device Fleet & Canonical Replay Endpoints
+    # -----------------------------------------------------------------------
+
+    @app.get("/v1/fleet/devices")
+    @app.get("/api/v1/fleet/devices")
+    async def fleet_list_devices() -> dict[str, Any]:
+        """Lists online companion devices and their hardware/capability inventories."""
+        from hinaa_api.fleet.device_fleet import get_fleet_manager
+        mgr = get_fleet_manager()
+        devices = mgr.list_healthy_devices()
+        return {
+            "status": "success",
+            "devices": [d.model_dump(mode="json") for d in devices],
+            "totalOnline": len(devices),
+        }
+
+    @app.post("/v1/fleet/devices/heartbeat")
+    @app.post("/api/v1/fleet/devices/heartbeat")
+    async def fleet_device_heartbeat(request: Request) -> dict[str, Any]:
+        """Records a heartbeat from an edge companion device."""
+        from hinaa_api.fleet.device_fleet import get_fleet_manager
+        body = await request.json()
+        device_id = body.get("device_id", "dev_local_primary")
+        tasks_count = int(body.get("current_tasks_count", 0))
+        mgr = get_fleet_manager()
+        ok = mgr.record_heartbeat(device_id, tasks_count=tasks_count)
+        return {"status": "success" if ok else "not_found", "device_id": device_id}
+
+    @app.get("/v1/harness/runs/{run_id}/replay")
+    @app.get("/api/v1/harness/runs/{run_id}/replay")
+    async def harness_replay_run(run_id: str) -> dict[str, Any]:
+        """Returns the step-by-step audit replay timeline for a specific task run."""
+        from hinaa_api.harness.canonical_event_bus import get_canonical_event_bus
+        bus = get_canonical_event_bus()
+        timeline = bus.replay_run(run_id)
+        trace = bus.get_run_trace(run_id)
+        return {
+            "status": "success",
+            "runId": run_id,
+            "totalSteps": len(timeline),
+            "timeline": timeline,
+            "success": trace.success if trace else True,
+            "startedAt": trace.started_at if trace else None,
+            "completedAt": trace.completed_at if trace else None,
+        }
+
+    @app.get("/v1/harness/runs/{run_id}/trace")
+    @app.get("/api/v1/harness/runs/{run_id}/trace")
+    async def harness_get_trace(run_id: str) -> dict[str, Any]:
+        """Returns the complete OpenTelemetry-compatible event trace for a run."""
+        from hinaa_api.harness.canonical_event_bus import get_canonical_event_bus
+        bus = get_canonical_event_bus()
+        trace = bus.get_run_trace(run_id)
+        if not trace:
+            raise HinaaError("NOT_FOUND", f"Run {run_id} not found in event bus", 404, False, False)
+        return {
+            "status": "success",
+            "trace": trace.model_dump(mode="json"),
+        }
+
+    # -----------------------------------------------------------------------
     # RAG Knowledge Endpoints
     # -----------------------------------------------------------------------
 

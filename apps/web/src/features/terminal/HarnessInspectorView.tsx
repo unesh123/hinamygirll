@@ -18,12 +18,14 @@ import {
   Search,
   Database,
   Plus,
+  Server,
+  Clock,
 } from "lucide-react";
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import { OrionServingFloor } from "../harness/OrionServingFloor";
 
 export function HarnessInspectorView() {
-  const [activeSubTab, setActiveSubTab] = useState<"orion" | "graph" | "policy" | "memory" | "verifier" | "rag">("orion");
+  const [activeSubTab, setActiveSubTab] = useState<"orion" | "graph" | "policy" | "memory" | "verifier" | "rag" | "fleet" | "replay">("orion");
   const [threads, setThreads] = useState<any[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string>("");
   const [graphData, setGraphData] = useState<any>(null);
@@ -37,6 +39,12 @@ export function HarnessInspectorView() {
   const [spawnRole, setSpawnRole] = useState<string>("researcher");
   const [spawnObjective, setSpawnObjective] = useState<string>("Audit network security and port exposure");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Fleet & Replay state
+  const [fleetDevices, setFleetDevices] = useState<any[]>([]);
+  const [replayRunId, setReplayRunId] = useState<string>("run_osworld_eval_01");
+  const [replayData, setReplayData] = useState<any>(null);
+  const [isReplayLoading, setIsReplayLoading] = useState<boolean>(false);
 
   // RAG Knowledge state
   const [ragStats, setRagStats] = useState<any>(null);
@@ -101,6 +109,17 @@ export function HarnessInspectorView() {
       } catch (err) {
         console.debug("RAG stats fetch error:", err);
       }
+
+      // 5. Fetch Fleet Devices
+      try {
+        const fRes = await fetch("/v1/fleet/devices", { headers });
+        if (fRes.ok) {
+          const fJson = await fRes.json();
+          setFleetDevices(fJson.devices || []);
+        }
+      } catch (err) {
+        console.debug("Fleet devices fetch error:", err);
+      }
     } catch (e) {
       console.error("Failed to fetch harness data:", e);
     } finally {
@@ -111,6 +130,26 @@ export function HarnessInspectorView() {
   useEffect(() => {
     fetchHarnessData();
   }, [selectedThreadId]);
+
+  const handleFetchReplay = async (runIdToFetch?: string) => {
+    const id = runIdToFetch || replayRunId;
+    if (!id.trim()) return;
+    setIsReplayLoading(true);
+    try {
+      const headers = { ...hinaaIdentityHeaders(), "bypass-tunnel-reminder": "true" };
+      const res = await fetch(`/v1/harness/runs/${encodeURIComponent(id)}/replay`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        setReplayData(json);
+      } else {
+        setReplayData(null);
+      }
+    } catch (e) {
+      console.error("Failed to fetch replay data:", e);
+    } finally {
+      setIsReplayLoading(false);
+    }
+  };
 
   const handleSpawnSubagent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,6 +283,8 @@ export function HarnessInspectorView() {
             { id: "memory", label: "📁 Repo Memory (.hina)", icon: FolderTree },
             { id: "verifier", label: "⚡ Verifier Brain", icon: Cpu },
             { id: "rag", label: "📚 RAG Knowledge", icon: BookOpen },
+            { id: "fleet", label: "🖥️ Device Fleet", icon: Server },
+            { id: "replay", label: "⏱️ Audit Replay", icon: Clock },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -746,6 +787,229 @@ export function HarnessInspectorView() {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* TAB 6: DEVICE FLEET */}
+        {activeSubTab === "fleet" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "14px", color: "#f4f4f5", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Server size={16} color="#a78bfa" /> Companion Device Fleet Plane
+                </div>
+                <div style={{ color: "#71717a", fontSize: "11px", marginTop: "2px" }}>
+                  Active hardware nodes authorized for localized desktop and browser execution under zero-trust policy.
+                </div>
+              </div>
+              <div style={{ padding: "4px 10px", background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.3)", borderRadius: "6px", color: "#34d399", fontWeight: 600, fontSize: "11px" }}>
+                {fleetDevices.length} Online Node{fleetDevices.length === 1 ? "" : "s"}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" }}>
+              {fleetDevices.map((dev: any) => (
+                <div
+                  key={dev.device_id}
+                  style={{
+                    background: "#141418",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "8px",
+                    padding: "14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: "12px", color: "#fff" }}>{dev.name}</div>
+                      <div style={{ fontSize: "10px", fontFamily: "monospace", color: "#a1a1aa" }}>{dev.device_id}</div>
+                    </div>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        background: dev.status === "online" ? "rgba(52,211,153,0.15)" : "rgba(239,68,68,0.15)",
+                        color: dev.status === "online" ? "#34d399" : "#ef4444",
+                        border: dev.status === "online" ? "1px solid rgba(52,211,153,0.3)" : "1px solid rgba(239,68,68,0.3)",
+                      }}
+                    >
+                      ● {dev.status}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "10px", color: "#a1a1aa" }}>
+                    <div><span style={{ color: "#71717a" }}>OS:</span> {dev.os_platform}</div>
+                    <div><span style={{ color: "#71717a" }}>Agent:</span> v{dev.agent_version}</div>
+                    <div><span style={{ color: "#71717a" }}>Policy:</span> v{dev.policy_version}</div>
+                    <div><span style={{ color: "#71717a" }}>Active Tasks:</span> {dev.current_tasks_count}</div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: "10px", color: "#71717a", marginBottom: "4px" }}>Authorized Capabilities:</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                      {(dev.capabilities || []).map((cap: string) => (
+                        <span
+                          key={cap}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            background: "rgba(139,92,246,0.12)",
+                            border: "1px solid rgba(139,92,246,0.25)",
+                            color: "#c4b5fd",
+                            fontSize: "10px",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {cap}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ padding: "12px", background: "rgba(139,92,246,0.05)", borderRadius: "8px", border: "1px solid rgba(139,92,246,0.2)" }}>
+              <div style={{ fontWeight: 700, fontSize: "11px", color: "#a78bfa", marginBottom: "4px" }}>
+                🛡️ Zero-Leak Credential & Edge Attestation Invariants
+              </div>
+              <p style={{ color: "#cbd5e1", fontSize: "11px", lineHeight: "1.4", margin: 0 }}>
+                Every desktop operator command is signed and verified via server-side HMAC challenges before dispatch to edge nodes. Opaque capability handles mask secrets from prompt inference, preventing token exfiltration across untrusted execution environments.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 7: AUDIT REPLAY & TIMELINE */}
+        {activeSubTab === "replay" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "14px", color: "#f4f4f5", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Clock size={16} color="#38bdf8" /> Canonical Replay & Cryptographic Event Ledger
+                </div>
+                <div style={{ color: "#71717a", fontSize: "11px", marginTop: "2px" }}>
+                  Deterministic step-by-step audit playback with SHA-256 pre/post state hash chaining.
+                </div>
+              </div>
+            </div>
+
+            {/* Run Selection Bar */}
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <input
+                type="text"
+                value={replayRunId}
+                onChange={(e) => setReplayRunId(e.target.value)}
+                placeholder="Enter Run ID (e.g. run_osworld_eval_01)..."
+                style={{
+                  flex: 1,
+                  background: "#141418",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: "6px",
+                  padding: "7px 10px",
+                  color: "#fff",
+                  fontSize: "11px",
+                  fontFamily: "monospace",
+                }}
+              />
+              <button
+                onClick={() => handleFetchReplay()}
+                disabled={isReplayLoading || !replayRunId.trim()}
+                style={{
+                  background: "#38bdf8",
+                  color: "#000",
+                  fontWeight: 700,
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "7px 14px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  opacity: isReplayLoading ? 0.6 : 1,
+                }}
+              >
+                <Play size={12} /> {isReplayLoading ? "Replaying..." : "Load Replay"}
+              </button>
+            </div>
+
+            {/* Timeline display */}
+            {replayData && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div style={{ display: "flex", gap: "12px", background: "#141418", padding: "10px 14px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                  <div><span style={{ color: "#71717a" }}>Run:</span> <span style={{ fontFamily: "monospace", color: "#38bdf8" }}>{replayData.runId}</span></div>
+                  <div><span style={{ color: "#71717a" }}>Steps:</span> <span style={{ fontWeight: 700 }}>{replayData.totalSteps}</span></div>
+                  <div>
+                    <span style={{ color: "#71717a" }}>Result:</span>{" "}
+                    <span style={{ color: replayData.success ? "#34d399" : "#ef4444", fontWeight: 700 }}>
+                      {replayData.success ? "PASSED" : "FAILED"}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {(replayData.timeline || []).map((step: any) => (
+                    <div
+                      key={step.step}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: "#111115",
+                        border: "1px solid rgba(255,255,255,0.06)",
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: "#1f2937", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 700, color: "#9ca3af" }}>
+                          {step.step}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, color: "#f4f4f5", fontSize: "11px" }}>{step.action}</div>
+                          <div style={{ fontSize: "10px", color: "#71717a", fontFamily: "monospace" }}>Target: {step.resource}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <span
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            fontSize: "10px",
+                            fontWeight: 600,
+                            background: step.decision === "allow" ? "rgba(52,211,153,0.1)" : "rgba(239,68,68,0.1)",
+                            color: step.decision === "allow" ? "#34d399" : "#ef4444",
+                          }}
+                        >
+                          {step.decision}
+                        </span>
+                        <span style={{ color: "#a1a1aa", fontSize: "10px", fontFamily: "monospace" }}>
+                          {step.latency_ms?.toFixed(1) || 0} ms
+                        </span>
+                        {step.status === "success" ? (
+                          <CheckCircle2 size={14} color="#34d399" />
+                        ) : (
+                          <AlertTriangle size={14} color="#ef4444" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!replayData && !isReplayLoading && (
+              <div style={{ padding: "30px", textAlign: "center", color: "#71717a", background: "#111115", borderRadius: "8px", border: "1px dashed rgba(255,255,255,0.1)" }}>
+                Enter a Run ID to view cryptographic step-by-step replay, state hashes, and safety confirmations.
+              </div>
+            )}
           </div>
         )}
       </div>
