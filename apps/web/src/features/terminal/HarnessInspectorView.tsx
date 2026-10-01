@@ -13,11 +13,15 @@ import {
   FileCode,
   MessageSquare,
   Sparkles,
+  BookOpen,
+  Search,
+  Database,
+  Plus,
 } from "lucide-react";
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 
 export function HarnessInspectorView() {
-  const [activeSubTab, setActiveSubTab] = useState<"graph" | "policy" | "memory" | "verifier">("graph");
+  const [activeSubTab, setActiveSubTab] = useState<"graph" | "policy" | "memory" | "verifier" | "rag">("graph");
   const [threads, setThreads] = useState<any[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string>("");
   const [graphData, setGraphData] = useState<any>(null);
@@ -31,6 +35,15 @@ export function HarnessInspectorView() {
   const [spawnRole, setSpawnRole] = useState<string>("researcher");
   const [spawnObjective, setSpawnObjective] = useState<string>("Audit network security and port exposure");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // RAG Knowledge state
+  const [ragStats, setRagStats] = useState<any>(null);
+  const [ragQuery, setRagQuery] = useState<string>("What are the core architecture principles and security invariants?");
+  const [ragResults, setRagResults] = useState<any[]>([]);
+  const [isRagSearching, setIsRagSearching] = useState<boolean>(false);
+  const [ragNewTitle, setRagNewTitle] = useState<string>("");
+  const [ragNewContent, setRagNewContent] = useState<string>("");
+  const [isIngesting, setIsIngesting] = useState<boolean>(false);
 
   const fetchHarnessData = async () => {
     setIsLoading(true);
@@ -74,6 +87,17 @@ export function HarnessInspectorView() {
       if (mRes.ok) {
         const mJson = await mRes.json();
         setRepoMemory(mJson.memory || {});
+      }
+
+      // 4. Fetch RAG Status
+      try {
+        const ragRes = await fetch("/v1/rag/status", { headers });
+        if (ragRes.ok) {
+          const ragJson = await ragRes.json();
+          setRagStats(ragJson);
+        }
+      } catch (err) {
+        console.debug("RAG stats fetch error:", err);
       }
     } catch (e) {
       console.error("Failed to fetch harness data:", e);
@@ -138,6 +162,74 @@ export function HarnessInspectorView() {
     }
   };
 
+  const handleRagSearch = async () => {
+    if (!ragQuery.trim()) return;
+    setIsRagSearching(true);
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        ...hinaaIdentityHeaders(),
+        "bypass-tunnel-reminder": "true",
+      };
+      const res = await fetch("/v1/rag/query", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query: ragQuery, top_k: 4, score_threshold: 0.1 }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRagResults(data.results || []);
+      }
+    } catch (err) {
+      console.error("RAG search failed:", err);
+    } finally {
+      setIsRagSearching(false);
+    }
+  };
+
+  const handleRagIngest = async () => {
+    if (!ragNewTitle.trim() || !ragNewContent.trim()) return;
+    setIsIngesting(true);
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        ...hinaaIdentityHeaders(),
+        "bypass-tunnel-reminder": "true",
+      };
+      const res = await fetch("/v1/rag/ingest", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          document_id: `doc_${Date.now()}`,
+          source: ragNewTitle,
+          content: ragNewContent,
+          author: "user",
+        }),
+      });
+      if (res.ok) {
+        setRagNewTitle("");
+        setRagNewContent("");
+        await fetchHarnessData();
+      }
+    } catch (err) {
+      console.error("RAG ingest failed:", err);
+    } finally {
+      setIsIngesting(false);
+    }
+  };
+
+  const handleRagReindex = async () => {
+    try {
+      const headers = { ...hinaaIdentityHeaders(), "bypass-tunnel-reminder": "true" };
+      const res = await fetch("/v1/rag/reindex-specs", { method: "POST", headers });
+      if (res.ok) {
+        await fetchHarnessData();
+      }
+    } catch (err) {
+      console.error("RAG reindex failed:", err);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0a0a0c", color: "#e4e4e7", fontSize: "12px" }}>
       {/* ── Subtab Navigation ────────────────────────────────── */}
@@ -148,6 +240,7 @@ export function HarnessInspectorView() {
             { id: "policy", label: "🛡️ Sandbox & Policy", icon: Shield },
             { id: "memory", label: "📁 Repo Memory (.hina)", icon: FolderTree },
             { id: "verifier", label: "⚡ Verifier Brain", icon: Cpu },
+            { id: "rag", label: "📚 RAG Knowledge", icon: BookOpen },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -442,6 +535,209 @@ export function HarnessInspectorView() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 5: RAG KNOWLEDGE BASE & HYBRID SEARCH */}
+        {activeSubTab === "rag" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "16px", height: "100%" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {/* Status Header */}
+              <div style={{ padding: "12px", background: "#18181b", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <div style={{ fontWeight: 700, fontSize: "13px", color: "#f4f4f5", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <BookOpen size={15} color="#38bdf8" /> RAG Knowledge Index Status
+                  </div>
+                  <button
+                    onClick={handleRagReindex}
+                    style={{
+                      background: "rgba(56,189,248,0.15)",
+                      color: "#38bdf8",
+                      border: "1px solid rgba(56,189,248,0.3)",
+                      borderRadius: "6px",
+                      padding: "4px 10px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Re-index .hina/ Specs
+                  </button>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "8px", borderRadius: "6px" }}>
+                    <div style={{ color: "#a1a1aa", fontSize: "10px" }}>Total Chunks</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, color: "#38bdf8" }}>
+                      {ragStats?.total_chunks ?? 0}
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "8px", borderRadius: "6px" }}>
+                    <div style={{ color: "#a1a1aa", fontSize: "10px" }}>Indexed Documents</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, color: "#a78bfa" }}>
+                      {ragStats?.total_documents ?? 0}
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "8px", borderRadius: "6px" }}>
+                    <div style={{ color: "#a1a1aa", fontSize: "10px" }}>Retriever Weighting</div>
+                    <div style={{ fontSize: "11px", color: "#34d399", fontWeight: 600, marginTop: "2px" }}>
+                      BM25 45% · Vec 40%
+                    </div>
+                  </div>
+                </div>
+
+                {ragStats?.sources && ragStats.sources.length > 0 && (
+                  <div style={{ marginTop: "10px", fontSize: "11px" }}>
+                    <span style={{ color: "#71717a" }}>Active Sources: </span>
+                    <span style={{ color: "#e4e4e7" }}>{ragStats.sources.join(", ")}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Interactive Query Panel */}
+              <div style={{ padding: "12px", background: "#18181b", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)", flex: 1, display: "flex", flexDirection: "column" }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", color: "#f4f4f5", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Search size={14} color="#38bdf8" /> Test Hybrid Retrieval & MMR Rerank
+                </div>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+                  <input
+                    type="text"
+                    value={ragQuery}
+                    onChange={(e) => setRagQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleRagSearch()}
+                    placeholder="Search knowledge base (e.g. sandbox security policy)..."
+                    style={{
+                      flex: 1,
+                      background: "#09090b",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: "6px",
+                      padding: "6px 10px",
+                      color: "#fff",
+                      fontSize: "11px",
+                    }}
+                  />
+                  <button
+                    onClick={handleRagSearch}
+                    disabled={isRagSearching}
+                    style={{
+                      background: "#38bdf8",
+                      color: "#000",
+                      fontWeight: 700,
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "6px 14px",
+                      cursor: "pointer",
+                      fontSize: "11px",
+                    }}
+                  >
+                    {isRagSearching ? "Searching..." : "Search"}
+                  </button>
+                </div>
+
+                {/* Query Results */}
+                <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {ragResults.length === 0 ? (
+                    <div style={{ color: "#71717a", textAlign: "center", marginTop: "24px" }}>
+                      Run a query to inspect hybrid score breakdown and citation matches.
+                    </div>
+                  ) : (
+                    ragResults.map((r, i) => (
+                      <div
+                        key={r.chunk_id || i}
+                        style={{
+                          background: "rgba(0,0,0,0.4)",
+                          border: "1px solid rgba(255,255,255,0.06)",
+                          borderRadius: "6px",
+                          padding: "8px 10px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontWeight: 600, color: "#38bdf8" }}>
+                            {r.source} {r.section ? `> ${r.section}` : ""}
+                          </span>
+                          <span style={{ fontSize: "10px", color: "#a1a1aa", background: "rgba(255,255,255,0.08)", padding: "2px 6px", borderRadius: "4px" }}>
+                            Score: {r.final_score}
+                          </span>
+                        </div>
+                        <div style={{ color: "#d4d4d8", fontSize: "11px", lineHeight: "1.4", whiteSpace: "pre-wrap" }}>
+                          {r.text}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Ingestion Panel */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div style={{ padding: "12px", background: "#18181b", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", color: "#f4f4f5", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Plus size={14} color="#34d399" /> Ingest Dynamic Knowledge Document
+                </div>
+                <input
+                  type="text"
+                  value={ragNewTitle}
+                  onChange={(e) => setRagNewTitle(e.target.value)}
+                  placeholder="Document Source / Title (e.g. deployment_sop.md)"
+                  style={{
+                    width: "100%",
+                    background: "#09090b",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: "6px",
+                    padding: "6px 10px",
+                    color: "#fff",
+                    fontSize: "11px",
+                    marginBottom: "8px",
+                  }}
+                />
+                <textarea
+                  value={ragNewContent}
+                  onChange={(e) => setRagNewContent(e.target.value)}
+                  placeholder="Paste document content, architecture specs, or instructions..."
+                  rows={8}
+                  style={{
+                    width: "100%",
+                    background: "#09090b",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: "6px",
+                    padding: "8px",
+                    color: "#fff",
+                    fontSize: "11px",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+                <button
+                  onClick={handleRagIngest}
+                  disabled={isIngesting || !ragNewTitle.trim() || !ragNewContent.trim()}
+                  style={{
+                    marginTop: "8px",
+                    background: "#34d399",
+                    color: "#000",
+                    fontWeight: 700,
+                    border: "none",
+                    borderRadius: "6px",
+                    padding: "6px 14px",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    opacity: isIngesting || !ragNewTitle.trim() || !ragNewContent.trim() ? 0.5 : 1,
+                  }}
+                >
+                  {isIngesting ? "Chunking & Indexing..." : "Ingest into Knowledge Index"}
+                </button>
+              </div>
+
+              {/* RAG Operating Mandate */}
+              <div style={{ padding: "12px", background: "rgba(56,189,248,0.05)", borderRadius: "8px", border: "1px solid rgba(56,189,248,0.2)" }}>
+                <div style={{ fontWeight: 700, fontSize: "11px", color: "#38bdf8", marginBottom: "4px" }}>
+                  💡 Automatic Turn-Level Grounding
+                </div>
+                <p style={{ color: "#cbd5e1", fontSize: "11px", lineHeight: "1.4", margin: 0 }}>
+                  Queries containing architectural, security, or project questions automatically retrieve top-3 reranked evidence chunks and inject them into HINAA's prompt context as untrusted reference data, grounding responses without hallucinating.
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -10,6 +10,7 @@ from .retrieval import (
     RetrievalResult,
     VectorIndex,
 )
+from .service import RAGKnowledgeService
 
 __all__ = [
     "estimate_tokens",
@@ -25,4 +26,6 @@ __all__ = [
     "Reranker",
     "CitationSpan",
     "ProvenanceEngine",
+    "RAGKnowledgeService",
 ]
+

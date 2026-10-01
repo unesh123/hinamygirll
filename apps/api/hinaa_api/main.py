@@ -3110,6 +3110,93 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {"status": "success", "report": rep.model_dump(mode="json")}
 
+    # -----------------------------------------------------------------------
+    # RAG Knowledge Endpoints
+    # -----------------------------------------------------------------------
+
+    @app.get("/v1/rag/status")
+    @app.get("/api/v1/rag/status")
+    async def rag_status() -> dict[str, Any]:
+        """Returns RAG knowledge base statistics and weighting."""
+        if getattr(service, "rag_service", None) is None:
+            return {"status": "unavailable", "total_chunks": 0, "total_documents": 0}
+        stats = service.rag_service.get_stats()
+        return {"status": "success", **stats}
+
+    @app.post("/v1/rag/query")
+    @app.post("/api/v1/rag/query")
+    async def rag_query(request: Request) -> dict[str, Any]:
+        """Runs hybrid retrieval and MMR reranking against the knowledge base."""
+        if getattr(service, "rag_service", None) is None:
+            raise HinaaError("RAG_NOT_AVAILABLE", "RAG service is not initialized", 503)
+        body = await request.json()
+        query_text = body.get("query", "").strip()
+        top_k = int(body.get("top_k", 4))
+        score_threshold = float(body.get("score_threshold", 0.15))
+        results = service.rag_service.query(query_text, top_k=top_k, score_threshold=score_threshold)
+
+        formatted = []
+        for r in results:
+            formatted.append({
+                "chunk_id": r.result.chunk.chunk_id,
+                "document_id": r.result.chunk.metadata.document_id,
+                "source": r.result.chunk.metadata.source,
+                "section": r.result.chunk.metadata.section_path,
+                "final_score": round(r.final_score, 4),
+                "relevance_score": round(r.relevance_score, 4),
+                "authority_score": round(r.authority_score, 4),
+                "text": r.result.chunk.text,
+            })
+        return {
+            "status": "success",
+            "query": query_text,
+            "total_matches": len(formatted),
+            "results": formatted,
+        }
+
+    @app.post("/v1/rag/ingest")
+    @app.post("/api/v1/rag/ingest")
+    async def rag_ingest_document(request: Request) -> dict[str, Any]:
+        """Ingests a document or markdown text into the active knowledge index."""
+        if getattr(service, "rag_service", None) is None:
+            raise HinaaError("RAG_NOT_AVAILABLE", "RAG service is not initialized", 503)
+        body = await request.json()
+        content = body.get("content", "").strip()
+        doc_id = body.get("document_id") or f"doc_{uuid4().hex[:12]}"
+        source = body.get("source") or "API Upload"
+        author = body.get("author") or "user"
+        version = body.get("version") or "1.0"
+        visibility = body.get("visibility") or "internal"
+
+        chunks = service.rag_service.ingest_document(
+            text=content,
+            document_id=doc_id,
+            source=source,
+            author=author,
+            version=version,
+            visibility=visibility,
+        )
+        return {
+            "status": "success",
+            "document_id": doc_id,
+            "chunks_created": len(chunks),
+            "total_index_chunks": service.rag_service.total_chunks,
+        }
+
+    @app.post("/v1/rag/reindex-specs")
+    @app.post("/api/v1/rag/reindex-specs")
+    async def rag_reindex_specs() -> dict[str, Any]:
+        """Re-reads and indexes all `.hina/` repository specs."""
+        if getattr(service, "rag_service", None) is None:
+            raise HinaaError("RAG_NOT_AVAILABLE", "RAG service is not initialized", 503)
+        indexed = service.rag_service.index_repository_memory()
+        return {
+            "status": "success",
+            "specs_indexed": indexed,
+            "total_index_chunks": service.rag_service.total_chunks,
+        }
+
+
     def _resolved_tool_owner(server_user_id: str | None) -> str:
         """Map an auth subject to the users.id a durable task may reference.
 

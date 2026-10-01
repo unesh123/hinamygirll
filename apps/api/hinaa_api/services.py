@@ -1604,6 +1604,16 @@ class ConversationService:
             except Exception:
                 logger.debug("EpisodeSummarizer unavailable (no DB)", exc_info=True)
         self._episode_turn_counters: dict[str, int] = {}
+        # RAG Knowledge Service - Enterprise hybrid retrieval & spec grounding
+        try:
+            from .rag import RAGKnowledgeService
+            ws_root = getattr(settings, "local_workspace_dir", None) or os.getcwd()
+            self.rag_service = RAGKnowledgeService(workspace_root=str(ws_root))
+            self.rag_service.index_repository_memory()
+        except Exception:
+            logger.warning("RAGKnowledgeService initialization or spec indexing failed", exc_info=True)
+            self.rag_service = None
+
 
     def _fast_key_bad(self, provider_id: str) -> bool:
         return self._fast_key_bad_until.get(provider_id, 0.0) > time.monotonic()
@@ -4212,6 +4222,13 @@ class ConversationService:
             decision=route_decision,
         )
         resolved_media = await self._resolve_turn_media(request)
+        rag_context_block = ""
+        if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
+            try:
+                rag_context_block = self.rag_service.format_context_block(request.text, top_k=3)
+            except Exception:
+                logger.debug("RAG context formatting failed in create_plan", exc_info=True)
+
         prompt = build_turn_prompt(
             request=request,
             history=history,
@@ -4223,6 +4240,7 @@ class ConversationService:
             attachments=tuple(resolved_media),
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
+            rag_context_block=rag_context_block,
             history_preselected=True,
             allowed_tools=allowed_tools,
         )
@@ -4864,6 +4882,13 @@ class ConversationService:
             decision=route_decision_rt,
         )
         resolved_media = await self._resolve_turn_media(request)
+        rag_context_block_rt = ""
+        if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
+            try:
+                rag_context_block_rt = self.rag_service.format_context_block(request.text, top_k=3)
+            except Exception:
+                logger.debug("Live RAG context formatting failed", exc_info=True)
+
         # ``turns:stream`` carries typed chat as well as voice, so the tool-free
         # contract is keyed on the mode that is actually voice. A typed turn gets
         # the whitelist its own words earned: passing () here told her the turn
@@ -4885,6 +4910,7 @@ class ConversationService:
             attachments=tuple(resolved_media),
             dialogue_state_block=dialogue_state_block,
             live_search_block=live_search_block,
+            rag_context_block=rag_context_block_rt,
             history_preselected=True,
             allowed_tools=live_allowed_tools,
         )

@@ -83,6 +83,8 @@ class PromptInput(StrictModel):
     dialogue_state_block: str = ""
     # P0: real-time live search block — fresh web search results for 2026 grounding
     live_search_block: str = ""
+    # P0: RAG knowledge context block — grounded repository and document retrieval
+    rag_context_block: str = ""
     # B2.1 §4: history already selected/budgeted by the canonical ContextCompiler.
     # The assembler must render it verbatim (FORMAT_ONLY) — no further truncation,
     # no independent selection. Legacy callers (offline eval suite) leave False.
