@@ -1,0 +1,15 @@
+{
+  "name": "hinaa-desktop",
+  "version": "2.0.0",
+  "description": "HINAA Frontier OS v2 Native Desktop Application",
+  "main": "src/main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron src/main.cjs",
+    "dev": "electron src/main.cjs --dev"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^44.5.1"
+  }
+}

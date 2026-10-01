@@ -22,6 +22,7 @@ from . import customgpt
 from . import prodcamp
 from . import social_reach
 from . import computer_operator
+from . import ui_control
 
 __all__ = ["registry"]
 

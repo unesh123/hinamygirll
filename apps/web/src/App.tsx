@@ -56,6 +56,9 @@ import { SidebarPanel } from "./components/ui/SidebarPanel";
 import { VmcControlPanel } from "./components/ui/VmcControlPanel";
 
 import type { PowerUp } from "./components/ui/PowerUpMentions";
+import { hinaaUIController, type HinaaUIAction } from "./features/ui-control/HinaaUIController";
+import { DesktopTitleBar } from "./features/desktop/DesktopTitleBar";
+import { FloatingCompanionIsland } from "./features/desktop/FloatingCompanionIsland";
 
 const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
 const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
@@ -450,6 +453,16 @@ export default function App() {
 
   // ─── Sakura OS mode state ──────────────────────────────
   const [sakuraView, setSakuraView] = useState<WorkspaceMode>("work");
+  const [desktopWindowMode, setDesktopWindowMode] = useState<string>("standard");
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail) setDesktopWindowMode(e.detail);
+    };
+    window.addEventListener("desktop:window-mode-changed", handler);
+    return () => window.removeEventListener("desktop:window-mode-changed", handler);
+  }, []);
+
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalInitialCmd, setTerminalInitialCmd] = useState("");
   const openTerminalHands = useCallback((cmd?: string) => {
@@ -579,6 +592,8 @@ export default function App() {
     setActiveConversationId(id);
     saveActiveSession({ conversationId: id });
   }, []);
+
+
 
   // This is HINAA's own text only. The avatar director uses it for a subtle
   // deterministic expression accent; it never classifies webcam/user emotion.
@@ -911,6 +926,88 @@ export default function App() {
     else if (typeof action === "string" && action.length > 0) setInput(action);
   };
 
+  // ─── Autonomous UI Director Subscription ───────────────────────
+  useEffect(() => {
+    return hinaaUIController.subscribe((action: HinaaUIAction) => {
+      if (action.action === "switch_mode" && action.mode) {
+        setSakuraView(action.mode);
+        if (action.mode === "showroom" || action.mode === "talk") setNavSection("talk");
+        else if (action.mode === "work") setNavSection("chat");
+        else if (action.mode === "operate") setNavSection("tasks");
+        else if (action.mode === "vault") setNavSection("vault");
+      } else if (action.action === "switch_section" && action.section) {
+        const sec = action.section;
+        if (sec === "talk" || sec === "voice") {
+          setNavSection(sec);
+          setSakuraView("showroom");
+        } else if (sec === "chat") {
+          setNavSection("chat");
+          setSakuraView("work");
+        } else if (sec === "tasks" || sec === "tools" || sec === "files") {
+          setNavSection(sec);
+          setSakuraView("operate");
+        } else if (sec === "images") {
+          setNavSection("images");
+          openImageStudio();
+        } else if (sec === "library" || sec === "projects") {
+          setNavSection("projects");
+          openProjectWorkspace();
+        } else if (sec === "creations") {
+          setNavSection("creations");
+          openHumanizerStudio();
+        } else if (sec === "vault") {
+          setNavSection("vault");
+          setSakuraView("vault");
+        } else if (sec === "terminal") {
+          openTerminalHands(action.command);
+        } else if (sec === "settings") {
+          setSettingsOpen(true);
+        } else if (sec === "memory") {
+          setMemoryOpen(true);
+        }
+      } else if (action.action === "switch_operate_tab" && action.tab) {
+        setSakuraView("operate");
+        setNavSection("tasks");
+        setOperateTab(action.tab as any);
+      } else if (action.action === "set_avatar_mode" && action.avatar_mode) {
+        const modeMap: Record<string, PresenceMode> = {
+          "3d": "upperbody",
+          pip: "portrait",
+          hidden: "portrait",
+        };
+        const resolvedMode = modeMap[action.avatar_mode] || (action.avatar_mode as PresenceMode);
+        changeAvatarMode(resolvedMode);
+      } else if (action.action === "set_companion" && action.companion_id) {
+        controller.switchCompanion(action.companion_id as any);
+      } else if (action.action === "toggle_drawer" && action.drawer) {
+        const shouldOpen = action.open !== false;
+        if (action.drawer === "terminal") {
+          if (shouldOpen) openTerminalHands(action.command);
+          else setTerminalOpen(false);
+        } else if (action.drawer === "settings") {
+          setSettingsOpen(shouldOpen);
+        } else if (action.drawer === "memory") {
+          setMemoryOpen(shouldOpen);
+        } else if (action.drawer === "music") {
+          setContextMode(shouldOpen ? "music" : "hidden");
+        }
+      } else if (action.action === "set_theme" && action.theme) {
+        setAppearance({ theme: action.theme });
+      } else if (action.action === "desktop_window_mode" && action.window_mode) {
+        if ((window as any).hinaaDesktop?.setWindowMode) {
+          (window as any).hinaaDesktop.setWindowMode(action.window_mode);
+        }
+      } else if (action.action === "trigger_voice") {
+        if (action.open !== false) {
+          unlockAudio();
+          live.start();
+        } else {
+          live.stop();
+        }
+      }
+    });
+  }, [changeAvatarMode, controller, live, openHumanizerStudio, openImageStudio, openProjectWorkspace, openTerminalHands, setAppearance, unlockAudio]);
+
   /* ─── Agent steps ────────────────────────────────────── */
   useEffect(() => {
     if (controller.agentSteps.length > 0) {
@@ -1004,10 +1101,38 @@ export default function App() {
   const isVoiceLab = typeof window !== "undefined" && window.location.pathname === "/dev/voice-lab";
   if (isVoiceLab) return <VoiceLab />;
 
+  if (desktopWindowMode === "floating_companion") {
+    return (
+      <SpeechPlaybackContext.Provider value={playback.speech}>
+        <div style={{ width: "100vw", height: "100vh", overflow: "hidden", background: "#0a0a0c" }}>
+          <DesktopTitleBar />
+          <FloatingCompanionIsland
+            companionName={companionProfiles[controller.companionId]?.name || "Hinaa"}
+            companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+            isVoiceActive={live.active}
+            onToggleVoice={() => {
+              if (live.active) live.stop();
+              else { unlockAudio(); live.start(); }
+            }}
+            onSendText={(text) => submit(undefined, text)}
+            streamingText={controller.streamingText || controller.partialTranscript}
+            onExpandWorkspace={() => {
+              setDesktopWindowMode("standard");
+              if ((window as any).hinaaDesktop?.setWindowMode) {
+                (window as any).hinaaDesktop.setWindowMode("standard");
+              }
+            }}
+          />
+        </div>
+      </SpeechPlaybackContext.Provider>
+    );
+  }
+
   return (
     <SpeechPlaybackContext.Provider value={playback.speech}>
       <SidebarProvider defaultExpanded={false}>
         <div className="hinaa-shell">
+          <DesktopTitleBar />
         {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
         <AuroraVeil state={controller.state} />
         <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />

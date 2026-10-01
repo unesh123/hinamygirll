@@ -28,6 +28,7 @@ import {
 import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
 import { singleLine } from "../../lib/turnFailure";
 import { recordMotionState } from "./motionLedger";
+import { hinaaUIController } from "../ui-control/HinaaUIController";
 
 function createId(): string {
   return (
@@ -680,9 +681,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             setStreamingText("");
             completedPlan = event.plan;
             setActivePlan(event.plan);
+            const assistantDisplayText = getAssistantDisplayText(serializeAssistantTurn(event.plan));
+            try {
+              hinaaUIController.handleAssistantResponse(assistantDisplayText);
+            } catch {}
             setMessages((current) => [
               ...current,
-              createMessage("assistant", getAssistantDisplayText(serializeAssistantTurn(event.plan)), {
+              createMessage("assistant", assistantDisplayText, {
               content: serializeAssistantTurn(event.plan),
               plan: event.plan,
             }),
@@ -938,6 +943,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             } : activity),
           };
         }));
+
+        // Autonomously execute UI control actions if returned by tool
+        if (outcome.result && typeof outcome.result === "object" && (outcome.result as any).ui_action) {
+          hinaaUIController.dispatch((outcome.result as any).ui_action);
+        } else if (request.toolName === "ui_control" && request.parameters && (request.parameters as any).action) {
+          hinaaUIController.dispatch(request.parameters as any);
+        }
       } catch (error) {
         const label = error instanceof Error ? error.message : "Approved action failed";
         setMessages((current) => current.map((message) => {
@@ -1027,9 +1039,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const applyLivePlan = useCallback((plan: AssistantTurnPlan) => {
     setActivePlan(plan);
     setStreamingText("");
+    const displayText = getAssistantDisplayText(serializeAssistantTurn(plan));
+    try {
+      hinaaUIController.handleAssistantResponse(displayText);
+    } catch {}
     setMessages((current) => [
       ...current,
-      createMessage("assistant", getAssistantDisplayText(serializeAssistantTurn(plan)), {
+      createMessage("assistant", displayText, {
         content: serializeAssistantTurn(plan),
         plan,
       }),
