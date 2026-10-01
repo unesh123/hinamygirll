@@ -3151,6 +3151,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "report": report.model_dump(mode="json"),
         }
 
+    @app.get("/v1/harness/motion/state")
+    @app.get("/api/v1/harness/motion/state")
+    async def harness_get_motion_state() -> dict[str, Any]:
+        from hinaa_api.harness import get_motion_director
+        director = get_motion_director()
+        return {
+            "status": "success",
+            "semanticState": director.current_state.model_dump(mode="json"),
+            "motionProfile": director.current_profile.model_dump(mode="json"),
+        }
+
+    @app.post("/v1/harness/motion/transition")
+    @app.post("/api/v1/harness/motion/transition")
+    async def harness_transition_motion(request: Request) -> dict[str, Any]:
+        from hinaa_api.harness import get_motion_director, SemanticIntent
+        director = get_motion_director()
+        body = await request.json()
+        intent_raw = body.get("intent", "thinking")
+        try:
+            intent = SemanticIntent(intent_raw)
+        except ValueError:
+            intent = SemanticIntent.WAITING
+
+        profile = director.transition_state(
+            intent=intent,
+            active_tool=body.get("activeTool"),
+            active_agent=body.get("activeAgent"),
+            progress=float(body.get("progress", 0.0)),
+            energy=float(body["energy"]) if "energy" in body else None,
+            focus=float(body["focus"]) if "focus" in body else None,
+        )
+        return {
+            "status": "success",
+            "semanticState": director.current_state.model_dump(mode="json"),
+            "motionProfile": profile.model_dump(mode="json"),
+        }
+
     # -----------------------------------------------------------------------
     # RAG Knowledge Endpoints
     # -----------------------------------------------------------------------

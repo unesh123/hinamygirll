@@ -38,6 +38,14 @@ from .telemetry_probe import (
     SystemLatencyMetrics,
     get_telemetry_probe,
 )
+from .motion_brain import (
+    HinaSemanticState,
+    MotionDirector,
+    MotionProfile,
+    SemanticIntent,
+    SpatialStation,
+    get_motion_director,
+)
 from .verifier_brain import VerifierBrain
 
 __all__ = [
@@ -79,8 +87,13 @@ __all__ = [
     "VerifierBrain",
     "VerifierReport",
     "VisualCriticReport",
-    "WorldModel",
+    "HinaSemanticState",
+    "MotionDirector",
+    "MotionProfile",
+    "SemanticIntent",
+    "SpatialStation",
     "get_model_registry",
+    "get_motion_director",
     "get_telemetry_probe",
     "get_thread_manager",
 ]

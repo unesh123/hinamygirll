@@ -21,6 +21,7 @@ from . import browser_cloud
 from . import customgpt
 from . import prodcamp
 from . import social_reach
+from . import computer_operator
 
 __all__ = ["registry"]
 
