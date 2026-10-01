@@ -2836,8 +2836,16 @@ class ConversationService:
         # images" -- so the whitelist comes from the same sanction that later
         # filters the provider's own calls, not from this one regex pass.
         sanction = sanction_tools(text, known_subjects=CHARACTER_ENTITY_MAP)
-        if sanction.allowed:
-            return tuple(sorted(sanction.allowed))
+        allowed_set = set(sanction.allowed) if sanction.allowed else set()
+        UI_CONTROL_PATTERN = re.compile(
+            r"(?i)\b(?:switch|change|open|toggle|show|enter|go\s+to|dock|expand)\b.*?"
+            r"\b(?:mode|view|showroom|3d|avatar|workspace|vault|operate|tasks|terminal|hands|drawer|settings|memory|desktop|companion|window)\b"
+            r"|\b(?:terminal\s+hands|floating\s+companion|showroom\s+mode|work\s+mode|operate\s+mode|vault\s+mode|3d\s+avatar|3d\s+presence)\b"
+        )
+        if UI_CONTROL_PATTERN.search(text):
+            allowed_set.add("ui_control")
+        if allowed_set:
+            return tuple(sorted(allowed_set))
         # If user gave an affirmative confirmation and recent turns discussed generating an image
         if history:
             from hinaa_intent_gate import YES_CONFIRM_PATTERN, _check_image_proposal
@@ -4655,6 +4663,60 @@ class ConversationService:
                     result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
                     result.value.spokenText = f"Designing your live {web_title} website right now, babe!"
 
+            # Deterministic Autonomous UI Steering Guarantee
+            if (
+                "ui_control" in allowed_tools
+            ) and not any(t.toolName == "ui_control" for t in result.value.toolRequests):
+                lower_text = request.text.lower()
+                ui_action = "navigate"
+                target_mode = None
+                target_section = None
+                target_drawer = None
+                target_window_mode = None
+                target_avatar_mode = None
+
+                if "showroom" in lower_text or "3d" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "showroom"
+                elif "work" in lower_text or "chat" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "work"
+                elif "operate" in lower_text or "task" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "operate"
+                elif "vault" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "vault"
+                elif "terminal" in lower_text:
+                    ui_action = "toggle_drawer"
+                    target_drawer = "terminal"
+                elif "companion" in lower_text or "floating" in lower_text:
+                    ui_action = "desktop_window_mode"
+                    target_window_mode = "floating_companion"
+                elif "avatar" in lower_text:
+                    ui_action = "set_avatar_mode"
+                    target_avatar_mode = "3d"
+
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="ui_control",
+                        parameters={
+                            "action": ui_action,
+                            "mode": target_mode,
+                            "section": target_section,
+                            "drawer": target_drawer,
+                            "window_mode": target_window_mode,
+                            "avatar_mode": target_avatar_mode,
+                        },
+                        status="ready",
+                        reason="deterministic-ui-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
+                    target_desc = target_mode or target_drawer or target_window_mode or "requested view"
+                    result.value.displayText = f"Switching your workspace to {target_desc} right now, babe! You have full control."
+                    result.value.spokenText = f"Switching your workspace to {target_desc} right now, babe!"
+
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
             ]
@@ -5472,6 +5534,60 @@ class ConversationService:
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
                     result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
                     result.value.spokenText = f"Designing your live {web_title} website right now, babe!"
+
+            # Deterministic Autonomous UI Steering Guarantee
+            if (
+                "ui_control" in live_allowed_tools
+            ) and not any(t.toolName == "ui_control" for t in result.value.toolRequests):
+                lower_text = request.text.lower()
+                ui_action = "navigate"
+                target_mode = None
+                target_section = None
+                target_drawer = None
+                target_window_mode = None
+                target_avatar_mode = None
+
+                if "showroom" in lower_text or "3d" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "showroom"
+                elif "work" in lower_text or "chat" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "work"
+                elif "operate" in lower_text or "task" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "operate"
+                elif "vault" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "vault"
+                elif "terminal" in lower_text:
+                    ui_action = "toggle_drawer"
+                    target_drawer = "terminal"
+                elif "companion" in lower_text or "floating" in lower_text:
+                    ui_action = "desktop_window_mode"
+                    target_window_mode = "floating_companion"
+                elif "avatar" in lower_text:
+                    ui_action = "set_avatar_mode"
+                    target_avatar_mode = "3d"
+
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="ui_control",
+                        parameters={
+                            "action": ui_action,
+                            "mode": target_mode,
+                            "section": target_section,
+                            "drawer": target_drawer,
+                            "window_mode": target_window_mode,
+                            "avatar_mode": target_avatar_mode,
+                        },
+                        status="ready",
+                        reason="deterministic-ui-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
+                    target_desc = target_mode or target_drawer or target_window_mode or "requested view"
+                    result.value.displayText = f"Switching your workspace to {target_desc} right now, babe! You have full control."
+                    result.value.spokenText = f"Switching your workspace to {target_desc} right now, babe!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
