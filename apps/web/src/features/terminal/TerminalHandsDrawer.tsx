@@ -13,9 +13,11 @@ import {
   Sparkles,
   GitBranch,
 } from "lucide-react";
+import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 
 interface TerminalExecutionResult {
   status: "success" | "error" | "rejected";
+  runtime?: string;
   command: string;
   exitCode?: number;
   stdout?: string;
@@ -33,6 +35,7 @@ interface TerminalHandsDrawerProps {
 
 export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: TerminalHandsDrawerProps) {
   const [command, setCommand] = useState(initialCommand || "");
+  const [runtime, setRuntime] = useState<"auto" | "kali" | "powershell" | "cmd">("auto");
   const [isExecuting, setIsExecuting] = useState(false);
   const [history, setHistory] = useState<TerminalExecutionResult[]>([]);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -56,18 +59,26 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history]);
 
-  const executeCommand = async (cmdToRun: string) => {
+  const executeCommand = async (cmdToRun: string, specificRuntime?: "auto" | "kali" | "powershell" | "cmd") => {
     const trimmed = cmdToRun.trim();
     if (!trimmed || isExecuting) return;
 
     setIsExecuting(true);
     const startTs = new Date().toLocaleTimeString();
+    const activeRt = specificRuntime || runtime;
 
     try {
-      const response = await fetch("/v1/terminal/execute", {
+      const apiBase = import.meta.env.VITE_HINAA_API_BASE_URL
+        ? String(import.meta.env.VITE_HINAA_API_BASE_URL).replace(/\/+$/, "")
+        : "";
+      const response = await fetch(`${apiBase}/v1/terminal/execute`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: trimmed }),
+        headers: {
+          "Content-Type": "application/json",
+          "bypass-tunnel-reminder": "true",
+          ...hinaaIdentityHeaders(),
+        },
+        body: JSON.stringify({ command: trimmed, runtime: activeRt }),
       });
       const data = await response.json();
       setHistory((prev) => [
@@ -75,6 +86,7 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         {
           ...data,
           command: trimmed,
+          runtime: data.runtime || activeRt,
           timestamp: startTs,
         },
       ]);
@@ -85,6 +97,7 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         {
           status: "error",
           command: trimmed,
+          runtime: activeRt,
           error: err?.message || "Network execution error",
           timestamp: startTs,
         },
@@ -105,12 +118,13 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
     setTimeout(() => setCopiedIndex(null), 1500);
   };
 
-  const quickPills = [
-    { label: "git status", cmd: "git status --short" },
-    { label: "git branch", cmd: "git branch --show-current" },
-    { label: "recent commits", cmd: "git log -n 5 --oneline" },
-    { label: "python version", cmd: "python --version" },
-    { label: "test suite", cmd: "pytest --version" },
+  const quickPills: Array<{ label: string; cmd: string; runtime?: "auto" | "kali" | "powershell" | "cmd" }> = [
+    { label: "🐧 Kali Uname", cmd: "uname -a && whoami", runtime: "kali" },
+    { label: "🔍 Sec: Headers", cmd: "sec:headers https://hinaa-workspace.vercel.app" },
+    { label: "🛡️ Sec: Git Leaks", cmd: "sec:gitleaks" },
+    { label: "🌐 Sec: Ports", cmd: "sec:ports 127.0.0.1" },
+    { label: "git status", cmd: "git status -s" },
+    { label: "pytest suite", cmd: "python -m pytest apps/api/tests -q" },
   ];
 
   if (!isOpen) return null;
@@ -178,6 +192,29 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
           >
             SANDBOXED
           </span>
+
+          {/* Runtime Selector Toggle */}
+          <div style={{ display: "flex", alignItems: "center", gap: 2, background: "rgba(255,255,255,0.06)", padding: "2px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", marginLeft: 6 }}>
+            {(["auto", "kali", "powershell"] as const).map((rt) => (
+              <button
+                key={rt}
+                onClick={() => setRuntime(rt)}
+                style={{
+                  background: runtime === rt ? (rt === "kali" ? "#ef4444" : rt === "powershell" ? "#2563eb" : "#059669") : "transparent",
+                  color: runtime === rt ? "#fff" : "#a1a1aa",
+                  border: "none",
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  fontSize: "10px",
+                  fontWeight: runtime === rt ? 700 : 500,
+                  cursor: "pointer",
+                  transition: "all 120ms ease",
+                }}
+              >
+                {rt === "auto" ? "⚡ Auto" : rt === "kali" ? "🐧 Kali WSL" : "🟦 PS"}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Quick Action Pills */}
@@ -185,7 +222,7 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
           {quickPills.map((pill) => (
             <button
               key={pill.label}
-              onClick={() => executeCommand(pill.cmd)}
+              onClick={() => executeCommand(pill.cmd, pill.runtime)}
               disabled={isExecuting}
               style={{
                 background: "rgba(255,255,255,0.05)",
@@ -283,6 +320,20 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
                 <span style={{ color: "#f4f4f5", fontWeight: 600 }}>{item.command}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {item.runtime && (
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      padding: "1px 6px",
+                      borderRadius: 3,
+                      background: item.runtime.includes("kali") ? "rgba(239,68,68,0.18)" : "rgba(59,130,246,0.15)",
+                      color: item.runtime.includes("kali") ? "#fca5a5" : "#93c5fd",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {item.runtime}
+                  </span>
+                )}
                 <span
                   style={{
                     fontSize: "10px",

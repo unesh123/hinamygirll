@@ -2978,6 +2978,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 False,
             ) from None
 
+    @app.post("/v1/terminal/execute")
+    @app.post("/api/v1/terminal/execute")
+    async def execute_terminal_endpoint(request: Request) -> dict[str, Any]:
+        """Execute terminal commands in native OS or Kali Linux WSL with structured security reporting."""
+        body = await request.json()
+        from hinaa_api.tools.terminal_hands import execute_terminal_hands
+        return await execute_terminal_hands(body)
+
     def _resolved_tool_owner(server_user_id: str | None) -> str:
         """Map an auth subject to the users.id a durable task may reference.
 
