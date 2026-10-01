@@ -1986,7 +1986,7 @@ class ConversationService:
                   | (?:search(?:\s+the\s+web|\s+online)?|google)\s+for\b
                 )
                 | \b(?:stop|cancel|abort)\s+(?:generating|creating|making|drawing|searching|fetching|this|it)\b
-                | \b(?:i\s+)?(?:don'?t|do\s+not|did\s+not)\s+(?:want|need|ask\s+for)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|decks?)\b
+                | \b(?:i\s+)?(?:don'?t|do\s+not|did\s+not)\s+(?:want|need|ask\s+for)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|decks?|pics?)\b
                 """,
                 unquoted,
             )

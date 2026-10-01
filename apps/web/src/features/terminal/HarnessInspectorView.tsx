@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
+  Activity,
   GitBranch,
   Shield,
   Layers,
@@ -19,9 +20,10 @@ import {
   Plus,
 } from "lucide-react";
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
+import { OrionServingFloor } from "../harness/OrionServingFloor";
 
 export function HarnessInspectorView() {
-  const [activeSubTab, setActiveSubTab] = useState<"graph" | "policy" | "memory" | "verifier" | "rag">("graph");
+  const [activeSubTab, setActiveSubTab] = useState<"orion" | "graph" | "policy" | "memory" | "verifier" | "rag">("orion");
   const [threads, setThreads] = useState<any[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string>("");
   const [graphData, setGraphData] = useState<any>(null);
@@ -236,6 +238,7 @@ export function HarnessInspectorView() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "#111115" }}>
         <div style={{ display: "flex", gap: "6px" }}>
           {[
+            { id: "orion", label: "🌌 Orion 7 Floor", icon: Activity },
             { id: "graph", label: "🌳 Multi-Agent Graph", icon: GitBranch },
             { id: "policy", label: "🛡️ Sandbox & Policy", icon: Shield },
             { id: "memory", label: "📁 Repo Memory (.hina)", icon: FolderTree },
@@ -285,6 +288,11 @@ export function HarnessInspectorView() {
 
       {/* ── Subtab Body ───────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+        {/* TAB 0: ORION 7 SERVING FLOOR 3D VISUALIZER */}
+        {activeSubTab === "orion" && (
+          <OrionServingFloor />
+        )}
+
         {/* TAB 1: MULTI-AGENT GRAPH */}
         {activeSubTab === "graph" && (
           <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "16px", height: "100%" }}>

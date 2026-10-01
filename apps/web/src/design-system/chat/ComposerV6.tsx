@@ -25,6 +25,7 @@ import {
   Layout,
 } from "lucide-react";
 import { ModelSelectorV7 } from "./ModelSelectorV7";
+import { ShapeshiftCard } from "../../features/chat/components/ShapeshiftCard";
 import type { DiscoveredModel, DiscoveredProvider } from "../../features/providers/hooks/useCapabilities";
 
 export type ActionMode = "chat" | "research" | "create" | "code" | "goal";
@@ -154,6 +155,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const [showIntelMenu, setShowIntelMenu] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [previewChip, setPreviewChip] = useState<ContextChip | null>(null);
+  const [dismissedShapeshiftInput, setDismissedShapeshiftInput] = useState<string>("");
 
   // Footer status is measured, never asserted. `configured` only proves a
   // credential exists, which is how this chip stayed green straight through a
@@ -520,6 +522,30 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Shapeshift Morphing Composer Preview ────────────────────── */}
+      {value.trim() && value.trim() !== dismissedShapeshiftInput && (
+        <ShapeshiftCard
+          input={value}
+          isDark={isDark}
+          onDismiss={() => setDismissedShapeshiftInput(value.trim())}
+          onExecute={(actionText, executeImmediately) => {
+            if (executeImmediately) {
+              onChange(actionText);
+              setTimeout(() => {
+                onSend({
+                  mode: isGoalMode ? "goal" : actionMode,
+                  intelligence: intelligenceLevel,
+                  attachmentRole: selectedRole,
+                  isGoalMode,
+                });
+              }, 50);
+            } else {
+              onChange(actionText);
+            }
+          }}
+        />
       )}
 
       {/* ── Main Textarea ─────────────────────────────────────────────────── */}

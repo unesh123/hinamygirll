@@ -60,7 +60,7 @@ _VISUAL_ASK = re.compile(
 
 _DOCUMENT_ARTIFACT_ASK = re.compile(
     r"\b(?:pdf|pptx|docx|spreadsheet|presentation|slides?|slide\s+deck|deck|website|web\s*page|landing\s*page|web\s*app)\b|"
-    r"\b(?:generate|create|make|export|download|build|design|develop|code|prepare)\b[^.?!]{0,40}\b(?:pdf|pptx|presentation|slides?|deck|spreadsheet|document|website|web\s*page|landing\s*page|site|web\s*app|report)\b",
+    r"\b(?:generate|create|make|export|download|build|design|develop|code|prepare)\b[^.?!]{0,40}\b(?:pdf|pptx|presentation|slides?|deck|spreadsheet|document|website|web\s*page|landing\s*page|site|web\s*app)\b",
     re.IGNORECASE,
 )
 
@@ -137,17 +137,18 @@ def infer_response_depth(
         # promises for prose. It cannot promise prose on a turn whose deliverable
         # is a picture, website, or document artifact: an artifact request must not
         # take an essay word floor and stall in multi-minute continuation cycles.
-        artifact_turn = bool(_DOCUMENT_ARTIFACT_ASK.search(text) or _VISUAL_ASK.search(text))
+        artifact_turn = bool((_DOCUMENT_ARTIFACT_ASK.search(text) or _VISUAL_ASK.search(text)) and not _REPORT.search(text))
         if mapped is not None and not report_unasked and not artifact_turn:
             return mapped
     if len(text) <= 12 or _CLARIFY.match(text):
         return "clarification" if len(text) <= 8 else "minimal"
+    # Explicit report ask takes priority over secondary media asks
+    if _REPORT.search(text):
+        return "report"
     # An artifact request produces an external PDF/PPTX/presentation/website/image deliverable.
     # The chat text is an introduction/overview, never an essay.
     if _DOCUMENT_ARTIFACT_ASK.search(text) or _VISUAL_ASK.search(text):
         return "conversational"
-    if _REPORT.search(text):
-        return "report"
     if _PROCEDURAL.search(text):
         return "procedural"
     if _EXPLAIN.search(text):
