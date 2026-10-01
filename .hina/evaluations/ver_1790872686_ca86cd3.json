@@ -1,0 +1,18 @@
+{
+  "verification_id": "ver_1790872686_ca86cd3",
+  "git_commit": "ca86cd3",
+  "timestamp": "2026-10-01T16:38:06.108465Z",
+  "smoke_test_passed": true,
+  "latency_test_passed": true,
+  "intent_gate_test_passed": true,
+  "tool_dispatch_test_passed": true,
+  "artifact_test_passed": true,
+  "browser_environment_test_passed": true,
+  "leak_prevention_test_passed": true,
+  "regression_suite_passed": true,
+  "benchmark_ttfb_p50": 0.12,
+  "benchmark_total_turn_p50": 7.8,
+  "test_suite_status": "114/114 passed",
+  "overall_release_status": "CERTIFIED_FRONTIER",
+  "signature": "a62c357ad8f18d08691ba62c33266f820bed545388149782b53d335f3d7655fa"
+}

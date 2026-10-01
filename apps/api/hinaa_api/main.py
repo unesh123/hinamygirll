@@ -3110,6 +3110,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {"status": "success", "report": rep.model_dump(mode="json")}
 
+    @app.get("/v1/harness/models")
+    @app.get("/api/v1/harness/models")
+    async def harness_list_models() -> dict[str, Any]:
+        from hinaa_api.harness import get_model_registry
+        reg = get_model_registry()
+        models = reg.list_models()
+        return {"status": "success", "models": [m.model_dump(mode="json") for m in models]}
+
+    @app.get("/v1/harness/telemetry")
+    @app.get("/api/v1/harness/telemetry")
+    async def harness_get_telemetry() -> dict[str, Any]:
+        from hinaa_api.harness import get_telemetry_probe
+        probe = get_telemetry_probe()
+        health = probe.get_live_health()
+        return {"status": "success", "health": health.model_dump(mode="json")}
+
+    @app.post("/v1/harness/verify-release")
+    @app.post("/api/v1/harness/verify-release")
+    async def harness_verify_release(request: Request) -> dict[str, Any]:
+        from hinaa_api.harness import get_telemetry_probe
+        probe = get_telemetry_probe()
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        git_commit = body.get("gitCommit", "ca86cd3")
+        record = probe.run_release_verification(git_commit=git_commit)
+        return {"status": "success", "verificationRecord": record.model_dump(mode="json")}
+
+    @app.post("/v1/harness/browser/evaluate")
+    @app.post("/api/v1/harness/browser/evaluate")
+    async def harness_browser_evaluate(request: Request) -> dict[str, Any]:
+        from hinaa_api.harness import IsolatedBrowserRuntime
+        body = await request.json()
+        html = body.get("html", "")
+        title = body.get("title", "Web Application")
+        auto_repair = body.get("autoRepair", True)
+        repaired_code, report = IsolatedBrowserRuntime.evaluate_and_repair(html, title=title, auto_repair=auto_repair)
+        return {
+            "status": "success",
+            "repairedCode": repaired_code,
+            "report": report.model_dump(mode="json"),
+        }
+
     # -----------------------------------------------------------------------
     # RAG Knowledge Endpoints
     # -----------------------------------------------------------------------

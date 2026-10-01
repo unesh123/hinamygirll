@@ -27,6 +27,17 @@ from .types import (
     VerifierReport,
     WorldModel,
 )
+from .browser_environment import EnvironmentalObservation, IsolatedBrowserRuntime, VisualCriticReport
+from .model_registry import CostTier, ModelCapability, ModelRegistry, get_model_registry
+from .telemetry_probe import (
+    CoverageMetrics,
+    HarnessHealthMetrics,
+    HinaTelemetryProbe,
+    LiveSystemHealth,
+    ReleaseVerificationRecord,
+    SystemLatencyMetrics,
+    get_telemetry_probe,
+)
 from .verifier_brain import VerifierBrain
 
 __all__ = [
@@ -39,23 +50,38 @@ __all__ = [
     "CompactionItem",
     "CompactionWorker",
     "ContextWindowIdentity",
+    "CostTier",
+    "CoverageMetrics",
     "EnvironmentState",
+    "EnvironmentalObservation",
     "ForkInfo",
+    "HarnessHealthMetrics",
+    "HinaTelemetryProbe",
     "HinaThread",
     "HinaThreadManager",
+    "IsolatedBrowserRuntime",
+    "LiveSystemHealth",
     "LocalAgentMessageBoard",
+    "ModelCapability",
+    "ModelRegistry",
     "NetworkSandboxPolicy",
     "PolicyRejection",
     "ReasoningEffort",
+    "ReleaseVerificationRecord",
     "RepositoryMemoryManager",
     "SandboxPolicyEngine",
     "SandboxSecurityViolation",
     "SessionStatus",
+    "SystemLatencyMetrics",
     "Turn",
     "TurnItem",
     "TurnItemType",
     "VerifierBrain",
     "VerifierReport",
+    "VisualCriticReport",
     "WorldModel",
+    "get_model_registry",
+    "get_telemetry_probe",
     "get_thread_manager",
 ]
+

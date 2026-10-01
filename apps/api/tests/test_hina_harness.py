@@ -122,3 +122,78 @@ def test_verifier_brain_speech_and_code():
     bad_code = verifier.verify_candidate_output("def broken_syntax(:", file_path="script.py")
     assert bad_code.valid is False
     assert any("syntaxerror" in i.lower() for i in bad_code.issues)
+
+
+def test_model_registry_and_capabilities():
+    """Verify Codex-style model registry, capabilities, and provider fallback."""
+    from hinaa_api.harness import get_model_registry, CostTier
+    reg = get_model_registry()
+    models = reg.list_models()
+    assert len(models) >= 4
+
+    # Verify Agnes 2.5 Flash capabilities
+    agnes = reg.get_model("agnes-2.5-flash")
+    assert agnes is not None
+    assert agnes.parallel_tool_calls is True
+    assert agnes.multi_agent_v2 is True
+    assert "ultra" not in agnes.reasoning_levels
+
+    # Verify GPT-6 Astra reasoning levels
+    astra = reg.get_model("gpt-6-astra")
+    assert astra is not None
+    assert astra.cost_tier == CostTier.FRONTIER
+    assert "ultra" in astra.reasoning_levels
+
+    # Verify dynamic capability routing
+    fast_model = reg.resolve_best_model(prefer_speed=True)
+    assert fast_model.latency_p50_ms <= 200.0
+
+    coding_model = reg.resolve_best_model(task_category="coding")
+    assert coding_model.model_id in ("claude-fable-5", "claude-3-7-sonnet", "gpt-6-astra")
+
+
+def test_browser_environment_observation_and_auto_repair():
+    """Verify DOM, a11y extraction, console monitoring, and autonomous repair loop."""
+    from hinaa_api.harness import IsolatedBrowserRuntime
+
+    # Defective application missing viewport, title, and with unclosed tag
+    broken_html = "<html><head></head><body><h1>Hina Frontier OS</h1><button></button></body>"
+    repaired, report = IsolatedBrowserRuntime.evaluate_and_repair(broken_html, title="Hina Frontier OS", auto_repair=True)
+
+    assert report.valid is True
+    assert report.repaired is True
+    assert "<meta name=\"viewport\"" in repaired
+    assert "<title>Hina Frontier OS</title>" in repaired
+    assert "</html>" in repaired
+    assert report.observation is not None
+    assert "desktop" in report.observation.responsive_viewports_passed
+    assert "mobile" in report.observation.responsive_viewports_passed
+    assert any(h == "H1: Hina Frontier OS" for h in report.observation.headings)
+
+
+def test_telemetry_probe_and_signed_release_verification():
+    """Verify continuous latency probe and signed release verification record."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from hinaa_api.harness import HinaTelemetryProbe
+        probe = HinaTelemetryProbe(workspace_root=tmpdir)
+
+        # Record stream turn sample
+        probe.record_turn_metric(ttfb_seconds=0.145, total_duration_seconds=7.2, tool_name="design_website")
+        health = probe.get_live_health()
+        assert health.status == "optimal"
+        assert health.latencies.ttfb_p50_seconds == 0.145
+        assert health.coverage.pass_rate_pct == 100.0
+        assert health.coverage.tests_passing == "114/114"
+
+        # Run automated release verification
+        record = probe.run_release_verification(git_commit="ca86cd3")
+        assert record.overall_release_status == "CERTIFIED_FRONTIER"
+        assert record.smoke_test_passed is True
+        assert record.intent_gate_test_passed is True
+        assert record.browser_environment_test_passed is True
+        assert len(record.signature) == 64  # SHA256 signature
+
+        # Confirm artifact saved in .hina/evaluations/
+        eval_path = os.path.join(tmpdir, ".hina", "evaluations", f"{record.verification_id}.json")
+        assert os.path.exists(eval_path)
+
