@@ -4324,7 +4324,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         is_agent_request = (
             body.text.strip().startswith(("/deep", "/agent", "/plan", "/workflow"))
             or body.responseMode in ("automation", "research")
-            or body.providerMode == "agent-router"
             or bool(re.search(r"\b(deep\s+research|audit\s+the\s+entire|refactor\s+the\s+entire|step\s+by\s+step\s+plan\s+and\s+execute)\b", body.text, re.I))
         )
         if active_settings.agent_runtime_enabled and agent_runtime is not None and owner_id and is_agent_request:

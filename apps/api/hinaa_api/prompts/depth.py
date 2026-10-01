@@ -59,8 +59,8 @@ _VISUAL_ASK = re.compile(
 
 
 _DOCUMENT_ARTIFACT_ASK = re.compile(
-    r"\b(?:pdf|pptx|docx|spreadsheet|presentation|slides?|slide\s+deck|deck)\b|"
-    r"\b(?:generate|create|make|export|download|build)\b[^.?!]{0,35}\b(?:pdf|pptx|presentation|slides?|deck|spreadsheet|document)\b",
+    r"\b(?:pdf|pptx|docx|spreadsheet|presentation|slides?|slide\s+deck|deck|website|web\s*page|landing\s*page|web\s*app)\b|"
+    r"\b(?:generate|create|make|export|download|build|design|develop|code|prepare)\b[^.?!]{0,40}\b(?:pdf|pptx|presentation|slides?|deck|spreadsheet|document|website|web\s*page|landing\s*page|site|web\s*app|report)\b",
     re.IGNORECASE,
 )
 
@@ -135,21 +135,16 @@ def infer_response_depth(
         report_unasked = mapped == "report" and mode_inferred and not _REPORT.search(text)
         # Choosing a deep mode in the top bar is consent to the length that mode
         # promises for prose. It cannot promise prose on a turn whose deliverable
-        # is a picture or document artifact: measured with Report selected, an image or
-        # PDF/presentation request took a 4,900-word floor and stalled in endless resumes.
-        report_on_picture = (
-            mapped == "report" and not _REPORT.search(text) and _VISUAL_ASK.search(text)
-        )
-        report_on_artifact = (
-            mapped == "report" and _DOCUMENT_ARTIFACT_ASK.search(text)
-        )
-        if mapped is not None and not report_unasked and not report_on_picture and not report_on_artifact:
+        # is a picture, website, or document artifact: an artifact request must not
+        # take an essay word floor and stall in multi-minute continuation cycles.
+        artifact_turn = bool(_DOCUMENT_ARTIFACT_ASK.search(text) or _VISUAL_ASK.search(text))
+        if mapped is not None and not report_unasked and not artifact_turn:
             return mapped
     if len(text) <= 12 or _CLARIFY.match(text):
         return "clarification" if len(text) <= 8 else "minimal"
-    # An artifact request produces an external PDF/PPTX/presentation file deliverable.
-    # The chat text is an introduction/overview, never a 4,900-word in-chat essay.
-    if _DOCUMENT_ARTIFACT_ASK.search(text):
+    # An artifact request produces an external PDF/PPTX/presentation/website/image deliverable.
+    # The chat text is an introduction/overview, never an essay.
+    if _DOCUMENT_ARTIFACT_ASK.search(text) or _VISUAL_ASK.search(text):
         return "conversational"
     if _REPORT.search(text):
         return "report"

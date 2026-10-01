@@ -7,6 +7,7 @@ import { WorkTree } from './WorkTree';
 import { downloadMarkdownPdf } from '@/features/documents/exportPdf';
 import { renderMarkdownHtml } from '@/lib/markdown';
 import type { WorkTreeNode } from './WorkTree';
+import { WebsiteFoundryPreview } from './WebsiteFoundryPreview';
 
 interface GenericResultRendererProps {
   toolName: string;
@@ -418,6 +419,28 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
     }
 
     return <WorkTree title="Autonomous Browser Task" icon={<Globe size={16} />} nodes={nodes} />;
+  }
+
+  // Render Live Website / Web Application Foundry Preview (Interactive Multi-Viewport Sandbox)
+  if (
+    toolName === 'design_website' ||
+    Boolean(data?.previewUrl) ||
+    (data && data.format === 'html' && (data.docId || data.downloadUrl))
+  ) {
+    const isError = Boolean(data?.error || result?.status === 'error');
+    if (isError) {
+      return (
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
+          <div style={{ color: '#ef4444', fontWeight: 650, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertTriangle size={14} /> Website Foundry Compilation Failed
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '6px 0 0' }}>
+            {data.error || 'Could not compile website.'}
+          </p>
+        </div>
+      );
+    }
+    return <WebsiteFoundryPreview data={data} />;
   }
 
   // Render Document / PDF / DOCX / PPTX Presentation Result (ChatGPT Style with Download & Python Code Block)

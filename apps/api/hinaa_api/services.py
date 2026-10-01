@@ -4637,6 +4637,24 @@ class ConversationService:
                     result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
                     result.value.spokenText = f"Generating your {clean_title} {'slides' if is_slides else 'PDF document'} right now, babe!"
 
+            # Deterministic Website Design Guarantee
+            if (
+                "design_website" in allowed_tools
+            ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
+                clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
+                web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="design_website",
+                        parameters={"brief": request.text, "title": web_title, "theme": "auto"},
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
+                    result.value.spokenText = f"Designing your live {web_title} website right now, babe!"
+
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
             ]
@@ -5436,6 +5454,24 @@ class ConversationService:
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
                     result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
                     result.value.spokenText = f"Generating your {clean_title} {'slides' if is_slides else 'PDF document'} right now, babe!"
+
+            # Deterministic Website Design Guarantee
+            if (
+                "design_website" in live_allowed_tools
+            ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
+                clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
+                web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="design_website",
+                        parameters={"brief": request.text, "title": web_title, "theme": "auto"},
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
+                    result.value.spokenText = f"Designing your live {web_title} website right now, babe!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
