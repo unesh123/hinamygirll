@@ -157,3 +157,19 @@ def test_explicit_document_generation_triggers_document_create() -> None:
 
     result2 = decide("make me a pdf report on solar system", now=NOW)
     assert result2.intent is Intent.DOCUMENT_CREATE
+
+    # Real user prompt with negative styling constraints ("Don't make it worthless", "not like your thing")
+    user_prompt = (
+        "Hey Hina, can you create a document about anime-related content, properly reported and documented, "
+        "with a proper handwritten design, ChatGPT-level design, perfect design, and a proper structure, "
+        "not like your thing? It should be a properly structured, high-level, advanced PDF format. "
+        "Don't make it worthless. Make it designed with attractive, colorful, and perfect designs."
+    )
+    result3 = decide(user_prompt, now=NOW)
+    assert result3.intent is Intent.DOCUMENT_CREATE
+
+    # Slide deck / presentation request with negative styling constraint
+    slide_prompt = "can you create presentation slides about artificial intelligence in anime, make it colorful, don't make it worthless"
+    result4 = decide(slide_prompt, now=NOW)
+    assert result4.intent is Intent.DOCUMENT_CREATE
+

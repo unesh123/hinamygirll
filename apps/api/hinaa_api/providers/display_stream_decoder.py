@@ -647,22 +647,27 @@ _PAGE_SOURCE_PATTERN = re.compile(
 # inline markup is part of an answer, a page is the answer being retyped.
 _PAGE_OPEN_PATTERN = re.compile(r"(?i)<!doctype\s+html|<html\b")
 
+# Code tokens that open raw Python ReportLab, PPTX, or document scripts.
+# When a real document artifact is being rendered, typed-out script is machinery.
+_DOCUMENT_CODE_OPEN_PATTERN = re.compile(
+    r"""(?i)(?:from\s+reportlab|import\s+reportlab|SimpleDocTemplate|getSampleStyleSheet|story\s*=\s*\[|PageBreak\(\)|Spacer\(|from\s+pptx|import\s+pptx|Presentation\(|```(?:python|reportlab|latex)|\{\s*["'](?:name|tool|toolName|tool_name|function)["']\s*:\s*["'][a-zA-Z0-9_-]+["'])"""
+)
+
 
 class PageSourceGuard:
     """Streaming twin of :func:`drop_inlined_page_source`.
 
     Forwards prose untouched and goes silent for good the moment the answer
-    starts typing an HTML document. A marker is not a word boundary --
-    ``"<!DOCTY"`` and ``"PE html>"`` can arrive as separate deltas -- so a
-    trailing fragment that could still grow into one is held back a few
-    characters at a time.
+    starts typing an HTML document or raw document-compilation scripts (when
+    a document tool is active).
     """
 
     _HOLD_CHARS = 16
 
-    def __init__(self) -> None:
+    def __init__(self, *, stop_on_document_code: bool = False) -> None:
         self._pending = ""
         self.closed = False
+        self.stop_on_document_code = stop_on_document_code
 
     def feed(self, delta: str) -> str:
         if self.closed:
@@ -672,6 +677,8 @@ class PageSourceGuard:
         # prose and the page in one delta, and the page must not ride through on
         # the coattails of a sentence that came before it.
         opening = _PAGE_OPEN_PATTERN.search(self._pending)
+        if not opening and self.stop_on_document_code:
+            opening = _DOCUMENT_CODE_OPEN_PATTERN.search(self._pending)
         if opening:
             head = self._pending[: opening.start()]
             self.closed = True
@@ -679,7 +686,7 @@ class PageSourceGuard:
             return head
         split = len(self._pending)
         for edge in range(len(self._pending) - 1, max(len(self._pending) - self._HOLD_CHARS, -1), -1):
-            if self._pending[edge] == "<":
+            if self._pending[edge] in ("<", "`"):
                 split = edge
                 break
         head, self._pending = self._pending[:split], self._pending[split:]
@@ -705,6 +712,16 @@ def drop_inlined_page_source(text: str) -> str:
     if "<" not in text:
         return text
     stripped = _PAGE_SOURCE_PATTERN.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", stripped).strip()
+
+
+def drop_inlined_document_code(text: str) -> str:
+    """Remove raw Python ReportLab, PPTX, or script code a brain printed as its answer."""
+    stripped = re.sub(
+        r"(?i)(?:```(?:python|reportlab)?\s*)?(?:from\s+reportlab|import\s+reportlab|from\s+pptx|import\s+pptx)[\s\S]*?(?:```|$)",
+        "",
+        text,
+    )
     return re.sub(r"\n{3,}", "\n\n", stripped).strip()
 
 

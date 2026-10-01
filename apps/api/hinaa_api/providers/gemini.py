@@ -71,7 +71,10 @@ def _llm_budgets(prompt: Any = None) -> tuple[int, int]:
     return default_tokens, default_chars
 
 
-def _max_continuations() -> int:
+def _max_continuations(prompt: Any = None) -> int:
+    depth = getattr(prompt, "response_depth", None) if prompt is not None else None
+    if depth in ("conversational", "minimal", "clarification", "supportive"):
+        return 0
     try:
         from ..config import get_settings
 
@@ -246,7 +249,7 @@ class GeminiLLMProvider:
             # Phase B1.1: continuation policy lives in the SHARED
             # GenerationOrchestrator — this provider only supplies streaming
             # segments and finish-reason metadata. Policy no longer lives here.
-            max_continuations = _max_continuations()
+            max_continuations = _max_continuations(prompt)
             holder: dict[str, str | None] = {"value": None}
 
             async def _gemini_segment_stream(contents: Any) -> AsyncIterator[str]:

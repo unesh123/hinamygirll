@@ -1975,14 +1975,33 @@ class ConversationService:
         # Continue with existing deterministic intent detection on plain text
         lower_text = plain_text.casefold().strip()
         unquoted = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", lower_text).strip()
-        blocked_framing = (
-            r"\b(do not|don't|dont|never|not\s+(?:want|need|search|fetch|generate|show|use|take|include|rely)|don't\s+use|dont\s+use|may|might|later|example|phrase|"
-            r"explain|why did|how does|how to|can hinaa|is it possible)\b"
+        is_tool_aborted = bool(
+            re.search(
+                r"""(?ix)
+                \b(?:do\s+not|don'?t|dont|never)\s+
+                (?:
+                    (?:generate|create|make|draw|build|write|search|fetch)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|presentations?|decks?|files?)\b
+                  | (?:generate|create|make|draw|search|fetch)\s+(?:anything|it|that|this)\s*(?:[.,!?]|\s*$)
+                  | (?:generate|create|search|fetch|draw)\s*(?:[.,!?]|\s*$)
+                  | (?:search(?:\s+the\s+web|\s+online)?|google)\s+for\b
+                )
+                | \b(?:stop|cancel|abort)\s+(?:generating|creating|making|drawing|searching|fetching|this|it)\b
+                | \b(?:i\s+)?(?:don'?t|do\s+not|did\s+not)\s+(?:want|need|ask\s+for)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|decks?)\b
+                """,
+                unquoted,
+            )
         )
-        if re.search(blocked_framing, lower_text):
+        if is_tool_aborted:
             return
 
-        if re.search(r"\b(?:not|don't|dont)\s+(?:use|take|include|fetch|search|display|show)\b", unquoted, re.I):
+        is_meta_inquiry = bool(
+            re.search(
+                r"^\s*(?:explain|why\s+did|how\s+does|how\s+to|can\s+hinaa|is\s+it\s+possible)\b",
+                lower_text,
+                re.I,
+            )
+        )
+        if is_meta_inquiry:
             return
 
         # Explicit slash commands bypass keyword heuristics entirely: the user
@@ -2465,11 +2484,13 @@ class ConversationService:
                 ))
 
         pdf_command = bool(
-            re.search(r"\b(?:make|create|generate|give\s+me|build|write|download|export)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?pdf\b", unquoted, re.I)
-            or re.search(r"\b(?:the|that|this)\s+pdf\b", unquoted, re.I)
-            or re.search(r"\bpdf\s+(?:file|document|of|on|about|for|bro|please|dinu|chahiye)\b", unquoted, re.I)
-            or re.search(r"\b(?:assignment|report|paper|summary|slides?|presentation)\s+pdf\b", unquoted, re.I)
-            or re.search(r"\bpdf\s+(?:banao|banau|dinu)\b", unquoted, re.I)
+            re.search(r"\b(?:make|create|generate|give\s+me|build|write|download|export|prepare)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:pdf|document|report|docx?)\b", unquoted, re.I)
+            or re.search(r"\b(?:the|that|this)\s+(?:pdf|docx?|document|report)\b", unquoted, re.I)
+            or re.search(r"\b(?:pdf|docx?|document|report)\s+(?:file|document|of|on|about|for|bro|please|dinu|chahiye|format)\b", unquoted, re.I)
+            or re.search(r"\b(?:assignment|report|paper|summary|dossier)\s+(?:pdf|docx?|document)\b", unquoted, re.I)
+            or re.search(r"\b(?:pdf|docx?|document)\s+(?:banao|banau|dinu)\b", unquoted, re.I)
+            or re.search(r"\b(?:advanced\s+pdf|high-level\s+pdf|pdf\s+format|document\s+format)\b", unquoted, re.I)
+            or (re.search(r"\b(?:create|make|generate|build|write|prepare)\b[^.?!]*\b(?:document|report|pdf|docx)\b", unquoted, re.I) and not re.search(r"\b(?:slide|presentation|deck)\b", unquoted, re.I))
         )
         if pdf_command and not any(t.toolName == "pdf_generate" for t in plan.toolRequests):
             from hinaa_api.models import safe_extract_display_text
@@ -2477,12 +2498,17 @@ class ConversationService:
             topic_str = plain_text
             topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
             topic_str = re.sub(r"(?i)\b(?:i\s+need\s+to\s+complete\s+my\s+assignment|my\s+topic\s+is)\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?pdf\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*pdf\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:the\s+)?pdf\s*(?:file|document|banao|banau|dinu|bro|please|pls)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            # If the user specified "document about X" or "pdf on Y", extract the topic directly
+            doc_topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", topic_str)
+            extracted_doc_topic = doc_topic_m.group(1).strip() if (doc_topic_m and len(doc_topic_m.group(1).strip()) >= 3) else ""
+            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:pdf|document|report|docx?)\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*(?:pdf|document|report)\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:the\s+)?(?:pdf|document|report)\s*(?:file|document|banao|banau|dinu|bro|please|pls)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
             topic_str = re.sub(r"[\"']", "", topic_str).strip()
             topic_str = re.sub(r"[^\w\s-]", "", topic_str).strip()
             topic_str = re.sub(r"\s+", " ", topic_str).strip()
+            if extracted_doc_topic:
+                topic_str = extracted_doc_topic
 
             is_referential = (
                 not topic_str
@@ -2608,6 +2634,50 @@ class ConversationService:
                 f"Babe, your {final_topic} PDF is ready to build {spoken_source} — "
                 f"the card shows up here only if the file really gets written."
             )
+            plan.language = "en-US"
+            plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
+
+        slides_command = bool(
+            re.search(
+                r"\b(?:make|create|generate|give\s+me|build|prepare|design)\b[^.?!]*\b(?:slides?|presentations?|decks?|pitch\s*decks?|powerpoint|pptx)\b",
+                unquoted,
+                re.I,
+            )
+            or re.search(r"\b(?:slides?|presentation|deck)\s+(?:on|about|for|banao|banau|dinu|chahiye)\b", unquoted, re.I)
+        )
+        if slides_command and not any(t.toolName in ("create_gamma_presentation", "document_generate") for t in plan.toolRequests):
+            topic_str = plain_text
+            topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
+            slide_topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", topic_str)
+            if slide_topic_m and len(slide_topic_m.group(1).strip()) >= 3:
+                final_slide_topic = slide_topic_m.group(1).strip()
+            else:
+                topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|prepare|design)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:slide\s*deck|slides?|presentation|deck|pitch\s*deck|powerpoint|pptx)\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+                topic_str = re.sub(r"[\"']", "", topic_str).strip()
+                topic_str = re.sub(r"[^\w\s-]", "", topic_str).strip()
+                topic_str = re.sub(r"\s+", " ", topic_str).strip()
+                final_slide_topic = topic_str if len(topic_str) >= 3 else "Executive Presentation"
+
+            clean_slide_title = final_slide_topic.strip().title()
+            plan.toolRequests.append(ToolRequest(
+                toolName="create_gamma_presentation",
+                parameters={
+                    "topic": final_slide_topic,
+                    "title": f"{clean_slide_title} Deck",
+                    "format": "presentation",
+                    "export_as": "pptx",
+                    "num_cards": 8,
+                },
+            ))
+            plan.displayText = (
+                f"### 📊 Presentation: {clean_slide_title}\n\n"
+                f"**{clean_slide_title} Deck** is compiling with executive slide layouts.\n\n"
+                f"• **Topic**: {final_slide_topic}\n"
+                f"• **Format**: PowerPoint (.pptx) Executive Deck\n"
+                f"• **Cards/Slides**: 8 Designed Slides\n\n"
+                f"The download and preview card will appear as soon as the file is rendered."
+            )
+            plan.spokenText = f"Babe, I'm compiling your {final_slide_topic} presentation slides right now."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
 
@@ -2759,7 +2829,7 @@ class ConversationService:
         if gate_intent == HinaaIntent.DOCUMENT_CREATE:
             # Either builder answers the ask; the injector picks and the gate
             # dedupes the family, so both names stay open.
-            return ("pdf_generate", "document_generate")
+            return ("pdf_generate", "document_generate", "create_gamma_presentation")
         # The pre-LLM classifier only knows the loud intents. A turn it fell
         # through on can still name an action in words the richer gate reads --
         # "same one but darker", "generate hina again", "fetch Nepal incident
@@ -4529,6 +4599,44 @@ class ConversationService:
                     result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
                     result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
 
+            # Deterministic Document & Presentation Generation Guarantee
+            if (
+                gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
+                or any(t in allowed_tools for t in ("pdf_generate", "document_generate", "create_gamma_presentation"))
+            ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
+                is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
+                doc_topic = request.text
+                topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", request.text)
+                if topic_m:
+                    doc_topic = topic_m.group(1).strip()
+                else:
+                    doc_topic = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare|please|pls|bro|hina|can\s+you)\b", "", request.text).strip()
+                    doc_topic = re.sub(r"[\"']", "", doc_topic).strip()
+                    doc_topic = re.sub(r"[^\w\s-]", "", doc_topic).strip()
+                    doc_topic = re.sub(r"\s+", " ", doc_topic).strip()
+                clean_title = (doc_topic if len(doc_topic) >= 3 else "Executive Report").strip().title()
+                if is_slides:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="create_gamma_presentation",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Deck", "format": "presentation", "export_as": "pptx", "num_cards": 8},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                else:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="pdf_generate",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Report", "category": "Research Report", "content": ""},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
+                    result.value.spokenText = f"Generating your {clean_title} {'slides' if is_slides else 'PDF document'} right now, babe!"
+
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
             ]
@@ -5291,6 +5399,44 @@ class ConversationService:
                     result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
                     result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
 
+            # Deterministic Document & Presentation Generation Guarantee
+            if (
+                gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
+                or any(t in live_allowed_tools for t in ("pdf_generate", "document_generate", "create_gamma_presentation"))
+            ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
+                is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
+                doc_topic = request.text
+                topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", request.text)
+                if topic_m:
+                    doc_topic = topic_m.group(1).strip()
+                else:
+                    doc_topic = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare|please|pls|bro|hina|can\s+you)\b", "", request.text).strip()
+                    doc_topic = re.sub(r"[\"']", "", doc_topic).strip()
+                    doc_topic = re.sub(r"[^\w\s-]", "", doc_topic).strip()
+                    doc_topic = re.sub(r"\s+", " ", doc_topic).strip()
+                clean_title = (doc_topic if len(doc_topic) >= 3 else "Executive Report").strip().title()
+                if is_slides:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="create_gamma_presentation",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Deck", "format": "presentation", "export_as": "pptx", "num_cards": 8},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                else:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="pdf_generate",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Report", "category": "Research Report", "content": ""},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
+                    result.value.spokenText = f"Generating your {clean_title} {'slides' if is_slides else 'PDF document'} right now, babe!"
+
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
             ]
@@ -5365,9 +5511,15 @@ class ConversationService:
         # document typed into the reply is machinery, and the client paints
         # whatever reaches the wire. Prose either side of it still streams.
         from .providers.display_stream_decoder import PageSourceGuard
-        from .tools.intent_gate import page_will_be_built
+        from .tools.intent_gate import page_will_be_built, document_will_be_built
 
-        page_guard = PageSourceGuard() if page_will_be_built(request.text) else None
+        page_active = page_will_be_built(request.text)
+        doc_active = document_will_be_built(request.text)
+        page_guard = (
+            PageSourceGuard(stop_on_document_code=doc_active)
+            if (page_active or doc_active)
+            else None
+        )
 
         async def emit_delta(delta: str) -> None:
             if page_guard is not None:
@@ -5447,6 +5599,9 @@ class ConversationService:
             # Guarantee full display text even if a provider finished without
             # streaming (or emitted a different final polish than its deltas).
             full_text = result.value.displayText or ""
+            if page_guard is not None and page_guard.closed:
+                from .providers.display_stream_decoder import drop_inlined_page_source, drop_inlined_document_code
+                full_text = drop_inlined_document_code(drop_inlined_page_source(full_text))
             streamed_so_far = "".join(emitted)
             if not streamed_so_far and full_text:
                 # Provider emitted no deltas at all during execution; yield full text once

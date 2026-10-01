@@ -238,13 +238,16 @@ def _looks_like_incomplete_table(text: str) -> bool:
 # document, and stopped there of its own accord. Everything after such an
 # opener is an argument payload, so no continuation can close it.
 _INVENTED_CALL_OPENER_RE = re.compile(
-    r"<\|?\s*(?:(?:tool|function)[_.:-]?calls?|calls?|invokes?)[^<>|]*\|?\s*>",
+    r"<\|?\s*(?:(?:tool|function)[_.:-]?calls?|calls?|invokes?)[^<>|]*\|?\s*>"
+    r"""|\{\s*["'](?:tool|toolName|tool_name)["']\s*:\s*["'][a-zA-Z0-9_-]+["']"""
+    r"""|\{\s*["'](?:name|function)["']\s*:\s*["'](?:pdf_generate|document_generate|create_gamma_presentation|image_generate|web_search|web_research)["']""",
     re.IGNORECASE,
 )
 _INVENTED_CALL_CLOSER_RE = re.compile(
     r"<\|" + r"\s*/\s*[\w:.-]+\s*\|" + r">"
     r"|<\|[^|<>]*(?:end|finish|complete)[^|<>]*\|>"
-    r"|<\s*/\s*(?:(?:tool|function|antml)[_.:-][\w:.-]+|calls?|invokes?)\s*>",
+    r"|<\s*/\s*(?:(?:tool|function|antml)[_.:-][\w:.-]+|calls?|invokes?)\s*>"
+    r"|\}\s*$",
     re.IGNORECASE,
 )
 

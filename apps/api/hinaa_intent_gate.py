@@ -149,15 +149,19 @@ DOCUMENT_MENTION = re.compile(
 )
 DOCUMENT_ASK = re.compile(
     r"\b(?:make|create|generate|write|prepare|build|turn\s+\w+\s+into|download)\b"
-    r"[^.?!]*\b(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|csvs?)\b",
+    r"[^.?!]*\b(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|csvs?)\b"
+    r"|\b(?:advanced\s+pdf|pdf\s+format|report\s+format|presentation\s+format|high-level\s+pdf)\b",
     re.IGNORECASE,
 )
 # A question about documents or capability is not a request to build one.
 DOCUMENT_META = re.compile(
     r"""(?ix)
-    \b(?:why|how\s+come|what\s+happened|didn'?t|dont|don'?t|do\s+not|never|stop|
-    cancel|broken|fail(?:ed|ing)?|error|wrong|not\s+working|can'?t|cannot|
-    fix|suggest|recommend|do\s+you\s+(?:have|support|can)|can\s+you\s+(?:have|support|also)?)\b
+    (?:
+        \b(?:why\s+(?:did|didn'?t|is|are|was|were)|how\s+come|what\s+happened\s+to|what\s+happened\s+with)\b[^.?!]*\b(?:pdfs?|docx?|documents?|reports?|decks?|slides?|files?)\b
+      | \b(?:pdfs?|docx?|documents?|reports?|decks?|slides?|generator|builder)\s+(?:is|are|was|were|keeps?|got)?\s*(?:broken|fail(?:ed|ing)?|error|wrong|not\s+working|corrupt(?:ed)?)\b
+      | \b(?:why|how)\s+can'?t\s+you\s+(?:make|create|generate|build)\b
+      | \b(?:do\s+you\s+support|can\s+you\s+support|are\s+you\s+able\s+to\s+support)\b
+    )
     | ^\s*(?:can|could|do|are|will)\s+you\s+(?:generate|make|create|build|prepare|support|do)?\s*(?:a\s+|me\s+)?(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|images?|pictures?)\s*[?]?\s*$
     """,
     re.IGNORECASE | re.VERBOSE,

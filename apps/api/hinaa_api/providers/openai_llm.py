@@ -38,7 +38,10 @@ def _sanitize_delta(value: str) -> str:
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
 
 
-def _orchestrator_continuations() -> int:
+def _orchestrator_continuations(prompt: Any = None) -> int:
+    depth = getattr(prompt, "response_depth", None) if prompt is not None else None
+    if depth in ("conversational", "minimal", "clarification", "supportive"):
+        return 0
     try:
         from ..config import get_settings
 
@@ -493,7 +496,7 @@ class OpenAILLMProvider:
                 return gen(), cont_holder
 
             orchestrator = GenerationOrchestrator(
-                max_continuations=_orchestrator_continuations(),
+                max_continuations=_orchestrator_continuations(prompt),
                 char_budget=_llm_stream_char_budget(),
                 generation_id=f"{self._provider_id}:{started:.0f}",
                 min_words=depth_word_floor(prompt.response_depth),

@@ -677,3 +677,24 @@ def test_directive_and_art_paste_sanctions():
     s4 = sanction_tools(prompt)
     assert s4.permits("image_generate")
     assert s4.parameters["image_generate"]["prompt"] == prompt
+
+
+def test_document_and_slides_with_styling_constraints_are_sanctioned(gate_settings):
+    user_prompt = (
+        "Hey Hina, can you create a document about anime-related content, properly reported and documented, "
+        "with a proper handwritten design, ChatGPT-level design, perfect design, and a proper structure, "
+        "not like your thing? It should be a properly structured, high-level, advanced PDF format. "
+        "Don't make it worthless. Make it designed with attractive, colorful, and perfect designs."
+    )
+    s = sanction_tools(user_prompt)
+    assert s.permits("pdf_generate")
+    assert s.permits("document_generate")
+    assert s.permits("create_gamma_presentation")
+
+    plan = _gated(gate_settings, user_prompt, [("pdf_generate", {"topic": "anime-related content"})])
+    assert any(t.toolName == "pdf_generate" for t in plan.toolRequests)
+
+    slide_prompt = "can you create presentation slides about artificial intelligence in anime, make it colorful, don't make it worthless"
+    s_slide = sanction_tools(slide_prompt)
+    assert s_slide.permits("create_gamma_presentation")
+    assert s_slide.permits("document_generate")

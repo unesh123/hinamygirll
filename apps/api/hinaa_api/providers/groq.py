@@ -48,7 +48,10 @@ def _llm_stream_char_budget() -> int:
         return 200_000
 
 
-def _max_continuations() -> int:
+def _max_continuations(prompt: Any = None) -> int:
+    depth = getattr(prompt, "response_depth", None) if prompt is not None else None
+    if depth in ("conversational", "minimal", "clarification", "supportive"):
+        return 0
     try:
         from ..config import get_settings
 
@@ -224,7 +227,7 @@ class GroqLLMProvider:
                 return gen(), cont_holder
 
             orchestrator = GenerationOrchestrator(
-                max_continuations=_max_continuations(),
+                max_continuations=_max_continuations(prompt),
                 char_budget=_llm_stream_char_budget(),
                 generation_id=f"groq:{started:.0f}",
                 min_words=depth_word_floor(prompt.response_depth),

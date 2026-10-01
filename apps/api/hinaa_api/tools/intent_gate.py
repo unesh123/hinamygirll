@@ -133,13 +133,22 @@ _DOCUMENT = re.compile(
         decks? | word\s+docs? | excels? | spreadsheets? | sheets? | csvs? ) \b"""
 )
 _DOCUMENT_ASK = re.compile(
-    r"(?ix) \b(?:make|create|generate|write|prepare|build|turn\s+\w+\s+into)\b[^.?!]*\b"
+    r"(?ix) \b(?:make|create|generate|write|prepare|build|turn\s+\w+\s+into|export|download)\b[^.?!]*\b"
     r"(?:pdfs?|docx?|documents?|reports?|decks?|slides?|spreadsheets?|excels?|sheets?|csvs?)\b"
+    r"|\b(?:advanced\s+pdf|pdf\s+format|report\s+format|presentation\s+format|high-level\s+pdf)\b"
+)
+_DOCUMENT_META_COMPLAINT = re.compile(
+    r"""(?ix)
+    \b(?:why\s+(?:did|didn'?t|is|are|was)|how\s+come|what\s+happened\s+to|what\s+happened\s+with)\b[^.?!]*\b(?:pdfs?|docx?|documents?|reports?|decks?|slides?|files?)\b
+    | \b(?:pdfs?|docx?|documents?|reports?|decks?|slides?|generator|builder)\s+(?:is|are|was|were|keeps?)?\s*(?:broken|fail(?:ed|ing)?|error|wrong|not\s+working|corrupt(?:ed)?)\b
+    | \bwhy\s+can'?t\s+you\s+(?:make|create|generate|build)\b
+    | \b(?:do\s+you\s+support|can\s+you\s+support|are\s+you\s+able\s+to\s+support)\b
+    """
 )
 # Two registered tools build documents and the injector picks between them, so
 # "make me a pdf" sanctions the family. Naming one of them would drop the other
 # and leave a genuine document request with no tool at all.
-_DOCUMENT_FAMILY = frozenset({"document_generate", "pdf_generate"})
+_DOCUMENT_FAMILY = frozenset({"document_generate", "pdf_generate", "create_gamma_presentation"})
 # "Design" names both a picture and a page, and a page is the bigger ask, so this
 # is matched before the image branch: "design a landing page with a hero section"
 # wants one HTML file, not a rendered image of one.
@@ -524,7 +533,7 @@ def sanction_tools(
         return sanction
 
     if _DOCUMENT_ASK.search(lowered) or (_DOCUMENT.search(lowered) and (generate_verb or fetch_verb)):
-        if not META_FRAMING.search(lowered) and not _CAPABILITY_INQUIRY.search(lowered):
+        if not _DOCUMENT_META_COMPLAINT.search(lowered) and not _CAPABILITY_INQUIRY.search(lowered) and not ABORT.search(lowered):
             _allow_document(sanction)
         return sanction
 
@@ -648,6 +657,26 @@ def page_will_be_built(
         return False
     authorized = sanction.parameters.get("design_website") or {}
     return all(authorized.get(key) for key in SELF_SPECIFIED["design_website"])
+
+
+def document_will_be_built(
+    text: str,
+    *,
+    now: datetime | None = None,
+    known_subjects: Iterable[str] = (),
+) -> bool:
+    """True when his own words commit this turn to building a PDF, document, or presentation.
+
+    Similar to page_will_be_built, a model often answers a PDF or presentation
+    request by typing out hundreds of lines of Python ReportLab or PPTX code
+    into its response. When the backend is already rendering the real document
+    artifact via pdf_generate or create_gamma_presentation, that code is machinery.
+    """
+    sanction = sanction_tools(text, now=now, known_subjects=known_subjects)
+    return any(
+        t in sanction.allowed
+        for t in ("pdf_generate", "document_generate", "create_gamma_presentation")
+    )
 
 
 def gate_tool_requests(

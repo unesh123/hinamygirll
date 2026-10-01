@@ -134,17 +134,21 @@ async def create_gamma_presentation(params: CreateGammaPresentationParams) -> st
                     if status == "completed":
                         gamma_url = poll_data.get("gammaUrl") or f"https://gamma.app/docs/{generation_id}"
                         export_url = poll_data.get("exportUrl")
-                        output = [
-                            f"✨ **Created your Gamma {params.format.capitalize()}!**",
-                            f"📌 **Topic:** {effective_topic}",
-                            f"🔗 **Live Link:** [{gamma_url}]({gamma_url})",
-                        ]
-                        if export_url:
-                            output.append(f"📥 **Download ({params.export_as.upper()}):** [{export_url}]({export_url})")
-                        return "\n".join(output)
+                        safe_slug = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in effective_title.lower()).strip("_")[:50]
+                        return {
+                            "status": "success",
+                            "format": params.export_as or "pptx",
+                            "downloadUrl": export_url or gamma_url,
+                            "gammaUrl": gamma_url,
+                            "exportUrl": export_url,
+                            "title": effective_title,
+                            "filename": f"{safe_slug or 'presentation'}.{params.export_as or 'pptx'}",
+                            "summary": f"Created Gamma {params.format.capitalize()} deck for '{effective_topic}'.",
+                            "provider": "gamma-ai",
+                        }
                     if status == "failed":
                         err_msg = poll_data.get("error", "Unknown error")
-                        return f"Gamma generation failed: {err_msg}"
+                        return {"status": "error", "error": f"Gamma generation failed: {err_msg}"}
 
             # If still generating after polling window, return tracking link
             return (
@@ -194,7 +198,8 @@ create_gamma_presentation_def = ToolDefinition(
         "gamma presentation",
         "create a document",
     ],
-    requires_confirmation=True,
+    requires_confirmation=False,
+    risk_level="low",
 )
 
 registry.register(create_gamma_presentation_def, create_gamma_presentation)

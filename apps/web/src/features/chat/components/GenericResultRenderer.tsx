@@ -420,8 +420,8 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
     return <WorkTree title="Autonomous Browser Task" icon={<Globe size={16} />} nodes={nodes} />;
   }
 
-  // Render Document / PDF / DOCX Generation Result (ChatGPT Style with Download & Python Code Block)
-  if (toolName === 'pdf_generate' || toolName === 'document_generate' || (data && (data.downloadUrl || data.format === 'docx' || data.format === 'pptx'))) {
+  // Render Document / PDF / DOCX / PPTX Presentation Result (ChatGPT Style with Download & Python Code Block)
+  if (toolName === 'pdf_generate' || toolName === 'document_generate' || toolName === 'create_gamma_presentation' || (data && (data.downloadUrl || data.format === 'docx' || data.format === 'pptx'))) {
     const isError = Boolean(data?.error || result?.status === 'error');
     if (isError) {
       return (
