@@ -20,5 +20,7 @@ from . import terminal_hands
 from . import browser_cloud
 from . import customgpt
 from . import prodcamp
+from . import social_reach
 
 __all__ = ["registry"]
+
