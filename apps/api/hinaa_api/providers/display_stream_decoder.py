@@ -418,29 +418,114 @@ def decode_all_display_fields(json_text: str) -> list[str]:
     return values
 
 
+class ThinkingStreamFilter:
+    """Quarantine reasoning blocks (<think>...</think>, <thought>...</thought>) during streaming.
+
+    Ensures that internal reasoning tokens, prompt reflections, and chain-of-thought
+    are never emitted onto the live display/voice wire, while collecting them
+    for structured plan metadata.
+    """
+
+    def __init__(self) -> None:
+        self._in_think = False
+        self._pending = ""
+        self._curr_thought: list[str] = []
+        self.extracted_thoughts: list[str] = []
+
+    def feed(self, chunk: str) -> str:
+        if not chunk:
+            return ""
+        self._pending += chunk
+        out: list[str] = []
+        while self._pending:
+            if not self._in_think:
+                m = re.search(r"<(?:think|thought)>", self._pending, re.IGNORECASE)
+                if m:
+                    out.append(self._pending[:m.start()])
+                    self._pending = self._pending[m.end():]
+                    self._in_think = True
+                    continue
+                last_lt = self._pending.rfind("<")
+                if last_lt != -1 and len(self._pending) - last_lt <= 10:
+                    tail = self._pending[last_lt:].lower()
+                    if "<think>".startswith(tail) or "<thought>".startswith(tail):
+                        out.append(self._pending[:last_lt])
+                        self._pending = self._pending[last_lt:]
+                        break
+                out.append(self._pending)
+                self._pending = ""
+            else:
+                m = re.search(r"</(?:think|thought)>", self._pending, re.IGNORECASE)
+                if m:
+                    self._curr_thought.append(self._pending[:m.start()])
+                    thought_body = "".join(self._curr_thought).strip()
+                    if thought_body:
+                        self.extracted_thoughts.append(thought_body)
+                    self._curr_thought = []
+                    self._in_think = False
+                    self._pending = self._pending[m.end():]
+                    continue
+                last_close = self._pending.rfind("</")
+                if last_close != -1 and len(self._pending) - last_close <= 11:
+                    tail = self._pending[last_close:].lower()
+                    if "</think>".startswith(tail) or "</thought>".startswith(tail):
+                        self._curr_thought.append(self._pending[:last_close])
+                        self._pending = self._pending[last_close:]
+                        break
+                self._curr_thought.append(self._pending)
+                self._pending = ""
+        return "".join(out)
+
+    def finish(self) -> str:
+        if self._in_think:
+            self._curr_thought.append(self._pending)
+            thought_body = "".join(self._curr_thought).strip()
+            if thought_body:
+                self.extracted_thoughts.append(thought_body)
+            self._pending = ""
+            self._in_think = False
+            return ""
+        res = self._pending
+        self._pending = ""
+        return res
+
+
 class AdaptiveStreamDecoder:
     """Incrementally decodes either JSON displayText or raw prose streams escape-safely.
 
     Feeds chunks from any provider; dynamically detects if the payload begins with JSON
     or markdown/prose. If JSON, extracts and escape-safely decodes only displayText.
-    If prose, streams deltas directly.
+    If prose, streams deltas directly. All internal thinking blocks (<think>, <thought>)
+    are strictly quarantined and never emitted as display or speech deltas.
     """
 
     def __init__(self) -> None:
+        self._thinking = ThinkingStreamFilter()
         self._mode: str | None = None  # None: undetermined, "json", "prose"
         self._prefix_buffer = ""
         self._chain = DisplayTextChain()
         self._narration = SimulatedToolCallFilter()
 
+    @property
+    def thinking(self) -> str | None:
+        """Extracted reasoning blocks captured during the stream."""
+        return "\n\n".join(self._thinking.extracted_thoughts).strip() or None
+
     def feed(self, chunk: str) -> str:
         if not chunk:
             return ""
-        if self._mode == "prose":
-            return self._narration.feed(chunk)
-        if self._mode == "json":
-            return self._chain.feed(chunk)
+        clean = self._thinking.feed(chunk)
+        if not clean:
+            return ""
+        return self._feed_clean(clean)
 
-        self._prefix_buffer += chunk
+    def _feed_clean(self, clean: str) -> str:
+        if self._mode == "prose":
+            return self._narration.feed(clean)
+        if self._mode == "json":
+            return self._chain.feed(clean)
+
+        self._prefix_buffer += clean
         stripped = self._prefix_buffer.lstrip()
         if not stripped:
             return ""
@@ -455,15 +540,17 @@ class AdaptiveStreamDecoder:
             return self._narration.feed(out)
 
     def finish(self) -> str:
+        tail = self._thinking.finish()
+        emitted_tail = self._feed_clean(tail) if tail else ""
         if self._mode == "json":
-            return self._chain.finish()
+            return emitted_tail + self._chain.finish()
         if self._mode is None and self._prefix_buffer:
             out = self._prefix_buffer
             self._prefix_buffer = ""
-            return self._narration.feed(out) + self._narration.finish()
+            return emitted_tail + self._narration.feed(out) + self._narration.finish()
         if self._mode == "prose":
-            return self._narration.finish()
-        return ""
+            return emitted_tail + self._narration.finish()
+        return emitted_tail
 
 
 # Markup a model writes when it pretends to call a tool in prose. The real call

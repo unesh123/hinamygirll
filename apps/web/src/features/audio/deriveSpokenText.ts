@@ -54,11 +54,23 @@ function truncateForSpeech(text: string): string {
   return `${summary} ${CONTINUATION_HINT}`.trim();
 }
 
+const META_REFLECTION_RE = /^\s*(?:the (?:instructions|system prompt|developer instructions|prompt) (?:are|say|states?|requires?|dictates?|strictly)|instructions (?:are|require|say|state)|turn \d+\+?(?:\s+only)?\s*:|turn \d+\+? means|unesh (?:just|is|has|asked|said|wants|did not|didn't)|(?:the )?user (?:just|is|has|asked|said|wants|did not|didn't)|i must (?:not )?(?:repeat|greet|answer|dive|respond|provide)|i should (?:not )?(?:force-feed|repeat|ask|give|respond)|my (?:persona|identity|character|task|goal) (?:is|requires)|acting as (?:hina|hinaa|companion)|character guidelines|(?:his|the) active topic is|(?:goal|plan|internal reasoning|reasoning|thinking|scratchpad)\s*:|analyzing (?:user|the prompt|request|context)|let (?:me|us) analyze|current turn\s*:)\b/im;
+
 export function deriveSpokenText(rawText: string): string {
   if (!rawText) return "";
   fallbackDerived = true;
 
-  const spoken = rawText
+  // First strip thinking blocks entirely before generic tag stripping
+  let cleaned = rawText
+    .replace(/<(?:think|thought)>[\s\S]*?<\/(?:think|thought)>/gi, "")
+    .replace(/<(?:think|thought)>[\s\S]*$/gi, "")
+    .replace(/<\/(?:think|thought)>/gi, "");
+
+  // Strip prompt meta-reflection lines
+  const lines = cleaned.split("\n").filter((line) => !META_REFLECTION_RE.test(line.trim()));
+  cleaned = lines.join(" ");
+
+  const spoken = cleaned
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[[^\]]*\]\([^)]+\)/g, "")

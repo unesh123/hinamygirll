@@ -61,6 +61,8 @@ function createMessage(
   };
 }
 
+const META_REFLECTION_SPEECH_RE = /^\s*(?:the (?:instructions|system prompt|developer instructions|prompt) (?:are|say|states?|requires?|dictates?|strictly)|instructions (?:are|require|say|state)|turn \d+\+?(?:\s+only)?\s*:|turn \d+\+? means|unesh (?:just|is|has|asked|said|wants|did not|didn't)|(?:the )?user (?:just|is|has|asked|said|wants|did not|didn't)|i must (?:not )?(?:repeat|greet|answer|dive|respond|provide)|i should (?:not )?(?:force-feed|repeat|ask|give|respond)|my (?:persona|identity|character|task|goal) (?:is|requires)|acting as (?:hina|hinaa|companion)|character guidelines|(?:his|the) active topic is|(?:goal|plan|internal reasoning|reasoning|thinking|scratchpad)\s*:|analyzing (?:user|the prompt|request|context)|let (?:me|us) analyze|current turn\s*:)\b/im;
+
 export interface LiveAgentStep {
   id: string;
   label: string;
@@ -621,7 +623,12 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             if (match) {
               const fullSentence = match[1].trim();
               sentenceBuffer = sentenceBuffer.slice(match[0].length);
-              if (fullSentence.length > 2 && options?.onSentenceChunk) {
+              if (
+                fullSentence.length > 2 &&
+                !META_REFLECTION_SPEECH_RE.test(fullSentence) &&
+                !/<(?:think|thought)>/i.test(fullSentence) &&
+                options?.onSentenceChunk
+              ) {
                 try {
                   options.onSentenceChunk(fullSentence, isFirstSentence);
                 } catch {
@@ -646,9 +653,15 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             }
           } else if (event.type === "plan") {
             latestStreamedTextRef.current = "";
-            if (sentenceBuffer.trim().length > 2 && options?.onSentenceChunk) {
+            const finalRemaining = sentenceBuffer.trim();
+            if (
+              finalRemaining.length > 2 &&
+              !META_REFLECTION_SPEECH_RE.test(finalRemaining) &&
+              !/<(?:think|thought)>/i.test(finalRemaining) &&
+              options?.onSentenceChunk
+            ) {
               try {
-                options.onSentenceChunk(sentenceBuffer.trim(), isFirstSentence);
+                options.onSentenceChunk(finalRemaining, isFirstSentence);
               } catch {
                 // Non-blocking
               }

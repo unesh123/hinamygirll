@@ -2116,6 +2116,10 @@ export const WorkMessage = React.memo(function WorkMessage({
             <span>Formulating response...</span>
             <span className="hina-live-stream-cursor" />
           </span>
+        ) : thought ? (
+          <div style={{ color: isDark ? "rgba(255, 255, 255, 0.75)" : "#64748b", fontSize: 13.5, fontStyle: "italic", paddingTop: 4 }}>
+            <span>I've finished synthesizing the thoughts above for you! ✨</span>
+          </div>
         ) : null}
       </div>
 

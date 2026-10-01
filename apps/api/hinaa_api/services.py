@@ -424,6 +424,10 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
         return "", False
     # Strip <think>...</think> or <thought>...</thought>
     cleaned = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*<(?:think|thought)>[\s\S]*$", "", cleaned, flags=re.IGNORECASE)
+    # Strip any leaked prompt meta-reflection lines
+    from .reply_guard import _strip_meta_reflection
+    cleaned, _ = _strip_meta_reflection(cleaned)
     # Strip any leaked XML tags
     cleaned = re.sub(
         r"</?(?:response|spokenText|displayText|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",

@@ -52,7 +52,13 @@ export function getSafeAssistantStreamingText(content: string): string {
   const turn = parseStructuredJsonText(content);
   if (turn) return turn.displayText;
 
-  const trimmed = content.trimStart();
+  // Strip closed and in-progress thinking blocks from live streaming text
+  let stripped = content
+    .replace(/<(?:think|thought)>[\s\S]*?<\/(?:think|thought)>/gi, "")
+    .replace(/<(?:think|thought)>[\s\S]*$/gi, "")
+    .replace(/<\/(?:think|thought)>/gi, "");
+
+  const trimmed = stripped.trimStart();
   // While a provider is still emitting a fenced HINAA plan, do not flash its
   // internal contract into the transcript. The final validated `plan` event
   // will replace this with displayText. Ordinary Markdown/code answers remain
@@ -64,7 +70,7 @@ export function getSafeAssistantStreamingText(content: string): string {
   ) {
     return "";
   }
-  return content;
+  return stripped;
 }
 
 export function getAssistantDisplayText(content: unknown): string {

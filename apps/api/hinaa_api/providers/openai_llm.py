@@ -188,6 +188,25 @@ def _extract_xml_metadata(raw: str) -> tuple[str, dict[str, Any]]:
         meta["memory_candidates_raw"] = mem_match.group(1).strip()
         cleaned = cleaned[:mem_match.start()] + cleaned[mem_match.end():]
 
+    # Extract <thinking> / <thought> blocks into metadata
+    thoughts: list[str] = []
+    for m in re.finditer(r"<(?:think|thought)[^>]*>([\s\S]*?)</(?:think|thought)>", cleaned, flags=re.IGNORECASE):
+        t = m.group(1).strip()
+        if t:
+            thoughts.append(t)
+    # Check for unclosed thought at the tail or beginning
+    unclosed_think = re.search(r"<(?:think|thought)[^>]*>([\s\S]*)$", cleaned, flags=re.IGNORECASE)
+    if unclosed_think and not re.search(r"</(?:think|thought)>", unclosed_think.group(1), flags=re.IGNORECASE):
+        t = unclosed_think.group(1).strip()
+        if t:
+            thoughts.append(t)
+        cleaned = cleaned[:unclosed_think.start()]
+
+    # Strip thinking blocks from the cleaned text completely
+    cleaned = re.sub(r"<(?:think|thought)[^>]*>[\s\S]*?</(?:think|thought)>", "", cleaned, flags=re.IGNORECASE)
+    if thoughts:
+        meta["thinking_raw"] = "\n\n".join(thoughts)
+
     # Extract <toolRequests>
     tool_match = re.search(r"<toolRequests[^>]*>(.*?)</toolRequests>", cleaned, re.DOTALL | re.IGNORECASE)
     if tool_match:
@@ -201,7 +220,7 @@ def _extract_xml_metadata(raw: str) -> tuple[str, dict[str, Any]]:
 
 
 def _custom_text_from_raw(raw: str) -> str:
-    cleaned, _ = _extract_xml_metadata(raw)
+    cleaned, meta = _extract_xml_metadata(raw)
     try:
         from ..prompts.fallback import extract_json_object
 
@@ -209,15 +228,23 @@ def _custom_text_from_raw(raw: str) -> str:
     except (json.JSONDecodeError, ValueError):
         payload = None
     if isinstance(payload, dict):
+        # Exclude reasoning/thinking keys from being selected as display text
         for key in ("displayText", "spokenText", "text", "message", "content"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
-                cleaned = value.strip()
-                break
+                # Ensure the extracted value does not contain thinking tags
+                v_clean = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", value, flags=re.IGNORECASE)
+                v_clean = re.sub(r"^\s*<(?:think|thought)>[\s\S]*$", "", v_clean, flags=re.IGNORECASE).strip()
+                if v_clean:
+                    cleaned = v_clean
+                    break
     elif isinstance(payload, list):
         parts = [item for item in payload if isinstance(item, str) and item.strip()]
         if parts:
             cleaned = " ".join(parts)
+    # Strip any remaining thinking blocks
+    cleaned = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*<(?:think|thought)>[\s\S]*$", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(
         r"</?(?:response|spokenText|displayText|think|thought|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",
         "",
@@ -406,9 +433,12 @@ class OpenAILLMProvider:
         try:
             timing.mark("provider_client_ready")
             holder: dict[str, str | None] = {"value": None}
+            first_decoder: AdaptiveStreamDecoder | None = None
 
             async def _first_stream() -> AsyncIterator[str]:
+                nonlocal first_decoder
                 decoder = AdaptiveStreamDecoder()
+                first_decoder = decoder
                 try:
                     stream_iter = self._stream_text(prompt, holder)
                 except TypeError:
@@ -490,6 +520,8 @@ class OpenAILLMProvider:
                 language=language,
                 depth=prompt.response_depth,
             )
+            if not plan.thinking and first_decoder and first_decoder.thinking:
+                plan.thinking = first_decoder.thinking
             timing.mark("plan_parsed")
             timing.mark("plan_validated")
         except HinaaError:

@@ -48,7 +48,11 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
     const [stageIndex, setStageIndex] = useState(0);
 
     useEffect(() => {
-      if (!isLive) return;
+      if (!isLive) {
+        setIsExpanded(defaultExpanded);
+        return;
+      }
+      setIsExpanded(true);
       // Reshuffle on new live turn
       const shuffled = [...COGNITIVE_PHRASES].sort(() => 0.5 - Math.random());
       setStages(shuffled.slice(0, 8));
@@ -58,7 +62,7 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
         setStageIndex((prev) => (prev + 1) % 8);
       }, 2000);
       return () => window.clearInterval(interval);
-    }, [isLive]);
+    }, [isLive, defaultExpanded]);
 
     // Format duration string if latencyMs is present
     const durationLabel = latencyMs

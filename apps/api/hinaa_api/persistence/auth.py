@@ -89,8 +89,10 @@ def resolve_auth(
                 401,
                 True,
             )
+        if x_hinaa_dev_user is not None and not x_hinaa_dev_user.strip():
+            raise HinaaError("AUTH_REQUIRED", "Dev user identity is required.", 401, True)
         subject = (x_hinaa_dev_user or "").strip()
-        if not subject and (allow_default_subject or getattr(settings, "allow_tunnel_dev_auth", False)):
+        if not subject and allow_default_subject:
             subject = settings.dev_auth_subject.strip()
         # A network caller has to name itself. Falling back to the configured
         # subject made every anonymous request on the public URL the owner, and

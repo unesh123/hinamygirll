@@ -24,7 +24,28 @@ _TRACE_LINE = re.compile(
     re.IGNORECASE,
 )
 
-_EMPTY_REPLY = "I am here, but I lost that reply. Could you say it once more?"
+_META_REASONING_LINE = re.compile(
+    r"^\s*(?:"
+    r"the (?:instructions|system prompt|developer instructions|prompt) (?:are|say|states?|requires?|dictates?|strictly)|"
+    r"instructions (?:are|require|say|state)|"
+    r"turn \d+\+?(?:\s+only)?\s*:|turn \d+\+? means|"
+    r"unesh (?:just|is|has|asked|said|wants|did not|didn't)|"
+    r"(?:the )?user (?:just|is|has|asked|said|wants|did not|didn't)|"
+    r"i must (?:not )?(?:repeat|greet|answer|dive|respond|provide)|"
+    r"i should (?:not )?(?:force-feed|repeat|ask|give|respond)|"
+    r"my (?:persona|identity|character|task|goal) (?:is|requires)|"
+    r"acting as (?:hina|hinaa|companion)|"
+    r"character guidelines|"
+    r"(?:his|the) active topic is|"
+    r"(?:goal|plan|internal reasoning|reasoning|thinking|scratchpad)\s*:|"
+    r"analyzing (?:user|the prompt|request|context)|"
+    r"let (?:me|us) analyze|"
+    r"current turn\s*:"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_EMPTY_REPLY = "Hey babe! I'm right here with you. How can I help you right now?"
 
 
 @dataclass(frozen=True)
@@ -61,6 +82,45 @@ def _strip_trace_lines(text: str) -> tuple[str, int]:
     return "\n".join(kept), removed
 
 
+def _strip_meta_reflection(text: str) -> tuple[str, int]:
+    """Strip leading or leaked system prompt reflections and meta-instructions."""
+    if not text:
+        return "", 0
+    paragraphs = text.split("\n\n")
+    kept_paras: list[str] = []
+    removed = 0
+    checking_leading = True
+
+    for p in paragraphs:
+        p_clean = p.strip()
+        if not p_clean:
+            continue
+        is_reflection = False
+        lines = [l.strip() for l in p_clean.splitlines() if l.strip()]
+        if checking_leading:
+            for line in lines:
+                if _META_REASONING_LINE.search(line):
+                    is_reflection = True
+                    break
+            if not is_reflection and re.search(
+                r"(?i)\b(?:instructions are strict|system prompt says|turn 2\+ means|do not repeat a canned greeting)\b",
+                p_clean,
+            ):
+                is_reflection = True
+
+        if checking_leading and is_reflection:
+            removed += 1
+        else:
+            checking_leading = False
+            kept_lines = [l for l in p.splitlines() if not _META_REASONING_LINE.search(l.strip())]
+            if len(kept_lines) < len(p.splitlines()):
+                removed += len(p.splitlines()) - len(kept_lines)
+            if kept_lines:
+                kept_paras.append("\n".join(kept_lines))
+
+    return "\n\n".join(kept_paras).strip(), removed
+
+
 def check_reply(
     text: str | None,
     *,
@@ -82,6 +142,16 @@ def check_reply(
     cleaned, removed = _strip_trace_lines(original)
     if removed:
         issues.append(GuardIssue("internal_trace", f"removed {removed} generator trace line(s)"))
+    cleaned = cleaned.strip()
+
+    # Strip thinking blocks
+    cleaned = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*<(?:think|thought)>[\s\S]*$", "", cleaned, flags=re.IGNORECASE)
+
+    # Strip system prompt reflections / meta-instructions
+    cleaned, meta_removed = _strip_meta_reflection(cleaned)
+    if meta_removed:
+        issues.append(GuardIssue("meta_reflection", f"removed {meta_removed} internal meta-reasoning item(s)"))
     cleaned = cleaned.strip()
 
     if _TOOL_MARKUP_RE.search(cleaned):

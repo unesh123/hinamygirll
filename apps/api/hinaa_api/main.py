@@ -917,7 +917,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             memory_service,
             authorization=request.headers.get("Authorization"),
             x_hinaa_dev_user=request.headers.get("X-HINAA-Dev-User"),
-            allow_default_subject=active_settings.allow_tunnel_dev_auth or not reached_through_edge(request),
+            allow_default_subject=active_settings.allow_tunnel_dev_auth,
         )
 
     @asynccontextmanager
@@ -3724,7 +3724,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        if memory_service is None or auth is None:
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to view conversations", 401, True)
+        if memory_service is None:
             return []
         return memory_service.list_conversations(auth.user_id, limit=max(1, min(limit, 100)), offset=max(0, offset))
 
@@ -3736,7 +3738,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        if memory_service is None or auth is None:
+        if auth is None:
+            raise HinaaError("AUTH_REQUIRED", "Authentication required to view messages", 401, True)
+        if memory_service is None:
             return []
         return memory_service.get_conversation_messages(
             auth.user_id, conversation_id, limit=max(1, min(limit, 200)), offset=max(0, offset)

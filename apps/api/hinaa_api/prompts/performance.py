@@ -158,9 +158,31 @@ _SUMMARY_HEADER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_META_REASONING_PATTERN = re.compile(
+    r"(?i)\b(?:"
+    r"the (?:instructions|system prompt|developer instructions|prompt) (?:are|say|states?|requires?|dictates?|strictly)|"
+    r"instructions (?:are|require|say|state)|"
+    r"turn \d+\+?(?:\s+only)?\s*:|turn \d+\+? means|"
+    r"unesh (?:just|is|has|asked|said|wants|did not|didn't)|"
+    r"(?:the )?user (?:just|is|has|asked|said|wants|did not|didn't)|"
+    r"i must (?:not )?(?:repeat|greet|answer|dive|respond|provide)|"
+    r"i should (?:not )?(?:force-feed|repeat|ask|give|respond)|"
+    r"my (?:persona|identity|character|task|goal) (?:is|requires)|"
+    r"acting as (?:hina|hinaa|companion)|"
+    r"character guidelines|"
+    r"(?:his|the) active topic is|"
+    r"(?:goal|plan|internal reasoning|reasoning|thinking|scratchpad)\s*:|"
+    r"analyzing (?:user|the prompt|request|context)|"
+    r"let (?:me|us) analyze|"
+    r"current turn\s*:"
+    r")\b",
+)
+
 
 def _clean_for_speech(raw: str) -> str:
-    plain = re.sub(r"```[\s\S]*?```", " ", raw)
+    plain = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", " ", raw, flags=re.IGNORECASE)
+    plain = re.sub(r"^\s*<(?:think|thought)>[\s\S]*$", " ", plain, flags=re.IGNORECASE)
+    plain = re.sub(r"```[\s\S]*?```", " ", plain)
     plain = re.sub(r"^\s{0,3}#{1,6}\s+.*$", " ", plain, flags=re.MULTILINE)
     plain = re.sub(r"^\s*[-*_]{3,}\s*$", " ", plain, flags=re.MULTILINE)
     plain = re.sub(r"^\s*[-*+]\s+", " ", plain, flags=re.MULTILINE)
@@ -175,7 +197,8 @@ def _clean_for_speech(raw: str) -> str:
 
 def extract_executive_voice_summary(text: str, limit: int = 150) -> str:
     """Extract a high-signal, substantive executive summary (< limit chars)
-    suitable for TTS, skipping conversational filler and introductory waffle."""
+    suitable for TTS, skipping conversational filler, introductory waffle,
+    and all internal reasoning / meta-prompt reflection."""
     if not text or not text.strip():
         return "I'm here. How can I help?"
 
@@ -196,6 +219,8 @@ def extract_executive_voice_summary(text: str, limit: int = 150) -> str:
         if s.endswith(":") or len(s.split()) < 3:
             continue
         if _INTRO_FILLER_PATTERN.search(s) and len(s.split()) <= 10:
+            continue
+        if _META_REASONING_PATTERN.search(s):
             continue
         substantive_sentences.append(s)
 
@@ -291,13 +316,13 @@ def build_plan_from_text(
         text,
         flags=re.IGNORECASE,
     )
-    # Also handle unclosed thought at the beginning of text
-    unclosed_match = re.match(r"^\s*<(?:think|thought)>([\s\S]*)$", text_without_thoughts, flags=re.IGNORECASE)
+    # Also handle unclosed thought at any position in text
+    unclosed_match = re.search(r"<(?:think|thought)>([\s\S]*)$", text_without_thoughts, flags=re.IGNORECASE)
     if unclosed_match:
         t = unclosed_match.group(1).strip()
         if t:
             extracted_thoughts.append(t)
-        text_without_thoughts = ""
+        text_without_thoughts = text_without_thoughts[:unclosed_match.start()]
 
     # Drop invented tool-call markup with its contents: the real call runs
     # through the tool pipeline, so keeping the text inside it would leave a
@@ -313,7 +338,43 @@ def build_plan_from_text(
         "",
         cleaned,
     )
-    display_full = cleaned.strip() or "I'm here. How can I help?"
+
+    # Separate leading system prompt reflections and internal meta-commentary
+    paragraphs = cleaned.split("\n\n")
+    clean_paras: list[str] = []
+    checking_leading = True
+    for p in paragraphs:
+        p_clean = p.strip()
+        if not p_clean:
+            continue
+        is_reflection = False
+        lines = [l.strip() for l in p_clean.splitlines() if l.strip()]
+        if checking_leading:
+            for line in lines:
+                if _META_REASONING_PATTERN.search(line):
+                    is_reflection = True
+                    break
+            if not is_reflection and re.search(
+                r"(?i)\b(?:instructions are strict|system prompt says|turn 2\+ means|do not repeat a canned greeting)\b",
+                p_clean,
+            ):
+                is_reflection = True
+        if checking_leading and is_reflection:
+            extracted_thoughts.append(p_clean)
+        else:
+            checking_leading = False
+            kept_lines = [l for l in p.splitlines() if not _META_REASONING_PATTERN.search(l.strip())]
+            if kept_lines:
+                clean_paras.append("\n".join(kept_lines))
+
+    cleaned = "\n\n".join(clean_paras).strip()
+
+    fallback_by_lang = {
+        "hi-IN": "नमस्ते बाबू! मैं यहाँ हूँ। बताओ क्या मदद करूँ?",
+        "ne-NP": "नमस्ते माया! म यहाँ छु। म कसरी मद्दत गर्न सक्छु?",
+    }
+    default_fallback = fallback_by_lang.get(str(resolved_lang), "Hey babe! I'm right here with you. How can I help you right now?")
+    display_full = cleaned.strip() or default_fallback
     spoken = extract_executive_voice_summary(display_full, limit=_SPOKEN_BUDGET_CHARS.get(depth, 450))
     emotion, performance = plan_performance(
         text=spoken, companion_id=companion_id, depth=depth, language=resolved_lang
