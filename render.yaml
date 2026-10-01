@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: hinaa-api
+    runtime: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: HINAA_PROVIDER_MODE
+        value: agent-router
+      - key: AGENT_ROUTER_BASE_URL
+        sync: false
+      - key: AGENT_ROUTER_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CODE_CRAFT_API_KEY
+        sync: false
+      - key: HINAA_DATABASE_URL
+        sync: false
