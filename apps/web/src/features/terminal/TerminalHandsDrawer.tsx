@@ -12,8 +12,10 @@ import {
   Clock,
   Sparkles,
   GitBranch,
+  Layers,
 } from "lucide-react";
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
+import { HarnessInspectorView } from "./HarnessInspectorView";
 
 interface TerminalExecutionResult {
   status: "success" | "error" | "rejected";
@@ -34,6 +36,7 @@ interface TerminalHandsDrawerProps {
 }
 
 export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: TerminalHandsDrawerProps) {
+  const [drawerMode, setDrawerMode] = useState<"terminal" | "harness">("terminal");
   const [command, setCommand] = useState(initialCommand || "");
   const [runtime, setRuntime] = useState<"auto" | "kali" | "powershell" | "cmd">("auto");
   const [isExecuting, setIsExecuting] = useState(false);
@@ -193,28 +196,64 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
             SANDBOXED
           </span>
 
-          {/* Runtime Selector Toggle */}
+          {/* Drawer View Mode Switcher */}
           <div style={{ display: "flex", alignItems: "center", gap: 2, background: "rgba(255,255,255,0.06)", padding: "2px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", marginLeft: 6 }}>
-            {(["auto", "kali", "powershell"] as const).map((rt) => (
-              <button
-                key={rt}
-                onClick={() => setRuntime(rt)}
-                style={{
-                  background: runtime === rt ? (rt === "kali" ? "#ef4444" : rt === "powershell" ? "#2563eb" : "#059669") : "transparent",
-                  color: runtime === rt ? "#fff" : "#a1a1aa",
-                  border: "none",
-                  padding: "2px 7px",
-                  borderRadius: 4,
-                  fontSize: "10px",
-                  fontWeight: runtime === rt ? 700 : 500,
-                  cursor: "pointer",
-                  transition: "all 120ms ease",
-                }}
-              >
-                {rt === "auto" ? "⚡ Auto" : rt === "kali" ? "🐧 Kali WSL" : "🟦 PS"}
-              </button>
-            ))}
+            <button
+              onClick={() => setDrawerMode("terminal")}
+              style={{
+                background: drawerMode === "terminal" ? "#10b981" : "transparent",
+                color: drawerMode === "terminal" ? "#000" : "#a1a1aa",
+                border: "none",
+                padding: "2px 8px",
+                borderRadius: 4,
+                fontSize: "10px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              &gt;_ Terminal
+            </button>
+            <button
+              onClick={() => setDrawerMode("harness")}
+              style={{
+                background: drawerMode === "harness" ? "#8b5cf6" : "transparent",
+                color: drawerMode === "harness" ? "#fff" : "#a1a1aa",
+                border: "none",
+                padding: "2px 8px",
+                borderRadius: 4,
+                fontSize: "10px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              🛡️ Harness Core
+            </button>
           </div>
+
+          {/* Runtime Selector Toggle (Only in terminal mode) */}
+          {drawerMode === "terminal" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 2, background: "rgba(255,255,255,0.06)", padding: "2px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", marginLeft: 6 }}>
+              {(["auto", "kali", "powershell"] as const).map((rt) => (
+                <button
+                  key={rt}
+                  onClick={() => setRuntime(rt)}
+                  style={{
+                    background: runtime === rt ? (rt === "kali" ? "#ef4444" : rt === "powershell" ? "#2563eb" : "#059669") : "transparent",
+                    color: runtime === rt ? "#fff" : "#a1a1aa",
+                    border: "none",
+                    padding: "2px 7px",
+                    borderRadius: 4,
+                    fontSize: "10px",
+                    fontWeight: runtime === rt ? 700 : 500,
+                    cursor: "pointer",
+                    transition: "all 120ms ease",
+                  }}
+                >
+                  {rt === "auto" ? "⚡ Auto" : rt === "kali" ? "🐧 Kali WSL" : "🟦 PS"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick Action Pills */}
@@ -283,8 +322,12 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         </div>
       </div>
 
-      {/* ── Terminal Output History ──────────────────────────── */}
-      <div
+      {drawerMode === "harness" ? (
+        <HarnessInspectorView />
+      ) : (
+        <>
+          {/* ── Terminal Output History ──────────────────────────── */}
+          <div
         style={{
           flex: 1,
           overflowY: "auto",
@@ -456,6 +499,8 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
           Execute
         </button>
       </form>
+        </>
+      )}
     </aside>
   );
 }

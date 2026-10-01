@@ -2986,6 +2986,130 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from hinaa_api.tools.terminal_hands import execute_terminal_hands
         return await execute_terminal_hands(body)
 
+    # -----------------------------------------------------------------------
+    # Frontier Agent Harness & Operating Core (Codex ThreadManager Architecture)
+    # -----------------------------------------------------------------------
+    @app.post("/v1/harness/threads")
+    @app.post("/api/v1/harness/threads")
+    async def harness_create_thread(request: Request) -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager, ReasoningEffort
+        tm = get_thread_manager()
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        thread = tm.create_thread(
+            title=body.get("title", "Autonomous HINA Session"),
+            model_name=body.get("model", "agnes-2.5-flash"),
+            provider_mode=body.get("providerMode", "agent-router"),
+            reasoning_effort=ReasoningEffort(body.get("reasoningEffort", "medium")),
+        )
+        return {"status": "success", "thread": thread.model_dump(mode="json")}
+
+    @app.get("/v1/harness/threads")
+    @app.get("/api/v1/harness/threads")
+    async def harness_list_threads() -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        threads = tm.list_threads()
+        return {"status": "success", "threads": [t.model_dump(mode="json") for t in threads]}
+
+    @app.get("/v1/harness/threads/{thread_id}")
+    @app.get("/api/v1/harness/threads/{thread_id}")
+    async def harness_get_thread(thread_id: str) -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        thread = tm.get_thread(thread_id)
+        if not thread:
+            raise HinaaError("NOT_FOUND", f"Thread {thread_id} not found", 404, False, False)
+        return {"status": "success", "thread": thread.model_dump(mode="json")}
+
+    @app.post("/v1/harness/threads/{thread_id}/fork")
+    @app.post("/api/v1/harness/threads/{thread_id}/fork")
+    async def harness_fork_thread(thread_id: str, request: Request) -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        forked = tm.fork_thread(
+            source_thread_id=thread_id,
+            from_turn_ordinal=body.get("fromTurnOrdinal"),
+            title=body.get("title"),
+        )
+        return {"status": "success", "forkedThread": forked.model_dump(mode="json")}
+
+    @app.get("/v1/harness/threads/{thread_id}/graph")
+    @app.get("/api/v1/harness/threads/{thread_id}/graph")
+    async def harness_get_graph(thread_id: str) -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        thread = tm.get_thread(thread_id)
+        if not thread or not thread.active_session or not thread.active_session.graph_node_id:
+            raise HinaaError("NOT_FOUND", "Graph not found for thread", 404, False, False)
+        tree = tm.scheduler.export_graph_tree(thread.active_session.graph_node_id)
+        return {"status": "success", "graph": tree, "allNodes": {k: v.model_dump(mode="json") for k, v in tm.scheduler.nodes.items()}}
+
+    @app.get("/v1/harness/threads/{thread_id}/board")
+    @app.get("/api/v1/harness/threads/{thread_id}/board")
+    async def harness_get_board(thread_id: str) -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        messages = tm.scheduler.message_board.get_all_messages()
+        return {"status": "success", "messages": [m.model_dump(mode="json") for m in messages]}
+
+    @app.post("/v1/harness/threads/{thread_id}/subagents")
+    @app.post("/api/v1/harness/threads/{thread_id}/subagents")
+    async def harness_spawn_subagent(thread_id: str, request: Request) -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager, AgentRole
+        tm = get_thread_manager()
+        body = await request.json()
+        role = AgentRole(body.get("role", "researcher"))
+        objective = body.get("objective", "Autonomous subtask")
+        child_node = tm.spawn_subagent(thread_id, role, objective, body.get("toolPermissions"))
+        return {"status": "success", "subagent": child_node.model_dump(mode="json")}
+
+    @app.get("/v1/harness/repository-memory")
+    @app.get("/api/v1/harness/repository-memory")
+    async def harness_repo_memory() -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        return {
+            "status": "success",
+            "workspaceRoot": tm.workspace_root,
+            "memory": tm.repo_memory.load_memory_context(),
+            "compiledPromptBlock": tm.repo_memory.compile_prompt_block(),
+        }
+
+    @app.get("/v1/harness/effective-policy")
+    @app.get("/api/v1/harness/effective-policy")
+    async def harness_effective_policy() -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        default_thread = next(iter(tm._threads.values()), None)
+        sess = default_thread.active_session if default_thread else None
+        return {
+            "status": "success",
+            "workspaceRoots": [tm.workspace_root],
+            "effectiveFilesystemRoots": sess.environment.canonical_roots() if sess else [tm.workspace_root],
+            "shellRuntime": sess.environment.shell_runtime if sess else "kali-linux-wsl",
+            "networkPolicy": sess.environment.network_policy.model_dump(mode="json") if sess else {
+                "egress_enabled": True,
+                "dns_allowlist_only": True,
+                "allowed_domains": ["github.com", "api.github.com", "pypi.org", "npmjs.org"]
+            },
+            "ghsa_w5fx_fh39_j5rw_mitigation": "ACTIVE (canonical root enforcement)",
+            "secretStripping": "ACTIVE (child process env & stream output redaction)",
+        }
+
+    @app.post("/v1/harness/verify")
+    @app.post("/api/v1/harness/verify")
+    async def harness_verify_output(request: Request) -> dict[str, Any]:
+        from hinaa_api.harness import get_thread_manager
+        tm = get_thread_manager()
+        body = await request.json()
+        rep = tm.verify_output(
+            text=body.get("text", ""),
+            is_speech=body.get("isSpeech", False),
+            file_path=body.get("filePath"),
+        )
+        return {"status": "success", "report": rep.model_dump(mode="json")}
+
     def _resolved_tool_owner(server_user_id: str | None) -> str:
         """Map an auth subject to the users.id a durable task may reference.
 
