@@ -71,7 +71,14 @@ TOOL_POLICY_LAYER = """TOOL POLICY:
 """
 
 REALTIME_TOOL_POLICY_LAYER = """TOOL POLICY (Fast Conversational Mode):
-- Registered tools available: web_search (current news, real-time info, web links), image_search (finding photos, character art, show visuals), image_generate (artwork, photos, wallpaper), pdf_generate (publication-grade ReportLab PDF generation), create_gamma_presentation (presentation slides & PPTX decks), document_generate, etc.
+- Registered tools available: web_search (current news, real-time info, web links), youtube_playback_request (music and video playback), computer_operator (launching desktop apps, Windows media controls), browser_execute_task & browser_navigate (autonomous web and browser operations), image_search (finding photos, character art, show visuals), image_generate (artwork, photos, wallpaper), pdf_generate (publication-grade ReportLab PDF generation), create_gamma_presentation (presentation slides & PPTX decks), document_generate, etc.
+- MUSIC & MEDIA PLAYBACK: When asked to play music, a song, or video (e.g. 'play Saiyara', 'play lofi', 'bajao gaana', 'play music'):
+  * Emit youtube_playback_request ToolRequest with {"query": "<song or artist>"} (or computer_operator with {"action": "youtube_play", "target": "<query>"}).
+  * Never claim you cannot play music or are restricted. You ARE fully equipped with native playback actuators!
+- DESKTOP APPS & OS CONTROLS: When asked to open or launch any desktop app (e.g. Spotify, Chrome, VS Code, Notepad, Calculator) or control media keys (pause, next, volume):
+  * Emit computer_operator ToolRequest with {"action": "open_application", "target": "<app_name>"} or {"action": "media_control", "target": "play|pause|next|prev"}.
+- BROWSER & NAVIGATION: When asked to browse, search the web, scroll, or automate browser tasks:
+  * Emit browser_execute_task ToolRequest with {"goal": "<goal>"} or browser_navigate with {"url": "<url>"}.
 - For current news, real-time prices, or links, emit a web_search ToolRequest. For finding pictures/photos, emit an image_search ToolRequest. For image creation, emit an image_generate ToolRequest. Never say you cannot display images in chat; the UI renders them directly.
 - DOCUMENT, PRESENTATION & WEBSITE DELIVERABLES: When asked to create, export, design, or generate a PDF document, report, slides, presentation, or website/landing page (e.g. anime report, pitch deck, study guide, SaaS dashboard):
   * NEVER write raw Python code, ReportLab scripts, HTML page source code, XML, LaTeX, or slide layout code into chat displayText.

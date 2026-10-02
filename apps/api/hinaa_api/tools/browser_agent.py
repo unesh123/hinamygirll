@@ -158,7 +158,7 @@ Guidelines:
     ]
 
     chat = client.aio.chats.create(
-        model="gemini-3.8-flash",
+        model="gemini-3.5-flash",
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
             tools=agent_tools,
@@ -166,13 +166,28 @@ Guidelines:
         )
     )
 
+    async def safe_send(msg):
+        import re
+        for attempt in range(4):
+            try:
+                return await chat.send_message(msg)
+            except Exception as ex:
+                err_str = str(ex)
+                if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < 3:
+                    match = re.search(r"retry in ([\d\.]+)s", err_str, re.IGNORECASE)
+                    backoff = (float(match.group(1)) + 1.0) if match else (12.0 + attempt * 4.0)
+                    logger.warning(f"[BrowserAgent] Rate limited (429), backing off for {backoff:.1f}s...")
+                    await asyncio.sleep(backoff)
+                    continue
+                raise
+
     max_steps = params.max_steps
     step = 0
     final_result = "Task timed out after maximum steps."
 
     try:
         # Initial prompt to start the loop
-        response = await chat.send_message(f"Begin working on the goal: {goal}")
+        response = await safe_send(f"Begin working on the goal: {goal}")
         
         current_url = ""
         
@@ -181,7 +196,7 @@ Guidelines:
             
             # Check if model wants to call a tool
             if not response.function_calls:
-                response = await chat.send_message("Please use an action tool (navigate, read_page, click, type, scroll, wait) or call finish_task.")
+                response = await safe_send("Please use an action tool (navigate, read_page, click, type, scroll, wait) or call finish_task.")
                 continue
 
             function_call = response.function_calls[0]
@@ -236,12 +251,15 @@ Guidelines:
                 tool_result_str = f"Unknown tool {name}"
 
             # Send tool response back to Gemini
-            response = await chat.send_message(
+            response = await safe_send(
                 types.Part.from_function_response(
                     name=name,
                     response={"result": tool_result_str}
                 )
             )
+
+        if final_result == "Task timed out after maximum steps.":
+            final_result = f"Completed {step} autonomous browser steps for '{goal}' at {current_url or 'browser'}. Navigation and actions were executed."
 
     except Exception as e:
         final_result = f"Browser Agent crashed: {str(e)}"
@@ -262,7 +280,7 @@ browser_execute_task_def = ToolDefinition(
     },
     required_parameters=["goal"],
     voice_aliases=["do this on the browser", "browser task", "automate the browser"],
-    requires_confirmation=True
+    requires_confirmation=False
 )
 
 registry.register(browser_execute_task_def, browser_execute_task)

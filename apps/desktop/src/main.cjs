@@ -410,11 +410,18 @@ function setupIpcHandlers() {
       }
 
       return new Promise((resolve) => {
+        const safeTarget = resolved.replace(/'/g, "''").replace(/"/g, '');
         const psScript = `
+          $target = '${safeTarget}'
           $ws = New-Object -ComObject WScript.Shell
-          $activated = $ws.AppActivate('${resolved}')
+          $activated = $ws.AppActivate($target)
           if (-not $activated) {
-            Start-Process '${resolved}' -ErrorAction SilentlyContinue
+            $found = Get-StartApps | Where-Object { $_.Name -match $target -or $_.AppID -match $target } | Select-Object -First 1
+            if ($found) {
+              Start-Process "shell:AppsFolder\\$($found.AppID)" -ErrorAction SilentlyContinue
+            } else {
+              Start-Process $target -ErrorAction SilentlyContinue
+            }
           }
         `;
         exec(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, (err) => {
@@ -643,7 +650,104 @@ function registerHotkeys() {
   }
 }
 
+let backendProcess = null;
+
+function checkBackendHealth(timeoutMs = 800) {
+  return new Promise((resolve) => {
+    const req = http.get("http://127.0.0.1:8000/health", (res) => {
+      resolve(res.statusCode === 200);
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function ensureBackendRunning() {
+  const isHealthy = await checkBackendHealth(800);
+  if (isHealthy) {
+    console.log("[HINAA Desktop] Local Python backend already running on http://127.0.0.1:8000");
+    return;
+  }
+
+  console.log("[HINAA Desktop] Backend not detected on port 8000. Auto-spawning local Python backend...");
+  const workspaceRoot = path.resolve(__dirname, "../../..");
+  const apiDir = path.join(workspaceRoot, "apps", "api");
+  const winPython = path.join(apiDir, ".venv", "Scripts", "python.exe");
+  const unixPython = path.join(apiDir, ".venv", "bin", "python");
+
+  let pythonPath = "python";
+  if (fs.existsSync(winPython)) {
+    pythonPath = winPython;
+  } else if (fs.existsSync(unixPython)) {
+    pythonPath = unixPython;
+  }
+
+  try {
+    const { spawn } = require("child_process");
+    backendProcess = spawn(
+      pythonPath,
+      ["-m", "uvicorn", "hinaa_api.main:app", "--host", "127.0.0.1", "--port", "8000"],
+      {
+        cwd: apiDir,
+        env: {
+          ...process.env,
+          PYTHONPATH: apiDir,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+
+    backendProcess.stdout.on("data", (data) => {
+      const line = data.toString().trim();
+      if (line) console.log(`[HINAA Backend] ${line}`);
+    });
+
+    backendProcess.stderr.on("data", (data) => {
+      const line = data.toString().trim();
+      if (line) console.warn(`[HINAA Backend ERR] ${line}`);
+    });
+
+    backendProcess.on("exit", (code, signal) => {
+      console.log(`[HINAA Desktop] Backend process exited (code=${code}, signal=${signal})`);
+      backendProcess = null;
+    });
+
+    // Wait up to 8 seconds for backend to become healthy
+    for (let i = 0; i < 16; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (await checkBackendHealth(400)) {
+        console.log("[HINAA Desktop] Local Python backend is ready on port 8000!");
+        break;
+      }
+    }
+  } catch (err) {
+    console.error("[HINAA Desktop] Failed to auto-spawn backend process:", err.message);
+  }
+}
+
+function cleanupBackend() {
+  if (backendProcess && !backendProcess.killed) {
+    console.log("[HINAA Desktop] Terminating spawned backend process...");
+    try {
+      if (process.platform === "win32") {
+        exec(`taskkill /pid ${backendProcess.pid} /T /F`);
+      } else {
+        backendProcess.kill("SIGTERM");
+      }
+    } catch {
+      // ignore
+    }
+    backendProcess = null;
+  }
+}
+
 app.whenReady().then(async () => {
+  // Ensure local python backend is operational before opening workspace
+  await ensureBackendRunning();
+
   const distDir = path.join(__dirname, "../../web/dist");
   if (fs.existsSync(distDir)) {
     try {
@@ -662,4 +766,6 @@ app.whenReady().then(async () => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+  cleanupBackend();
 });
+

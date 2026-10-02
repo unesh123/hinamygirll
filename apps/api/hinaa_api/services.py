@@ -2846,20 +2846,30 @@ class ConversationService:
             allowed_set.add("ui_control")
 
         MEDIA_PATTERN = re.compile(
-            r"(?i)\b(?:play|listen\s+to|put\s+on|stream|hear|gaana|geet|music|song|track|lofi|youtube|spotify|video)\b"
+            r"(?i)\b(?:play|playing|listen\s+to|put\s+on|stream|hear|gaana|geet|bajao|baja\s+do|music|song|songs|track|tracks|lofi|youtube|spotify|video|pause\s+music|resume\s+music)\b"
         )
-        if MEDIA_PATTERN.search(text) and not re.search(r"(?i)\b(?:why|don't|stop|cancel|cannot)\b", text):
+        if MEDIA_PATTERN.search(text) and not re.search(r"(?i)\b(?:why|cannot)\b", text):
             allowed_set.add("youtube_playback_request")
             allowed_set.add("computer_operator")
 
         BROWSER_PATTERN = re.compile(
-            r"(?i)\b(?:browse|browser|navigate|go\s+to\s+https?|automate\s+browser|browser\s+agent|web\s+task)\b"
+            r"(?i)\b(?:browse|browsing|browser|browser-use|navigate|go\s+to|visit|url|https?://|automate\s+browser|browser\s+agent|web\s+task|scroll|scroll\s+down|scroll\s+up|read\s+page|type\s+into)\b"
         )
         if BROWSER_PATTERN.search(text):
-            allowed_set.update(["browser_execute_task", "browser_navigate", "browser_click", "browser_type", "browser_extract"])
+            allowed_set.update([
+                "browser_execute_task",
+                "browser_navigate",
+                "browser_click",
+                "browser_type",
+                "browser_extract",
+                "browser_scroll",
+                "browser_press_key",
+            ])
 
         COMPUTER_PATTERN = re.compile(
-            r"(?i)\b(?:open|launch|start|run)\s+(?:app|application|software|spotify|chrome|edge|notepad|calc|calculator|terminal|vscode)\b"
+            r"(?i)\b(?:open|launch|start|run|close|switch\s+to|focus|minimize|maximize)\s+(?:app|application|software|window|program|browser|youtube|spotify|chrome|edge|firefox|brave|notepad|calc|calculator|terminal|powershell|cmd|vscode|code|discord|telegram|steam|word|excel|powerpoint|settings|camera|explorer|files|[a-zA-Z0-9_\-\.]{2,35})\b"
+            r"|\b(?:computer|desktop|os)\s+(?:operator|control|automation|action|apps?)\b"
+            r"|\b(?:click|hotkey|press\s+key|mouse\s+click|type\s+text)\b"
         )
         if COMPUTER_PATTERN.search(text):
             allowed_set.update(["computer_operator", "app_launch", "system_info"])

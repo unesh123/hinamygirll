@@ -391,17 +391,24 @@ class NativeComputerOperator:
 
         if system == "Windows":
             try:
-                if resolved.startswith("http://") or resolved.startswith("https://"):
+                if resolved.startswith("http://") or resolved.startswith("https://") or resolved.startswith("spotify:") or resolved.startswith("ms-settings:"):
                     os.system(f'start "" "{resolved}"')
                 else:
+                    safe_target = resolved.replace("'", "''").replace('"', '')
                     ps = f"""
-                    $wscript = New-Object -ComObject WScript.Shell
-                    $activated = $wscript.AppActivate('{resolved}')
+                    $target = '{safe_target}'
+                    $ws = New-Object -ComObject WScript.Shell
+                    $activated = $ws.AppActivate($target)
                     if (-not $activated) {{
-                        Start-Process '{resolved}' -ErrorAction SilentlyContinue
+                        $found = Get-StartApps | Where-Object {{ $_.Name -match $target -or $_.AppID -match $target }} | Select-Object -First 1
+                        if ($found) {{
+                            Start-Process "shell:AppsFolder\\$($found.AppID)" -ErrorAction SilentlyContinue
+                        }} else {{
+                            Start-Process $target -ErrorAction SilentlyContinue
+                        }}
                     }}
                     """
-                    subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=3.0)
+                    subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=4.0)
 
                 await asyncio.sleep(0.4)
                 obs = cls.observe()

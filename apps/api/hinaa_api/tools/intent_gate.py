@@ -41,6 +41,8 @@ GATED_TOOLS = {
     "browser_click",
     "browser_type",
     "browser_extract",
+    "browser_scroll",
+    "browser_press_key",
     "computer_operator",
     "ui_control",
 }
@@ -54,6 +56,8 @@ SELF_SPECIFIED = {
     "design_website": ("brief",),
     "youtube_playback_request": ("query",),
     "browser_execute_task": ("goal",),
+    "browser_scroll": ("direction",),
+    "browser_press_key": ("key",),
     "computer_operator": ("action",),
 }
 
@@ -99,7 +103,7 @@ META_FRAMING = re.compile(
     r"""(?ix)
     \b (?:
         why | how\s+come | what\s+happened | didn'?t | dont | don'?t | do\s+not |
-        never | stop | quit | cancel | abort | pause | enough | useless | broken |
+        never | stop | quit | cancel | abort | pause\s+(?:generating|generation|image|task|pipeline|work) | enough | useless | broken |
         fail(?:ed|ing|ure)? | error | wrong | not\s+working | wasn'?t | weren'?t |
         i\s+asked | i\s+wanted | instead\s+of | yesterday | earlier | last\s+time |
         (?:once\s+)?again[,:\s]+(?:you|stop|i\s+didn'?t|it\s+failed|broken)|not\s+again |
@@ -223,15 +227,16 @@ _BROWSER_TASK_ASK = re.compile(
 _COMPUTER_APP_ASK = re.compile(
     r"""(?ix)
     \b(?:
-        open | launch | start | run | close
+        open | launch | start | run | close | switch\s+to
     )\s+
     (?:
         application | app | program | software |
-        spotify | chrome | edge | firefox | notepad | calc | calculator |
+        spotify | chrome | edge | firefox | brave | notepad | calc | calculator |
         terminal | powershell | cmd | command\s+prompt | vs\s*code | vscode |
-        discord | youtube | explorer | file\s+explorer | settings
+        discord | telegram | steam | slack | youtube | explorer | file\s+explorer | settings |
+        camera | paint | word | excel | powerpoint | [a-zA-Z0-9_\-\.]{2,30}
     )\b
-    | \b(?:computer\s+operator|desktop\s+operator|os\s+action)\b
+    | \b(?:computer\s+operator|desktop\s+operator|os\s+action|desktop\s+app|desktop\s+automation)\b
     | \b(?:media\s+(?:play|pause|toggle|next|skip|prev|previous|volume\s+up|volume\s+down|mute))\b
     | \b(?:next\s+(?:track|song)|previous\s+(?:track|song)|pause\s+music|resume\s+music|stop\s+music|mute\s+audio)\b
     """
@@ -740,9 +745,26 @@ def sanction_tools(
             "browser_click",
             "browser_type",
             "browser_extract",
+            "browser_scroll",
+            "browser_press_key",
         ])
+        if "scroll" in lowered:
+            direction = "up" if "up" in lowered else "down"
+            amount = 600
+            amt_m = re.search(r"(\d+)\s*(?:px|pixels)?", lowered)
+            if amt_m:
+                try:
+                    amount = int(amt_m.group(1))
+                except ValueError:
+                    amount = 600
+            sanction.parameters["browser_scroll"] = {"direction": direction, "amount": amount}
         sanction.parameters["browser_execute_task"] = {"goal": raw}
         sanction.parameters["browser_navigate"] = {"url": raw}
+        return sanction
+
+    if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("ui_control")
+        sanction.parameters["ui_control"] = {}
         return sanction
 
     if _COMPUTER_APP_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -764,11 +786,6 @@ def sanction_tools(
             app_match = re.search(r"\b(?:open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)", raw, re.IGNORECASE)
             app_target = app_match.group(1).strip() if app_match else raw
             sanction.parameters["computer_operator"] = {"action": "open_application", "target": app_target}
-        return sanction
-
-    if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):
-        sanction.allowed.add("ui_control")
-        sanction.parameters["ui_control"] = {}
         return sanction
 
     return sanction

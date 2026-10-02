@@ -269,15 +269,77 @@ browser_type_def = ToolDefinition(
     },
     required_parameters=["selector", "text"],
     voice_aliases=["type", "enter", "search for"],
-    requires_confirmation=True,
+    requires_confirmation=False,
     risk_level="medium"
 )
 
+# -----------------
+# 5. Scroll Page ("Down / Up")
+# -----------------
+class BrowserScrollParams(BaseModel):
+    direction: str = Field(default="down", description="'down' or 'up' (default 'down')")
+    amount: int = Field(default=600, description="Number of pixels to scroll (e.g. 500, 800)")
+
+async def browser_scroll(params: BrowserScrollParams) -> str:
+    try:
+        page = await _get_page()
+        dy = params.amount if params.direction.lower() == "down" else -params.amount
+        await page.mouse.wheel(0, dy)
+        await asyncio.sleep(0.5)
+        scroll_y = await page.evaluate("window.scrollY || 0")
+        max_y = await page.evaluate("(document.documentElement ? document.documentElement.scrollHeight : 0) - window.innerHeight")
+        return f"Successfully scrolled {params.direction} by {params.amount}px. Current Y={scroll_y}px (Max: {max(0, max_y)}px)."
+    except Exception as e:
+        return f"Failed to scroll: {str(e)}"
+
+browser_scroll_def = ToolDefinition(
+    name="browser_scroll",
+    display_name="Browser: Scroll Page",
+    description="Scrolls up or down on the current webpage to reveal more content, results, or sections.",
+    parameters={
+        "direction": {"type": "string", "enum": ["down", "up"], "description": "'down' or 'up' (default 'down')"},
+        "amount": {"type": "integer", "description": "Number of pixels to scroll (default 600)"}
+    },
+    required_parameters=[],
+    voice_aliases=["scroll down", "scroll up", "scroll the page", "scroll further"],
+    requires_confirmation=False,
+    risk_level="low"
+)
+
+# -----------------
+# 6. Press Keyboard Key
+# -----------------
+class BrowserPressKeyParams(BaseModel):
+    key: str = Field(default="Enter", description="Key to press: Enter, Escape, ArrowDown, ArrowUp, PageDown, PageUp, Space, Tab")
+
+async def browser_press_key(params: BrowserPressKeyParams) -> str:
+    try:
+        page = await _get_page()
+        await page.keyboard.press(params.key)
+        await asyncio.sleep(0.4)
+        return f"Successfully pressed key '{params.key}'."
+    except Exception as e:
+        return f"Failed to press key: {str(e)}"
+
+browser_press_key_def = ToolDefinition(
+    name="browser_press_key",
+    display_name="Browser: Press Keyboard Key",
+    description="Press a keyboard key in the browser such as Enter, Escape, PageDown, ArrowDown, or Tab.",
+    parameters={
+        "key": {"type": "string", "description": "Key name (Enter, Escape, PageDown, PageUp, ArrowDown, ArrowUp, Space, Tab)"}
+    },
+    required_parameters=["key"],
+    voice_aliases=["press enter", "press key", "hit enter"],
+    requires_confirmation=False,
+    risk_level="low"
+)
 
 registry.register(browser_navigate_def, browser_navigate)
 registry.register(browser_extract_def, browser_extract)
 registry.register(browser_click_def, browser_click)
 registry.register(browser_type_def, browser_type)
+registry.register(browser_scroll_def, browser_scroll)
+registry.register(browser_press_key_def, browser_press_key)
 
 # =====================================================
 # NEW: System Control Tools
