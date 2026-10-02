@@ -88,6 +88,7 @@ import { AVATAR_REGISTRY, DEFAULT_AVATAR_FILE } from "../../features/avatar/avat
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { ModelControlBar } from "../layout/ModelControlBar";
 import type { PresenceMode } from "../../components/ui/AvatarPresence";
+import type { ExecutiveMode } from "../layout/TopBarV6";
 
 function getProviderDisplayName(mode?: string): string {
   if (!mode) return "Provider";
@@ -186,6 +187,8 @@ interface WorkModeProps {
   onOpenTerminal?: (initialCommand?: string) => void;
   onOpenVault?: () => void;
   isDark?: boolean;
+  executiveMode?: ExecutiveMode;
+  onExecutiveModeChange?: (mode: ExecutiveMode) => void;
 }
 
 export function WorkMode({
@@ -251,6 +254,8 @@ export function WorkMode({
   onSelectVoiceEngine,
   onOpenSettings,
   conversationId,
+  executiveMode,
+  onExecutiveModeChange,
 }: WorkModeProps) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText]);
   // Real capability discovery: providers + models actually configured on the
@@ -396,6 +401,23 @@ export function WorkMode({
 
   const [actionMode, setActionMode] = useState<ActionMode>("chat");
   const [intelligenceLevel, setIntelligenceLevel] = useState<IntelligenceLevel>("auto");
+
+  useEffect(() => {
+    if (!executiveMode) return;
+    if (executiveMode === "deep-reasoning") {
+      setIntelligenceLevel("deep");
+      setActionMode("chat");
+    } else if (executiveMode === "research") {
+      setActionMode("research");
+      setIntelligenceLevel("deep");
+    } else if (executiveMode === "report") {
+      setActionMode("create");
+      setIntelligenceLevel("deep");
+    } else if (executiveMode === "chat") {
+      setActionMode("chat");
+      setIntelligenceLevel("auto");
+    }
+  }, [executiveMode]);
   const [localTopic, setLocalTopic] = useState<string | null>(null);
 
   const activeTopic = localTopic !== null ? (localTopic || null) : (searchQuery || (plan as any)?.topic || null);
@@ -1184,6 +1206,81 @@ export function WorkMode({
             margin: "0",
           }}
         >
+          {/* Executive Mode HUD Banner */}
+          {executiveMode && executiveMode !== "chat" && (
+            <div
+              data-testid="executive-mode-hud"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 14px",
+                marginBottom: "var(--space-3)",
+                borderRadius: "var(--radius-lg, 12px)",
+                background: isDark
+                  ? executiveMode === "deep-reasoning"
+                    ? "rgba(168, 85, 247, 0.12)"
+                    : executiveMode === "research"
+                    ? "rgba(16, 185, 129, 0.12)"
+                    : "rgba(59, 130, 246, 0.12)"
+                  : executiveMode === "deep-reasoning"
+                  ? "#f5f3ff"
+                  : executiveMode === "research"
+                  ? "#ecfdf5"
+                  : "#eff6ff",
+                border: `1px solid ${
+                  executiveMode === "deep-reasoning"
+                    ? "rgba(168, 85, 247, 0.3)"
+                    : executiveMode === "research"
+                    ? "rgba(16, 185, 129, 0.3)"
+                    : "rgba(59, 130, 246, 0.3)"
+                }`,
+                color: isDark ? "#f3f4f6" : "#1f2937",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: "1.25rem" }}>
+                  {executiveMode === "deep-reasoning" ? "🧠" : executiveMode === "research" ? "🔬" : "📊"}
+                </span>
+                <div>
+                  <div style={{ fontSize: "0.82rem", fontWeight: 700, color: executiveMode === "deep-reasoning" ? "#a855f7" : executiveMode === "research" ? "#10b981" : "#3b82f6" }}>
+                    {executiveMode === "deep-reasoning"
+                      ? "Deep Reasoning Matrix Active"
+                      : executiveMode === "research"
+                      ? "Autonomous Deep Research Active"
+                      : "Executive Report & Synthesis Active"}
+                  </div>
+                  <div style={{ fontSize: "0.74rem", opacity: 0.85, marginTop: 1 }}>
+                    {executiveMode === "deep-reasoning"
+                      ? "Multi-step cognitive chain-of-thought, speculative validation, and formal logic planning."
+                      : executiveMode === "research"
+                      ? "Multi-source web search, data synthesis, and fact verification."
+                      : "Structured document layout, executive summaries, tables, and presentation synthesis."}
+                  </div>
+                </div>
+              </div>
+              {onExecutiveModeChange && (
+                <button
+                  type="button"
+                  onClick={() => onExecutiveModeChange("chat")}
+                  style={{
+                    background: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
+                    border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))",
+                    borderRadius: "6px",
+                    padding: "4px 8px",
+                    fontSize: "0.72rem",
+                    fontWeight: 600,
+                    color: "inherit",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Return to Chat
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Rate limit recovery card if message contains rate limit error */}
           {messages.some((m) => m.role === "assistant" && /rate\s*limit/i.test(m.text || "")) && (
             <div

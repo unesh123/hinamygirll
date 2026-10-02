@@ -3,7 +3,7 @@ import logging
 import os
 import shutil
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from playwright.async_api import async_playwright, Browser, Page
 
 from hinaa_api.tools.registry import registry, ToolDefinition
@@ -484,22 +484,37 @@ registry.register(system_info_def, system_info)
 
 
 class AppLaunchParams(BaseModel):
-    app_name: str = Field(..., description="Name of the application to launch.")
+    app_name: Optional[str] = Field(default=None, description="Name of the application to launch.")
+    target: Optional[str] = Field(default=None, description="Alternative target parameter alias.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def unify_target(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            name = data.get("app_name") or data.get("target") or ""
+            data["app_name"] = name
+        return data
 
 
 async def app_launch(params: AppLaunchParams) -> str:
+    app_target = (params.app_name or params.target or "").strip()
+    if not app_target:
+        raise HinaaError("APP_ARGUMENT_MISSING", "Application name is required.", 422)
     try:
-        app_name = params.app_name.strip().lower()
+        from .computer_operator import ComputerOperator
+        result = await ComputerOperator.open_application(app_target)
+        if result.success:
+            return result.detail
+
         if sys.platform.startswith("win"):
             allowed = {"notepad": "notepad.exe", "calculator": "calc.exe", "calc": "calc.exe", "paint": "mspaint.exe"}
-            executable = allowed.get(app_name)
-            if executable is None:
-                raise HinaaError("APP_NOT_ALLOWED", "This local launcher supports Notepad, Calculator, and Paint.", 403)
-            system_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
-            subprocess.Popen([str(system_dir / executable)], shell=False)
-        else:
-            raise HinaaError("APP_PLATFORM_UNSUPPORTED", "Application launch is currently available on Windows only.", 422)
-        return f"Launching '{params.app_name}'..."
+            executable = allowed.get(app_target.lower())
+            if executable:
+                system_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+                subprocess.Popen([str(system_dir / executable)], shell=False)
+                return f"Launching '{app_target}'..."
+
+        raise HinaaError("APP_LAUNCH_FAILED", result.detail or f"Failed to launch '{app_target}'.", 422)
     except HinaaError:
         raise
     except OSError as error:

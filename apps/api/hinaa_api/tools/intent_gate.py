@@ -56,6 +56,7 @@ SELF_SPECIFIED = {
     "design_website": ("brief",),
     "youtube_playback_request": ("query",),
     "browser_execute_task": ("goal",),
+    "browser_navigate": ("url",),
     "browser_scroll": ("direction",),
     "browser_press_key": ("key",),
     "computer_operator": ("action",),
@@ -204,6 +205,7 @@ _MEDIA_ASK = re.compile(
     )\b
     | ^\s*(?:please\s+)?(?:can\s+you\s+)?play\s+[a-zA-Z0-9_\s]{2,}\s*[.!?]?$
     | \b(?:play\s+(?:on\s+youtube|on\s+spotify|this\s+song|some\s+music))\b
+    | \b(?:open\s+youtube|search\s+on\s+youtube|youtube\s+search)\b
     | \b(?:media\s+(?:play|pause|toggle|next|skip|prev|previous))\b
     """
 )
@@ -724,18 +726,19 @@ def sanction_tools(
             sanction.parameters["image_relight"] = {}
         return sanction
 
-    if _WEB.search(lowered) and not META_FRAMING.search(lowered):
-        sanction.allowed.add("web_search")
-        sanction.parameters["web_search"] = {}
-        return sanction
-
     if _MEDIA_ASK.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.add("youtube_playback_request")
         sanction.allowed.add("computer_operator")
-        m = re.search(r"(?i)\b(?:play|put\s+on|listen\s+to|stream|hear)\s+(?:me\s+)?(?:some\s+)?(.+?)(?:\s+on\s+youtube|\s+on\s+spotify|[.!?]|$)", raw)
+        m = re.search(r"(?i)\b(?:play|put\s+on|listen\s+to|stream|hear|search|open\s+youtube\s+and\s+search)\s+(?:me\s+)?(?:some\s+)?(.+?)(?:\s+on\s+youtube|\s+on\s+spotify|[.!?]|$)", raw)
         query = m.group(1).strip() if m else raw
+        query = re.sub(r"(?i)\b(?:open\s+youtube|on\s+youtube|on\s+spotify|and\s+search|search\s+for|search)\b", "", query).strip() or "trending"
         sanction.parameters["youtube_playback_request"] = {"query": query}
         sanction.parameters["computer_operator"] = {"action": "youtube_play", "target": query}
+        return sanction
+
+    if _WEB.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("web_search")
+        sanction.parameters["web_search"] = {}
         return sanction
 
     if _BROWSER_TASK_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -758,8 +761,14 @@ def sanction_tools(
                 except ValueError:
                     amount = 600
             sanction.parameters["browser_scroll"] = {"direction": direction, "amount": amount}
+        url_match = re.search(r"https?://[^\s]+|www\.[^\s]+|(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|ai|co|app|dev|edu|gov)[^\s]*", raw, re.IGNORECASE)
+        clean_url = url_match.group(0) if url_match else raw
+        if clean_url.startswith("www."):
+            clean_url = "https://" + clean_url
+        elif not clean_url.startswith("http://") and not clean_url.startswith("https://") and ("." in clean_url):
+            clean_url = "https://" + clean_url
+        sanction.parameters["browser_navigate"] = {"url": clean_url}
         sanction.parameters["browser_execute_task"] = {"goal": raw}
-        sanction.parameters["browser_navigate"] = {"url": raw}
         return sanction
 
     if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -783,8 +792,11 @@ def sanction_tools(
                 media_cmd = "mute"
             sanction.parameters["computer_operator"] = {"action": "media_control", "target": media_cmd}
         else:
-            app_match = re.search(r"\b(?:open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)", raw, re.IGNORECASE)
+            app_match = re.search(r"\b(?:open|launch|start|run)\s+([a-zA-Z0-9_\-\.\s]+)", raw, re.IGNORECASE)
             app_target = app_match.group(1).strip() if app_match else raw
+            trailing_fluff = r"(?i)\s+(?:on\s+my\s+pc|on\s+my\s+computer|on\s+pc|on\s+desktop|in\s+my\s+pc|for\s+me|app|application|browser|software|program|please|now|window)$"
+            while re.search(trailing_fluff, app_target):
+                app_target = re.sub(trailing_fluff, "", app_target).strip()
             sanction.parameters["computer_operator"] = {"action": "open_application", "target": app_target}
         return sanction
 

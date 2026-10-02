@@ -23,10 +23,12 @@ import {
   Terminal,
   Zap,
   Layout,
+  Headphones,
 } from "lucide-react";
 import { ModelSelectorV7 } from "./ModelSelectorV7";
 import { ShapeshiftCard } from "../../features/chat/components/ShapeshiftCard";
 import type { DiscoveredModel, DiscoveredProvider } from "../../features/providers/hooks/useCapabilities";
+import { useVoiceTyping } from "../../features/audio/useVoiceTyping";
 
 export type ActionMode = "chat" | "research" | "create" | "code" | "goal";
 export type IntelligenceLevel = "auto" | "fast" | "deep" | "max";
@@ -156,6 +158,14 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [previewChip, setPreviewChip] = useState<ContextChip | null>(null);
   const [dismissedShapeshiftInput, setDismissedShapeshiftInput] = useState<string>("");
+
+  const voiceTyping = useVoiceTyping({
+    onTranscript: useCallback((text: string, isFinal: boolean) => {
+      if (isFinal) {
+        onChange(value ? `${value.trim()} ${text}` : text);
+      }
+    }, [value, onChange]),
+  });
 
   // Footer status is measured, never asserted. `configured` only proves a
   // credential exists, which is how this chip stayed green straight through a
@@ -317,7 +327,9 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     }
   };
 
-  const placeholderText = isGoalMode
+  const placeholderText = voiceTyping.isListening
+    ? "Listening to voice dictation... speak into your microphone"
+    : isGoalMode
     ? "Define your goal, constraints, and success criteria for Hina..."
     : actionMode === "research"
     ? "Ask a question to research with live web sources & citations..."
@@ -549,6 +561,63 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
       )}
 
       {/* ── Main Textarea ─────────────────────────────────────────────────── */}
+      {voiceTyping.isListening && (
+        <div
+          data-testid="composer-voice-typing-banner"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 10px",
+            borderRadius: 8,
+            background: isDark ? "rgba(236, 72, 153, 0.15)" : "rgba(236, 72, 153, 0.08)",
+            border: isDark ? "1px solid rgba(236, 72, 153, 0.35)" : "1px solid rgba(236, 72, 153, 0.25)",
+            fontSize: 12,
+            color: "#ec4899",
+            animation: "pulse 2s infinite ease-in-out",
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#ec4899",
+              boxShadow: "0 0 8px #ec4899",
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ fontWeight: 650, flexShrink: 0 }}>Voice Typing:</span>
+          <span
+            style={{
+              fontStyle: "italic",
+              opacity: 0.95,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+          >
+            {voiceTyping.interimTranscript || "Listening... speak into your microphone"}
+          </span>
+          <button
+            type="button"
+            onClick={() => voiceTyping.stopListening()}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#ec4899",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              textDecoration: "underline",
+              flexShrink: 0,
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
       <textarea
         ref={textareaRef}
         data-testid="composer-input"
@@ -974,12 +1043,37 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             </button>
           )}
 
+          {voiceTyping.isSupported && (
+            <button
+              type="button"
+              data-testid="composer-voice-typing-btn"
+              onClick={() => voiceTyping.toggleListening()}
+              title={voiceTyping.isListening ? "Stop Voice Typing" : "Voice Typing (Continuous Speech Dictation)"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: voiceTyping.isListening ? "rgba(236, 72, 153, 0.2)" : "var(--surface-subtle, #f6f3f7)",
+                border: voiceTyping.isListening ? "1px solid #ec4899" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                color: voiceTyping.isListening ? "#ec4899" : "var(--text-secondary, #5e545d)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                boxShadow: voiceTyping.isListening ? "0 0 10px rgba(236, 72, 153, 0.4)" : "none",
+              }}
+            >
+              <Mic size={15} />
+            </button>
+          )}
+
           {onVoiceToggle && (
             <button
               type="button"
               data-testid="composer-voice-btn"
               onClick={onVoiceToggle}
-              title={isVoiceActive ? "Mute Voice" : "Enable Real-time Voice"}
+              title={isVoiceActive ? "Mute Live Audio Stream" : "Live Real-Time Audio Call"}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -994,7 +1088,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 transition: "all 0.15s ease",
               }}
             >
-              <Mic size={15} />
+              <Headphones size={15} />
             </button>
           )}
 

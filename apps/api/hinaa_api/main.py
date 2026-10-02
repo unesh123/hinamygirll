@@ -2858,8 +2858,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "browser_click",
                 "browser_type",
                 "browser_extract",
+                "browser_scroll",
+                "browser_press_key",
                 "ui_control",
                 "computer_operator",
+                "app_launch",
+                "system_info",
+                "search_files",
             )
         )
         if tool_def.requires_confirmation and not (is_user_approved or is_safe_standing_consent):

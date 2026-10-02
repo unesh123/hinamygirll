@@ -374,24 +374,60 @@ class NativeComputerOperator:
         target = app_or_url.strip()
         system = platform.system()
 
+        import re
+        cleaned = re.sub(r"^(?:open|launch|start|run|switch\s+to|focus)\s+", "", target, flags=re.IGNORECASE).strip()
+        trailing_fluff = r"(?i)\s+(?:on\s+my\s+pc|on\s+my\s+computer|on\s+pc|on\s+desktop|in\s+my\s+pc|for\s+me|app|application|browser|software|program|please|now|window)$"
+        while re.search(trailing_fluff, cleaned):
+            cleaned = re.sub(trailing_fluff, "", cleaned).strip()
+        if not cleaned:
+            cleaned = target
+
         app_aliases = {
             "spotify": "spotify",
             "whatsapp": "whatsapp",
             "arc": "arc",
             "chrome": "chrome",
+            "google chrome": "chrome",
             "edge": "msedge",
+            "microsoft edge": "msedge",
+            "firefox": "firefox",
+            "mozilla firefox": "firefox",
+            "brave": "brave",
             "youtube": "https://www.youtube.com",
             "discord": "discord",
             "vscode": "code",
+            "vs code": "code",
             "code": "code",
+            "visual studio code": "code",
             "terminal": "wt",
+            "windows terminal": "wt",
+            "cmd": "cmd",
+            "command prompt": "cmd",
+            "powershell": "powershell",
             "notepad": "notepad",
+            "calculator": "calc",
+            "calc": "calc",
+            "files": "explorer",
+            "file explorer": "explorer",
+            "explorer": "explorer",
+            "paint": "mspaint",
+            "task manager": "taskmgr",
+            "taskmgr": "taskmgr",
+            "word": "winword",
+            "excel": "excel",
+            "powerpoint": "powerpnt",
+            "settings": "ms-settings:",
+            "camera": "microsoft.windows.camera:",
+            "clock": "ms-clock:",
+            "steam": "steam",
+            "telegram": "telegram",
+            "obs": "obs64",
         }
-        resolved = app_aliases.get(target.lower(), target)
+        resolved = app_aliases.get(cleaned.lower(), cleaned)
 
         if system == "Windows":
             try:
-                if resolved.startswith("http://") or resolved.startswith("https://") or resolved.startswith("spotify:") or resolved.startswith("ms-settings:"):
+                if resolved.startswith("http://") or resolved.startswith("https://") or resolved.startswith("spotify:") or resolved.startswith("ms-settings:") or resolved.startswith("microsoft.windows."):
                     os.system(f'start "" "{resolved}"')
                 else:
                     safe_target = resolved.replace("'", "''").replace('"', '')
@@ -400,7 +436,7 @@ class NativeComputerOperator:
                     $ws = New-Object -ComObject WScript.Shell
                     $activated = $ws.AppActivate($target)
                     if (-not $activated) {{
-                        $found = Get-StartApps | Where-Object {{ $_.Name -match $target -or $_.AppID -match $target }} | Select-Object -First 1
+                        $found = Get-StartApps | Where-Object {{ $_.Name -like "*$target*" -or $_.AppID -like "*$target*" }} | Select-Object -First 1
                         if ($found) {{
                             Start-Process "shell:AppsFolder\\$($found.AppID)" -ErrorAction SilentlyContinue
                         }} else {{
@@ -891,3 +927,6 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
 
 
 registry.register(computer_operator_tool_def, execute_computer_operator)
+
+# Backward-compatible alias
+ComputerOperator = NativeComputerOperator

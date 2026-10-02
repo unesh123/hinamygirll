@@ -1250,6 +1250,8 @@ export default function App() {
                 onWelcomeAction={handleWelcome}
                 attachedImage={attachedImage}
                 onImageAttach={setAttachedImage}
+                executiveMode={executiveMode}
+                onExecutiveModeChange={changeExecutiveMode}
                 // Companion & 3D Avatar
                 avatarModel={avatarModel}
                 avatarMode={avatarMode}
