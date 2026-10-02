@@ -141,26 +141,50 @@ async def _request_media_playback(page: Page) -> None:
         return
 
 
+def resolve_first_youtube_watch(query: str) -> tuple[str, str | None]:
+    """Scrapes YouTube search to find the direct watch URL for instant playback."""
+    import re
+    import urllib.parse
+    import urllib.request
+
+    encoded = urllib.parse.quote(query)
+    search_url = f"https://www.youtube.com/results?search_query={encoded}"
+    try:
+        req = urllib.request.Request(
+            search_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        html = urllib.request.urlopen(req, timeout=5).read().decode("utf-8", errors="ignore")
+        video_ids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+        if not video_ids:
+            video_ids = re.findall(r'/watch\?v=([a-zA-Z0-9_-]{11})', html)
+        if video_ids:
+            title_match = re.search(r'"title":\{"runs":\[\{"text":"(.*?)"\}\]', html)
+            title = title_match.group(1) if title_match else query
+            return f"https://www.youtube.com/watch?v={video_ids[0]}&autoplay=1", title
+    except Exception:
+        pass
+    return search_url, None
+
+
 async def play_youtube_video(params: PlayYoutubeVideoParams) -> dict[str, Any]:
-    """Open and verify one YouTube video inside the existing owned browser page."""
+    """Open and verify one YouTube video inside browser page with resilient desktop fallback."""
+    resolved_watch_url, resolved_title = resolve_first_youtube_watch(params.query)
+
     try:
         page = await _get_page()
         owned_before = await _keep_single_owned_page(page)
         watch_url, title = await _select_first_video(page, params.query)
-        if not watch_url:
-            return {
-                "status": "blocked",
-                "data": {
-                    "verified": False,
-                    "state": "no-result",
-                    "query": params.query,
-                    "message": "HINAA could not select a playable YouTube result. YouTube may be showing consent, sign-in, or an unavailable search page.",
-                    "ownedPageCount": await _keep_single_owned_page(page),
-                },
-            }
+        target_url = watch_url or resolved_watch_url
+        video_title = title or resolved_title or params.query
 
-        separator = "&" if "?" in watch_url else "?"
-        await page.goto(f"{watch_url}{separator}autoplay=1", wait_until="domcontentloaded", timeout=20_000)
+        separator = "&" if "?" in target_url else "?"
+        final_url = target_url if "autoplay=" in target_url else f"{target_url}{separator}autoplay=1"
+
+        await page.goto(final_url, wait_until="domcontentloaded", timeout=20_000)
         await page.bring_to_front()
         await page.wait_for_timeout(600)
         await _request_media_playback(page)
@@ -171,7 +195,7 @@ async def play_youtube_video(params: PlayYoutubeVideoParams) -> dict[str, Any]:
 
         evidence = {
             "query": params.query,
-            "title": title or params.query,
+            "title": video_title,
             "url": page.url,
             "ownedPageCount": owned_after,
             "media": {
@@ -188,7 +212,7 @@ async def play_youtube_video(params: PlayYoutubeVideoParams) -> dict[str, Any]:
                 "data": {
                     "verified": True,
                     "state": "playing",
-                    "message": f"Playing {title or params.query} in HINAA's owned YouTube tab.",
+                    "message": f"Playing {video_title} on YouTube.",
                     **evidence,
                 },
             }
@@ -210,6 +234,16 @@ async def play_youtube_video(params: PlayYoutubeVideoParams) -> dict[str, Any]:
                 "state": "browser-unavailable",
                 "query": params.query,
                 "message": "HINAA could not reach a usable YouTube player in the owned browser. No playback was claimed.",
+            },
+        }
+    except Exception as exc:
+        return {
+            "status": "blocked",
+            "data": {
+                "verified": False,
+                "state": "browser-unavailable",
+                "query": params.query,
+                "message": f"Could not launch YouTube playback: {str(exc)}",
             },
         }
 

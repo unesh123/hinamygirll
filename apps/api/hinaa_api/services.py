@@ -2631,7 +2631,7 @@ class ConversationService:
                 f"{closing}"
             )
             plan.spokenText = (
-                f"Babe, your {final_topic} PDF is ready to build {spoken_source} — "
+                f"Your {final_topic} PDF is ready to build {spoken_source} — "
                 f"the card shows up here only if the file really gets written."
             )
             plan.language = "en-US"
@@ -2677,7 +2677,7 @@ class ConversationService:
                 f"• **Cards/Slides**: 8 Designed Slides\n\n"
                 f"The download and preview card will appear as soon as the file is rendered."
             )
-            plan.spokenText = f"Babe, I'm compiling your {final_slide_topic} presentation slides right now."
+            plan.spokenText = f"I'm compiling your {final_slide_topic} presentation slides right now."
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
 
@@ -4698,7 +4698,7 @@ class ConversationService:
                     )
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
                     result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
-                    result.value.spokenText = f"Generating your {clean_title} {'slides' if is_slides else 'PDF document'} right now, babe!"
+                    result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
 
             # Deterministic Website Design Guarantee
             if (
@@ -4716,7 +4716,7 @@ class ConversationService:
                 )
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
                     result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
-                    result.value.spokenText = f"Designing your live {web_title} website right now, babe!"
+                    result.value.spokenText = f"Designing your live {web_title} website for you right now."
 
             # Deterministic Autonomous UI Steering Guarantee
             if (
@@ -4769,8 +4769,8 @@ class ConversationService:
                 )
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
                     target_desc = target_mode or target_drawer or target_window_mode or "requested view"
-                    result.value.displayText = f"Switching your workspace to {target_desc} right now, babe! You have full control."
-                    result.value.spokenText = f"Switching your workspace to {target_desc} right now, babe!"
+                    result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
+                    result.value.spokenText = f"Switching your workspace to {target_desc} now."
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
@@ -5570,7 +5570,7 @@ class ConversationService:
                     )
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
                     result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
-                    result.value.spokenText = f"Generating your {clean_title} {'slides' if is_slides else 'PDF document'} right now, babe!"
+                    result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
 
             # Deterministic Website Design Guarantee
             if (
@@ -5588,7 +5588,7 @@ class ConversationService:
                 )
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
                     result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
-                    result.value.spokenText = f"Designing your live {web_title} website right now, babe!"
+                    result.value.spokenText = f"Designing your live {web_title} website for you right now."
 
             # Deterministic Autonomous UI Steering Guarantee
             if (
@@ -5641,8 +5641,8 @@ class ConversationService:
                 )
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
                     target_desc = target_mode or target_drawer or target_window_mode or "requested view"
-                    result.value.displayText = f"Switching your workspace to {target_desc} right now, babe! You have full control."
-                    result.value.spokenText = f"Switching your workspace to {target_desc} right now, babe!"
+                    result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
+                    result.value.spokenText = f"Switching your workspace to {target_desc} now."
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools

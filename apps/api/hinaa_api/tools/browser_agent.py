@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any
 
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from hinaa_api.config import get_settings
 from hinaa_api.tools.registry import registry, ToolDefinition
@@ -26,8 +26,27 @@ logger = logging.getLogger("hinaa.tools.browser_agent")
 approval_events = {}
 
 class BrowserTaskParams(BaseModel):
-    goal: str = Field(..., description="The high-level goal you want the browser agent to achieve (e.g., 'Search youtube for lo-fi hip hop and play it').")
+    goal: str = Field(default="", description="The high-level goal you want the browser agent to achieve (e.g., 'Search youtube for lo-fi hip hop and play it').")
     max_steps: int = Field(15, description="Maximum number of steps before timing out.")
+    action: Optional[str] = None
+    url: Optional[str] = None
+    task: Optional[str] = None
+    query: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_goal(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            goal = data.get("goal") or data.get("task") or data.get("query")
+            if not goal:
+                url = data.get("url")
+                action = data.get("action", "navigate")
+                if url:
+                    goal = f"{action} to {url}"
+                else:
+                    goal = "Automate browser task"
+            data["goal"] = goal
+        return data
 
 async def browser_execute_task(params: BrowserTaskParams) -> str:
     """

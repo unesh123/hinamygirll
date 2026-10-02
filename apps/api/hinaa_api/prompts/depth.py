@@ -187,8 +187,8 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
             "because he asked to be explained to, not summarised. Cover every part of the question, give the "
             "concrete details that make it actionable, and finish with what he can do next. Do not pad, but do "
             "not stop early and do not hand back an outline with one line under each heading. "
-            "MANDATORY LAST LINE: finish the answer by asking him, in one short sentence, whether you "
-            "should write this up as a full documented report. He should never have to ask twice."
+            "MANDATORY LAST LINE: If he asked for a strategic topic or deep brief, finish the answer by asking him, in one short sentence, whether you "
+            "should write this up as a full documented report. For everyday chat, direct tasks, or casual turns, finish naturally without forced formulas."
         ),
         "procedural": "Give clear ordered steps with complete code or commands. Be thorough and actionable.",
         "report": (

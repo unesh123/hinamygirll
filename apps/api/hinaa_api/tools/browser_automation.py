@@ -72,13 +72,23 @@ async def _get_page() -> Page:
 class BrowserNavigateParams(BaseModel):
     url: str = Field(..., description="URL to navigate to.")
 
+def clean_browser_url(raw: str) -> str:
+    cleaned = raw.strip()
+    if not cleaned:
+        return "https://www.google.com"
+    if " " in cleaned or "\n" in cleaned or "." not in cleaned:
+        from urllib.parse import quote_plus
+        return f"https://www.google.com/search?q={quote_plus(cleaned)}"
+    if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
+        cleaned = "https://" + cleaned
+    return cleaned
+
+
 async def browser_navigate(params: BrowserNavigateParams) -> str:
     try:
-        url = params.url
-        if not url.startswith("http"):
-            url = "https://" + url
+        url = clean_browser_url(params.url)
         page = await _get_page()
-        await page.goto(url, wait_until="networkidle")
+        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
         title = await page.title()
         owned_page_count = len(page.context.pages)
         return f"Successfully navigated to {url}. Page title: '{title}'. Owned browser pages: {owned_page_count}."

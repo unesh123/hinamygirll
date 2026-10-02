@@ -422,6 +422,9 @@ class NativeComputerOperator:
             "steam": "steam",
             "telegram": "telegram",
             "obs": "obs64",
+            "whatsapp": "whatsapp:",
+            "whatsapp desktop": "whatsapp:",
+            "whatsapp web": "https://web.whatsapp.com",
         }
         resolved = app_aliases.get(cleaned.lower(), cleaned)
 
@@ -483,19 +486,28 @@ class NativeComputerOperator:
         requiring explicit authorization before sending.
         """
         cls.emit_motion_event("computer_action", f"Draft message for {recipient or app_name}")
-        await cls.open_application(app_name)
-        await asyncio.sleep(0.4)
-
+        
         if recipient and "whatsapp" in app_name.lower():
-            await cls.press_hotkey("ctrl+f")
-            await asyncio.sleep(0.2)
-            await cls.type_text(recipient)
-            await asyncio.sleep(0.3)
-            await cls.press_hotkey("enter")
+            clean_phone = "".join(c for c in recipient if c.isdigit() or c == "+")
+            if len(clean_phone) >= 7 and (clean_phone.startswith("+") or clean_phone.isdigit()):
+                encoded_msg = urllib.parse.quote(text)
+                if platform.system() == "Windows":
+                    os.system(f'start "" "whatsapp://send?phone={clean_phone}&text={encoded_msg}"')
+                await asyncio.sleep(0.5)
+            else:
+                await cls.open_application(app_name)
+                await asyncio.sleep(0.4)
+                await cls.press_hotkey("ctrl+f")
+                await asyncio.sleep(0.2)
+                await cls.type_text(recipient)
+                await asyncio.sleep(0.3)
+                await cls.press_hotkey("enter")
+                await asyncio.sleep(0.4)
+                await cls.type_text(text, clear_first=False)
+        else:
+            await cls.open_application(app_name)
             await asyncio.sleep(0.4)
-
-        # Type message draft into active input box without sending
-        await cls.type_text(text, clear_first=False)
+            await cls.type_text(text, clear_first=False)
 
         # Generate confirmation token
         token = f"tok_{uuid.uuid4().hex[:12]}"
@@ -622,15 +634,17 @@ class NativeComputerOperator:
     async def youtube_play(cls, search_query: str) -> ComputerActionResult:
         cls.emit_motion_event("computer_action", f"YouTube {search_query}")
         try:
-            encoded = urllib.parse.quote(search_query)
-            yt_url = f"https://www.youtube.com/results?search_query={encoded}"
-            os.system(f'start "" "{yt_url}"')
+            from hinaa_api.tools.youtube import resolve_first_youtube_watch
+            watch_url, title = resolve_first_youtube_watch(search_query)
+            yt_url = watch_url or f"https://www.youtube.com/results?search_query={urllib.parse.quote(search_query)}"
+            import webbrowser
+            webbrowser.open(yt_url)
             cls.emit_motion_event("verification_success")
             return ComputerActionResult(
                 success=True,
                 action="youtube_play",
                 target=search_query,
-                detail=f"Opened YouTube search for '{search_query}'.",
+                detail=f"Playing '{title or search_query}' on YouTube.",
                 verified=True,
                 observation=cls.observe(),
             )

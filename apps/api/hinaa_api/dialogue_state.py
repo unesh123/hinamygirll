@@ -1510,7 +1510,7 @@ class StateEvidenceGuard:
                     ans = tr.get("answer")
                     query = tr.get("query") or topic
                     if items or ans:
-                        lines = [f"Babe, here are the full details on {query}:"]
+                        lines = [f"Here are the complete details on {query}:"]
                         if ans:
                             lines.append(f"\n{ans}\n")
                         if items:
@@ -1523,11 +1523,11 @@ class StateEvidenceGuard:
                                     lines.append(f"{idx}. **{title}**: {snip} ([Source]({url}))")
                                 else:
                                     lines.append(f"{idx}. **{title}**: {snip}")
-                        lines.append("\nLet me know if you want me to dive deeper into any specific aspect! 💜")
+                        lines.append("\nLet me know if you want to dive deeper into any specific aspect! 💜")
                         return "\n".join(lines)
             if state.active_topic:
                 return (
-                    f"Babe, let me break down the full details on {state.active_topic} for you! "
+                    f"Here is a complete breakdown on {state.active_topic} for you. "
                     "Tell me if there's any specific angle you want to focus on."
                 )
 

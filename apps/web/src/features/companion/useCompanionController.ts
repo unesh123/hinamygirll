@@ -1154,7 +1154,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
 
     if (!autoRunTools) return;
     for (const request of toolRequests) {
-      void resolveToolRequest(messageId, request, true, "standing-consent");
+      const isDirectAction =
+        request.toolName === "youtube_playback_request" ||
+        request.toolName === "spotify_playback_request" ||
+        request.toolName === "media_control" ||
+        request.toolName === "computer_operator";
+      const source = isDirectAction ? "user" : "standing-consent";
+      void resolveToolRequest(messageId, request, true, source);
     }
   }, [messages, autoRunTools, resolveToolRequest]);
 

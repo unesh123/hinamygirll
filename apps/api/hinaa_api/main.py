@@ -2941,6 +2941,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     if prompt_val:
                         parsed_params["prompt"] = str(prompt_val)
+
+            # Normalize browser_execute_task goal if model passed action, url, or task
+            if tool_def.name == "browser_execute_task":
+                if "goal" not in parsed_params or not parsed_params.get("goal"):
+                    goal = parsed_params.get("task") or parsed_params.get("query")
+                    if not goal:
+                        url = parsed_params.get("url")
+                        action = parsed_params.get("action", "navigate")
+                        if url:
+                            goal = f"{action} to {url}"
+                        else:
+                            goal = "Browse web and execute user task"
+                    parsed_params["goal"] = str(goal)
+
+            # Normalize youtube_playback_request query if model passed song, track, or title
+            if tool_def.name == "youtube_playback_request":
+                if "query" not in parsed_params or not parsed_params.get("query"):
+                    q = (
+                        parsed_params.get("song")
+                        or parsed_params.get("track")
+                        or parsed_params.get("title")
+                        or parsed_params.get("text")
+                    )
+                    if q:
+                        parsed_params["query"] = str(q)
+
+            # Sanitize browser_navigate URL
+            if tool_def.name == "browser_navigate" and parsed_params.get("url"):
+                raw_u = str(parsed_params["url"]).strip()
+                if " " in raw_u or "\n" in raw_u or "." not in raw_u:
+                    from urllib.parse import quote_plus
+                    parsed_params["url"] = f"https://www.google.com/search?q={quote_plus(raw_u)}"
             
             # Server-resolved owner identity overrides client payload. Both
             # halves have to agree: /v1/tools/poll looks the row up under
