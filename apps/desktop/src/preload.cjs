@@ -26,4 +26,14 @@ contextBridge.exposeInMainWorld("hinaaDesktop", {
   onGlobalHotkey: (callback) => {
     ipcRenderer.on("desktop:hotkey-triggered", (_event, hotkey) => callback(hotkey));
   },
+  onWindowModeChanged: (callback) => {
+    ipcRenderer.on("desktop:window-mode-changed", (_event, mode) => callback(mode));
+  },
+});
+
+// Forward desktop:window-mode-changed to DOM CustomEvent on window
+ipcRenderer.on("desktop:window-mode-changed", (_event, mode) => {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("desktop:window-mode-changed", { detail: mode }));
+  }
 });

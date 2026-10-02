@@ -68,7 +68,7 @@ export function deriveSpokenText(rawText: string): string {
 
   // Strip prompt meta-reflection lines
   const lines = cleaned.split("\n").filter((line) => !META_REFLECTION_RE.test(line.trim()));
-  cleaned = lines.join(" ");
+  cleaned = lines.join("\n");
 
   const spoken = cleaned
     .replace(/```[\s\S]*?```/g, "")

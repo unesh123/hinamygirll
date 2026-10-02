@@ -2,22 +2,26 @@
  * HINAA Frontier OS v2 Native Desktop Main Process.
  *
  * Implements:
- * 1. Frameless Windows Workspace with Custom Cyberpunk Titlebar
- * 2. Floating Companion Overlay Mode (Transparent, Always-On-Top 3D Avatar Island)
- * 3. System Tray Daemon with quick summoning
- * 4. Global Hotkeys (Alt+Space / Ctrl+Shift+H)
- * 5. Native OS Hardware & Telemetry Bridge
+ * 1. Embedded Local HTTP & Asset Server (zero file:// restrictions, full AudioWorklet & WebGL support)
+ * 2. Frameless Windows Workspace with Custom Titlebar & Mode Switcher
+ * 3. Floating Companion Overlay Mode (Transparent, Always-On-Top 3D Avatar Island)
+ * 4. System Tray Daemon with quick summoning
+ * 5. Global Hotkeys (Alt+Space / Ctrl+Shift+H)
+ * 6. Native OS Hardware & Telemetry Bridge
  */
 
 const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, screen, desktopCapturer } = require("electron");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const http = require("http");
+const https = require("https");
 
 let mainWindow = null;
 let tray = null;
 let currentWindowMode = "standard"; // "standard" | "floating_companion" | "compact_bar" | "full_screen"
 let isAlwaysOnTop = false;
+let localServerPort = 0;
 
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 860;
@@ -26,15 +30,176 @@ const COMPANION_HEIGHT = 560;
 const COMPACT_WIDTH = 540;
 const COMPACT_HEIGHT = 100;
 
-function getAppUrl() {
-  const isDev = process.argv.includes("--dev");
-  const localDist = path.join(__dirname, "../../web/dist/index.html");
+const MIME_TYPES = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".vrm": "application/octet-stream",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+  ".wasm": "application/wasm",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".webm": "video/webm",
+  ".webmanifest": "application/manifest+json",
+};
 
-  // In production or when dist exists, load local dist or production vercel URL
-  if (fs.existsSync(localDist)) {
-    return `file://${localDist}`;
-  }
-  return "https://hinaa-workspace.vercel.app";
+/**
+ * Starts an embedded local HTTP server to serve the Vite dist build cleanly.
+ * This completely avoids file:// protocol restrictions on ES modules, AudioWorklets, and WebGL.
+ */
+function startStaticServer(distDir) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      try {
+        const parsedUrl = new URL(req.url, "http://127.0.0.1");
+        let pathname = decodeURIComponent(parsedUrl.pathname);
+
+        // Reverse proxy /api, /v1, /health to local backend on port 8000 (with cloud failover)
+        if (
+          pathname.startsWith("/api/") ||
+          pathname.startsWith("/v1/") ||
+          pathname === "/health"
+        ) {
+          const bodyChunks = [];
+          req.on("data", (chunk) => bodyChunks.push(chunk));
+          req.on("end", () => {
+            const bodyBuffer = Buffer.concat(bodyChunks);
+
+            const forwardToCloud = () => {
+              const cloudOptions = {
+                hostname: "hinaa-workspace.vercel.app",
+                port: 443,
+                path: req.url,
+                method: req.method,
+                headers: {
+                  ...req.headers,
+                  host: "hinaa-workspace.vercel.app",
+                },
+              };
+              const cloudReq = https.request(cloudOptions, (cloudRes) => {
+                res.writeHead(cloudRes.statusCode, cloudRes.headers);
+                cloudRes.pipe(res);
+              });
+              cloudReq.on("error", (err) => {
+                res.writeHead(502, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: "Backend unreachable (local & cloud)", detail: err.message }));
+              });
+              cloudReq.end(bodyBuffer);
+            };
+
+            const backendPort = 8000;
+            const localOptions = {
+              hostname: "127.0.0.1",
+              port: backendPort,
+              path: req.url,
+              method: req.method,
+              headers: {
+                ...req.headers,
+                host: `127.0.0.1:${backendPort}`,
+              },
+            };
+
+            const proxyReq = http.request(localOptions, (proxyRes) => {
+              res.writeHead(proxyRes.statusCode, proxyRes.headers);
+              proxyRes.pipe(res);
+            });
+
+            proxyReq.on("error", () => {
+              // Local backend not reachable on 8000; seamlessly fall back to cloud Vercel deployment!
+              forwardToCloud();
+            });
+
+            proxyReq.end(bodyBuffer);
+          });
+          return;
+        }
+
+        // Static file serving from distDir
+        let filePath = path.join(distDir, pathname);
+
+        if (pathname === "/" || pathname === "") {
+          filePath = path.join(distDir, "index.html");
+        }
+
+        fs.stat(filePath, (err, stats) => {
+          if (!err && stats.isFile()) {
+            const ext = path.extname(filePath).toLowerCase();
+            const contentType = MIME_TYPES[ext] || "application/octet-stream";
+            res.writeHead(200, {
+              "Content-Type": contentType,
+              "Access-Control-Allow-Origin": "*",
+            });
+            fs.createReadStream(filePath).pipe(res);
+          } else {
+            // SPA Fallback: serve index.html for client-side navigation
+            const indexPath = path.join(distDir, "index.html");
+            fs.stat(indexPath, (idxErr, idxStats) => {
+              if (!idxErr && idxStats.isFile()) {
+                res.writeHead(200, {
+                  "Content-Type": "text/html",
+                  "Access-Control-Allow-Origin": "*",
+                });
+                fs.createReadStream(indexPath).pipe(res);
+              } else {
+                res.writeHead(404, { "Content-Type": "text/plain" });
+                res.end("HINAA dist not found. Please build the web frontend first.");
+              }
+            });
+          }
+        });
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end(e.message);
+      }
+    });
+
+    // Proxy WebSocket upgrades (e.g. /v1/realtime)
+    server.on("upgrade", (req, socket, _head) => {
+      const proxyReq = http.request({
+        hostname: "127.0.0.1",
+        port: 8000,
+        path: req.url,
+        method: req.method,
+        headers: req.headers,
+      });
+
+      proxyReq.on("upgrade", (proxyRes, proxySocket, _proxyHead) => {
+        socket.write(
+          `HTTP/1.1 101 Switching Protocols\r\n` +
+          Object.entries(proxyRes.headers)
+            .map(([k, v]) => `${k}: ${v}\r\n`)
+            .join("") +
+          `\r\n`
+        );
+        proxySocket.pipe(socket);
+        socket.pipe(proxySocket);
+      });
+
+      proxyReq.on("error", () => {
+        socket.destroy();
+      });
+
+      proxyReq.end();
+    });
+
+    server.listen(0, "127.0.0.1", () => {
+      localServerPort = server.address().port;
+      console.log(`[HINAA Desktop] Embedded server listening on http://127.0.0.1:${localServerPort}`);
+      resolve(localServerPort);
+    });
+
+    server.on("error", reject);
+  });
 }
 
 function createWindow() {
@@ -57,21 +222,43 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: true,
+      webSecurity: false,
     },
     icon: path.join(__dirname, "../../web/public/favicon.svg"),
   });
 
-  const appUrl = getAppUrl();
-  console.log(`[HINAA Desktop] Loading interface from: ${appUrl}`);
+  const isDev = process.argv.includes("--dev");
+  let appUrl = "";
 
-  if (appUrl.startsWith("file://")) {
-    mainWindow.loadFile(appUrl.replace("file://", ""));
+  if (isDev) {
+    appUrl = "http://localhost:5173";
+  } else if (localServerPort) {
+    appUrl = `http://127.0.0.1:${localServerPort}`;
   } else {
-    mainWindow.loadURL(appUrl);
+    appUrl = "https://hinaa-workspace.vercel.app";
   }
 
-  // Handle window close -> minimize to tray instead of quitting
+  console.log(`[HINAA Desktop] Loading interface from: ${appUrl}`);
+  mainWindow.loadURL(appUrl);
+
+  // Fallback to production cloud if local load fails
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[HINAA Desktop] Failed to load: ${validatedURL} (${errorCode}: ${errorDescription})`);
+    if (validatedURL !== "https://hinaa-workspace.vercel.app") {
+      console.log("[HINAA Desktop] Falling back to production Vercel deployment...");
+      mainWindow.loadURL("https://hinaa-workspace.vercel.app");
+    }
+  });
+
+  // DevTools toggle with F12 or Ctrl+Shift+I
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.key === "F12" || (input.control && input.shift && input.key.toLowerCase() === "i")) {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
+  // Minimize to tray instead of quitting
   mainWindow.on("close", (event) => {
     if (!app.isQuitting) {
       event.preventDefault();
@@ -182,7 +369,6 @@ function setupIpcHandlers() {
 
   ipcMain.on("desktop:ui-action", (_event, action) => {
     console.log("[HINAA Desktop IPC] Received UI Action:", action);
-    // Can trigger OS level actions if requested (e.g. window mode)
     if (action.action === "desktop_window_mode" && action.window_mode) {
       setWindowMode(action.window_mode);
     }
@@ -256,7 +442,6 @@ function createTray() {
 }
 
 function registerHotkeys() {
-  // Global Summon Hotkey: Alt+Space or Ctrl+Shift+H
   try {
     globalShortcut.register("Alt+Space", () => {
       if (mainWindow) {
@@ -280,7 +465,16 @@ function registerHotkeys() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const distDir = path.join(__dirname, "../../web/dist");
+  if (fs.existsSync(distDir)) {
+    try {
+      await startStaticServer(distDir);
+    } catch (err) {
+      console.warn("[HINAA Desktop] Embedded server failed to start, falling back to cloud:", err.message);
+    }
+  }
+
   createWindow();
 
   app.on("activate", () => {
