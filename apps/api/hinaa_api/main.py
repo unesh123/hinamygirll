@@ -522,6 +522,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else None
     )
 
+    from .cognitive import CognitiveKernel, WorldModel, SessionBridge
+    from .memory_v2.manager import MemoryManagerV2
+
+    memory_v2_manager = MemoryManagerV2()
+    session_bridge = SessionBridge(root_dir=".")
+    cognitive_kernel = CognitiveKernel(
+        session_bridge=session_bridge,
+        memory_manager=memory_v2_manager,
+    )
+
     project_tasks: dict[str, asyncio.Task] = {}
     tool_tasks: set[asyncio.Task] = set()
 
@@ -983,6 +993,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.agent_runtime = agent_runtime
     app.state.task_service = task_service
     app.state.durable_task_bridge = durable_task_bridge
+    app.state.cognitive_kernel = cognitive_kernel
+    app.state.memory_v2_manager = memory_v2_manager
+    app.state.session_bridge = session_bridge
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -3677,6 +3690,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         run = agent_runtime.confirm(run_id, step_id, user_id, approved)
         if run is None:
             raise HTTPException(status_code=404, detail="Run not found")
+        return run.model_dump(mode="json")
+
+    # ── Cognitive OS & World Model Routes ──────────────────────────────
+
+    @app.get("/v1/cognitive/world-state")
+    @app.get("/api/v1/cognitive/world-state")
+    async def get_world_state(request: Request) -> dict[str, Any]:
+        user_id = _resolve_user_id(request) or "default_user"
+        state = WorldModel.hydrate_initial_state(user_id=user_id)
+        return state.model_dump(mode="json")
+
+    @app.get("/v1/cognitive/session-bootstrap")
+    @app.get("/api/v1/cognitive/session-bootstrap")
+    async def get_session_bootstrap(request: Request) -> dict[str, Any]:
+        user_id = _resolve_user_id(request) or "default_user"
+        return session_bridge.bootstrap_new_session(user_id=user_id)
+
+    @app.post("/v1/cognitive/runs")
+    @app.post("/api/v1/cognitive/runs")
+    async def execute_cognitive_run(request: Request, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+        user_id = _resolve_user_id(request) or "default_user"
+        text = body.get("text", "")
+        session_id = body.get("sessionId") or body.get("conversationId") or f"sess_{uuid4().hex[:8]}"
+        project_id = body.get("projectId")
+        run = await cognitive_kernel.execute_turn(
+            text=text,
+            user_id=user_id,
+            session_id=session_id,
+            project_id=project_id,
+        )
+        return run.model_dump(mode="json")
+
+    @app.get("/v1/cognitive/runs/{run_id}")
+    @app.get("/api/v1/cognitive/runs/{run_id}")
+    async def get_cognitive_run(run_id: str) -> dict[str, Any]:
+        run = cognitive_kernel.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="CognitiveRun not found")
         return run.model_dump(mode="json")
 
     @app.post("/v1/projects/{project_id}/artifacts", status_code=201)

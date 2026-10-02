@@ -2321,6 +2321,13 @@ function WorkWelcome({
     suggestions?: Array<{ id: string; title: string; subtitle: string; prompt: string }>;
   } | null>(null);
 
+  const [sessionBootstrap, setSessionBootstrap] = useState<{
+    has_prior_session?: boolean;
+    last_session_id?: string;
+    last_session_summary?: string;
+    unresolved_items?: string[];
+  } | null>(null);
+
   const hour = new Date().getHours();
   const daypart = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   const defaultGreetingText = isDark
@@ -2337,6 +2344,16 @@ function WorkWelcome({
         }
       })
       .catch(() => {});
+
+    fetch("/v1/cognitive/session-bootstrap")
+      .then((r) => r.json())
+      .then((d) => {
+        if (mounted && d?.has_prior_session) {
+          setSessionBootstrap(d);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       mounted = false;
     };
@@ -2351,9 +2368,21 @@ function WorkWelcome({
     { label: "Generate an image", prompt: "/image " },
   ];
 
-  const activeSuggestions = briefing?.suggestions?.length
-    ? briefing.suggestions.map((s) => ({ label: s.title, prompt: s.prompt }))
-    : defaultSuggestions;
+  const activeSuggestions = useMemo(() => {
+    const base = briefing?.suggestions?.length
+      ? briefing.suggestions.map((s) => ({ label: s.title, prompt: s.prompt }))
+      : defaultSuggestions;
+    if (sessionBootstrap?.has_prior_session) {
+      return [
+        {
+          label: "Resume prior session",
+          prompt: "Let's pick up where we left off. What was our last state and what should we tackle next?",
+        },
+        ...base,
+      ];
+    }
+    return base;
+  }, [briefing, sessionBootstrap]);
 
   const handleCopy = async () => {
     try {
@@ -2409,6 +2438,74 @@ function WorkWelcome({
             {activeGreeting}
           </p>
         </div>
+
+        {/* Active Session Continuity Card */}
+        {sessionBootstrap?.has_prior_session && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 18px",
+              borderRadius: 14,
+              background: "rgba(37, 99, 235, 0.15)",
+              border: "1px solid rgba(96, 165, 250, 0.35)",
+              backdropFilter: "blur(12px)",
+              marginBottom: 16,
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <div
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: "#60a5fa",
+                  boxShadow: "0 0 10px #3b82f6",
+                  flexShrink: 0,
+                }}
+              />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  Active Session Continuity
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "rgba(255, 255, 255, 0.9)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {sessionBootstrap.last_session_summary
+                    ? sessionBootstrap.last_session_summary.slice(0, 95) + "..."
+                    : "Previous workspace telemetry and task history loaded"}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onAction("Let's pick up where we left off. What was our last state and what should we tackle next?")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 650,
+                background: "#2563eb",
+                color: "#ffffff",
+                border: "none",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+                boxShadow: "0 2px 8px rgba(37, 99, 235, 0.4)",
+              }}
+            >
+              Resume Context →
+            </button>
+          </div>
+        )}
 
         {/* Air Pure Haze Cards Grid (#f5f5f5) */}
         <div
@@ -2575,6 +2672,48 @@ function WorkWelcome({
           <Copy size={13} />
         </button>
       </div>
+
+      {/* Active Session Continuity Card (Light Mode) */}
+      {sessionBootstrap?.has_prior_session && (
+        <div
+          style={{
+            margin: "12px 0 0 34px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            gap: 12,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#2563eb", flexShrink: 0 }} />
+            <span style={{ fontSize: 13, color: "#1e40af", fontWeight: 550, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              Prior session state active: {sessionBootstrap.last_session_summary ? sessionBootstrap.last_session_summary.slice(0, 75) + "..." : "Workspace context preserved"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onAction("Let's pick up where we left off. What was our last state and what should we tackle next?")}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 600,
+              background: "#2563eb",
+              color: "#ffffff",
+              border: "none",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            Resume Context →
+          </button>
+        </div>
+      )}
 
       {/* Starter suggestion chips — real prompts, one click to start */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 34, marginTop: 14 }}>
