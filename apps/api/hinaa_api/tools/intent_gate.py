@@ -54,6 +54,7 @@ SELF_SPECIFIED = {
     "design_website": ("brief",),
     "youtube_playback_request": ("query",),
     "browser_execute_task": ("goal",),
+    "computer_operator": ("action",),
 }
 
 
@@ -740,7 +741,9 @@ def sanction_tools(
 
     if _COMPUTER_APP_ASK.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.update(["computer_operator", "app_launch", "system_info"])
-        sanction.parameters["computer_operator"] = {"action": "open_application", "target": raw}
+        app_match = re.search(r"\b(?:open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)", raw, re.IGNORECASE)
+        app_target = app_match.group(1).strip() if app_match else raw
+        sanction.parameters["computer_operator"] = {"action": "open_application", "target": app_target}
         return sanction
 
     if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):

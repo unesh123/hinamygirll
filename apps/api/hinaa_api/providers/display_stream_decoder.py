@@ -606,6 +606,12 @@ _UNCLOSED_FENCED_CALL_PATTERN = re.compile(
 )
 
 
+_INLINE_TOOL_TAG_PATTERN = re.compile(
+    r"<\s*tool\b[^>]*>[^<\n]*(?:<\s*/\s*tool\s*>)?",
+    re.IGNORECASE,
+)
+
+
 def drop_echoed_call_arguments(text: str) -> str:
     """Remove a fenced block that repeats the arguments of a call this turn filed.
 
@@ -623,7 +629,9 @@ def drop_echoed_call_arguments(text: str) -> str:
             return ""
         return match.group(0)
 
-    return re.sub(r"[ \t]*`{3,}[^\S\n]*(?P<body>[\s\S]*?)(?:`{3,}|$)", _drop, text)
+    cleaned = re.sub(r"[ \t]*`{3,}[^\S\n]*(?P<body>[\s\S]*?)(?:`{3,}|$)", _drop, text)
+    cleaned = _INLINE_TOOL_TAG_PATTERN.sub("", cleaned).strip()
+    return cleaned
 
 
 # A page the builder writes is delivered as a document artifact; the same
