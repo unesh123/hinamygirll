@@ -35,6 +35,14 @@ GATED_TOOLS = {
     "document_generate",
     "pdf_generate",
     "design_website",
+    "youtube_playback_request",
+    "browser_execute_task",
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_extract",
+    "computer_operator",
+    "ui_control",
 }
 
 # Gated calls whose every required parameter this module reads out of the owner's
@@ -44,6 +52,8 @@ SELF_SPECIFIED = {
     "image_generate": ("prompt",),
     "reminder.create": ("title", "at"),
     "design_website": ("brief",),
+    "youtube_playback_request": ("query",),
+    "browser_execute_task": ("goal",),
 }
 
 
@@ -174,6 +184,58 @@ _VARIANT_ASK = re.compile(
     r"(?ix) \b (?: same\s+one | this\s+one | that\s+one | use\s+this | use\s+that ) \b"
     r" .* \b (?: darker | brighter | lighter | softer | sharper | better | different |"
     r" variation | variations | wearing | sitting | standing | looking | smiling | in | with | like ) \b"
+)
+
+_MEDIA_ASK = re.compile(
+    r"""(?ix)
+    \b(?:
+        play | listen\s+to | put\s+on | stream | hear |
+        gaana | gana | geet | बजाओ | सुनाओ | चलाओ
+    )\b
+    [^.?!]*?
+    \b(?:
+        music | songs? | tracks? | tunes? | albums? | audios? |
+        lofi | lo-fi | beats? | youtube | spotify | soundcloud | playlists? | videos?
+    )\b
+    | ^\s*(?:please\s+)?(?:can\s+you\s+)?play\s+[a-zA-Z0-9_\s]{2,}\s*[.!?]?$
+    | \b(?:play\s+(?:on\s+youtube|on\s+spotify|this\s+song|some\s+music))\b
+    | \b(?:media\s+(?:play|pause|toggle|next|skip|prev|previous))\b
+    """
+)
+
+_BROWSER_TASK_ASK = re.compile(
+    r"""(?ix)
+    \b(?:
+        browse | browser | open\s+(?:the\s+)?(?:browser|website|webpage|page|url|link) |
+        navigate\s+to | go\s+to\s+(?:https?://|www\.) |
+        automate\s+(?:the\s+)?browser | browser\s+agent | browser\s+automation |
+        browser-use | web\s+task | scrape\s+(?:the\s+)?(?:web|page|site) |
+        click\s+(?:on\s+)?(?:the\s+)?(?:button|link|element) |
+        type\s+into\s+(?:the\s+)?(?:input|box|field|textbox)
+    )\b
+    """
+)
+
+_COMPUTER_APP_ASK = re.compile(
+    r"""(?ix)
+    \b(?:
+        open | launch | start | run | close
+    )\s+
+    (?:
+        application | app | program | software |
+        spotify | chrome | edge | firefox | notepad | calc | calculator |
+        terminal | powershell | cmd | command\s+prompt | vs\s*code | vscode
+    )\b
+    | \b(?:computer\s+operator|desktop\s+operator|os\s+action)\b
+    """
+)
+
+_UI_ASK = re.compile(
+    r"""(?ix)
+    \b(?:switch|change|open|toggle|show|enter|go\s+to|dock|expand)\b.*?
+    \b(?:mode|view|showroom|3d|avatar|workspace|vault|operate|tasks|terminal|hands|drawer|settings|memory|desktop|companion|window)\b
+    | \b(?:terminal\s+hands|floating\s+companion|showroom\s+mode|work\s+mode|operate\s+mode|vault\s+mode|3d\s+avatar|3d\s+presence)\b
+    """
 )
 
 
@@ -460,6 +522,14 @@ def _slash_parameters(tool: str, args: str, now: datetime) -> dict[str, Any]:
         when, at_phrase = _parse_when(args, now)
         title = _reminder_title(args, at_phrase)
         return {"title": title, "at": when.isoformat(timespec="minutes")} if when and title else {}
+    if tool == "youtube_playback_request":
+        return {"query": args}
+    if tool == "browser_execute_task":
+        return {"goal": args}
+    if tool == "browser_navigate":
+        return {"url": args}
+    if tool == "computer_operator":
+        return {"action": "open_application", "target": args}
     return {}
 
 
@@ -502,10 +572,23 @@ def sanction_tools(
             "webpage": "design_website",
             "landing": "design_website",
             "remind": "reminder.create",
+            "play": "youtube_playback_request",
+            "music": "youtube_playback_request",
+            "song": "youtube_playback_request",
+            "browse": "browser_navigate",
+            "browser": "browser_execute_task",
+            "app": "computer_operator",
+            "open": "computer_operator",
         }
         tool = mapping.get(verb)
         if tool in _DOCUMENT_FAMILY:
             _allow_document(sanction)
+        elif tool == "youtube_playback_request":
+            sanction.allowed.add("youtube_playback_request")
+            sanction.allowed.add("computer_operator")
+            typed_args = re.sub(r"^\s*/[\w-]+\s*", "", raw).strip()
+            sanction.parameters["youtube_playback_request"] = {"query": typed_args or "music"}
+            sanction.parameters["computer_operator"] = {"action": "youtube_play", "target": typed_args or "music"}
         elif tool:
             sanction.allowed.add(tool)
             typed_args = re.sub(r"^\s*/[\w-]+\s*", "", raw).strip()
@@ -632,6 +715,37 @@ def sanction_tools(
     if _WEB.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.add("web_search")
         sanction.parameters["web_search"] = {}
+        return sanction
+
+    if _MEDIA_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("youtube_playback_request")
+        sanction.allowed.add("computer_operator")
+        m = re.search(r"(?i)\b(?:play|put\s+on|listen\s+to|stream|hear)\s+(?:me\s+)?(?:some\s+)?(.+?)(?:\s+on\s+youtube|\s+on\s+spotify|[.!?]|$)", raw)
+        query = m.group(1).strip() if m else raw
+        sanction.parameters["youtube_playback_request"] = {"query": query}
+        sanction.parameters["computer_operator"] = {"action": "youtube_play", "target": query}
+        return sanction
+
+    if _BROWSER_TASK_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.update([
+            "browser_execute_task",
+            "browser_navigate",
+            "browser_click",
+            "browser_type",
+            "browser_extract",
+        ])
+        sanction.parameters["browser_execute_task"] = {"goal": raw}
+        sanction.parameters["browser_navigate"] = {"url": raw}
+        return sanction
+
+    if _COMPUTER_APP_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.update(["computer_operator", "app_launch", "system_info"])
+        sanction.parameters["computer_operator"] = {"action": "open_application", "target": raw}
+        return sanction
+
+    if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("ui_control")
+        sanction.parameters["ui_control"] = {}
         return sanction
 
     return sanction

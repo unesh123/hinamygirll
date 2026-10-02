@@ -353,6 +353,79 @@ export const toolRegistry: Record<string, ToolDefinition> = {
       appName: { type: "string", description: "Application name", required: true },
     },
   },
+
+  youtube_playback_request: {
+    id: "youtube_playback_request",
+    displayName: "Play YouTube Music",
+    description: "Search and play music or videos directly in YouTube with verified playback",
+    group: "media",
+    permission: "confirm",
+    requiresConfirmation: true,
+    cancellable: true,
+    rollbackAvailable: false,
+    resultType: "media",
+    voiceAliases: ["play music", "play song", "put on music", "play on youtube"],
+    suggestedActions: ["pause", "next_song", "loop"],
+    availability: "connected",
+    inputSchema: {
+      query: { type: "string", description: "Song, artist, or video title", required: true },
+    },
+  },
+
+  browser_execute_task: {
+    id: "browser_execute_task",
+    displayName: "Browser Agent",
+    description: "Autonomously navigate, interact, and extract information from the web to complete high-level tasks",
+    group: "browser",
+    permission: "confirm",
+    requiresConfirmation: true,
+    cancellable: true,
+    rollbackAvailable: false,
+    resultType: "browser",
+    voiceAliases: ["browse web", "automate browser", "do research on web"],
+    suggestedActions: ["view_steps", "cancel_task"],
+    availability: "connected",
+    inputSchema: {
+      goal: { type: "string", description: "Goal for the browser agent", required: true },
+    },
+  },
+
+  computer_operator: {
+    id: "computer_operator",
+    displayName: "Computer Operator",
+    description: "Operate native OS applications, media controls, and keyboard shortcuts",
+    group: "system",
+    permission: "confirm",
+    requiresConfirmation: true,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "text",
+    voiceAliases: ["control computer", "media keys", "open application"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      action: { type: "string", description: "OS action to perform", required: true },
+      target: { type: "string", description: "Target app, URL, or key", required: false },
+    },
+  },
+
+  ui_control: {
+    id: "ui_control",
+    displayName: "UI & Workspace Control",
+    description: "Switch layouts, modes, and window arrangements in HINAA OS",
+    group: "system",
+    permission: "low",
+    requiresConfirmation: false,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "text",
+    voiceAliases: ["switch mode", "open studio", "change layout"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      action: { type: "string", description: "set_mode, set_layout, or minimize", required: true },
+    },
+  },
 };
 
 /* ─── Tool Event System ─────────────────────────────────── */

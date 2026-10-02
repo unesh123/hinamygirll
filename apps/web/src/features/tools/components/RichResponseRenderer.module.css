@@ -73,3 +73,113 @@
   white-space: pre-wrap;
   word-wrap: break-word;
 }
+
+/* Media & YouTube */
+.mediaPlayer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid rgba(244, 63, 94, 0.25);
+}
+
+.mediaPlayerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mediaTitle {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mediaBadge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  background: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+}
+
+.mediaFrame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  border: 0;
+}
+
+.mediaButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #e11d48;
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: background 0.2s;
+  width: fit-content;
+}
+
+.mediaButton:hover {
+  background: #be123c;
+}
+
+/* Browser Automation */
+.browserCard {
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.browserGoal {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #e0f2fe;
+}
+
+.browserResult {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  border-radius: 6px;
+}
+
+/* System Operator */
+.systemCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+}
+
+.systemAction {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e9d5ff;
+}
+

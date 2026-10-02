@@ -698,3 +698,36 @@ def test_document_and_slides_with_styling_constraints_are_sanctioned(gate_settin
     s_slide = sanction_tools(slide_prompt)
     assert s_slide.permits("create_gamma_presentation")
     assert s_slide.permits("document_generate")
+
+
+def test_media_browser_and_computer_tools_sanctioned(gate_settings):
+    # Music & YouTube playback
+    s_song = sanction_tools("play Saiyara on youtube")
+    assert s_song.permits("youtube_playback_request")
+    assert s_song.permits("computer_operator")
+
+    s_slash_play = sanction_tools("/play lofi beats")
+    assert s_slash_play.permits("youtube_playback_request")
+    assert s_slash_play.permits("computer_operator")
+
+    # Browser navigation & tasks
+    s_nav = sanction_tools("browse https://github.com")
+    assert s_nav.permits("browser_navigate")
+
+    s_browse_slash = sanction_tools("/browser search flights to tokyo")
+    assert s_browse_slash.permits("browser_execute_task")
+
+    s_browser_auto = sanction_tools("automate browser to find top cafes in kathmandu")
+    assert s_browser_auto.permits("browser_execute_task")
+
+    # Desktop computer control & UI mode
+    s_app = sanction_tools("open spotify")
+    assert s_app.permits("computer_operator")
+
+    s_ui = sanction_tools("switch to studio mode")
+    assert s_ui.permits("ui_control")
+
+    # Full gated flow verification
+    plan = _gated(gate_settings, "play Saiyara on youtube", [("youtube_playback_request", {"query": "Saiyara", "autoplay": True})])
+    assert any(t.toolName == "youtube_playback_request" for t in plan.toolRequests)
+

@@ -148,7 +148,7 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
         tool_names = [tool.name for tool in registry.get_all_tools()]
         capabilities = (
             # A spoken turn or conversational turn focuses on direct interaction rather than tool invocation.
-            "- Mode: Conversational Engagement. Your platform HINAA OS is fully equipped with advanced capabilities including real-time web intelligence and research, creative image generation and editing (Magnific/Freepik), interactive visual galleries, durable cross-session memory, workspace project management, and live conversational voice. On this specific turn, respond directly, warmly, and helpfully without invoking tool jobs unless requested."
+            "- Mode: Conversational Engagement. Your platform HINAA OS is fully equipped with advanced capabilities including real-time web intelligence and research, autonomous browser execution, YouTube and media playback, desktop application operation, creative image generation and editing (Magnific/Freepik), interactive visual galleries, durable cross-session memory, workspace project management, and live conversational voice. On this specific turn, respond directly, warmly, and helpfully without invoking tool jobs unless requested."
             if voice or (allowed_tools is not None and len(allowed_tools) == 0)
             else (
                 f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}."
@@ -167,7 +167,7 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             "- Accuracy: Say you do not know rather than invent unverified runtime capabilities.\n"
             "When he asks about you, your state, your capabilities, your limits or your architecture, "
             "highlight your identity as HINAA OS—an advanced, autonomous multimodal AI companion and operating system "
-            "with live web search, creative media generation, durable memory, and real-time voice intelligence."
+            "with live web search, autonomous browser execution, native YouTube playback, desktop OS control, creative media generation, durable memory, and real-time voice intelligence."
         )
     except Exception:  # pragma: no cover - a settings failure must never break the prompt
         return ""

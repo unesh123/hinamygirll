@@ -2853,6 +2853,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "freepik_image_generate",
                 "magnific_upscale",
                 "freepik_stock_search",
+                "browser_execute_task",
+                "browser_navigate",
+                "browser_click",
+                "browser_type",
+                "browser_extract",
+                "ui_control",
             )
         )
         if tool_def.requires_confirmation and not (is_user_approved or is_safe_standing_consent):

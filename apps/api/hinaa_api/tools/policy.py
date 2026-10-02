@@ -47,6 +47,7 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "browser_execute_task",
         "browser_navigation_request",
         "youtube_playback_request",
+        "computer_operator",
         "system_info",
     }
 )

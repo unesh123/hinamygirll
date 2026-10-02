@@ -2844,6 +2844,26 @@ class ConversationService:
         )
         if UI_CONTROL_PATTERN.search(text):
             allowed_set.add("ui_control")
+
+        MEDIA_PATTERN = re.compile(
+            r"(?i)\b(?:play|listen\s+to|put\s+on|stream|hear|gaana|geet|music|song|track|lofi|youtube|spotify|video)\b"
+        )
+        if MEDIA_PATTERN.search(text) and not re.search(r"(?i)\b(?:why|don't|stop|cancel|cannot)\b", text):
+            allowed_set.add("youtube_playback_request")
+            allowed_set.add("computer_operator")
+
+        BROWSER_PATTERN = re.compile(
+            r"(?i)\b(?:browse|browser|navigate|go\s+to\s+https?|automate\s+browser|browser\s+agent|web\s+task)\b"
+        )
+        if BROWSER_PATTERN.search(text):
+            allowed_set.update(["browser_execute_task", "browser_navigate", "browser_click", "browser_type", "browser_extract"])
+
+        COMPUTER_PATTERN = re.compile(
+            r"(?i)\b(?:open|launch|start|run)\s+(?:app|application|software|spotify|chrome|edge|notepad|calc|calculator|terminal|vscode)\b"
+        )
+        if COMPUTER_PATTERN.search(text):
+            allowed_set.update(["computer_operator", "app_launch", "system_info"])
+
         if allowed_set:
             return tuple(sorted(allowed_set))
         # If user gave an affirmative confirmation and recent turns discussed generating an image
@@ -2961,6 +2981,25 @@ class ConversationService:
 
             subject = _subject_line(parameters.get("brief") or "")
             return f"Building the website for {subject}." if subject else "Building that website for you."
+        if tool.toolName == "youtube_playback_request":
+            q = parameters.get("query") or "music"
+            return f"Playing '{q}' on YouTube."
+        if tool.toolName == "browser_execute_task":
+            g = parameters.get("goal") or "task"
+            return f"Starting autonomous browser task for: '{g}'."
+        if tool.toolName == "browser_navigate":
+            u = parameters.get("url") or "website"
+            return f"Opening {u} in the browser."
+        if tool.toolName == "computer_operator":
+            action = parameters.get("action") or "action"
+            target = parameters.get("target") or ""
+            if action == "youtube_play":
+                return f"Playing '{target}' on YouTube."
+            if action == "open_application":
+                return f"Opening {target}."
+            return f"Executing desktop action '{action}'."
+        if tool.toolName == "ui_control":
+            return "Adjusting HINAA workspace interface."
         return f"Running {tool.toolName}."
 
     @staticmethod
@@ -3202,6 +3241,12 @@ class ConversationService:
             "summarize": ("summarize_text", {"target": clean_args, "length": "standard"}),
             "plan": ("create_plan", {"goal": clean_args, "horizon": "week"}),
             "play": ("youtube_playback_request", {"query": clean_args}),
+            "music": ("youtube_playback_request", {"query": clean_args}),
+            "song": ("youtube_playback_request", {"query": clean_args}),
+            "browser": ("browser_execute_task", {"goal": clean_args}),
+            "browse": ("browser_navigate", {"url": clean_args}),
+            "app": ("computer_operator", {"action": "open_application", "target": clean_args}),
+            "open": ("computer_operator", {"action": "open_application", "target": clean_args}),
             "files": ("search_files", {"query": clean_args}),
             "model": ("switch_model", {"model": clean_args}),
             "voice": ("voice_config", {"action": "test", "provider": clean_args}),
