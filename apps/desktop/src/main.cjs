@@ -10,7 +10,8 @@
  * 6. Native OS Hardware & Telemetry Bridge
  */
 
-const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, screen, desktopCapturer } = require("electron");
+const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, screen, desktopCapturer, shell } = require("electron");
+const { exec } = require("child_process");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
@@ -371,6 +372,183 @@ function setupIpcHandlers() {
     console.log("[HINAA Desktop IPC] Received UI Action:", action);
     if (action.action === "desktop_window_mode" && action.window_mode) {
       setWindowMode(action.window_mode);
+    }
+  });
+
+  // Native Application & External URL Launcher
+  ipcMain.handle("desktop:launch-app", async (_event, target) => {
+    try {
+      if (!target) return { success: false, error: "No target specified" };
+      const trimmed = target.trim();
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("spotify:")) {
+        await shell.openExternal(trimmed);
+        return { success: true, target: trimmed, action: "opened_external_url" };
+      }
+
+      const appMap = {
+        spotify: "spotify",
+        whatsapp: "whatsapp",
+        chrome: "chrome",
+        edge: "msedge",
+        discord: "discord",
+        notepad: "notepad",
+        calc: "calc",
+        calculator: "calc",
+        code: "code",
+        vscode: "code",
+        terminal: "wt",
+        cmd: "cmd",
+        explorer: "explorer",
+        files: "explorer",
+        youtube: "https://www.youtube.com",
+      };
+      const resolved = appMap[trimmed.toLowerCase()] || trimmed;
+
+      if (resolved.startsWith("http://") || resolved.startsWith("https://")) {
+        await shell.openExternal(resolved);
+        return { success: true, target: resolved, action: "opened_external_url" };
+      }
+
+      return new Promise((resolve) => {
+        const psScript = `
+          $ws = New-Object -ComObject WScript.Shell
+          $activated = $ws.AppActivate('${resolved}')
+          if (-not $activated) {
+            Start-Process '${resolved}' -ErrorAction SilentlyContinue
+          }
+        `;
+        exec(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, (err) => {
+          if (err) {
+            exec(`start "" "${resolved}"`, (startErr) => {
+              if (startErr) resolve({ success: false, error: startErr.message });
+              else resolve({ success: true, target: resolved, action: "started_process" });
+            });
+          } else {
+            resolve({ success: true, target: resolved, action: "activated_or_started" });
+          }
+        });
+      });
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Native Windows Media Keys Bridge
+  ipcMain.handle("desktop:media-control", async (_event, action) => {
+    try {
+      const keyCodes = {
+        play: 179,
+        pause: 179,
+        toggle: 179,
+        next: 176,
+        prev: 177,
+        previous: 177,
+        mute: 173,
+        voldown: 174,
+        volup: 175,
+      };
+      const code = keyCodes[String(action).toLowerCase()] || 179;
+      const ps = `
+        $sig = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);'
+        $type = Add-Type -MemberDefinition $sig -Name "Win32KeybdMedia_${Date.now()}" -Namespace "Win32" -PassThru
+        $type::keybd_event(${code}, 0, 0, 0)
+        $type::keybd_event(${code}, 0, 2, 0)
+      `;
+      return new Promise((resolve) => {
+        exec(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, (err) => {
+          if (err) resolve({ success: false, error: err.message });
+          else resolve({ success: true, action });
+        });
+      });
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // External URL Navigation
+  ipcMain.handle("desktop:open-external", async (_event, url) => {
+    try {
+      await shell.openExternal(url);
+      return { success: true, url };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Enumerate Running Windows Applications
+  ipcMain.handle("desktop:get-running-apps", async () => {
+    return new Promise((resolve) => {
+      exec('powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object -Property Id, ProcessName, MainWindowTitle | ConvertTo-Json"', (err, stdout) => {
+        if (err) return resolve([]);
+        try {
+          const apps = JSON.parse(stdout);
+          resolve(Array.isArray(apps) ? apps : [apps]);
+        } catch {
+          resolve([]);
+        }
+      });
+    });
+  });
+
+  // General OS & Native Desktop Action Execution Bridge
+  ipcMain.handle("desktop:execute-action", async (_event, params) => {
+    try {
+      const { action, target, content, keys, direction, amount } = params || {};
+      const act = String(action || "").toLowerCase().trim();
+
+      if (act === "scroll") {
+        const dir = direction === "up" ? "up" : "down";
+        const delta = (amount || 3) * (dir === "down" ? -120 : 120);
+        const ps = `
+          $sig = '[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'
+          $type = Add-Type -MemberDefinition $sig -Name "Win32Scroll_${Date.now()}" -Namespace "Win32" -PassThru
+          $type::mouse_event(0x0800, 0, 0, ${delta}, 0)
+        `;
+        return new Promise((resolve) => {
+          exec(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, (err) => {
+            resolve({ success: !err, action: "scroll", direction: dir });
+          });
+        });
+      } else if (act === "click") {
+        const ps = `
+          $sig = '[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, int dwExtraInfo);'
+          $type = Add-Type -MemberDefinition $sig -Name "Win32Click_${Date.now()}" -Namespace "Win32" -PassThru
+          $type::mouse_event(0x02, 0, 0, 0, 0)
+          $type::mouse_event(0x04, 0, 0, 0, 0)
+        `;
+        return new Promise((resolve) => {
+          exec(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, (err) => {
+            resolve({ success: !err, action: "click" });
+          });
+        });
+      } else if (act === "type_text" || act === "type") {
+        const textToType = (content || target || "").replace(/'/g, "''");
+        const ps = `
+          $ws = New-Object -ComObject WScript.Shell
+          $ws.SendKeys('${textToType}')
+        `;
+        return new Promise((resolve) => {
+          exec(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, (err) => {
+            resolve({ success: !err, action: "type_text" });
+          });
+        });
+      } else if (act === "press_hotkey" || act === "hotkey") {
+        const hotkey = (keys || target || "enter").toLowerCase();
+        const map = { enter: "{ENTER}", escape: "{ESC}", tab: "{TAB}", "ctrl+f": "^f", "ctrl+a": "^a", space: " " };
+        const mapped = map[hotkey] || hotkey;
+        const ps = `
+          $ws = New-Object -ComObject WScript.Shell
+          $ws.SendKeys('${mapped}')
+        `;
+        return new Promise((resolve) => {
+          exec(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, (err) => {
+            resolve({ success: !err, action: "press_hotkey", key: hotkey });
+          });
+        });
+      }
+      return { success: false, error: `Unhandled action: ${action}` };
+    } catch (e) {
+      return { success: false, error: e.message };
     }
   });
 }

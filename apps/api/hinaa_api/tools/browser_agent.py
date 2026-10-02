@@ -27,23 +27,13 @@ approval_events = {}
 
 class BrowserTaskParams(BaseModel):
     goal: str = Field(..., description="The high-level goal you want the browser agent to achieve (e.g., 'Search youtube for lo-fi hip hop and play it').")
-    max_steps: int = Field(10, description="Maximum number of steps before timing out.")
-# Simple per-session cache for page extractions: (url, step) -> extracted text
-_page_extraction_cache: Dict[tuple[str, int], str] = {}
-
-
-# Track consecutive "stuck" steps to detect infinite loops
-_max_consecutive_stuck = 3
-_consecutive_stuck = 0
-_last_goal = ""
-
+    max_steps: int = Field(15, description="Maximum number of steps before timing out.")
 
 async def browser_execute_task(params: BrowserTaskParams) -> str:
     """
-    Executes a high-level browser task autonomously by looping with Gemini 2.5 Flash
-    and Playwright tools.
-    Uses a lightweight extraction cache to avoid re-reading the same page state.
-    Detects when the agent is stuck and proactively suggests finishing.
+    Executes a high-level browser task autonomously by looping with Gemini Flash
+    and Playwright browser actuation tools.
+    Supports continuous navigation, reading DOM, clicking, typing, scrolling, and keypresses.
     """
     settings = get_settings()
     gemini_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
@@ -55,20 +45,23 @@ async def browser_execute_task(params: BrowserTaskParams) -> str:
     goal = params.goal
     max_steps = params.max_steps
     
-    # Track goal for stuck detection
-    global _consecutive_stuck, _last_goal
-    _last_goal = goal
-    _consecutive_stuck = 0
-    
-    system_instruction = f"""You are an autonomous browser agent. Your goal is: {goal}
-You have access to browser tools to navigate, read the page, click, and type.
-Follow these steps:
-1. Always start by navigating to the relevant website if you are not already there.
-2. Read the page to see what's on the screen (it returns a numbered list of interactable elements).
-3. Use click or type tools on the elements you see.
-4. When you have successfully completed the goal, or if you are completely stuck, call the 'finish_task' tool to end the loop and report the outcome.
-Never guess selectors. Always read the page first, then use the text or IDs provided in the read_page output to click or type.
-IMPORTANT: Before calling read_page, check if we already extracted this page state (same URL + step). If cached, reuse the cached result to save time.
+    system_instruction = f"""You are an expert autonomous browser agent. Your mission: {goal}
+You operate a real desktop web browser via tools:
+- navigate(url): Open any website URL.
+- read_page(): Inspect current title, URL, scroll position, visible text, and interactable elements with indices and IDs.
+- click(selector): Click any link, button, video, or element by text or CSS/ID selector.
+- type(selector, text, submit): Enter search queries or inputs into textboxes. Set submit=True to submit immediately with Enter.
+- scroll(direction, amount): Scroll 'down' or 'up' (e.g. amount=600 or 1000) to reveal more content, videos, comments, or results below.
+- press_key(key): Press keyboard keys ('Enter', 'Space', 'Escape', 'Tab', 'PageDown', 'PageUp').
+- wait(seconds): Wait for dynamic content, SPAs, or videos to load.
+- finish_task(result): Complete the task once the goal is accomplished and report what was achieved.
+
+Guidelines:
+1. If not already on the required site, begin by navigating there (e.g. https://www.google.com, https://www.youtube.com).
+2. Always read the page first before interacting to see available elements and inputs.
+3. To search on Google or YouTube, type into the search box with submit=True, or press_key 'Enter'.
+4. To see more items down the page, scroll down and then read the page again.
+5. Once you have reached the goal or started playback, finish the task with a helpful summary.
 """
 
     agent_tools = [
@@ -118,6 +111,38 @@ IMPORTANT: Before calling read_page, check if we already extracted this page sta
                     }
                 },
                 {
+                    "name": "scroll",
+                    "description": "Scroll down or up on the page to reveal more content, search results, or comments.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "direction": {"type": "STRING", "description": "'down' or 'up' (default 'down')"},
+                            "amount": {"type": "INTEGER", "description": "Number of pixels to scroll (e.g. 500, 800)"}
+                        }
+                    }
+                },
+                {
+                    "name": "press_key",
+                    "description": "Press a keyboard key like 'Enter', 'Escape', 'ArrowDown', 'Space', 'Tab'.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "key": {"type": "STRING", "description": "Key name to press (e.g. 'Enter', 'Escape', 'PageDown', 'Space')"}
+                        },
+                        "required": ["key"]
+                    }
+                },
+                {
+                    "name": "wait",
+                    "description": "Wait a specified number of seconds for dynamic content or pages to load.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "seconds": {"type": "NUMBER", "description": "Seconds to wait (default 2.0)"}
+                        }
+                    }
+                },
+                {
                     "name": "finish_task",
                     "description": "Call this when the goal is achieved or impossible.",
                     "parameters": {
@@ -133,7 +158,7 @@ IMPORTANT: Before calling read_page, check if we already extracted this page sta
     ]
 
     chat = client.aio.chats.create(
-        model="gemini-3.5-flash",
+        model="gemini-3.8-flash",
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
             tools=agent_tools,
@@ -154,23 +179,9 @@ IMPORTANT: Before calling read_page, check if we already extracted this page sta
         while step < max_steps:
             step += 1
             
-            # Stuck detection: if we've read the same page content repeatedly without progress
-            cache_key = (current_url, step) if current_url else ""
-            if cache_key in _page_extraction_cache and step > 2:
-                # Check if the cached result is similar to what we'd get now (stuck pattern)
-                _consecutive_stuck += 1
-                if _consecutive_stuck >= _max_consecutive_stuck:
-                    final_result = (f"Task appears stuck after {step} steps on the same page. "
-                                   f"Goal: {goal}. Consider adjusting the goal or intervening manually. "
-                                   f"Cache key: {cache_key}")
-                    break
-            else:
-                _consecutive_stuck = 0
-            
             # Check if model wants to call a tool
             if not response.function_calls:
-                # If no function call, just prompt it to keep going or finish
-                response = await chat.send_message("Please use a tool to continue or call finish_task.")
+                response = await chat.send_message("Please use an action tool (navigate, read_page, click, type, scroll, wait) or call finish_task.")
                 continue
 
             function_call = response.function_calls[0]
@@ -187,30 +198,40 @@ IMPORTANT: Before calling read_page, check if we already extracted this page sta
                 tool_result_str = await browser_navigate(BrowserNavigateParams(url=args.get("url")))
                 current_url = args.get("url", "")
             elif name == "read_page":
-                # Use cached extraction if we've already read this URL at this step
-                cache_key = (current_url, step)
-                if cache_key in _page_extraction_cache:
-                    tool_result_str = f"[CACHED] {_page_extraction_cache[cache_key]}"
-                else:
-                    tool_result_str = await browser_extract(BrowserExtractParams())
-                    # Store in cache
-                    _page_extraction_cache[cache_key] = tool_result_str
-            elif name in ["click", "type"]:
-                import uuid
-                from hinaa_api.config import get_settings
-                approval_id = str(uuid.uuid4())
-                event = asyncio.Event()
-                approval_events[approval_id] = {"event": event, "approved": False}
-                
-                # Signal the frontend by raising a special Exception that the execute_tool catches?
-                # No, if we want to RESUME, we must wait here in Python.
-                # How does the frontend get the approval_id if we are waiting?
-                # We can't send it via HTTP because the response is blocked!
-                # The only way is to yield it... but `execute_tool` is not a generator!
-                # OK, the user requested "the executor MUST yield a specialized ToolCall variant".
-                # If we raise it, we "abort", and the frontend can submit a NEW request if approved.
-                # Given HTTP constraints without WebSocket bridging for this specific tool, aborting with RequiresApproval is the most robust way that satisfies the gate requirement.
-                raise RuntimeError(f"REQUIRES_APPROVAL:{approval_id}:{name}:{json.dumps(args)}")
+                tool_result_str = await browser_extract(BrowserExtractParams())
+            elif name == "click":
+                selector = str(args.get("selector") or args.get("text") or args.get("target") or "")
+                tool_result_str = await browser_click(BrowserClickParams(selector=selector))
+            elif name == "type":
+                selector = str(args.get("selector") or "")
+                text = str(args.get("text") or "")
+                submit = bool(args.get("submit", True))
+                tool_result_str = await browser_type(BrowserTypeParams(selector=selector, text=text, submit=submit))
+            elif name == "scroll":
+                page = await _get_page()
+                direction = str(args.get("direction", "down")).lower()
+                amount = int(args.get("amount", 600))
+                dy = amount if direction == "down" else -amount
+                try:
+                    await page.mouse.wheel(0, dy)
+                    await asyncio.sleep(0.5)
+                    scroll_y = await page.evaluate("window.scrollY || 0")
+                    tool_result_str = f"Successfully scrolled {direction} by {amount}px (current Y={scroll_y}px)."
+                except Exception as e:
+                    tool_result_str = f"Failed to scroll: {str(e)}"
+            elif name == "press_key":
+                page = await _get_page()
+                key = str(args.get("key", "Enter"))
+                try:
+                    await page.keyboard.press(key)
+                    await asyncio.sleep(0.4)
+                    tool_result_str = f"Successfully pressed key '{key}'."
+                except Exception as e:
+                    tool_result_str = f"Failed to press key: {str(e)}"
+            elif name == "wait":
+                seconds = float(args.get("seconds", 2.0))
+                await asyncio.sleep(seconds)
+                tool_result_str = f"Waited {seconds} seconds."
             else:
                 tool_result_str = f"Unknown tool {name}"
 

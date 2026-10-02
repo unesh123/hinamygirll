@@ -21,6 +21,13 @@ contextBridge.exposeInMainWorld("hinaaDesktop", {
   getSystemMetrics: () => ipcRenderer.invoke("desktop:get-system-metrics"),
   takeDesktopScreenshot: () => ipcRenderer.invoke("desktop:take-screenshot"),
 
+  // Native App & Media Control
+  launchApp: (target) => ipcRenderer.invoke("desktop:launch-app", target),
+  controlMedia: (action) => ipcRenderer.invoke("desktop:media-control", action),
+  openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),
+  getRunningApps: () => ipcRenderer.invoke("desktop:get-running-apps"),
+  executeAction: (params) => ipcRenderer.invoke("desktop:execute-action", params),
+
   // UI Actuation & Events
   onUIAction: (action) => ipcRenderer.send("desktop:ui-action", action),
   onGlobalHotkey: (callback) => {

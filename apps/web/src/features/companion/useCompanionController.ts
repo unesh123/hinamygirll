@@ -811,6 +811,22 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       } : message));
 
       try {
+        if (request.toolName === "computer_operator" && typeof window !== "undefined" && (window as any).hinaaDesktop) {
+          const desk = (window as any).hinaaDesktop;
+          const params = (request.parameters || {}) as Record<string, any>;
+          const action = params.action;
+          const target = params.target || params.content;
+          if ((action === "open_application" || action === "open_app") && target && desk.launchApp) {
+            void desk.launchApp(target);
+          } else if (action === "media_control" && desk.controlMedia) {
+            void desk.controlMedia(target || "toggle");
+          } else if (action === "youtube_play" && desk.openExternal) {
+            void desk.openExternal(`https://www.youtube.com/results?search_query=${encodeURIComponent(target || "")}`);
+          } else if (desk.executeAction) {
+            void desk.executeAction(params);
+          }
+        }
+
         const response = await fetch("/api/v1/tools/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

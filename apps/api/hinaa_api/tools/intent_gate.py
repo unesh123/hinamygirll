@@ -212,7 +212,10 @@ _BROWSER_TASK_ASK = re.compile(
         automate\s+(?:the\s+)?browser | browser\s+agent | browser\s+automation |
         browser-use | web\s+task | scrape\s+(?:the\s+)?(?:web|page|site) |
         click\s+(?:on\s+)?(?:the\s+)?(?:button|link|element) |
-        type\s+into\s+(?:the\s+)?(?:input|box|field|textbox)
+        type\s+into\s+(?:the\s+)?(?:input|box|field|textbox) |
+        scroll\s+(?:down|up)\s+(?:on\s+the\s+)?(?:page|browser|screen|web) |
+        scroll\s+(?:down|up) |
+        search\s+(?:on\s+google|on\s+the\s+web|in\s+browser)
     )\b
     """
 )
@@ -225,9 +228,12 @@ _COMPUTER_APP_ASK = re.compile(
     (?:
         application | app | program | software |
         spotify | chrome | edge | firefox | notepad | calc | calculator |
-        terminal | powershell | cmd | command\s+prompt | vs\s*code | vscode
+        terminal | powershell | cmd | command\s+prompt | vs\s*code | vscode |
+        discord | youtube | explorer | file\s+explorer | settings
     )\b
     | \b(?:computer\s+operator|desktop\s+operator|os\s+action)\b
+    | \b(?:media\s+(?:play|pause|toggle|next|skip|prev|previous|volume\s+up|volume\s+down|mute))\b
+    | \b(?:next\s+(?:track|song)|previous\s+(?:track|song)|pause\s+music|resume\s+music|stop\s+music|mute\s+audio)\b
     """
 )
 
@@ -741,9 +747,23 @@ def sanction_tools(
 
     if _COMPUTER_APP_ASK.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.update(["computer_operator", "app_launch", "system_info"])
-        app_match = re.search(r"\b(?:open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)", raw, re.IGNORECASE)
-        app_target = app_match.group(1).strip() if app_match else raw
-        sanction.parameters["computer_operator"] = {"action": "open_application", "target": app_target}
+        if re.search(r"(?i)\b(?:pause|resume|next|skip|prev|previous|mute|volume)\b", lowered):
+            media_cmd = "toggle"
+            if "next" in lowered or "skip" in lowered:
+                media_cmd = "next"
+            elif "prev" in lowered:
+                media_cmd = "prev"
+            elif "pause" in lowered or "stop" in lowered:
+                media_cmd = "pause"
+            elif "play" in lowered or "resume" in lowered:
+                media_cmd = "play"
+            elif "mute" in lowered:
+                media_cmd = "mute"
+            sanction.parameters["computer_operator"] = {"action": "media_control", "target": media_cmd}
+        else:
+            app_match = re.search(r"\b(?:open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)", raw, re.IGNORECASE)
+            app_target = app_match.group(1).strip() if app_match else raw
+            sanction.parameters["computer_operator"] = {"action": "open_application", "target": app_target}
         return sanction
 
     if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):

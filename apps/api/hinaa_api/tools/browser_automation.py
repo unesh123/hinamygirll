@@ -44,7 +44,18 @@ async def _get_page() -> Page:
 
             if _browser is None or not _browser.is_connected():
                 executable = os.environ.get("HINAA_BROWSER_EXECUTABLE") or shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
-                launch_options: dict[str, Any] = {"headless": True}
+                if not executable:
+                    chrome_win = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+                    edge_win = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+                    if os.path.exists(chrome_win):
+                        executable = chrome_win
+                    elif os.path.exists(edge_win):
+                        executable = edge_win
+
+                headless_env = os.environ.get("HINAA_BROWSER_HEADLESS", "").lower()
+                is_headless = headless_env in ("true", "1", "yes")
+
+                launch_options: dict[str, Any] = {"headless": is_headless}
                 if executable:
                     launch_options["executable_path"] = executable
                 _browser = await _playwright.chromium.launch(**launch_options)
@@ -99,24 +110,41 @@ async def browser_extract(params: BrowserExtractParams) -> str:
         title = await page.title()
         url = page.url
         
-        # Extract main text
-        text_content = await page.evaluate('''() => {
-            return document.body.innerText.substring(0, 3000);
+        # Extract main text and scroll position
+        meta = await page.evaluate('''() => {
+            const bodyText = document.body ? document.body.innerText.substring(0, 3500) : "";
+            return {
+                scrollY: window.scrollY || 0,
+                scrollMax: (document.documentElement ? document.documentElement.scrollHeight : 0) - window.innerHeight,
+                text: bodyText
+            };
         }''')
         
-        # Extract interactable elements
+        # Extract interactable elements that are visible on screen
         elements = await page.evaluate('''() => {
-            const els = Array.from(document.querySelectorAll('a, button, input'));
-            return els.slice(0, 30).map(e => ({
-                tag: e.tagName,
-                text: e.innerText || e.value || e.placeholder || '',
-                id: e.id || ''
-            })).filter(e => e.text.trim().length > 0);
+            const selector = 'a, button, input, textarea, select, [role="button"], [role="link"], [role="searchbox"], [role="combobox"], [contenteditable="true"]';
+            const els = Array.from(document.querySelectorAll(selector));
+            return els
+                .filter(e => {
+                    const rect = e.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && window.getComputedStyle(e).visibility !== 'hidden';
+                })
+                .slice(0, 50)
+                .map(e => ({
+                    tag: e.tagName.toLowerCase(),
+                    text: (e.innerText || e.getAttribute('aria-label') || e.getAttribute('placeholder') || e.getAttribute('title') || e.value || '').trim().replace(/\\s+/g, ' ').substring(0, 100),
+                    id: e.id || '',
+                    role: e.getAttribute('role') || '',
+                    href: e.getAttribute('href') || ''
+                }))
+                .filter(e => e.text.length > 0 || e.id.length > 0);
         }''')
         
-        summary = f"Current URL: {url}\nTitle: {title}\n\nVisible Text:\n{text_content}\n\nInteractable Elements:\n"
+        scroll_info = f"Scroll Position: Y={meta.get('scrollY', 0)}px (Max: {max(0, meta.get('scrollMax', 0))}px)"
+        summary = f"Current URL: {url}\nTitle: {title}\n{scroll_info}\n\nVisible Text:\n{meta.get('text', '')}\n\nInteractable Elements:\n"
         for i, el in enumerate(elements):
-            summary += f"[{i}] {el['tag']}: {el['text']} (ID: {el['id']})\n"
+            extra = f" (ID: {el['id']})" if el['id'] else ""
+            summary += f"[{i}] <{el['tag']}> {el['text']}{extra}\n"
             
         return summary
     except Exception as e:
@@ -125,7 +153,7 @@ async def browser_extract(params: BrowserExtractParams) -> str:
 browser_extract_def = ToolDefinition(
     name="browser_extract",
     display_name="Browser: Read Page",
-    description="Reads the current page in the automated browser, returning visible text and interactable elements.",
+    description="Reads the current page in the automated browser, returning visible text, interactable elements, and scroll position.",
     parameters={},
     required_parameters=[],
     voice_aliases=["read the page", "what's on the screen", "scan the page"],
@@ -142,16 +170,34 @@ class BrowserClickParams(BaseModel):
 async def browser_click(params: BrowserClickParams) -> str:
     try:
         page = await _get_page()
-        # Try finding by text first if no special characters
-        if "=" not in params.selector and not params.selector.startswith(".") and not params.selector.startswith("#"):
-            locator = page.get_by_text(params.selector, exact=False).first
-            if await locator.count() == 0:
-                 locator = page.locator(f"text={params.selector}").first
+        target = params.selector.strip()
+        locator = None
+
+        if target.startswith("#") or target.startswith(".") or "=" in target or "[" in target:
+            locator = page.locator(target).first
         else:
-            locator = page.locator(params.selector).first
+            # Try text locator first
+            text_loc = page.get_by_text(target, exact=False).first
+            if await text_loc.count() > 0:
+                locator = text_loc
+            else:
+                # Try role/button locator
+                role_loc = page.get_by_role("button", name=target).first
+                if await role_loc.count() > 0:
+                    locator = role_loc
+                else:
+                    locator = page.locator(f"text={target}").first
             
-        await locator.click(timeout=5000)
-        await page.wait_for_load_state("networkidle", timeout=3000)
+        try:
+            await locator.click(timeout=4000)
+        except Exception:
+            await locator.click(timeout=3000, force=True)
+
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=2500)
+        except Exception:
+            pass
+
         return f"Successfully clicked element matching '{params.selector}'."
     except Exception as e:
         return f"Failed to click element '{params.selector}': {str(e)}"
@@ -180,17 +226,33 @@ class BrowserTypeParams(BaseModel):
 async def browser_type(params: BrowserTypeParams) -> str:
     try:
         page = await _get_page()
-        if "=" not in params.selector and not params.selector.startswith(".") and not params.selector.startswith("#"):
-            locator = page.get_by_role("textbox", name=params.selector).first
-            if await locator.count() == 0:
-                 locator = page.locator(f"text={params.selector}").first
+        target = params.selector.strip()
+        locator = None
+
+        if target.startswith("#") or target.startswith(".") or "=" in target or "[" in target:
+            locator = page.locator(target).first
         else:
-            locator = page.locator(params.selector).first
+            role_loc = page.get_by_role("textbox", name=target).first
+            if await role_loc.count() > 0:
+                locator = role_loc
+            else:
+                placeholder_loc = page.get_by_placeholder(target).first
+                if await placeholder_loc.count() > 0:
+                    locator = placeholder_loc
+                else:
+                    input_loc = page.locator(f"input[name*='{target}'], input[id*='{target}'], textarea[id*='{target}']").first
+                    if await input_loc.count() > 0:
+                        locator = input_loc
+                    else:
+                        locator = page.locator(f"text={target}").first
             
         await locator.fill(params.text)
         if params.submit:
             await locator.press("Enter")
-            await page.wait_for_load_state("networkidle", timeout=3000)
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=2500)
+            except Exception:
+                pass
             
         return f"Successfully typed '{params.text}' into '{params.selector}'."
     except Exception as e:
