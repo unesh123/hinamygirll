@@ -54,6 +54,8 @@ export interface VRMAvatarProps {
   modelUrl?: string | null;
   /** Close-up portrait framing (face, cat ears, and upper bust) for companion panel. Default: true */
   closeUp?: boolean;
+  /** Walk mode: activates natural procedural walking gait, leg swing, knee flexion, hip sway, and stage roaming. */
+  walkMode?: boolean;
 }
 
 /**
@@ -287,7 +289,7 @@ function VrmRig({
   speechBridgeRef,
 }: {
   vrm: VRM;
-  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean; closeUp?: boolean };
+  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean; closeUp?: boolean; walkMode?: boolean };
   jawEnergyRef?: number | React.MutableRefObject<number>;
   speakingRef?: React.MutableRefObject<boolean>;
   visemeEventsRef?: React.MutableRefObject<any[]>;
@@ -299,6 +301,11 @@ function VrmRig({
   const camera = useThree((state) => state.camera);
   const lookTarget = useMemo(() => new THREE.Object3D(), []);
   const camLookAtRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 1.45, 0));
+  const walkPhaseRef = useRef(0);
+  const walkRoamXRef = useRef(0);
+  const walkDirectionRef = useRef(1);
+  const walkTurnYawRef = useRef(0);
+  const avatarGroupRef = useRef<THREE.Group>(null);
   const metrics = useMemo(() => normalizeVrmAvatar(vrm), [vrm]);
   const performanceDirector = useMemo(() => new PerformanceDirector(), []);
   if (typeof window !== "undefined") {
@@ -771,37 +778,137 @@ function VrmRig({
       if (chest) {
         chest.rotation.x = Math.max(0, inhale) * (quiet ? 0.0012 : 0.0032) * drift;
       }
-      // Stable standing posture: legs firmly grounded, poised balance, organic breathing
-      if (hips) {
-        hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, 0, 6, delta);
-        hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, 0, 6, delta);
-        hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.005, 6, delta);
-      }
+      const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking");
 
-      if (spine) {
-        spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, 0, 6, delta);
-        if (hips) {
-          spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, 0, 6, delta);
+      if (isWalking) {
+        // Natural human walking cadence ~3.6 rad/s
+        const walkSpeed = 3.6;
+        walkPhaseRef.current = (walkPhaseRef.current + delta * walkSpeed) % (Math.PI * 2);
+        const phase = walkPhaseRef.current;
+
+        // Roam laterally across floor / runway
+        const roamStep = 0.12 * walkDirectionRef.current * delta;
+        walkRoamXRef.current += roamStep;
+        const maxRoam = 0.28;
+        if (walkRoamXRef.current > maxRoam) {
+          walkRoamXRef.current = maxRoam;
+          walkDirectionRef.current = -1;
+        } else if (walkRoamXRef.current < -maxRoam) {
+          walkRoamXRef.current = -maxRoam;
+          walkDirectionRef.current = 1;
         }
-        spine.rotation.x = THREE.MathUtils.damp(spine.rotation.x, Math.max(0, -inhale) * 0.002, 6, delta);
-      }
+        const targetYaw = walkDirectionRef.current > 0 ? 0.35 : -0.35;
+        walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, targetYaw, 5, delta);
 
-      // Stable grounded legs: zero wobbling or unnatural knee bending
-      if (leftLowerLeg) {
-        leftLowerLeg.rotation.x = THREE.MathUtils.damp(leftLowerLeg.rotation.x, 0, 6, delta);
-      }
-      if (rightLowerLeg) {
-        rightLowerLeg.rotation.x = THREE.MathUtils.damp(rightLowerLeg.rotation.x, 0, 6, delta);
-      }
-      if (leftUpperLeg) {
-        leftUpperLeg.rotation.z = THREE.MathUtils.damp(leftUpperLeg.rotation.z, 0, 6, delta);
-      }
-      if (rightUpperLeg) {
-        rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, 0, 6, delta);
+        // Pelvis / Hips dynamics
+        const hipBob = Math.abs(Math.sin(phase)) * 0.024;
+        const hipRoll = Math.sin(phase) * 0.045; // lateral weight shift
+        const hipYaw = Math.sin(phase) * 0.06; // pelvis twists forward with stride
+        if (hips) {
+          hips.position.y = THREE.MathUtils.damp(hips.position.y, -hipBob, 12, delta);
+          hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, hipRoll, 10, delta);
+          hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, hipYaw, 10, delta);
+          hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.035, 8, delta);
+        }
+
+        if (spine) {
+          spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, -hipRoll * 0.5, 10, delta);
+          spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, -hipYaw * 0.5, 10, delta);
+          spine.rotation.x = THREE.MathUtils.damp(spine.rotation.x, 0.015, 8, delta);
+        }
+
+        // Upper legs (Stride)
+        const legSwing = Math.sin(phase) * 0.44;
+        if (leftUpperLeg) {
+          leftUpperLeg.rotation.x = THREE.MathUtils.damp(leftUpperLeg.rotation.x, legSwing, 16, delta);
+          leftUpperLeg.rotation.z = THREE.MathUtils.damp(leftUpperLeg.rotation.z, -0.035, 10, delta);
+        }
+        if (rightUpperLeg) {
+          rightUpperLeg.rotation.x = THREE.MathUtils.damp(rightUpperLeg.rotation.x, -legSwing, 16, delta);
+          rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, 0.035, 10, delta);
+        }
+
+        // Lower legs (Knee flexion on recovery/swing phase only)
+        const leftKnee = Math.max(0, -Math.sin(phase)) * 0.82;
+        const rightKnee = Math.max(0, Math.sin(phase)) * 0.82;
+        if (leftLowerLeg) {
+          leftLowerLeg.rotation.x = THREE.MathUtils.damp(leftLowerLeg.rotation.x, leftKnee, 16, delta);
+        }
+        if (rightLowerLeg) {
+          rightLowerLeg.rotation.x = THREE.MathUtils.damp(rightLowerLeg.rotation.x, rightKnee, 16, delta);
+        }
+
+        // Feet articulation
+        const leftFoot = humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftFoot);
+        const rightFoot = humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightFoot);
+        if (leftFoot) {
+          leftFoot.rotation.x = THREE.MathUtils.damp(leftFoot.rotation.x, -legSwing * 0.32, 12, delta);
+        }
+        if (rightFoot) {
+          rightFoot.rotation.x = THREE.MathUtils.damp(rightFoot.rotation.x, legSwing * 0.32, 12, delta);
+        }
+
+        // Arms natural counter-swing when not executing an expressive gesture
+        if (input.gesture === "none" || !input.gesture || input.gesture === "walk") {
+          const armSwing = Math.sin(phase) * 0.35;
+          if (leftArm) {
+            leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -armSwing, 12, delta);
+            leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.15 * armZSign, 8, delta);
+          }
+          if (rightArm) {
+            rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, armSwing, 12, delta);
+            rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -1.15 * armZSign, 8, delta);
+          }
+          if (leftLowerArm) {
+            leftLowerArm.rotation.x = THREE.MathUtils.damp(leftLowerArm.rotation.x, 0.15 + Math.max(0, -armSwing) * 0.25, 10, delta);
+          }
+          if (rightLowerArm) {
+            rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.15 + Math.max(0, armSwing) * 0.25, 10, delta);
+          }
+        }
+      } else {
+        walkRoamXRef.current = THREE.MathUtils.damp(walkRoamXRef.current, 0, 4, delta);
+        walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, 0, 4, delta);
+
+        // Stable standing posture: legs firmly grounded, poised balance, organic breathing
+        if (hips) {
+          hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, 0, 6, delta);
+          hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, 0, 6, delta);
+          hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.005, 6, delta);
+        }
+
+        if (spine) {
+          spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, 0, 6, delta);
+          if (hips) {
+            spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, 0, 6, delta);
+          }
+          spine.rotation.x = THREE.MathUtils.damp(spine.rotation.x, Math.max(0, -inhale) * 0.002, 6, delta);
+        }
+
+        // Stable grounded legs: zero wobbling or unnatural knee bending
+        if (leftLowerLeg) {
+          leftLowerLeg.rotation.x = THREE.MathUtils.damp(leftLowerLeg.rotation.x, 0, 6, delta);
+        }
+        if (rightLowerLeg) {
+          rightLowerLeg.rotation.x = THREE.MathUtils.damp(rightLowerLeg.rotation.x, 0, 6, delta);
+        }
+        if (leftUpperLeg) {
+          leftUpperLeg.rotation.x = THREE.MathUtils.damp(leftUpperLeg.rotation.x, 0, 6, delta);
+          leftUpperLeg.rotation.z = THREE.MathUtils.damp(leftUpperLeg.rotation.z, 0, 6, delta);
+        }
+        if (rightUpperLeg) {
+          rightUpperLeg.rotation.x = THREE.MathUtils.damp(rightUpperLeg.rotation.x, 0, 6, delta);
+          rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, 0, 6, delta);
+        }
       }
     }
 
     vrm.update(delta);
+
+    if (avatarGroupRef.current) {
+      avatarGroupRef.current.position.x = baseX + walkRoamXRef.current;
+      avatarGroupRef.current.rotation.y = walkTurnYawRef.current;
+    }
 
     // Dynamic Landmark Camera & Gaze: Frame camera directly to the character's true face position
     // AFTER vrm.update has fully resolved humanoid bone solvers, inverse kinematics, and matrix transforms.
@@ -843,10 +950,10 @@ function VrmRig({
           vrm.lookAt.target = lookTarget;
         }
 
-        const isCloseUp = input.closeUp ?? true;
-        const camDistance = isCloseUp ? 0.98 : 1.50;
+        const isCloseUp = input.walkMode ? false : (input.closeUp ?? true);
+        const camDistance = isCloseUp ? 0.98 : (input.walkMode ? 2.35 : 1.50);
         const targetCamX = faceCenterX + (input.codeMode ? -0.28 : 0);
-        const targetCamY = faceCenterY - 0.01;
+        const targetCamY = input.walkMode ? (faceCenterY - 0.42) : (faceCenterY - 0.01);
         const targetCamZ = faceCenterZ + camDistance;
 
         const dampSpeed = frameCountRef.current < 3 ? 30 : 6;
@@ -856,8 +963,9 @@ function VrmRig({
         camera.position.y = THREE.MathUtils.damp(camera.position.y, targetCamY, dampSpeed, delta);
         camera.position.z = THREE.MathUtils.damp(camera.position.z, targetCamZ, dampSpeed, delta);
 
+        const targetLookY = input.walkMode ? (faceCenterY - 0.35) : (faceCenterY - 0.02);
         camLookAtRef.current.x = THREE.MathUtils.damp(camLookAtRef.current.x, faceCenterX, dampSpeed, delta);
-        camLookAtRef.current.y = THREE.MathUtils.damp(camLookAtRef.current.y, faceCenterY - 0.02, dampSpeed, delta);
+        camLookAtRef.current.y = THREE.MathUtils.damp(camLookAtRef.current.y, targetLookY, dampSpeed, delta);
         camLookAtRef.current.z = THREE.MathUtils.damp(camLookAtRef.current.z, faceCenterZ, dampSpeed, delta);
 
         camera.lookAt(camLookAtRef.current);
@@ -877,6 +985,7 @@ function VrmRig({
     <>
       <primitive object={lookTarget} />
       <group
+        ref={avatarGroupRef}
         position={[baseX, baseY, baseZ]}
         scale={finalScale}
       >
@@ -898,7 +1007,7 @@ function VrmModel({
   onError,
 }: {
   url: string;
-  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean; closeUp?: boolean };
+  input: VrmExpressionInput & { gesture: string; state: string; codeMode: boolean; closeUp?: boolean; walkMode?: boolean };
   jawEnergyRef?: number | React.MutableRefObject<number>;
   speakingRef?: React.MutableRefObject<boolean>;
   visemeEventsRef?: React.MutableRefObject<any[]>;
@@ -1050,6 +1159,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
     state: string;
     codeMode: boolean;
     closeUp?: boolean;
+    walkMode?: boolean;
   } = {
     emotion,
     facePreset: props.plan?.performance.facePreset,
@@ -1062,6 +1172,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
     state: props.state,
     codeMode: Boolean(props.codeMode),
     closeUp: Boolean(props.closeUp ?? true),
+    walkMode: Boolean(props.walkMode),
   };
 
   return (
@@ -1092,7 +1203,7 @@ export function VRMAvatar(props: VRMAvatarProps) {
             }}
             camera={{
               position: [0, 1.45, 0.88],
-              fov: (props.closeUp ?? true) ? 32 : 38,
+              fov: (props.walkMode && !props.closeUp) ? 42 : ((props.closeUp ?? true) ? 32 : 38),
             }}
           >
             <ambientLight intensity={0.75} />

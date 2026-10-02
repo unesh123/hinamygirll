@@ -10,6 +10,7 @@ import {
   PanelLeft,
   PanelRight,
   PictureInPicture,
+  Footprints,
 } from "lucide-react";
 import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
@@ -42,6 +43,8 @@ export interface CompanionDockProps {
   partialTranscript?: string;
   lastAssistantText?: string;
   isDark?: boolean;
+  isWalking?: boolean;
+  onToggleWalk?: () => void;
 }
 
 export const CompanionDock: React.FC<CompanionDockProps> = ({
@@ -66,10 +69,35 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
   partialTranscript = "",
   lastAssistantText = "",
   isDark = false,
+  isWalking: propIsWalking,
+  onToggleWalk,
 }) => {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [dismissedSubtitle, setDismissedSubtitle] = useState(false);
+  const [localIsWalking, setLocalIsWalking] = useState(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const isWalking = propIsWalking !== undefined ? propIsWalking : localIsWalking;
+
+  const toggleWalking = () => {
+    if (onToggleWalk) {
+      onToggleWalk();
+    } else {
+      setLocalIsWalking((prev) => !prev);
+    }
+  };
+
+  React.useEffect(() => {
+    const handleToggle = () => {
+      if (onToggleWalk) {
+        onToggleWalk();
+      } else {
+        setLocalIsWalking((prev) => !prev);
+      }
+    };
+    window.addEventListener("hinaa:toggle-walk-mode", handleToggle);
+    return () => window.removeEventListener("hinaa:toggle-walk-mode", handleToggle);
+  }, [onToggleWalk]);
 
   React.useEffect(() => {
     if (streamingText || partialTranscript) {
@@ -148,7 +176,8 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
             audioStartTimeRef={audioStartTimeRef}
             speechBridge={speechBridge}
             modelUrl={avatarModel ?? null}
-            closeUp={true}
+            closeUp={!isWalking}
+            walkMode={isWalking}
           />
         </div>
       </motion.div>
@@ -220,41 +249,68 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
           flexShrink: 0,
         }}
       >
-        {/* Model Switcher Button */}
-        <div style={{ position: "relative" }}>
+        {/* Model Switcher & Locomotion Controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ position: "relative" }}>
+            <button
+              ref={modelPickerTriggerRef}
+              type="button"
+              aria-label="Switch 3D Avatar Model"
+              onClick={() => setShowModelPicker((prev) => !prev)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 8px",
+                borderRadius: "var(--radius-sm, 6px)",
+                border: "1px solid var(--border-default)",
+                background: "var(--bg-surface)",
+                color: "var(--text-primary)",
+                fontSize: "var(--text-xs)",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Sparkles size={12} color="var(--accent)" />
+              <span>{currentModelName}</span>
+            </button>
+            <AvatarModelPicker
+              isOpen={showModelPicker}
+              onClose={() => setShowModelPicker(false)}
+              triggerRef={modelPickerTriggerRef}
+              currentModel={avatarModel}
+              onSelectModel={(url) => {
+                onSelectModel?.(url);
+                setShowModelPicker(false);
+              }}
+              onOpenAvatarLab={onOpenAvatarLab}
+            />
+          </div>
+
+          {/* Procedural Walk / Roam Toggle (Coco Gait) */}
           <button
-            ref={modelPickerTriggerRef}
             type="button"
-            aria-label="Switch 3D Avatar Model"
-            onClick={() => setShowModelPicker((prev) => !prev)}
+            aria-label={isWalking ? "Switch to Portrait Mode" : "Start Walking Motion (Coco Gait)"}
+            title={isWalking ? "Switch to Portrait Mode" : "Start Walking Motion (Coco Gait)"}
+            onClick={toggleWalking}
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 6,
+              gap: 5,
               padding: "4px 8px",
               borderRadius: "var(--radius-sm, 6px)",
-              border: "1px solid var(--border-default)",
-              background: "var(--bg-surface)",
-              color: "var(--text-primary)",
+              border: isWalking ? "1px solid var(--accent, #ec4899)" : "1px solid var(--border-default)",
+              background: isWalking ? "var(--accent-pale, rgba(236,72,153,0.15))" : "var(--bg-surface)",
+              color: isWalking ? "var(--accent, #ec4899)" : "var(--text-secondary)",
               fontSize: "var(--text-xs)",
               fontWeight: 600,
               cursor: "pointer",
+              transition: "all 0.15s ease",
             }}
           >
-            <Sparkles size={12} color="var(--accent)" />
-            <span>{currentModelName}</span>
+            <Footprints size={12} />
+            <span>{isWalking ? "Walking" : "Walk"}</span>
           </button>
-          <AvatarModelPicker
-            isOpen={showModelPicker}
-            onClose={() => setShowModelPicker(false)}
-            triggerRef={modelPickerTriggerRef}
-            currentModel={avatarModel}
-            onSelectModel={(url) => {
-              onSelectModel?.(url);
-              setShowModelPicker(false);
-            }}
-            onOpenAvatarLab={onOpenAvatarLab}
-          />
         </div>
 
         {/* Dock and Close controls */}
@@ -348,6 +404,36 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
 
       {/* Companion Avatar View Container */}
       <div style={{ flex: 1, position: "relative", minHeight: 240, overflow: "hidden" }}>
+        {/* Active Walk / Roam Indicator */}
+        {isWalking && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              position: "absolute",
+              top: 10,
+              left: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "3px 8px",
+              borderRadius: 20,
+              background: "rgba(236, 72, 153, 0.2)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(236, 72, 153, 0.4)",
+              color: "#ec4899",
+              fontSize: "10px",
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              zIndex: 12,
+              pointerEvents: "none",
+            }}
+          >
+            <Footprints size={11} />
+            <span>COCO GAIT · ROAMING</span>
+          </motion.div>
+        )}
+
         <VRMAvatar
           companionId={companionId || "hinaa"}
           state={companionState}
@@ -360,7 +446,8 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
           audioStartTimeRef={audioStartTimeRef}
           speechBridge={speechBridge}
           modelUrl={avatarModel ?? null}
-          closeUp={avatarMode !== "full"}
+          closeUp={!isWalking && avatarMode !== "full"}
+          walkMode={isWalking}
         />
 
         {/* Live speech feedback */}

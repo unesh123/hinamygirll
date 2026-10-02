@@ -28,6 +28,7 @@ import {
   Presentation,
   Loader2,
   Eye,
+  Footprints,
 } from "lucide-react";
 import { useLiveVision } from "../../features/vision/useLiveVision";
 import { downloadMarkdownPdf, downloadMarkdownPptx } from "../../features/documents/exportPdf";
@@ -69,6 +70,7 @@ const DEFAULT_COMMANDS: CommandItem[] = [
   { name: "image", aliases: ["draw", "generate"], label: "Generate Image", description: "Open Image Studio to create an image locally", descriptionShort: "Create an image", icon: Sparkles, color: "#F36F9C", group: "creative", inputSchema: {}, capability: "generate-image", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/image a sakura sunset"] },
   { name: "humanize", aliases: ["rewrite", "tone"], label: "Humanizer", description: "Open Humanizer Studio to rewrite text naturally", descriptionShort: "Rewrite text naturally", icon: Wand2, color: "#5B9DCF", group: "writing", inputSchema: {}, capability: "open-humanizer", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/humanize"] },
   { name: "memory", aliases: ["remember"], label: "Memory", description: "Open your saved memories", descriptionShort: "Open memories", icon: Brain, color: "#B8A7F2", group: "personal", inputSchema: {}, capability: "remember-this", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/memory"] },
+  { name: "walk", aliases: ["roam", "gait", "locomotion"], label: "Walk / Roam", description: "Toggle Hina's procedural walking locomotion and full-body roaming", descriptionShort: "Toggle walk roaming", icon: Footprints, color: "#ec4899", group: "companion", inputSchema: {}, capability: "walk-roam", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/walk"] },
 ];
 
 /* Palette rows whose handler is a surface in this browser tab. Selecting one
@@ -77,6 +79,7 @@ const LOCAL_COMMAND_ACTIONS: Record<string, string> = {
   memory: "remember-this",
   settings: "open-settings",
   avatar: "open-avatar-lab",
+  walk: "toggle-walk-mode",
 };
 
 import { GenericResultRenderer } from "../../features/chat/components/GenericResultRenderer";
@@ -491,6 +494,12 @@ export function WorkMode({
       let text = input.trim();
       if (!text && !attachedImage) return;
 
+      if (text === "/walk" || text === "/roam") {
+        window.dispatchEvent(new CustomEvent("hinaa:toggle-walk-mode"));
+        onInputChange("");
+        return;
+      }
+
       // Auto-attach Live Eyes screen frame if active and no manual picture attached
       if (liveVision.isActive && !attachedImage) {
         const frame = liveVision.grabFrame() || liveVision.latestFrame;
@@ -724,6 +733,11 @@ export function WorkMode({
   const handleCommandSelect = useCallback(
     (command: CommandItem) => {
       const action = LOCAL_COMMAND_ACTIONS[command.name];
+      if (action === "toggle-walk-mode") {
+        replacePaletteToken("");
+        window.dispatchEvent(new CustomEvent("hinaa:toggle-walk-mode"));
+        return;
+      }
       if (action) {
         replacePaletteToken("");
         onCommand?.(action);
