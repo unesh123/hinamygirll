@@ -522,14 +522,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else None
     )
 
-    from .cognitive import CognitiveKernel, WorldModel, SessionBridge
+    from .cognitive import (
+        CognitiveKernel,
+        WorldModel,
+        SessionBridge,
+        get_policy_engine,
+        get_data_lake,
+        get_resilient_router,
+    )
     from .memory_v2.manager import MemoryManagerV2
 
     memory_v2_manager = MemoryManagerV2()
     session_bridge = SessionBridge(root_dir=".")
+    policy_engine = get_policy_engine()
+    data_lake = get_data_lake()
+    resilient_router = get_resilient_router()
+
     cognitive_kernel = CognitiveKernel(
         session_bridge=session_bridge,
         memory_manager=memory_v2_manager,
+        policy_engine=policy_engine,
+        data_lake=data_lake,
+        resilient_router=resilient_router,
     )
 
     project_tasks: dict[str, asyncio.Task] = {}
@@ -1268,10 +1282,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             vmc_bridge.remove_client(ws)
 
     @app.get("/health")
+    @app.get("/healthz")
     async def health_alias() -> JSONResponse:
         return await readiness()
 
     @app.get("/health/ready")
+    @app.get("/readyz")
     async def readiness() -> JSONResponse:
         if active_settings.provider_mode == "openai":
             missing = active_settings.missing_openai_voice_configuration()
@@ -3729,6 +3745,75 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not run:
             raise HTTPException(status_code=404, detail="CognitiveRun not found")
         return run.model_dump(mode="json")
+
+    # ── Enterprise Subsystems: Policy, Audit Ledger, Data Lake & Resilient Router ──
+    @app.get("/v1/enterprise/status")
+    @app.get("/api/v1/enterprise/status")
+    async def enterprise_status(request: Request) -> dict[str, Any]:
+        """Enterprise operational overview: PDP/PEP, Audit Ledger, Data Lake, and Model Router."""
+        policy_eng = get_policy_engine()
+        lake = get_data_lake()
+        router = get_resilient_router()
+
+        return {
+            "status": "operational",
+            "tier": "enterprise_grade",
+            "securityPolicy": {
+                "guardrailsActive": True,
+                "hitlApprovalTokensEnabled": True,
+                "piiSecretRedaction": True,
+                "auditChainIntegrityVerified": policy_eng.verify_audit_integrity(),
+                "recentAuditEntriesCount": len(policy_eng.get_recent_audit_records(100)),
+            },
+            "dataLake": lake.get_statistics(),
+            "resilientModelRouter": {
+                "providers": router.get_all_statuses(),
+                "healthyChain": router.select_healthy_provider_chain(),
+            },
+            "timestamp": time.time(),
+        }
+
+    @app.get("/v1/enterprise/metrics")
+    @app.get("/api/v1/enterprise/metrics")
+    async def enterprise_metrics(request: Request) -> dict[str, Any]:
+        """Telemetry metrics for Prometheus scrapers and observability dashboards."""
+        policy_eng = get_policy_engine()
+        lake = get_data_lake()
+        router = get_resilient_router()
+        lake_stats = lake.get_statistics()
+
+        return {
+            "hinaa_enterprise_up": 1,
+            "hinaa_audit_chain_valid": 1 if policy_eng.verify_audit_integrity() else 0,
+            "hinaa_lake_total_events": lake_stats.get("totalEventsIngested", 0),
+            "hinaa_lake_total_runs": lake_stats.get("totalRunsArchived", 0),
+            "hinaa_lake_storage_bytes": lake_stats.get("storageBytes", 0),
+            "hinaa_circuit_breakers": {
+                name: 1 if st.get("state") == "closed" else 0
+                for name, st in router.get_all_statuses().items()
+            },
+        }
+
+    @app.get("/v1/enterprise/audit-trail")
+    @app.get("/api/v1/enterprise/audit-trail")
+    async def enterprise_audit_trail(request: Request, limit: int = 50) -> dict[str, Any]:
+        """Cryptographically hashed SHA-256 audit ledger."""
+        policy_eng = get_policy_engine()
+        records = policy_eng.get_recent_audit_records(limit=min(limit, 200))
+        return {
+            "chainIntegrityVerified": policy_eng.verify_audit_integrity(),
+            "count": len(records),
+            "auditRecords": [r.model_dump() for r in records],
+        }
+
+    @app.post("/v1/enterprise/export-compliance")
+    @app.post("/api/v1/enterprise/export-compliance")
+    async def enterprise_export_compliance(request: Request, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+        """GDPR / SOC2 data lake export."""
+        user_id = _resolve_user_id(request) or body.get("userId") or "default_user"
+        lake = get_data_lake()
+        return lake.export_compliance_archive(user_id=user_id)
+
 
     @app.post("/v1/projects/{project_id}/artifacts", status_code=201)
     async def create_project_artifact(

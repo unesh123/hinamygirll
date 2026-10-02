@@ -7,11 +7,11 @@ The unified cognitive runtime orchestrating the complete intelligence loop:
 3. Context OS Compilation (L0-L10 Layered Retrieval & Token Budgeting)
 4. Task Graph Decomposition (DAG Planning)
 5. Capability & Frontier Model Routing
-6. Grounded Actuation (Desktop Operator / Browser Playwright / Tool Execution)
+6. Grounded Actuation with Enterprise Policy & Guardrails (PDP/PEP)
 7. Sensory Observation & World State Mutation
 8. Verification & Plan Repair
 9. Memory Consolidation Pass (Entity Resolution, Temporal Supersession)
-10. Canonical HinaEvent Emission & Session Bridge Updates
+10. Canonical HinaEvent Emission, Data Lake Streaming & Session Bridge
 """
 
 from __future__ import annotations
@@ -38,12 +38,15 @@ from .world_model import WorldModel
 from .context_compiler import ContextCompiler
 from .consolidation import MemoryConsolidator
 from .session_bridge import SessionBridge
+from .policy_engine import EnterprisePolicyEngine, get_policy_engine
+from .data_lake import DataLakeIngestor, get_data_lake
+from .resilient_router import ResilientProviderRouter, get_resilient_router
 
 logger = logging.getLogger("hinaa.cognitive.kernel")
 
 
 class CognitiveKernel:
-    """The central HINAA Cognitive Runtime."""
+    """The central HINAA Cognitive Runtime with Enterprise Guardrails and Data Lake."""
 
     def __init__(
         self,
@@ -51,10 +54,16 @@ class CognitiveKernel:
         context_compiler: Optional[ContextCompiler] = None,
         session_bridge: Optional[SessionBridge] = None,
         memory_manager: Optional[Any] = None,
+        policy_engine: Optional[EnterprisePolicyEngine] = None,
+        data_lake: Optional[DataLakeIngestor] = None,
+        resilient_router: Optional[ResilientProviderRouter] = None,
     ) -> None:
         self.context_compiler = context_compiler or ContextCompiler()
         self.session_bridge = session_bridge or SessionBridge()
         self.memory_manager = memory_manager
+        self.policy_engine = policy_engine or get_policy_engine()
+        self.data_lake = data_lake or get_data_lake()
+        self.resilient_router = resilient_router or get_resilient_router()
         self._active_runs: Dict[str, CognitiveRun] = {}
 
     def get_run(self, run_id: str) -> Optional[CognitiveRun]:
@@ -69,11 +78,12 @@ class CognitiveKernel:
         tenant_id: str = "default",
         project_id: Optional[str] = None,
         requested_model: Optional[str] = None,
+        approval_token: Optional[str] = None,
         event_callback: Optional[Callable[[HinaEvent], None]] = None,
     ) -> CognitiveRun:
         """
         Executes a complete cognitive turn across perception, planning, actuation,
-        verification, and memory consolidation.
+        verification, memory consolidation, enterprise policy enforcement, and lake ingestion.
         """
         run_id = f"run_{uuid4().hex[:12]}"
         start_time = time.time()
@@ -85,9 +95,16 @@ class CognitiveKernel:
                 tenant_id=tenant_id,
                 user_id=user_id,
                 event_type=event_type,
-                payload=payload,
+                payload=EnterprisePolicyEngine.redact_secrets(payload),
                 **kwargs,
             )
+            # 1. Stream to Enterprise Data Lake
+            try:
+                self.data_lake.record_event(evt)
+            except Exception as e:
+                logger.debug("Data lake record warning: %s", e)
+
+            # 2. Callback for real-time WebSockets / SSE
             if event_callback:
                 try:
                     event_callback(evt)
@@ -131,7 +148,6 @@ class CognitiveKernel:
         # -------------------------------------------------------------------
         # Stage 3: Context OS Compilation
         # -------------------------------------------------------------------
-        # Load local specs if available
         project_specs = {}
         for spec_name in ["architecture", "active-plan", "conventions", "current-state"]:
             spec_file = self.session_bridge.hina_dir / f"{spec_name}.md"
@@ -160,7 +176,6 @@ class CognitiveKernel:
         # -------------------------------------------------------------------
         task_nodes: List[TaskNode] = []
         if goal_type == "computer_use":
-            # Check intent gate for sanctioned computer actions
             from ..tools.intent_gate import sanction_tools
             sanction = sanction_tools(text)
 
@@ -194,7 +209,7 @@ class CognitiveKernel:
         emit("plan.generated", {"steps_count": len(task_nodes)})
 
         # -------------------------------------------------------------------
-        # Stage 5: Execution & Grounded Actuation Loop
+        # Stage 5: Execution & Grounded Actuation Loop with Policy Guardrails
         # -------------------------------------------------------------------
         run.status = "executing"
         completed_tasks = []
@@ -203,6 +218,41 @@ class CognitiveKernel:
             step.status = "running"
             emit("step.started", {"node_id": step.node_id, "title": step.title})
 
+            # 🛡️ Enterprise Policy Guardrail (PEP / PDP Check)
+            policy_decision = self.policy_engine.evaluate(
+                action=step.action,
+                resource=step.tool_or_skill,
+                parameters=step.parameters,
+                user_role=world_state.user.role,
+                approval_token=approval_token,
+            )
+
+            # Record cryptographically chained audit entry
+            self.policy_engine.record_audit(
+                user_id=user_id,
+                tenant_id=tenant_id,
+                action=step.action,
+                resource=step.tool_or_skill,
+                decision=policy_decision,
+            )
+
+            if not policy_decision.allowed:
+                if policy_decision.requires_approval:
+                    step.status = "failed"
+                    step.error = f"Action blocked: requires approval token ({policy_decision.approval_token})"
+                    emit("policy.approval_required", {
+                        "node_id": step.node_id,
+                        "action": step.action,
+                        "token": policy_decision.approval_token,
+                        "reason": policy_decision.reason,
+                    })
+                else:
+                    step.status = "failed"
+                    step.error = f"Policy blocked: {policy_decision.reason}"
+                    emit("policy.blocked", {"node_id": step.node_id, "reason": policy_decision.reason})
+                continue
+
+            # Execution with sanitized parameters
             if step.tool_or_skill == "computer_operator":
                 try:
                     from ..tools.computer_operator import execute_computer_operator
@@ -210,7 +260,6 @@ class CognitiveKernel:
                     step.status = "completed"
                     step.result = res
                     completed_tasks.append(step.title)
-                    # Mutate world state with new desktop observation
                     obs = res.get("data", {}).get("observation") if isinstance(res, dict) else None
                     if obs:
                         world_state = WorldModel.apply_desktop_observation(world_state, obs)
@@ -232,7 +281,7 @@ class CognitiveKernel:
                     step.error = str(err)
 
             else:
-                # Standard cognitive dialogue / model response
+                # Cognitive synthesis
                 step.status = "completed"
                 step.result = "Response synthesized successfully."
                 completed_tasks.append(step.title)
@@ -270,7 +319,7 @@ class CognitiveKernel:
                 logger.debug("Memory consolidation pass warning: %s", e)
 
         # -------------------------------------------------------------------
-        # Stage 8: Session Bridge Finalization
+        # Stage 8: Session Bridge & Cold Data Lake Archive
         # -------------------------------------------------------------------
         self.session_bridge.finalize_session(
             session_id=session_id,
@@ -282,6 +331,14 @@ class CognitiveKernel:
 
         run.status = "completed" if run.verification.passed else "failed"
         run.updated_at = time.time()
+
+        # Archive full snapshot to Data Lake
+        try:
+            self.data_lake.archive_run(run)
+            self.data_lake.flush_sync()
+        except Exception as e:
+            logger.debug("Data lake archive snapshot error: %s", e)
+
         emit("run.completed", {"duration_seconds": time.time() - start_time, "status": run.status})
 
         return run

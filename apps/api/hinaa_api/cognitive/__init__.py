@@ -26,6 +26,23 @@ from .context_compiler import ContextCompiler, CompiledContext
 from .consolidation import MemoryConsolidator
 from .session_bridge import SessionBridge
 from .kernel import CognitiveKernel
+from .policy_engine import (
+    EnterprisePolicyEngine,
+    RiskTier,
+    PolicyDecision,
+    AuditEntry,
+    get_policy_engine,
+)
+from .data_lake import (
+    DataLakeIngestor,
+    get_data_lake,
+)
+from .resilient_router import (
+    ResilientProviderRouter,
+    CircuitState,
+    ProviderStatus,
+    get_resilient_router,
+)
 
 __all__ = [
     "CognitiveKernel",
@@ -51,4 +68,15 @@ __all__ = [
     "DeviceState",
     "EnvironmentState",
     "ApprovalState",
+    "EnterprisePolicyEngine",
+    "RiskTier",
+    "PolicyDecision",
+    "AuditEntry",
+    "get_policy_engine",
+    "DataLakeIngestor",
+    "get_data_lake",
+    "ResilientProviderRouter",
+    "CircuitState",
+    "ProviderStatus",
+    "get_resilient_router",
 ]
