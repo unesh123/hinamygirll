@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 export interface DiscoveredModel {
   id: string;
@@ -69,9 +69,6 @@ const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
   runtime: {
     version: "1.0.0",
     environment: "unknown",
-    // Optimistic defaults are dishonest: until /v1/capabilities answers we do
-    // not know the backend is reachable, so the UI must say so instead of
-    // implying live brains are available.
     backendConnected: false,
     activeMode: "unknown",
     persistenceEnabled: false,
@@ -108,6 +105,7 @@ function normalizeCapabilities(raw: unknown): RuntimeCapabilities {
     runtime: {
       ...DEFAULT_CAPABILITIES.runtime,
       ...(typeof payload.runtime === "object" && payload.runtime !== null ? payload.runtime : {}),
+      backendConnected: true,
     },
     modes: {
       ...DEFAULT_CAPABILITIES.modes,
@@ -132,38 +130,86 @@ export function useCapabilities() {
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities>(DEFAULT_CAPABILITIES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isFetchingRef = useRef(false);
 
   const fetchCapabilities = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
-      setLoading(true);
       const apiBase = import.meta.env.VITE_HINAA_API_BASE_URL
         ? String(import.meta.env.VITE_HINAA_API_BASE_URL).replace(/\/+$/, "")
         : "";
-      const res = await fetch(`${apiBase}/api/v1/capabilities`, {
-        headers: {
-          "bypass-tunnel-reminder": "true",
-        },
-      });
-      if (!res.ok) {
-        throw new Error(`Failed to load capabilities (${res.status})`);
+
+      const candidateUrls = [
+        `${apiBase}/api/v1/capabilities`,
+        `${apiBase}/v1/capabilities`,
+      ];
+
+      // If running on local or desktop, add localhost fallback
+      if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+        candidateUrls.push("http://127.0.0.1:8000/api/v1/capabilities");
+        candidateUrls.push("http://127.0.0.1:8000/v1/capabilities");
       }
-      const data = await res.json();
-      // Defensive merge: a partial or malformed capabilities payload (proxy
-      // error page, older backend, mock) must never poison the shape the UI
-      // relies on. Missing keys fall back to the safe defaults.
-      setCapabilities(normalizeCapabilities(data));
-      setError(null);
+
+      let data: any = null;
+      let lastErr: Error | null = null;
+
+      for (const targetUrl of candidateUrls) {
+        try {
+          const res = await fetch(targetUrl, {
+            headers: {
+              "bypass-tunnel-reminder": "true",
+            },
+          });
+          if (res.ok) {
+            data = await res.json();
+            break;
+          } else {
+            lastErr = new Error(`Failed to load capabilities (${res.status})`);
+          }
+        } catch (fetchErr: any) {
+          lastErr = fetchErr;
+        }
+      }
+
+      if (data) {
+        setCapabilities(normalizeCapabilities(data));
+        setError(null);
+      } else {
+        throw lastErr || new Error("Failed to load capabilities from all candidates");
+      }
     } catch (err: any) {
       console.warn("Capability discovery fallback to cached defaults:", err?.message || err);
       setError(err?.message || "Failed to discover capabilities");
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   }, []);
 
+  // Initial fetch and self-healing polling loop
   useEffect(() => {
     fetchCapabilities();
-  }, [fetchCapabilities]);
+
+    // Auto-retry quickly (3.5s) if backend is disconnected, or poll periodically (45s) when healthy
+    const intervalMs = capabilities.runtime.backendConnected ? 45000 : 3500;
+    const timer = setInterval(() => {
+      fetchCapabilities();
+    }, intervalMs);
+
+    const handleFocusOrOnline = () => {
+      fetchCapabilities();
+    };
+
+    window.addEventListener("focus", handleFocusOrOnline);
+    window.addEventListener("online", handleFocusOrOnline);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", handleFocusOrOnline);
+      window.removeEventListener("online", handleFocusOrOnline);
+    };
+  }, [fetchCapabilities, capabilities.runtime.backendConnected]);
 
   return {
     capabilities,
