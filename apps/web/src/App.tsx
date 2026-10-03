@@ -1166,36 +1166,11 @@ export default function App() {
             isDark={isDark}
             onToggleTheme={handleToggleTheme}
           >
-            {/* Coucou / Korus Dynamic Island Companion Bar */}
-            <DynamicIslandCompanion
-              isDark={isDark}
-              agentSteps={agentSteps}
-              pendingApproval={
-                controller.currentAgentConfirmationStepId
-                  ? {
-                      stepId: controller.currentAgentConfirmationStepId,
-                      actionName: "git push origin main",
-                      command: "git push origin main",
-                    }
-                  : null
-              }
-              onConfirmStep={(approved) => {
-                void controller.confirmCurrentAgentStep(approved);
-              }}
-              onOpenTerminal={openTerminalHands}
-              onOpenSettings={() => setSettingsOpen(true)}
-              onNewChat={handleNewChat}
-              onSendMessage={(txt) => submit(undefined, txt)}
-              isThinking={controller.state === "thinking"}
-              activeProviderModel={routing.activeModel}
-              companionName={companionProfiles[controller.companionId]?.name || "Hina"}
-            />
-
-            {/* Unified Frontier TopBar V6 */}
+            {/* Unified Frontier TopBar V6 with Center Dynamic Island Apex Console */}
             <TopBarV6
               currentMode={sakuraView as WorkspaceMode}
               onModeChange={(mode) => setSakuraView(mode)}
-              activeProject={{ id: "main", name: "HINAA Workspace", repo: "main" }}
+              activeProject={{ id: "main", name: "HINA STUDIO", repo: "main" }}
               activeGoal={
                 controller.activePlan?.topic
                   ? { id: "current-goal", title: typeof controller.activePlan.topic === "string" ? controller.activePlan.topic : String(controller.activePlan.topic) }
@@ -1221,6 +1196,34 @@ export default function App() {
               executiveMode={executiveMode}
               onExecutiveModeChange={changeExecutiveMode}
               onNewChat={handleNewChat}
+              islandProps={{
+                isDark,
+                agentSteps,
+                pendingApproval: controller.currentAgentConfirmationStepId
+                  ? {
+                      stepId: controller.currentAgentConfirmationStepId,
+                      actionName: "Approve Agent Step Execution",
+                      command: "Execute agent action",
+                    }
+                  : null,
+                onConfirmStep: (approved) => {
+                  void controller.confirmCurrentAgentStep(approved);
+                },
+                onOpenTerminal: openTerminalHands,
+                onOpenSettings: () => setSettingsOpen(true),
+                onNewChat: handleNewChat,
+                onSendMessage: (txt) => submit(undefined, txt),
+                onAttachImage: (dataUrl) => setAttachedImage(dataUrl),
+                isThinking: controller.state === "thinking",
+                activeProviderModel: routing.activeModel,
+                companionName: companionProfiles[controller.companionId]?.name || "Hina",
+                companionState: controller.state,
+                streamingText: controller.streamingText,
+                lastAssistantText: controller.activePlan?.spokenText || controller.activePlan?.displayText || null,
+                isWalking: false,
+                onToggleWalk: () => window.dispatchEvent(new CustomEvent("hinaa:toggle-walk-mode")),
+                onOpenRunway: () => setSakuraView("showroom"),
+              }}
             />
 
 

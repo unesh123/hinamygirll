@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
+import { DynamicIslandCompanion, type DynamicIslandCompanionProps } from "./DynamicIslandCompanion";
 
 export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
@@ -34,13 +35,14 @@ export interface TopBarV6Props {
   executiveMode: ExecutiveMode;
   onExecutiveModeChange: (mode: ExecutiveMode) => void;
   onNewChat?: () => void;
+  islandProps?: DynamicIslandCompanionProps;
 }
 
 export const TopBarV6: React.FC<TopBarV6Props> = ({
   currentMode,
   onModeChange,
   activeProject = { id: "default", name: "HINA Workspace", repo: "main" },
-  isDark = false,
+  isDark = true,
   onToggleTheme,
   onOpenSearch,
   onSelectModel,
@@ -49,10 +51,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   executiveMode,
   onExecutiveModeChange,
   onNewChat,
+  islandProps,
 }) => {
   const { models, providers, runtime } = useCapabilities();
-  // Derived, not copied: a local snapshot kept showing "Auto (Router)" after
-  // the model had been chosen somewhere else.
   const isAuto = isAutoRouter ?? !selectedModelId;
 
   const handleModeClick = (mode: ExecutiveMode) => {
@@ -69,160 +70,178 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        background: isDark ? "rgba(0, 0, 0, 0.78)" : "#ffffff",
+        background: isDark ? "rgba(9, 10, 15, 0.94)" : "#ffffff",
         borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-        backdropFilter: isDark ? "blur(18px)" : "none",
-        WebkitBackdropFilter: isDark ? "blur(18px)" : "none",
-        zIndex: 25,
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        zIndex: 50,
         userSelect: "none",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif",
+        padding: "0 14px",
+        height: 52,
+        position: "relative",
       }}
     >
-      {/* ── Left: Breadcrumb ────────────────────────────── */}
-      <div className="topbar-v6__breadcrumb">
-        <button
-          type="button"
+      {/* ── Left: Breadcrumb & Executive Workspace Modes ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {/* Breadcrumb */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            type="button"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              background: "transparent",
+              border: "none",
+              color: isDark ? "#94a3b8" : "#64748b",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            <span>HINA STUDIO</span>
+            <ChevronDown size={11} style={{ opacity: 0.7 }} />
+          </button>
+          <span style={{ color: isDark ? "rgba(255, 255, 255, 0.2)" : "#cbd5e1", fontSize: 12 }}>/</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>
+            {{
+              chat: "Chat",
+              work: "Chat",
+              talk: "Talk",
+              showroom: "Runway 3D",
+              operate: "Dashboard",
+              dashboard: "Dashboard",
+              models: "Models",
+              reports: "Reports",
+              vault: "VIP Vault",
+              settings: "Settings",
+            }[currentMode] || "Chat"}
+          </span>
+        </div>
+
+        {/* Executive Mode Tabs (Adobe Premiere / AE Workspace Tab Style) */}
+        <div
+          className="topbar-v6__modes"
           style={{
-            display: "inline-flex",
+            display: "flex",
             alignItems: "center",
-            gap: 4,
-            background: "transparent",
-            border: "none",
-            color: isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b",
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: "pointer",
-            padding: 0,
+            gap: 2,
+            background: isDark ? "rgba(255, 255, 255, 0.05)" : "#f1f5f9",
+            padding: "2px 3px",
+            borderRadius: 8,
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
           }}
         >
-          <span>Workspace</span>
-          <ChevronDown size={12} style={{ opacity: 0.7 }} />
-        </button>
-        <span style={{ color: isDark ? "rgba(255, 255, 255, 0.2)" : "#cbd5e1", fontSize: 13 }}>/</span>
-        <span style={{ fontSize: 13, fontWeight: 650, color: isDark ? "#ffffff" : "#0f172a" }}>
-          {{
-            chat: "Chat",
-            work: "Chat",
-            talk: "Talk",
-            showroom: "Runway 3D",
-            operate: "Dashboard",
-            dashboard: "Dashboard",
-            models: "Models",
-            reports: "Reports",
-            vault: "VIP College Vault",
-            settings: "Settings",
-          }[currentMode] || "Chat"}
-        </span>
+          <button
+            type="button"
+            data-testid="mode-chat"
+            onClick={() => handleModeClick("chat")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: "none",
+              padding: "4px 8px",
+              fontSize: 11,
+              fontWeight: executiveMode === "chat" ? 700 : 500,
+              background: executiveMode === "chat" ? (isDark ? "rgba(255,255,255,0.14)" : "#ffffff") : "transparent",
+              color: executiveMode === "chat" ? (isDark ? "#ffffff" : "#0f172a") : (isDark ? "#94a3b8" : "#64748b"),
+              cursor: "pointer",
+              boxShadow: executiveMode === "chat" ? (isDark ? "0 1px 4px rgba(0,0,0,0.4)" : "0 1px 2px rgba(0,0,0,0.08)") : "none",
+            }}
+          >
+            <MessageSquare size={12} color={executiveMode === "chat" ? "#00d4ff" : undefined} />
+            <span>Chat</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="mode-deep-reasoning"
+            onClick={() => handleModeClick("deep-reasoning")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: "none",
+              padding: "4px 8px",
+              fontSize: 11,
+              fontWeight: executiveMode === "deep-reasoning" ? 700 : 500,
+              background: executiveMode === "deep-reasoning" ? (isDark ? "rgba(255,255,255,0.14)" : "#ffffff") : "transparent",
+              color: executiveMode === "deep-reasoning" ? (isDark ? "#ffffff" : "#0f172a") : (isDark ? "#94a3b8" : "#64748b"),
+              cursor: "pointer",
+              boxShadow: executiveMode === "deep-reasoning" ? (isDark ? "0 1px 4px rgba(0,0,0,0.4)" : "0 1px 2px rgba(0,0,0,0.08)") : "none",
+            }}
+          >
+            <Brain size={12} color={executiveMode === "deep-reasoning" ? "#ec4899" : undefined} />
+            <span>Deep Reasoning</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="mode-report"
+            onClick={() => handleModeClick("report")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: "none",
+              padding: "4px 8px",
+              fontSize: 11,
+              fontWeight: executiveMode === "report" ? 700 : 500,
+              background: executiveMode === "report" ? (isDark ? "rgba(255,255,255,0.14)" : "#ffffff") : "transparent",
+              color: executiveMode === "report" ? (isDark ? "#ffffff" : "#0f172a") : (isDark ? "#94a3b8" : "#64748b"),
+              cursor: "pointer",
+              boxShadow: executiveMode === "report" ? (isDark ? "0 1px 4px rgba(0,0,0,0.4)" : "0 1px 2px rgba(0,0,0,0.08)") : "none",
+            }}
+          >
+            <FileText size={12} color={executiveMode === "report" ? "#f59e0b" : undefined} />
+            <span>Report</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="mode-research"
+            onClick={() => handleModeClick("research")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: "none",
+              padding: "4px 8px",
+              fontSize: 11,
+              fontWeight: executiveMode === "research" ? 700 : 500,
+              background: executiveMode === "research" ? (isDark ? "rgba(255,255,255,0.14)" : "#ffffff") : "transparent",
+              color: executiveMode === "research" ? (isDark ? "#ffffff" : "#0f172a") : (isDark ? "#94a3b8" : "#64748b"),
+              cursor: "pointer",
+              boxShadow: executiveMode === "research" ? (isDark ? "0 1px 4px rgba(0,0,0,0.4)" : "0 1px 2px rgba(0,0,0,0.08)") : "none",
+            }}
+          >
+            <Search size={12} color={executiveMode === "research" ? "#10b981" : undefined} />
+            <span>Research</span>
+          </button>
+        </div>
       </div>
 
-      {/* ── Center: Executive Modes Pills ──────────────── */}
-      <div
-        className="topbar-v6__modes"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f8fafc",
-          padding: "3px 4px",
-          borderRadius: 10,
-          border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #f1f5f9",
-        }}
-      >
-        <button
-          type="button"
-          data-testid="mode-chat"
-          onClick={() => handleModeClick("chat")}
-          className="topbar-v6__mode-btn"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: 7,
-            border: "none",
-            fontWeight: executiveMode === "chat" ? 600 : 500,
-            background: executiveMode === "chat" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
-            color: executiveMode === "chat" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
-            cursor: "pointer",
-            transition: "all 0.12s ease",
-            boxShadow: executiveMode === "chat" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
-          }}
-        >
-          <MessageSquare size={13} />
-          <span>Chat</span>
-        </button>
+      {/* ── Center: INA ISLAND APEX CORE ─────────────────── */}
+      {islandProps && (
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <DynamicIslandCompanion
+            {...islandProps}
+            isDark={isDark}
+            availableModels={models}
+            onSelectModel={onSelectModel}
+          />
+        </div>
+      )}
 
-        <button
-          type="button"
-          data-testid="mode-deep-reasoning"
-          onClick={() => handleModeClick("deep-reasoning")}
-          className="topbar-v6__mode-btn"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: 7,
-            border: "none",
-            fontWeight: executiveMode === "deep-reasoning" ? 600 : 500,
-            background: executiveMode === "deep-reasoning" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
-            color: executiveMode === "deep-reasoning" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
-            cursor: "pointer",
-            transition: "all 0.12s ease",
-            boxShadow: executiveMode === "deep-reasoning" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
-          }}
-        >
-          <Brain size={13} />
-          <span>Deep Reasoning</span>
-        </button>
-
-        <button
-          type="button"
-          data-testid="mode-report"
-          onClick={() => handleModeClick("report")}
-          className="topbar-v6__mode-btn"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: 7,
-            border: "none",
-            fontWeight: executiveMode === "report" ? 600 : 500,
-            background: executiveMode === "report" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
-            color: executiveMode === "report" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
-            cursor: "pointer",
-            transition: "all 0.12s ease",
-            boxShadow: executiveMode === "report" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
-          }}
-        >
-          <FileText size={13} />
-          <span>Report</span>
-        </button>
-
-        <button
-          type="button"
-          data-testid="mode-research"
-          onClick={() => handleModeClick("research")}
-          className="topbar-v6__mode-btn"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: 7,
-            border: "none",
-            fontWeight: executiveMode === "research" ? 600 : 500,
-            background: executiveMode === "research" ? (isDark ? "#f5f5f5" : "#1a232b") : "transparent",
-            color: executiveMode === "research" ? (isDark ? "#1b1b1b" : "#ffffff") : (isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b"),
-            cursor: "pointer",
-            transition: "all 0.12s ease",
-            boxShadow: executiveMode === "research" ? (isDark ? "0 2px 8px rgba(255, 255, 255, 0.15)" : "0 1px 2px rgba(0,0,0,0.1)") : "none",
-          }}
-        >
-          <Search size={13} />
-          <span>Research</span>
-        </button>
-      </div>
-
-      {/* ── Right: Real Model Selector & Actions ─── */}
-      <div className="topbar-v6__actions">
+      {/* ── Right: Real Model Selector & Executive Actions ── */}
+      <div className="topbar-v6__actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {/* Real Model Selector V7 */}
         <ModelSelectorV7
           models={models}
@@ -234,7 +253,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           backendConnected={runtime.backendConnected}
           isDark={isDark}
         />
-        {/* + New Session button */}
+
+        {/* + New Chat Session */}
         {onNewChat && (
           <button
             type="button"
@@ -245,7 +265,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
               height: 32,
               padding: "0 10px",
               borderRadius: 8,
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #cbd5e1",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.14)" : "1px solid #cbd5e1",
               background: isDark ? "rgba(255, 255, 255, 0.08)" : "#f8fafc",
               color: isDark ? "#ffffff" : "#0f172a",
               display: "flex",
@@ -254,14 +274,15 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
               fontSize: 12,
               fontWeight: 650,
               cursor: "pointer",
-              transition: "all 0.15s ease",
+              transition: "all 0.12s ease",
             }}
           >
             <Plus size={13} strokeWidth={2.5} />
             <span>New Chat</span>
           </button>
         )}
-        {/* Runway 3D Showroom button */}
+
+        {/* Runway 3D Showroom */}
         <button
           type="button"
           data-testid="topbar-showroom-btn"
@@ -272,31 +293,31 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             padding: "0 12px",
             borderRadius: 9999,
             border: currentMode === "showroom"
-              ? (isDark ? "1.5px solid #2b7fff" : "1.5px solid #ff7a00")
-              : (isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0"),
+              ? "1.5px solid #00d4ff"
+              : isDark
+              ? "1px solid rgba(255, 255, 255, 0.12)"
+              : "1px solid #e2e8f0",
             background: currentMode === "showroom"
-              ? (isDark ? "rgba(43, 127, 255, 0.15)" : "#17191c")
-              : (isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff"),
-            color: currentMode === "showroom"
-              ? (isDark ? "#2b7fff" : "#ff7a00")
-              : (isDark ? "rgba(255, 255, 255, 0.75)" : "#64748b"),
+              ? "rgba(0, 212, 255, 0.15)"
+              : isDark
+              ? "rgba(255, 255, 255, 0.06)"
+              : "#ffffff",
+            color: currentMode === "showroom" ? "#00d4ff" : isDark ? "#ffffff" : "#475569",
             display: "flex",
             alignItems: "center",
             gap: 6,
             fontSize: 12,
-            fontWeight: 650,
+            fontWeight: 700,
             cursor: "pointer",
-            boxShadow: currentMode === "showroom"
-              ? (isDark ? "0 2px 12px rgba(43, 127, 255, 0.3)" : "0 2px 10px rgba(255, 122, 0, 0.25)")
-              : "none",
-            transition: "all 0.15s ease",
+            boxShadow: currentMode === "showroom" ? "0 0 12px rgba(0, 212, 255, 0.3)" : "none",
+            transition: "all 0.12s ease",
           }}
         >
-          <Sparkles size={13} color={currentMode === "showroom" ? (isDark ? "#2b7fff" : "#ff7a00") : (isDark ? "rgba(255, 255, 255, 0.75)" : "#64748b")} />
+          <Sparkles size={13} color={currentMode === "showroom" ? "#00d4ff" : "#ec4899"} />
           <span>Runway 3D</span>
         </button>
 
-        {/* Search button */}
+        {/* Search */}
         <button
           type="button"
           onClick={onOpenSearch}
@@ -305,9 +326,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             width: 32,
             height: 32,
             borderRadius: 8,
-            border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-            background: isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff",
-            color: isDark ? "rgba(255, 255, 255, 0.8)" : "#64748b",
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
+            background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+            color: isDark ? "#cbd5e1" : "#64748b",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -317,27 +338,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <Search size={14} />
         </button>
 
-        {/* Notification Bell */}
-        <button
-          type="button"
-          title="Notifications"
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-            background: isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff",
-            color: isDark ? "rgba(255, 255, 255, 0.8)" : "#64748b",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-          }}
-        >
-          <Bell size={14} />
-        </button>
-
-        {/* Theme Sun */}
+        {/* Dark/Light Theme */}
         {onToggleTheme && (
           <button
             type="button"
@@ -347,9 +348,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
               width: 32,
               height: 32,
               borderRadius: 8,
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-              background: isDark ? "rgba(255, 255, 255, 0.05)" : "#ffffff",
-              color: isDark ? "rgba(255, 255, 255, 0.8)" : "#64748b",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
+              background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+              color: isDark ? "#cbd5e1" : "#64748b",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -366,17 +367,18 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             width: 30,
             height: 30,
             borderRadius: 9999,
-            background: "#fecdd3",
-            color: "#be123c",
+            background: "linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)",
+            color: "#ffffff",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             fontSize: 11,
-            fontWeight: 700,
+            fontWeight: 800,
             flexShrink: 0,
+            boxShadow: "0 0 10px rgba(236,72,153,0.4)",
           }}
         >
-          AM
+          UB
         </div>
       </div>
     </header>

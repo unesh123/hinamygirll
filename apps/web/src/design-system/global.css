@@ -271,3 +271,66 @@ pre code {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ADOBE HIGH-LEVEL 3D MOTION EDIT & TACTILE HAPTIC SYSTEM
+   Every component, every button has physical tactile feedback,
+   precise beveling, and instant click response.
+   ═══════════════════════════════════════════════════════════════ */
+
+button,
+[role="button"],
+.sakura-button,
+.sakura-chip,
+.topbar-v6__mode-btn,
+.composer-v6-action-btn {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.4, 1),
+              box-shadow 0.15s ease,
+              background-color 0.15s ease,
+              border-color 0.15s ease,
+              filter 0.15s ease;
+}
+
+button:active:not(:disabled),
+[role="button"]:active:not(:disabled),
+.sakura-button:active:not(:disabled),
+.sakura-chip:active:not(:disabled) {
+  transform: scale(0.96) translateY(1px);
+  filter: brightness(0.92);
+}
+
+/* Precision Adobe Obsidian Studio Overrides for high-contrast crisp text */
+[data-theme="dark"] {
+  --bg-canvas: #07080c;
+  --bg-subtle: #0d0f17;
+  --bg-surface: #121520;
+  --bg-surface-raised: #181c2a;
+  --bg-surface-hover: #202638;
+  --text-primary: #ffffff !important;
+  --text-secondary: #cbd5e1 !important;
+  --text-tertiary: #94a3b8 !important;
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-default: rgba(255, 255, 255, 0.14);
+}
+
+/* High-contrast scrollbars for Adobe Edit feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+

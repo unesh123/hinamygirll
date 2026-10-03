@@ -92,6 +92,7 @@ import { VRMAvatar } from "../../features/avatar/VRMAvatar";
 import { ModelControlBar } from "../layout/ModelControlBar";
 import type { PresenceMode } from "../../components/ui/AvatarPresence";
 import type { ExecutiveMode } from "../layout/TopBarV6";
+import { AdobeMotionTimeline } from "./AdobeMotionTimeline";
 
 function getProviderDisplayName(mode?: string): string {
   if (!mode) return "Provider";
@@ -289,6 +290,30 @@ export function WorkMode({
       localStorage.setItem("hinaa_companion_dock_mode", mode);
     } catch {}
   };
+
+  const [isWalking, setIsWalking] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("hinaa_walk_mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleWalk = useCallback(() => {
+    setIsWalking((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("hinaa_walk_mode", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleToggleWalkEvent = () => handleToggleWalk();
+    window.addEventListener("hinaa:toggle-walk-mode", handleToggleWalkEvent);
+    return () => window.removeEventListener("hinaa:toggle-walk-mode", handleToggleWalkEvent);
+  }, [handleToggleWalk]);
 
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
@@ -820,6 +845,8 @@ export function WorkMode({
           })()
         }
         isDark={isDark}
+        isWalking={isWalking}
+        onToggleWalk={handleToggleWalk}
       />
     );
   };
@@ -847,11 +874,12 @@ export function WorkMode({
           display: isMobile ? "none" : "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0 var(--space-4)",
-          borderBottom: "1px solid var(--border-subtle)",
-          background: "var(--bg-surface)",
+          padding: "0 14px",
+          borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid var(--border-subtle)",
+          background: isDark ? "rgba(11, 13, 20, 0.85)" : "var(--bg-surface)",
+          backdropFilter: "blur(12px)",
           flexShrink: 0,
-          height: 48,
+          height: 38,
           gap: 8,
         }}
       >
@@ -983,11 +1011,18 @@ export function WorkMode({
         </div>
       </header>
 
-      {/* ── Steep Editorial Analytics Bar (Pillar 4) ── */}
-      <SteepAnalyticsBar
+      {/* ── Adobe 3D Motion Timeline & Telemetry Scrubber ── */}
+      <AdobeMotionTimeline
+        isDark={isDark}
         activeModel={activeProviderModel || activeProviderMode || "qwen3.8-max"}
+        latencyMs={850}
+        tokensUsed={42850}
+        totalTokens={1000000}
+        isWalking={isWalking}
+        onToggleWalk={handleToggleWalk}
         onOpenTerminal={() => onOpenTerminal?.()}
-        onOpenVault={onOpenVault}
+        isVoiceActive={isVoiceActive}
+        companionState={companionState}
       />
 
       {/* ── Voice Active Banner ───────────────────────── */}

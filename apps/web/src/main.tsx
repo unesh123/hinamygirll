@@ -30,7 +30,10 @@ if (typeof window !== "undefined" && "serviceWorker" in navigator) {
 const authMode = import.meta.env.VITE_HINAA_AUTH_MODE;
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
+import { initGlobalUiSounds } from "./lib/uiSound";
+
 installStaleBuildRecovery();
+initGlobalUiSounds();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

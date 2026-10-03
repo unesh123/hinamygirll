@@ -26,7 +26,14 @@ import {
   Loader2,
   Check,
   ShieldAlert,
+  Footprints,
+  Activity,
+  Sliders,
+  Cpu,
+  Layers,
 } from "lucide-react";
+import { playUiSound, isSoundEnabled, setSoundEnabled, type UiSoundType } from "../../lib/uiSound";
+import type { DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
 
 export interface DynamicIslandCompanionProps {
   isDark?: boolean;
@@ -47,74 +54,27 @@ export interface DynamicIslandCompanionProps {
   onOpenSettings?: () => void;
   onNewChat?: () => void;
   onSendMessage?: (text: string) => void;
+  onAttachImage?: (dataUrl: string) => void;
+  onSelectModel?: (modelId: string, providerId: string) => void;
+  availableModels?: DiscoveredModel[];
   isThinking?: boolean;
   activeProviderModel?: string | null;
   companionName?: string;
-}
-
-// Delightful Web Audio UI Sound Synthesizer (Zero asset dependencies)
-function playUiSound(type: "pop" | "click" | "whoosh" | "success" | "deny") {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    const now = ctx.currentTime;
-    if (type === "pop") {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(580, now);
-      osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-      osc.start(now);
-      osc.stop(now + 0.08);
-    } else if (type === "click") {
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(800, now);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
-      osc.start(now);
-      osc.stop(now + 0.04);
-    } else if (type === "whoosh") {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(320, now);
-      osc.frequency.exponentialRampToValueAtTime(640, now + 0.14);
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-      osc.start(now);
-      osc.stop(now + 0.14);
-    } else if (type === "success") {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(523.25, now); // C5
-      osc.frequency.setValueAtTime(659.25, now + 0.07); // E5
-      osc.frequency.setValueAtTime(783.99, now + 0.14); // G5
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
-      osc.start(now);
-      osc.stop(now + 0.28);
-    } else if (type === "deny") {
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(220, now);
-      osc.frequency.setValueAtTime(180, now + 0.09);
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-      osc.start(now);
-      osc.stop(now + 0.18);
-    }
-  } catch {
-    // Audio autoplay or web audio restriction fallback
-  }
+  companionState?: string;
+  streamingText?: string | null;
+  lastAssistantText?: string | null;
+  isWalking?: boolean;
+  onToggleWalk?: () => void;
+  onOpenRunway?: () => void;
+  inlineInTopBar?: boolean;
 }
 
 // Coucou Interactive Mascot Avatar Component
-const CoucouMascot: React.FC<{
+export const CoucouMascot: React.FC<{
   mood?: "idle" | "happy" | "eating" | "alert" | "thinking";
   isHovered?: boolean;
-}> = ({ mood = "idle", isHovered = false }) => {
+  size?: number;
+}> = ({ mood = "idle", isHovered = false, size = 56 }) => {
   const [blink, setBlink] = useState(false);
 
   useEffect(() => {
@@ -125,20 +85,22 @@ const CoucouMascot: React.FC<{
     return () => clearInterval(interval);
   }, []);
 
+  const scale = size / 64;
+
   return (
     <div
       style={{
         position: "relative",
-        width: 64,
-        height: 64,
-        borderRadius: 16,
+        width: size,
+        height: size,
+        borderRadius: Math.round(16 * scale),
         overflow: "hidden",
-        background: "radial-gradient(circle at 50% 40%, #1e1e28 0%, #0c0d12 100%)",
-        border: "1px solid rgba(255, 255, 255, 0.12)",
+        background: "radial-gradient(circle at 50% 35%, #1e2235 0%, #08090e 100%)",
+        border: "1px solid rgba(255, 255, 255, 0.16)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        boxShadow: "inset 0 1px 1px rgba(255,255,255,0.2), 0 4px 14px rgba(0,0,0,0.4)",
+        boxShadow: "inset 0 1px 1px rgba(255,255,255,0.25), 0 4px 16px rgba(0,0,0,0.5)",
         cursor: "pointer",
         flexShrink: 0,
       }}
@@ -149,15 +111,15 @@ const CoucouMascot: React.FC<{
           position: "absolute",
           inset: 0,
           background:
-            "radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.7) 100%, transparent), radial-gradient(1.5px 1.5px at 75% 25%, rgba(255,255,255,0.8) 100%, transparent), radial-gradient(1px 1px at 85% 75%, rgba(255,255,255,0.6) 100%, transparent), radial-gradient(1.5px 1.5px at 35% 80%, rgba(255,255,255,0.5) 100%, transparent)",
-          opacity: 0.65,
+            "radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.8) 100%, transparent), radial-gradient(1.5px 1.5px at 75% 25%, rgba(0,212,255,0.9) 100%, transparent), radial-gradient(1px 1px at 85% 75%, rgba(236,72,153,0.8) 100%, transparent), radial-gradient(1.5px 1.5px at 35% 80%, rgba(255,255,255,0.6) 100%, transparent)",
+          opacity: 0.75,
         }}
       />
 
       {/* SVG Coucou / Hina Character */}
       <svg
-        width="46"
-        height="46"
+        width={Math.round(42 * scale)}
+        height={Math.round(42 * scale)}
         viewBox="0 0 100 100"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
@@ -174,15 +136,15 @@ const CoucouMascot: React.FC<{
           ry="30"
           fill="#ffffff"
           animate={{
-            ry: mood === "eating" ? [30, 33, 30] : [30, 29, 30],
+            ry: mood === "eating" ? [30, 34, 30] : [30, 29, 30],
             cy: mood === "happy" ? [54, 51, 54] : [54, 55, 54],
           }}
           transition={{ repeat: Infinity, duration: mood === "happy" ? 1.2 : 2.8, ease: "easeInOut" }}
         />
 
         {/* Anime Cheeks (Blush) */}
-        <ellipse cx="28" cy="58" rx="5" ry="3" fill="#ffb4c8" opacity="0.6" />
-        <ellipse cx="72" cy="58" rx="5" ry="3" fill="#ffb4c8" opacity="0.6" />
+        <ellipse cx="28" cy="58" rx="5" ry="3" fill="#ffb4c8" opacity="0.7" />
+        <ellipse cx="72" cy="58" rx="5" ry="3" fill="#ffb4c8" opacity="0.7" />
 
         {/* Eyes */}
         {blink || mood === "happy" ? (
@@ -204,15 +166,15 @@ const CoucouMascot: React.FC<{
         {/* Mouth */}
         {mood === "eating" ? (
           // Mouth open eating dropped file
-          <path d="M 44 56 Q 50 68 56 56 Z" fill="#ff5a82" />
+          <path d="M 44 55 Q 50 70 56 55 Z" fill="#ff5a82" />
         ) : mood === "happy" ? (
-          <path d="M 45 56 Q 50 62 55 56" stroke="#121215" strokeWidth="3" strokeLinecap="round" fill="none" />
+          <path d="M 45 56 Q 50 63 55 56" stroke="#121215" strokeWidth="3" strokeLinecap="round" fill="none" />
         ) : (
           // Subtle neutral/cute mouth
-          <path d="M 47 57 Q 50 59 53 57" stroke="#121215" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+          <path d="M 47 57 Q 50 60 53 57" stroke="#121215" strokeWidth="2.5" strokeLinecap="round" fill="none" />
         )}
 
-        {/* Tiny waving hands on hover or celebrate */}
+        {/* Tiny waving hands on hover */}
         {isHovered && (
           <motion.ellipse
             cx="84"
@@ -239,33 +201,55 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   onOpenSettings,
   onNewChat,
   onSendMessage,
+  onAttachImage,
+  onSelectModel,
+  availableModels = [],
   isThinking = false,
   activeProviderModel,
   companionName = "Hina",
+  companionState = "ready",
+  streamingText = null,
+  lastAssistantText = null,
+  isWalking = false,
+  onToggleWalk,
+  onOpenRunway,
+  inlineInTopBar = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "stripe" | "upload">("agent");
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "stripe" | "upload" | "motion">("agent");
+  const [soundActive, setSoundActive] = useState(() => isSoundEnabled());
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedFilePreview, setUploadedFilePreview] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
-  const [chatResponse, setChatResponse] = useState<string | null>(null);
+  const [lastUserQuery, setLastUserQuery] = useState<string | null>(null);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("claude-sonnet-4-6");
   const [isHovered, setIsHovered] = useState(false);
-  const [simulatedStepIndex, setSimulatedStepIndex] = useState(2);
+  const [walkCadence, setWalkCadence] = useState(1.0);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Sync sound setting
+  useEffect(() => {
+    const handleSoundToggle = (e: Event) => {
+      const custom = e as CustomEvent<{ enabled: boolean }>;
+      if (custom.detail) {
+        setSoundActive(custom.detail.enabled);
+      }
+    };
+    window.addEventListener("hinaa-sound-toggle", handleSoundToggle);
+    return () => window.removeEventListener("hinaa-sound-toggle", handleSoundToggle);
+  }, []);
 
   // Auto-expand island when interactive permission is requested
   useEffect(() => {
     if (pendingApproval) {
       setIsExpanded(true);
       setActiveTab("agent");
-      if (soundEnabled) playUiSound("whoosh");
+      playUiSound("warning");
     }
-  }, [pendingApproval, soundEnabled]);
+  }, [pendingApproval]);
 
   // Window drag & drop listeners for "Eat the file" feature
   useEffect(() => {
@@ -283,7 +267,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
       setIsDraggingFile(false);
       const file = e.dataTransfer?.files?.[0];
       if (file) {
-        handleFileDropped(file.name);
+        handleFileDropped(file);
       }
     };
 
@@ -297,62 +281,73 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
     };
   }, []);
 
-  const handleFileDropped = (fileName: string) => {
+  const handleFileDropped = (file: File) => {
     setIsExpanded(true);
     setActiveTab("upload");
-    setUploadedFileName(fileName);
+    setUploadedFileName(file.name);
     setUploadProgress(0);
-    if (soundEnabled) playUiSound("pop");
+    playUiSound("pop");
 
-    // Simulate animated upload progress bar matching video 00:30
+    // Read file preview if image
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        setUploadedFilePreview(dataUrl);
+        onAttachImage?.(dataUrl);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Realistic upload progress simulation
     let current = 0;
     const interval = setInterval(() => {
-      current += 20;
+      current += 25;
       setUploadProgress(current);
       if (current >= 100) {
         clearInterval(interval);
-        if (soundEnabled) playUiSound("success");
+        playUiSound("success");
       }
-    }, 150);
+    }, 120);
   };
 
   const handleSendQuickChat = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!chatInput.trim()) return;
-    if (soundEnabled) playUiSound("pop");
+    playUiSound("buttonPress");
 
     const query = chatInput.trim();
+    setLastUserQuery(query);
     setChatInput("");
 
     if (onSendMessage) {
       onSendMessage(query);
     }
-
-    // Immediate inline feedback matching video 00:38
-    setChatResponse("The total is €1,240 excl. VAT (€1,488 incl. VAT) for Atelier Brun — valid until October 30.");
   };
 
   const toggleSound = () => {
-    setSoundEnabled((prev) => {
-      const next = !prev;
-      if (next) playUiSound("pop");
-      return next;
-    });
+    const next = !soundActive;
+    setSoundActive(next);
+    setSoundEnabled(next);
   };
 
-  // Check if active agent steps are present
-  const isAgentActive = agentSteps.some((s) => s.status === "active" || s.status === "pending") || Boolean(pendingApproval);
+  const isAgentActive =
+    agentSteps.some((s) => s.status === "active" || s.status === "pending") ||
+    Boolean(pendingApproval) ||
+    isThinking;
+
+  const currentDisplayModel = activeProviderModel || "auto";
 
   return (
     <div
       ref={containerRef}
       style={{
-        position: "fixed",
-        top: 12,
-        left: "50%",
-        transform: "translateX(-50%)",
+        position: inlineInTopBar ? "relative" : "fixed",
+        top: inlineInTopBar ? 0 : 8,
+        left: inlineInTopBar ? "auto" : "50%",
+        transform: inlineInTopBar ? "none" : "translateX(-50%)",
         zIndex: 9999,
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', sans-serif",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif",
       }}
     >
       <motion.div
@@ -361,52 +356,54 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         style={{
-          background: isDark ? "rgba(10, 10, 13, 0.94)" : "rgba(255, 255, 255, 0.96)",
+          background: isDark
+            ? "linear-gradient(135deg, rgba(16, 18, 26, 0.96) 0%, rgba(9, 10, 15, 0.98) 100%)"
+            : "linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 247, 250, 0.96) 100%)",
           backdropFilter: "blur(24px)",
           WebkitBackdropFilter: "blur(24px)",
           border: isDraggingFile
-            ? "2px dashed #10b981"
+            ? "2px dashed #00d4ff"
             : isDark
-            ? "1px solid rgba(255, 255, 255, 0.12)"
-            : "1px solid rgba(0, 0, 0, 0.1)",
+            ? "1px solid rgba(255, 255, 255, 0.14)"
+            : "1px solid rgba(0, 0, 0, 0.12)",
           boxShadow: isDark
-            ? "0 12px 48px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255,255,255,0.06)"
-            : "0 12px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0,0,0,0.04)",
+            ? "0 16px 48px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.12)"
+            : "0 12px 36px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.8)",
           borderRadius: isExpanded ? 24 : 32,
-          padding: isExpanded ? "12px 16px" : "6px 14px",
-          width: isExpanded ? 640 : isAgentActive ? 340 : 260,
-          color: isDark ? "#ffffff" : "#111827",
+          padding: isExpanded ? "12px 18px" : "4px 12px",
+          width: isExpanded ? 680 : isAgentActive ? 360 : 310,
+          color: isDark ? "#ffffff" : "#0f172a",
           display: "flex",
           flexDirection: "column",
-          gap: isExpanded ? 10 : 0,
+          gap: isExpanded ? 12 : 0,
           overflow: "hidden",
         }}
       >
-        {/* ── Top Bar / Header of Dynamic Island ──────────────────────── */}
+        {/* ── Top Bar Header of Dynamic Island ──────────────────────── */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             width: "100%",
-            height: isExpanded ? 32 : 36,
+            height: isExpanded ? 34 : 36,
           }}
         >
-          {/* Left: Quick Navigation Icons */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {/* Left: Quick Actions */}
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <button
               type="button"
               onClick={() => {
-                if (soundEnabled) playUiSound("click");
+                playUiSound("click");
                 setIsExpanded((v) => !v);
               }}
               title="Home / Expand Island"
               style={{
                 background: "transparent",
                 border: "none",
-                color: isDark ? "rgba(255, 255, 255, 0.7)" : "#4b5563",
+                color: isDark ? "#cbd5e1" : "#475569",
                 cursor: "pointer",
-                padding: 4,
+                padding: "4px 6px",
                 display: "flex",
                 alignItems: "center",
                 borderRadius: 8,
@@ -418,7 +415,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (soundEnabled) playUiSound("click");
+                playUiSound("click");
                 setIsExpanded(true);
                 setActiveTab("chat");
               }}
@@ -426,9 +423,9 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               style={{
                 background: activeTab === "chat" && isExpanded ? "rgba(236,72,153,0.2)" : "transparent",
                 border: "none",
-                color: activeTab === "chat" && isExpanded ? "#ec4899" : isDark ? "rgba(255,255,255,0.7)" : "#4b5563",
+                color: activeTab === "chat" && isExpanded ? "#ec4899" : isDark ? "#cbd5e1" : "#475569",
                 cursor: "pointer",
-                padding: 4,
+                padding: "4px 6px",
                 display: "flex",
                 alignItems: "center",
                 borderRadius: 8,
@@ -440,16 +437,16 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (soundEnabled) playUiSound("pop");
+                playUiSound("pop");
                 onNewChat?.();
               }}
               title="New Session (+)"
               style={{
                 background: "transparent",
                 border: "none",
-                color: isDark ? "rgba(255, 255, 255, 0.7)" : "#4b5563",
+                color: isDark ? "#cbd5e1" : "#475569",
                 cursor: "pointer",
-                padding: 4,
+                padding: "4px 6px",
                 display: "flex",
                 alignItems: "center",
                 borderRadius: 8,
@@ -459,11 +456,11 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             </button>
           </div>
 
-          {/* Center Mascot (When Collapsed) */}
+          {/* Center Mascot & Live Status Pill (When Collapsed) */}
           {!isExpanded && (
             <div
               onClick={() => {
-                if (soundEnabled) playUiSound("whoosh");
+                playUiSound("whoosh");
                 setIsExpanded(true);
               }}
               style={{
@@ -477,68 +474,90 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             >
               <div
                 style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  background: "radial-gradient(circle, #ec4899 0%, #a855f7 100%)",
+                  width: 22,
+                  height: 22,
+                  borderRadius: 11,
+                  background: isThinking
+                    ? "radial-gradient(circle, #00d4ff 0%, #0284c7 100%)"
+                    : isAgentActive
+                    ? "radial-gradient(circle, #f59e0b 0%, #d97706 100%)"
+                    : "radial-gradient(circle, #ec4899 0%, #a855f7 100%)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  boxShadow: "0 0 10px rgba(236,72,153,0.5)",
+                  boxShadow: "0 0 12px rgba(236,72,153,0.5)",
+                  animation: isThinking ? "pulse 1.5s infinite" : "none",
                 }}
               >
-                <span style={{ fontSize: 11, fontWeight: 800, color: "#fff" }}>✦</span>
+                {isThinking ? (
+                  <Loader2 size={12} color="#fff" className="animate-spin" />
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 800, color: "#fff" }}>✦</span>
+                )}
               </div>
               <span
                 style={{
                   fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: "0.02em",
-                  color: isDark ? "#ffffff" : "#111827",
+                  fontWeight: 650,
+                  letterSpacing: "0.01em",
+                  color: isDark ? "#ffffff" : "#0f172a",
                 }}
               >
-                {isAgentActive
-                  ? "Hina Claude Code"
-                  : isDraggingFile
-                  ? "Drop File Here"
+                {isDraggingFile
+                  ? "Drop File to Feed Hina"
+                  : isThinking
+                  ? "Hina Thinking..."
+                  : isAgentActive
+                  ? "Agent Executing..."
                   : `${companionName} Island`}
               </span>
+
+              {/* Status Dot */}
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 3,
+                  background: isThinking ? "#00d4ff" : "#10b981",
+                  boxShadow: `0 0 6px ${isThinking ? "#00d4ff" : "#10b981"}`,
+                }}
+              />
             </div>
           )}
 
           {/* Right: Sound, Settings, Expand/Collapse */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <button
               type="button"
               onClick={toggleSound}
-              title={soundEnabled ? "Mute UI Sounds" : "Enable UI Sounds"}
+              title={soundActive ? "Mute UI Sounds" : "Enable UI Sounds"}
               style={{
                 background: "transparent",
                 border: "none",
-                color: isDark ? "rgba(255, 255, 255, 0.65)" : "#6b7280",
+                color: soundActive ? "#00d4ff" : isDark ? "#64748b" : "#94a3b8",
                 cursor: "pointer",
-                padding: 4,
+                padding: "4px 6px",
                 display: "flex",
                 alignItems: "center",
                 borderRadius: 8,
               }}
             >
-              {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+              {soundActive ? <Volume2 size={15} /> : <VolumeX size={15} />}
             </button>
 
             <button
               type="button"
               onClick={() => {
-                if (soundEnabled) playUiSound("click");
+                playUiSound("click");
                 onOpenSettings?.();
               }}
               title="Settings"
               style={{
                 background: "transparent",
                 border: "none",
-                color: isDark ? "rgba(255, 255, 255, 0.65)" : "#6b7280",
+                color: isDark ? "#cbd5e1" : "#475569",
                 cursor: "pointer",
-                padding: 4,
+                padding: "4px 6px",
                 display: "flex",
                 alignItems: "center",
                 borderRadius: 8,
@@ -550,16 +569,16 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (soundEnabled) playUiSound("whoosh");
+                playUiSound("whoosh");
                 setIsExpanded((v) => !v);
               }}
               title={isExpanded ? "Collapse Island" : "Expand Island"}
               style={{
                 background: "transparent",
                 border: "none",
-                color: isDark ? "rgba(255, 255, 255, 0.75)" : "#374151",
+                color: isDark ? "#ffffff" : "#0f172a",
                 cursor: "pointer",
-                padding: 4,
+                padding: "4px 6px",
                 display: "flex",
                 alignItems: "center",
                 borderRadius: 8,
@@ -570,35 +589,230 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
           </div>
         </div>
 
-        {/* ── Expanded Island Content ─────────────────────────────────── */}
+        {/* ── Expanded Island Command Console ───────────────────────── */}
         <AnimatePresence>
           {isExpanded && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              style={{ display: "flex", gap: 14, paddingTop: 4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              style={{ display: "flex", gap: 16, paddingTop: 4 }}
             >
-              {/* Left Column: Mascot Avatar */}
+              {/* Left Column: Interactive Coucou Mascot */}
               <div
                 onClick={() => {
-                  if (soundEnabled) playUiSound("pop");
+                  playUiSound("pop");
                 }}
+                title="Hina Mascot Avatar"
               >
                 <CoucouMascot
                   mood={isDraggingFile ? "eating" : pendingApproval ? "alert" : isThinking ? "thinking" : "happy"}
                   isHovered={isHovered}
+                  size={64}
                 />
               </div>
 
-              {/* Center & Right Column: Interactive Hub */}
+              {/* Center & Right Column: Interactive Deck */}
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
-                {/* 1. Drag & Drop File Zone (When File Dragged) */}
-                {isDraggingFile || activeTab === "upload" ? (
+                {/* ── Console Mode Navigation Tabs ── */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playUiSound("click");
+                      setActiveTab("agent");
+                    }}
+                    style={{
+                      background: activeTab === "agent" ? "rgba(0, 212, 255, 0.15)" : "transparent",
+                      border: activeTab === "agent" ? "1px solid rgba(0, 212, 255, 0.4)" : "1px solid transparent",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: activeTab === "agent" ? "#00d4ff" : isDark ? "#cbd5e1" : "#475569",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Cpu size={12} />
+                    <span>Agent & CLI</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playUiSound("click");
+                      setActiveTab("motion");
+                    }}
+                    style={{
+                      background: activeTab === "motion" ? "rgba(236, 72, 153, 0.15)" : "transparent",
+                      border: activeTab === "motion" ? "1px solid rgba(236, 72, 153, 0.4)" : "1px solid transparent",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: activeTab === "motion" ? "#ec4899" : isDark ? "#cbd5e1" : "#475569",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Footprints size={12} />
+                    <span>3D Motion Edit</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playUiSound("click");
+                      setActiveTab("upload");
+                    }}
+                    style={{
+                      background: activeTab === "upload" ? "rgba(16, 185, 129, 0.15)" : "transparent",
+                      border: activeTab === "upload" ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid transparent",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: activeTab === "upload" ? "#10b981" : isDark ? "#cbd5e1" : "#475569",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Upload size={12} />
+                    <span>File Ingest</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playUiSound("click");
+                      setActiveTab("stripe");
+                    }}
+                    style={{
+                      background: activeTab === "stripe" ? "rgba(99, 91, 255, 0.15)" : "transparent",
+                      border: activeTab === "stripe" ? "1px solid rgba(99, 91, 255, 0.4)" : "1px solid transparent",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: activeTab === "stripe" ? "#a5b4fc" : isDark ? "#cbd5e1" : "#475569",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <CreditCard size={12} />
+                    <span>Telemetry</span>
+                  </button>
+
+                  {/* Real Model Selector Dropdown Trigger */}
+                  <div style={{ marginLeft: "auto", position: "relative" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playUiSound("switch");
+                        setModelDropdownOpen((v) => !v);
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                        border: isDark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.1)",
+                        borderRadius: 8,
+                        padding: "2px 8px",
+                        fontSize: 10,
+                        fontWeight: 650,
+                        color: isDark ? "#ffffff" : "#0f172a",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span style={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {currentDisplayModel}
+                      </span>
+                      <ChevronDown size={10} />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {modelDropdownOpen && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "100%",
+                          right: 0,
+                          marginTop: 4,
+                          background: isDark ? "#121520" : "#ffffff",
+                          border: isDark ? "1px solid rgba(255,255,255,0.15)" : "1px solid #cbd5e1",
+                          borderRadius: 10,
+                          padding: 4,
+                          boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+                          zIndex: 10000,
+                          minWidth: 160,
+                          maxHeight: 200,
+                          overflowY: "auto",
+                        }}
+                      >
+                        <div
+                          onClick={() => {
+                            playUiSound("click");
+                            onSelectModel?.("auto", "auto");
+                            setModelDropdownOpen(false);
+                          }}
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            borderRadius: 6,
+                            cursor: "pointer",
+                            color: currentDisplayModel === "auto" ? "#00d4ff" : isDark ? "#ffffff" : "#0f172a",
+                            background: currentDisplayModel === "auto" ? "rgba(0,212,255,0.1)" : "transparent",
+                          }}
+                        >
+                          Auto Router (Smart)
+                        </div>
+                        {availableModels.slice(0, 10).map((m) => (
+                          <div
+                            key={m.id}
+                            onClick={() => {
+                              playUiSound("click");
+                              onSelectModel?.(m.id, m.provider);
+                              setModelDropdownOpen(false);
+                            }}
+                            style={{
+                              padding: "6px 10px",
+                              fontSize: 11,
+                              borderRadius: 6,
+                              cursor: "pointer",
+                              color: currentDisplayModel === m.id ? "#00d4ff" : isDark ? "#e2e8f0" : "#1e293b",
+                              background: currentDisplayModel === m.id ? "rgba(0,212,255,0.1)" : "transparent",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {m.name || m.id}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Tab Content ── */}
+                {activeTab === "upload" || isDraggingFile ? (
+                  /* 1. File Ingestion & Analysis */
                   <div
                     style={{
                       background: "rgba(16, 185, 129, 0.08)",
-                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                      border: "1px solid rgba(16, 185, 129, 0.35)",
                       borderRadius: 14,
                       padding: "10px 14px",
                       display: "flex",
@@ -608,10 +822,10 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>
-                        Drop your files here (PDF, Images, Code, Docs)
+                        Drop Files (Images, Code, PDFs) for Hina to Ingest
                       </span>
                       {uploadedFileName && (
-                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+                        <span style={{ fontSize: 11, color: isDark ? "#e2e8f0" : "#1e293b" }}>
                           {uploadedFileName}
                         </span>
                       )}
@@ -634,7 +848,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                             style={{ height: "100%", background: "#10b981", borderRadius: 3 }}
                           />
                         </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981" }}>
                           {uploadProgress}%
                         </span>
                       </div>
@@ -645,22 +859,22 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            if (soundEnabled) playUiSound("click");
+                            playUiSound("buttonPress");
                             setActiveTab("chat");
-                            setChatInput(`Ask a question about ${uploadedFileName}: `);
+                            setChatInput(`Analyze and explain this file: ${uploadedFileName}`);
                           }}
                           style={{
                             background: "#10b981",
                             color: "#fff",
                             border: "none",
                             borderRadius: 8,
-                            padding: "4px 10px",
+                            padding: "5px 12px",
                             fontSize: 11,
-                            fontWeight: 650,
+                            fontWeight: 700,
                             cursor: "pointer",
                           }}
                         >
-                          Ask a question about it
+                          Ask Hina about this file
                         </button>
                         <button
                           type="button"
@@ -672,23 +886,116 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           style={{
                             background: "transparent",
                             border: "1px solid rgba(255,255,255,0.2)",
-                            color: "rgba(255,255,255,0.7)",
+                            color: isDark ? "#cbd5e1" : "#475569",
                             borderRadius: 8,
-                            padding: "4px 10px",
+                            padding: "5px 12px",
                             fontSize: 11,
                             cursor: "pointer",
                           }}
                         >
-                          Cancel
+                          Clear
                         </button>
                       </div>
                     )}
                   </div>
-                ) : activeTab === "stripe" ? (
-                  /* 2. Stripe Payments Live Financial Card (Matching Video 00:18) */
+                ) : activeTab === "motion" ? (
+                  /* 2. Adobe 3D Motion Edit Controls */
                   <div
                     style={{
-                      background: "rgba(99, 91, 255, 0.12)",
+                      background: "rgba(236, 72, 153, 0.08)",
+                      border: "1px solid rgba(236, 72, 153, 0.3)",
+                      borderRadius: 14,
+                      padding: "10px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#ec4899" }}>
+                        3D Motion & Locomotion Controls
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playUiSound("click");
+                          onToggleWalk?.();
+                        }}
+                        style={{
+                          background: isWalking ? "#ec4899" : "rgba(255,255,255,0.08)",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <Footprints size={12} />
+                        <span>{isWalking ? "Stop Walking" : "Walk / Roam Runway"}</span>
+                      </button>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: isDark ? "#e2e8f0" : "#1e293b" }}>
+                      <span>Gait Cadence: {walkCadence}x</span>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {[0.5, 1.0, 1.5, 2.0].map((spd) => (
+                          <button
+                            key={spd}
+                            type="button"
+                            onClick={() => {
+                              playUiSound("switch");
+                              setWalkCadence(spd);
+                            }}
+                            style={{
+                              background: walkCadence === spd ? "rgba(236,72,153,0.3)" : "rgba(255,255,255,0.06)",
+                              border: "none",
+                              borderRadius: 4,
+                              padding: "2px 6px",
+                              fontSize: 10,
+                              fontWeight: 650,
+                              color: walkCadence === spd ? "#fff" : isDark ? "#94a3b8" : "#64748b",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {spd}x
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playUiSound("whoosh");
+                          onOpenRunway?.();
+                        }}
+                        style={{
+                          flex: 1,
+                          background: "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(255,255,255,0.15)",
+                          color: isDark ? "#fff" : "#0f172a",
+                          borderRadius: 8,
+                          padding: "6px",
+                          fontSize: 11,
+                          fontWeight: 650,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Open Runway 3D Showroom
+                      </button>
+                    </div>
+                  </div>
+                ) : activeTab === "stripe" ? (
+                  /* 3. Live Telemetry & Stripe Hub */
+                  <div
+                    style={{
+                      background: "rgba(99, 91, 255, 0.1)",
                       border: "1px solid rgba(99, 91, 255, 0.35)",
                       borderRadius: 14,
                       padding: "10px 14px",
@@ -699,8 +1006,8 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <CreditCard size={14} color="#635bff" />
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Stripe Payments</span>
+                        <CreditCard size={14} color="#818cf8" />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Enterprise Metrics & Telemetry</span>
                       </div>
                       <span
                         style={{
@@ -712,65 +1019,42 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           borderRadius: 6,
                         }}
                       >
-                        +34% live
+                        All Systems Live
                       </span>
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>
-                      € 4,652.50 <span style={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.6)" }}>EUR</span>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>
+                      Latency: ~850ms <span style={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.6)" }}>· Context: 42.8k / 1.0M</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "rgba(255,255,255,0.65)" }}>
-                      <span>Atelier Brun: +1,240.00</span>
-                      <span>Camille R.: +49.00</span>
-                      <span>Hugo M.: +19.00</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+                      <span>FPS: 60 stable</span>
+                      <span>Voice: ElevenLabs Neural</span>
+                      <span>Provider: {currentDisplayModel}</span>
                     </div>
                   </div>
                 ) : (
-                  /* 3. Claude Code / Terminal Agent Live Monitor (Matching Video 00:08 - 00:16) */
+                  /* 4. Real Agent CLI Step Execution Monitor */
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {/* Header Step Counter */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>
-                          ✦ {companionName} Claude Code
+                        <span style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>
+                          ✦ {companionName} Agent Runtime
                         </span>
                         <span
                           style={{
                             fontSize: 10,
                             fontWeight: 700,
-                            color: "rgba(255,255,255,0.5)",
-                            background: "rgba(255,255,255,0.08)",
+                            color: isDark ? "#94a3b8" : "#64748b",
+                            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
                             padding: "2px 6px",
                             borderRadius: 6,
                           }}
                         >
-                          {simulatedStepIndex}/4
+                          {agentSteps.length > 0 ? `${agentSteps.length} steps` : companionState}
                         </span>
                       </div>
-
-                      {/* Model Selector Pill */}
-                      <button
-                        type="button"
-                        onClick={() => setModelDropdownOpen((v) => !v)}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          background: "rgba(255,255,255,0.08)",
-                          border: "1px solid rgba(255,255,255,0.12)",
-                          borderRadius: 8,
-                          padding: "2px 8px",
-                          fontSize: 10,
-                          fontWeight: 650,
-                          color: "rgba(255,255,255,0.85)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <span>{selectedModel}</span>
-                        <ChevronDown size={10} />
-                      </button>
                     </div>
 
-                    {/* Pending Permission Approval Gate (Video 00:12) */}
+                    {/* Pending Permission Approval Gate */}
                     {pendingApproval ? (
                       <div
                         style={{
@@ -786,7 +1070,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <ShieldAlert size={14} color="#f59e0b" />
                           <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>
-                            Needs permission:
+                            Requires Approval:
                           </span>
                           <span style={{ fontSize: 11, fontFamily: "monospace", color: "#fff" }}>
                             {pendingApproval.command || pendingApproval.actionName}
@@ -796,7 +1080,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              if (soundEnabled) playUiSound("deny");
+                              playUiSound("deny");
                               onConfirmStep?.(false);
                             }}
                             style={{
@@ -815,7 +1099,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              if (soundEnabled) playUiSound("success");
+                              playUiSound("success");
                               onConfirmStep?.(true);
                             }}
                             style={{
@@ -833,8 +1117,42 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           </button>
                         </div>
                       </div>
+                    ) : agentSteps.length > 0 ? (
+                      /* Live Agent Steps */
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 110, overflowY: "auto" }}>
+                        {agentSteps.map((s) => (
+                          <div
+                            key={s.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              fontSize: 11,
+                              fontFamily: "monospace",
+                              background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              color: isDark ? "#e2e8f0" : "#1e293b",
+                            }}
+                          >
+                            {s.status === "active" ? (
+                              <Loader2 size={12} color="#00d4ff" className="animate-spin" />
+                            ) : s.status === "done" ? (
+                              <CheckCircle2 size={12} color="#10b981" />
+                            ) : s.status === "error" ? (
+                              <AlertTriangle size={12} color="#ef4444" />
+                            ) : (
+                              <span style={{ color: "#ec4899" }}>✦</span>
+                            )}
+                            <span style={{ fontWeight: 600 }}>{s.label}</span>
+                            {s.detail && (
+                              <span style={{ opacity: 0.7, fontSize: 10 }}>· {s.detail}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     ) : (
-                      /* Live Step Execution Pills */
+                      /* Active Idle State Monitor */
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <div
                           style={{
@@ -843,14 +1161,14 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                             gap: 8,
                             fontSize: 11,
                             fontFamily: "monospace",
-                            background: "rgba(255,255,255,0.04)",
+                            background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                             padding: "4px 8px",
                             borderRadius: 6,
-                            color: "rgba(255,255,255,0.8)",
+                            color: isDark ? "#e2e8f0" : "#1e293b",
                           }}
                         >
-                          <span style={{ color: "#ec4899" }}>✦</span>
-                          <span>Modify • billing.ts</span>
+                          <span style={{ color: "#00d4ff" }}>✦</span>
+                          <span>Intelligence Core: {currentDisplayModel} (Ready)</span>
                         </div>
                         <div
                           style={{
@@ -859,62 +1177,37 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                             gap: 8,
                             fontSize: 11,
                             fontFamily: "monospace",
-                            background: "rgba(255,255,255,0.04)",
+                            background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                             padding: "4px 8px",
                             borderRadius: 6,
-                            color: "rgba(255,255,255,0.8)",
+                            color: isDark ? "#e2e8f0" : "#1e293b",
                           }}
                         >
                           <span style={{ color: "#10b981" }}>✓</span>
-                          <span>Execute • npm test (48 passed)</span>
+                          <span>Avatar: {isWalking ? "Procedural Walking" : "Stationary"}</span>
                         </div>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* 4. Quick Integration Grid & Action Controls */}
+                {/* ── Quick Launcher Grid ── */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
-                  {/* Quick Launcher Icons */}
                   <div style={{ display: "flex", gap: 6 }}>
                     <button
                       type="button"
                       onClick={() => {
-                        if (soundEnabled) playUiSound("click");
-                        setActiveTab("stripe");
-                      }}
-                      style={{
-                        background: activeTab === "stripe" ? "rgba(99,91,255,0.25)" : "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: 8,
-                        padding: "3px 8px",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: activeTab === "stripe" ? "#a5b4fc" : "rgba(255,255,255,0.8)",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <CreditCard size={12} />
-                      <span>Stripe</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (soundEnabled) playUiSound("click");
+                        playUiSound("click");
                         onOpenTerminal?.();
                       }}
                       style={{
-                        background: "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                        border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
                         borderRadius: 8,
-                        padding: "3px 8px",
+                        padding: "4px 8px",
                         fontSize: 11,
-                        fontWeight: 600,
-                        color: "rgba(255,255,255,0.8)",
+                        fontWeight: 650,
+                        color: isDark ? "#ffffff" : "#0f172a",
                         cursor: "pointer",
                         display: "flex",
                         alignItems: "center",
@@ -922,49 +1215,48 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       }}
                     >
                       <Terminal size={12} />
-                      <span>Terminal</span>
+                      <span>CLI Console</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => {
-                        if (soundEnabled) playUiSound("click");
-                        setActiveTab("upload");
+                        playUiSound("click");
+                        onToggleWalk?.();
                       }}
                       style={{
-                        background: activeTab === "upload" ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: isWalking ? "rgba(236,72,153,0.2)" : isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                        border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
                         borderRadius: 8,
-                        padding: "3px 8px",
+                        padding: "4px 8px",
                         fontSize: 11,
-                        fontWeight: 600,
-                        color: activeTab === "upload" ? "#10b981" : "rgba(255,255,255,0.8)",
+                        fontWeight: 650,
+                        color: isWalking ? "#ec4899" : isDark ? "#ffffff" : "#0f172a",
                         cursor: "pointer",
                         display: "flex",
                         alignItems: "center",
                         gap: 4,
                       }}
                     >
-                      <Upload size={12} />
-                      <span>Upload</span>
+                      <Footprints size={12} />
+                      <span>{isWalking ? "Walking" : "Walk"}</span>
                     </button>
                   </div>
 
-                  {/* Open Terminal Execution Button */}
                   <button
                     type="button"
                     onClick={() => {
-                      if (soundEnabled) playUiSound("click");
+                      playUiSound("whoosh");
                       onOpenTerminal?.();
                     }}
                     style={{
-                      background: "rgba(255,255,255,0.1)",
+                      background: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
                       border: "none",
                       borderRadius: 8,
                       padding: "4px 10px",
                       fontSize: 11,
-                      fontWeight: 600,
-                      color: "#fff",
+                      fontWeight: 650,
+                      color: isDark ? "#ffffff" : "#0f172a",
                       cursor: "pointer",
                       display: "flex",
                       alignItems: "center",
@@ -976,37 +1268,37 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   </button>
                 </div>
 
-                {/* 5. Inline Chat Composer (Video 00:36) */}
+                {/* ── Inline Quick Chat Composer ── */}
                 <form
                   onSubmit={handleSendQuickChat}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
-                    background: "rgba(255,255,255,0.06)",
+                    background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.04)",
                     borderRadius: 12,
                     padding: "4px 8px",
-                    border: "1px solid rgba(255,255,255,0.1)",
+                    border: isDark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)",
                   }}
                 >
                   <input
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Ask me anything..."
+                    placeholder="Ask Hina anything or trigger action..."
                     style={{
                       flex: 1,
                       background: "transparent",
                       border: "none",
                       outline: "none",
-                      color: "#fff",
+                      color: isDark ? "#ffffff" : "#0f172a",
                       fontSize: 12,
                     }}
                   />
                   <button
                     type="submit"
                     style={{
-                      background: chatInput.trim() ? "#ec4899" : "transparent",
+                      background: chatInput.trim() ? "#00d4ff" : "transparent",
                       border: "none",
                       borderRadius: 8,
                       width: 24,
@@ -1014,31 +1306,40 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      color: "#fff",
+                      color: chatInput.trim() ? "#000" : isDark ? "#94a3b8" : "#64748b",
                       cursor: "pointer",
-                      opacity: chatInput.trim() ? 1 : 0.4,
+                      opacity: chatInput.trim() ? 1 : 0.5,
                     }}
                   >
                     <Send size={12} />
                   </button>
                 </form>
 
-                {/* Instant Response Bubble */}
-                {chatResponse && (
+                {/* Real Live Streaming / Response Bubble */}
+                {(streamingText || lastAssistantText) && (
                   <motion.div
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     style={{
-                      background: "rgba(236,72,153,0.12)",
-                      border: "1px solid rgba(236,72,153,0.3)",
+                      background: "rgba(0, 212, 255, 0.1)",
+                      border: "1px solid rgba(0, 212, 255, 0.3)",
                       borderRadius: 10,
                       padding: "6px 10px",
                       fontSize: 11,
-                      color: "#fbcfe8",
+                      color: isDark ? "#e0f2fe" : "#0369a1",
                       lineHeight: 1.4,
+                      maxHeight: 70,
+                      overflowY: "auto",
                     }}
                   >
-                    {chatResponse}
+                    {streamingText ? (
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <Loader2 size={10} className="animate-spin" />
+                        {streamingText}
+                      </span>
+                    ) : (
+                      lastAssistantText
+                    )}
                   </motion.div>
                 )}
               </div>
