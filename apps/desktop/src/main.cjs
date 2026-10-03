@@ -284,7 +284,16 @@ function setWindowMode(mode) {
 
   currentWindowMode = mode;
 
-  if (mode === "floating_companion") {
+  if (mode === "dynamic_island") {
+    // Dock to top-center as a sleek Dynamic Island Companion Bar
+    const ISLAND_WIDTH = 680;
+    const ISLAND_HEIGHT = 220;
+    mainWindow.setAlwaysOnTop(true, "screen-saver");
+    mainWindow.setResizable(false);
+    mainWindow.setSize(ISLAND_WIDTH, ISLAND_HEIGHT, true);
+    mainWindow.setPosition(Math.round((screenWidth - ISLAND_WIDTH) / 2), 12, true);
+    mainWindow.webContents.send("desktop:window-mode-changed", "dynamic_island");
+  } else if (mode === "floating_companion") {
     // Dock to bottom-right corner as a floating companion
     mainWindow.setAlwaysOnTop(true, "screen-saver");
     mainWindow.setResizable(false);
@@ -576,6 +585,15 @@ function createTray() {
         },
       },
       {
+        label: "🏝 Dynamic Island (Coucou Mode)",
+        click: () => {
+          if (mainWindow) {
+            mainWindow.show();
+            setWindowMode("dynamic_island");
+          }
+        },
+      },
+      {
         label: "✨ Floating Companion Mode",
         click: () => {
           if (mainWindow) {
@@ -643,6 +661,14 @@ function registerHotkeys() {
       if (mainWindow) {
         mainWindow.show();
         mainWindow.focus();
+      }
+    });
+
+    globalShortcut.register("CommandOrControl+Shift+I", () => {
+      if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+        setWindowMode(currentWindowMode === "dynamic_island" ? "standard" : "dynamic_island");
       }
     });
   } catch (err) {

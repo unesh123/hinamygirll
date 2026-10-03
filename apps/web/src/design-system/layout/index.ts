@@ -4,4 +4,6 @@ export { MobileNavigation } from "./MobileNavigation";
 export { AppShell } from "./AppShell";
 export { TopBarV6 } from "./TopBarV6";
 export type { TopBarV6Props, WorkspaceMode } from "./TopBarV6";
+export { DynamicIslandCompanion } from "./DynamicIslandCompanion";
+export type { DynamicIslandCompanionProps } from "./DynamicIslandCompanion";
 

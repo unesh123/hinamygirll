@@ -9,6 +9,7 @@ import {
   type ExecutiveMode,
   type WorkspaceMode,
 } from "./design-system/layout/TopBarV6";
+import { DynamicIslandCompanion } from "./design-system/layout/DynamicIslandCompanion";
 import type { ResponseMode } from "./features/providers/conversationProvider";
 
 import { WorkMode } from "./design-system/modes/WorkMode";
@@ -1165,6 +1166,31 @@ export default function App() {
             isDark={isDark}
             onToggleTheme={handleToggleTheme}
           >
+            {/* Coucou / Korus Dynamic Island Companion Bar */}
+            <DynamicIslandCompanion
+              isDark={isDark}
+              agentSteps={agentSteps}
+              pendingApproval={
+                controller.currentAgentConfirmationStepId
+                  ? {
+                      stepId: controller.currentAgentConfirmationStepId,
+                      actionName: "git push origin main",
+                      command: "git push origin main",
+                    }
+                  : null
+              }
+              onConfirmStep={(approved) => {
+                void controller.confirmCurrentAgentStep(approved);
+              }}
+              onOpenTerminal={openTerminalHands}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onNewChat={handleNewChat}
+              onSendMessage={(txt) => submit(undefined, txt)}
+              isThinking={controller.state === "thinking"}
+              activeProviderModel={routing.activeModel}
+              companionName={companionProfiles[controller.companionId]?.name || "Hina"}
+            />
+
             {/* Unified Frontier TopBar V6 */}
             <TopBarV6
               currentMode={sakuraView as WorkspaceMode}
