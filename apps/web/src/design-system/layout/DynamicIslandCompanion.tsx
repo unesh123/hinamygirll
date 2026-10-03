@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home,
@@ -31,8 +31,28 @@ import {
   Sliders,
   Cpu,
   Layers,
+  Boxes,
+  Music,
+  Heart,
+  Eye,
+  Radio,
+  Workflow,
+  Wand2,
+  Database,
+  Search,
 } from "lucide-react";
-import { playUiSound, isSoundEnabled, setSoundEnabled, type UiSoundType } from "../../lib/uiSound";
+import {
+  playUiSound,
+  isSoundEnabled,
+  setSoundEnabled,
+  playFootstepSound,
+  playMochiPoke,
+  playMochiLove,
+  playMochiEat,
+  playTypingSound,
+  playSendSound,
+  type UiSoundType,
+} from "../../lib/uiSound";
 import type { DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
 
 export interface DynamicIslandCompanionProps {
@@ -69,14 +89,40 @@ export interface DynamicIslandCompanionProps {
   inlineInTopBar?: boolean;
 }
 
-// Coucou Interactive Mascot Avatar Component
-export const CoucouMascot: React.FC<{
-  mood?: "idle" | "happy" | "eating" | "alert" | "thinking";
+export interface CoucouMascotProps {
+  mood?: "idle" | "happy" | "eating" | "alert" | "thinking" | "annoyed" | "dizzy" | "love" | "walking";
   isHovered?: boolean;
   size?: number;
-}> = ({ mood = "idle", isHovered = false, size = 56 }) => {
-  const [blink, setBlink] = useState(false);
+  isWalking?: boolean;
+  walkPhase?: number;
+  direction?: 1 | -1;
+  onPoke?: (count: number) => void;
+  interactive?: boolean;
+}
 
+// Coucou / Mochi Interactive Mascot Avatar Component
+export const CoucouMascot: React.FC<CoucouMascotProps> = ({
+  mood: propMood = "idle",
+  isHovered = false,
+  size = 56,
+  isWalking = false,
+  walkPhase = 0,
+  direction = 1,
+  onPoke,
+  interactive = true,
+}) => {
+  const [blink, setBlink] = useState(false);
+  const [localMood, setLocalMood] = useState<string | null>(null);
+  const [pokeCount, setPokeCount] = useState(0);
+  const [eyeOffset, setEyeOffset] = useState({ x: 0, y: 0 });
+  const [showHearts, setShowHearts] = useState(false);
+  const mascotRef = useRef<HTMLDivElement>(null);
+  const pokeTimerRef = useRef<any>(null);
+  const hoverTimerRef = useRef<any>(null);
+
+  const mood = localMood || propMood;
+
+  // Natural spontaneous blinking
   useEffect(() => {
     const interval = setInterval(() => {
       setBlink(true);
@@ -85,100 +131,288 @@ export const CoucouMascot: React.FC<{
     return () => clearInterval(interval);
   }, []);
 
+  // Pupil eye tracking following mouse cursor
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!mascotRef.current) return;
+      const rect = mascotRef.current.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = (e.clientX - cx) / 45;
+      const dy = (e.clientY - cy) / 45;
+      setEyeOffset({
+        x: Math.max(-3.5, Math.min(3.5, dx)),
+        y: Math.max(-2.8, Math.min(2.8, dy)),
+      });
+    };
+
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
+  // Affection hover reaction: floating hearts after 1.2s hover
+  useEffect(() => {
+    if (isHovered) {
+      hoverTimerRef.current = setTimeout(() => {
+        setLocalMood("love");
+        setShowHearts(true);
+        playMochiLove();
+        setTimeout(() => {
+          setShowHearts(false);
+          setLocalMood(null);
+        }, 2200);
+      }, 1200);
+    } else {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    }
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, [isHovered]);
+
+  // Mascot poke interaction (1-2 pokes = annoyed squeak; 3 pokes = dizzy wobble)
+  const handleMascotClick = (e: React.MouseEvent) => {
+    if (!interactive) return;
+    e.stopPropagation();
+
+    if (pokeTimerRef.current) clearTimeout(pokeTimerRef.current);
+
+    const nextCount = pokeCount + 1;
+    setPokeCount(nextCount);
+
+    if (nextCount >= 3) {
+      setLocalMood("dizzy");
+      playMochiPoke(3);
+    } else {
+      setLocalMood("annoyed");
+      playMochiPoke(1);
+    }
+
+    onPoke?.(nextCount);
+
+    pokeTimerRef.current = setTimeout(() => {
+      setPokeCount(0);
+      setLocalMood(null);
+    }, 2400);
+  };
+
   const scale = size / 64;
+  const legStride = isWalking ? Math.sin(walkPhase) * 5 : 0;
+  const legLift = isWalking ? Math.abs(Math.sin(walkPhase)) * 4.5 : 0;
+  const bodyBob = isWalking ? Math.abs(Math.sin(walkPhase * 2)) * 3 : 0;
 
   return (
     <div
+      ref={mascotRef}
+      onClick={handleMascotClick}
       style={{
         position: "relative",
         width: size,
         height: size,
         borderRadius: Math.round(16 * scale),
-        overflow: "hidden",
+        overflow: "visible",
         background: "radial-gradient(circle at 50% 35%, #1e2235 0%, #08090e 100%)",
-        border: "1px solid rgba(255, 255, 255, 0.16)",
+        border: mood === "annoyed" ? "1px solid rgba(244, 63, 94, 0.4)" : "1px solid rgba(255, 255, 255, 0.16)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        boxShadow: "inset 0 1px 1px rgba(255,255,255,0.25), 0 4px 16px rgba(0,0,0,0.5)",
-        cursor: "pointer",
+        boxShadow: mood === "annoyed"
+          ? "0 0 12px rgba(244,63,94,0.4)"
+          : "inset 0 1px 1px rgba(255,255,255,0.25), 0 4px 16px rgba(0,0,0,0.5)",
+        cursor: interactive ? "pointer" : "default",
         flexShrink: 0,
+        transition: "border-color 0.2s ease, box-shadow 0.2s ease",
       }}
     >
+      {/* Floating affection hearts */}
+      <AnimatePresence>
+        {showHearts && (
+          <motion.div
+            initial={{ opacity: 0, y: 0, scale: 0.5 }}
+            animate={{ opacity: [0, 1, 0], y: -26, scale: [0.6, 1.2, 0.9] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
+            style={{
+              position: "absolute",
+              top: -6,
+              left: "50%",
+              transform: "translateX(-50%)",
+              fontSize: 16,
+              color: "#ec4899",
+              pointerEvents: "none",
+              zIndex: 10,
+              display: "flex",
+              gap: 4,
+            }}
+          >
+            <span>♥</span>
+            <span style={{ fontSize: 12, marginTop: -4 }}>♥</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Starry Ambient Aura */}
       <div
         style={{
           position: "absolute",
           inset: 0,
+          borderRadius: Math.round(16 * scale),
+          overflow: "hidden",
           background:
             "radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.8) 100%, transparent), radial-gradient(1.5px 1.5px at 75% 25%, rgba(0,212,255,0.9) 100%, transparent), radial-gradient(1px 1px at 85% 75%, rgba(236,72,153,0.8) 100%, transparent), radial-gradient(1.5px 1.5px at 35% 80%, rgba(255,255,255,0.6) 100%, transparent)",
           opacity: 0.75,
+          pointerEvents: "none",
         }}
       />
 
       {/* SVG Coucou / Hina Character */}
       <svg
-        width={Math.round(42 * scale)}
-        height={Math.round(42 * scale)}
+        width={Math.round(48 * scale)}
+        height={Math.round(48 * scale)}
         viewBox="0 0 100 100"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
         style={{
-          transform: isHovered ? "scale(1.08) translateY(-1px)" : "scale(1)",
-          transition: "transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          transform: `${isHovered ? "scale(1.06) translateY(-1px)" : "scale(1)"} ${direction < 0 ? "scaleX(-1)" : "scaleX(1)"}`,
+          transition: "transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          overflow: "visible",
         }}
       >
-        {/* Soft Body */}
-        <motion.ellipse
-          cx="50"
-          cy="54"
-          rx="38"
-          ry="30"
+        {/* Animated Stepping Legs & Feet (Coucou Walking Locomotion) */}
+        <ellipse
+          cx={36 + legStride}
+          cy={82 - (legStride > 0 ? legLift : 0)}
+          rx={6}
+          ry={3.5}
           fill="#ffffff"
-          animate={{
-            ry: mood === "eating" ? [30, 34, 30] : [30, 29, 30],
-            cy: mood === "happy" ? [54, 51, 54] : [54, 55, 54],
-          }}
-          transition={{ repeat: Infinity, duration: mood === "happy" ? 1.2 : 2.8, ease: "easeInOut" }}
+          stroke="rgba(0,0,0,0.12)"
+          strokeWidth={1}
+        />
+        <ellipse
+          cx={64 - legStride}
+          cy={82 - (legStride <= 0 ? legLift : 0)}
+          rx={6}
+          ry={3.5}
+          fill="#ffffff"
+          stroke="rgba(0,0,0,0.12)"
+          strokeWidth={1}
         />
 
+        {/* Soft Mascot Squircle Body */}
+        <g
+          transform={`translate(0, ${-bodyBob}) ${
+            mood === "dizzy"
+              ? "rotate(-4 50 52)"
+              : mood === "annoyed"
+              ? "rotate(3 50 52)"
+              : ""
+          }`}
+          style={{ transition: "transform 0.15s ease-out" }}
+        >
+          <ellipse
+            cx={50}
+            cy={52}
+            rx={mood === "eating" ? 39 : 38}
+            ry={mood === "eating" ? 33 : 30}
+            fill="#ffffff"
+          />
+        </g>
+
         {/* Anime Cheeks (Blush) */}
-        <ellipse cx="28" cy="58" rx="5" ry="3" fill="#ffb4c8" opacity="0.7" />
-        <ellipse cx="72" cy="58" rx="5" ry="3" fill="#ffb4c8" opacity="0.7" />
+        <ellipse
+          cx="28"
+          cy={56 - bodyBob}
+          rx="5"
+          ry="3"
+          fill={mood === "annoyed" ? "#ff4976" : mood === "love" ? "#ec4899" : "#ffb4c8"}
+          opacity={mood === "love" ? 0.95 : 0.7}
+        />
+        <ellipse
+          cx="72"
+          cy={56 - bodyBob}
+          rx="5"
+          ry="3"
+          fill={mood === "annoyed" ? "#ff4976" : mood === "love" ? "#ec4899" : "#ffb4c8"}
+          opacity={mood === "love" ? 0.95 : 0.7}
+        />
 
-        {/* Eyes */}
-        {blink || mood === "happy" ? (
-          // Happy / Blinking curved eyes ^ ^
-          <>
-            <path d="M 29 49 Q 34 43 39 49" stroke="#121215" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-            <path d="M 61 49 Q 66 43 71 49" stroke="#121215" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-          </>
+        {/* Eyes Rendering */}
+        {mood === "dizzy" ? (
+          // Hypnotic spinning spirals for dizzy poke state (@ @)
+          <g transform={`translate(0, ${-bodyBob})`}>
+            <motion.path
+              d="M 34 46 m -5 0 a 5 5 0 1 0 10 0 a 3 3 0 1 0 -6 0 a 1.5 1.5 0 1 0 3 0"
+              stroke="#121215"
+              strokeWidth="2.4"
+              fill="none"
+              strokeLinecap="round"
+              animate={{ rotate: [0, 360] }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+              style={{ transformOrigin: "34px 46px" }}
+            />
+            <motion.path
+              d="M 66 46 m -5 0 a 5 5 0 1 0 10 0 a 3 3 0 1 0 -6 0 a 1.5 1.5 0 1 0 3 0"
+              stroke="#121215"
+              strokeWidth="2.4"
+              fill="none"
+              strokeLinecap="round"
+              animate={{ rotate: [0, -360] }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+              style={{ transformOrigin: "66px 46px" }}
+            />
+          </g>
+        ) : mood === "annoyed" ? (
+          // Squinting irritated eyes (> <)
+          <g transform={`translate(0, ${-bodyBob})`}>
+            <path d="M 28 43 L 38 47 L 28 51" stroke="#121215" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <path d="M 72 43 L 62 47 L 72 51" stroke="#121215" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </g>
+        ) : blink || mood === "happy" || mood === "love" ? (
+          // Happy / Loving curved eyes (^ ^)
+          <g transform={`translate(0, ${-bodyBob})`}>
+            <path d="M 29 47 Q 34 40 39 47" stroke="#121215" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+            <path d="M 61 47 Q 66 40 71 47" stroke="#121215" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+          </g>
         ) : (
-          // Normal open expressive eyes
-          <>
-            <ellipse cx="34" cy="48" rx="4.5" ry="6.5" fill="#121215" />
-            <circle cx="32.5" cy="46" r="1.8" fill="#ffffff" />
-            <ellipse cx="66" cy="48" rx="4.5" ry="6.5" fill="#121215" />
-            <circle cx="64.5" cy="46" r="1.8" fill="#ffffff" />
-          </>
+          // Normal open expressive eyes with pupil tracking
+          <g transform={`translate(0, ${-bodyBob})`}>
+            <ellipse cx={34 + eyeOffset.x} cy={46 + eyeOffset.y} rx="4.5" ry="6.5" fill="#121215" />
+            <circle cx={32.5 + eyeOffset.x} cy={44 + eyeOffset.y} r="1.8" fill="#ffffff" />
+            <ellipse cx={66 + eyeOffset.x} cy={46 + eyeOffset.y} rx="4.5" ry="6.5" fill="#121215" />
+            <circle cx={64.5 + eyeOffset.x} cy={44 + eyeOffset.y} r="1.8" fill="#ffffff" />
+          </g>
         )}
 
-        {/* Mouth */}
-        {mood === "eating" ? (
-          // Mouth open eating dropped file
-          <path d="M 44 55 Q 50 70 56 55 Z" fill="#ff5a82" />
-        ) : mood === "happy" ? (
-          <path d="M 45 56 Q 50 63 55 56" stroke="#121215" strokeWidth="3" strokeLinecap="round" fill="none" />
-        ) : (
-          // Subtle neutral/cute mouth
-          <path d="M 47 57 Q 50 60 53 57" stroke="#121215" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-        )}
+        {/* Mouth Rendering */}
+        <g transform={`translate(0, ${-bodyBob})`}>
+          {mood === "eating" ? (
+            // Mouth open wide eating dropped file
+            <motion.path
+              d="M 43 53 Q 50 71 57 53 Z"
+              fill="#ff5a82"
+              animate={{ d: ["M 43 53 Q 50 71 57 53 Z", "M 44 55 Q 50 63 56 55 Z", "M 43 53 Q 50 71 57 53 Z"] }}
+              transition={{ repeat: Infinity, duration: 0.5 }}
+            />
+          ) : mood === "dizzy" ? (
+            // Wavy squiggly mouth
+            <path d="M 44 56 Q 47 53 50 56 Q 53 59 56 56" stroke="#121215" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+          ) : mood === "annoyed" ? (
+            // Pouting frown
+            <path d="M 45 58 Q 50 54 55 58" stroke="#121215" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+          ) : mood === "happy" || mood === "love" ? (
+            // Joyful open smile
+            <path d="M 44 54 Q 50 63 56 54 Z" fill="#ff5a82" stroke="#121215" strokeWidth="2" strokeLinejoin="round" />
+          ) : (
+            // Subtle cute neutral smile
+            <path d="M 47 55 Q 50 58 53 55" stroke="#121215" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+          )}
+        </g>
 
         {/* Tiny waving hands on hover */}
         {isHovered && (
           <motion.ellipse
             cx="84"
-            cy="46"
+            cy={44 - bodyBob}
             rx="5"
             ry="6"
             fill="#ffffff"
@@ -191,6 +425,25 @@ export const CoucouMascot: React.FC<{
     </div>
   );
 };
+
+export const SOUND_BENCH_PADS: Array<{ type: UiSoundType; label: string; desc: string }> = [
+  { type: "click", label: "Tactile Click", desc: "Mechanical micro-switch" },
+  { type: "buttonPress", label: "Button Press", desc: "Deeper latch click" },
+  { type: "pop", label: "Dynamic Pop", desc: "Coucou bubble pop" },
+  { type: "whoosh", label: "Drawer Whoosh", desc: "Sleek expansion glide" },
+  { type: "switch", label: "Toggle Switch", desc: "Crisp state change" },
+  { type: "success", label: "Chime Triad", desc: "Harmonic major chord" },
+  { type: "deny", label: "Deny Buzz", desc: "Low caution buzz" },
+  { type: "warning", label: "Alert Chime", desc: "Notification alert" },
+  { type: "type", label: "Key Clack", desc: "Mechanical switch" },
+  { type: "send", label: "Transmit Send", desc: "Sci-fi launch pulse" },
+  { type: "step", label: "Footstep Tap", desc: "Walking locomotion gait" },
+  { type: "streamChunk", label: "Stream Decode", desc: "Generative token chatter" },
+  { type: "mochiPoke", label: "Mascot Squeak", desc: "Playful poke reaction" },
+  { type: "mochiDizzy", label: "Dizzy Wobble", desc: "3x poke dizzy spiral" },
+  { type: "mochiLove", label: "Heart Sparkle", desc: "Hover affection chime" },
+  { type: "mochiEat", label: "File Crunch", desc: "File swallowing gulp" },
+];
 
 export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   isDark = true,
@@ -216,7 +469,8 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   inlineInTopBar = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "stripe" | "upload" | "motion">("agent");
+  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "stripe" | "upload" | "motion" | "components" | "audio">("agent");
+  const [selectedComponentIndex, setSelectedComponentIndex] = useState(0);
   const [soundActive, setSoundActive] = useState(() => isSoundEnabled());
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -227,6 +481,62 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [walkCadence, setWalkCadence] = useState(1.0);
+
+  // Island Walk Locomotion state
+  const [islandWalkX, setIslandWalkX] = useState(0);
+  const [islandWalkDir, setIslandWalkDir] = useState<1 | -1>(1);
+  const [islandWalkPhase, setIslandWalkPhase] = useState(0);
+  const lastIslandStepSideRef = useRef<"left" | "right">("left");
+
+  // Rhythmic walking loop for notch locomotion
+  useEffect(() => {
+    if (!isWalking) {
+      setIslandWalkX(0);
+      return;
+    }
+    let animId: number;
+    let lastTime = performance.now();
+
+    const loop = (time: number) => {
+      const dt = Math.min(0.08, (time - lastTime) / 1000);
+      lastTime = time;
+
+      const cadence = walkCadence * 3.8;
+      setIslandWalkPhase((p) => {
+        const next = (p + dt * cadence) % (Math.PI * 2);
+
+        // Sound trigger on step contact
+        const stepSin = Math.sin(next);
+        if (stepSin > 0.42 && lastIslandStepSideRef.current !== "left") {
+          lastIslandStepSideRef.current = "left";
+          playFootstepSound();
+        } else if (stepSin < -0.42 && lastIslandStepSideRef.current !== "right") {
+          lastIslandStepSideRef.current = "right";
+          playFootstepSound();
+        }
+
+        return next;
+      });
+
+      setIslandWalkX((x) => {
+        const maxRange = isExpanded ? 45 : 24;
+        let nextX = x + islandWalkDir * dt * 24 * walkCadence;
+        if (nextX > maxRange) {
+          nextX = maxRange;
+          setIslandWalkDir(-1);
+        } else if (nextX < -maxRange) {
+          nextX = -maxRange;
+          setIslandWalkDir(1);
+        }
+        return nextX;
+      });
+
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [isWalking, walkCadence, isExpanded, islandWalkDir]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -314,7 +624,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   const handleSendQuickChat = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!chatInput.trim()) return;
-    playUiSound("buttonPress");
+    playSendSound();
 
     const query = chatInput.trim();
     setLastUserQuery(query);
@@ -324,6 +634,175 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
       onSendMessage(query);
     }
   };
+
+  const SYSTEM_COMPONENTS = useMemo(
+    () => [
+      {
+        id: "island",
+        number: "01",
+        name: "Dynamic Island Companion",
+        role: "Notch Companion & Telemetry HUD",
+        category: "Companion Core",
+        icon: Activity,
+        color: "#00d4ff",
+        status: "ACTIVE",
+        detail: "Coucou animated mascot with mouse pupil tracking, poking states (annoyed squeak, dizzy spirals), file eating, and notch walk locomotion.",
+        actionLabel: isWalking ? "Pause Walk" : "Toggle Walk",
+        action: () => onToggleWalk?.(),
+      },
+      {
+        id: "vrm",
+        number: "02",
+        name: "3D VRM Avatar Runway",
+        role: "Procedural 3D Companion",
+        category: "Visual Engine",
+        icon: Footprints,
+        color: "#ec4899",
+        status: "ONLINE",
+        detail: "WebGL/Three.js VRM rig with inverse kinematics walking gait, knee flexion, hip sway, breathing drift, and viseme lip-sync.",
+        actionLabel: "Open 3D Runway",
+        action: () => onOpenRunway?.(),
+      },
+      {
+        id: "timeline",
+        number: "03",
+        name: "Adobe Motion Timeline",
+        role: "Keyframe Scrubber & Telemetry",
+        category: "Creative Suite",
+        icon: Sliders,
+        color: "#f59e0b",
+        status: "ACTIVE",
+        detail: "Multi-track sequence timeline with real-time intent, reasoning, tool, avatar, and render keyframe markers.",
+        actionLabel: "Audition Keyframe",
+        action: () => playUiSound("click"),
+      },
+      {
+        id: "terminal",
+        number: "04",
+        name: "Claude Code CLI Daemon",
+        role: "Autonomous Terminal Runner",
+        category: "Engineering CLI",
+        icon: Terminal,
+        color: "#10b981",
+        status: "READY",
+        detail: "Interactive shell process runner with streaming stdout/stderr, execution logs, and interactive approval gates.",
+        actionLabel: "Open CLI Terminal",
+        action: () => onOpenTerminal?.(),
+      },
+      {
+        id: "sound",
+        number: "05",
+        name: "Universal Tactile UI Audio",
+        role: "Zero-Latency Web Audio API",
+        category: "Audio Subsystem",
+        icon: Music,
+        color: "#8b5cf6",
+        status: "ACTIVE",
+        detail: "Real-time mechanical keyboard clacks, send whooshes, generative teletype stream blips, footsteps, and mascot emotes.",
+        actionLabel: "Audition Chime",
+        action: () => playUiSound("success"),
+      },
+      {
+        id: "composer",
+        number: "06",
+        name: "Signature Composer V6",
+        role: "Multi-Modal Command Center",
+        category: "Input Deck",
+        icon: MessageSquare,
+        color: "#38bdf8",
+        status: "ACTIVE",
+        detail: "Mechanical typing audio, smart action triggers, image attachment roles, and live ModelSelector V7 integration.",
+        actionLabel: "Quick Prompt",
+        action: () => {
+          setActiveTab("chat");
+          setChatInput("Hello Hina!");
+        },
+      },
+      {
+        id: "vision",
+        number: "07",
+        name: "Live Eyes Screen Vision",
+        role: "Real-Time Display Ingest",
+        category: "Perception",
+        icon: Eye,
+        color: "#06b6d4",
+        status: "STANDBY",
+        detail: "Continuous screen capture feed for visual inspection, UI verification, design critiquing, and debugging.",
+        actionLabel: "Audition Shutter",
+        action: () => playUiSound("pop"),
+      },
+      {
+        id: "voice",
+        number: "08",
+        name: "Continuous Voice & Visemes",
+        role: "Neural Speech & Lip-Sync",
+        category: "Speech Engine",
+        icon: Radio,
+        color: "#f43f5e",
+        status: "READY",
+        detail: "Real-time Web Audio FFT frequency analyzer, jaw energy tracking, and phoneme-to-viseme mouth shape morphing.",
+        actionLabel: "Test Viseme",
+        action: () => playUiSound("switch"),
+      },
+      {
+        id: "goal",
+        number: "09",
+        name: "Autonomous Goal Engine",
+        role: "Multi-Step Planner & Verifier",
+        category: "Agentic Logic",
+        icon: Workflow,
+        color: "#e11d48",
+        status: "READY",
+        detail: "Autonomous execution loop with constraint verification, artifact compilation, self-reflection, and test execution.",
+        actionLabel: "Trigger Plan",
+        action: () => {
+          if (onSendMessage) onSendMessage("/goal verify system components");
+        },
+      },
+      {
+        id: "telemetry",
+        number: "10",
+        name: "Telemetry & Compute Meter",
+        role: "Performance Diagnostics",
+        category: "Infrastructure",
+        icon: Activity,
+        color: "#6366f1",
+        status: "LIVE",
+        detail: "Real-time latency ms, token throughput, context memory pressure, stable 60 FPS monitor, and Stripe billing telemetry.",
+        actionLabel: "Ping Latency",
+        action: () => playUiSound("switch"),
+      },
+      {
+        id: "ingest",
+        number: "11",
+        name: "File Eater & Asset Ingest",
+        role: "Drop Zone & Multi-File Parser",
+        category: "Asset Pipeline",
+        icon: Upload,
+        color: "#10b981",
+        status: "READY",
+        detail: "Window-wide drag-drop listener, Mochi file-swallowing eating animation, chunking, and multi-modal prompt synthesis.",
+        actionLabel: "Open File Ingest",
+        action: () => {
+          setActiveTab("upload");
+        },
+      },
+      {
+        id: "shapeshift",
+        number: "12",
+        name: "Shapeshift Action Cards",
+        role: "Inline Dynamic Cards",
+        category: "UI Architecture",
+        icon: Wand2,
+        color: "#d946ef",
+        status: "READY",
+        detail: "Instant reminder scheduling, PDF report export, generative image synthesis jobs, and bill split calculation cards.",
+        actionLabel: "Sample Action",
+        action: () => playUiSound("pop"),
+      },
+    ],
+    [isWalking, onToggleWalk, onOpenRunway, onOpenTerminal, onSendMessage]
+  );
 
   const toggleSound = () => {
     const next = !soundActive;
@@ -470,37 +949,36 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                 cursor: "pointer",
                 padding: "2px 8px",
                 borderRadius: 16,
+                transform: `translateX(${islandWalkX}px)`,
+                transition: "transform 0.05s linear",
               }}
             >
-              <div
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: 11,
-                  background: isThinking
-                    ? "radial-gradient(circle, #00d4ff 0%, #0284c7 100%)"
-                    : isAgentActive
-                    ? "radial-gradient(circle, #f59e0b 0%, #d97706 100%)"
-                    : "radial-gradient(circle, #ec4899 0%, #a855f7 100%)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  boxShadow: "0 0 12px rgba(236,72,153,0.5)",
-                  animation: isThinking ? "pulse 1.5s infinite" : "none",
-                }}
-              >
-                {isThinking ? (
-                  <Loader2 size={12} color="#fff" className="animate-spin" />
-                ) : (
-                  <span style={{ fontSize: 11, fontWeight: 800, color: "#fff" }}>✦</span>
-                )}
-              </div>
+              {/* Miniature Coucou Mascot in collapsed notch pill */}
+              <CoucouMascot
+                size={26}
+                mood={
+                  isDraggingFile
+                    ? "eating"
+                    : pendingApproval
+                    ? "alert"
+                    : isThinking
+                    ? "thinking"
+                    : isWalking
+                    ? "walking"
+                    : "happy"
+                }
+                isWalking={isWalking}
+                walkPhase={islandWalkPhase}
+                direction={islandWalkDir}
+                interactive={true}
+              />
               <span
                 style={{
                   fontSize: 12,
                   fontWeight: 650,
                   letterSpacing: "0.01em",
                   color: isDark ? "#ffffff" : "#0f172a",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {isDraggingFile
@@ -509,6 +987,8 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   ? "Hina Thinking..."
                   : isAgentActive
                   ? "Agent Executing..."
+                  : isWalking
+                  ? `${companionName} Roaming...`
                   : `${companionName} Island`}
               </span>
 
@@ -518,8 +998,8 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   width: 6,
                   height: 6,
                   borderRadius: 3,
-                  background: isThinking ? "#00d4ff" : "#10b981",
-                  boxShadow: `0 0 6px ${isThinking ? "#00d4ff" : "#10b981"}`,
+                  background: isWalking ? "#ec4899" : isThinking ? "#00d4ff" : "#10b981",
+                  boxShadow: `0 0 6px ${isWalking ? "#ec4899" : isThinking ? "#00d4ff" : "#10b981"}`,
                 }}
               />
             </div>
@@ -711,6 +1191,54 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   >
                     <CreditCard size={12} />
                     <span>Telemetry</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playUiSound("click");
+                      setActiveTab("components");
+                    }}
+                    style={{
+                      background: activeTab === "components" ? "rgba(168, 85, 247, 0.15)" : "transparent",
+                      border: activeTab === "components" ? "1px solid rgba(168, 85, 247, 0.4)" : "1px solid transparent",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: activeTab === "components" ? "#c084fc" : isDark ? "#cbd5e1" : "#475569",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Boxes size={12} />
+                    <span>Components</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playUiSound("click");
+                      setActiveTab("audio");
+                    }}
+                    style={{
+                      background: activeTab === "audio" ? "rgba(244, 63, 94, 0.15)" : "transparent",
+                      border: activeTab === "audio" ? "1px solid rgba(244, 63, 94, 0.4)" : "1px solid transparent",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: activeTab === "audio" ? "#fb7185" : isDark ? "#cbd5e1" : "#475569",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Volume2 size={12} />
+                    <span>Sound FX</span>
                   </button>
 
                   {/* Real Model Selector Dropdown Trigger */}
@@ -1029,6 +1557,276 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       <span>FPS: 60 stable</span>
                       <span>Voice: ElevenLabs Neural</span>
                       <span>Provider: {currentDisplayModel}</span>
+                    </div>
+                  </div>
+                ) : activeTab === "components" ? (
+                  /* 5. Complete System Component Walkthrough Deck */
+                  <div
+                    style={{
+                      background: isDark ? "rgba(168, 85, 247, 0.08)" : "rgba(168, 85, 247, 0.05)",
+                      border: "1px solid rgba(168, 85, 247, 0.3)",
+                      borderRadius: 14,
+                      padding: "10px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    {/* Header + Component Counter + Prev/Next Controls */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Boxes size={14} color="#c084fc" />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#c084fc" }}>
+                          System Component Deck
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: isDark ? "#ffffff" : "#0f172a",
+                            background: "rgba(168, 85, 247, 0.2)",
+                            padding: "1px 6px",
+                            borderRadius: 6,
+                          }}
+                        >
+                          {selectedComponentIndex + 1} / {SYSTEM_COMPONENTS.length}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playUiSound("click");
+                            setSelectedComponentIndex((prev) => (prev > 0 ? prev - 1 : SYSTEM_COMPONENTS.length - 1));
+                          }}
+                          title="Previous Component"
+                          style={{
+                            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                            border: "none",
+                            borderRadius: 6,
+                            padding: "3px 8px",
+                            color: isDark ? "#ffffff" : "#0f172a",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ◀ Prev
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playUiSound("click");
+                            setSelectedComponentIndex((prev) => (prev < SYSTEM_COMPONENTS.length - 1 ? prev + 1 : 0));
+                          }}
+                          title="Next Component"
+                          style={{
+                            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                            border: "none",
+                            borderRadius: 6,
+                            padding: "3px 8px",
+                            color: isDark ? "#ffffff" : "#0f172a",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Next ▶
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Active Component Feature Card */}
+                    {(() => {
+                      const comp = SYSTEM_COMPONENTS[selectedComponentIndex];
+                      const IconComponent = comp.icon;
+                      return (
+                        <div
+                          style={{
+                            background: isDark ? "rgba(10, 12, 18, 0.7)" : "#ffffff",
+                            border: `1px solid ${comp.color}40`,
+                            borderRadius: 10,
+                            padding: "8px 12px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 6,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div
+                                style={{
+                                  width: 26,
+                                  height: 26,
+                                  borderRadius: 8,
+                                  background: `${comp.color}22`,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  border: `1px solid ${comp.color}50`,
+                                }}
+                              >
+                                <IconComponent size={14} color={comp.color} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 750, color: isDark ? "#fff" : "#0f172a" }}>
+                                  {comp.number}. {comp.name}
+                                </div>
+                                <div style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b" }}>
+                                  {comp.role} · {comp.category}
+                                </div>
+                              </div>
+                            </div>
+
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 800,
+                                color: comp.color,
+                                background: `${comp.color}18`,
+                                padding: "2px 7px",
+                                borderRadius: 6,
+                                letterSpacing: "0.04em",
+                              }}
+                            >
+                              {comp.status}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: 11, color: isDark ? "#cbd5e1" : "#475569", lineHeight: 1.4 }}>
+                            {comp.detail}
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
+                            <div style={{ display: "flex", gap: 4, overflowX: "auto", maxWidth: 380 }}>
+                              {SYSTEM_COMPONENTS.map((c: any, i: number) => (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  onClick={() => {
+                                    playUiSound("switch");
+                                    setSelectedComponentIndex(i);
+                                  }}
+                                  style={{
+                                    width: 18,
+                                    height: 18,
+                                    borderRadius: 4,
+                                    border: i === selectedComponentIndex ? `1px solid ${c.color}` : "1px solid transparent",
+                                    background: i === selectedComponentIndex ? `${c.color}40` : isDark ? "rgba(255,255,255,0.06)" : "#f1f5f9",
+                                    color: i === selectedComponentIndex ? "#fff" : isDark ? "#94a3b8" : "#64748b",
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    padding: 0,
+                                  }}
+                                >
+                                  {i + 1}
+                                </button>
+                              ))}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                playUiSound("buttonPress");
+                                comp.action();
+                              }}
+                              style={{
+                                background: comp.color,
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: 6,
+                                padding: "4px 10px",
+                                fontSize: 10,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <span>{comp.actionLabel}</span>
+                              <ArrowRight size={10} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : activeTab === "audio" ? (
+                  /* 6. Tactile Audio FX Test Bench */
+                  <div
+                    style={{
+                      background: isDark ? "rgba(244, 63, 94, 0.08)" : "rgba(244, 63, 94, 0.05)",
+                      border: "1px solid rgba(244, 63, 94, 0.3)",
+                      borderRadius: 14,
+                      padding: "10px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Volume2 size={14} color="#fb7185" />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#fb7185" }}>
+                          Tactile Sound FX Matrix (0ms Web Audio)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleSound}
+                        style={{
+                          background: soundActive ? "rgba(244, 63, 94, 0.2)" : "rgba(255,255,255,0.08)",
+                          color: soundActive ? "#fb7185" : isDark ? "#94a3b8" : "#64748b",
+                          border: "none",
+                          borderRadius: 6,
+                          padding: "2px 8px",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {soundActive ? "MUTE SFX" : "UNMUTE SFX"}
+                      </button>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(4, 1fr)",
+                        gap: 6,
+                        maxHeight: 130,
+                        overflowY: "auto",
+                      }}
+                    >
+                      {SOUND_BENCH_PADS.map((pad) => (
+                        <button
+                          key={pad.type}
+                          type="button"
+                          onClick={() => playUiSound(pad.type)}
+                          style={{
+                            background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+                            border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #e2e8f0",
+                            borderRadius: 8,
+                            padding: "6px 8px",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            transition: "all 0.12s ease",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 2,
+                          }}
+                        >
+                          <div style={{ fontSize: 11, fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>
+                            {pad.label}
+                          </div>
+                          <div style={{ fontSize: 9, color: isDark ? "#94a3b8" : "#64748b" }}>
+                            {pad.desc}
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 ) : (

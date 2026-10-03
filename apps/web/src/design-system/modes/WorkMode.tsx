@@ -93,6 +93,7 @@ import { ModelControlBar } from "../layout/ModelControlBar";
 import type { PresenceMode } from "../../components/ui/AvatarPresence";
 import type { ExecutiveMode } from "../layout/TopBarV6";
 import { AdobeMotionTimeline } from "./AdobeMotionTimeline";
+import { playStreamChunkSound } from "../../lib/uiSound";
 
 function getProviderDisplayName(mode?: string): string {
   if (!mode) return "Provider";
@@ -314,6 +315,15 @@ export function WorkMode({
     window.addEventListener("hinaa:toggle-walk-mode", handleToggleWalkEvent);
     return () => window.removeEventListener("hinaa:toggle-walk-mode", handleToggleWalkEvent);
   }, [handleToggleWalk]);
+
+  // Generative streaming text audio feedback (sci-fi teletype chatter)
+  const prevStreamingTextLenRef = useRef(0);
+  useEffect(() => {
+    if (streamingText && streamingText.length > prevStreamingTextLenRef.current) {
+      playStreamChunkSound();
+    }
+    prevStreamingTextLenRef.current = streamingText ? streamingText.length : 0;
+  }, [streamingText]);
 
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);

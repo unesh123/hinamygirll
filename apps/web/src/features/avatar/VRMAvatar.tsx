@@ -31,6 +31,7 @@ import { normalizeVrmAvatar } from "./normalization";
 import { getDefaultAvatarForCompanion } from "./avatarRegistry";
 import { disposeVrmModel } from "./avatarDisposal";
 import { getActiveViseme } from "../audio/textToViseme";
+import { playFootstepSound } from "../../lib/uiSound";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { CompanionId, CompanionState } from "../companion/types";
 import type { AvatarThemeId } from "./themes";
@@ -305,6 +306,7 @@ function VrmRig({
   const walkRoamXRef = useRef(0);
   const walkDirectionRef = useRef(1);
   const walkTurnYawRef = useRef(0);
+  const lastFootstepSideRef = useRef<"left" | "right">("left");
   const avatarGroupRef = useRef<THREE.Group>(null);
   const metrics = useMemo(() => normalizeVrmAvatar(vrm), [vrm]);
   const performanceDirector = useMemo(() => new PerformanceDirector(), []);
@@ -846,6 +848,16 @@ function VrmRig({
         }
         if (rightFoot) {
           rightFoot.rotation.x = THREE.MathUtils.damp(rightFoot.rotation.x, legSwing * 0.32, 12, delta);
+        }
+
+        // Synchronized footstep audio on step contact
+        const stepSin = Math.sin(phase);
+        if (stepSin > 0.38 && lastFootstepSideRef.current !== "left") {
+          lastFootstepSideRef.current = "left";
+          playFootstepSound();
+        } else if (stepSin < -0.38 && lastFootstepSideRef.current !== "right") {
+          lastFootstepSideRef.current = "right";
+          playFootstepSound();
         }
 
         // Arms natural counter-swing when not executing an expressive gesture

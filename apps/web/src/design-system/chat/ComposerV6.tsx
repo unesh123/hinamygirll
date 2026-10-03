@@ -29,6 +29,7 @@ import { ModelSelectorV7 } from "./ModelSelectorV7";
 import { ShapeshiftCard } from "../../features/chat/components/ShapeshiftCard";
 import type { DiscoveredModel, DiscoveredProvider } from "../../features/providers/hooks/useCapabilities";
 import { useVoiceTyping } from "../../features/audio/useVoiceTyping";
+import { playTypingSound, playSendSound } from "../../lib/uiSound";
 
 export type ActionMode = "chat" | "research" | "create" | "code" | "goal";
 export type IntelligenceLevel = "auto" | "fast" | "deep" | "max";
@@ -248,6 +249,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (value.trim() || attachedImage) {
+        playSendSound();
         if (isGenerating) {
           onStop?.();
         }
@@ -260,6 +262,11 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
       } else if (isGenerating) {
         onStop?.();
       }
+      return;
+    }
+
+    if (!["Shift", "Control", "Alt", "Meta", "CapsLock", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+      playTypingSound(e.key);
     }
   };
 
@@ -1117,6 +1124,9 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
               type="button"
               data-testid="composer-send-btn"
               onClick={() => {
+                if (value.trim() || attachedImage) {
+                  playSendSound();
+                }
                 if (isGenerating) onStop?.();
                 onSend({
                   mode: isGoalMode ? "goal" : actionMode,
