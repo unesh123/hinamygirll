@@ -43,6 +43,12 @@ describe("HINAA assistant workspace", () => {
     expect(screen.getAllByRole("button", { name: "Models" })[0]).toBeInTheDocument();
   });
 
+  it("opens the model library from Models navigation", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", {name:"Models", exact:true}));
+    expect(screen.getByRole("heading", {name:"Models & providers"})).toBeInTheDocument();
+  });
+
   it("shows the Work mode text composer", () => {
     render(<App />);
     const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
@@ -186,17 +192,20 @@ describe("URLs that earn the Clerk token", () => {
   it("matches the relative paths every call site uses today", () => {
     expect(isHinaApiUrl("/api/v1/conversations/turns:stream")).toBe(true);
     expect(isHinaApiUrl("/v1/providers")).toBe(true);
-    expect(isHinaApiUrl("/health")).toBe(false);
+    expect(isHinaApiUrl("/health")).toBe(true);
   });
 
   it("matches absolute URLs to this origin, the shape a tunnelled API base takes", () => {
     expect(isHinaApiUrl(`${origin}/api/v1/capabilities`)).toBe(true);
     expect(isHinaApiUrl(`${origin}/v1/tasks/abc/events`)).toBe(true);
-    expect(isHinaApiUrl(`${origin}/health`)).toBe(false);
+    expect(isHinaApiUrl(`${origin}/health`)).toBe(true);
   });
 
   it("never matches a foreign host, whatever path it exposes", () => {
     expect(isHinaApiUrl("https://third-party.example.com/api/v1/turns:stream")).toBe(false);
     expect(isHinaApiUrl("https://third-party.example.com/v1/providers")).toBe(false);
+    expect(isHinaApiUrl(`${origin}.attacker.example/api/v1/providers`)).toBe(false);
+    expect(isHinaApiUrl("/apiary/private")).toBe(false);
+    expect(isHinaApiUrl("/v10/private")).toBe(false);
   });
 });

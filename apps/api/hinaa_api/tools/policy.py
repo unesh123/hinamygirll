@@ -48,6 +48,7 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "browser_navigation_request",
         "youtube_playback_request",
         "computer_operator",
+        "terminal_hands",
         "system_info",
     }
 )

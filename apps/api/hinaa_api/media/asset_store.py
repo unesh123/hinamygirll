@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -95,7 +96,7 @@ class AssetStore:
     """Manages secure, deduplicated server-side storage of user-uploaded and generated assets."""
 
     def __init__(self, base_dir: Path | None = None) -> None:
-        self.base_dir = base_dir or (Path.home() / ".hinaa" / "assets")
+        self.base_dir = base_dir or Path(os.environ.get("HINAA_ASSET_STORE_DIR") or Path.home() / ".hinaa" / "assets")
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._index: dict[str, AssetRef] = {}
         self._sha_map: dict[str, str] = {}  # sha256 -> asset_id

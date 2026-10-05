@@ -12,6 +12,7 @@ import {
 import { DynamicIslandCompanion } from "./design-system/layout/DynamicIslandCompanion";
 import type { ResponseMode } from "./features/providers/conversationProvider";
 
+import { ModelsMode } from "./design-system/modes/ModelsMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
 import type { AttachmentRole } from "./design-system/chat/ComposerV6";
@@ -98,15 +99,15 @@ function ClerkAuthWrapper() {
 const API_BASE = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
 
 export function isHinaApiUrl(url: string): boolean {
-  if (!/^https?:\/\//i.test(url)) {
-    return url.startsWith("/api") || url.startsWith("/v1");
+  try {
+    const target = new URL(url, window.location.origin);
+    const allowedOrigins = [window.location.origin];
+    if (API_BASE) allowedOrigins.push(new URL(API_BASE, window.location.origin).origin);
+    return allowedOrigins.includes(target.origin) &&
+      (/^\/(api|v1)(?:\/|$)/.test(target.pathname) || /^\/(health(?:\/|$)|healthz$|readyz$)/.test(target.pathname));
+  } catch {
+    return false;
   }
-  // An absolute URL is only ours if it is this origin or the configured API base.
-  // Matching on pathname alone would hand the token to any host exposing /api/*.
-  const isOurs = url.startsWith(window.location.origin) || (API_BASE !== "" && url.startsWith(API_BASE));
-  if (!isOurs) return false;
-  const { pathname } = new URL(url);
-  return pathname.startsWith("/api") || pathname.startsWith("/v1");
 }
 
 export function ClerkFetchInterceptor() {
@@ -120,11 +121,10 @@ export function ClerkFetchInterceptor() {
         try {
           const token = await getToken();
           if (token) {
-            config = config || {};
-            config.headers = {
-              ...config.headers,
-              Authorization: `Bearer ${token}`
-            };
+            const headers = new Headers(resource instanceof Request ? resource.headers : undefined);
+            new Headers(config?.headers).forEach((value, key) => headers.set(key, value));
+            headers.set("Authorization", `Bearer ${token}`);
+            config = { ...config, headers };
           }
         } catch (e) {
           console.error("Failed to get Clerk token", e);
@@ -1189,7 +1189,8 @@ export default function App() {
               else if (section === "chat") setSakuraView("work");
               else if (section === "studio" || section === "showroom") setSakuraView("showroom");
               else if (section === "dashboard" || section === "tasks" || section === "operate") { setSakuraView("operate"); setOperateTab("tasks"); }
-              else if (section === "models" || section === "tools") { setSakuraView("operate"); setOperateTab("capabilities"); }
+              else if (section === "models") setSakuraView("models");
+              else if (section === "tools") { setSakuraView("operate"); setOperateTab("capabilities"); }
               else if (section === "reports") { setSakuraView("operate"); setOperateTab("reports"); }
               else if (section === "images") openImageStudio();
               else if (section === "library" || section === "projects" || section === "files") openProjectWorkspace();
@@ -1380,6 +1381,18 @@ export default function App() {
               />
             )}
 
+            {sakuraView === "models" && (
+              <ModelsMode isDark={isDark}
+                selectedModelId={settings.provider.preferredMode === "auto" ? null : routing.activeModel}
+                selectedProviderId={routing.activeMode === "real" ? "gemini" : routing.activeMode}
+                onSelectAuto={() => setProvider({ preferredMode: "auto" })}
+                onSelectModel={(modelId, providerId) => {
+                  const mode = providerModeFromId(providerId);
+                  if (!mode) return;
+                  setProvider({ preferredMode: mode, preferredModelByProvider: { ...settings.provider.preferredModelByProvider, [mode]: modelId } });
+                }} />
+            )}
+
             {sakuraView === "operate" && (
               <OperateMode key={operateTab} initialTab={operateTab} />
             )}
@@ -1498,6 +1511,7 @@ export default function App() {
         {showDesktopPet && (
           <DesktopWalkingPet
             isSpeaking={playback.playing || live.diagnostics.currentStage === "playing" || false}
+            isThinking={controller.state === "thinking"}
             jawEnergy={playback.jawEnergy.current || 0}
             onStopSpeaking={() => {
               playback.stop();

@@ -77,6 +77,9 @@ def resolve_auth(
     Enforces HINAA_ALLOWED_USER_IDS single-owner gate if configured.
     """
     mode = settings.auth_mode
+    cached = getattr(getattr(request, "state", None), "hinaa_auth", None)
+    if mode == "clerk" and isinstance(cached, AuthContext) and cached.mode == "clerk":
+        return cached
     if mode == "dev":
         # The dev header is a self-declared name and its expected value ships in
         # the browser bundle, so it can only be trusted on a request that never
@@ -195,7 +198,9 @@ def resolve_auth(
                     status_code=403,
                 )
         user = memory.ensure_user(subject)
-        return AuthContext(user_id=user.id, auth_subject=subject, mode="clerk")
+        auth = AuthContext(user_id=user.id, auth_subject=subject, mode="clerk")
+        request.state.hinaa_auth = auth
+        return auth
 
     raise HinaaError("AUTH_NOT_CONFIGURED", f"Authentication mode is invalid: {mode!r}.", 503, True)
 

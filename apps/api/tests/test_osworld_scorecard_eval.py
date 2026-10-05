@@ -70,9 +70,19 @@ class OSWorldScorecard:
 
 
 @pytest.mark.asyncio
-async def test_osworld_comprehensive_scorecard():
+async def test_osworld_comprehensive_scorecard(monkeypatch):
     scorecard = OSWorldScorecard()
     host = HostAgent()
+    # Exercise mission routing and score aggregation with an explicit simulated
+    # platform; this is not an OSWorld benchmark or a real desktop action.
+    from unittest.mock import AsyncMock
+    from hinaa_api.desktop.agent_os import AppAgentResult, ActionPriorityLevel
+    async def simulated_task(task):
+        return AppAgentResult(success=True, verified=True, task_id=task.task_id,
+                              app_name=task.target_app, detail="Simulated platform result",
+                              priority_used=ActionPriorityLevel.NATIVE_OS_PRIMITIVE)
+    for app_agent in {*host.app_agents.values(), host.default_agent}:
+        monkeypatch.setattr(app_agent, "execute_task", AsyncMock(side_effect=simulated_task))
     policy = PolicyEngine()
     runtime = DurableRuntime()
 

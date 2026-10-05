@@ -37,10 +37,11 @@ import {
   playUiSound,
   isSoundEnabled,
 } from "../../lib/uiSound";
-import { CuteRobotFace } from "../../design-system/layout/DynamicIslandCompanion";
+import { CuteRobotFace, CoucouMascot } from "../../design-system/layout/DynamicIslandCompanion";
 
 export interface DesktopWalkingPetProps {
   isSpeaking?: boolean;
+  isThinking?: boolean;
   jawEnergy?: number;
   onStopSpeaking?: () => void;
   isLiveVoiceActive?: boolean;
@@ -56,6 +57,7 @@ export interface DesktopWalkingPetProps {
 
 export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
   isSpeaking = false,
+  isThinking = false,
   jawEnergy = 0,
   onStopSpeaking,
   isLiveVoiceActive = false,
@@ -68,10 +70,10 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
   onOpenApp,
   onClose,
 }) => {
-  // Mascot Style: "robot" (video AQOpjR7zLO), "cat" (video AQNYy-o6Ns "dex"), or "hinaa" (video AQMFWe0Mf3)
-  const [petStyle, setPetStyle] = useState<"robot" | "cat" | "hinaa">(() => {
+  // Mascot Style: "robot" (video AQOpjR7zLO), "cat" (video AQNYy-o6Ns "dex"), "hinaa" (video AQMFWe0Mf3), or "coucou" (Mochi)
+  const [petStyle, setPetStyle] = useState<"robot" | "cat" | "hinaa" | "coucou">(() => {
     try {
-      return (localStorage.getItem("hinaa-desktop-pet-style") as "robot" | "cat" | "hinaa") || "cat";
+      return (localStorage.getItem("hinaa-desktop-pet-style") as "robot" | "cat" | "hinaa" | "coucou") || "cat";
     } catch {
       return "cat";
     }
@@ -132,26 +134,27 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
       const dt = Math.min(0.06, (time - lastTime) / 1000);
       lastTime = time;
 
-      // Natural, rhythmic cadence: ~3.4 rad/s
+      // Natural, rhythmic cadence: ~3.2 rad/s
       setWalkPhase((prev) => {
-        const next = (prev + dt * 3.4) % (Math.PI * 2);
+        const next = (prev + dt * 3.2) % (Math.PI * 2);
         const stepSin = Math.sin(next);
-        if (stepSin > 0.45 && lastStepSideRef.current !== "left") {
+        // Heel-strike ground impact trigger
+        if (stepSin > 0.85 && lastStepSideRef.current !== "left") {
           lastStepSideRef.current = "left";
           if (isSoundEnabled()) playFootstepSound();
-        } else if (stepSin < -0.45 && lastStepSideRef.current !== "right") {
+        } else if (stepSin < -0.85 && lastStepSideRef.current !== "right") {
           lastStepSideRef.current = "right";
           if (isSoundEnabled()) playFootstepSound();
         }
         return next;
       });
 
-      // Synchronized stroll speed: ~18.5 px/s exactly matching the 8.5px stride excursion (no moonwalking / sliding)
+      // Synchronized ground stroll speed: 16.1 px/s exactly matching the 15.8px stride excursion (true physical zero slip)
       setWalkX((x) => {
         const screenWidth = typeof window !== "undefined" ? window.innerWidth : 1200;
         const minX = 60;
         const maxX = Math.max(minX + 100, screenWidth - 140);
-        let nextX = x + walkDir * dt * 18.5;
+        let nextX = x + walkDir * dt * 16.1;
 
         if (nextX >= maxX) {
           nextX = maxX;
@@ -216,9 +219,10 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
   };
 
   // Toggle pet style: cat -> hinaa -> robot
+  // Toggle pet style: cat -> hinaa -> robot -> coucou
   const toggleStyle = () => {
-    const next: "cat" | "robot" | "hinaa" =
-      petStyle === "cat" ? "hinaa" : petStyle === "hinaa" ? "robot" : "cat";
+    const next: "cat" | "robot" | "hinaa" | "coucou" =
+      petStyle === "cat" ? "hinaa" : petStyle === "hinaa" ? "robot" : petStyle === "robot" ? "coucou" : "cat";
     setPetStyle(next);
     try {
       localStorage.setItem("hinaa-desktop-pet-style", next);
@@ -226,31 +230,34 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
     playUiSound("pop");
   };
 
-  // High-fidelity anatomical walking kinematics (matching SnapInsta video references)
+  // High-fidelity anatomical walking kinematics (zero-slip stance & forward knee flexion)
   const phaseSin = Math.sin(walkPhase);
   const phaseCos = Math.cos(walkPhase);
 
   // Stride linear offsets & pendulum angles
-  const legStride = shouldWalk ? phaseSin * 6.5 : 0;
-  const legSwingAngle = shouldWalk ? phaseSin * 22 : 0; // Hip rotation
-  const leftLegLift = shouldWalk ? Math.max(0, -phaseSin) * 4.2 : 0;
-  const rightLegLift = shouldWalk ? Math.max(0, phaseSin) * 4.2 : 0;
+  const legStride = shouldWalk ? phaseSin * 7.9 : 0;
+  const leftLegSwingAngle = shouldWalk ? phaseSin * 26 : (isDragging ? Math.sin(walkPhase * 1.5) * 8 : 0);
+  const rightLegSwingAngle = shouldWalk ? -phaseSin * 26 : (isDragging ? -Math.sin(walkPhase * 1.5) * 8 : 0);
 
-  // Knee & paw flexion on recovery phase
-  const leftKneeAngle = shouldWalk ? Math.max(0, -phaseSin) * 26 : 0;
-  const rightKneeAngle = shouldWalk ? Math.max(0, phaseSin) * 26 : 0;
+  // True bipedal knee flexion:
+  // Knee flexes forward on recovery swing (phaseCos > 0 for left, phaseCos < 0 for right)
+  // Leg plants flat on stance (phaseCos <= 0 for left, phaseCos >= 0 for right)
+  const leftKneeAngle = shouldWalk ? Math.max(0, phaseCos) * 32 : (isDragging ? Math.sin(walkPhase * 2) * 10 : 0);
+  const rightKneeAngle = shouldWalk ? Math.max(0, -phaseCos) * 32 : (isDragging ? Math.cos(walkPhase * 2) * 10 : 0);
+  const leftLegLift = shouldWalk ? Math.max(0, phaseCos) * 4.6 : 0;
+  const rightLegLift = shouldWalk ? Math.max(0, -phaseCos) * 4.6 : 0;
 
-  // Arms / front paws natural counter-swing (opposite to leg stride)
-  const leftArmSwing = shouldWalk ? -phaseSin * 18 : 0;
-  const rightArmSwing = shouldWalk ? phaseSin * 18 : 0;
+  // Arms / front paws natural contralateral counter-swing
+  const leftArmSwing = shouldWalk ? -phaseSin * 22 : (isDragging ? -14 : 0);
+  const rightArmSwing = shouldWalk ? phaseSin * 22 : (isDragging ? 14 : 0);
 
   // Torso lateral weight-shift waddle & vertical step bobbing
-  const bodyTilt = shouldWalk ? phaseSin * 2.8 : 0;
-  const headCounterTilt = shouldWalk ? -phaseSin * 1.5 : 0;
-  const bodyBob = shouldWalk ? Math.abs(phaseSin) * 2.5 : (isSpeaking ? 1.2 : 0);
+  const bodyBob = shouldWalk ? Math.abs(phaseCos) * 2.4 : (isSpeaking ? 1.0 : isDragging ? -3 : 0);
+  const bodyTilt = shouldWalk ? -phaseCos * 2.8 : 0;
+  const headCounterTilt = shouldWalk ? phaseCos * 1.4 : 0;
 
   // Organic tail wave dynamics (multi-harmonic)
-  const tailWag = shouldWalk ? (phaseSin * 18 + phaseCos * 6) : Math.sin(walkPhase * 0.8) * 6;
+  const tailWag = shouldWalk ? (phaseSin * 20 + phaseCos * 6) : Math.sin(walkPhase * 0.8) * 6;
 
   return (
     <motion.div
@@ -586,7 +593,7 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 cursor: "pointer",
               }}
             >
-              {petStyle === "cat" ? "🐱 Dex" : petStyle === "hinaa" ? "🌸 Hina" : "🤖 Robot"}
+              {petStyle === "cat" ? "🐱 Dex" : petStyle === "hinaa" ? "🌸 Hina" : petStyle === "robot" ? "🤖 Cyber-Bot" : "☁️ Mochi"}
             </button>
 
             {/* Close Button */}
@@ -639,20 +646,129 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
         }}
       >
         {petStyle === "robot" ? (
-          /* 1. Talking Robot Character (AQOpjR7zLO) */
+          /* 1. Full Cybernetic Bipedal Robot Companion (AQOpjR7zLO) */
+          <div
+            style={{
+              position: "relative",
+              width: 58,
+              height: 74,
+              transform: `translateY(${-bodyBob}px) rotate(${bodyTilt}deg)`,
+              transformOrigin: "29px 70px",
+              transition: isWalking ? "none" : "transform 0.15s ease",
+            }}
+          >
+            {/* Upper OLED Screen Face */}
+            <div style={{ position: "absolute", top: 0, left: 5, zIndex: 2 }}>
+              <CuteRobotFace
+                size={48}
+                mood={isSpeaking ? "speaking" : "happy"}
+                isSpeaking={isSpeaking}
+                jawEnergy={jawEnergy}
+                isWalking={isWalking}
+                walkPhase={walkPhase}
+                interactive={false}
+              />
+            </div>
+
+            {/* Aerodynamic Bipedal Robot Chassis Body & Articulated Legs */}
+            <svg
+              width="58"
+              height="74"
+              viewBox="0 0 58 74"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ overflow: "visible", position: "absolute", top: 0, left: 0 }}
+            >
+              <defs>
+                <linearGradient id="robotChassis" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#1e293b" />
+                  <stop offset="100%" stopColor="#090d16" />
+                </linearGradient>
+                <linearGradient id="robotArm" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#334155" />
+                  <stop offset="100%" stopColor="#0f172a" />
+                </linearGradient>
+              </defs>
+
+              {/* Robot Torso / Chassis */}
+              <rect
+                x="16"
+                y="40"
+                width="26"
+                height="16"
+                rx="6"
+                fill="url(#robotChassis)"
+                stroke="#00d4ff"
+                strokeWidth="1.2"
+                strokeOpacity="0.45"
+                filter="drop-shadow(0 2px 6px rgba(0,0,0,0.6))"
+              />
+
+              {/* Glowing Chest Arc Reactor Core */}
+              <circle cx="29" cy="48" r="3.2" fill="#00d4ff" filter="drop-shadow(0 0 6px #00d4ff)" />
+              <circle cx="29" cy="48" r="1.4" fill="#ffffff" />
+
+              {/* Left Robotic Arm — Contralateral Counter-Swing */}
+              <g transform={`translate(15, 42) rotate(${leftArmSwing}) translate(-15, -42)`}>
+                <circle cx="15" cy="42" r="2.5" fill="#00d4ff" />
+                <rect x="13" y="42" width="4" height="10" rx="2" fill="url(#robotArm)" stroke="#1e293b" strokeWidth="0.8" />
+                {/* Cyber Gripper Hand */}
+                <path d="M 13 52 C 12 54 14 55 15 54 C 16 55 18 54 17 52" stroke="#00d4ff" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+              </g>
+
+              {/* Right Robotic Arm — Contralateral Counter-Swing */}
+              <g transform={`translate(43, 42) rotate(${rightArmSwing}) translate(-43, -42)`}>
+                <circle cx="43" cy="42" r="2.5" fill="#00d4ff" />
+                <rect x="41" y="42" width="4" height="10" rx="2" fill="url(#robotArm)" stroke="#1e293b" strokeWidth="0.8" />
+                {/* Cyber Gripper Hand */}
+                <path d="M 41 52 C 40 54 42 55 43 54 C 44 55 46 54 45 52" stroke="#00d4ff" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+              </g>
+
+              {/* Left Articulated Cybernetic Leg */}
+              <g transform={`translate(22, 54) rotate(${leftLegSwingAngle}) translate(-22, -54)`}>
+                {/* Hip Pivot Servo */}
+                <circle cx="22" cy="54" r="2.2" fill="#475569" />
+                {/* Upper Thigh */}
+                <rect x="19.5" y="54" width="5" height="7.5" rx="2" fill="#1e293b" stroke="#334155" strokeWidth="0.8" />
+                {/* Knee Servo + Lower Leg with Forward Flexion */}
+                <g transform={`translate(22, 60) rotate(${leftKneeAngle}) translate(-22, -60)`}>
+                  <circle cx="22" cy="60" r="1.8" fill="#00d4ff" opacity="0.8" />
+                  <rect x="20" y="60" width="4" height="6.5" rx="1.5" fill="#0f172a" />
+                  {/* Magnetic Landing Footpad with Cyan Underglow */}
+                  <rect x="18" y="66" width="8" height="3" rx="1.5" fill="#00d4ff" filter="drop-shadow(0 0 5px #00d4ff)" />
+                </g>
+              </g>
+
+              {/* Right Articulated Cybernetic Leg */}
+              <g transform={`translate(36, 54) rotate(${rightLegSwingAngle}) translate(-36, -54)`}>
+                {/* Hip Pivot Servo */}
+                <circle cx="36" cy="54" r="2.2" fill="#475569" />
+                {/* Upper Thigh */}
+                <rect x="33.5" y="54" width="5" height="7.5" rx="2" fill="#1e293b" stroke="#334155" strokeWidth="0.8" />
+                {/* Knee Servo + Lower Leg with Forward Flexion */}
+                <g transform={`translate(36, 60) rotate(${rightKneeAngle}) translate(-36, -60)`}>
+                  <circle cx="36" cy="60" r="1.8" fill="#00d4ff" opacity="0.8" />
+                  <rect x="34" y="60" width="4" height="6.5" rx="1.5" fill="#0f172a" />
+                  {/* Magnetic Landing Footpad with Cyan Underglow */}
+                  <rect x="32" y="66" width="8" height="3" rx="1.5" fill="#00d4ff" filter="drop-shadow(0 0 5px #00d4ff)" />
+                </g>
+              </g>
+            </svg>
+          </div>
+        ) : petStyle === "coucou" ? (
+          /* 2. Cute Coucou Mochi Companion */
           <div style={{ position: "relative" }}>
-            <CuteRobotFace
-              size={54}
-              mood={isSpeaking ? "speaking" : "happy"}
-              isSpeaking={isSpeaking}
-              jawEnergy={jawEnergy}
+            <CoucouMascot
+              size={58}
+              mood={isSpeaking ? "happy" : isThinking ? "thinking" : "idle"}
+              isHovered={isHovered}
               isWalking={isWalking}
               walkPhase={walkPhase}
               interactive={false}
             />
           </div>
         ) : petStyle === "hinaa" ? (
-          /* 2. Cute Chibi Anime Companion "Hina" (AQMFWe0Mf3) */
+          /* 3. Cute Chibi Anime Companion "Hina" (AQMFWe0Mf3) */
           <div
             style={{
               position: "relative",
@@ -762,8 +878,8 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 <rect x="36" y="38" width="5" height="5" rx="2" fill="#1e293b" />
               </g>
 
-              {/* Left Walking Leg — Articulated Hip Pivot + Knee Flexion */}
-              <g transform={`translate(24, 52) rotate(${legSwingAngle}) translate(-24, -52)`}>
+              {/* Left Walking Leg — Articulated Hip Pivot + Forward Knee Flexion */}
+              <g transform={`translate(24, 52) rotate(${leftLegSwingAngle}) translate(-24, -52)`}>
                 <rect x="21.5" y="52" width="5" height="7.5" rx="2.5" fill="#fda4af" />
                 <g transform={`translate(24, 58) rotate(${leftKneeAngle}) translate(-24, -58)`}>
                   <rect x="21.5" y="58" width="5" height="6.5" rx="2" fill="#fda4af" />
@@ -773,8 +889,8 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 </g>
               </g>
 
-              {/* Right Walking Leg — Articulated Hip Pivot + Knee Flexion */}
-              <g transform={`translate(34, 52) rotate(${-legSwingAngle}) translate(-34, -52)`}>
+              {/* Right Walking Leg — Articulated Hip Pivot + Forward Knee Flexion */}
+              <g transform={`translate(34, 52) rotate(${rightLegSwingAngle}) translate(-34, -52)`}>
                 <rect x="31.5" y="52" width="5" height="7.5" rx="2.5" fill="#fda4af" />
                 <g transform={`translate(34, 58) rotate(${rightKneeAngle}) translate(-34, -58)`}>
                   <rect x="31.5" y="58" width="5" height="6.5" rx="2" fill="#fda4af" />
@@ -786,7 +902,7 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
             </svg>
           </div>
         ) : (
-          /* 3. Cool Desktop Cat Companion "Dex" (AQNYy-o6Ns) */
+          /* 4. Cool Desktop Cat Companion "Dex" (AQNYy-o6Ns) */
           <div
             style={{
               position: "relative",
@@ -924,8 +1040,8 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 <circle cx="41.2" cy="46" r="1.1" fill="#ffb4c2" opacity="0.65" />
               </g>
 
-              {/* Left Walking Leg — Articulated Hip Stride & Paw Bend */}
-              <g transform={`translate(23, 52) rotate(${legSwingAngle}) translate(-23, -52)`}>
+              {/* Left Walking Leg — Articulated Hip Stride & Forward Knee Bend */}
+              <g transform={`translate(23, 52) rotate(${leftLegSwingAngle}) translate(-23, -52)`}>
                 <rect x="19.5" y="52" width="7" height="7.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
                 <g transform={`translate(23, 57) rotate(${leftKneeAngle}) translate(-23, -57)`}>
                   <rect x="19.5" y="57" width="7" height="6.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
@@ -933,8 +1049,8 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 </g>
               </g>
 
-              {/* Right Walking Leg — Articulated Hip Stride & Paw Bend */}
-              <g transform={`translate(35, 52) rotate(${-legSwingAngle}) translate(-35, -52)`}>
+              {/* Right Walking Leg — Articulated Hip Stride & Forward Knee Bend */}
+              <g transform={`translate(35, 52) rotate(${rightLegSwingAngle}) translate(-35, -52)`}>
                 <rect x="31.5" y="52" width="7" height="7.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
                 <g transform={`translate(35, 57) rotate(${rightKneeAngle}) translate(-35, -57)`}>
                   <rect x="31.5" y="57" width="7" height="6.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />

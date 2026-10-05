@@ -1314,3 +1314,5 @@ input, textarea, select { color-scheme: dark; }
   50% { transform: translate3d(40px, -30px, 0) rotate(-10deg) scale(1.05); }
   100% { transform: translate3d(-20px, 20px, 0) rotate(6deg) scale(0.96); }
 }
+
+@media (max-width: 768px) { .workspace-connection span:last-child { display:none; } .workspace-connection { padding:6px!important; } }

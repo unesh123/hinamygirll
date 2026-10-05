@@ -34,11 +34,14 @@ import { initGlobalUiSounds } from "./lib/uiSound";
 
 installStaleBuildRecovery();
 initGlobalUiSounds();
+if (authMode === "clerk" && !PUBLISHABLE_KEY) throw new Error("The private workspace needs its Clerk publishable key.");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     {authMode === "clerk" && PUBLISHABLE_KEY ? (
-      <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
+      <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/"
+        localization={{ signIn: { start: { title: "Sign in to Hina", subtitle: "Continue with your existing owner account." } } }}
+        appearance={{ elements: { footerAction: { display: "none" } } }}>
         <ClerkSessionGate />
       </ClerkProvider>
     ) : (

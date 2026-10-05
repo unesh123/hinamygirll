@@ -80,3 +80,64 @@ def test_clerk_rejects_wrong_authorized_party(tmp_path) -> None:
         )
 
     assert response.status_code == 401
+import pytest
+from starlette.websockets import WebSocketDisconnect
+
+@pytest.mark.parametrize("method,path", [
+    ("get", "/api/v1/capabilities"), ("get", "/v1/vmc/status"),
+    ("get", "/docs"), ("get", "/health"),
+    ("post", "/api/v1/assets"), ("post", "/v1/vmc/test-signal"),
+])
+def test_private_runtime_guards_routes_without_dependencies(tmp_path, method, path):
+    _, public_key = _keys()
+    with TestClient(create_app(_settings(tmp_path, public_key))) as client:
+        assert getattr(client, method)(path).status_code == 401
+        assert client.get("/health/live").json()["service"] == "hinaa-api"
+
+
+def test_private_runtime_accepts_only_owner_and_issues_voice_ticket(tmp_path):
+    private_key, public_key = _keys()
+    settings = _settings(tmp_path, public_key)
+    settings.hinaa_allowed_user_ids = "user_owner"
+    with TestClient(create_app(settings)) as client:
+        stranger = {"Authorization": f"Bearer {_token(private_key, subject='user_other')}"}
+        owner = {"Authorization": f"Bearer {_token(private_key, subject='user_owner')}"}
+        assert client.get("/v1/vmc/status", headers=stranger).status_code == 403
+        assert client.get("/v1/vmc/status", headers=owner).status_code == 200
+        ticket = client.post("/v1/realtime/ticket", headers=owner).json()["ticket"]
+        hello = {"type":"session.hello", "protocolVersion":"1.0", "sessionId":"private-test", "companionId":"hinaa", "providerMode":"mock", "generation":1, "language":"mixed", "languageMode":"fixed-hi-IN", "calibration":"soft", "authTicket":ticket}
+        with client.websocket_connect("/v1/realtime") as socket:
+            socket.send_json(hello)
+            assert socket.receive_json()["type"] == "session.ready"
+        with client.websocket_connect("/v1/realtime") as socket:
+            socket.send_json(hello)
+            with pytest.raises(WebSocketDisconnect) as closed:
+                socket.receive_json()
+            assert closed.value.code == 4401
+
+
+def test_private_vmc_rejects_anonymous_and_accepts_single_use_ticket(tmp_path):
+    private_key, public_key = _keys()
+    with TestClient(create_app(_settings(tmp_path, public_key))) as client:
+        with client.websocket_connect("/ws/vmc") as socket:
+            socket.send_json({"authTicket":"invalid-ticket"})
+            with pytest.raises(WebSocketDisconnect) as closed:
+                socket.receive_json()
+            assert closed.value.code == 4401
+        headers = {"Authorization": f"Bearer {_token(private_key)}"}
+        ticket = client.post("/v1/realtime/ticket", headers=headers).json()["ticket"]
+        with client.websocket_connect("/ws/vmc") as socket:
+            socket.send_json({"authTicket":ticket})
+            assert "tracking" in socket.receive_json()
+
+def test_owner_session_check_and_remote_terminal_gate(tmp_path):
+    private_key, public_key = _keys()
+    settings = _settings(tmp_path, public_key)
+    settings.allow_remote_local_tools = False
+    with TestClient(create_app(settings)) as client:
+        headers = {"Authorization": f"Bearer {_token(private_key)}", "Host":"hinaa-workspace.vercel.app"}
+        response = client.get("/api/v1/auth/session", headers=headers)
+        assert response.json() == {"authenticated":True,"authMode":"clerk"}
+        result = client.post("/api/v1/terminal/execute", json={"command":"echo must-not-run"}, headers=headers)
+        assert result.status_code == 403
+        assert result.json()["code"] == "LOCAL_TOOL_NOT_PERMITTED"

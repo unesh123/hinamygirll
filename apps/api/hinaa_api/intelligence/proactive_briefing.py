@@ -68,7 +68,7 @@ async def generate_proactive_briefing(
 
     greeting_msg = (
         f"{period_greeting}, Unesh! 🥰 Hinaa here, ready to co-pilot with you.{topic_mention} "
-        f"All systems, 1M+ context models, and creative tools are primed and running smoothly. "
+        f"We can think through an idea, work on a project, or create something together. "
         f"What shall we create or solve right now?"
     )
 

@@ -6,6 +6,18 @@ import { buildMockPlan } from "./mockConversationProvider";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("backend conversation provider", () => {
+  it.each(["experiential", "groq", "ollama"] as const)("sends the pinned model through the %s adapter", async (mode) => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(
+      `${JSON.stringify({ type: "plan", plan: buildMockPlan("hello", "hinaa") })}\n`,
+      { headers: { "Content-Type": "application/x-ndjson" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    for await (const _event of new BackendConversationProvider(mode).streamTurn({
+      text: "hello", companionId: "hinaa", brainModel: "configured-model", signal: new AbortController().signal,
+    })) { /* drain */ }
+    expect(JSON.parse(fetchMock.mock.lastCall![1].body)).toMatchObject({ providerMode: mode, brainModel: "configured-model" });
+  });
+
   it("parses NDJSON and validates the plan before yielding it", async () => {
     const plan = buildMockPlan("hello", "hinaa");
     const body = [

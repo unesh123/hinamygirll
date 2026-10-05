@@ -1029,6 +1029,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request.state.correlation_id = correlation_id
         host_token = tool_policy.set_request_host(request.headers.get("host"))
         try:
+            # The live instance is private as a whole, including routes that
+            # do not have their own persistence/auth dependency. Only minimal
+            # liveness and CORS preflight remain available before sign-in.
+            if active_settings.auth_mode == "clerk" and request.method != "OPTIONS" and request.url.path != "/health/live":
+                try:
+                    if memory_service is None:
+                        raise HinaaError("AUTH_NOT_CONFIGURED", "Private runtime requires persistence.", 503)
+                    await asyncio.to_thread(
+                        resolve_auth, request, active_settings, memory_service,
+                        authorization=request.headers.get("Authorization"),
+                    )
+                except HinaaError as error:
+                    return await hinaa_error_handler(request, error)
             response = await call_next(request)
         finally:
             tool_policy.reset_request_host(host_token)
@@ -1040,6 +1053,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health/live")
     async def liveness() -> dict[str, str]:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.get("/v1/auth/session")
+    @app.get("/api/v1/auth/session")
+    async def authenticated_session(request: Request) -> dict[str, object]:
+        # The private-runtime middleware verifies the owner before this route.
+        return {"authenticated": getattr(request.state, "hinaa_auth", None) is not None,
+                "authMode": active_settings.auth_mode}
 
     @app.post("/v1/assets", status_code=201)
     @app.post("/api/v1/assets", status_code=201)
@@ -1272,7 +1292,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         VSeeFace → UDP 39539 → vmc_bridge → this WS → frontend AvatarPresence
         """
-        await vmc_bridge.add_client(ws)
+        if active_settings.auth_mode == "clerk":
+            # Browser sockets cannot carry a bearer header. Use the same
+            # authenticated, single-use ticket as voice, in the first frame.
+            await ws.accept()
+            try:
+                hello = await asyncio.wait_for(ws.receive_json(), timeout=10)
+                ticket = hello.get("authTicket") if isinstance(hello, dict) else None
+                if not isinstance(ticket, str) or realtime_tickets.consume(ticket) is None:
+                    await ws.close(code=4401)
+                    return
+            except (TimeoutError, ValueError, WebSocketDisconnect):
+                await ws.close(code=4401)
+                return
+            # add_client also accepts, so register the accepted socket directly.
+            await vmc_bridge.add_client(ws, accepted=True)
+        else:
+            await vmc_bridge.add_client(ws)
         try:
             while True:
                 # Keep connection alive; bridge pushes data on UDP receipt

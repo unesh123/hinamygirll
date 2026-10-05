@@ -96,7 +96,7 @@ export function NavigationRail({
           }
         : {
             dot: "#10b981",
-            headline: "All systems nominal",
+            headline: "Workspace connected",
             detail: `${configuredProviders} providers · ${runtime.activeMode} mode`,
           }
       : {

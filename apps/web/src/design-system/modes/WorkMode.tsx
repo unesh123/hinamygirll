@@ -1014,9 +1014,7 @@ export function WorkMode({
       <AdobeMotionTimeline
         isDark={isDark}
         activeModel={activeProviderModel || activeProviderMode || "qwen3.8-max"}
-        latencyMs={850}
-        tokensUsed={42850}
-        totalTokens={1000000}
+        latencyMs={plan?.latencyMs ?? undefined}
         isWalking={isWalking}
         onToggleWalk={handleToggleWalk}
         onOpenTerminal={() => onOpenTerminal?.()}

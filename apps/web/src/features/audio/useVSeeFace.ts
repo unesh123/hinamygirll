@@ -182,7 +182,7 @@ export function useVSeeFace(): VSeeFaceState {
     }
   }, [clearPolling, resetSamples]);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     const readyState = wsRef.current?.readyState;
     if (readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING) {
       void refresh();
@@ -191,11 +191,36 @@ export function useVSeeFace(): VSeeFaceState {
     manualDisconnectRef.current = false;
     setStatus("connecting");
     setError(null);
-    const ws = new WebSocket(WS_URL);
+    let url = WS_URL;
+    let ticket: string | null = null;
+    if (import.meta.env.VITE_HINAA_AUTH_MODE === "clerk") {
+      try {
+        const base = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
+        const [routeResponse, ticketResponse] = await Promise.all([
+          fetch(`${base}/api/v1/realtime/url`),
+          fetch(`${base}/api/v1/realtime/ticket`, { method: "POST" }),
+        ]);
+        if (!routeResponse.ok || !ticketResponse.ok) throw new Error("Sign in again to connect face tracking.");
+        const route = await routeResponse.json();
+        const identity = await ticketResponse.json();
+        if (typeof route.url !== "string" || typeof identity.ticket !== "string") throw new Error("Tracking connection is unavailable.");
+        url = new URL("/ws/vmc", route.url).toString();
+        ticket = identity.ticket;
+        if (!mountedRef.current || manualDisconnectRef.current) return;
+      } catch (cause) {
+        if (mountedRef.current) {
+          setStatus("error");
+          setError(cause instanceof Error ? cause.message : "Could not authenticate tracking.");
+        }
+        return;
+      }
+    }
+    const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
       if (!mountedRef.current || wsRef.current !== ws) return;
+      if (ticket) ws.send(JSON.stringify({ authTicket: ticket }));
       connectedRef.current = true;
       setConnectionId(`vmc-ws-${Date.now().toString(36)}`);
       startPolling();

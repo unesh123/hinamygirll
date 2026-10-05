@@ -157,6 +157,7 @@ export function useCapabilities() {
       for (const targetUrl of candidateUrls) {
         try {
           const res = await fetch(targetUrl, {
+            signal: AbortSignal.timeout(8000),
             headers: {
               "bypass-tunnel-reminder": "true",
             },

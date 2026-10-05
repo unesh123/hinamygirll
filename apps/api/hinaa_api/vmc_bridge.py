@@ -195,8 +195,9 @@ class VMCBridge:
             "tracking": self.diagnostics(),
         })
 
-    async def add_client(self, ws: WebSocket) -> None:
-        await ws.accept()
+    async def add_client(self, ws: WebSocket, *, accepted: bool = False) -> None:
+        if not accepted:
+            await ws.accept()
         self._clients.add(ws)
         logger.info("VMC WebSocket client connected (total=%d)", len(self._clients))
         await self._send_to(ws)

@@ -46,7 +46,7 @@ describe("NavigationRail health status", () => {
     renderRail(true);
 
     await waitFor(() => expect(screen.getByText("3 providers · claude mode")).toBeInTheDocument());
-    expect(screen.getByText("All systems nominal")).toBeInTheDocument();
+    expect(screen.getByText("Workspace connected")).toBeInTheDocument();
     // Only the flags that are actually on read "Available".
     expect(screen.getAllByText("Available")).toHaveLength(2);
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
@@ -72,7 +72,7 @@ describe("NavigationRail health status", () => {
 
     await waitFor(() => expect(screen.getByText("Workspace ready")).toBeInTheDocument());
     expect(screen.getByText("2 providers · awaiting turn")).toBeInTheDocument();
-    expect(screen.queryByText("All systems nominal")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace connected")).not.toBeInTheDocument();
     expect(screen.queryByText(/claude mode/i)).not.toBeInTheDocument();
   });
 
@@ -114,7 +114,7 @@ describe("NavigationRail health status", () => {
     renderRail(true);
 
     expect(screen.getByText("Checking systems…")).toBeInTheDocument();
-    expect(screen.queryByText("All systems nominal")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace connected")).not.toBeInTheDocument();
     expect(resolveProbe).toBeTypeOf("function");
   });
 });

@@ -2005,6 +2005,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             transition={{ type: "spring", stiffness: 440, damping: 32 }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
+            className="hina-island-os-modal"
             style={{
               position: "relative",
               zIndex: 100001,
@@ -2023,9 +2024,6 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                 : "0 20px 50px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255,255,255,0.9)",
               borderRadius: 22,
               padding: "12px 18px",
-              width: "min(760px, calc(100vw - 24px))",
-              maxWidth: "calc(100vw - 24px)",
-              maxHeight: "calc(100vh - 36px)",
               color: isDark ? "#ffffff" : "#0f172a",
               display: "flex",
               flexDirection: "column",
@@ -2036,19 +2034,14 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
           >
             {/* Modal Header */}
             <div
+              className="hina-island-header"
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                width: "100%",
-                height: 34,
-                flexShrink: 0,
                 borderBottom: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.06)",
                 paddingBottom: 6,
               }}
             >
               {/* Left Actions */}
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <div className="hina-island-header-left">
                 <button
                   type="button"
                   onClick={() => {
@@ -2156,12 +2149,8 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
 
               {/* Center Title Pill */}
               <div
+                className="hina-island-title-pill"
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "3px 12px",
-                  borderRadius: 14,
                   background: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)",
                   border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(0, 0, 0, 0.06)",
                 }}
@@ -2176,6 +2165,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   }}
                 />
                 <span
+                  className="title-text"
                   style={{
                     fontSize: 11,
                     fontWeight: 750,
@@ -2201,7 +2191,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               </div>
 
               {/* Right: Sound, Settings, Minimize */}
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <div className="hina-island-header-right">
                 <button
                   type="button"
                   onClick={toggleSound}
@@ -2261,7 +2251,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   }}
                 >
                   <Minimize2 size={13} />
-                  <span style={{ fontSize: 10, fontWeight: 700 }}>ESC</span>
+                  <span className="esc-label" style={{ fontSize: 10, fontWeight: 700 }}>ESC</span>
                 </button>
               </div>
             </div>
@@ -2279,6 +2269,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               }}
             >
               <div
+                className="hina-island-mascot-col"
                 style={{
                   display: "flex",
                   flexDirection: "column",
@@ -2352,22 +2343,19 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               </div>
 
               {/* Center & Right Column: Interactive Deck */}
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+              <div
+                className="hina-island-deck-main"
+                style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, minWidth: 0, minHeight: 0, overflow: "hidden" }}
+              >
                 {/* ── Console Mode Navigation Tabs ── */}
                 <div
+                  className="hina-island-tabs-bar"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
                     borderBottom: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
                     paddingBottom: 6,
-                    overflowX: "auto",
-                    scrollbarWidth: "none",
-                    whiteSpace: "nowrap",
-                    WebkitOverflowScrolling: "touch",
-                    flexShrink: 0,
                   }}
                 >
+                  <div className="hina-island-tabs-scroll">
                   <button
                     type="button"
                     onClick={() => {
@@ -2542,9 +2530,10 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                     <Volume2 size={12} />
                     <span>Sound FX</span>
                   </button>
+                  </div>
 
                   {/* Real Model Selector Dropdown Trigger */}
-                  <div style={{ marginLeft: "auto", position: "relative", flexShrink: 0 }}>
+                  <div className="hina-island-model-dropdown-anchor" style={{ marginLeft: "auto" }}>
                     <button
                       type="button"
                       onClick={() => {
@@ -2640,12 +2629,11 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                 <div
                   className="hina-island-tab-content-scroll"
                   style={{
-                    flex: 1,
-                    maxHeight: "calc(100vh - 145px)",
+                    flex: "1 1 0%",
+                    minHeight: 0,
                     overflowY: "auto",
                     overflowX: "hidden",
                     paddingRight: 6,
-                    minHeight: 0,
                   }}
                 >
                 {activeTab === "upload" || isDraggingFile ? (
@@ -4237,20 +4225,94 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                 )}
                 </div>
 
-                {/* ── Quick Launcher Grid ── */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
-                  <div style={{ display: "flex", gap: 6 }}>
+                {/* ── Deck Footer (Quick Launcher Grid & Chat Composer) ── */}
+                <div className="hina-island-deck-footer">
+                  <div className="hina-island-quick-launcher-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playUiSound("click");
+                          onOpenTerminal?.();
+                        }}
+                        style={{
+                          background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                          border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: 11,
+                          fontWeight: 650,
+                          color: isDark ? "#ffffff" : "#0f172a",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Terminal size={12} />
+                        <span>CLI Console</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playUiSound("click");
+                          onToggleWalk?.();
+                        }}
+                        style={{
+                          background: isWalking ? "rgba(236,72,153,0.2)" : isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                          border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: 11,
+                          fontWeight: 650,
+                          color: isWalking ? "#ec4899" : isDark ? "#ffffff" : "#0f172a",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Footprints size={12} />
+                        <span>{isWalking ? "Walking" : "Walk"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playUiSound("pop");
+                          window.dispatchEvent(new CustomEvent("hinaa:open-explainer"));
+                        }}
+                        style={{
+                          background: "rgba(0, 212, 255, 0.12)",
+                          border: "1px solid rgba(0, 212, 255, 0.35)",
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: 11,
+                          fontWeight: 650,
+                          color: "#00d4ff",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Sparkles size={12} />
+                        <span>🪐 Explainer</span>
+                      </button>
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => {
-                        playUiSound("click");
+                        playUiSound("whoosh");
                         onOpenTerminal?.();
                       }}
                       style={{
-                        background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
-                        border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+                        background: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+                        border: "none",
                         borderRadius: 8,
-                        padding: "4px 8px",
+                        padding: "4px 10px",
                         fontSize: 11,
                         fontWeight: 650,
                         color: isDark ? "#ffffff" : "#0f172a",
@@ -4260,130 +4322,58 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                         gap: 4,
                       }}
                     >
-                      <Terminal size={12} />
-                      <span>CLI Console</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        playUiSound("click");
-                        onToggleWalk?.();
-                      }}
-                      style={{
-                        background: isWalking ? "rgba(236,72,153,0.2)" : isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
-                        border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
-                        borderRadius: 8,
-                        padding: "4px 8px",
-                        fontSize: 11,
-                        fontWeight: 650,
-                        color: isWalking ? "#ec4899" : isDark ? "#ffffff" : "#0f172a",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <Footprints size={12} />
-                      <span>{isWalking ? "Walking" : "Walk"}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        playUiSound("pop");
-                        window.dispatchEvent(new CustomEvent("hinaa:open-explainer"));
-                      }}
-                      style={{
-                        background: "rgba(0, 212, 255, 0.12)",
-                        border: "1px solid rgba(0, 212, 255, 0.35)",
-                        borderRadius: 8,
-                        padding: "4px 8px",
-                        fontSize: 11,
-                        fontWeight: 650,
-                        color: "#00d4ff",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <Sparkles size={12} />
-                      <span>🪐 Explainer</span>
+                      <span>Open terminal</span>
+                      <ArrowRight size={12} />
                     </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      playUiSound("whoosh");
-                      onOpenTerminal?.();
-                    }}
+                  {/* ── Inline Quick Chat Composer ── */}
+                  <form
+                    onSubmit={handleSendQuickChat}
                     style={{
-                      background: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "4px 10px",
-                      fontSize: 11,
-                      fontWeight: 650,
-                      color: isDark ? "#ffffff" : "#0f172a",
-                      cursor: "pointer",
                       display: "flex",
                       alignItems: "center",
-                      gap: 4,
+                      gap: 6,
+                      background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.04)",
+                      borderRadius: 12,
+                      padding: "4px 8px",
+                      border: isDark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)",
                     }}
                   >
-                    <span>Open terminal</span>
-                    <ArrowRight size={12} />
-                  </button>
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder="Ask Hina anything or trigger action..."
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        color: isDark ? "#ffffff" : "#0f172a",
+                        fontSize: 12,
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      style={{
+                        background: chatInput.trim() ? "#00d4ff" : "transparent",
+                        border: "none",
+                        borderRadius: 8,
+                        width: 24,
+                        height: 24,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: chatInput.trim() ? "#000" : isDark ? "#94a3b8" : "#64748b",
+                        cursor: "pointer",
+                        opacity: chatInput.trim() ? 1 : 0.5,
+                      }}
+                    >
+                      <Send size={12} />
+                    </button>
+                  </form>
                 </div>
-
-                {/* ── Inline Quick Chat Composer ── */}
-                <form
-                  onSubmit={handleSendQuickChat}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.04)",
-                    borderRadius: 12,
-                    padding: "4px 8px",
-                    border: isDark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)",
-                  }}
-                >
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Ask Hina anything or trigger action..."
-                    style={{
-                      flex: 1,
-                      background: "transparent",
-                      border: "none",
-                      outline: "none",
-                      color: isDark ? "#ffffff" : "#0f172a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    style={{
-                      background: chatInput.trim() ? "#00d4ff" : "transparent",
-                      border: "none",
-                      borderRadius: 8,
-                      width: 24,
-                      height: 24,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: chatInput.trim() ? "#000" : isDark ? "#94a3b8" : "#64748b",
-                      cursor: "pointer",
-                      opacity: chatInput.trim() ? 1 : 0.5,
-                    }}
-                  >
-                    <Send size={12} />
-                  </button>
-                </form>
 
                 {/* Real Live Streaming / Response Bubble */}
                 {(streamingText || lastAssistantText) && (

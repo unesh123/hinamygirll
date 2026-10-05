@@ -3617,6 +3617,8 @@ body {
 /* ── HINA ISLAND OS DECK PORTAL & RESPONSIVE POLISH ── */
 .hina-island-os-portal-root {
   animation: hinaPortalFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: max(8px, 1.8vh) max(8px, 1.8vw);
+  box-sizing: border-box;
 }
 
 @keyframes hinaPortalFadeIn {
@@ -3628,6 +3630,98 @@ body {
     opacity: 1;
     backdrop-filter: blur(10px);
   }
+}
+
+/* Modal window responsive sizing */
+.hina-island-os-modal {
+  width: min(980px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 20px) !important;
+  max-height: min(880px, calc(100vh - 28px)) !important;
+  height: min(880px, calc(100vh - 28px)) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Responsive header elements */
+.hina-island-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 36px;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.hina-island-header-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.hina-island-title-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px;
+  border-radius: 14px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.hina-island-header-right {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+/* Tab scroll track and model selector wrap */
+.hina-island-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.hina-island-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.hina-island-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.hina-island-model-dropdown-anchor {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 100005;
+}
+
+/* Inner content scroll area — fully elastic, zero hardcoded calc overflow */
+.hina-island-tab-content-scroll {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-right: 6px;
 }
 
 .hina-island-tab-content-scroll::-webkit-scrollbar {
@@ -3649,10 +3743,70 @@ body {
   background: rgba(0, 212, 255, 0.45);
 }
 
+/* Deck Footer & Composer */
+.hina-island-deck-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* Media Queries for Smooth Tablet & Mobile Adaptation */
+@media (max-width: 768px) {
+  .hina-island-os-modal {
+    width: calc(100vw - 16px) !important;
+    max-height: calc(100vh - 16px) !important;
+    height: calc(100vh - 16px) !important;
+    padding: 10px 12px !important;
+    border-radius: 18px !important;
+  }
+}
+
 @media (max-width: 640px) {
   .hina-island-deck-columns {
     flex-direction: column !important;
-    gap: 8px !important;
+    gap: 6px !important;
+  }
+
+  .hina-island-mascot-col {
+    flex-direction: row !important;
+    width: 100% !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 2px 6px !important;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .hina-island-title-pill .title-text {
+    display: none !important;
+  }
+
+  .hina-island-header-right .esc-label {
+    display: none !important;
+  }
+
+  .hina-island-quick-launcher-row {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
   }
 }
+
+@media (max-width: 480px) {
+  .hina-island-os-modal {
+    width: calc(100vw - 8px) !important;
+    max-height: calc(100vh - 8px) !important;
+    height: calc(100vh - 8px) !important;
+    padding: 8px 10px !important;
+    border-radius: 14px !important;
+    gap: 6px !important;
+  }
+
+  .hina-island-header-left button[title*="Screen Watcher"] {
+    display: none !important;
+  }
+}
+
 

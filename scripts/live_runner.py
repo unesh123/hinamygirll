@@ -27,7 +27,7 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 def probe(url: str, *, api: bool = False) -> bool:
     try:
         request = urllib.request.Request(url, headers={"bypass-tunnel-reminder": "true"})
-        with urllib.request.urlopen(request, timeout=4) as response:
+        with urllib.request.urlopen(request, timeout=8 if url.startswith("https:") else 4) as response:
             if response.status != 200:
                 return False
             if api:
@@ -63,9 +63,38 @@ def repoint(origin: str) -> None:
                 path.write_text(updated, encoding="utf-8")
 
 
+def public_environment() -> dict[str, str]:
+    """Fail closed before a tunnel is created; never expose the dev profile."""
+    from dotenv import dotenv_values
+    api_config = {**dotenv_values(API / ".env.local"), **os.environ}
+    web_config = {**dotenv_values(WEB / ".env.local"), **os.environ}
+    owner_path = RUNTIME / "owner-id.txt"
+    owner = owner_path.read_text().strip() if owner_path.exists() else ""
+    if not re.fullmatch(r"user_[A-Za-z0-9]+", owner):
+        raise RuntimeError("A verified owner ID is required in .runtime/live/owner-id.txt.")
+    if not api_config.get("CLERK_SECRET_KEY") or not web_config.get("VITE_CLERK_PUBLISHABLE_KEY"):
+        raise RuntimeError("Configure existing Clerk keys before starting the private live site.")
+    return {
+        "HINAA_AUTH_MODE": "clerk", "HINAA_ALLOWED_USER_IDS": owner,
+        "HINAA_PERSISTENCE_ENABLED": "true", "ENVIRONMENT": "production",
+        "HINAA_ALLOW_TUNNEL_DEV_AUTH": "false", "HINAA_ALLOW_REMOTE_LOCAL_TOOLS": "false",
+        "CLERK_AUTHORIZED_PARTIES": "https://hinaa-workspace.vercel.app,http://127.0.0.1:5173,http://localhost:5173",
+    }
+
+
 class Runner:
     def __init__(self, public: bool, dev: bool, deploy: bool):
         self.public, self.dev, self.deploy = public, dev, deploy
+        if deploy and not public:
+            raise RuntimeError("--deploy requires --public.")
+        if public and dev:
+            raise RuntimeError("Public mode requires the reviewed production build.")
+        self.public_env = public_environment() if public else {}
+        if public:
+            manifest_path = ROOT / ".vercel/output/hina-live-build.json"
+            manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+            if manifest.get("authMode") != "clerk":
+                raise RuntimeError("Prepare an authenticated production build before opening the tunnel.")
         self.children: dict[str, subprocess.Popen] = {}
         self.failures: dict[str, int] = {}
         self.retry_at: dict[str, float] = {}
@@ -74,14 +103,14 @@ class Runner:
         self.publish_retry = 0.0
         self.previous: dict = {}
         self.node = shutil.which("node")
-        self.npx = shutil.which("npx.cmd")
+        self.npx = Path(self.node).parent / "node_modules/npm/bin/npx-cli.js" if self.node else None
         if not self.node:
             raise RuntimeError("Node.js was not found. Install Node before starting Hina.")
         if not dev and not (WEB / "dist/index.html").exists():
             raise RuntimeError("The web build is missing. Run pnpm --dir apps/web build first.")
         if public and not (ROOT / "cloudflared.exe").exists():
             raise RuntimeError("The configured cloudflared.exe is missing.")
-        if deploy and (not self.npx or not (ROOT / ".vercel/output/static/index.html").exists()):
+        if deploy and (not self.npx or not self.npx.exists() or not (ROOT / ".vercel/output/static/index.html").exists()):
             raise RuntimeError("Prepare the production assets before enabling automatic public recovery.")
 
     def start(self, name: str, command: list[str], cwd: Path, env: dict | None = None) -> None:
@@ -125,8 +154,10 @@ class Runner:
 
     def tick(self) -> None:
         if self.public:
+            if "api" not in self.children and port_open(8000):
+                raise RuntimeError("Stop the existing local API before starting the private public runner.")
             tunnel = self.children.get("tunnel")
-            if tunnel is None or tunnel.poll() is not None:
+            if (tunnel is None or tunnel.poll() is not None) and time.monotonic() >= self.retry_at.get("tunnel", 0):
                 self.origin = None
                 # Only the runner's own output is reset for a new tunnel.
                 for suffix in ("out", "err"):
@@ -142,7 +173,7 @@ class Runner:
                 self.retry_at["api"] = 0
 
         api_ok = probe("http://127.0.0.1:8000/health/live", api=True)
-        api_env = os.environ.copy()
+        api_env = {**os.environ, **self.public_env}
         if self.origin:
             api_env["HINAA_REALTIME_PUBLIC_ORIGIN"] = self.origin
         self.ensure("api", 8000, api_ok, [str(API / ".venv/Scripts/python.exe"), "-m", "uvicorn",
@@ -154,12 +185,18 @@ class Runner:
         web_command += ["--host", "127.0.0.1", "--port", "5173", "--strictPort"]
         self.ensure("web", 5173, web_ok, web_command, WEB)
         tunnel_ok = bool(self.origin and api_ok and probe(f"{self.origin}/health/live", api=True))
+        if self.public and self.origin and api_ok:
+            self.failures["tunnel"] = 0 if tunnel_ok else self.failures.get("tunnel", 0) + 1
+            if self.failures["tunnel"] >= 6:
+                self.stop("tunnel")
+                self.failures["tunnel"] = 0
+                self.retry_at["tunnel"] = 0
         deploy_error = self.previous.get("deployError")
         if tunnel_ok and self.deploy and self.origin != self.published and time.monotonic() >= self.publish_retry:
             repoint(self.origin)
             self.write_state(api_ok, web_ok, tunnel_ok, "publishing", None)
             with (RUNTIME / "deploy.log").open("ab") as log:
-                result = subprocess.run([self.npx, "--yes", "vercel", "deploy", "--prebuilt", "--prod", "--yes"],
+                result = subprocess.run([self.node, str(self.npx), "--yes", "vercel", "deploy", "--prebuilt", "--prod", "--yes", "--scope", "uneshs-projects"],
                                         cwd=ROOT, stdout=log, stderr=log, timeout=240, creationflags=NO_WINDOW)
             if result.returncode == 0:
                 self.published, deploy_error = self.origin, None
@@ -198,8 +235,8 @@ def main():
                 msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
             except OSError:
                 raise SystemExit("Hina's live runner is already active.")
-        (RUNTIME / "runner.pid").write_text(str(os.getpid()))
         runner = Runner(args.public, args.dev, args.deploy)
+        (RUNTIME / "runner.pid").write_text(str(os.getpid()))
         try:
             while not (RUNTIME / "stop-requested").exists():
                 try:
@@ -207,6 +244,7 @@ def main():
                 except Exception as exc:
                     print(f"Runner check failed: {type(exc).__name__}", flush=True)
                     runner.publish_retry = time.monotonic() + 60
+                    runner.write_state(False, False, False, "error", str(exc))
                 time.sleep(10)
         finally:
             for name in list(runner.children):

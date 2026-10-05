@@ -20,7 +20,8 @@ def test_missing_credentials_keep_mock_mode_safe() -> None:
     assert settings.allowed_origins == ["http://127.0.0.1:5173", "http://localhost:5173"]
 
 
-def test_default_database_is_private_and_durable() -> None:
+def test_default_database_is_private_and_durable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HINAA_DATABASE_URL", raising=False)
     settings = Settings(_env_file=None, HINAA_PROVIDER_MODE="mock")
     assert settings.database_url.startswith("sqlite+pysqlite:///")
     assert not settings.database_url.endswith(":memory:")

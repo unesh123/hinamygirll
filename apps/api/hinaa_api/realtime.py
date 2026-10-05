@@ -203,6 +203,9 @@ class RealtimeGateway:
             )
             hello = ClientHello.model_validate(first)
             session = LiveSession(hello=hello, user_id=self._resolve_identity(hello, user_id))
+            if self.settings.auth_mode == "clerk" and session.user_id is None:
+                await websocket.close(code=4401, reason="Sign in is required.")
+                return
             logger.info(
                 "realtime: <<< session.hello mode=%s companion=%s identified=%s",
                 hello.providerMode,

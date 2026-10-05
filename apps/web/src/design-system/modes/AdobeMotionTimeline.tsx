@@ -34,10 +34,10 @@ export interface AdobeMotionTimelineProps {
 
 export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.memo(({
   isDark = true,
-  activeModel = "qwen3.8-max:free",
-  latencyMs = 850,
-  tokensUsed = 42850,
-  totalTokens = 1000000,
+  activeModel,
+  latencyMs,
+  tokensUsed,
+  totalTokens,
   isWalking = false,
   onToggleWalk,
   onOpenTerminal,
@@ -50,7 +50,7 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
   const [activeKeyframe, setActiveKeyframe] = useState<number>(3);
   const [fps, setFps] = useState<number>(60);
 
-  const contextPercent = Math.min(100, Math.round((tokensUsed / totalTokens) * 100));
+  const contextPercent = tokensUsed !== undefined && totalTokens !== undefined && totalTokens > 0 ? Math.min(100, Math.round((tokensUsed / totalTokens) * 100)) : null;
 
   return (
     <div
@@ -193,7 +193,7 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
         {/* Latency Meter */}
         <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: isDark ? "#cbd5e1" : "#475569" }}>
           <Zap size={11} color="#f59e0b" />
-          <span style={{ fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>{latencyMs}ms</span>
+          <span style={{ fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>{latencyMs !== undefined ? `${Math.round(latencyMs)} ms` : "Awaiting turn"}</span>
         </div>
 
         {/* Context Window Gauge */}
@@ -210,14 +210,14 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
           >
             <div
               style={{
-                width: `${contextPercent}%`,
+                width: `${contextPercent ?? 0}%`,
                 height: "100%",
                 background: "#00d4ff",
                 boxShadow: "0 0 6px #00d4ff",
               }}
             />
           </div>
-          <span style={{ fontSize: 9, fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>{contextPercent}%</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>{contextPercent !== null ? `${contextPercent}%` : "Unreported"}</span>
         </div>
 
         {/* Audio Visualizer Spectrum Bars */}

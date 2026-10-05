@@ -23,6 +23,7 @@ from .college.vault import (
     VIPResourceItem,
 )
 from .integrations.saas_bridge import saas_bridge_manager, SaaSIntegrationStatus
+from .tools import policy as tool_policy
 from .tools.terminal_hands import execute_terminal_hands, TerminalExecuteParams
 
 logger = logging.getLogger("hinaa.omega_router")
@@ -126,8 +127,9 @@ class TerminalRunRequest(BaseModel):
 
 @omega_router.post("/v1/terminal/execute")
 @omega_router.post("/api/v1/terminal/execute")
-async def execute_terminal_command(body: TerminalRunRequest) -> Dict[str, Any]:
+async def execute_terminal_command(body: TerminalRunRequest, request: Request) -> Dict[str, Any]:
     """Execute a sandboxed shell command or test suite with safety guardrails."""
+    tool_policy.enforce("terminal_hands", request.app.state.settings)
     result = await execute_terminal_hands(
         TerminalExecuteParams(
             command=body.command,

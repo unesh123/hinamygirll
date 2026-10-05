@@ -1,3 +1,4 @@
+import { UserButton } from "@clerk/react";
 import React from "react";
 import {
   MessageSquare,
@@ -16,7 +17,7 @@ import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 import { DynamicIslandCompanion, type DynamicIslandCompanionProps } from "./DynamicIslandCompanion";
 
-export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault";
+export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault" | "models";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
 
 export interface TopBarV6Props {
@@ -55,7 +56,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   onNewChat,
   islandProps,
 }) => {
-  const { models, providers, runtime } = useCapabilities();
+  const { models, providers, runtime, loading, refetch } = useCapabilities();
   const isAuto = isAutoRouter ?? !selectedModelId;
 
   const handleModeClick = (mode: ExecutiveMode) => {
@@ -331,6 +332,12 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <span>Runway 3D</span>
         </button>
 
+        <button type="button" className="workspace-connection" onClick={() => void refetch()}
+          title="Refresh workspace connection" aria-label={`Workspace ${runtime.backendConnected ? "connected" : loading ? "connecting" : "offline"}. Refresh connection.`}
+          style={{ display:"flex", alignItems:"center", gap:5, border:"1px solid currentColor", borderRadius:20, padding:"5px 8px", background:"transparent", fontSize:10, color:runtime.backendConnected ? "#87cba9" : "#d6ab87", cursor:"pointer" }}>
+          <span style={{ width:5, height:5, background:"currentColor", borderRadius:"50%" }} />
+          <span>{runtime.backendConnected ? "Connected" : loading ? "Connecting" : "Offline"}</span>
+        </button>
         {/* Search */}
         <button
           type="button"
@@ -375,8 +382,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           </button>
         )}
 
-        {/* User Initials Circle */}
-        <div
+        {/* Account controls use the actual Clerk session in the live workspace. */}
+        {import.meta.env.VITE_HINAA_AUTH_MODE === "clerk" ? <UserButton /> : <div
           style={{
             width: 30,
             height: 30,
@@ -393,7 +400,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           }}
         >
           UB
-        </div>
+        </div>}
       </div>
     </header>
   );

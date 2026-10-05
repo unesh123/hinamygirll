@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://workout-gamma-athletic-anticipated.trycloudflare.com/api/:path*"
+      "destination": "https://future-returning-marking-person.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://workout-gamma-athletic-anticipated.trycloudflare.com/v1/:path*"
+      "destination": "https://future-returning-marking-person.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://workout-gamma-athletic-anticipated.trycloudflare.com/health"
+      "destination": "https://future-returning-marking-person.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",

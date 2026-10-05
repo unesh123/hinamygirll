@@ -4,6 +4,18 @@ import io
 import os
 import wave
 
+# Test imports create app/tool singletons. Isolate their default storage before
+# importing the runtime so no test writes to the owner's real memories/assets.
+from pathlib import Path
+from uuid import uuid4
+
+_TEST_STATE = Path(__file__).resolve().parents[3] / ".runtime" / "test-state" / uuid4().hex
+_TEST_STATE.mkdir(parents=True, exist_ok=True)
+os.environ["HINAA_DATABASE_URL"] = f"sqlite+pysqlite:///{_TEST_STATE / 'test.db'}"
+os.environ["HINAA_LOCAL_WORKSPACE_DIR"] = str(_TEST_STATE / "workspace")
+os.environ["HINAA_ASSET_STORE_DIR"] = str(_TEST_STATE / "assets")
+os.environ["HINAA_VMC_PORT"] = "0"
+
 import pytest
 from fastapi.testclient import TestClient
 

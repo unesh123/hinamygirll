@@ -1,0 +1,32 @@
+.hina-session { padding:clamp(18px,4vw,64px); color:#fcf6fc; background:radial-gradient(ellipse at 22% 28%,#46264388,transparent 55%),radial-gradient(ellipse at 83% 82%,#25345666,transparent 50%),#100e16; font-family:var(--font-body); gap:20px; align-content:center; }
+.hina-session__card { display:grid; grid-template-columns:minmax(270px,.92fr) minmax(320px,1.08fr); width:min(100%,980px); border:1px solid #cfaacc25; border-radius:30px; overflow:hidden; background:linear-gradient(145deg,#27202ec9,#17131fe8); box-shadow:0 32px 100px #0006,inset 0 1px #ffffff0b; }
+.hina-session__presence { position:relative; min-height:510px; overflow:hidden; background:radial-gradient(ellipse at 50% 60%,#ab719d35,transparent 67%),linear-gradient(155deg,#342338,#1a1828); }
+.hina-session__presence > .avatar-playground { position:absolute!important; inset:0; }
+.hina-session__presence .avatar-playground__controls { display:none; }
+.hina-session__halo { position:absolute; top:16%; left:14%; width:72%; aspect-ratio:1; border:1px solid #efb9d42b; border-radius:50%; box-shadow:0 0 100px #e89dbb15,inset 0 0 90px #f3c1e00c; }
+.hina-session__name { position:absolute; z-index:2; bottom:26px; left:30px; font-size:17px; font-weight:800; letter-spacing:.22em; pointer-events:none; }
+.hina-session__name span { display:block; margin-top:7px; color:#dbb6cf; font-size:9px; letter-spacing:.16em; }
+.hina-session__content { display:flex; flex-direction:column; justify-content:center; padding:clamp(28px,4vw,54px); }
+.hina-session__eyebrow { display:flex; align-items:center; gap:8px; color:#efb9d2; font-size:10px; font-weight:700; letter-spacing:.12em; margin:0 0 22px; }
+.hina-session h1 { color:#fcf6fc; font-family:var(--font-display); font-size:clamp(30px,3.3vw,42px); line-height:1.15; font-weight:650; letter-spacing:-.035em; margin:0 0 20px; }
+.hina-session h1 span { color:#d2b2cd; }
+.hina-session__intro { color:#baafc1; font-size:14px; line-height:1.8; margin:0; max-width:35ch; }
+.hina-session__features { display:flex; flex-wrap:wrap; gap:8px; margin:24px 0 32px; }
+.hina-session__features span { border:1px solid #dbc3db1c; background:#ffffff04; border-radius:20px; padding:6px 10px; color:#c9b9cd; font-size:10px; }
+.hina-session__signin { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 20px; width:100%; min-height:50px; border:1px solid #ffd5e455; border-radius:13px; color:#291a29; background:linear-gradient(110deg,#f5c7d9,#dcbde7); font:750 13px var(--font-body); cursor:pointer; box-shadow:0 6px 25px #edb5d51a; transition:filter .2s,transform .2s; }
+.hina-session__signin:hover { filter:brightness(1.07); transform:translateY(-1px); }
+.hina-session__signin:disabled { opacity:.6; cursor:wait; }
+.hina-session button:focus-visible { outline:2px solid #ffe1ef; outline-offset:4px; }
+.hina-session__privacy { display:flex; align-items:center; justify-content:center; gap:6px; margin:13px 0 26px; color:#9d90a7; font-size:10px; }
+.hina-session__connection { display:flex; align-items:center; justify-content:center; gap:7px; min-height:22px; color:#b3a6bd; font-size:10px; }
+.hina-session__dot { width:5px; height:5px; border-radius:50%; background:#c3a4d2; }
+.hina-session__connection[data-connection=online] .hina-session__dot { background:#8ad5b2; box-shadow:0 0 8px #8ad5b24a; }
+.hina-session__connection[data-connection=offline] .hina-session__dot { background:#edba82; }
+.hina-session__connection button { display:grid; place-items:center; padding:6px; border:0; border-radius:7px; background:#ffffff0a; color:inherit; cursor:pointer; }
+.hina-session__signature { color:#86768f; font-size:10px; letter-spacing:.04em; }
+.hina-session__avatar-loading { display:flex; align-items:center; justify-content:center; flex-direction:column; gap:15px; height:100%; min-height:280px; color:#e5b8d6; font-size:12px; }
+@media (max-width:700px) { .hina-session { padding:16px; } .hina-session__card { grid-template-columns:1fr; border-radius:22px; max-width:430px; } .hina-session__presence { min-height:270px; height:270px; } .hina-session__name { bottom:18px; left:22px; font-size:14px; } .hina-session__content { padding:28px 26px 22px; } .hina-session h1 { color:#fcf6fc; font-size:31px; margin-bottom:14px; } .hina-session__eyebrow { margin-bottom:16px; } .hina-session__intro { font-size:12px; } .hina-session__features { margin:18px 0 22px; } .hina-session__privacy { margin-bottom:18px; } }
+@media (prefers-reduced-motion:reduce) { .hina-session__signin { transition:none; } }
+
+.hina-session__presence:after { content:""; position:absolute; inset:60% 0 0; background:linear-gradient(transparent,#1a122cdc); pointer-events:none; }
+.hina-session__switch { border:0; padding:12px; color:#dfbddb; background:transparent; font:650 11px var(--font-body); cursor:pointer; width:100%; }
