@@ -283,71 +283,27 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
  * - Record when fallback derivation was used (via wasFallbackDerived)
  */
 let wasFallbackDerived = false;
-export function deriveSpokenText(displayText: string): string {
-  if (!displayText) return "";
-  wasFallbackDerived = true;
-  const originalLength = displayText.length;
-  let spoken = displayText
-    // Remove fenced code blocks (``` ... ```)
-    .replace(/```[\s\S]*?```/g, "")
-    // Remove inline code but keep the content
-    .replace(/`([^`]+)`/g, "$1")
-    // Remove markdown links, keep the link text
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    // Remove bare URLs
-    .replace(/https?:\/\/\S+/g, "")
-    // Remove reference-style citation links like [1] [2] [^note]
-    .replace(/\[\^[a-zA-Z0-9]+\]/g, "")
-    .replace(/\[\d+\]/g, "")
-    // Remove headings (# ## ###)
-    .replace(/^#{1,6}\s+/gm, "")
-    // Remove bold/italic markers but keep content
-    .replace(/[*_]{1,3}/g, "")
-    // Remove table rows (| col | col |)
-    .replace(/^\|.*\|\s*$/gm, "")
-    // Remove table separator rows (|---|---|)
-    .replace(/^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/gm, "")
-    // Remove horizontal rules (--- ***)
-    .replace(/^[-*_]{3,}\s*$/gm, "")
-    // Remove blockquote markers (>
-    .replace(/^>\s*/gm, "")
-    // Remove image markdown ![alt](url)
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
-    // Remove HTML tags
-    .replace(/<[^>]+>/g, "")
-    // Collapse whitespace
-    .replace(/\s+/g, " ")
+export function deriveSpokenText(displayText: string | undefined): string {
+  if (!displayText) return '';
+  // Strip markdown syntax
+  let clean = displayText
+    .replace(/```[\s\S]*?```/g, '') // code blocks
+    .replace(/`[^`]+`/g, '') // inline code
+    .replace(/!?\[([^\]]*?)\]\([^)]*\)/g, '$1') // links/images → label
+    .replace(/^#{1,6}\s+/gm, '') // headings
+    .replace(/\*\*([^*]+)\*\*/g, '$1') // bold
+    .replace(/\*([^*]+)\*/g, '$1') // italic
+    .replace(/^[\-\*\+>]\s+/gm, '') // bullets/blockquotes
+    .replace(/^\d+\.\s+/gm, '') // numbered lists
+    .replace(/\s+/g, ' ')
     .trim();
-  // Truncate to a natural speaking length with sentence-aware cutting.
-  // Must match the backend chat budget in services.plan_voice_response —
-  // a shorter clamp here silently re-truncated every turn that had to derive
-  // its own speech, which is how her voice kept collapsing to one sentence.
-  const MAX_SPOKEN_LENGTH = 900;
-  const LOOKAHEAD_LIMIT = 40; // allow looking a few words past the target
-  if (spoken.length > MAX_SPOKEN_LENGTH) {
-    // Search for the last sentence boundary in a window around the target length
-    const searchEnd = Math.min(spoken.length, MAX_SPOKEN_LENGTH + LOOKAHEAD_LIMIT);
-    const searchWindow = spoken.substring(0, searchEnd);
-    const lastPeriod = searchWindow.lastIndexOf(".");
-    const lastExcl = searchWindow.lastIndexOf("!");
-    const lastQ = searchWindow.lastIndexOf("?");
-    const lastColon = searchWindow.lastIndexOf(":");
-    const bestCut = Math.max(lastPeriod, lastExcl, lastQ, lastColon);
-    if (bestCut > 80) {
-      // Cut at sentence boundary — keep the sentence-ending punctuation for natural speech
-      spoken = searchWindow.substring(0, bestCut + 1).trimEnd();
-      // Add continuation hint if there's more meaningful content remaining
-      const remainingAfterCut = originalLength - (bestCut + 1);
-      if (remainingAfterCut > 20) {
-        spoken += " Details are available in the chat.";
-      }
-    } else {
-      // No good sentence boundary — cut at word boundary
-      const lastSpace = searchWindow.lastIndexOf(" ");
-      spoken = (lastSpace > 100 ? searchWindow.substring(0, lastSpace) : searchWindow).trimEnd() + "...";
-    }
-  }
-  return spoken;
+  if (!clean) return '';
+  // Split into sentences
+  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
+  // Find first real sentence (not just a label or fragment < 15 chars)
+  const real = sentences.find(s => s.trim().length >= 15) || sentences[0];
+  const spoken = real.trim();
+  return spoken.length > 180 ? spoken.slice(0, 177) + '…' : spoken;
 }
 
 /** Check if the last spokenText was derived from displayText (fallback). */
@@ -501,6 +457,16 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [operateTab, setOperateTab] = useState<OperateTab>("tasks");
   const [explainerOpen, setExplainerOpen] = useState(false);
+
+  // Mobile: detect narrow viewport and hide all non-chat elements
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    setIsMobile(mq.matches);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   useEffect(() => {
     const handleOpenExplainer = () => setExplainerOpen(true);
@@ -778,9 +744,11 @@ export default function App() {
         return;
       }
 
-      // Derive spokenText from displayText when the model omits it.
-      // Strip markdown, URLs, code blocks, and keep it under 200 chars.
-      const spoken = plan.spokenText?.trim() || deriveSpokenText(plan.displayText);
+      // Use spokenText if it's a genuine short summary; fall back to derived form if it's too long or missing
+      const rawSpoken = plan.spokenText?.trim() || '';
+      const spoken = (rawSpoken && rawSpoken.length <= 200 && rawSpoken !== plan.displayText?.trim())
+        ? rawSpoken
+        : deriveSpokenText(plan.displayText);
 
       const playbackId = `playback-${result.turnId}-${Date.now()}`;
       activePlaybackId.current = playbackId;
@@ -1175,9 +1143,9 @@ export default function App() {
         <div className="hinaa-shell">
           <DesktopTitleBar />
         {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
-        <AuroraVeil state={controller.state} />
+        {!isMobile && <AuroraVeil state={controller.state} />}
         <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />
-        <FullScreenAura state={controller.state} />
+        {!isMobile && <FullScreenAura state={controller.state} />}
 
       {/* ─── Sakura OS (Canonical) ──────────────────────────── */}
           <AppShell
@@ -1508,7 +1476,7 @@ export default function App() {
           onClose={() => setTerminalOpen(false)}
           initialCommand={terminalInitialCmd}
         />
-        {showDesktopPet && (
+        {showDesktopPet && !isMobile && (
           <DesktopWalkingPet
             isSpeaking={playback.playing || live.diagnostics.currentStage === "playing" || false}
             isThinking={controller.state === "thinking"}

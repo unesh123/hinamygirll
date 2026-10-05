@@ -3810,3 +3810,164 @@ body {
 }
 
 
+/* ─── MOBILE CHAT-ONLY MODE ≤768px ─── */
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE CHAT-ONLY LAYOUT — ≤768px
+   Show ONLY: message thread + composer. Hide everything else.
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Hide navigation rail */
+  .workspace-nav-rail,
+  .nav-rail,
+  [class*="nav-rail"] { display: none !important; }
+
+  /* Hide avatar / VRM pane */
+  .avatar-pane,
+  [class*="avatar-pane"],
+  .vrm-canvas-wrapper,
+  .avatar-presence,
+  [class*="avatar-presence"] { display: none !important; }
+
+  /* Hide aurora/aura ambient effects */
+  .aurora-veil,
+  .full-screen-aura,
+  .hinaa-fullscreen-aura,
+  [class*="aurora"],
+  [class*="aura"] { display: none !important; }
+
+  /* Hide walking pet */
+  .desktop-walking-pet,
+  [class*="walking-pet"],
+  [class*="desktop-pet"] { display: none !important; }
+
+  /* Hide agent steps / activity panel */
+  .activity-panel,
+  [class*="activity-panel"],
+  .agent-steps,
+  [class*="agent-step"] { display: none !important; }
+
+  /* Hide searching loader */
+  .searching-loader,
+  [class*="searching-loader"],
+  [class*="search-loader"] { display: none !important; }
+
+  /* Hide action chips */
+  .action-chips,
+  [class*="action-chips"] { display: none !important; }
+
+  /* Hide sidebar panel / context workspace */
+  .sidebar-panel,
+  [class*="sidebar-panel"],
+  .context-workspace,
+  [class*="context-workspace"] { display: none !important; }
+
+  /* Hide DynamicIsland / Hina Island OS overlay */
+  .hina-island-os-modal,
+  [class*="dynamic-island"],
+  [class*="hina-island"] { display: none !important; }
+
+  /* Hide VoiceDiagnostics drawer */
+  [class*="voice-diagnostics"],
+  [class*="voice-drawer"] { display: none !important; }
+
+  /* Hide top-bar secondary controls (keep only title + send) */
+  .top-bar-actions,
+  .header-icon-btn:not(.header-icon-btn--voice):not(.header-icon-btn--send),
+  [class*="executive-chips"],
+  [class*="model-bar"],
+  [class*="mode-bar"] { display: none !important; }
+
+  /* Collapse hinaa-layout to single full-width column */
+  .hinaa-layout,
+  [class*="hinaa-layout"] {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    gap: 0 !important;
+  }
+
+  /* Chat pane fills viewport */
+  .chat-pane,
+  [class*="chat-pane"] {
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+  }
+
+  /* Message thread fills available space */
+  .chat-scroll,
+  [class*="chat-scroll"],
+  [class*="message-list"],
+  [class*="thread-scroll"] {
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding: 12px 8px !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Composer pinned to bottom, full-width */
+  .premium-composer-wrapper,
+  .premium-composer,
+  [class*="composer-wrapper"],
+  [class*="premium-composer"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 0 !important;
+    border-top: 1px solid rgba(255,255,255,0.08) !important;
+    padding: 8px 8px env(safe-area-inset-bottom, 0px) !important;
+  }
+
+  /* Ensure AppShell has no left padding for nav rail gap */
+  .hinaa-app-shell,
+  [class*="app-shell"] {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+  }
+
+  /* Top bar: minimal — only Hina name + voice button */
+  .top-bar-v6,
+  [class*="top-bar"] {
+    padding: 6px 10px !important;
+    min-height: 44px !important;
+  }
+
+  /* Hide desktop title bar chrome (Electron) */
+  .desktop-title-bar,
+  [class*="title-bar"] { display: none !important; }
+
+  /* Welcome screen — centered, no side padding */
+  .welcome-center { padding: 16px !important; }
+
+  /* Message bubbles: full width on mobile */
+  .message-bubble,
+  [class*="message-bubble"] {
+    max-width: 92% !important;
+  }
+
+  /* Floating companion island — hide on mobile */
+  [class*="floating-companion"],
+  [class*="companion-island"] { display: none !important; }
+}
+
+/* Extra-small phones: ≤480px */
+@media (max-width: 480px) {
+  .chat-scroll,
+  [class*="chat-scroll"] { padding: 8px 6px !important; }
+
+  .premium-composer-wrapper,
+  [class*="composer-wrapper"] { padding: 6px 6px env(safe-area-inset-bottom, 0px) !important; }
+
+  .message-bubble,
+  [class*="message-bubble"] { max-width: 96% !important; }
+}
