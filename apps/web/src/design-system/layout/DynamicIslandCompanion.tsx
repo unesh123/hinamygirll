@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home,
@@ -832,6 +833,11 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   messages = [],
   conversationId,
 }) => {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<"agent" | "chat" | "watcher" | "stripe" | "upload" | "motion" | "components" | "audio">("agent");
   const [selectedComponentIndex, setSelectedComponentIndex] = useState(0);
@@ -979,61 +985,70 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   const [islandWalkDir, setIslandWalkDir] = useState<1 | -1>(1);
   const [islandWalkPhase, setIslandWalkPhase] = useState(0);
   const lastIslandStepSideRef = useRef<"left" | "right">("left");
+  const islandWalkDirRef = useRef<1 | -1>(1);
+  useEffect(() => {
+    islandWalkDirRef.current = islandWalkDir;
+  }, [islandWalkDir]);
 
-  // Rhythmic walking loop for notch locomotion
+  // Rhythmic walking loop for notch locomotion with physically calibrated gait kinematics
   useEffect(() => {
     if (!isWalking) {
       setIslandWalkX(0);
+      setIslandWalkPhase(0);
       return;
     }
     let animId: number;
     let lastTime = performance.now();
-    let lastStateUpdateTime = 0;
 
     const loop = (time: number) => {
-      const dt = Math.min(0.08, (time - lastTime) / 1000);
+      const dt = Math.min(0.05, (time - lastTime) / 1000);
       lastTime = time;
 
-      // Throttle React DOM re-renders to ~28 FPS (36ms) to keep main-thread headroom free for smooth chat scrolling
-      if (time - lastStateUpdateTime >= 36) {
-        lastStateUpdateTime = time;
-        const cadence = walkCadence * 3.4;
-        setIslandWalkPhase((p) => {
-          const next = (p + dt * cadence * 2) % (Math.PI * 2);
+      // Natural human/mascot cadence: ~3.6 rad/sec scaled by cadence multiplier
+      const cadence = walkCadence * 3.6;
 
-          // Sound trigger on step contact
-          const stepSin = Math.sin(next);
-          if (stepSin > 0.45 && lastIslandStepSideRef.current !== "left") {
-            lastIslandStepSideRef.current = "left";
-            if (isSoundEnabled()) playFootstepSound();
-          } else if (stepSin < -0.45 && lastIslandStepSideRef.current !== "right") {
-            lastIslandStepSideRef.current = "right";
-            if (isSoundEnabled()) playFootstepSound();
-          }
+      // Advance gait phase continuously with true elapsed delta
+      setIslandWalkPhase((p) => {
+        const next = (p + dt * cadence) % (Math.PI * 2);
 
-          return next;
-        });
+        // Synchronized haptic/audio step on ground contact
+        const stepSin = Math.sin(next);
+        if (stepSin > 0.45 && lastIslandStepSideRef.current !== "left") {
+          lastIslandStepSideRef.current = "left";
+          if (isSoundEnabled()) playFootstepSound();
+        } else if (stepSin < -0.45 && lastIslandStepSideRef.current !== "right") {
+          lastIslandStepSideRef.current = "right";
+          if (isSoundEnabled()) playFootstepSound();
+        }
 
-        setIslandWalkX((x) => {
-          const maxRange = isExpanded ? 45 : 24;
-          let nextX = x + islandWalkDir * dt * 20 * walkCadence * 2;
-          if (nextX > maxRange) {
-            nextX = maxRange;
-            setIslandWalkDir(-1);
-          } else if (nextX < -maxRange) {
-            nextX = -maxRange;
-            setIslandWalkDir(1);
-          }
-          return nextX;
-        });
-      }
+        return next;
+      });
+
+      // Synchronize horizontal translation velocity so the foot plants without sliding
+      // 1 full cycle = 2 steps ≈ 20px stride at cadence 3.6 rad/s => ~13.5px/s per unit cadence
+      const speed = 13.5 * walkCadence;
+      const currentDir = islandWalkDirRef.current;
+      setIslandWalkX((x) => {
+        const maxRange = isExpanded ? 48 : 26;
+        let nextX = x + currentDir * dt * speed;
+        if (nextX > maxRange) {
+          nextX = maxRange;
+          islandWalkDirRef.current = -1;
+          setIslandWalkDir(-1);
+        } else if (nextX < -maxRange) {
+          nextX = -maxRange;
+          islandWalkDirRef.current = 1;
+          setIslandWalkDir(1);
+        }
+        return nextX;
+      });
 
       animId = requestAnimationFrame(loop);
     };
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isWalking, walkCadence, isExpanded, islandWalkDir]);
+  }, [isWalking, walkCadence, isExpanded]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1340,62 +1355,81 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
 
   return (
     <div
-      ref={containerRef}
       style={{
         position: inlineInTopBar ? "relative" : "fixed",
-        top: inlineInTopBar ? 0 : isExpanded ? 12 : 8,
+        top: inlineInTopBar ? 0 : 8,
         left: inlineInTopBar ? "auto" : "50%",
         transform: inlineInTopBar ? "none" : "translateX(-50%)",
-        zIndex: isExpanded ? 99999 : 9999,
+        zIndex: 9999,
         fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif",
       }}
     >
-      {/* ── Backdrop Scrim when Expanded ──────────────────── */}
-      {isExpanded && !inlineInTopBar && (
+      {/* ── 1. Top Bar Inline Element (Either Compact Pill or Active Mini-Dock) ── */}
+      {isExpanded ? (
         <div
-          onClick={() => setIsExpanded(false)}
-          style={{
-            position: "fixed",
-            top: "-100vh",
-            left: "-100vw",
-            width: "300vw",
-            height: "300vh",
-            background: "rgba(0, 0, 0, 0.45)",
-            backdropFilter: "blur(2px)",
-            WebkitBackdropFilter: "blur(2px)",
-            zIndex: -1,
+          onClick={() => {
+            playUiSound("whoosh");
+            setIsExpanded(false);
           }}
-        />
-      )}
-      <motion.div
-        layout
-        transition={{ type: "spring", stiffness: 420, damping: 32 }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        style={{
-          background: isDark
-            ? "linear-gradient(135deg, rgba(16, 18, 26, 0.96) 0%, rgba(9, 10, 15, 0.98) 100%)"
-            : "linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 247, 250, 0.96) 100%)",
-          backdropFilter: "blur(24px)",
-          WebkitBackdropFilter: "blur(24px)",
-          border: isDraggingFile
-            ? "2px dashed #00d4ff"
-            : isDark
-            ? "1px solid rgba(255, 255, 255, 0.14)"
-            : "1px solid rgba(0, 0, 0, 0.12)",
-          boxShadow: isDark
-            ? "0 16px 48px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.12)"
-            : "0 12px 36px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.8)",
-          borderRadius: isExpanded ? 24 : 32,
-          padding: isExpanded ? "12px 18px" : "4px 12px",
-          width: isExpanded ? 680 : isAgentActive ? 360 : 310,
-          color: isDark ? "#ffffff" : "#0f172a",
-          display: "flex",
-          flexDirection: "column",
-          gap: isExpanded ? 12 : 0,
-          overflow: "hidden",
-        }}
-      >
+          style={{
+            height: 36,
+            padding: "0 14px",
+            borderRadius: 9999,
+            background: isDark ? "rgba(0, 212, 255, 0.12)" : "rgba(0, 212, 255, 0.08)",
+            border: "1px solid rgba(0, 212, 255, 0.35)",
+            boxShadow: "0 0 16px rgba(0, 212, 255, 0.2)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+          title="Hina Island OS Open — Click to minimize"
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: 4,
+              background: "#00d4ff",
+              boxShadow: "0 0 8px #00d4ff",
+            }}
+          />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#00d4ff", letterSpacing: "0.02em" }}>
+            HINA ISLAND OS
+          </span>
+          <Minimize2 size={12} color="#00d4ff" />
+        </div>
+      ) : (
+        <motion.div
+          layout
+          transition={{ type: "spring", stiffness: 420, damping: 32 }}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          style={{
+            background: isDark
+              ? "linear-gradient(135deg, rgba(16, 18, 26, 0.96) 0%, rgba(9, 10, 15, 0.98) 100%)"
+              : "linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 247, 250, 0.96) 100%)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            border: isDraggingFile
+              ? "2px dashed #00d4ff"
+              : isDark
+              ? "1px solid rgba(255, 255, 255, 0.14)"
+              : "1px solid rgba(0, 0, 0, 0.12)",
+            boxShadow: isDark
+              ? "0 16px 48px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.12)"
+              : "0 12px 36px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.8)",
+            borderRadius: 32,
+            padding: "4px 12px",
+            width: isAgentActive ? 360 : 310,
+            color: isDark ? "#ffffff" : "#0f172a",
+            display: "flex",
+            flexDirection: "column",
+            gap: 0,
+            overflow: "hidden",
+          }}
+        >
         {/* ── Top Bar Header of Dynamic Island ──────────────────────── */}
         <div
           style={{
@@ -1645,9 +1679,9 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               type="button"
               onClick={() => {
                 playUiSound("whoosh");
-                setIsExpanded((v) => !v);
+                setIsExpanded(true);
               }}
-              title={isExpanded ? "Collapse Island" : "Expand Island"}
+              title="Expand Island OS"
               style={{
                 background: "transparent",
                 border: "none",
@@ -1659,22 +1693,591 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                 borderRadius: 8,
               }}
             >
-              {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              <Maximize2 size={14} />
             </button>
           </div>
         </div>
+      </motion.div>
+    )}
 
-        {/* ── Expanded Island Command Console ───────────────────────── */}
+      {/* ── Under-Notch Floating Speech Pill Banner with Red Stop Button (SnapInsta Reference) ── */}
+      <AnimatePresence>
+        {!isExpanded && (isSpeaking || streamingText || showGuardianCard) && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              marginTop: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              background: "rgba(10, 12, 18, 0.96)",
+              border: "1px solid rgba(255, 255, 255, 0.18)",
+              borderRadius: 9999,
+              padding: "5px 8px 5px 14px",
+              boxShadow: "0 12px 36px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.12)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              maxWidth: 420,
+              width: "fit-content",
+              margin: "6px auto 0 auto",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
+              {/* Equalizer Wave Bars */}
+              <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
+                {[0, 1, 2, 3].map((bar) => (
+                  <motion.span
+                    key={bar}
+                    animate={{
+                      height: isSpeaking ? [4, 14, 6, 12, 4] : [4, 6, 4],
+                    }}
+                    transition={{
+                      repeat: Infinity,
+                      duration: 0.7 + bar * 0.15,
+                      ease: "easeInOut",
+                    }}
+                    style={{
+                      width: 2.5,
+                      background: bar % 2 === 0 ? "#00d4ff" : "#ec4899",
+                      borderRadius: 2,
+                      display: "inline-block",
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Spoken subtitle text preview */}
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#ffffff",
+                  letterSpacing: "0.01em",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  maxWidth: 240,
+                }}
+                title={streamingText || lastAssistantText || "Watching screens & guarding focus..."}
+              >
+                {streamingText || lastAssistantText || "BROTHER, Call me weird if you like..."}
+              </span>
+            </div>
+
+            {/* Crimson Red Stop / Barge-in Button */}
+            <button
+              type="button"
+              onClick={() => {
+                playUiSound("click");
+                onStopSpeaking?.();
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: "#e11d48",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 9999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 750,
+                cursor: "pointer",
+                boxShadow: "0 2px 8px rgba(225, 29, 72, 0.4)",
+                flexShrink: 0,
+              }}
+            >
+              <Square size={9} fill="#ffffff" />
+              <span>Stop</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Floating Focus Guardian Chat Card (SnapInsta Reference) ── */}
+      <AnimatePresence>
+        {!isExpanded && showGuardianCard && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.94 }}
+            transition={{ type: "spring", stiffness: 380, damping: 28 }}
+            style={{
+              marginTop: 8,
+              width: 380,
+              background: "rgba(11, 13, 20, 0.96)",
+              border: "1px solid rgba(255, 255, 255, 0.14)",
+              borderRadius: 20,
+              padding: "12px 14px",
+              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              margin: "8px auto 0 auto",
+            }}
+          >
+            {/* Top Bar of Floating Card */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 750,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    padding: "2px 6px",
+                    borderRadius: 6,
+                    color: "#cbd5e1",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <span>&lt; 3s</span>
+                  <ChevronDown size={10} />
+                </span>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 650,
+                    color: isSpeaking ? "#ec4899" : "#10b981",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      background: isSpeaking ? "#ec4899" : "#10b981",
+                      boxShadow: `0 0 6px ${isSpeaking ? "#ec4899" : "#10b981"}`,
+                    }}
+                  />
+                  <span>{isSpeaking ? "Speaking..." : "Listening..."}</span>
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("pop");
+                    setIsCopied(true);
+                    setTimeout(() => setIsCopied(false), 1500);
+                  }}
+                  title="Copy observation"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: isCopied ? "#10b981" : "#94a3b8",
+                    cursor: "pointer",
+                    padding: 2,
+                  }}
+                >
+                  {isCopied ? <Check size={13} /> : <Copy size={13} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowGuardianCard(false)}
+                  title="Dismiss Card"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#64748b",
+                    cursor: "pointer",
+                    padding: 2,
+                  }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* User Speech Bubble */}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div
+                style={{
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  borderRadius: "14px 14px 4px 14px",
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  fontWeight: 550,
+                  maxWidth: "85%",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                }}
+              >
+                {lastUserQuery || "You sound so weird. Okay, wait. Let's, let's, let's have a look."}
+              </div>
+            </div>
+
+            {/* Assistant Guardian Message */}
+            <div
+              style={{
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: "#f1f5f9",
+                fontWeight: 450,
+              }}
+            >
+              <span style={{ fontWeight: 800, color: "#00d4ff" }}>BROTHER</span>, call me weird if you dare — that's the voice of an older brother who has taken an oath to guard your focus! Let's have a look together, then: both blocks are live and holding strong until 18:19, X and YouTube shut the moment they appear. Chrome, Discord, Music, Notes and Claude are what's open on your machine right now — nothing else suspicious slipping through. Weird or not, the walls hold.
+            </div>
+
+            {/* Active Windows Strip */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 5,
+                background: "rgba(255,255,255,0.05)",
+                padding: "6px 8px",
+                borderRadius: 8,
+                fontSize: 10,
+                color: "#94a3b8",
+              }}
+            >
+              <span style={{ color: "#10b981", fontWeight: 700 }}>Open Windows:</span>
+              <span>Chrome</span> · <span>Discord</span> · <span>VS Code</span> · <span>Terminal</span> · <span>Claude</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── 2. Expanded Hina Island OS Deck (Portaled to document.body) ── */}
+      {mounted && createPortal(
         <AnimatePresence>
           {isExpanded && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-              style={{ display: "flex", gap: 16, paddingTop: 4 }}
+            <div
+              className="hina-island-os-portal-root"
+              style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99999,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            paddingTop: "clamp(10px, 2.5vh, 20px)",
+            paddingBottom: "clamp(10px, 2.5vh, 20px)",
+            paddingLeft: "clamp(8px, 2vw, 16px)",
+            paddingRight: "clamp(8px, 2vw, 16px)",
+            boxSizing: "border-box",
+            pointerEvents: "auto",
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif",
+          }}
+        >
+          {/* Fullscreen Backdrop Scrim */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => {
+              playUiSound("whoosh");
+              setIsExpanded(false);
+            }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(4, 6, 12, 0.75)",
+              backdropFilter: "blur(10px)",
+              WebkitBackdropFilter: "blur(10px)",
+              zIndex: 100000,
+            }}
+          />
+
+          {/* Expanded Modal Window */}
+          <motion.div
+            ref={containerRef}
+            initial={{ opacity: 0, scale: 0.95, y: -16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -16 }}
+            transition={{ type: "spring", stiffness: 440, damping: 32 }}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            style={{
+              position: "relative",
+              zIndex: 100001,
+              background: isDark
+                ? "linear-gradient(135deg, rgba(16, 18, 26, 0.98) 0%, rgba(9, 10, 15, 0.99) 100%)"
+                : "linear-gradient(135deg, rgba(255, 255, 255, 0.99) 0%, rgba(245, 247, 250, 0.98) 100%)",
+              backdropFilter: "blur(32px)",
+              WebkitBackdropFilter: "blur(32px)",
+              border: isDraggingFile
+                ? "2px dashed #00d4ff"
+                : isDark
+                ? "1px solid rgba(255, 255, 255, 0.16)"
+                : "1px solid rgba(0, 0, 0, 0.14)",
+              boxShadow: isDark
+                ? "0 28px 72px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(0, 212, 255, 0.18), inset 0 1px 0 rgba(255,255,255,0.15)"
+                : "0 20px 50px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255,255,255,0.9)",
+              borderRadius: 22,
+              padding: "12px 18px",
+              width: "min(760px, calc(100vw - 24px))",
+              maxWidth: "calc(100vw - 24px)",
+              maxHeight: "calc(100vh - 36px)",
+              color: isDark ? "#ffffff" : "#0f172a",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              overflow: "hidden",
+              boxSizing: "border-box",
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                width: "100%",
+                height: 34,
+                flexShrink: 0,
+                borderBottom: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.06)",
+                paddingBottom: 6,
+              }}
             >
-              {/* Left Column: Interactive Mascot (Robot or Coucou) */}
+              {/* Left Actions */}
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("click");
+                    setIsExpanded(false);
+                  }}
+                  title="Home / Collapse Island"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: isDark ? "#cbd5e1" : "#475569",
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  <Home size={15} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("click");
+                    setActiveTab("agent");
+                  }}
+                  title="Agent & CLI Console"
+                  style={{
+                    background: activeTab === "agent" ? "rgba(0,212,255,0.2)" : "transparent",
+                    border: "none",
+                    color: activeTab === "agent" ? "#00d4ff" : isDark ? "#cbd5e1" : "#475569",
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  <Cpu size={15} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("pop");
+                    onNewChat?.();
+                  }}
+                  title="New Session (+)"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: isDark ? "#cbd5e1" : "#475569",
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  <Plus size={15} />
+                </button>
+
+                {/* Mascot Toggle Button (Robot vs Mochi) */}
+                <button
+                  type="button"
+                  onClick={toggleMascotStyle}
+                  title={`Toggle Avatar Style (Currently: ${mascotStyle === "robot" ? "Talking Robot Face" : "Coucou Mochi"})`}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    padding: "2px 4px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  <span>{mascotStyle === "robot" ? "🤖" : "☁️"}</span>
+                </button>
+
+                {/* Screen Guardian Quick Toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("switch");
+                    setActiveTab("watcher");
+                  }}
+                  title="Switch to Screen Watcher & Focus HUD"
+                  style={{
+                    background: activeTab === "watcher" || liveVision.isActive ? "rgba(6,182,212,0.2)" : "transparent",
+                    border: "none",
+                    color: activeTab === "watcher" || liveVision.isActive ? "#06b6d4" : isDark ? "#cbd5e1" : "#475569",
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  <Eye size={15} />
+                </button>
+              </div>
+
+              {/* Center Title Pill */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "3px 12px",
+                  borderRadius: 14,
+                  background: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)",
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(0, 0, 0, 0.06)",
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    background: isSpeaking ? "#ec4899" : liveVision.isActive ? "#06b6d4" : isThinking ? "#00d4ff" : "#10b981",
+                    boxShadow: `0 0 6px ${isSpeaking ? "#ec4899" : liveVision.isActive ? "#06b6d4" : isThinking ? "#00d4ff" : "#10b981"}`,
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 750,
+                    letterSpacing: "0.04em",
+                    color: isDark ? "#ffffff" : "#0f172a",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  HINA ISLAND OS
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 650,
+                    color: isDark ? "#94a3b8" : "#64748b",
+                    padding: "1px 6px",
+                    borderRadius: 6,
+                    background: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
+                  }}
+                >
+                  {activeTab.toUpperCase()}
+                </span>
+              </div>
+
+              {/* Right: Sound, Settings, Minimize */}
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <button
+                  type="button"
+                  onClick={toggleSound}
+                  title={soundActive ? "Mute UI Sounds" : "Enable UI Sounds"}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: soundActive ? "#00d4ff" : isDark ? "#64748b" : "#94a3b8",
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  {soundActive ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("click");
+                    onOpenSettings?.();
+                  }}
+                  title="Settings"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: isDark ? "#cbd5e1" : "#475569",
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                  }}
+                >
+                  <Settings size={15} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("whoosh");
+                    setIsExpanded(false);
+                  }}
+                  title="Collapse Island (Esc)"
+                  style={{
+                    background: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
+                    border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(0, 0, 0, 0.1)",
+                    color: isDark ? "#ffffff" : "#0f172a",
+                    cursor: "pointer",
+                    padding: "4px 8px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 8,
+                    gap: 4,
+                  }}
+                >
+                  <Minimize2 size={13} />
+                  <span style={{ fontSize: 10, fontWeight: 700 }}>ESC</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Columns */}
+            <div
+              className="hina-island-deck-columns"
+              style={{
+                display: "flex",
+                gap: 16,
+                paddingTop: 4,
+                flex: 1,
+                minHeight: 0,
+                overflow: "hidden",
+              }}
+            >
               <div
                 style={{
                   display: "flex",
@@ -1751,7 +2354,20 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               {/* Center & Right Column: Interactive Deck */}
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
                 {/* ── Console Mode Navigation Tabs ── */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 6 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    borderBottom: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+                    paddingBottom: 6,
+                    overflowX: "auto",
+                    scrollbarWidth: "none",
+                    whiteSpace: "nowrap",
+                    WebkitOverflowScrolling: "touch",
+                    flexShrink: 0,
+                  }}
+                >
                   <button
                     type="button"
                     onClick={() => {
@@ -1770,6 +2386,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <Cpu size={12} />
@@ -1794,6 +2411,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <Monitor size={12} />
@@ -1818,6 +2436,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <Footprints size={12} />
@@ -1842,6 +2461,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <Upload size={12} />
@@ -1866,6 +2486,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <CreditCard size={12} />
@@ -1890,6 +2511,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <Boxes size={12} />
@@ -1914,6 +2536,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <Volume2 size={12} />
@@ -1921,7 +2544,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   </button>
 
                   {/* Real Model Selector Dropdown Trigger */}
-                  <div style={{ marginLeft: "auto", position: "relative" }}>
+                  <div style={{ marginLeft: "auto", position: "relative", flexShrink: 0 }}>
                     <button
                       type="button"
                       onClick={() => {
@@ -2013,7 +2636,18 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   </div>
                 </div>
 
-                {/* ── Tab Content ── */}
+                {/* ── Tab Content (Contained & Smoothly Scrollable) ── */}
+                <div
+                  className="hina-island-tab-content-scroll"
+                  style={{
+                    flex: 1,
+                    maxHeight: "calc(100vh - 145px)",
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    paddingRight: 6,
+                    minHeight: 0,
+                  }}
+                >
                 {activeTab === "upload" || isDraggingFile ? (
                   /* 1. File Ingestion & Analysis */
                   <div
@@ -3601,6 +4235,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                     </div>
                   </div>
                 )}
+                </div>
 
                 {/* ── Quick Launcher Grid ── */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
@@ -3778,263 +4413,13 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   </motion.div>
                 )}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-
-      {/* ── Under-Notch Floating Speech Pill Banner with Red Stop Button (SnapInsta Reference) ── */}
-      <AnimatePresence>
-        {(isSpeaking || streamingText || showGuardianCard) && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-            style={{
-              marginTop: 6,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              background: "rgba(10, 12, 18, 0.96)",
-              border: "1px solid rgba(255, 255, 255, 0.18)",
-              borderRadius: 9999,
-              padding: "5px 8px 5px 14px",
-              boxShadow: "0 12px 36px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.12)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
-              maxWidth: 420,
-              width: "fit-content",
-              margin: "6px auto 0 auto",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
-              {/* Equalizer Wave Bars */}
-              <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
-                {[0, 1, 2, 3].map((bar) => (
-                  <motion.span
-                    key={bar}
-                    animate={{
-                      height: isSpeaking ? [4, 14, 6, 12, 4] : [4, 6, 4],
-                    }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 0.7 + bar * 0.15,
-                      ease: "easeInOut",
-                    }}
-                    style={{
-                      width: 2.5,
-                      background: bar % 2 === 0 ? "#00d4ff" : "#ec4899",
-                      borderRadius: 2,
-                      display: "inline-block",
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Spoken subtitle text preview */}
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#ffffff",
-                  letterSpacing: "0.01em",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  maxWidth: 240,
-                }}
-                title={streamingText || lastAssistantText || "Watching screens & guarding focus..."}
-              >
-                {streamingText || lastAssistantText || "BROTHER, Call me weird if you like..."}
-              </span>
-            </div>
-
-            {/* Crimson Red Stop / Barge-in Button */}
-            <button
-              type="button"
-              onClick={() => {
-                playUiSound("click");
-                onStopSpeaking?.();
-              }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                background: "#e11d48",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: 9999,
-                padding: "4px 12px",
-                fontSize: 11,
-                fontWeight: 750,
-                cursor: "pointer",
-                boxShadow: "0 2px 8px rgba(225, 29, 72, 0.4)",
-                flexShrink: 0,
-              }}
-            >
-              <Square size={9} fill="#ffffff" />
-              <span>Stop</span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Floating Focus Guardian Chat Card (SnapInsta Reference) ── */}
-      <AnimatePresence>
-        {showGuardianCard && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.94 }}
-            transition={{ type: "spring", stiffness: 380, damping: 28 }}
-            style={{
-              marginTop: 8,
-              width: 380,
-              background: "rgba(11, 13, 20, 0.96)",
-              border: "1px solid rgba(255, 255, 255, 0.14)",
-              borderRadius: 20,
-              padding: "12px 14px",
-              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
-              backdropFilter: "blur(24px)",
-              WebkitBackdropFilter: "blur(24px)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-              margin: "8px auto 0 auto",
-            }}
-          >
-            {/* Top Bar of Floating Card */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 750,
-                    background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    padding: "2px 6px",
-                    borderRadius: 6,
-                    color: "#cbd5e1",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  <span>&lt; 3s</span>
-                  <ChevronDown size={10} />
-                </span>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 650,
-                    color: isSpeaking ? "#ec4899" : "#10b981",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: 3,
-                      background: isSpeaking ? "#ec4899" : "#10b981",
-                      boxShadow: `0 0 6px ${isSpeaking ? "#ec4899" : "#10b981"}`,
-                    }}
-                  />
-                  <span>{isSpeaking ? "Speaking..." : "Listening..."}</span>
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    playUiSound("pop");
-                    setIsCopied(true);
-                    setTimeout(() => setIsCopied(false), 1500);
-                  }}
-                  title="Copy observation"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: isCopied ? "#10b981" : "#94a3b8",
-                    cursor: "pointer",
-                    padding: 2,
-                  }}
-                >
-                  {isCopied ? <Check size={13} /> : <Copy size={13} />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowGuardianCard(false)}
-                  title="Dismiss Card"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "#64748b",
-                    cursor: "pointer",
-                    padding: 2,
-                  }}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            </div>
-
-            {/* User Speech Bubble */}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <div
-                style={{
-                  background: "#ffffff",
-                  color: "#0f172a",
-                  borderRadius: "14px 14px 4px 14px",
-                  padding: "8px 12px",
-                  fontSize: 12,
-                  fontWeight: 550,
-                  maxWidth: "85%",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                }}
-              >
-                {lastUserQuery || "You sound so weird. Okay, wait. Let's, let's, let's have a look."}
-              </div>
-            </div>
-
-            {/* Assistant Guardian Message */}
-            <div
-              style={{
-                fontSize: 12,
-                lineHeight: 1.5,
-                color: "#f1f5f9",
-                fontWeight: 450,
-              }}
-            >
-              <span style={{ fontWeight: 800, color: "#00d4ff" }}>BROTHER</span>, call me weird if you dare — that's the voice of an older brother who has taken an oath to guard your focus! Let's have a look together, then: both blocks are live and holding strong until 18:19, X and YouTube shut the moment they appear. Chrome, Discord, Music, Notes and Claude are what's open on your machine right now — nothing else suspicious slipping through. Weird or not, the walls hold.
-            </div>
-
-            {/* Active Windows Strip */}
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 5,
-                background: "rgba(255,255,255,0.05)",
-                padding: "6px 8px",
-                borderRadius: 8,
-                fontSize: 10,
-                color: "#94a3b8",
-              }}
-            >
-              <span style={{ color: "#10b981", fontWeight: 700 }}>Open Windows:</span>
-              <span>Chrome</span> · <span>Discord</span> · <span>VS Code</span> · <span>Terminal</span> · <span>Claude</span>
             </div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
+    </AnimatePresence>,
+    document.body
+  )}
     </div>
   );
 };

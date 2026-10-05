@@ -3613,3 +3613,46 @@ body {
     animation: none !important;
   }
 }
+
+/* ── HINA ISLAND OS DECK PORTAL & RESPONSIVE POLISH ── */
+.hina-island-os-portal-root {
+  animation: hinaPortalFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes hinaPortalFadeIn {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(10px);
+  }
+}
+
+.hina-island-tab-content-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.hina-island-tab-content-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hina-island-tab-content-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+  transition: background 0.15s ease;
+}
+
+.hina-island-tab-content-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.45);
+}
+
+@media (max-width: 640px) {
+  .hina-island-deck-columns {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+}
+
