@@ -83,10 +83,17 @@ const _BrainOrchestrationInline = memo(function BrainOrchestrationInline({
   const brainState = useBrainState({ agentSteps, isThinking, isSearching, searchQuery, currentAgentRunId, streamingText });
   if (brainState.status === "idle") return null;
   return (
-    <div style={{ marginBottom: "var(--space-2)", marginTop: "var(--space-1)" }}>
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 768,
+        margin: "8px 0 14px 0",
+        alignSelf: "flex-start",
+      }}
+    >
       <BrainOrchestrationPanel
         brainState={brainState}
-        compact={false}
+        compact={Boolean(streamingText)}
         onOpenReceipts={() => setDrawerOpen(true)}
       />
       <ExecutionReceiptDrawer
@@ -1443,6 +1450,10 @@ export function WorkMode({
           {(() => {
             const hasActiveTurn = isThinking || isSearching || Boolean(streamingText);
             if (!hasActiveTurn) return null;
+            // Prevent rendering an empty ghost bubble while the brain panel is already displaying the live planning/search phase
+            if (!streamingText && (isThinking || isSearching)) {
+              return null;
+            }
             const lastMsg = messages[messages.length - 1];
             if (
               lastMsg &&

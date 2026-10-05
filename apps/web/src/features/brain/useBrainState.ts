@@ -3,11 +3,11 @@ import type { LiveAgentStep } from '../companion/useCompanionController';
 import type { BrainRunState, BrainSpecialist, SpecialistType, SpecialistStatus } from './types';
 
 const SPECIALIST_LABELS: Record<SpecialistType, string> = {
-  planner: 'Planning strategy',
-  researcher: 'Researching sources',
-  coder: 'Generating code',
-  synthesizer: 'Synthesizing response',
-  memory: 'Retrieving memory',
+  planner: 'Planning',
+  researcher: 'Research',
+  coder: 'Coding',
+  synthesizer: 'Synthesis',
+  memory: 'Memory',
 };
 
 export function useBrainState({
