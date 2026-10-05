@@ -227,9 +227,14 @@ export const CoucouMascot: React.FC<CoucouMascotProps> = ({
   };
 
   const scale = size / 64;
-  const legStride = isWalking ? Math.sin(walkPhase) * 5 : 0;
-  const legLift = isWalking ? Math.abs(Math.sin(walkPhase)) * 4.5 : 0;
-  const bodyBob = isWalking ? Math.abs(Math.sin(walkPhase * 2)) * 3 : 0;
+  const coucouPhaseSin = Math.sin(walkPhase);
+  const legStride = isWalking ? coucouPhaseSin * 5.5 : 0;
+  const leftLegLift = isWalking ? Math.max(0, -coucouPhaseSin) * 4.2 : 0;
+  const rightLegLift = isWalking ? Math.max(0, coucouPhaseSin) * 4.2 : 0;
+  const bodyBob = isWalking ? Math.abs(coucouPhaseSin) * 2.6 : 0;
+  const bodyTilt = isWalking ? coucouPhaseSin * 3.5 : 0;
+  const leftFootTilt = isWalking ? coucouPhaseSin * 14 : 0;
+  const rightFootTilt = isWalking ? -coucouPhaseSin * 14 : 0;
 
   return (
     <div
@@ -308,29 +313,33 @@ export const CoucouMascot: React.FC<CoucouMascotProps> = ({
           overflow: "visible",
         }}
       >
-        {/* Animated Stepping Legs & Feet (Coucou Walking Locomotion) */}
-        <ellipse
-          cx={36 + legStride}
-          cy={82 - (legStride > 0 ? legLift : 0)}
-          rx={6}
-          ry={3.5}
-          fill="#ffffff"
-          stroke="rgba(0,0,0,0.12)"
-          strokeWidth={1}
-        />
-        <ellipse
-          cx={64 - legStride}
-          cy={82 - (legStride <= 0 ? legLift : 0)}
-          rx={6}
-          ry={3.5}
-          fill="#ffffff"
-          stroke="rgba(0,0,0,0.12)"
-          strokeWidth={1}
-        />
+        {/* Animated Stepping Legs & Feet (Coucou Walking Locomotion with squash & stretch) */}
+        <g transform={`translate(${legStride}, ${-leftLegLift}) rotate(${leftFootTilt} 36 82)`}>
+          <ellipse
+            cx={36}
+            cy={82}
+            rx={leftLegLift > 1 ? 5.5 : 6.5}
+            ry={leftLegLift > 1 ? 4 : 3}
+            fill="#ffffff"
+            stroke="rgba(0,0,0,0.14)"
+            strokeWidth={1}
+          />
+        </g>
+        <g transform={`translate(${-legStride}, ${-rightLegLift}) rotate(${rightFootTilt} 64 82)`}>
+          <ellipse
+            cx={64}
+            cy={82}
+            rx={rightLegLift > 1 ? 5.5 : 6.5}
+            ry={rightLegLift > 1 ? 4 : 3}
+            fill="#ffffff"
+            stroke="rgba(0,0,0,0.14)"
+            strokeWidth={1}
+          />
+        </g>
 
-        {/* Soft Mascot Squircle Body */}
+        {/* Soft Mascot Squircle Body with Waddle Roll */}
         <g
-          transform={`translate(0, ${-bodyBob}) ${
+          transform={`translate(0, ${-bodyBob}) rotate(${bodyTilt} 50 82) ${
             mood === "dizzy"
               ? "rotate(-4 50 52)"
               : mood === "annoyed"
@@ -979,40 +988,45 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
     }
     let animId: number;
     let lastTime = performance.now();
+    let lastStateUpdateTime = 0;
 
     const loop = (time: number) => {
       const dt = Math.min(0.08, (time - lastTime) / 1000);
       lastTime = time;
 
-      const cadence = walkCadence * 3.8;
-      setIslandWalkPhase((p) => {
-        const next = (p + dt * cadence) % (Math.PI * 2);
+      // Throttle React DOM re-renders to ~28 FPS (36ms) to keep main-thread headroom free for smooth chat scrolling
+      if (time - lastStateUpdateTime >= 36) {
+        lastStateUpdateTime = time;
+        const cadence = walkCadence * 3.4;
+        setIslandWalkPhase((p) => {
+          const next = (p + dt * cadence * 2) % (Math.PI * 2);
 
-        // Sound trigger on step contact
-        const stepSin = Math.sin(next);
-        if (stepSin > 0.42 && lastIslandStepSideRef.current !== "left") {
-          lastIslandStepSideRef.current = "left";
-          playFootstepSound();
-        } else if (stepSin < -0.42 && lastIslandStepSideRef.current !== "right") {
-          lastIslandStepSideRef.current = "right";
-          playFootstepSound();
-        }
+          // Sound trigger on step contact
+          const stepSin = Math.sin(next);
+          if (stepSin > 0.45 && lastIslandStepSideRef.current !== "left") {
+            lastIslandStepSideRef.current = "left";
+            if (isSoundEnabled()) playFootstepSound();
+          } else if (stepSin < -0.45 && lastIslandStepSideRef.current !== "right") {
+            lastIslandStepSideRef.current = "right";
+            if (isSoundEnabled()) playFootstepSound();
+          }
 
-        return next;
-      });
+          return next;
+        });
 
-      setIslandWalkX((x) => {
-        const maxRange = isExpanded ? 45 : 24;
-        let nextX = x + islandWalkDir * dt * 24 * walkCadence;
-        if (nextX > maxRange) {
-          nextX = maxRange;
-          setIslandWalkDir(-1);
-        } else if (nextX < -maxRange) {
-          nextX = -maxRange;
-          setIslandWalkDir(1);
-        }
-        return nextX;
-      });
+        setIslandWalkX((x) => {
+          const maxRange = isExpanded ? 45 : 24;
+          let nextX = x + islandWalkDir * dt * 20 * walkCadence * 2;
+          if (nextX > maxRange) {
+            nextX = maxRange;
+            setIslandWalkDir(-1);
+          } else if (nextX < -maxRange) {
+            nextX = -maxRange;
+            setIslandWalkDir(1);
+          }
+          return nextX;
+        });
+      }
 
       animId = requestAnimationFrame(loop);
     };

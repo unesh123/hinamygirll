@@ -1018,9 +1018,9 @@ function VrmRig({
         }
 
         const isCloseUp = input.walkMode ? false : (input.closeUp ?? true);
-        const camDistance = isCloseUp ? 0.98 : (input.walkMode ? 3.35 : 1.50);
+        const camDistance = isCloseUp ? 0.98 : (input.walkMode ? 2.45 : 1.50);
         const targetCamX = faceCenterX + (input.codeMode ? -0.28 : 0);
-        const targetCamY = input.walkMode ? (faceCenterY - 0.70) : (faceCenterY - 0.01);
+        const targetCamY = input.walkMode ? (faceCenterY - 0.38) : (faceCenterY - 0.01);
         const targetCamZ = faceCenterZ + camDistance;
 
         const dampSpeed = frameCountRef.current < 3 ? 30 : 6;
@@ -1030,13 +1030,13 @@ function VrmRig({
         camera.position.y = THREE.MathUtils.damp(camera.position.y, targetCamY, dampSpeed, delta);
         camera.position.z = THREE.MathUtils.damp(camera.position.z, targetCamZ, dampSpeed, delta);
 
-        const targetLookY = input.walkMode ? (faceCenterY - 0.75) : (faceCenterY - 0.02);
+        const targetLookY = input.walkMode ? (faceCenterY - 0.42) : (faceCenterY - 0.02);
         camLookAtRef.current.x = THREE.MathUtils.damp(camLookAtRef.current.x, faceCenterX, dampSpeed, delta);
         camLookAtRef.current.y = THREE.MathUtils.damp(camLookAtRef.current.y, targetLookY, dampSpeed, delta);
         camLookAtRef.current.z = THREE.MathUtils.damp(camLookAtRef.current.z, faceCenterZ, dampSpeed, delta);
 
         camera.lookAt(camLookAtRef.current);
-        const expectedFov = (input.walkMode && !input.closeUp) ? 42 : ((input.closeUp ?? true) ? 32 : 38);
+        const expectedFov = (input.walkMode && !input.closeUp) ? 38 : ((input.closeUp ?? true) ? 32 : 38);
         if (Math.abs(lastFovRef.current - expectedFov) > 0.1) {
           lastFovRef.current = expectedFov;
           (camera as THREE.PerspectiveCamera).fov = expectedFov;

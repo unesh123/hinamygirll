@@ -32,19 +32,26 @@ export const ExecutionReceiptDrawer: React.FC<ExecutionReceiptDrawerProps> = ({
 
     const fetchReceipts = async () => {
       try {
-        // Mock fetch for now, replace with actual /api/v1/audit/receipts
-        // const res = await fetch(`/api/v1/audit/receipts${turnId ? `?turnId=${turnId}` : ''}`);
-        // const data = await res.json();
-        // setReceipts(data.receipts);
-        
-        // Mock data
-        setReceipts([
-          { id: '1', stepType: 'planner', stepName: 'Analyze Request', status: 'success', durationMs: 450, tokenInput: 120, tokenOutput: 45 },
-          { id: '2', stepType: 'researcher', stepName: 'Exa Web Search', status: 'success', durationMs: 1200, sourceCount: 4, tokenInput: 45, tokenOutput: 800 },
-          { id: '3', stepType: 'coder', stepName: 'Generate Component', status: 'pending', durationMs: 3400, tokenInput: 900, tokenOutput: 1200 },
-        ]);
+        const url = `/api/v1/audit/receipts${turnId ? `?turn_id=${encodeURIComponent(turnId)}` : ''}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.receipts) && data.receipts.length > 0) {
+            setReceipts(data.receipts.map((r: any) => ({
+              id: r.id || String(Math.random()),
+              stepType: r.stepType || r.step_type || 'task',
+              stepName: r.stepName || r.step_name || 'Step',
+              status: (r.status === 'completed' || r.status === 'success') ? 'success' : (r.status === 'failed' || r.status === 'error') ? 'error' : 'pending',
+              durationMs: r.durationMs || r.duration_ms || 0,
+              sourceCount: r.sourceCount ?? r.source_count,
+              tokenInput: r.tokenInput ?? r.token_input ?? 0,
+              tokenOutput: r.tokenOutput ?? r.token_output ?? 0,
+            })));
+            return;
+          }
+        }
       } catch (err) {
-        console.error('Failed to fetch receipts', err);
+        console.warn('Receipts API offline, keeping existing buffer', err);
       }
     };
 

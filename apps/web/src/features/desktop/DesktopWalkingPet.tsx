@@ -112,16 +112,16 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
     }
   }, [streamingText, lastAssistantText, isSpeaking]);
 
-  // Procedural walking locomotion loop across screen
+  // Procedural walking locomotion loop across screen — mathematically synchronized to eliminate foot slipping
   useEffect(() => {
     if (!shouldWalk) {
       // Gently settle legs to standing position
       const timer = setInterval(() => {
         setWalkPhase((prev) => {
-          if (Math.abs(prev) < 0.1) return 0;
-          return prev * 0.7;
+          if (Math.abs(prev) < 0.08) return 0;
+          return prev * 0.75;
         });
-      }, 40);
+      }, 35);
       return () => clearInterval(timer);
     }
 
@@ -129,12 +129,12 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
     let lastTime = performance.now();
 
     const loop = (time: number) => {
-      const dt = Math.min(0.08, (time - lastTime) / 1000);
+      const dt = Math.min(0.06, (time - lastTime) / 1000);
       lastTime = time;
 
-      // Natural, relaxed cadence: ~2.8 rad/s
+      // Natural, rhythmic cadence: ~3.4 rad/s
       setWalkPhase((prev) => {
-        const next = (prev + dt * 2.8) % (Math.PI * 2);
+        const next = (prev + dt * 3.4) % (Math.PI * 2);
         const stepSin = Math.sin(next);
         if (stepSin > 0.45 && lastStepSideRef.current !== "left") {
           lastStepSideRef.current = "left";
@@ -146,12 +146,12 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
         return next;
       });
 
-      // Natural stroll speed: ~26 px/s
+      // Synchronized stroll speed: ~18.5 px/s exactly matching the 8.5px stride excursion (no moonwalking / sliding)
       setWalkX((x) => {
         const screenWidth = typeof window !== "undefined" ? window.innerWidth : 1200;
         const minX = 60;
         const maxX = Math.max(minX + 100, screenWidth - 140);
-        let nextX = x + walkDir * dt * 26;
+        let nextX = x + walkDir * dt * 18.5;
 
         if (nextX >= maxX) {
           nextX = maxX;
@@ -226,12 +226,31 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
     playUiSound("pop");
   };
 
-  // Walking kinematics calculations
-  const legStride = shouldWalk ? Math.sin(walkPhase) * 4.2 : 0;
-  const legLift = shouldWalk ? Math.abs(Math.sin(walkPhase)) * 3.6 : 0;
-  const otherLift = shouldWalk ? Math.abs(Math.sin(walkPhase + Math.PI)) * 3.6 : 0;
-  const bodyBob = shouldWalk ? Math.abs(Math.sin(walkPhase * 2)) * 2.2 : (isSpeaking ? 1.2 : 0);
-  const tailWag = shouldWalk ? Math.sin(walkPhase * 1.8) * 14 : Math.sin(walkPhase) * 6;
+  // High-fidelity anatomical walking kinematics (matching SnapInsta video references)
+  const phaseSin = Math.sin(walkPhase);
+  const phaseCos = Math.cos(walkPhase);
+
+  // Stride linear offsets & pendulum angles
+  const legStride = shouldWalk ? phaseSin * 6.5 : 0;
+  const legSwingAngle = shouldWalk ? phaseSin * 22 : 0; // Hip rotation
+  const leftLegLift = shouldWalk ? Math.max(0, -phaseSin) * 4.2 : 0;
+  const rightLegLift = shouldWalk ? Math.max(0, phaseSin) * 4.2 : 0;
+
+  // Knee & paw flexion on recovery phase
+  const leftKneeAngle = shouldWalk ? Math.max(0, -phaseSin) * 26 : 0;
+  const rightKneeAngle = shouldWalk ? Math.max(0, phaseSin) * 26 : 0;
+
+  // Arms / front paws natural counter-swing (opposite to leg stride)
+  const leftArmSwing = shouldWalk ? -phaseSin * 18 : 0;
+  const rightArmSwing = shouldWalk ? phaseSin * 18 : 0;
+
+  // Torso lateral weight-shift waddle & vertical step bobbing
+  const bodyTilt = shouldWalk ? phaseSin * 2.8 : 0;
+  const headCounterTilt = shouldWalk ? -phaseSin * 1.5 : 0;
+  const bodyBob = shouldWalk ? Math.abs(phaseSin) * 2.5 : (isSpeaking ? 1.2 : 0);
+
+  // Organic tail wave dynamics (multi-harmonic)
+  const tailWag = shouldWalk ? (phaseSin * 18 + phaseCos * 6) : Math.sin(walkPhase * 0.8) * 6;
 
   return (
     <motion.div
@@ -639,7 +658,8 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
               position: "relative",
               width: 58,
               height: 72,
-              transform: `translateY(${-bodyBob}px)`,
+              transform: `translateY(${-bodyBob}px) rotate(${bodyTilt}deg)`,
+              transformOrigin: "29px 70px",
               transition: isWalking ? "none" : "transform 0.15s ease",
             }}
           >
@@ -663,8 +683,8 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 </linearGradient>
               </defs>
 
-              {/* Twintails Left & Right swaying */}
-              <g transform={`translate(10, 26) rotate(${Math.sin(walkPhase) * 12}) translate(-10, -26)`}>
+              {/* Twintails Left & Right with fluid physics sway & bounce */}
+              <g transform={`translate(10, 26) rotate(${Math.sin(walkPhase) * 16 + Math.cos(walkPhase * 2) * 5}) translate(-10, -26)`}>
                 <path
                   d="M 12 22 C 4 28 2 40 8 48 C 11 44 14 36 14 26 Z"
                   fill="url(#hinaHair)"
@@ -672,7 +692,7 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                   strokeWidth="1"
                 />
               </g>
-              <g transform={`translate(48, 26) rotate(${-Math.sin(walkPhase) * 12}) translate(-48, -26)`}>
+              <g transform={`translate(48, 26) rotate(${-Math.sin(walkPhase) * 16 + Math.cos(walkPhase * 2) * 5}) translate(-48, -26)`}>
                 <path
                   d="M 46 22 C 54 28 56 40 50 48 C 47 44 44 36 44 26 Z"
                   fill="url(#hinaHair)"
@@ -681,64 +701,87 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 />
               </g>
 
-              {/* Chibi Head */}
-              <ellipse cx="29" cy="24" rx="17" ry="15" fill="#fff1f2" stroke="#fda4af" strokeWidth="1.2" />
+              {/* Chibi Head with counter-tilt for poised balance */}
+              <g transform={`rotate(${headCounterTilt} 29 24)`}>
+                <ellipse cx="29" cy="24" rx="17" ry="15" fill="#fff1f2" stroke="#fda4af" strokeWidth="1.2" />
 
-              {/* Hair Bangs */}
-              <path
-                d="M 13 22 C 18 10 38 10 45 22 C 41 18 36 18 32 23 C 30 19 26 19 23 23 C 19 18 15 19 13 22 Z"
-                fill="url(#hinaHair)"
-              />
+                {/* Hair Bangs */}
+                <path
+                  d="M 13 22 C 18 10 38 10 45 22 C 41 18 36 18 32 23 C 30 19 26 19 23 23 C 19 18 15 19 13 22 Z"
+                  fill="url(#hinaHair)"
+                />
 
-              {/* Anime Ribbon Clips */}
-              <rect x="13" y="14" width="6" height="4" rx="2" fill="#38bdf8" />
-              <rect x="39" y="14" width="6" height="4" rx="2" fill="#38bdf8" />
+                {/* Anime Ribbon Clips */}
+                <rect x="13" y="14" width="6" height="4" rx="2" fill="#38bdf8" />
+                <rect x="39" y="14" width="6" height="4" rx="2" fill="#38bdf8" />
 
-              {/* Large Anime Eyes */}
-              <ellipse cx="23" cy="24" rx="3.5" ry="4.5" fill="url(#hinaEyes)" />
-              <ellipse cx="35" cy="24" rx="3.5" ry="4.5" fill="url(#hinaEyes)" />
-              <circle cx="24.2" cy="22.5" r="1.4" fill="#ffffff" />
-              <circle cx="36.2" cy="22.5" r="1.4" fill="#ffffff" />
+                {/* Large Anime Eyes */}
+                <ellipse cx="23" cy="24" rx="3.5" ry="4.5" fill="url(#hinaEyes)" />
+                <ellipse cx="35" cy="24" rx="3.5" ry="4.5" fill="url(#hinaEyes)" />
+                <circle cx="24.2" cy="22.5" r="1.4" fill="#ffffff" />
+                <circle cx="36.2" cy="22.5" r="1.4" fill="#ffffff" />
 
-              {/* Blush */}
-              <ellipse cx="19" cy="27" rx="2.5" ry="1.2" fill="#fb7185" opacity="0.6" />
-              <ellipse cx="39" cy="27" rx="2.5" ry="1.2" fill="#fb7185" opacity="0.6" />
+                {/* Blush */}
+                <ellipse cx="19" cy="27" rx="2.5" ry="1.2" fill="#fb7185" opacity="0.6" />
+                <ellipse cx="39" cy="27" rx="2.5" ry="1.2" fill="#fb7185" opacity="0.6" />
 
-              {/* Animated Lip-Sync Mouth */}
-              {isSpeaking || jawEnergy > 0.05 ? (
-                <ellipse cx="29" cy="29.5" rx="3" ry={Math.max(1.8, jawEnergy * 5)} fill="#f43f5e" />
-              ) : (
-                <path d="M 27.5 29 Q 29 30.5 30.5 29" stroke="#e11d48" strokeWidth="1.2" strokeLinecap="round" fill="none" />
-              )}
+                {/* Animated Lip-Sync Mouth */}
+                {isSpeaking || jawEnergy > 0.05 ? (
+                  <ellipse cx="29" cy="29.5" rx="3" ry={Math.max(1.8, jawEnergy * 5)} fill="#f43f5e" />
+                ) : (
+                  <path d="M 27.5 29 Q 29 30.5 30.5 29" stroke="#e11d48" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+                )}
+              </g>
 
-              {/* Black Choker with Golden Bell (AQMFWe0Mf3) */}
+              {/* Black Choker with Golden Bell (AQMFWe0Mf3) — Dynamic Pendulum */}
               <rect x="23" y="34.5" width="12" height="2.5" rx="1" fill="#0f172a" />
-              <circle
-                cx="29"
-                cy="37"
-                r="3"
-                fill="#fbbf24"
-                stroke="#d97706"
-                strokeWidth="0.8"
-                transform={`rotate(${Math.sin(walkPhase * 2) * 15} 29 37)`}
-              />
-              <circle cx="29" cy="38" r="0.6" fill="#78350f" />
+              <g transform={`translate(29, 37) rotate(${Math.sin(walkPhase * 2) * 20}) translate(-29, -37)`}>
+                <circle
+                  cx="29"
+                  cy="37"
+                  r="3.2"
+                  fill="#fbbf24"
+                  stroke="#d97706"
+                  strokeWidth="0.8"
+                />
+                <circle cx="29" cy="38" r="0.6" fill="#78350f" />
+              </g>
 
               {/* Sailor Dress / Top */}
               <path d="M 21 38 L 37 38 L 40 52 L 18 52 Z" fill="#1e293b" />
               <path d="M 24 38 L 29 45 L 34 38 Z" fill="#ffffff" />
               <rect x="28" y="44" width="2" height="3" fill="#f43f5e" />
 
-              {/* Left Walking Leg */}
-              <g transform={`translate(${legStride}, ${-legLift})`}>
-                <rect x="22" y="52" width="5.5" height="12" rx="2.5" fill="#fda4af" />
-                <rect x="21" y="61" width="7" height="4" rx="2" fill="#0f172a" />
+              {/* Natural Counter-Swinging Anime Arms */}
+              <g transform={`rotate(${leftArmSwing} 19 40)`}>
+                <path d="M 19 39 Q 15 45 16 50" stroke="#fda4af" strokeWidth="3.6" strokeLinecap="round" fill="none" />
+                <rect x="17" y="38" width="5" height="5" rx="2" fill="#1e293b" />
+              </g>
+              <g transform={`rotate(${rightArmSwing} 39 40)`}>
+                <path d="M 39 39 Q 43 45 42 50" stroke="#fda4af" strokeWidth="3.6" strokeLinecap="round" fill="none" />
+                <rect x="36" y="38" width="5" height="5" rx="2" fill="#1e293b" />
               </g>
 
-              {/* Right Walking Leg */}
-              <g transform={`translate(${-legStride}, ${-otherLift})`}>
-                <rect x="30.5" y="52" width="5.5" height="12" rx="2.5" fill="#fda4af" />
-                <rect x="29.5" y="61" width="7" height="4" rx="2" fill="#0f172a" />
+              {/* Left Walking Leg — Articulated Hip Pivot + Knee Flexion */}
+              <g transform={`translate(24, 52) rotate(${legSwingAngle}) translate(-24, -52)`}>
+                <rect x="21.5" y="52" width="5" height="7.5" rx="2.5" fill="#fda4af" />
+                <g transform={`translate(24, 58) rotate(${leftKneeAngle}) translate(-24, -58)`}>
+                  <rect x="21.5" y="58" width="5" height="6.5" rx="2" fill="#fda4af" />
+                  {/* Mary Jane Shoe & White Ruffle Sock */}
+                  <rect x="20.5" y="61.5" width="7" height="2" rx="1" fill="#ffffff" />
+                  <rect x="20" y="63" width="7.8" height="4" rx="2" fill="#0f172a" />
+                </g>
+              </g>
+
+              {/* Right Walking Leg — Articulated Hip Pivot + Knee Flexion */}
+              <g transform={`translate(34, 52) rotate(${-legSwingAngle}) translate(-34, -52)`}>
+                <rect x="31.5" y="52" width="5" height="7.5" rx="2.5" fill="#fda4af" />
+                <g transform={`translate(34, 58) rotate(${rightKneeAngle}) translate(-34, -58)`}>
+                  <rect x="31.5" y="58" width="5" height="6.5" rx="2" fill="#fda4af" />
+                  {/* Mary Jane Shoe & White Ruffle Sock */}
+                  <rect x="30.5" y="61.5" width="7" height="2" rx="1" fill="#ffffff" />
+                  <rect x="30" y="63" width="7.8" height="4" rx="2" fill="#0f172a" />
+                </g>
               </g>
             </svg>
           </div>
@@ -749,7 +792,8 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
               position: "relative",
               width: 58,
               height: 68,
-              transform: `translateY(${-bodyBob}px)`,
+              transform: `translateY(${-bodyBob}px) rotate(${bodyTilt}deg)`,
+              transformOrigin: "29px 66px",
               transition: isWalking ? "none" : "transform 0.15s ease",
             }}
           >
@@ -761,7 +805,7 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
               xmlns="http://www.w3.org/2000/svg"
               style={{ overflow: "visible" }}
             >
-              {/* Wagging Cat Tail */}
+              {/* Wagging Cat Tail with Multi-Harmonic S-Curve */}
               <g transform={`translate(16, 44) rotate(${tailWag}) translate(-16, -44)`}>
                 <path
                   d="M 16 46 C 8 46 4 36 10 32 C 14 29 16 35 18 42"
@@ -792,17 +836,56 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
               />
               <path d="M 46 15 L 48 7 L 41 12 Z" fill="#ffccd5" />
 
-              {/* Cat Head */}
-              <ellipse
-                cx="29"
-                cy="24"
-                rx="20"
-                ry="17"
-                fill="#ffffff"
-                stroke="#0f172a"
-                strokeWidth="1.5"
-                filter="drop-shadow(0 4px 8px rgba(0,0,0,0.35))"
-              />
+              {/* Cat Head with counter-tilt */}
+              <g transform={`rotate(${headCounterTilt} 29 24)`}>
+                <ellipse
+                  cx="29"
+                  cy="24"
+                  rx="20"
+                  ry="17"
+                  fill="#ffffff"
+                  stroke="#0f172a"
+                  strokeWidth="1.5"
+                  filter="drop-shadow(0 4px 8px rgba(0,0,0,0.35))"
+                />
+
+                {/* Cool Sunglasses (matching video) */}
+                {hasShades ? (
+                  <g filter="drop-shadow(0 2px 4px rgba(0,0,0,0.5))">
+                    {/* Left lens */}
+                    <ellipse cx="22" cy="22" rx="7.5" ry="6.5" fill="#090d16" stroke="#1e293b" strokeWidth="1.2" />
+                    {/* Right lens */}
+                    <ellipse cx="36" cy="22" rx="7.5" ry="6.5" fill="#090d16" stroke="#1e293b" strokeWidth="1.2" />
+                    {/* Bridge */}
+                    <path d="M 29.5 22 L 28.5 22" stroke="#090d16" strokeWidth="2" strokeLinecap="round" />
+                    {/* Glass glare line moving with body tilt */}
+                    <path d="M 18 19 L 23 25" stroke="rgba(255,255,255,0.45)" strokeWidth="1.2" strokeLinecap="round" />
+                    <path d="M 32 19 L 37 25" stroke="rgba(255,255,255,0.45)" strokeWidth="1.2" strokeLinecap="round" />
+                  </g>
+                ) : (
+                  /* Cute Cat Eyes if shades toggled off */
+                  <g>
+                    <ellipse cx="22" cy="22" rx="3.5" ry="4.5" fill="#0f172a" />
+                    <ellipse cx="36" cy="22" rx="3.5" ry="4.5" fill="#0f172a" />
+                    <circle cx="23" cy="20" r="1.2" fill="#ffffff" />
+                    <circle cx="37" cy="20" r="1.2" fill="#ffffff" />
+                  </g>
+                )}
+
+                {/* Cute Cat Nose & Whiskers */}
+                <polygon points="28,27 30,27 29,28.5" fill="#ff758f" />
+                <line x1="12" y1="26" x2="6" y2="25" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
+                <line x1="12" y1="28" x2="6" y2="29" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
+                <line x1="46" y1="26" x2="52" y2="25" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
+                <line x1="46" y1="28" x2="52" y2="29" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
+
+                {/* Mouth / Lip-Sync */}
+                {isSpeaking || jawEnergy > 0.05 ? (
+                  <ellipse cx="29" cy="30.5" rx="3.2" ry={Math.max(2, jawEnergy * 6)} fill="#ff4d6d" />
+                ) : (
+                  <path d="M 27 29 Q 29 31 31 29" stroke="#0f172a" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+                )}
+              </g>
 
               {/* Cat Body wearing black "dex" t-shirt */}
               <rect
@@ -831,56 +914,32 @@ export const DesktopWalkingPet: React.FC<DesktopWalkingPetProps> = ({
                 dex
               </text>
 
-              {/* Cool Sunglasses (matching video) */}
-              {hasShades ? (
-                <g filter="drop-shadow(0 2px 4px rgba(0,0,0,0.5))">
-                  {/* Left lens */}
-                  <ellipse cx="22" cy="22" rx="7.5" ry="6.5" fill="#090d16" stroke="#1e293b" strokeWidth="1.2" />
-                  {/* Right lens */}
-                  <ellipse cx="36" cy="22" rx="7.5" ry="6.5" fill="#090d16" stroke="#1e293b" strokeWidth="1.2" />
-                  {/* Bridge */}
-                  <path d="M 29.5 22 L 28.5 22" stroke="#090d16" strokeWidth="2" strokeLinecap="round" />
-                  {/* Glass glare line */}
-                  <path d="M 18 19 L 23 25" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2" strokeLinecap="round" />
-                  <path d="M 32 19 L 37 25" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2" strokeLinecap="round" />
-                </g>
-              ) : (
-                /* Cute Cat Eyes if shades toggled off */
-                <g>
-                  <ellipse cx="22" cy="22" rx="3.5" ry="4.5" fill="#0f172a" />
-                  <ellipse cx="36" cy="22" rx="3.5" ry="4.5" fill="#0f172a" />
-                  <circle cx="23" cy="20" r="1.2" fill="#ffffff" />
-                  <circle cx="37" cy="20" r="1.2" fill="#ffffff" />
-                </g>
-              )}
-
-              {/* Cute Cat Nose & Whiskers */}
-              <polygon points="28,27 30,27 29,28.5" fill="#ff758f" />
-              {/* Whiskers */}
-              <line x1="12" y1="26" x2="6" y2="25" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
-              <line x1="12" y1="28" x2="6" y2="29" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
-              <line x1="46" y1="26" x2="52" y2="25" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
-              <line x1="46" y1="28" x2="52" y2="29" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" />
-
-              {/* Mouth / Lip-Sync */}
-              {isSpeaking || jawEnergy > 0.05 ? (
-                <ellipse cx="29" cy="30.5" rx="3.2" ry={Math.max(2, jawEnergy * 6)} fill="#ff4d6d" />
-              ) : (
-                <path d="M 27 29 Q 29 31 31 29" stroke="#0f172a" strokeWidth="1.2" strokeLinecap="round" fill="none" />
-              )}
-
-              {/* Front Paws / Arms */}
-              <rect x="14" y="38" width="5" height="11" rx="2.5" fill="#ffffff" stroke="#0f172a" strokeWidth="1" />
-              <rect x="39" y="38" width="5" height="11" rx="2.5" fill="#ffffff" stroke="#0f172a" strokeWidth="1" />
-
-              {/* Left Walking Leg */}
-              <g transform={`translate(${legStride}, ${-legLift})`}>
-                <rect x="20" y="54" width="7" height="9" rx="3.5" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
+              {/* Front Paws / Arms — Swinging with Stride */}
+              <g transform={`translate(16.5, 40) rotate(${leftArmSwing}) translate(-16.5, -40)`}>
+                <rect x="14" y="38" width="5.5" height="11" rx="2.5" fill="#ffffff" stroke="#0f172a" strokeWidth="1" />
+                <circle cx="16.7" cy="46" r="1.1" fill="#ffb4c2" opacity="0.65" />
+              </g>
+              <g transform={`translate(41.5, 40) rotate(${rightArmSwing}) translate(-41.5, -40)`}>
+                <rect x="38.5" y="38" width="5.5" height="11" rx="2.5" fill="#ffffff" stroke="#0f172a" strokeWidth="1" />
+                <circle cx="41.2" cy="46" r="1.1" fill="#ffb4c2" opacity="0.65" />
               </g>
 
-              {/* Right Walking Leg */}
-              <g transform={`translate(${-legStride}, ${-otherLift})`}>
-                <rect x="31" y="54" width="7" height="9" rx="3.5" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
+              {/* Left Walking Leg — Articulated Hip Stride & Paw Bend */}
+              <g transform={`translate(23, 52) rotate(${legSwingAngle}) translate(-23, -52)`}>
+                <rect x="19.5" y="52" width="7" height="7.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
+                <g transform={`translate(23, 57) rotate(${leftKneeAngle}) translate(-23, -57)`}>
+                  <rect x="19.5" y="57" width="7" height="6.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
+                  <ellipse cx="23" cy="61.5" rx="2.2" ry="1.2" fill="#ffb4c2" opacity="0.75" />
+                </g>
+              </g>
+
+              {/* Right Walking Leg — Articulated Hip Stride & Paw Bend */}
+              <g transform={`translate(35, 52) rotate(${-legSwingAngle}) translate(-35, -52)`}>
+                <rect x="31.5" y="52" width="7" height="7.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
+                <g transform={`translate(35, 57) rotate(${rightKneeAngle}) translate(-35, -57)`}>
+                  <rect x="31.5" y="57" width="7" height="6.5" rx="3.2" fill="#ffffff" stroke="#0f172a" strokeWidth="1.2" />
+                  <ellipse cx="35" cy="61.5" rx="2.2" ry="1.2" fill="#ffb4c2" opacity="0.75" />
+                </g>
               </g>
             </svg>
           </div>

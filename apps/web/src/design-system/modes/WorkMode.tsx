@@ -49,7 +49,7 @@ import { HinaBrainThinking } from "../../components/ui/HinaBrainThinking";
 import { SteepAnalyticsBar } from "../../features/telemetry/SteepAnalyticsBar";
 import { extractBrainThought } from "../../lib/brainThoughtExtractor";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
-import { BrainOrchestrationPanel, useBrainState } from "../../features/brain";
+import { BrainOrchestrationPanel, useBrainState, ExecutionReceiptDrawer } from "../../features/brain";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
 import {
   useActionEngine,
@@ -79,11 +79,21 @@ const _BrainOrchestrationInline = memo(function BrainOrchestrationInline({
   currentAgentRunId?: string;
   streamingText: string;
 }) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const brainState = useBrainState({ agentSteps, isThinking, isSearching, searchQuery, currentAgentRunId, streamingText });
   if (brainState.status === "idle") return null;
   return (
     <div style={{ marginBottom: "var(--space-2)", marginTop: "var(--space-1)" }}>
-      <BrainOrchestrationPanel brainState={brainState} compact={false} />
+      <BrainOrchestrationPanel
+        brainState={brainState}
+        compact={false}
+        onOpenReceipts={() => setDrawerOpen(true)}
+      />
+      <ExecutionReceiptDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        turnId={currentAgentRunId}
+      />
     </div>
   );
 });

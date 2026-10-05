@@ -7,6 +7,7 @@ interface BrainOrchestrationPanelProps {
   brainState: BrainRunState;
   compact?: boolean;
   className?: string;
+  onOpenReceipts?: () => void;
 }
 
 const ICONS: Record<SpecialistType, React.ElementType> = {
@@ -20,7 +21,7 @@ const ICONS: Record<SpecialistType, React.ElementType> = {
 const STATUS_COLORS: Record<SpecialistStatus, string> = {
   idle: 'text-gray-500 border-gray-700 bg-gray-800/50',
   queued: 'text-blue-400 border-blue-500/50 bg-blue-500/10',
-  running: 'text-amber-400 border-amber-500/50 bg-amber-500/10',
+  running: 'text-amber-400 border-amber-500/50 bg-amber-500/10 shadow-[0_0_12px_rgba(245,158,11,0.3)]',
   completed: 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10',
   failed: 'text-red-400 border-red-500/50 bg-red-500/10',
   skipped: 'text-gray-400 border-gray-600/50 bg-gray-600/10',
@@ -80,6 +81,7 @@ export const BrainOrchestrationPanel: React.FC<BrainOrchestrationPanelProps> = (
   brainState,
   compact = false,
   className = '',
+  onOpenReceipts,
 }) => {
   return (
     <div className={`flex flex-col gap-4 p-4 rounded-2xl bg-gray-950/80 border border-gray-800/60 shadow-2xl backdrop-blur-xl overflow-hidden ${className}`}>
@@ -88,8 +90,19 @@ export const BrainOrchestrationPanel: React.FC<BrainOrchestrationPanelProps> = (
           <Brain className="w-4 h-4 text-purple-400" />
           <span className="text-sm font-bold text-gray-100 uppercase tracking-wider">Hina Brain</span>
         </div>
-        <div className="text-xs text-gray-500">
-          Status: <span className="text-gray-300 font-medium capitalize">{brainState.status}</span>
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-gray-500">
+            Status: <span className="text-gray-300 font-medium capitalize">{brainState.status}</span>
+          </div>
+          {onOpenReceipts && (
+            <button
+              type="button"
+              onClick={onOpenReceipts}
+              className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 border border-purple-500/30 hover:border-purple-500/60 rounded-lg px-2 py-1 bg-purple-500/10 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Audit Receipts</span>
+            </button>
+          )}
         </div>
       </div>
 
