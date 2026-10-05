@@ -54,17 +54,13 @@ def _llm_budgets(prompt: Any = None) -> tuple[int, int]:
         return default_tokens, default_chars
 
     depth = getattr(prompt, "response_depth", None)
-    mode = getattr(prompt, "interaction_mode", None)
-    raw_text = (getattr(prompt, "raw_user_text", "") or "").strip().lower()
 
     if depth in {"minimal", "clarification", "safety_redirect"}:
-        return 384, 4000
+        return min(default_tokens, 1024), 8000
     if depth in {"conversational", "supportive"}:
-        if mode == "realtime" or len(raw_text) < 45:
-            return 384, 4000
-        return 768, 8000
+        return min(default_tokens, 4096), 40_000
     if depth in {"explanatory", "procedural"}:
-        return min(default_tokens, 4096), 50_000
+        return min(default_tokens, 8192), 100_000
     if depth == "report":
         return default_tokens, default_chars
 
@@ -73,7 +69,7 @@ def _llm_budgets(prompt: Any = None) -> tuple[int, int]:
 
 def _max_continuations(prompt: Any = None) -> int:
     depth = getattr(prompt, "response_depth", None) if prompt is not None else None
-    if depth in ("conversational", "minimal", "clarification", "supportive"):
+    if depth in ("minimal", "clarification", "safety_redirect"):
         return 0
     try:
         from ..config import get_settings
@@ -321,9 +317,12 @@ class GeminiLLMProvider:
             provider_events += sum(r.events for r in orchestrator.segment_results)
             chunks = [outcome.text]
             if not chunks[0]:
-                raise HinaaError(
-                    "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
-                )
+                if outcome.thinking and outcome.thinking.strip():
+                    chunks = [outcome.thinking.strip()]
+                else:
+                    raise HinaaError(
+                        "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
+                    )
             answer = chunks[0]
             plan = build_plan_from_text(
                 text=answer,

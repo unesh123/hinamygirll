@@ -25,7 +25,6 @@ export default defineConfig({
         target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
         changeOrigin: false,
         ws: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
       "/v1": {
         target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
@@ -50,7 +49,6 @@ export default defineConfig({
         target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
         changeOrigin: false,
         ws: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
       "/v1": {
         target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
@@ -144,7 +142,7 @@ export default defineConfig({
           if (packageName.startsWith("@react-three/")) return "vendor-react-three";
           if (packageName.startsWith("@pixiv/")) return "vendor-vrm";
           if (
-            ["framer-motion", "gsap", "ogl"].includes(packageName) ||
+            ["framer-motion", "gsap", "ogl", "lenis"].includes(packageName) ||
             packageName.startsWith("@react-spring/")
           ) {
             return "vendor-motion";
@@ -158,7 +156,48 @@ export default defineConfig({
           if (packageName.startsWith("@clerk/")) {
             return "vendor-auth";
           }
-          return `vendor-${packageName.replace("@", "").replace("/", "-").replace(/[^a-zA-Z0-9_-]/g, "") || "misc"}`;
+          if (packageName === "mermaid" || packageName.startsWith("@mermaid-js/")) {
+            return "vendor-mermaid";
+          }
+          if (packageName === "elkjs") {
+            return "vendor-elkjs";
+          }
+          if (
+            [
+              "react-markdown",
+              "remark-gfm",
+              "micromark",
+              "marked",
+              "dompurify",
+            ].includes(packageName) ||
+            packageName.startsWith("mdast-") ||
+            packageName.startsWith("hast-") ||
+            packageName.startsWith("micromark-") ||
+            packageName.startsWith("unist-") ||
+            packageName.startsWith("vfile") ||
+            packageName.startsWith("bail") ||
+            packageName.startsWith("is-plain-obj") ||
+            packageName.startsWith("trough") ||
+            packageName.startsWith("ccount") ||
+            packageName.startsWith("longest-streak") ||
+            packageName.startsWith("markdown-table")
+          ) {
+            return "vendor-markdown";
+          }
+          if (
+            packageName.startsWith("d3") ||
+            packageName.startsWith("dagre") ||
+            packageName.startsWith("cytoscape") ||
+            packageName.startsWith("cose-base") ||
+            packageName.startsWith("khroma") ||
+            packageName.startsWith("chevrotain")
+          ) {
+            return "vendor-visualization";
+          }
+          if (packageName === "katex") {
+            return "vendor-katex";
+          }
+          return "vendor-common";
         },
       },
     },

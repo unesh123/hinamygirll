@@ -3413,6 +3413,37 @@ body {
   .fullscreen-companion-overlay { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 }
 
+/* ── Buttery-Smooth Transcript Scrollbar ── */
+.hinaa-work-transcript {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+  scroll-behavior: auto;
+  overflow-anchor: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  transform: translateZ(0);
+  contain: content;
+  will-change: scroll-position;
+}
+
+.hinaa-work-transcript::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hinaa-work-transcript::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hinaa-work-transcript::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+.hinaa-work-transcript::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
 /* ═══════════════════════════════════════════════════════
    CYBER-EDITORIAL & ADVANCED ANIMATION TOKENS
    GSAP Motion · Steep Editorial · Shop Constellation · DICH Haute-Couture

@@ -4,6 +4,13 @@
  */
 
 import type { ProviderHealth, ProviderMode, ProviderOption, ProviderStatus } from "../types/provider";
+import { PROVIDER_MODES } from "../types/provider";
+
+/** Discovery IDs and request modes differ for Gemini. Unknown lanes cannot chat. */
+export function providerModeFromId(id: string): ProviderMode | null {
+  if (id === "gemini") return "real";
+  return (PROVIDER_MODES as readonly string[]).includes(id) ? id as ProviderMode : null;
+}
 
 const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string }> = {
   mock:   { label: "Demo",           description: "Deterministic responses. No API calls." },
@@ -25,7 +32,9 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   xkiro:          { label: "XKiro AI",      description: "api.xkiro.com — fast free Qwen 3.8 Max, Qwen 3.7 Flash." },
   cavoti:         { label: "Cavoti AI",     description: "cavoti.com — frontier Claude Fable 5, Opus 5, Haiku 4.5." },
   apmix:          { label: "APMIX.AI",      description: "api.apmix.ai — fast free DeepSeek V4 Flash & frontier models." },
+  experiential:   { label: "Experiential Labs", description: "api.experientiallabs.ai — Claude Opus 5.5 frontier gateway." },
 };
+
 
 export function getProviderLabel(mode: ProviderMode): string {
   return PROVIDER_LABELS[mode]?.label ?? mode;
@@ -74,23 +83,25 @@ export function isSelectableHealth(health: ProviderHealth): boolean {
 
 /**
  * Build the ProviderOption list from raw backend statuses.
- * Always includes mock and local. Groq is deliberately not offered. A listed
+ * Always includes mock and local. A listed
  * cloud brain may still be unpickable — `available` comes from its health.
  */
 export function buildProviderOptions(statuses: ProviderStatus[]): ProviderOption[] {
   const byId = new Map(statuses.map((s) => [s.id, s]));
 
   const alwaysPresent: ProviderMode[] = ["mock", "local"];
-  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix"];
+  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "groq", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "experiential"];
 
   const options: ProviderOption[] = [];
 
   for (const mode of alwaysPresent) {
+    const health = mode === "mock" ? "healthy" : (byId.get(mode)?.state ?? "unknown");
     options.push({
       mode,
       ...PROVIDER_LABELS[mode],
-      health: "healthy",
-      available: true,
+      health,
+      healthReason: byId.get(mode)?.userMessage,
+      available: isSelectableHealth(health),
     });
   }
 

@@ -21,12 +21,13 @@ const engine = new ProceduralAvatarEngine();
 export function ProceduralAvatar(props: ProceduralAvatarProps) {
   const frame = engine.getFrame(props);
   const theme = props.theme ?? "soft";
-  const performance = usePerformanceClock({
+  const { frameRef, frameVersion } = usePerformanceClock({
     plan: frame.plan,
     jawEnergy: frame.jawEnergy,
     reducedMotion: frame.reducedMotion || Boolean(props.lowPerformance),
     interrupted: frame.state === "interrupted",
   });
+  const performance = frameRef.current;
   const emotion =
     performance.emotion !== "neutral"
       ? performance.emotion

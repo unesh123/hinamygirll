@@ -383,3 +383,31 @@ class CodingAgentLoop:
             evidence=evidence,
             error=f"Exhausted {self.max_repair_attempts} repair attempts without test resolution",
         )
+
+    async def search_documentation(self, query: str, num_results: int = 5) -> dict[str, Any]:
+        """Search the live web for library documentation, error resolution, and API signatures via Exa."""
+        from ..config import get_settings
+        settings = get_settings()
+        if settings.exa_configured:
+            from ..tools.exa_tool import exa_client
+            return await exa_client.search(
+                query,
+                search_type="auto",
+                num_results=num_results,
+                highlights=True,
+            )
+        return {
+            "error": "Exa is not configured",
+            "results": [],
+            "sources": [],
+            "sourceCount": 0,
+        }
+
+    async def extract_reference_page(self, url: str) -> dict[str, Any]:
+        """Extract clean text/documentation from an official documentation URL via Exa."""
+        from ..config import get_settings
+        settings = get_settings()
+        if settings.exa_configured:
+            from ..tools.exa_tool import exa_client
+            return await exa_client.get_contents([url], text=True)
+        return {"error": "Exa is not configured", "results": []}

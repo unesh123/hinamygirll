@@ -31,6 +31,7 @@ import { ProviderSettings } from "./sections/ProviderSettings";
 import { AutomationSettings } from "./sections/AutomationSettings";
 import { DiagnosticsSettings } from "./sections/DiagnosticsSettings";
 import { useCapabilities } from "../providers/hooks/useCapabilities";
+import styles from "./SettingsV6.module.css";
 
 export type SettingsTabId =
   | "general"
@@ -158,6 +159,7 @@ export function SettingsV6({
     <dialog
       ref={dialogRef}
       id="settings-v6-dialog"
+      aria-labelledby="settings-v6-title"
       data-testid="settings-v6-dialog"
       onClick={(e) => {
         if (e.target === dialogRef.current) onClose();
@@ -181,14 +183,13 @@ export function SettingsV6({
       }}
     >
       <motion.div
+        className={styles.panel}
         initial={{ opacity: 0, scale: 0.96, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 10 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "min(980px, 95vw)",
-          height: "min(720px, 90vh)",
           background: "linear-gradient(165deg, rgba(26, 20, 32, 0.98) 0%, rgba(14, 11, 18, 0.99) 100%)",
           border: "1px solid rgba(255, 214, 228, 0.18)",
           borderRadius: 20,
@@ -202,21 +203,18 @@ export function SettingsV6({
       >
         {/* Top Header Bar */}
         <div
+          className={styles.header}
           style={{
-            padding: "16px 24px",
             borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 16,
             background: "rgba(255, 255, 255, 0.02)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className={styles.titleGroup} style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div
               style={{
                 width: 34,
                 height: 34,
+                flexShrink: 0,
                 borderRadius: 10,
                 background: "linear-gradient(135deg, rgba(238, 145, 173, 0.3), rgba(168, 85, 247, 0.3))",
                 border: "1px solid rgba(238, 145, 173, 0.3)",
@@ -229,7 +227,7 @@ export function SettingsV6({
               <Sliders size={18} />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#fff" }}>
+              <h2 id="settings-v6-title" style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#fff" }}>
                 HINAA Frontier Settings
               </h2>
               <span style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.45)" }}>
@@ -240,8 +238,8 @@ export function SettingsV6({
 
           {/* Search Box */}
           <div
+            className={styles.search}
             style={{
-              flex: "0 1 360px",
               display: "flex",
               alignItems: "center",
               gap: 8,
@@ -254,6 +252,7 @@ export function SettingsV6({
             <Search size={14} color="rgba(255, 255, 255, 0.5)" />
             <input
               type="text"
+              aria-label="Search settings"
               placeholder="Search settings (e.g. models, voice, memory)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -264,11 +263,13 @@ export function SettingsV6({
                 color: "#fff",
                 fontSize: 13,
                 width: "100%",
+                minWidth: 0,
               }}
             />
             {searchQuery && (
               <button
                 type="button"
+                aria-label="Clear settings search"
                 onClick={() => setSearchQuery("")}
                 style={{
                   background: "none",
@@ -285,6 +286,7 @@ export function SettingsV6({
 
           {/* Close button */}
           <button
+            className={styles.closeButton}
             type="button"
             onClick={onClose}
             aria-label="Close settings"
@@ -306,19 +308,13 @@ export function SettingsV6({
         </div>
 
         {/* Main Body: Tabs Left, Content Right */}
-        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <div className={styles.body}>
           {/* Left Navigation Sidebar */}
-          <div
+          <nav
+            className={styles.navigation}
+            aria-label="Settings categories"
             style={{
-              width: 230,
-              borderRight: "1px solid rgba(255, 255, 255, 0.08)",
-              padding: "12px 8px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-              overflowY: "auto",
               background: "rgba(0, 0, 0, 0.15)",
-              flexShrink: 0,
             }}
           >
             {filteredTabs.length === 0 ? (
@@ -333,6 +329,7 @@ export function SettingsV6({
                   <button
                     key={t.id}
                     type="button"
+                    aria-current={isSelected ? "page" : undefined}
                     onClick={() => {
                       setActiveTab(t.id);
                       setSearchQuery("");
@@ -376,14 +373,12 @@ export function SettingsV6({
                 );
               })
             )}
-          </div>
+          </nav>
 
           {/* Right Content Area */}
           <div
+            className={styles.content}
             style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "24px 32px",
               display: "flex",
               flexDirection: "column",
               gap: 24,

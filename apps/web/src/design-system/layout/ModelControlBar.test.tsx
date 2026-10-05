@@ -32,6 +32,28 @@ describe("ModelControlBar", () => {
     expect(screen.getByTestId("voice-selector-btn")).toBeInTheDocument();
   });
 
+  it("offers only models returned by the backend catalog", () => {
+    render(<ModelControlBar {...baseProps} providerOptions={[
+      { mode: "claude", label: "Claude", description: "", health: "healthy", available: true },
+    ]} getModelOptions={() => [{ id: "my-configured-model", label: "Configured", isDefault: true }]} />);
+    fireEvent.click(screen.getByTestId("brain-selector-btn"));
+    expect(screen.getByTestId("brain-option-claude-my-configured-model")).toBeEnabled();
+    expect(screen.queryByTestId("brain-option-claude-claude-opus-5.5")).not.toBeInTheDocument();
+    expect(screen.queryByText("CodeCraft AI (Frontier)")).not.toBeInTheDocument();
+  });
+
+  it("disables unavailable gateways instead of sending a doomed turn", () => {
+    const select = vi.fn();
+    render(<ModelControlBar {...baseProps} onSelectProvider={select} providerOptions={[
+      { mode: "experiential", label: "Experiential Labs", description: "", health: "unavailable", available: false },
+    ]} getModelOptions={() => [{ id: "configured-model", label: "Configured", isDefault: true }]} />);
+    fireEvent.click(screen.getByTestId("brain-selector-btn"));
+    const option = screen.getByTestId("brain-option-experiential-configured-model");
+    expect(option).toBeDisabled();
+    fireEvent.click(option);
+    expect(select).not.toHaveBeenCalled();
+  });
+
   it("shows brain dropdown when brain button is clicked", () => {
     render(<ModelControlBar {...baseProps} />);
     const brainBtn = screen.getByTestId("brain-selector-btn");

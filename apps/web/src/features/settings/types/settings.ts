@@ -66,7 +66,8 @@ export type ProviderPreferenceMode =
   | "tokentable"
   | "xkiro"
   | "cavoti"
-  | "apmix";
+  | "apmix"
+  | "experiential";
 
 /** Saved model selection per provider. Null = automatic. */
 export type ModelByProvider = Partial<

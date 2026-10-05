@@ -244,6 +244,10 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
       }
     }
     if (e.key === "Escape") {
+      setShowPlusMenu(false);
+      setShowIntelMenu(false);
+      setShowCreateMenu(false);
+      setShowRoleMenu(false);
       onEscDismiss?.();
     }
     if (e.key === "Enter" && !e.shiftKey) {
@@ -727,24 +731,26 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             </div>
           )}
 
-          <div
-            data-testid="badge-nodes-online"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "3px 9px",
-              borderRadius: 6,
-              background: isDark ? "rgba(255, 255, 255, 0.06)" : "var(--surface-subtle, #f8fafc)",
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid var(--border-subtle, #e2e8f0)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: isDark ? "rgba(255, 255, 255, 0.7)" : "var(--text-secondary, #475569)",
-            }}
-          >
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusTone.dot }} />
-            <span>{statusTone.label}</span>
-          </div>
+          {statusTone.dot === "#ef4444" && (
+            <div
+              data-testid="badge-nodes-online"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "3px 9px",
+                borderRadius: 6,
+                background: "rgba(239, 68, 68, 0.12)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                fontSize: 11,
+                fontWeight: 500,
+                color: "#ef4444",
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ef4444" }} />
+              <span>{statusTone.label}</span>
+            </div>
+          )}
             </>
           )}
           {/* 1. `+` Menu Button */}

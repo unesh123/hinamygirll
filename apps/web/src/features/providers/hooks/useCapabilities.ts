@@ -180,6 +180,10 @@ export function useCapabilities() {
       }
     } catch (err: any) {
       console.warn("Capability discovery fallback to cached defaults:", err?.message || err);
+      setCapabilities((previous) => ({
+        ...previous,
+        runtime: { ...previous.runtime, backendConnected: false },
+      }));
       setError(err?.message || "Failed to discover capabilities");
     } finally {
       setLoading(false);

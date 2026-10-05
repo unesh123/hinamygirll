@@ -57,9 +57,28 @@ CREATE TABLE IF NOT EXISTS motion_events (
     state      TEXT,
     detail     TEXT
 );
+CREATE TABLE IF NOT EXISTS execution_receipts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    turn_id         TEXT NOT NULL,
+    session_id      TEXT,
+    created_at      REAL NOT NULL,
+    step_type       TEXT NOT NULL,
+    step_name       TEXT,
+    status          TEXT NOT NULL DEFAULT 'started',
+    duration_ms     INTEGER,
+    input_summary   TEXT,
+    output_summary  TEXT,
+    token_input     INTEGER,
+    token_output    INTEGER,
+    source_count    INTEGER,
+    error           TEXT,
+    metadata_json   TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_turns_started ON turns(started_at);
 CREATE INDEX IF NOT EXISTS idx_tts_created ON tts_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_motion_created ON motion_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_receipts_turn ON execution_receipts(turn_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_created ON execution_receipts(created_at);
 """
 
 
@@ -229,6 +248,101 @@ class RunLedger:
             "VALUES (?, ?, ?, ?)",
             (_now(), session_id, state, _preview(detail)),
         )
+
+    # -- execution receipts ------------------------------------------------
+    def record_receipt(
+        self,
+        *,
+        turn_id: str,
+        step_type: str,
+        step_name: str | None = None,
+        status: str = "started",
+        duration_ms: int | None = None,
+        input_summary: str | None = None,
+        output_summary: str | None = None,
+        token_input: int | None = None,
+        token_output: int | None = None,
+        source_count: int | None = None,
+        error: str | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record one step of an execution workflow for audit inspection."""
+        import json as _json
+        meta_str = _json.dumps(metadata) if metadata else None
+        self._execute(
+            "INSERT INTO execution_receipts "
+            "(turn_id, session_id, created_at, step_type, step_name, status, "
+            " duration_ms, input_summary, output_summary, token_input, "
+            " token_output, source_count, error, metadata_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                turn_id,
+                session_id,
+                _now(),
+                step_type,
+                step_name,
+                status,
+                duration_ms,
+                _preview(input_summary, 500),
+                _preview(output_summary, 500),
+                token_input,
+                token_output,
+                source_count,
+                _preview(error),
+                meta_str,
+            ),
+        )
+
+    def recent_receipts(
+        self, *, turn_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Retrieve recent execution receipts, optionally filtered by turn."""
+        if not self.available:
+            return []
+        limit = max(1, min(limit, 500))
+        try:
+            with self._lock:
+                if turn_id:
+                    rows = self._conn.execute(  # type: ignore[union-attr]
+                        "SELECT id, turn_id, session_id, created_at, step_type, "
+                        "step_name, status, duration_ms, input_summary, "
+                        "output_summary, token_input, token_output, source_count, "
+                        "error, metadata_json "
+                        "FROM execution_receipts WHERE turn_id = ? "
+                        "ORDER BY created_at ASC LIMIT ?",
+                        (turn_id, limit),
+                    ).fetchall()
+                else:
+                    rows = self._conn.execute(  # type: ignore[union-attr]
+                        "SELECT id, turn_id, session_id, created_at, step_type, "
+                        "step_name, status, duration_ms, input_summary, "
+                        "output_summary, token_input, token_output, source_count, "
+                        "error, metadata_json "
+                        "FROM execution_receipts "
+                        "ORDER BY created_at DESC LIMIT ?",
+                        (limit,),
+                    ).fetchall()
+        except Exception as exc:
+            logger.warning("Run ledger receipt read failed: %s", exc)
+            return []
+        import json as _json
+        keys = (
+            "id", "turnId", "sessionId", "createdAt", "stepType",
+            "stepName", "status", "durationMs", "inputSummary",
+            "outputSummary", "tokenInput", "tokenOutput", "sourceCount",
+            "error", "metadata",
+        )
+        results = []
+        for r in rows:
+            d = dict(zip(keys, r))
+            if d.get("metadata") and isinstance(d["metadata"], str):
+                try:
+                    d["metadata"] = _json.loads(d["metadata"])
+                except Exception:
+                    pass
+            results.append(d)
+        return results
 
     # -- reads -------------------------------------------------------------
     def recent_turns(self, limit: int = 20) -> list[TurnRow]:

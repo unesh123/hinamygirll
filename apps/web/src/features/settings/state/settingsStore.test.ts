@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SETTINGS_KEY } from "../types/settings";
 import { loadSettings } from "./settingsStore";
+import { PROVIDER_MODES } from "../../providers/types/provider";
 
 describe("persisted brain preference", () => {
   beforeEach(() => localStorage.clear());
+  it.each(PROVIDER_MODES)("preserves %s and its pinned model across reloads", (mode) => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      _version: 9,
+      provider: { preferredMode: mode, preferredModelByProvider: { [mode]: "my-configured-model" } },
+    }));
+    const provider = loadSettings().provider;
+    expect(provider.preferredMode).toBe(mode);
+    expect(provider.preferredModelByProvider[mode]).toBe("my-configured-model");
+  });
 
   it("defers to measured health on a fresh installation", () => {
     expect(loadSettings().provider.preferredMode).toBe("auto");

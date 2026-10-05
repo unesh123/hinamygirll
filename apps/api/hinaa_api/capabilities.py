@@ -44,6 +44,7 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     has_cx = settings.cx_gateway_configured
     has_agent_router = settings.agent_router_configured
     has_codecraft = settings.codecraft_configured
+    has_explabs = settings.explabs_configured
 
     models: list[ModelCapabilityRecord] = [
         # Brain Models
@@ -107,8 +108,21 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
             description="Compact Claude model for responsive conversational turns.",
         ),
         ModelCapabilityRecord(
+            id="claude-opus-5.5",
+            display_name="Claude Opus 5.5 (Experiential)",
+            provider="experiential",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_explabs else "unavailable",
+            description="Claude Opus 5.5 frontier model routed via Experiential Labs AI Gateway.",
+        ),
+        ModelCapabilityRecord(
             id="qwen-max",
             display_name="Qwen Max",
+
             provider="qwen",
             kind="brain",
             input_modalities=["text"],
@@ -368,6 +382,14 @@ _IMAGE_CAPABLE_ADAPTERS = frozenset(
         "agent-router",
         "agent-router-anthropic",
         "omniroute",
+        "experiential",
+        "pgsgrove",
+        "seekai",
+        "tokentable",
+        "xkiro",
+        "cavoti",
+        "apmix",
+        "ollama",
     }
 )
 

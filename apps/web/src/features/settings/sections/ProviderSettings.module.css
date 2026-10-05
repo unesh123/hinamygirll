@@ -12,6 +12,23 @@
   color: var(--color-text-secondary);
 }
 
+.refreshButton {
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.refreshButton:focus-visible {
+  outline: 2px solid var(--color-accent, #6366f1);
+  outline-offset: 2px;
+}
+
 .errorNote {
   font-size: var(--text-xs);
   color: var(--color-warning, #d97706);

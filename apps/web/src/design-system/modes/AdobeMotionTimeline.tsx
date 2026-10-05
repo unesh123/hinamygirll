@@ -27,9 +27,12 @@ export interface AdobeMotionTimelineProps {
   onOpenTerminal?: () => void;
   isVoiceActive?: boolean;
   companionState?: string;
+  messageCount?: number;
+  showCompanionButton?: boolean;
+  onShowCompanion?: () => void;
 }
 
-export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = ({
+export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.memo(({
   isDark = true,
   activeModel = "qwen3.8-max:free",
   latencyMs = 850,
@@ -40,6 +43,9 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = ({
   onOpenTerminal,
   isVoiceActive = false,
   companionState = "ready",
+  messageCount,
+  showCompanionButton,
+  onShowCompanion,
 }) => {
   const [activeKeyframe, setActiveKeyframe] = useState<number>(3);
   const [fps, setFps] = useState<number>(60);
@@ -118,6 +124,13 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = ({
           <Footprints size={12} />
           <span>{isWalking ? "WALK ACTIVE" : "GAIT IDLE"}</span>
         </button>
+
+        {/* Message count */}
+        {messageCount !== undefined && messageCount > 0 && (
+          <span style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b", fontWeight: 600 }}>
+            · {messageCount} {messageCount === 1 ? "message" : "messages"}
+          </span>
+        )}
       </div>
 
       {/* ── Center: Adobe Keyframe Sequence Track ── */}
@@ -232,6 +245,31 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = ({
           ))}
         </div>
 
+        {/* Show Companion Panel Toggle */}
+        {showCompanionButton && onShowCompanion && (
+          <button
+            type="button"
+            onClick={onShowCompanion}
+            aria-label="Show companion panel"
+            title="Show companion panel"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 7px",
+              borderRadius: 5,
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.14)" : "1px solid #cbd5e1",
+              background: isDark ? "rgba(255, 255, 255, 0.08)" : "#f8fafc",
+              color: isDark ? "#ffffff" : "#0f172a",
+              fontSize: 10,
+              fontWeight: 650,
+              cursor: "pointer",
+            }}
+          >
+            <span>Companion</span>
+          </button>
+        )}
+
         {/* Terminal Button */}
         {onOpenTerminal && (
           <button
@@ -262,4 +300,5 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = ({
       </div>
     </div>
   );
-};
+});
+

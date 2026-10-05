@@ -89,6 +89,43 @@ class AnthropicDirectProvider:
         selected_model = model or self.default_model
         start_time = time.time()
 
+        if selected_model == "claude-opus-5.5":
+            from ..config import get_settings
+            settings = get_settings()
+            if not settings.explabs_configured:
+                raise ValueError("EXPLABS_API_KEY is not set. Please create one under Settings -> API Keys and export it.")
+            assert settings.active_explabs_key
+            key = settings.active_explabs_key.get_secret_value()
+            base_url = settings.active_explabs_base_url
+            messages = [{"role": "user", "content": prompt if isinstance(prompt, str) else str(prompt)}]
+            if system:
+                messages.insert(0, {"role": "system", "content": system})
+            exp_headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            }
+            exp_payload: dict[str, Any] = {
+                "model": "claude-opus-5.5",
+                "messages": messages,
+            }
+            if max_tokens:
+                exp_payload["max_tokens"] = max_tokens
+            client = self._client or httpx.AsyncClient(timeout=30.0)
+            try:
+                resp = await client.post(f"{base_url}/chat/completions", headers=exp_headers, json=exp_payload)
+                resp.raise_for_status()
+                data = resp.json()
+                text = data["choices"][0]["message"]["content"]
+                latency = int((time.time() - start_time) * 1000)
+                return ProviderResult(
+                    value=text,
+                    provider="experiential",
+                    latency_ms=latency,
+                )
+            finally:
+                if not self._client:
+                    await client.aclose()
+
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",

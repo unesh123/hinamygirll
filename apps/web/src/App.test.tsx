@@ -113,6 +113,14 @@ describe("HINAA assistant workspace", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        // Attachment transport needs a reachable backend brain. A failed
+        // discovery request now correctly recovers to the browser Demo lane.
+        if (String(input).includes("/v1/providers")) {
+          return Response.json([{
+            id: "claude", state: "healthy",
+            capabilities: ["llm", "text-stream", "model:claude-sonnet-4-6", "default-model:claude-sonnet-4-6"],
+          }]);
+        }
         if (String(input).includes("/conversations/turns:stream")) {
           const body = JSON.parse(String(init?.body));
           turns.push(body);

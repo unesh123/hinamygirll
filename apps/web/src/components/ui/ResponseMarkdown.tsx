@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import React, { memo, useEffect, useRef, useState, useDeferredValue, type ReactNode } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MermaidDiagram } from "./MermaidDiagram";
@@ -96,8 +96,12 @@ function closeStreamingFences(text: string): string {
   return `${text}\n\`\`\``;
 }
 
+const REMARK_PLUGINS = [remarkGfm];
+
 /** CommonMark parses unfinished fences without dropping the final streamed line. */
 export const ResponseMarkdown = memo(function ResponseMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
-  const display = streaming ? closeStreamingFences(text) : text;
-  return <div className="response-markdown" data-streaming={streaming ? "true" : undefined}><Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={responseUrlTransform} components={components}>{display}</Markdown></div>;
+  // Defer markdown re-parsing during rapid streaming so scroll/input stay responsive
+  const deferredText = useDeferredValue(text);
+  const display = streaming ? closeStreamingFences(deferredText) : deferredText;
+  return <div className="response-markdown" data-streaming={streaming ? "true" : undefined}><Markdown remarkPlugins={REMARK_PLUGINS} skipHtml urlTransform={responseUrlTransform} components={components}>{display}</Markdown></div>;
 });

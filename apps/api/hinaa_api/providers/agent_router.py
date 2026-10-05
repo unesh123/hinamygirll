@@ -113,17 +113,13 @@ def _llm_budget_tokens(prompt: Any = None) -> int:
         return default_budget
 
     depth = getattr(prompt, "response_depth", None)
-    mode = getattr(prompt, "interaction_mode", None)
-    raw_text = (getattr(prompt, "raw_user_text", "") or "").strip().lower()
 
     if depth in {"minimal", "clarification", "safety_redirect"}:
-        return 384
+        return min(default_budget, 1024)
     if depth in {"conversational", "supportive"}:
-        if mode == "realtime" or len(raw_text) < 45:
-            return 384
-        return 768
-    if depth in {"explanatory", "procedural"}:
         return min(default_budget, 4096)
+    if depth in {"explanatory", "procedural"}:
+        return min(default_budget, 8192)
     if depth == "report":
         return default_budget
 
@@ -442,9 +438,12 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             timing.mark("text_complete")
             answer = outcome.text.strip()
             if not answer:
-                raise HinaaError(
-                    "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
-                )
+                if outcome.thinking and outcome.thinking.strip():
+                    answer = outcome.thinking.strip()
+                else:
+                    raise HinaaError(
+                        "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
+                    )
 
             from hinaa_api.prompts.performance import build_plan_from_text
             extracted = _custom_text_from_raw(answer) or answer

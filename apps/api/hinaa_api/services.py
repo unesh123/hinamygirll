@@ -428,6 +428,9 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
     # Strip any leaked prompt meta-reflection lines
     from .reply_guard import _strip_meta_reflection
     cleaned, _ = _strip_meta_reflection(cleaned)
+    # Strip any simulated tool calls, code fences, or machine traces
+    from .providers.display_stream_decoder import strip_simulated_tool_calls
+    cleaned = strip_simulated_tool_calls(cleaned)
     # Strip any leaked XML tags
     cleaned = re.sub(
         r"</?(?:response|spokenText|displayText|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",
@@ -1112,6 +1115,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_experiential_brain(self) -> None:
+        if self.settings.active_explabs_key is None:
+            raise HinaaError(
+                "EXPLABS_API_KEY_MISSING",
+                "EXPLABS_API_KEY is not set. Please create one under Settings -> API Keys and export it.",
+                503,
+                user_action_required=True,
+            )
+
     def stt(self, mode: str) -> STTProvider:
         return self.stt_candidates(mode, "en-US")[0]
 
@@ -1155,6 +1167,30 @@ class ProviderRouter:
         mode: str,
         brain_model: str | None = None,
     ) -> LLMProvider:
+        # Route any LLM calls for "claude-opus-5.5" through the Experiential gateway
+        # (https://api.experientiallabs.ai/v1) using EXPLABS_API_KEY via OpenAI Chat Completions
+        if mode == "experiential" or (
+            mode not in {"mock", "local"}
+            and brain_model and brain_model.strip() in {"claude-opus-5.5", "claude-opus-5-5"}
+        ):
+            self._require_experiential_brain()
+            active_explabs_key = self.settings.active_explabs_key
+            assert active_explabs_key
+            try:
+                requested = "claude-opus-5.5" if brain_model and brain_model.strip() == "claude-opus-5-5" else brain_model
+                model = self.settings.resolve_explabs_model(requested)
+            except ValueError as error:
+                raise HinaaError(
+                    "EXPLABS_MODEL_NOT_ALLOWED", str(error), 422,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_explabs_key.get_secret_value(),
+                model,
+                base_url=self.settings.active_explabs_base_url,
+                provider_id="experiential",
+            )
+
         if mode == "mock":
             return self.mock_llm
         if mode == "local":
@@ -1223,6 +1259,16 @@ class ProviderRouter:
                     retryable=False,
                     user_action_required=True,
                 ) from error
+            if model in {"claude-opus-5.5", "claude-opus-5-5"}:
+                self._require_experiential_brain()
+                active_explabs_key = self.settings.active_explabs_key
+                assert active_explabs_key
+                return OpenAILLMProvider(
+                    active_explabs_key.get_secret_value(),
+                    "claude-opus-5.5",
+                    base_url=self.settings.active_explabs_base_url,
+                    provider_id="experiential",
+                )
             if self.settings.active_claude_protocol == "openai-compatible":
                 return OpenAILLMProvider(
                     active_claude_key.get_secret_value(),
@@ -1429,11 +1475,15 @@ class ProviderRouter:
                 provider_id="apmix",
             )
         if mode == "real":
-            # The historical "real" mode means Gemini brain + a voice provider.
-            # Gate on full real-mode configuration so a missing key raises a
-            # typed, user-actionable error instead of an AssertionError that
-            # surfaces as an opaque 500 in the stream.
-            self._require_real()
+            # Text generation depends only on the brain credential. Speech has
+            # its own route and fallback; a missing voice must not disable chat.
+            if not self.settings.gemini_configured:
+                raise HinaaError(
+                    "PROVIDER_CONFIGURATION_MISSING",
+                    "Gemini brain needs GEMINI_API_KEY in the backend.",
+                    503,
+                    user_action_required=True,
+                )
 
         assert self.settings.gemini_api_key
         try:
@@ -3504,6 +3554,14 @@ class ConversationService:
             "codecraft": self.settings.active_codecraft_model,
             "agent-router": self.settings.active_agent_router_model,
             "groq": self.settings.groq_model,
+            "experiential": self.settings.active_explabs_model,
+            "pgsgrove": self.settings.active_pgsgrove_model,
+            "seekai": self.settings.active_seekai_model,
+            "tokentable": self.settings.active_tokentable_model,
+            "xkiro": self.settings.active_xkiro_model,
+            "cavoti": self.settings.active_cavoti_model,
+            "apmix": self.settings.active_apmix_model,
+            "ollama": self.settings.active_ollama_model,
         }.get(mode or "")
 
     async def _apply_vision_gate(
@@ -3568,15 +3626,16 @@ class ConversationService:
         rather than as a failure.
         """
         configured: dict[str, tuple[bool, str | None]] = {
-            "codecraft": (self.settings.codecraft_configured, self.settings.active_codecraft_model),
+            "experiential": (self.settings.explabs_configured, self.settings.active_explabs_model),
+            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
+            "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
             "agent-router": (
                 self.settings.agent_router_configured,
                 self.settings.active_agent_router_model,
             ),
-            "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
+            "codecraft": (self.settings.codecraft_configured, self.settings.active_codecraft_model),
             "seekai": (self.settings.seekai_configured, self.settings.active_seekai_model),
             "tokentable": (self.settings.tokentable_configured, self.settings.active_tokentable_model),
-            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
             "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
             "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
@@ -3884,12 +3943,19 @@ class ConversationService:
         # Suppress commands and generative tool requests
         if lowered.startswith(("/", "!", "\\")):
             return False
-        if re.search(r"\b(generate|create|make|draw|paint|sketch|build|write\s+(?:a|me|an)?\s*(?:code|script|doc|pdf|essay|story|poem))\b", lowered):
+        if re.search(r"^\s*(?:please\s+)?(?:can\s+you\s+)?(generate|create|make|draw|paint|sketch|build|write\s+(?:a|me|an)?\s*(?:code|script|doc|pdf|essay|story|poem))\b", lowered):
             return False
-        if re.search(r"\b(who\s+are\s+you|what\s+is\s+your\s+name|do\s+you\s+love\s+me|tell\s+me\s+a\s+joke|say\s+something)\b", lowered):
+        # Suppress standalone persona/chit-chat queries with no substantive research subject
+        if re.search(r"^\s*(?:can\s+you\s+)?(?:who\s+are\s+you|what\s+is\s+your\s+name|do\s+you\s+love\s+me|tell\s+me\s+a\s+joke|say\s+something)\s*[!., ]*$", lowered):
             return False
-        # Suppress greetings, check-ins, and personal relational queries
-        if re.search(
+        # Suppress greetings, check-ins, and personal relational queries when purely conversational
+        is_substantive = bool(
+            re.search(
+                r"\b(?:situation|politics|political|party|nepal|nepali|minister|government|election|crisis|leader|news|updates?|today|latest|current|what\s+is|who\s+is|why|how|present|status|stock|weather|score|price|release|event|fact)\b",
+                lowered,
+            )
+        )
+        if not is_substantive and re.search(
             r"\b(how\s+are\s+you|how\s+are\s+you\s+doing|how\s+do\s+you\s+feel|how\'?s\s+it\s+going|"
             r"how\s+are\s+things|how\s+is\s+your\s+day|how\s+was\s+your\s+day|"
             r"are\s+you\s+there|can\s+you\s+hear\s+me|can\s+you\s+listen|"
@@ -3966,6 +4032,13 @@ class ConversationService:
             r"\bstock\s+price\b",
             r"\b202[5-9]\b",
         ]
+        # Follow-up research queries when an active topic exists in dialogue state
+        if d_state and getattr(d_state, "active_topic", None):
+            active_top = getattr(d_state, "active_topic", "").strip()
+            if active_top and active_top.lower() not in {"general", "chat", "anime", "image", "something"}:
+                if re.search(r"\b(?:tf|data|the\s+data|results?|details?|what\s+about|what\s+happened|who\s+won|who\s+is\s+winning|status|update|tell\s+more|continue|k\s+bhyo)\b", lowered):
+                    return True
+
         try:
             from hinaa_api.intelligence.research_detector import ResearchNeedDetector
             needs_res, _ = ResearchNeedDetector.needs_research(text)
@@ -3977,22 +4050,52 @@ class ConversationService:
 
     def _extract_search_query(self, text: str, d_state: Any = None) -> str:
         """Normalize user text to an effective search query with antecedent resolution."""
+        lowered = text.strip().lower()
+        if d_state and getattr(d_state, "active_topic", None):
+            active_top = getattr(d_state, "active_topic", "").strip()
+            if active_top and active_top.lower() not in {"general", "chat", "anime", "image", "something"}:
+                if re.search(r"^(?:tf(?:\s+is)?(?:\s+the)?\s+data|continue|tell\s+me|what\s+happened|what\s+about\s+it)\b", lowered):
+                    return f"{active_top} latest news status updates"
+
+        query = re.sub(
+            r"(?i)\b(?:(?:hey|hi|hello)\s+(?:hinaa?|dude|bro|babe|yaar)\b|"
+            r"what'?s\s+up\b|"
+            r"dude\b|"
+            r"bro\b|"
+            r"babe\b|"
+            r"yaar\b|"
+            r"i\s+(?:want|would\s+like)\s+to\s+(?:say\s+something|tell\s+you\s+something|ask(?:\s+you)?(?:\s+something)?)\b|"
+            r"i\s+(?:like|want|need)\s+to\s+know\s+(?:about)?\b|"
+            r"can\s+you\s+(?:tell\s+me|check|search|find)\b|"
+            r"tell\s+me\s+(?:about)?\b)\s*[ ,!.:?-]*",
+            " ",
+            text.strip(),
+        )
         query = re.sub(
             r"(?i)^\s*(?:(?:hey\s+)?hinaa?\b|babe\b|bro\b|please\b|can\s+you\b|could\s+you\b|tell\s+me\b|check\b|search(?:\s+for)?\b|look\s+up\b|what\s+is\b|what\s+are\b|what's\b|find(?:\s+me)?\b|send(?:\s+me)?\b|show(?:\s+me)?\b|give(?:\s+me)?\b|fetch(?:\s+me)?\b|bring(?:\s+me)?\b|[ ,!.-])+",
             "",
-            text.strip(),
+            query.strip(),
         ).strip(" ?!.,;:")
         query = re.sub(
             r"(?i)^\s*(?:some\s+|a\s+few\s+|any\s+)?(?:images?|pictures?|photos?|pics?|imgs?|wallpaper)?\s*(?:of|for|about|on)?\s*",
             "",
             query,
         ).strip(" ?!.,;:")
-        # Strip trailing companion address names (e.g. "find details about it hina" -> "details about it")
+        # Strip trailing companion address names & conversational demands (e.g. "... Tell", "... batao")
         query = re.sub(
-            r"(?i)\s+(?:hina|hinaa|babe|bro|please|pls)$",
+            r"(?i)\s+(?:hina|hinaa|babe|bro|please|pls|tell|tell\s+me|batao|bata\s+de)$",
             "",
             query,
         ).strip(" ?!.,;:")
+        # Strip conversational connective clauses in compound queries
+        query = re.sub(
+            r"(?i)\b(?:what\'?s\s+the\s+(?:current|present)\s+situation\s+(?:about\s+it\s+)?(?:right\s+now|today)?|and\s+what\'?s\s+the\s+present\s+situation\s+of)\b",
+            " ",
+            query,
+        )
+        query = re.sub(r"(?i)\b(?:it\s+is\s+going\s+to\s+have|and\s+it\'?s\s+having\s+to\s+heal)\b", " ", query)
+        query = re.sub(r"\s+", " ", query).strip(" .,!?:;-")
+
         # Resolve referential pronouns / anaphoric phrases using active dialogue state
         if d_state:
             topic = getattr(d_state, "active_topic", None)
@@ -4008,6 +4111,8 @@ class ConversationService:
                     query = re.sub(r"(?i)\b(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)\b", topic, query)
                 elif query.strip().lower() in {"it", "this", "that", "them", "those", "these", "her", "him", "details", "more details", "news", "those anime", "these anime", "anime", "send anime"}:
                     query = f"{topic} latest {query}".strip()
+                elif re.search(r"(?i)\b(?:data|the\s+data|results?|status|update)\b", query):
+                    query = f"{topic} latest status news updates".strip()
         return query if len(query) >= 3 else text.strip()
 
     async def create_plan(
@@ -4135,34 +4240,6 @@ class ConversationService:
                     pass
             return result
 
-        if gate_decision.intent == HinaaIntent.WEB_SEARCH and not self.settings.youcom_configured:
-            offline_text = "Search is offline: You.com key or API tunnel is not on production."
-            plan = build_plan_from_text(
-                text=offline_text,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = offline_text
-            plan.spokenText = offline_text
-            plan.toolRequests = []
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    pass
-            return result
 
         allowed_tools = self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
         if self.dialogue_state_service and convo_id:
@@ -4224,7 +4301,7 @@ class ConversationService:
                 from datetime import datetime, timezone
                 search_res = await asyncio.wait_for(
                     search_web({"query": search_query, "count": search_budget}),
-                    timeout=8.0,
+                    timeout=15.0,
                 )
                 items = search_res.get("results") or search_res.get("sources") or []
                 if items:
@@ -4951,34 +5028,6 @@ class ConversationService:
                     pass
             return result
 
-        if gate_decision.intent == HinaaIntent.WEB_SEARCH and not self.settings.youcom_configured:
-            offline_text = "Search is offline: You.com key or API tunnel is not on production."
-            plan = build_plan_from_text(
-                text=offline_text,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = offline_text
-            plan.spokenText = offline_text
-            plan.toolRequests = []
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    pass
-            return result
         if self.dialogue_state_service and convo_id:
             try:
                 d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
@@ -5041,7 +5090,7 @@ class ConversationService:
                 from datetime import datetime, timezone
                 search_res = await asyncio.wait_for(
                     search_web({"query": search_query, "count": search_budget}),
-                    timeout=5.0,
+                    timeout=15.0,
                 )
                 items = search_res.get("results") or search_res.get("sources") or []
                 if emit_event:
@@ -5079,6 +5128,7 @@ class ConversationService:
                         "OPERATIONAL MANDATE (CRITICAL):",
                         "- Synthesize across these live sources into an authoritative, high-impact analysis or report.",
                         "- Attribute key claims with numbered bracket citations matching the sources above: e.g. [1], [2].",
+                        "- You ALREADY HAVE the retrieved search intelligence above! Synthesize your response directly in displayText and spokenText. Do NOT emit <web_search> tags, simulated tool markers, or further tool calls.",
                         "- ZERO REPETITION: Do NOT repeat paragraphs, regurgitate text blocks, or echo previous turns. Never cut off mid-thought.",
                         "- spokenText: Deliver a substantive, intelligent executive voice summary covering core findings and significance.",
                         "- Make displayText directly informative, structured with key bullets, clear headings, and zero repetitive filler.",
@@ -5449,8 +5499,187 @@ class ConversationService:
                         result = fallback_live_result
                     else:
                         raise error
+                elif error.code == "MODEL_RESPONSE_INVALID":
+                    fallback_live_result = None
+                    if self.settings.auto_fallback_enabled:
+                        for fb_mode, fb_model in await self._fallback_candidate_modes(
+                            request.providerMode, requires_vision=vision_required
+                        ):
+                            try:
+                                logger.info(
+                                    "Live primary %s returned invalid response; attempting fallback to %s (%s)",
+                                    request.providerMode,
+                                    fb_mode,
+                                    fb_model,
+                                )
+                                fb_brain = fb_mode
+                                fb_provider = self.router.llm(fb_mode, fb_model)
+                                fb_brain = getattr(fb_provider, "id", None) or fb_mode
+                                async with live_generation_window(
+                                    ceiling_s=primary_live_timeout,
+                                    idle_s=primary_idle_timeout,
+                                    forward=emit_delta,
+                                ) as (fallback_emit, _):
+                                    if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                                        fallback_live_result = await fb_provider.create_live_plan(
+                                            request.text,
+                                            request.companionId,
+                                            request.language,
+                                            history,
+                                            fallback_emit,
+                                            prompt,
+                                        )
+                                    else:
+                                        fallback_live_result = await fb_provider.create_plan(
+                                            request.text,
+                                            request.companionId,
+                                            request.language,
+                                            history,
+                                            prompt,
+                                        )
+                                self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
+                                logger.info("Live fallback to %s succeeded after invalid response", fb_mode)
+                                is_fallback = True
+                                fallback_reason = f"Primary {request.providerMode} invalid response: auto-routed to {fb_mode}"
+                                resolved_provider = fb_mode
+                                resolved_model = fb_model
+                                break
+                            except Exception as fb_exc:
+                                self._record_brain_call(fb_brain, ok=False, error=fb_exc)
+                                logger.warning("Live fallback provider %s failed during invalid response recovery: %r", fb_mode, fb_exc)
+                    if fallback_live_result is not None:
+                        result = fallback_live_result
+                    else:
+                        plan = neutral_fallback_plan(
+                            user_text=request.text,
+                            companion_id=request.companionId,
+                            language=request.language,
+                            depth=prompt.response_depth,
+                        )
+                        result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
+                        is_fallback = True
+                        fallback_reason = "MODEL_RESPONSE_INVALID: neutral fallback plan engaged"
+                        resolved_provider = "neutral_fallback"
+                        resolved_model = None
+                        if plan.displayText:
+                            await emit_delta(plan.displayText)
                 else:
+                    # Configuration/allow-list errors have no response to inspect.
+                    # Preserve the typed failure instead of falling through with
+                    # an unbound result and turning it into an opaque stream crash.
                     raise error
+        # Autonomous Simulated Tool Recovery:
+        # If the model produced a tool request (TOOL_REQUEST, <web_search>, etc.) or stalled without answering
+        raw_streamed = "".join(primary_text)
+        simulated_tool_present = bool(
+            re.search(r'(?i)\bTOOL_REQUEST\b', raw_streamed)
+            or re.search(r'<\s*web_search\b', raw_streamed)
+            or re.search(r'\{\s*"(?:tool|name)"\s*:\s*"web_search"', raw_streamed)
+        )
+        is_stall_sentence = bool(
+            re.search(r"(?i)\b(?:let\s+me\s+(?:search|look\s+up|check|find|dig)|searching\s+for\s+the\s+latest|while\s+that\s+search\s+runs)\b", result.value.displayText or "")
+            and len((result.value.displayText or "").strip().split()) < 45
+        )
+        if (simulated_tool_present or is_stall_sentence) and not is_voice_turn:
+            recovery_query = None
+            q_m = re.search(r'(?i)"(?:query|q)"\s*:\s*"([^"]+)"', raw_streamed)
+            if q_m:
+                recovery_query = q_m.group(1).strip()
+            else:
+                tag_m = re.search(r'<\s*web_search[^>]*>(.*?)<\s*/\s*web_search\s*>', raw_streamed, re.DOTALL | re.IGNORECASE)
+                if tag_m:
+                    recovery_query = tag_m.group(1).strip()
+            if not recovery_query or len(recovery_query) < 4:
+                recovery_query = self._extract_search_query(request.text, d_state=d_state)
+
+            try:
+                from hinaa_api.tools.browser import search_web
+                from hinaa_api.grounding.citations import EvidenceSource
+                from datetime import datetime, timezone
+                if emit_event:
+                    try:
+                        await emit_event("search.started", {"query": recovery_query, "correlationId": convo_id})
+                    except Exception:
+                        pass
+                search_res = await asyncio.wait_for(search_web({"query": recovery_query, "count": 6}), timeout=10.0)
+                rec_items = search_res.get("results") or search_res.get("sources") or []
+                if emit_event:
+                    try:
+                        await emit_event("search.completed", {"query": recovery_query, "sourcesCount": len(rec_items), "correlationId": convo_id})
+                    except Exception:
+                        pass
+                if rec_items:
+                    fact_lines = [f"Retrieved live facts on {recovery_query}:"]
+                    rec_grounded = []
+                    for idx, itm in enumerate(rec_items[:8], 1):
+                        title = itm.get("title", "")
+                        snip = itm.get("snippet", "")
+                        fact_lines.append(f"[{idx}] {title}: {snip}")
+                        rec_grounded.append(EvidenceSource(
+                            source_id=str(idx),
+                            title=title,
+                            publisher=itm.get("domain") or "",
+                            url=itm.get("url") or "",
+                            date=itm.get("date"),
+                            snippet=snip,
+                        ))
+                    facts_context = "\n".join(fact_lines)
+                    grounded_sources = rec_grounded
+
+                    synthesis_user_text = (
+                        f"User asked: {request.text}\n\n"
+                        f"REAL-TIME VERIFIED FACTS:\n{facts_context}\n\n"
+                        "MANDATE: Deliver a thorough, comprehensive, authoritative answer explaining the situation clearly. "
+                        "Do not include any tool syntax, tool tags, or TOOL_REQUEST. Answer directly in natural prose."
+                    )
+                    synth_prompt = build_turn_prompt(
+                        request=request.model_copy(update={"text": synthesis_user_text}),
+                        history=history,
+                        settings=self.settings,
+                        interaction_mode="realtime",
+                        session_memories=session_memories,
+                        approved_memory_blocks=approved,
+                        durable_memory=durable_memory,
+                        live_search_block=facts_context,
+                        history_preselected=True,
+                        allowed_tools=(),
+                    )
+                    recovery_deltas: list[str] = []
+                    async with live_generation_window(
+                        ceiling_s=primary_live_timeout,
+                        idle_s=primary_idle_timeout,
+                        forward=emit_delta,
+                        sink=recovery_deltas,
+                    ) as (rec_emit, _):
+                        rec_provider = self.router.llm(resolved_provider, resolved_model)
+                        if isinstance(rec_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                            rec_res = await rec_provider.create_live_plan(
+                                synthesis_user_text,
+                                request.companionId,
+                                request.language,
+                                history,
+                                rec_emit,
+                                synth_prompt,
+                            )
+                        else:
+                            rec_res = await rec_provider.create_plan(
+                                synthesis_user_text,
+                                request.companionId,
+                                request.language,
+                                history,
+                                synth_prompt,
+                            )
+                    rec_text = "".join(recovery_deltas).strip() or rec_res.value.displayText
+                    if rec_text:
+                        from .providers.display_stream_decoder import strip_simulated_tool_calls
+                        clean_opening = strip_simulated_tool_calls(result.value.displayText or "").strip()
+                        if clean_opening and not any(clean_opening.lower().startswith(x) for x in ("let me", "searching", "tool_")):
+                            result.value.displayText = f"{clean_opening}\n\n{rec_text}"
+                        else:
+                            result.value.displayText = rec_text
+                        result.value.spokenText = rec_res.value.spokenText or rec_text
+            except Exception as rec_exc:
+                logger.warning("Simulated tool recovery failed: %r", rec_exc, exc_info=True)
 
         _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources)
         result.value.requestedProvider = requested_provider

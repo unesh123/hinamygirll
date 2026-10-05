@@ -52,6 +52,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   xkiro:          "XKiro AI (api.xkiro.com)",
   cavoti:         "Cavoti AI (cavoti.com)",
   apmix:          "APMIX.AI (api.apmix.ai)",
+  experiential:   "Experiential Labs (api.experientiallabs.ai)",
 };
 
 const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
@@ -75,12 +76,14 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   xkiro:          "api.xkiro.com — fast free frontier models (Qwen 3.8 Max, Qwen 3.7 Flash).",
   cavoti:         "cavoti.com — frontier models (Claude Fable 5, Claude Opus 5, Claude Haiku 4.5).",
   apmix:          "api.apmix.ai — fast free DeepSeek V4 Flash & upcoming GPT-6 Luna.",
+  experiential:   "api.experientiallabs.ai — frontier Claude Opus 5.5 gateway.",
 };
+
 
 export function ProviderSettings({ provider, providers, onChange, activeMode }: Props) {
   const { providerOptions, getModelOptions, loaded } = providers;
   const elevenLabs = providers.statuses.find((status) => status.id === "elevenlabs");
-  const cloudVoiceReady = elevenLabs?.state === "healthy" || elevenLabs?.state === "degraded";
+  const cloudVoiceReady = !providers.error && (elevenLabs?.state === "healthy" || elevenLabs?.state === "degraded");
 
   // Build mode select options
   const modeOptions = [
@@ -91,6 +94,9 @@ export function ProviderSettings({ provider, providers, onChange, activeMode }: 
       disabled: !opt.available,
     })),
   ];
+  if (!modeOptions.some((option) => option.value === provider.preferredMode)) {
+    modeOptions.push({ value: provider.preferredMode, label: `${MODE_LABELS[provider.preferredMode]} — Unavailable`, disabled: true });
+  }
 
   // Health of the selected mode (or resolved active mode for auto)
   const displayMode = provider.preferredMode === "auto"
@@ -99,7 +105,10 @@ export function ProviderSettings({ provider, providers, onChange, activeMode }: 
 
   const currentHealth = displayMode
     ? providers.getHealth(displayMode as Parameters<typeof providers.getHealth>[0])
-    : loaded ? "healthy" : "checking";
+    : loaded ? "unknown" : "checking";
+  const healthReason = displayMode
+    ? providers.statuses.find((status) => status.id === (displayMode === "real" ? "gemini" : displayMode))?.userMessage
+    : undefined;
 
   // Model options for the current concrete mode
   const modelOptions = displayMode ? getModelOptions(displayMode as Parameters<typeof providers.getModelOptions>[0]) : [];
@@ -130,7 +139,7 @@ export function ProviderSettings({ provider, providers, onChange, activeMode }: 
 
   // Validate stored model still exists in available options
   const isModelValid =
-    !currentModel ||
+    !currentModel || modelOptions.length === 0 ||
     modelOptions.some((m) => m.id === currentModel);
 
   const modelSelectValue = isModelValid ? currentModel : "";
@@ -157,7 +166,7 @@ export function ProviderSettings({ provider, providers, onChange, activeMode }: 
         description={
           cloudVoiceReady
             ? "ElevenLabs is available for Hinaa’s cloud voice."
-            : "Hinaa speaks through your device voice when cloud voice is unavailable. Add ELEVENLABS_API_KEY and ELEVENLABS_HINAA_VOICE_ID only in the local backend environment to enable the cloud voice."
+            : "Hinaa uses your device voice when cloud voice is unavailable. Configure ElevenLabs on your local backend to enable cloud voice."
         }
       >
         <span className={styles.activeLabel} aria-live="polite">
@@ -168,6 +177,10 @@ export function ProviderSettings({ provider, providers, onChange, activeMode }: 
       {/* Health status row */}
       <div className={styles.statusRow}>
         <SettingsStatus health={currentHealth} />
+        {healthReason && <p className={styles.warningNote}>{healthReason}</p>}
+        <button type="button" className={styles.refreshButton} onClick={providers.refresh}>
+          Refresh provider status
+        </button>
 
         {provider.preferredMode === "auto" && activeMode && (
           <span className={styles.activeLabel}>
@@ -202,7 +215,7 @@ export function ProviderSettings({ provider, providers, onChange, activeMode }: 
               { value: "", label: "Automatic" },
               ...modelOptions.map((m) => ({
                 value: m.id,
-                label: m.id,
+                label: m.label + (m.isDefault ? " (Default)" : ""),
               })),
             ]}
             onChange={handleModelChange}

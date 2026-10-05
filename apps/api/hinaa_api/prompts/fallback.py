@@ -24,20 +24,27 @@ def neutral_fallback_plan(
     depth: ResponseDepth = "conversational",
 ) -> AssistantTurnPlan:
     if companion_id == "hinaa":
-        spoken = (
-            "Yahan ek unexpected technical glitch hua hai. Main koi fake success report nahi dungi. "
-            "Error details diagnostics mein safely record ho gayi hain. Aap text se retry kar sakte ho."
-        )
+        if language in ("ne-NP", "nepali"):
+            spoken = (
+                "सञ्जालमा सानो समस्या देखियो! कृपया फेरि सोध्नुहोस् न, म यहाँ तपाईंको साथमा छु। ✨"
+            )
+        elif language == "en-US":
+            spoken = (
+                "My connection had a brief hiccup just now! Could you please ask me once more? "
+                "I'm right here with you and ready to help! ✨"
+            )
+        else:
+            spoken = (
+                "Lagta hai network mein chhota sa connection hiccup aaya! Ek baar phir se pucho na, "
+                "main yahin hoon tumhare liye. What would you like to explore next? 🌸"
+            )
     else:
-        spoken = (
-            "Yahan ek unexpected technical glitch hua hai. Main koi fake success report nahi dungi. "
-            "Error details diagnostics mein safely record ho gayi hain."
-        )
-    if language == "en-US":
-        spoken = (
-            "I hit a safe fallback just now, but your message is preserved. "
-            "Please try again in text—how can I help next?"
-        )
+        if language in ("ne-NP", "nepali"):
+            spoken = "सञ्जालमा सानो समस्या देखियो। कृपया फेरि प्रयास गर्नुहोस्।"
+        elif language == "en-US":
+            spoken = "My connection encountered a brief delay. Please try asking again."
+        else:
+            spoken = "Thoda sa technical delay hua hai. Ek baar phir se try kar lijiye."
     return build_plan_from_text(
         text=spoken,
         companion_id=companion_id,

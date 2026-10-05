@@ -64,7 +64,20 @@ export function NavigationRail({
   const { runtime, features, providers } = capabilities;
   const configuredProviders = providers.filter((p) => p.configured).length;
   const backendOk = runtime.backendConnected && !capsError && isOnline;
-  const [dismissedAuthNotice, setDismissedAuthNotice] = React.useState(false);
+  const [dismissedAuthNotice, setDismissedAuthNotice] = React.useState(() => {
+    try {
+      return window.localStorage.getItem("hinaa-dismissed-dev-auth") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleDismissAuthNotice = React.useCallback(() => {
+    setDismissedAuthNotice(true);
+    try {
+      window.localStorage.setItem("hinaa-dismissed-dev-auth", "true");
+    } catch {}
+  }, []);
 
   // Never assert health the rail has not measured — these literals stayed green
   // through a total backend outage.
@@ -296,7 +309,7 @@ export function NavigationRail({
             </div>
             <button
               type="button"
-              onClick={() => setDismissedAuthNotice(true)}
+              onClick={handleDismissAuthNotice}
               aria-label="Dismiss auth notice"
               title="Dismiss"
               style={{

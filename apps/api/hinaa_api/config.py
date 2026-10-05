@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft"] = Field(
+    provider_mode: Literal["mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix"] = Field(
         "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -362,6 +362,35 @@ class Settings(BaseSettings):
         "deepseek-v4-flash-free,gpt-6-luna-free",
         validation_alias=AliasChoices("APMIX_AI_ALLOWED_MODELS", "APMIX_ALLOWED_MODELS"),
     )
+    # Experiential Labs AI Gateway — claude-opus-5.5 at https://api.experientiallabs.ai/v1
+    explabs_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "EXPLABS_API_KEY",
+            "EXPERIENTIAL_API_KEY",
+            "EXPERIMENTAL_LABS_API_KEY",
+            "EXPLABS_KEY",
+            "HINAA_EXPLABS_API_KEY",
+        ),
+    )
+    explabs_base_url: str = Field(
+        "https://api.experientiallabs.ai/v1",
+        validation_alias=AliasChoices(
+            "EXPLABS_BASE_URL",
+            "EXPERIENTIAL_BASE_URL",
+            "EXPERIMENTAL_LABS_BASE_URL",
+            "HINAA_EXPLABS_BASE_URL",
+        ),
+    )
+
+    explabs_model: str = Field(
+        "claude-opus-5.5",
+        validation_alias=AliasChoices("EXPLABS_MODEL", "EXPERIENTIAL_MODEL", "HINAA_EXPLABS_MODEL"),
+    )
+    explabs_allowed_models_raw: str = Field(
+        "claude-opus-5.5,claude-opus-5,claude-sonnet-5,claude-fable-5",
+        validation_alias=AliasChoices("EXPLABS_ALLOWED_MODELS", "EXPERIENTIAL_ALLOWED_MODELS"),
+    )
     # Bright Data Scraping Browser & SERP API
     bright_data_browser_ws: SecretStr | None = Field(
         None,
@@ -412,6 +441,17 @@ class Settings(BaseSettings):
     youcom_base_url: str = Field("https://api.you.com", alias="YOUCOM_BASE_URL")
     youcom_contents_base_url: str = Field("https://ydc-index.io", alias="YOUCOM_CONTENTS_BASE_URL")
     youcom_timeout_seconds: float = Field(30.0, alias="YOUCOM_TIMEOUT_SECONDS")
+    # Exa API — semantic web search, token-efficient highlights, contents extraction, Agent API
+    exa_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("EXA_API_KEY", "HINAA_EXA_API_KEY", "EXA_AI_API_KEY"),
+    )
+    exa_base_url: str = Field(
+        "https://api.exa.ai",
+        validation_alias=AliasChoices("EXA_BASE_URL", "HINAA_EXA_BASE_URL", "EXA_AI_BASE_URL"),
+    )
+    exa_timeout_seconds: float = Field(20.0, alias="EXA_TIMEOUT_SECONDS")
+
     # Magnific / Freepik — cloud image generation (HINAA's image brain).
     # Contract: docs.magnific.com — x-magnific-api-key header, async task
     # pattern on every route (POST → task_id → poll GET {path}/{task_id}).
@@ -912,6 +952,18 @@ class Settings(BaseSettings):
     @property
     def youcom_configured(self) -> bool:
         return bool(self.youcom_api_key and self.youcom_api_key.get_secret_value())
+
+    @property
+    def exa_configured(self) -> bool:
+        return bool(self.exa_api_key and self.exa_api_key.get_secret_value().strip())
+
+    @property
+    def active_exa_base_url(self) -> str:
+        url = (self.exa_base_url or "https://api.exa.ai").rstrip("/")
+        if "dashboard.exa.ai" in url:
+            return "https://api.exa.ai"
+        return url
+
 
     @property
     def magnific_configured(self) -> bool:
@@ -1434,6 +1486,46 @@ class Settings(BaseSettings):
         if "*" not in self.apmix_allowed_models and model not in self.apmix_allowed_models:
             allowed = ", ".join(self.apmix_allowed_models)
             raise ValueError(f"APMIX model is not in APMIX_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def explabs_configured(self) -> bool:
+        return bool(
+            self.explabs_api_key
+            and self.explabs_api_key.get_secret_value().strip()
+            and self.active_explabs_base_url
+        )
+
+    @property
+    def active_explabs_key(self) -> SecretStr | None:
+        if self.explabs_api_key and self.explabs_api_key.get_secret_value().strip():
+            return self.explabs_api_key
+        return None
+
+    @property
+    def active_explabs_base_url(self) -> str:
+        value = (self.explabs_base_url or "").strip().rstrip("/")
+        if value and not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value or "https://api.experientiallabs.ai/v1"
+
+    @property
+    def active_explabs_model(self) -> str:
+        return self.explabs_model or "claude-opus-5.5"
+
+    @property
+    def explabs_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.explabs_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_explabs_model]
+        if self.active_explabs_model and self.active_explabs_model not in models:
+            models.insert(0, self.active_explabs_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_explabs_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_explabs_model
+        if "*" not in self.explabs_allowed_models and model not in self.explabs_allowed_models:
+            allowed = ", ".join(self.explabs_allowed_models)
+            raise ValueError(f"Experiential model is not in EXPLABS_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

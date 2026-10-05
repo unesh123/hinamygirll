@@ -316,6 +316,7 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "xkiro",
         "cavoti",
         "apmix",
+        "experiential",
     }
 )
 
@@ -1411,8 +1412,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "id": "gemini",
                 "name": "Google Gemini",
                 "configured": has_gemini,
-                "defaultModel": "gemini-2.5-pro",
-                "allowedModels": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"],
+                "defaultModel": active_settings.gemini_model,
+                "allowedModels": list(active_settings.gemini_allowed_models),
                 "protocol": "native-sdk",
             },
             {
@@ -1536,6 +1537,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "configured": bool(getattr(active_settings, "apmix_configured", False)),
                 "defaultModel": active_settings.active_apmix_model,
                 "allowedModels": list(active_settings.apmix_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "experiential",
+                "name": "Experiential Labs",
+                "configured": active_settings.explabs_configured,
+                "defaultModel": active_settings.active_explabs_model,
+                "allowedModels": list(active_settings.explabs_allowed_models),
                 "protocol": "openai-compatible",
             },
             # Local fallback gateway, measured rather than assumed. `declared`
@@ -1719,9 +1728,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             or (active_settings.auth_mode != "dev" and any(not o.startswith("http://localhost") and not o.startswith("http://127.0.0.1") for o in active_settings.allowed_origins))
         )
         base = active_settings.active_ollama_base_url.rstrip("/")
+        # An outage of one app/endpoint must not poison a new deployment's probe.
+        ollama_probe_key = f"ollama:{id(app)}:{base}"
         is_loopback = "127.0.0.1" in base or "localhost" in base or "0.0.0.0" in base
         if active_settings.ollama_configured:
-            cached_ollama = _probe_cached("ollama")
+            cached_ollama = _probe_cached(ollama_probe_key)
             if cached_ollama is not None:
                 ollama_state, ollama_message, ollama_models = cached_ollama
             elif is_server_remote and is_loopback:
@@ -1762,7 +1773,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     # Remember the failure so the next poll does not repeat
                     # the same 1.5s timeout for a service that is still down.
-                    _probe_store("ollama", (ollama_state, ollama_message, ollama_models))
+                    _probe_store(ollama_probe_key, (ollama_state, ollama_message, ollama_models))
 
         # OmniRoute is a stopped-or-running fact about a local container, and a
         # stopped one keeps its environment, so only a live /v1/models answer can
@@ -1863,6 +1874,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 id="groq",
                 capabilities=[
                     "llm",
+                    f"default-model:{active_settings.groq_model}",
+                    f"model:{active_settings.groq_model}",
                     "structured-turn-plan",
                     "text-stream",
                     "official",
@@ -2217,6 +2230,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ),
             ProviderStatus(
+                id="experiential",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_explabs_model}",
+                    *[f"model:{model}" for model in active_settings.explabs_allowed_models],
+                ],
+                state="healthy" if active_settings.explabs_configured else "unavailable",
+                userMessage=(
+                    "Experiential Labs is configured in the backend."
+                    if active_settings.explabs_configured
+                    else "Experiential Labs needs EXPLABS_API_KEY in apps/api/.env.local."
+                ),
+            ),
+            ProviderStatus(
                 id="tinyfish",
                 capabilities=["search", "fetch"],
                 state="healthy" if active_settings.tinyfish_api_key else "unavailable",
@@ -2280,6 +2310,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for name in (
                     "claude", "gemini", "openai", "qwen", "groq", "custom",
                     "agent_router", "codecraft", "cx_gateway",
+                    "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "explabs",
                 )
             )
         ) or bool(os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_PKAY_API_KEY"))
@@ -2894,6 +2925,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "app_launch",
                 "system_info",
                 "search_files",
+                "exa_search",
+                "exa_get_contents",
+                "exa_agent_run",
+                "deep_research",
+                "coding_agent",
+                "code_repair",
+                "terminal_execute",
+                "file_read",
+                "directory_list",
+                "codebase_search",
             )
         )
         if tool_def.requires_confirmation and not (is_user_approved or is_safe_standing_consent):
@@ -5157,6 +5198,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def college_admin_dashboard() -> dict[str, Any]:
         """College administration and faculty analytics overview."""
         return college_vault_service.get_admin_dashboard_stats()
+
+    @app.get("/api/v1/audit/receipts")
+    async def get_execution_receipts(
+        turn_id: str | None = None,
+        limit: int = 50,
+    ):
+        """Return execution receipts for audit inspection (Milestone 1)."""
+        ledger = get_run_ledger()
+        receipts = ledger.recent_receipts(turn_id=turn_id, limit=min(limit, 200))
+        turns = ledger.recent_turns(limit=20)
+        return {
+            "receipts": receipts,
+            "recentTurns": [t.as_dict() for t in turns],
+            "ledgerAvailable": ledger.available,
+        }
 
     # ── Generic /api/v1 aliases ─────────────────────────────────────
     # Routes are canonically declared at /v1/... but the frontend addresses

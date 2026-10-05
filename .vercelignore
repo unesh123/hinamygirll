@@ -6,6 +6,12 @@ apps/api/
 **/.venv
 **/.venv/**
 .runtime/
+.hina/
+**/.env
+**/.env.*
+!**/.env.example
+video_frames/
+docs/screenshots/
 
 # Dependency trees (gitignored too, but explicit here)
 **/node_modules

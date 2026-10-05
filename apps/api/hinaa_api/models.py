@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Any
+from typing import Annotated, Literal, Any, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, AliasChoices
+from pydantic import BaseModel, ConfigDict, Field, AliasChoices, field_validator
 
 Language = Literal[
     "en-US",
@@ -11,6 +11,7 @@ Language = Literal[
     "mixed",
 ]
 ProviderMode = Literal[
+    "auto",
     "mock",
     "local",
     "groq",
@@ -31,6 +32,7 @@ ProviderMode = Literal[
     "xkiro",
     "cavoti",
     "apmix",
+    "experiential",
 ]
 CompanionId = Literal["hinaa", "hiro"]
 ResponseMode = Literal[
@@ -202,6 +204,34 @@ def safe_extract_display_text(content: str) -> str:
         return content
 
 
+def normalize_provider_mode(v: Any) -> str:
+    valid_modes = set(get_args(ProviderMode)) - {"auto"}
+    if not v or v == "auto":
+        try:
+            from .config import get_settings
+            configured = get_settings().provider_mode
+            if configured and configured in valid_modes:
+                return configured
+        except Exception:
+            pass
+        return "agent-router"
+    if isinstance(v, str):
+        v_norm = v.strip().lower()
+        if v_norm == "gemini":
+            return "real"
+        if v_norm in valid_modes:
+            return v_norm
+        try:
+            from .config import get_settings
+            configured = get_settings().provider_mode
+            if configured and configured in valid_modes:
+                return configured
+        except Exception:
+            pass
+        return "agent-router"
+    return "agent-router"
+
+
 class PersonalityRequest(StrictModel):
     affection: Annotated[float, Field(ge=0, le=0.8)] | None = None
     sass: Annotated[float, Field(ge=0, le=0.7)] | None = None
@@ -239,12 +269,22 @@ class TurnRequest(BaseModel):
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     reference_images: list[str] = Field(default_factory=list, validation_alias=AliasChoices("reference_images", "referenceImages"))
 
+    @field_validator("providerMode", mode="before")
+    @classmethod
+    def validate_provider_mode(cls, v: Any) -> str:
+        return normalize_provider_mode(v)
+
 
 class SpeechRequest(StrictModel):
     language: Language = "mixed"
     text: Annotated[str, Field(min_length=1, max_length=4000)]
     companionId: CompanionId = "hinaa"
     providerMode: ProviderMode = "mock"
+
+    @field_validator("providerMode", mode="before")
+    @classmethod
+    def validate_provider_mode(cls, v: Any) -> str:
+        return normalize_provider_mode(v)
 
 
 class TranscriptResponse(StrictModel):
@@ -290,6 +330,11 @@ class TextHumanizerRequest(StrictModel):
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
     ] = None
+
+    @field_validator("providerMode", mode="before")
+    @classmethod
+    def validate_provider_mode(cls, v: Any) -> str:
+        return normalize_provider_mode(v)
 
 
 class ReviewMetrics(StrictModel):

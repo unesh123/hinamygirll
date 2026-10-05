@@ -80,6 +80,7 @@ export function resolveVoiceRoute(
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "cx-gateway",
   "claude",
+  "experiential",
   "codecraft",
   "pgsgrove",
   "xkiro",
@@ -92,6 +93,7 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "real",
   "qwen",
   "openai",
+  "groq",
   "ollama",
   "local",
   "mock",
@@ -127,6 +129,7 @@ function firstUsableMode(
   return (
     pick((health, mode) => isNotInProcess(mode) && health === "healthy")
     ?? pick((health, mode) => isNotInProcess(mode) && health === "untested")
+    ?? pick((health, mode) => isNotInProcess(mode) && health === "degraded")
     ?? pick((health) => health === "healthy")
   );
 }

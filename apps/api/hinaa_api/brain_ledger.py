@@ -36,7 +36,7 @@ _DEFAULT_PATH = Path(__file__).resolve().parent / "data" / "brain_outcomes.json"
 
 # Intact brain, blocked this once: throttled or too slow, not broken. Every other
 # failure (rejected key, retired model, dead endpoint) reports as unavailable.
-TRANSIENT_CODES = frozenset({"PROVIDER_RATE_LIMIT", "PROVIDER_TIMEOUT"})
+TRANSIENT_CODES = frozenset({"PROVIDER_RATE_LIMIT", "PROVIDER_RATE_LIMITED", "PROVIDER_TIMEOUT"})
 # A refusal is an answer. It says nothing about whether the brain can serve.
 NON_INFRA_CODES = frozenset({"SAFETY_REFUSAL"})
 
@@ -271,6 +271,7 @@ _SETTINGS_PREFIX: dict[str, str] = {
     "tokentable": "tokentable",
     "xkiro": "xkiro",
     "apmix": "apmix",
+    "experiential": "explabs",
 }
 
 

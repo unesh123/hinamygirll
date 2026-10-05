@@ -1,15 +1,14 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useId } from "react";
 import {
   ChevronDown,
   Cpu,
   Sparkles,
-  Zap,
   CheckCircle2,
   Brain,
-  Layers,
   CircleDot,
 } from "lucide-react";
 import type { DiscoveredModel, DiscoveredProvider } from "../../features/providers/hooks/useCapabilities";
+import { providerModeFromId } from "../../features/providers/utils/providerLabels";
 
 export interface ModelSelectorV7Props {
   models?: DiscoveredModel[];
@@ -39,6 +38,13 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+  useEffect(() => {
+    if (isOpen) {
+      const selected = menuRef.current?.querySelector<HTMLButtonElement>('button[aria-checked="true"]:not(:disabled)');
+      (selected ?? menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus();
+    }
+  }, [isOpen]);
 
   // Close on outside click
   useEffect(() => {
@@ -63,6 +69,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && isOpen) {
         setIsOpen(false);
+        buttonRef.current?.focus();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -70,7 +77,8 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   }, [isOpen]);
 
   // Find active model details
-  const activeModel = models.find((m) => m.id === selectedModelId);
+  const selectionProvider = selectedProviderId === "real" ? "gemini" : selectedProviderId;
+  const activeModel = models.find((m) => m.id === selectedModelId && (!selectionProvider || m.provider === selectionProvider));
   const activeLabel = isAutoRouter
     ? "Auto (Router)"
     : activeModel?.name || selectedModelId || "Model";
@@ -109,7 +117,8 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
         ref={buttonRef}
         type="button"
         data-testid="composer-model-selector-btn"
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
+        aria-controls={isOpen ? menuId : undefined}
         aria-expanded={isOpen}
         onClick={() => setIsOpen(!isOpen)}
         style={{
@@ -146,6 +155,19 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
       {isOpen && (
         <div
           ref={menuRef}
+          id={menuId}
+          role="menu"
+          aria-label="AI model selection"
+          onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+            if (!options.length) return;
+            const current = options.indexOf(document.activeElement as HTMLButtonElement);
+            const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+              : (current + (event.key === "ArrowUp" ? -1 : 1) + options.length) % options.length;
+            options[next].focus();
+          }}
           data-testid="composer-model-dropdown"
           className="model-selector-v7__dropdown"
           style={{
@@ -204,9 +226,12 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
           <button
             type="button"
             data-testid="model-option-auto"
+            role="menuitemradio"
+            aria-checked={isAutoRouter}
             onClick={() => {
               onSelectAuto();
               setIsOpen(false);
+              buttonRef.current?.focus();
             }}
             style={{
               width: "100%",
@@ -328,16 +353,22 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                 </div>
 
                 {groupModels.map((model) => {
-                  const isSelected = !isAutoRouter && selectedModelId === model.id;
+                  const isSelected = !isAutoRouter && selectedModelId === model.id && (!selectionProvider || model.provider === selectionProvider);
+                  const canSelect = backendConnected && isConfigured && model.configured && health !== "unavailable" && providerModeFromId(model.provider) !== null;
 
                   return (
                     <button
                       key={model.id}
                       type="button"
                       data-testid={`model-option-${model.id}`}
+                      role="menuitemradio"
+                      aria-checked={isSelected}
+                      disabled={!canSelect}
+                      title={providerConfig?.healthMessage}
                       onClick={() => {
                         onSelectModel(model);
                         setIsOpen(false);
+                        buttonRef.current?.focus();
                       }}
                       style={{
                         width: "100%",
@@ -350,7 +381,8 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
                         background: isSelected
                           ? (isDark ? "rgba(43, 127, 255, 0.15)" : "var(--surface-subtle, #f6f3f7)")
                           : "transparent",
-                        cursor: "pointer",
+                        cursor: canSelect ? "pointer" : "not-allowed",
+                        opacity: canSelect ? 1 : 0.5,
                         textAlign: "left",
                         marginTop: 1,
                         transition: "background 0.12s ease",

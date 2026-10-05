@@ -40,7 +40,7 @@ def _sanitize_delta(value: str) -> str:
 
 def _orchestrator_continuations(prompt: Any = None) -> int:
     depth = getattr(prompt, "response_depth", None) if prompt is not None else None
-    if depth in ("conversational", "minimal", "clarification", "supportive"):
+    if depth in ("minimal", "clarification", "safety_redirect"):
         return 0
     try:
         from ..config import get_settings
@@ -62,18 +62,17 @@ def _llm_budget_tokens(prompt: Any = None) -> int:
         return default_budget
 
     depth = getattr(prompt, "response_depth", None)
-    mode = getattr(prompt, "interaction_mode", None)
-    raw_text = (getattr(prompt, "raw_user_text", "") or "").strip().lower()
 
-    # Fast casual / voice / minimal check-in: 384 tokens (instant sub-second response)
+    # Minimal / safety redirects keep a safe token limit with headroom
+    # for reasoning models to formulate a concise response.
     if depth in {"minimal", "clarification", "safety_redirect"}:
-        return 384
+        return min(default_budget, 1024)
+    # Conversational & supportive turns require full expressive capacity so
+    # reasoning models and thorough answers never break or truncate mid-sentence.
     if depth in {"conversational", "supportive"}:
-        if mode == "realtime" or len(raw_text) < 45:
-            return 384
-        return 768
-    if depth in {"explanatory", "procedural"}:
         return min(default_budget, 4096)
+    if depth in {"explanatory", "procedural"}:
+        return min(default_budget, 8192)
     if depth == "report":
         return default_budget
 
@@ -280,6 +279,7 @@ _GATEWAY_PROVIDERS = {
     "tokentable",
     "cavoti",
     "apmix",
+    "experiential",
 }
 
 
@@ -514,9 +514,12 @@ class OpenAILLMProvider:
             timing.mark("text_complete")
             answer = outcome.text.strip()
             if not answer:
-                raise HinaaError(
-                    "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
-                )
+                if outcome.thinking and outcome.thinking.strip():
+                    answer = outcome.thinking.strip()
+                else:
+                    raise HinaaError(
+                        "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
+                    )
             plan = build_plan_from_text(
                 text=answer,
                 companion_id=companion_id,
@@ -571,11 +574,16 @@ class OpenAILLMProvider:
         content = choices[0].get("message", {}).get("content") if choices else None
         return content if isinstance(content, str) else ""
 
+    def _effective_temperature(self, default: float) -> float:
+        if self._provider_id == "experiential" or self._model == "claude-opus-5.5":
+            return 1.0
+        return default
+
     async def _chat_text(self, prompt: PromptPackage) -> str:
         payload = {
             "model": self._model_for_payload(),
             "messages": _messages(prompt),
-            "temperature": 0.35,
+            "temperature": self._effective_temperature(0.35),
             # Dynamically budgeted tokens based on turn depth and interaction mode
             "max_tokens": _llm_budget_tokens(prompt),
         }
@@ -588,7 +596,8 @@ class OpenAILLMProvider:
         self._raise_for_status(response)
         data = response.json()
         choices = data.get("choices") or []
-        content = choices[0].get("message", {}).get("content") if choices else None
+        msg = choices[0].get("message", {}) if choices else {}
+        content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
         return content if isinstance(content, str) else ""
 
     async def _repair_json(self, invalid_raw: str) -> str:
@@ -601,7 +610,7 @@ class OpenAILLMProvider:
                 },
                 {"role": "user", "content": "\n\n".join(schema_repair_contents(invalid_raw))},
             ],
-            "temperature": 0.0,
+            "temperature": self._effective_temperature(0.0),
             "max_completion_tokens": 4096,
             "response_format": {"type": "json_object"},
         }
@@ -614,7 +623,8 @@ class OpenAILLMProvider:
         self._raise_for_status(response)
         data = response.json()
         choices = data.get("choices") or []
-        content = choices[0].get("message", {}).get("content") if choices else None
+        msg = choices[0].get("message", {}) if choices else {}
+        content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
         return content if isinstance(content, str) else ""
 
     async def _stream_text(
@@ -626,6 +636,7 @@ class OpenAILLMProvider:
         GenerationOrchestrator (Phase B1.1).
         """
         budget = _llm_budget_tokens(prompt)
+        stream_temp = self._effective_temperature(0.45)
         if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:
             # Gateways host reasoning models (e.g. Kimi, Claude Fable, cx/gpt-5.6-sol)
             # that spend tokens on hidden reasoning_content before any visible content.
@@ -633,10 +644,11 @@ class OpenAILLMProvider:
             payload: dict[str, object] = {
                 "model": self._model_for_payload(),
                 "messages": _messages(prompt),
-                "temperature": 0.45,
+                "temperature": stream_temp,
                 "max_tokens": budget,
                 "stream": True,
             }
+
             timeout = 300.0
         else:
             payload = {
@@ -854,6 +866,8 @@ class OpenAILLMProvider:
             return "Ollama local engine"
         if self._provider_id in {"agent-router", "agent-router-openai", "agent-router-anthropic"}:
             return "Agent router"
+        if self._provider_id == "experiential":
+            return "Experiential Gateway"
         return "OpenAI"
 
 

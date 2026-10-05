@@ -26,7 +26,8 @@ export interface ProviderStatus {
  * Provider modes understood by the backend /v1/chat endpoint.
  * Internal keys — never shown directly in UI (use providerLabels.ts).
  */
-export type ProviderMode = "mock" | "local" | "custom" | "openai" | "real" | "groq" | "claude" | "qwen" | "agent-router" | "cx-gateway" | "gemini-live" | "codecraft" | "ollama" | "pgsgrove" | "seekai" | "tokentable" | "xkiro" | "cavoti" | "apmix";
+export const PROVIDER_MODES = ["mock", "local", "custom", "openai", "real", "groq", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "experiential"] as const;
+export type ProviderMode = (typeof PROVIDER_MODES)[number];
 
 /** A model option derived from provider capabilities. */
 export interface ModelOption {

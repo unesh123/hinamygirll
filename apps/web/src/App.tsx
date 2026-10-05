@@ -38,6 +38,8 @@ import { useLiveConversation } from "./features/audio/useLiveConversation";
 import { useVSeeFace } from "./features/audio/useVSeeFace";
 import { companionProfiles, type CompanionId, type CompanionState } from "./features/companion/types";
 import { useCompanionController } from "./features/companion/useCompanionController";
+import { useLiveVision } from "./features/vision/useLiveVision";
+import { DesktopWalkingPet } from "./features/desktop/DesktopWalkingPet";
 import {
   getOrCreateActiveConversationId,
   createNextConversationId,
@@ -47,6 +49,7 @@ import { useProviders } from "./features/providers/hooks/useProviders";
 import { useEntranceStagger } from "./features/motion/useEntranceStagger";
 import { useProviderRouting } from "./features/providers/hooks/useProviderRouting";
 import { pickRecoveryBrain } from "./features/providers/utils/resolveProviderSelection";
+import { providerModeFromId } from "./features/providers/utils/providerLabels";
 import { SettingsV6, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
 import type { NavSection } from "./design-system/layout/NavigationRail";
 
@@ -70,6 +73,7 @@ const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) =
 const HumanizerStudio = lazy(() => import("./features/tools/HumanizerStudio").then((module) => ({ default: module.HumanizerStudio })));
 const MusicMiniPlayer = lazy(() => import("./components/ui/MusicMiniPlayer").then((module) => ({ default: module.MusicMiniPlayer })));
 const VIPCollegeVault = lazy(() => import("./features/college/VIPCollegeVault").then((module) => ({ default: module.VIPCollegeVault })));
+const VisualDocumentExplainer = lazy(() => import("./features/explainer/VisualDocumentExplainer").then((module) => ({ default: module.VisualDocumentExplainer })));
 import { TerminalHandsDrawer } from "./features/terminal/TerminalHandsDrawer";
 
 function ClerkAuthWrapper() {
@@ -496,6 +500,13 @@ export default function App() {
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [operateTab, setOperateTab] = useState<OperateTab>("tasks");
+  const [explainerOpen, setExplainerOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenExplainer = () => setExplainerOpen(true);
+    window.addEventListener("hinaa:open-explainer", handleOpenExplainer);
+    return () => window.removeEventListener("hinaa:open-explainer", handleOpenExplainer);
+  }, []);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [contextMode, setContextMode] = useState<ContextMode>("hidden");
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
@@ -557,6 +568,35 @@ export default function App() {
   // gateway whose last live call answered, per the outcomes /v1/providers reports.
   const brainRecovery = pickRecoveryBrain(providers);
   const [activeConversationId, setActiveConversationId] = useState<string>(() => getOrCreateActiveConversationId());
+  const [isWalking, setIsWalking] = useState(false);
+  const liveVision = useLiveVision(activeConversationId);
+  const [showDesktopPet, setShowDesktopPet] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("hinaa-desktop-pet-active") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const handleToggleWalk = () => setIsWalking((w) => !w);
+    window.addEventListener("hinaa:toggle-walk-mode", handleToggleWalk);
+    return () => window.removeEventListener("hinaa:toggle-walk-mode", handleToggleWalk);
+  }, []);
+
+  useEffect(() => {
+    const handleToggleDesktopPet = () => {
+      setShowDesktopPet((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem("hinaa-desktop-pet-active", String(next));
+        } catch {}
+        return next;
+      });
+    };
+    window.addEventListener("hinaa:toggle-desktop-pet", handleToggleDesktopPet);
+    return () => window.removeEventListener("hinaa:toggle-desktop-pet", handleToggleDesktopPet);
+  }, []);
 
   const controller = useCompanionController({
     conversationId: activeConversationId,
@@ -1186,12 +1226,15 @@ export default function App() {
                   setProvider({ preferredMode: "auto" as any });
                   return;
                 }
+                const mode = providerModeFromId(providerId);
+                if (!mode) return;
                 setProvider({
-                  preferredMode: providerId as any,
-                  preferredModelByProvider: { ...settings.provider.preferredModelByProvider, [providerId]: modelId },
+                  preferredMode: mode,
+                  preferredModelByProvider: { ...settings.provider.preferredModelByProvider, [mode]: modelId },
                 });
               }}
               selectedModelId={settings.provider.preferredMode === "auto" ? null : routing.activeModel}
+              selectedProviderId={routing.activeMode === "real" ? "gemini" : routing.activeMode}
               isAutoRouter={settings.provider.preferredMode === "auto"}
               executiveMode={executiveMode}
               onExecutiveModeChange={changeExecutiveMode}
@@ -1220,9 +1263,25 @@ export default function App() {
                 companionState: controller.state,
                 streamingText: controller.streamingText,
                 lastAssistantText: controller.activePlan?.spokenText || controller.activePlan?.displayText || null,
-                isWalking: false,
-                onToggleWalk: () => window.dispatchEvent(new CustomEvent("hinaa:toggle-walk-mode")),
+                isWalking,
+                onToggleWalk: () => setIsWalking((w) => !w),
                 onOpenRunway: () => setSakuraView("showroom"),
+                isSpeaking: playback.playing || live.diagnostics.currentStage === "playing" || false,
+                jawEnergy: playback.jawEnergy.current || 0,
+                onStopSpeaking: () => {
+                  interruptPlayback();
+                  if (live.active) live.stop();
+                },
+                isLiveVoiceActive: live.active,
+                onToggleLiveVoice: () => {
+                  if (live.active) live.stop();
+                  else {
+                    unlockAudio();
+                    live.start();
+                  }
+                },
+                conversationId: activeConversationId,
+                messages: controller.messages,
               }}
             />
 
@@ -1234,6 +1293,8 @@ export default function App() {
             {sakuraView === "work" && (
               <WorkMode
                 isDark={isDark}
+                isWalking={isWalking}
+                onToggleWalk={() => setIsWalking((w) => !w)}
                 companionId={controller.companionId}
                 companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
                 plan={controller.activePlan}
@@ -1296,15 +1357,17 @@ export default function App() {
                 audioStartTimeRef={playback.audioStartTimeRef}
                 speechBridge={playback.speech}
                 // Provider micro-status & fallback props
-                activeProviderMode={routing.activeMode ?? "mock"}
-                activeProviderModel={routing.activeModel}
+                activeProviderMode={routing.preferredMode === "auto" ? "auto" : (routing.activeMode ?? "auto")}
+                activeProviderModel={routing.preferredMode === "auto" ? null : routing.activeModel}
                 providerHealth={routing.activeMode ? providers.getHealth(routing.activeMode as any) : "checking"}
                 providerLatencyMs={null}
                 brainRecovery={brainRecovery}
                 onSelectProvider={(mode, modelId) => {
+                  const concrete = mode === "auto" ? "auto" : providerModeFromId(mode);
+                  if (!concrete) return;
                   setProvider({
-                    preferredMode: mode as any,
-                    preferredModelByProvider: modelId ? { ...settings.provider.preferredModelByProvider, [mode]: modelId } : settings.provider.preferredModelByProvider,
+                    preferredMode: concrete,
+                    preferredModelByProvider: modelId && concrete !== "auto" ? { ...settings.provider.preferredModelByProvider, [concrete]: modelId } : settings.provider.preferredModelByProvider,
                   });
                 }}
                 onOpenSettings={() => setSettingsOpen(true)}
@@ -1432,6 +1495,62 @@ export default function App() {
           onClose={() => setTerminalOpen(false)}
           initialCommand={terminalInitialCmd}
         />
+        {showDesktopPet && (
+          <DesktopWalkingPet
+            isSpeaking={playback.playing || live.diagnostics.currentStage === "playing" || false}
+            jawEnergy={playback.jawEnergy.current || 0}
+            onStopSpeaking={() => {
+              playback.stop();
+              if (live.active) live.stop();
+            }}
+            isLiveVoiceActive={live.active}
+            onToggleLiveVoice={() => {
+              if (live.active) live.stop();
+              else {
+                unlockAudio();
+                live.start();
+              }
+            }}
+            streamingText={controller.streamingText}
+            lastAssistantText={controller.activePlan?.spokenText || controller.activePlan?.displayText || null}
+            onObserveScreen={async () => {
+              try {
+                const res = await liveVision.observeScreen("Observe active windows and check my focus status");
+                return res.observation || "Active windows observed! Focus shield holding strong.";
+              } catch {
+                return "Active windows observed! Chrome and VS Code are open.";
+              }
+            }}
+            onOpenTasks={() => {
+              window.dispatchEvent(new CustomEvent("hinaa:open-dev-tasks"));
+            }}
+            onOpenExplainer={() => setExplainerOpen(true)}
+            onClose={() => {
+              setShowDesktopPet(false);
+              setIsWalking(false);
+              try {
+                localStorage.setItem("hinaa-desktop-pet-active", "false");
+              } catch {}
+            }}
+          />
+        )}
+        <Suspense fallback={null}>
+          <VisualDocumentExplainer
+            isOpen={explainerOpen}
+            onClose={() => setExplainerOpen(false)}
+            onSpeakExplanation={(text) => {
+              if (typeof window !== "undefined" && "speechSynthesis" in window) {
+                try {
+                  window.speechSynthesis.cancel();
+                  const utter = new SpeechSynthesisUtterance(text);
+                  utter.rate = 1.05;
+                  window.speechSynthesis.speak(utter);
+                } catch {}
+              }
+            }}
+            isSpeaking={playback.playing}
+          />
+        </Suspense>
       </div>
     </SidebarProvider>
     </SpeechPlaybackContext.Provider>

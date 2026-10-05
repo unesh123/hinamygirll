@@ -1,5 +1,6 @@
 import {
   Component,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -19,7 +20,6 @@ import {
 } from "@pixiv/three-vrm";
 import { ProceduralAvatar } from "./ProceduralAvatar";
 import { SpeechPlaybackContext, sampleSpeechPlayback } from "../audio/speechPlaybackBridge";
-import { usePerformanceClock } from "./usePerformanceClock";
 import { PerformanceDirector, type PerformanceState } from "./performanceSubstrate";
 import {
   buildVrmExpressionWeights,
@@ -154,7 +154,7 @@ async function loadAndOptimizeVrm(url: string): Promise<VRM> {
     // Non-fatal: model keeps its original resources.
   }
   try {
-    if (vrm.meta?.metaVersion?.startsWith("0") && !(vrm as any).__hinaa_rotated) {
+    if ((vrm.meta?.metaVersion?.startsWith("0") || !vrm.meta?.metaVersion) && !(vrm as any).__hinaa_rotated) {
       VRMUtils.rotateVRM0(vrm);
       (vrm as any).__hinaa_rotated = true;
     }
@@ -163,9 +163,10 @@ async function loadAndOptimizeVrm(url: string): Promise<VRM> {
   }
   try {
     vrm.scene.traverse((obj) => {
-      if ((obj as THREE.Mesh).isMesh) {
+      if ((obj as THREE.Mesh).isMesh || (obj as any).isSkinnedMesh) {
         obj.visible = true;
         obj.layers.enable(0);
+        obj.frustumCulled = false;
       }
     });
   } catch {
@@ -302,14 +303,57 @@ function VrmRig({
   const camera = useThree((state) => state.camera);
   const lookTarget = useMemo(() => new THREE.Object3D(), []);
   const camLookAtRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 1.45, 0));
+  const lastFovRef = useRef(0);
   const walkPhaseRef = useRef(0);
   const walkRoamXRef = useRef(0);
   const walkDirectionRef = useRef(1);
   const walkTurnYawRef = useRef(0);
   const lastFootstepSideRef = useRef<"left" | "right">("left");
   const avatarGroupRef = useRef<THREE.Group>(null);
+  const shadowMeshRef = useRef<THREE.Mesh>(null);
+  const shadowTexture = useMemo(() => {
+    if (typeof document === "undefined") return null;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        gradient.addColorStop(0, "rgba(0, 0, 0, 0.55)");
+        gradient.addColorStop(0.35, "rgba(0, 0, 0, 0.30)");
+        gradient.addColorStop(0.7, "rgba(0, 0, 0, 0.08)");
+        gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 128, 128);
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.needsUpdate = true;
+      return tex;
+    } catch {
+      return null;
+    }
+  }, []);
   const metrics = useMemo(() => normalizeVrmAvatar(vrm), [vrm]);
   const performanceDirector = useMemo(() => new PerformanceDirector(), []);
+  const availableExpressions = useMemo(() => {
+    const set = new Set<string>();
+    const mgr = vrm.expressionManager;
+    if (mgr) {
+      const candidates = [
+        ...VRM_EXPRESSION_KEYS,
+        "jawOpen", "a", "i", "u", "e", "o", "A", "I", "U", "E", "O",
+        "mouthOpen", "mouthSmile", "mouthFunnel", "mouthPucker",
+        "Joy", "Fun", "Angry", "Sorrow", "Surprised", "Blink", "Blink_L", "Blink_R"
+      ];
+      for (const name of candidates) {
+        try {
+          if (mgr.getExpression(name)) set.add(name);
+        } catch {}
+      }
+    }
+    return set;
+  }, [vrm]);
   if (typeof window !== "undefined") {
     (window as any).__HINAA_DEBUG_VRM = { vrm, metrics, camera };
   }
@@ -464,36 +508,36 @@ function VrmRig({
       try {
         // VRM 1.0 standard keys (and mapped VRM 0.0 equivalents inside @pixiv/three-vrm)
         for (const key of VRM_EXPRESSION_KEYS) {
-          manager.setValue(key, weights[key]);
+          if (availableExpressions.has(key)) {
+            manager.setValue(key, weights[key]);
+          }
         }
         const effectiveJawOpen = Math.max(perf.lipSync.jawOpen, liveJaw > 0.025 ? Math.min(0.85, liveJaw * 1.5) : 0);
-        try {
-          manager.setValue("jawOpen", effectiveJawOpen);
-        } catch {}
+        if (availableExpressions.has("jawOpen")) manager.setValue("jawOpen", effectiveJawOpen);
 
-        // Map to VRM 0.0 & ARKit presets UNCONDITIONALLY so expressions and vowels actively close/release to 0
-        try { manager.setValue("a" as any, weights.aa); } catch {}
-        try { manager.setValue("i" as any, weights.ih); } catch {}
-        try { manager.setValue("u" as any, weights.ou); } catch {}
-        try { manager.setValue("e" as any, weights.ee); } catch {}
-        try { manager.setValue("o" as any, weights.oh); } catch {}
-        try { manager.setValue("A" as any, weights.aa); } catch {}
-        try { manager.setValue("I" as any, weights.ih); } catch {}
-        try { manager.setValue("U" as any, weights.ou); } catch {}
-        try { manager.setValue("E" as any, weights.ee); } catch {}
-        try { manager.setValue("O" as any, weights.oh); } catch {}
-        try { manager.setValue("mouthOpen" as any, effectiveJawOpen); } catch {}
-        try { manager.setValue("mouthSmile" as any, weights.happy); } catch {}
-        try { manager.setValue("mouthFunnel" as any, (weights.oh + weights.ou) * 0.5); } catch {}
-        try { manager.setValue("mouthPucker" as any, weights.ou * 0.8); } catch {}
-        try { manager.setValue("Joy" as any, weights.happy); } catch {}
-        try { manager.setValue("Fun" as any, weights.happy); } catch {}
-        try { manager.setValue("Angry" as any, weights.angry); } catch {}
-        try { manager.setValue("Sorrow" as any, weights.sad); } catch {}
-        try { manager.setValue("Surprised" as any, weights.surprised); } catch {}
-        try { manager.setValue("Blink" as any, weights.blink); } catch {}
-        try { manager.setValue("Blink_L" as any, weights.blinkLeft); } catch {}
-        try { manager.setValue("Blink_R" as any, weights.blinkRight); } catch {}
+        // Map to VRM 0.0 & ARKit presets without per-frame try/catch allocations
+        if (availableExpressions.has("a")) manager.setValue("a" as any, weights.aa);
+        if (availableExpressions.has("i")) manager.setValue("i" as any, weights.ih);
+        if (availableExpressions.has("u")) manager.setValue("u" as any, weights.ou);
+        if (availableExpressions.has("e")) manager.setValue("e" as any, weights.ee);
+        if (availableExpressions.has("o")) manager.setValue("o" as any, weights.oh);
+        if (availableExpressions.has("A")) manager.setValue("A" as any, weights.aa);
+        if (availableExpressions.has("I")) manager.setValue("I" as any, weights.ih);
+        if (availableExpressions.has("U")) manager.setValue("U" as any, weights.ou);
+        if (availableExpressions.has("E")) manager.setValue("E" as any, weights.ee);
+        if (availableExpressions.has("O")) manager.setValue("O" as any, weights.oh);
+        if (availableExpressions.has("mouthOpen")) manager.setValue("mouthOpen" as any, effectiveJawOpen);
+        if (availableExpressions.has("mouthSmile")) manager.setValue("mouthSmile" as any, weights.happy);
+        if (availableExpressions.has("mouthFunnel")) manager.setValue("mouthFunnel" as any, (weights.oh + weights.ou) * 0.5);
+        if (availableExpressions.has("mouthPucker")) manager.setValue("mouthPucker" as any, weights.ou * 0.8);
+        if (availableExpressions.has("Joy")) manager.setValue("Joy" as any, weights.happy);
+        if (availableExpressions.has("Fun")) manager.setValue("Fun" as any, weights.happy);
+        if (availableExpressions.has("Angry")) manager.setValue("Angry" as any, weights.angry);
+        if (availableExpressions.has("Sorrow")) manager.setValue("Sorrow" as any, weights.sad);
+        if (availableExpressions.has("Surprised")) manager.setValue("Surprised" as any, weights.surprised);
+        if (availableExpressions.has("Blink")) manager.setValue("Blink" as any, weights.blink);
+        if (availableExpressions.has("Blink_L")) manager.setValue("Blink_L" as any, weights.blinkLeft);
+        if (availableExpressions.has("Blink_R")) manager.setValue("Blink_R" as any, weights.blinkRight);
         manager.update();
       } catch {
         // Expression API drift — never let it break the frame.
@@ -538,6 +582,12 @@ function VrmRig({
       );
       const rightLowerLeg = humanoid.getNormalizedBoneNode(
         VRMHumanBoneName.RightLowerLeg,
+      );
+      const leftFoot = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.LeftFoot,
+      );
+      const rightFoot = humanoid.getNormalizedBoneNode(
+        VRMHumanBoneName.RightFoot,
       );
 
       const headTarget = gestureHeadTarget(input.gesture, time, input.intensity);
@@ -799,7 +849,7 @@ function VrmRig({
           walkRoamXRef.current = -maxRoam;
           walkDirectionRef.current = 1;
         }
-        const targetYaw = walkDirectionRef.current > 0 ? 0.35 : -0.35;
+        const targetYaw = walkDirectionRef.current > 0 ? 0.22 : -0.22;
         walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, targetYaw, 5, delta);
 
         // Pelvis / Hips dynamics
@@ -841,8 +891,6 @@ function VrmRig({
         }
 
         // Feet articulation
-        const leftFoot = humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftFoot);
-        const rightFoot = humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightFoot);
         if (leftFoot) {
           leftFoot.rotation.x = THREE.MathUtils.damp(leftFoot.rotation.x, -legSwing * 0.32, 12, delta);
         }
@@ -884,6 +932,7 @@ function VrmRig({
 
         // Stable standing posture: legs firmly grounded, poised balance, organic breathing
         if (hips) {
+          hips.position.y = THREE.MathUtils.damp(hips.position.y, 0, 6, delta);
           hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, 0, 6, delta);
           hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, 0, 6, delta);
           hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.005, 6, delta);
@@ -911,6 +960,12 @@ function VrmRig({
         if (rightUpperLeg) {
           rightUpperLeg.rotation.x = THREE.MathUtils.damp(rightUpperLeg.rotation.x, 0, 6, delta);
           rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, 0, 6, delta);
+        }
+        if (leftFoot) {
+          leftFoot.rotation.x = THREE.MathUtils.damp(leftFoot.rotation.x, 0, 6, delta);
+        }
+        if (rightFoot) {
+          rightFoot.rotation.x = THREE.MathUtils.damp(rightFoot.rotation.x, 0, 6, delta);
         }
       }
     }
@@ -963,9 +1018,9 @@ function VrmRig({
         }
 
         const isCloseUp = input.walkMode ? false : (input.closeUp ?? true);
-        const camDistance = isCloseUp ? 0.98 : (input.walkMode ? 2.35 : 1.50);
+        const camDistance = isCloseUp ? 0.98 : (input.walkMode ? 3.35 : 1.50);
         const targetCamX = faceCenterX + (input.codeMode ? -0.28 : 0);
-        const targetCamY = input.walkMode ? (faceCenterY - 0.42) : (faceCenterY - 0.01);
+        const targetCamY = input.walkMode ? (faceCenterY - 0.70) : (faceCenterY - 0.01);
         const targetCamZ = faceCenterZ + camDistance;
 
         const dampSpeed = frameCountRef.current < 3 ? 30 : 6;
@@ -975,13 +1030,37 @@ function VrmRig({
         camera.position.y = THREE.MathUtils.damp(camera.position.y, targetCamY, dampSpeed, delta);
         camera.position.z = THREE.MathUtils.damp(camera.position.z, targetCamZ, dampSpeed, delta);
 
-        const targetLookY = input.walkMode ? (faceCenterY - 0.35) : (faceCenterY - 0.02);
+        const targetLookY = input.walkMode ? (faceCenterY - 0.75) : (faceCenterY - 0.02);
         camLookAtRef.current.x = THREE.MathUtils.damp(camLookAtRef.current.x, faceCenterX, dampSpeed, delta);
         camLookAtRef.current.y = THREE.MathUtils.damp(camLookAtRef.current.y, targetLookY, dampSpeed, delta);
         camLookAtRef.current.z = THREE.MathUtils.damp(camLookAtRef.current.z, faceCenterZ, dampSpeed, delta);
 
         camera.lookAt(camLookAtRef.current);
-        camera.updateProjectionMatrix();
+        const expectedFov = (input.walkMode && !input.closeUp) ? 42 : ((input.closeUp ?? true) ? 32 : 38);
+        if (Math.abs(lastFovRef.current - expectedFov) > 0.1) {
+          lastFovRef.current = expectedFov;
+          (camera as THREE.PerspectiveCamera).fov = expectedFov;
+          camera.updateProjectionMatrix();
+        }
+
+        if (shadowMeshRef.current) {
+          const lFoot = humanoid.getRawBoneNode(VRMHumanBoneName.LeftFoot) || humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftFoot);
+          const rFoot = humanoid.getRawBoneNode(VRMHumanBoneName.RightFoot) || humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightFoot);
+          let groundY = 0;
+          if (lFoot && rFoot) {
+            lFoot.getWorldPosition(_scratchLPos);
+            rFoot.getWorldPosition(_scratchRPos);
+            groundY = Math.min(_scratchLPos.y, _scratchRPos.y);
+          } else {
+            groundY = faceCenterY - 1.45;
+          }
+          const shadowX = avatarGroupRef.current ? avatarGroupRef.current.position.x : baseX + walkRoamXRef.current;
+          const shadowZ = avatarGroupRef.current ? avatarGroupRef.current.position.z : baseZ;
+          shadowMeshRef.current.position.set(shadowX, groundY + 0.003, shadowZ);
+          const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking");
+          const strideBob = isWalking ? 1.0 + Math.abs(Math.sin(walkPhaseRef.current)) * 0.12 : 1.0;
+          shadowMeshRef.current.scale.set(strideBob, strideBob, 1);
+        }
       }
     }
   });
@@ -996,6 +1075,22 @@ function VrmRig({
   return (
     <>
       <primitive object={lookTarget} />
+      {shadowTexture && (
+        <mesh
+          ref={shadowMeshRef}
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[baseX, 0.003, baseZ]}
+          renderOrder={-1}
+        >
+          <planeGeometry args={[0.72, 0.44]} />
+          <meshBasicMaterial
+            map={shadowTexture}
+            transparent
+            opacity={input.walkMode ? 0.75 : 0.6}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
       <group
         ref={avatarGroupRef}
         position={[baseX, baseY, baseZ]}
@@ -1072,7 +1167,7 @@ function VrmModel({
   );
 }
 
-export function VRMAvatar(props: VRMAvatarProps) {
+export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
   const [modelUrl, setModelUrl] = useState<string | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
   const [glContextLost, setGlContextLost] = useState(false);
@@ -1133,20 +1228,8 @@ export function VRMAvatar(props: VRMAvatarProps) {
         ? props.jawEnergy.current
         : 0;
 
-  const performance = usePerformanceClock({
-    plan: props.plan,
-    jawEnergy: resolvedJawEnergy,
-    reducedMotion: props.reducedMotion || Boolean(props.lowPerformance),
-    interrupted: props.state === "interrupted",
-  });
-  const emotion =
-    performance.emotion !== "neutral"
-      ? performance.emotion
-      : (props.plan?.emotion.primary ?? "neutral");
-  const gesture =
-    performance.gesture !== "none"
-      ? performance.gesture
-      : (props.plan?.performance.gesture ?? "none");
+  const emotion = props.plan?.emotion.primary ?? "neutral";
+  const gesture = props.plan?.performance.gesture ?? "none";
 
   // No model at all, a hard load failure, or WebGL unavailable entirely →
   // the procedural girl takes over instead of a blank canvas. (A transient
@@ -1172,12 +1255,12 @@ export function VRMAvatar(props: VRMAvatarProps) {
     codeMode: boolean;
     closeUp?: boolean;
     walkMode?: boolean;
-  } = {
+  } = useMemo(() => ({
     emotion,
     facePreset: props.plan?.performance.facePreset,
     intensity: props.plan?.emotion.intensity ?? 0.5,
     jawEnergy: resolvedJawEnergy,
-    blinkWeight: performance.blinkWeight,
+    blinkWeight: 0,
     speaking: props.state === "speaking",
     reducedMotion: props.reducedMotion || Boolean(props.lowPerformance),
     gesture,
@@ -1185,7 +1268,19 @@ export function VRMAvatar(props: VRMAvatarProps) {
     codeMode: Boolean(props.codeMode),
     closeUp: Boolean(props.closeUp ?? true),
     walkMode: Boolean(props.walkMode),
-  };
+  }), [
+    emotion,
+    props.plan?.performance.facePreset,
+    props.plan?.emotion.intensity,
+    resolvedJawEnergy,
+    props.state,
+    props.reducedMotion,
+    props.lowPerformance,
+    gesture,
+    props.codeMode,
+    props.closeUp,
+    props.walkMode,
+  ]);
 
   return (
     <div
@@ -1207,11 +1302,13 @@ export function VRMAvatar(props: VRMAvatarProps) {
           <Canvas
             key={glContextLost ? "conservative" : "full"}
             className="vrm-canvas"
-            dpr={glContextLost || props.lowPerformance ? 1 : [1, 1.25]}
+            dpr={glContextLost || props.lowPerformance ? 1 : [1, Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 1.35)]}
             gl={{
               antialias: !glContextLost,
               alpha: true,
-              powerPreference: glContextLost ? "low-power" : "default",
+              powerPreference: glContextLost ? "low-power" : "high-performance",
+              stencil: false,
+              depth: true,
             }}
             camera={{
               position: [0, 1.45, 0.88],
@@ -1246,4 +1343,5 @@ export function VRMAvatar(props: VRMAvatarProps) {
       )}
     </div>
   );
-}
+});
+

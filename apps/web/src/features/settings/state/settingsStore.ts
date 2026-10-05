@@ -13,6 +13,7 @@
  * - Does not write on every render — caller must explicitly call saveSettings
  */
 
+import { PROVIDER_MODES } from "../../providers/types/provider";
 import {
   DEFAULT_SETTINGS,
   SETTINGS_KEY,
@@ -167,9 +168,7 @@ function validateAppearance(raw: unknown): AppearanceSettings {
 
 function validateModelByProvider(raw: unknown): ModelByProvider {
   if (!isObject(raw)) return {};
-  const allowed: Array<Exclude<ProviderPreferenceMode, "auto">> = [
-    "custom", "openai", "real", "local", "mock", "claude", "agent-router", "cx-gateway", "gemini-live", "codecraft",
-  ];
+  const allowed = PROVIDER_MODES;
   const result: ModelByProvider = {};
   for (const key of allowed) {
     const v = raw[key];
@@ -188,7 +187,7 @@ function validateProvider(raw: unknown): ProviderPreferences {
   return {
     preferredMode: safeString<ProviderPreferenceMode>(
       obj.preferredMode,
-      ["auto", "custom", "openai", "real", "local", "mock", "claude", "agent-router", "cx-gateway", "gemini-live", "codecraft"],
+      ["auto", ...PROVIDER_MODES],
       d.preferredMode,
     ),
     preferredModelByProvider: validateModelByProvider(obj.preferredModelByProvider),

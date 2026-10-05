@@ -49,6 +49,7 @@ import { HinaBrainThinking } from "../../components/ui/HinaBrainThinking";
 import { SteepAnalyticsBar } from "../../features/telemetry/SteepAnalyticsBar";
 import { extractBrainThought } from "../../lib/brainThoughtExtractor";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
+import { BrainOrchestrationPanel, useBrainState } from "../../features/brain";
 import { useCapabilities, type DiscoveredModel } from "../../features/providers/hooks/useCapabilities";
 import {
   useActionEngine,
@@ -62,10 +63,38 @@ import {
 } from "../../features/actions";
 
 
+/** Isolated memo wrapper so brain panel re-renders don't cascade into the message list. */
+const _BrainOrchestrationInline = memo(function BrainOrchestrationInline({
+  agentSteps,
+  isThinking,
+  isSearching,
+  searchQuery,
+  currentAgentRunId,
+  streamingText,
+}: {
+  agentSteps: Array<{ id: string; label: string; detail?: string; status: "pending" | "active" | "done" | "error" | "cancelled" }>;
+  isThinking: boolean;
+  isSearching: boolean;
+  searchQuery: string;
+  currentAgentRunId?: string;
+  streamingText: string;
+}) {
+  const brainState = useBrainState({ agentSteps, isThinking, isSearching, searchQuery, currentAgentRunId, streamingText });
+  if (brainState.status === "idle") return null;
+  return (
+    <div style={{ marginBottom: "var(--space-2)", marginTop: "var(--space-1)" }}>
+      <BrainOrchestrationPanel brainState={brainState} compact={false} />
+    </div>
+  );
+});
+
 /* Local command registry fallback - used when /api/v1/commands is unavailable.
  * Rows listed in LOCAL_COMMAND_ACTIONS below are opened in this tab. */
 const DEFAULT_COMMANDS: CommandItem[] = [
   { name: "goal", aliases: ["task", "objective"], label: "Goal Mode", description: "Autonomous multi-step goal execution with verification", descriptionShort: "Autonomous goal runner", icon: Target, color: "#e06c75", group: "agent", inputSchema: {}, capability: "agent-mode", riskLevel: "low-mutation", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/goal build a modern hero section"] },
+  { name: "agent", aliases: ["exa", "research-agent"], label: "Exa Agent", description: "Autonomous high-compute research, candidate analysis & structured synthesis", descriptionShort: "Autonomous Exa Agent", icon: Bot, color: "#6366f1", group: "agent", inputSchema: {}, capability: "agent-mode", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/agent analyze competitor landscape in fintech"] },
+  { name: "deepresearch", aliases: ["investigate", "study"], label: "Deep Research", description: "Multi-source deep investigative research & evidence synthesis", descriptionShort: "Deep research matrix", icon: Globe, color: "#10b981", group: "research", inputSchema: {}, capability: "search-web", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/deepresearch latest breakthroughs in multimodal LLMs"] },
+  { name: "code", aliases: ["fix", "develop"], label: "Autonomous Coding", description: "Self-repairing code generation, AST patch, and test validation", descriptionShort: "Code repair loop", icon: Sparkles, color: "#06b6d4", group: "agent", inputSchema: {}, capability: "agent-mode", riskLevel: "low-mutation", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/code fix token streaming edge case in services.py"] },
   { name: "search", aliases: ["web", "research"], label: "Web Search", description: "Research a question with attributed sources", descriptionShort: "Research with sources", icon: Search, color: "#4FB989", group: "research", inputSchema: {}, capability: "search-web", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "api", examples: ["/search best coffee in Kathmandu"] },
   { name: "image", aliases: ["draw", "generate"], label: "Generate Image", description: "Open Image Studio to create an image locally", descriptionShort: "Create an image", icon: Sparkles, color: "#F36F9C", group: "creative", inputSchema: {}, capability: "generate-image", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/image a sakura sunset"] },
   { name: "humanize", aliases: ["rewrite", "tone"], label: "Humanizer", description: "Open Humanizer Studio to rewrite text naturally", descriptionShort: "Rewrite text naturally", icon: Wand2, color: "#5B9DCF", group: "writing", inputSchema: {}, capability: "open-humanizer", riskLevel: "read", approvalPolicy: "automatic", availability: "configured", executionLocation: "browser", examples: ["/humanize"] },
@@ -156,6 +185,9 @@ interface WorkModeProps {
   onWelcomeAction: (action: string) => void;
   attachedImage: string | null;
   onImageAttach: (image: string | null) => void;
+  // Walking locomotion mode
+  isWalking?: boolean;
+  onToggleWalk?: () => void;
   // Companion & Avatar Props
   avatarModel?: string;
   avatarMode?: PresenceMode;
@@ -232,6 +264,8 @@ export function WorkMode({
   onCommand,
   attachedImage,
   onImageAttach,
+  isWalking: isWalkingProp,
+  onToggleWalk,
   avatarModel = DEFAULT_AVATAR_FILE,
   avatarMode = "portrait",
   onChangeAvatarMode,
@@ -263,6 +297,25 @@ export function WorkMode({
   onExecutiveModeChange,
 }: WorkModeProps) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText]);
+  const deduplicatedMessages = useMemo(() => {
+    const seen = new Set<string>();
+    const deduped: TranscriptMessage[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (seen.has(msg.id)) continue;
+      seen.add(msg.id);
+      if (
+        msg.role === "assistant" &&
+        deduped.length > 0 &&
+        deduped[deduped.length - 1].role === "assistant" &&
+        deduped[deduped.length - 1].text.trim() === msg.text.trim()
+      ) {
+        continue;
+      }
+      deduped.push(msg);
+    }
+    return deduped;
+  }, [messages]);
   // Real capability discovery: providers + models actually configured on the
   // backend. The composer's model menu renders from this, so the user always
   // sees exactly what the runtime can answer with (never a fabricated list).
@@ -292,23 +345,25 @@ export function WorkMode({
     } catch {}
   };
 
-  const [isWalking, setIsWalking] = useState<boolean>(() => {
+  const [internalWalking, setInternalWalking] = useState<boolean>(() => {
     try {
       return localStorage.getItem("hinaa_walk_mode") === "true";
     } catch {
       return false;
     }
   });
+  const isWalking = isWalkingProp !== undefined ? isWalkingProp : internalWalking;
 
   const handleToggleWalk = useCallback(() => {
-    setIsWalking((prev) => {
+    onToggleWalk?.();
+    setInternalWalking((prev) => {
       const next = !prev;
       try {
         localStorage.setItem("hinaa_walk_mode", String(next));
       } catch {}
       return next;
     });
-  }, []);
+  }, [onToggleWalk]);
 
   useEffect(() => {
     const handleToggleWalkEvent = () => handleToggleWalk();
@@ -874,53 +929,21 @@ export function WorkMode({
         background: "var(--bg-canvas)",
       }}
     >
-      {/* ── Work header — renders on every viewport. Its children are themselves
-             device-gated (mobile view switcher vs. desktop model control bar),
-             so gating the whole block on `isMobile` made the message count, the
-             desktop ModelControlBar, and the "Show companion panel" button
-             unreachable dead code. ─────────────────────────────────────────── */}
-      <header
-        style={{
-          display: isMobile ? "none" : "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 14px",
-          borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid var(--border-subtle)",
-          background: isDark ? "rgba(11, 13, 20, 0.85)" : "var(--bg-surface)",
-          backdropFilter: "blur(12px)",
-          flexShrink: 0,
-          height: 38,
-          gap: 8,
-        }}
-      >
-        {!isMobile ? (
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-            <Sparkles size={16} color="var(--accent)" />
-            <span
-              style={{
-                fontSize: "var(--text-sm)",
-                fontWeight: 600,
-                color: "var(--text-primary)",
-              }}
-            >
-              Work
-            </span>
-            {messages.length > 0 && (
-              <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
-                · {messages.length} {messages.length === 1 ? "message" : "messages"}
-              </span>
-            )}
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", paddingRight: 4 }}>
-            <Sparkles size={16} color="var(--accent)" />
-          </div>
-        )}
-
-        {/* Mobile View Switcher: [💬 Chat] [🌸 3D Avatar] */}
-        {isMobile && avatarModel && (
+      {/* ── Mobile View Switcher: [💬 Chat] [🌸 3D Avatar] ── */}
+      {isMobile && avatarModel && (
+        <div
+          data-testid="mobile-mode-switcher"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "6px 12px",
+            background: isDark ? "rgba(11, 13, 20, 0.95)" : "var(--bg-surface)",
+            borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid var(--border-subtle)",
+            flexShrink: 0,
+          }}
+        >
           <div
-            data-testid="mobile-mode-switcher"
             style={{
               display: "flex",
               alignItems: "center",
@@ -935,12 +958,12 @@ export function WorkMode({
               data-testid="mobile-tab-chat"
               onClick={() => setMobileTab("chat")}
               style={{
-                padding: "3px 10px",
+                padding: "3px 12px",
                 borderRadius: "16px",
                 border: "none",
                 background: mobileTab === "chat" ? "var(--accent)" : "transparent",
                 color: mobileTab === "chat" ? "#ffffff" : "var(--text-secondary)",
-                fontSize: "0.72rem",
+                fontSize: "0.74rem",
                 fontWeight: 600,
                 cursor: "pointer",
                 transition: "all 150ms ease",
@@ -953,12 +976,12 @@ export function WorkMode({
               data-testid="mobile-tab-avatar"
               onClick={() => setMobileTab("avatar")}
               style={{
-                padding: "3px 10px",
+                padding: "3px 12px",
                 borderRadius: "16px",
                 border: "none",
                 background: mobileTab === "avatar" ? "var(--accent)" : "transparent",
                 color: mobileTab === "avatar" ? "#ffffff" : "var(--text-secondary)",
-                fontSize: "0.72rem",
+                fontSize: "0.74rem",
                 fontWeight: 600,
                 cursor: "pointer",
                 transition: "all 150ms ease",
@@ -967,59 +990,8 @@ export function WorkMode({
               🌸 3D Avatar
             </button>
           </div>
-        )}
-
-        {/* Model Control Bar */}
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <ModelControlBar
-            currentMode={(activeProviderMode as any) || "auto"}
-            currentModel={activeProviderModel}
-            providerOptions={providerOptions || []}
-            getModelOptions={getModelOptions || (() => [])}
-            onSelectProvider={(mode, modelId) => onSelectProvider?.(mode, modelId ?? undefined)}
-            imageEngine={imageEngine || internalImageEngine}
-            onSelectImageEngine={(engine) => {
-              onSelectImageEngine?.(engine);
-              setInternalImageEngine(engine);
-            }}
-            voiceEngine={voiceEngine || internalVoiceEngine}
-            onSelectVoiceEngine={(engine) => {
-              onSelectVoiceEngine?.(engine);
-              setInternalVoiceEngine(engine);
-            }}
-            onOpenSettings={onOpenSettings}
-          />
         </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Duplicate of the inline research card below, and the phone header
-              row cannot fit it without clipping it at the screen edge. */}
-          {!isMobile && <SearchingLoader visible={Boolean(isSearching)} query={searchQuery} />}
-          {!isMobile && avatarModel && dockMode === "hidden" && (
-            <button
-              type="button"
-              aria-label="Show companion panel"
-              onClick={() => handleDockModeChange("right")}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 10px",
-                borderRadius: "var(--radius-sm, 6px)",
-                border: "1px solid var(--border-default)",
-                background: "var(--bg-surface-raised)",
-                color: "var(--text-secondary)",
-                fontSize: "var(--text-xs)",
-                cursor: "pointer",
-              }}
-            >
-              <Bot size={14} color="var(--accent)" />
-              <span>Show companion panel</span>
-            </button>
-          )}
-          <StatusDot state={companionState} />
-        </div>
-      </header>
+      )}
 
       {/* ── Adobe 3D Motion Timeline & Telemetry Scrubber ── */}
       <AdobeMotionTimeline
@@ -1033,6 +1005,9 @@ export function WorkMode({
         onOpenTerminal={() => onOpenTerminal?.()}
         isVoiceActive={isVoiceActive}
         companionState={companionState}
+        messageCount={messages.length}
+        showCompanionButton={!isMobile && Boolean(avatarModel) && dockMode === "hidden"}
+        onShowCompanion={() => handleDockModeChange("right")}
       />
 
       {/* ── Voice Active Banner ───────────────────────── */}
@@ -1177,6 +1152,7 @@ export function WorkMode({
               speechBridge={speechBridge}
               modelUrl={avatarModel ?? null}
               closeUp={avatarMode !== "full"}
+              walkMode={isWalking}
             />
           </div>
 
@@ -1245,7 +1221,7 @@ export function WorkMode({
         </div>
       ) : (
         <>
-          <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden", position: "relative" }}>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden", position: "relative", zIndex: 1 }}>
         {/* Transcript column — full screen width with generous responsive padding */}
         <div
           ref={scrollRef}
@@ -1257,6 +1233,11 @@ export function WorkMode({
             overflowX: "hidden",
             overscrollBehaviorY: "contain",
             WebkitOverflowScrolling: "touch",
+            scrollBehavior: "auto",
+            overflowAnchor: "auto",
+            contain: "content",
+            transform: "translateZ(0)",
+            willChange: "scroll-position",
             padding: isMobile ? "8px 10px 14px" : "var(--space-4) clamp(20px, 4vw, 56px) var(--space-2)",
             display: "flex",
             flexDirection: "column",
@@ -1273,68 +1254,73 @@ export function WorkMode({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "10px 14px",
-                marginBottom: "var(--space-3)",
-                borderRadius: "var(--radius-lg, 12px)",
+                padding: "6px 12px",
+                marginBottom: "var(--space-2)",
+                borderRadius: "var(--radius-md, 8px)",
                 background: isDark
                   ? executiveMode === "deep-reasoning"
-                    ? "rgba(168, 85, 247, 0.12)"
+                    ? "rgba(168, 85, 247, 0.10)"
                     : executiveMode === "research"
-                    ? "rgba(16, 185, 129, 0.12)"
-                    : "rgba(59, 130, 246, 0.12)"
+                    ? "rgba(16, 185, 129, 0.10)"
+                    : "rgba(59, 130, 246, 0.10)"
                   : executiveMode === "deep-reasoning"
-                  ? "#f5f3ff"
+                  ? "#faf5ff"
                   : executiveMode === "research"
-                  ? "#ecfdf5"
+                  ? "#f0fdf4"
                   : "#eff6ff",
                 border: `1px solid ${
                   executiveMode === "deep-reasoning"
-                    ? "rgba(168, 85, 247, 0.3)"
+                    ? "rgba(168, 85, 247, 0.25)"
                     : executiveMode === "research"
-                    ? "rgba(16, 185, 129, 0.3)"
-                    : "rgba(59, 130, 246, 0.3)"
+                    ? "rgba(16, 185, 129, 0.25)"
+                    : "rgba(59, 130, 246, 0.25)"
                 }`,
                 color: isDark ? "#f3f4f6" : "#1f2937",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: "1.25rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: "1rem" }}>
                   {executiveMode === "deep-reasoning" ? "🧠" : executiveMode === "research" ? "🔬" : "📊"}
                 </span>
-                <div>
-                  <div style={{ fontSize: "0.82rem", fontWeight: 700, color: executiveMode === "deep-reasoning" ? "#a855f7" : executiveMode === "research" ? "#10b981" : "#3b82f6" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: "0.78rem", fontWeight: 700, color: executiveMode === "deep-reasoning" ? "#a855f7" : executiveMode === "research" ? "#10b981" : "#3b82f6" }}>
                     {executiveMode === "deep-reasoning"
                       ? "Deep Reasoning Matrix Active"
                       : executiveMode === "research"
                       ? "Autonomous Deep Research Active"
                       : "Executive Report & Synthesis Active"}
-                  </div>
-                  <div style={{ fontSize: "0.74rem", opacity: 0.85, marginTop: 1 }}>
-                    {executiveMode === "deep-reasoning"
-                      ? "Multi-step cognitive chain-of-thought, speculative validation, and formal logic planning."
+                  </span>
+                  <span style={{ fontSize: "0.72rem", color: isDark ? "#94a3b8" : "#64748b" }}>
+                    · {executiveMode === "deep-reasoning"
+                      ? "Multi-step chain-of-thought & formal logic"
                       : executiveMode === "research"
-                      ? "Multi-source web search, data synthesis, and fact verification."
-                      : "Structured document layout, executive summaries, tables, and presentation synthesis."}
-                  </div>
+                      ? "Multi-source deep search & synthesis"
+                      : "Document layout & synthesis"}
+                  </span>
                 </div>
               </div>
               {onExecutiveModeChange && (
                 <button
                   type="button"
                   onClick={() => onExecutiveModeChange("chat")}
+                  title="Return to standard chat mode"
                   style={{
-                    background: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
-                    border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    background: isDark ? "rgba(255, 255, 255, 0.08)" : "#ffffff",
+                    border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #cbd5e1",
                     borderRadius: "6px",
-                    padding: "4px 8px",
+                    padding: "3px 8px",
                     fontSize: "0.72rem",
-                    fontWeight: 600,
+                    fontWeight: 650,
                     color: "inherit",
                     cursor: "pointer",
                     whiteSpace: "nowrap",
                   }}
                 >
-                  Return to Chat
+                  <span>Return to Chat</span>
+                  <X size={11} />
                 </button>
               )}
             </div>
@@ -1408,26 +1394,11 @@ export function WorkMode({
           {/* Welcome */}
           {showWelcome && <WorkWelcome isDark={isDark} onAction={onWelcomeAction} />}
 
-          {/* Messages (Deduplicated: strictly one response at a time) */}
+          {/* Messages (Deduplicated & memoized for butter-smooth 120fps streaming) */}
           {!showWelcome &&
-            messages
-              .filter((msg, idx, arr) => {
-                // Deduplicate identical message IDs
-                if (arr.findIndex((m) => m.id === msg.id) !== idx) return false;
-                // Deduplicate consecutive identical assistant messages
-                if (
-                  msg.role === "assistant" &&
-                  idx > 0 &&
-                  arr[idx - 1].role === "assistant" &&
-                  arr[idx - 1].text.trim() === msg.text.trim()
-                ) {
-                  return false;
-                }
-                return true;
-              })
-              .map((msg) => (
-                <WorkMessage key={msg.id} message={msg} isDark={isDark} />
-              ))}
+            deduplicatedMessages.map((msg) => (
+              <WorkMessage key={msg.id} message={msg} isDark={isDark} />
+            ))}
 
           {/* Execution progress — only shown when execution is actually live with real steps */}
           {isExecutionLive && convertedActivitySteps.length > 0 && (
@@ -1442,6 +1413,19 @@ export function WorkMode({
               onConfirm={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(true) : undefined}
               onReject={currentAgentRunId && currentAgentConfirmationStepId ? () => onConfirmAgentStep?.(false) : undefined}
               onRecover={currentAgentRunId ? onRecoverAgentRun : undefined}
+            />
+          )}
+
+          {/* ── Hina Brain Orchestration Panel ────────────────────── */}
+          {/* Shows live multi-specialist status during any active turn */}
+          {(isThinking || isSearching || Boolean(streamingText) || isAgentActive) && (
+            <_BrainOrchestrationInline
+              agentSteps={agentSteps}
+              isThinking={isThinking}
+              isSearching={isSearching}
+              searchQuery={searchQuery || ""}
+              currentAgentRunId={currentAgentRunId}
+              streamingText={streamingText}
             />
           )}
 
@@ -1503,7 +1487,7 @@ export function WorkMode({
           <button
             type="button"
             data-testid="jump-to-bottom-button"
-            onClick={() => scrollToBottom()}
+            onClick={() => scrollToBottom(true)}
             style={{
               position: "absolute",
               bottom: 16,
@@ -1512,19 +1496,22 @@ export function WorkMode({
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
-              padding: "6px 12px",
-              borderRadius: 20,
-              background: "var(--bg-surface-raised, #ffffff)",
-              color: "var(--accent, #eb6f92)",
-              border: "1px solid var(--border-default)",
-              boxShadow: "0 4px 14px rgba(0,0,0,0.15)",
-              fontSize: "0.75rem",
+              padding: "6px 14px",
+              borderRadius: 24,
+              background: isDark ? "rgba(30, 41, 59, 0.92)" : "rgba(255, 255, 255, 0.92)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              color: isDark ? "#ffffff" : "#0f172a",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.18)" : "1px solid rgba(0, 0, 0, 0.1)",
+              boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.4)" : "0 8px 24px rgba(0,0,0,0.12)",
+              fontSize: "0.78rem",
               fontWeight: 650,
               cursor: "pointer",
+              transition: "transform 0.15s ease, box-shadow 0.15s ease",
             }}
           >
             <ArrowDown size={14} />
-            <span>Latest</span>
+            <span>Latest messages</span>
           </button>
         )}
 
@@ -1546,9 +1533,8 @@ export function WorkMode({
           background: "var(--bg-surface)",
         }}
       >
-        {/* Provider micro-status — the composer's own model chip already shows
-            this on a phone, where 42px of transcript is worth more than a repeat. */}
-        {!isMobile && (activeProviderMode || activeProviderModel) && (
+        {/* Provider recovery prompt / micro-status line */}
+        {!isMobile && Boolean(activeProviderMode) && (
           <div
             data-testid="provider-micro-status"
             style={{
@@ -1846,6 +1832,7 @@ export function WorkMode({
           onClearTopic={() => setLocalTopic("")}
           onOpenModelSelector={onOpenSettings}
           discoveredModels={discoveredModels}
+          discoveredProviders={discoveredProviders}
           selectedModelId={activeProviderMode === "auto" ? null : (activeProviderModel ?? null)}
           selectedProviderId={activeProviderMode ?? null}
           isAutoRouter={activeProviderMode === "auto" || !activeProviderModel}
@@ -2071,6 +2058,8 @@ export const WorkMessage = React.memo(function WorkMessage({
         width: "100%",
         maxWidth: 768,
         margin: isUser ? "12px 0 12px auto" : "12px 0",
+        contentVisibility: "auto",
+        containIntrinsicSize: "0 80px",
       }}
     >
       {/* Assistant Header Line */}
@@ -2185,11 +2174,11 @@ export const WorkMessage = React.memo(function WorkMessage({
           style={{
             fontSize: 11,
             lineHeight: 1.4,
-            color: "#b45309",
-            background: "rgba(254, 243, 199, 0.45)",
-            border: "1px solid rgba(251, 191, 36, 0.35)",
-            borderRadius: 6,
-            padding: "4px 8px",
+            color: isDark ? "rgba(255, 255, 255, 0.65)" : "#64748b",
+            background: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(0, 0, 0, 0.08)",
+            borderRadius: 12,
+            padding: "3px 10px",
             marginBottom: 6,
             marginLeft: 34,
             display: "inline-flex",
@@ -2197,7 +2186,7 @@ export const WorkMessage = React.memo(function WorkMessage({
             gap: 6,
           }}
         >
-          <span style={{ fontSize: 12 }}>⚡</span>
+          <span style={{ fontSize: 11, color: "var(--accent, #6366f1)" }}>⚡</span>
           <span>
             {`Switched to ${answeredBy ?? "high-performance model"} (auto-routed for uptime)`}
           </span>
@@ -2346,6 +2335,19 @@ export const WorkMessage = React.memo(function WorkMessage({
       {!isUser && renderToolResults()}
     </div>
   );
+}, (prev, next) => {
+  if (prev.isStreaming !== next.isStreaming) return false;
+  if (prev.isThinkingLive !== next.isThinkingLive) return false;
+  if (prev.isSearchingLive !== next.isSearchingLive) return false;
+  if (prev.searchQueryLive !== next.searchQueryLive) return false;
+  if (prev.isDark !== next.isDark) return false;
+  if (prev.message.id !== next.message.id) return false;
+  if (prev.message.text !== next.message.text) return false;
+  if (prev.message.plan !== next.message.plan) return false;
+  if (prev.message.toolResults !== next.message.toolResults) return false;
+  if (prev.message.toolActivity !== next.message.toolActivity) return false;
+  if (prev.message.actionDraft !== next.message.actionDraft) return false;
+  return true;
 });
 
 

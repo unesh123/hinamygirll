@@ -20,7 +20,8 @@ _SPECIAL_TOKEN_PATTERN = re.compile(r"<\|([A-Za-z][\w:.-]*)\|>")
 TOOLISH_TAG_SOURCE = (
     r"(?:(?:tool|function|antml)[_.:-][\w:.-]+"
     r"|(?:tool|function)(?:calls?|args?|names?|uses?|results?|parameters?|arguments?)"
-    r"|calls?|invokes?|parameters?|arguments?|tooluse)"
+    r"|calls?|invokes?|parameters?|arguments?|tooluse"
+    r"|(?:web_)?search(?:_query)?|search_web|web_research|web_extract|web_answer|google_search)"
 )
 _TOOLISH_NAME_PATTERN = re.compile(
     "^" + TOOLISH_TAG_SOURCE + "$",
@@ -52,6 +53,9 @@ class SimulatedToolCallFilter:
         self._closer: re.Pattern[str] | None = None
         self._swallowed = 0
         self._to_end = False
+        self._in_tool_block = False
+        self._tool_brace_depth = 0
+        self._swallow_trailing_fence = False
 
     def feed(self, chunk: str) -> str:
         if not chunk:
@@ -63,6 +67,55 @@ class SimulatedToolCallFilter:
         emitted: list[str] = []
 
         while self._held:
+            if self._swallow_trailing_fence:
+                self._held = self._held.lstrip(" \t\r\n")
+                if self._held.startswith("```"):
+                    post_fence = self._held.find("\n", 3)
+                    if post_fence != -1:
+                        self._held = self._held[post_fence + 1:].lstrip()
+                    else:
+                        self._held = self._held[3:].lstrip()
+                    self._swallow_trailing_fence = False
+                    continue
+                elif self._held:
+                    self._swallow_trailing_fence = False
+
+            if self._in_tool_block:
+                brace_pos = self._held.find("{")
+                if brace_pos >= 0 or self._tool_brace_depth > 0:
+                    start_i = brace_pos if self._tool_brace_depth == 0 else 0
+                    end_pos = -1
+                    for i in range(start_i, len(self._held)):
+                        if self._held[i] == "{":
+                            self._tool_brace_depth += 1
+                        elif self._held[i] == "}":
+                            self._tool_brace_depth -= 1
+                            if self._tool_brace_depth == 0:
+                                end_pos = i + 1
+                                break
+                    if end_pos != -1:
+                        tail = self._held[end_pos:end_pos + 20]
+                        bt_m = re.search(r"^\s*`{3,}", tail)
+                        if bt_m:
+                            end_pos += bt_m.end()
+                            self._swallow_trailing_fence = False
+                        else:
+                            self._swallow_trailing_fence = True
+                        self._held = self._held[end_pos:].lstrip()
+                        self._in_tool_block = False
+                        self._tool_brace_depth = 0
+                        continue
+                    else:
+                        self._held = ""
+                        break
+                else:
+                    bt_m = re.search(r"^\s*`{3,}", self._held)
+                    if bt_m:
+                        self._held = self._held[bt_m.end():].lstrip()
+                        self._in_tool_block = False
+                        continue
+                    break
+
             if self._closer is not None:
                 match = self._closer.search(self._held)
                 if match is None:
@@ -77,6 +130,37 @@ class SimulatedToolCallFilter:
                 self._swallowed += match.end()
                 self._held = self._held[match.end() :]
                 self._closer = None
+                continue
+
+            # Check for simulated TOOL_REQUEST or standalone tool call on prose wire
+            tr_match = re.search(r"(?i)\bTOOL_REQUEST\b", self._held)
+            standalone_json_match = re.search(
+                r'(?is)\{\s*"(?:tool|name|function)"\s*:\s*"(?:web_search|search|web_research)',
+                self._held,
+            )
+
+            start_tool_idx = -1
+            if tr_match:
+                start_tool_idx = tr_match.start()
+            elif standalone_json_match:
+                start_tool_idx = standalone_json_match.start()
+
+            lt_idx = self._held.find("<")
+
+            if start_tool_idx >= 0 and (lt_idx < 0 or start_tool_idx < lt_idx):
+                preceding = self._held[:start_tool_idx]
+                backtick_idx = preceding.rfind("```")
+                if backtick_idx != -1 and all(c in " \t\r\n" for c in preceding[backtick_idx + 3:]):
+                    if backtick_idx > 0:
+                        emitted.append(self._held[:backtick_idx])
+                elif start_tool_idx > 0:
+                    emitted.append(self._held[:start_tool_idx])
+
+                self._held = self._held[start_tool_idx:]
+                if tr_match and self._held.upper().startswith("TOOL_REQUEST"):
+                    self._held = self._held[len("TOOL_REQUEST"):].lstrip()
+                self._in_tool_block = True
+                self._tool_brace_depth = 0
                 continue
 
             index = self._held.find("<")
@@ -129,4 +213,7 @@ class SimulatedToolCallFilter:
         """Release whatever was held back once the stream is over."""
         held, self._held = self._held, ""
         self._closer = None
+        if re.search(r"(?i)\bTOOL_REQUEST\b", held):
+            held = re.sub(r"(?is)(?:`{3,}[^\S\n]*[A-Za-z0-9_-]*[ \t]*\r?\n[ \t]*)?\bTOOL_REQUEST\b[\s\S]*", "", held).strip()
+        held = re.sub(r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*`{3,}", "", held).strip()
         return held

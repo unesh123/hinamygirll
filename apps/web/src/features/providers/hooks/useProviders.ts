@@ -5,9 +5,9 @@
  * - Fetch immediately on mount.
  * - Abort pending request when a new one starts.
  * - Pause while document is hidden; refresh immediately on visibility.
- * - Exponential backoff after failures: 2s → 4s → 8s → 16s → 30s (cap).
+ * - Backoff after failures: 2s → 5s → 15s → 45s → 120s → 300s (cap).
  * - Reset failure count on success.
- * - When healthy, re-poll every 45 seconds (not every retry interval).
+ * - When healthy, re-poll every 60 seconds.
  * - Manual refresh via providers.refresh() resets failure count.
  * - Aborts cleanly on unmount.
  * - Uses jitter (±20%) to prevent synchronized clients.
@@ -30,6 +30,7 @@ import type {
 const HEALTHY_POLL_INTERVAL_MS = 60_000;
 const BACKOFF_SEQUENCE_MS = [2_000, 5_000, 15_000, 45_000, 120_000, 300_000];
 const MAX_CONSECUTIVE_FAILURES = 6;
+const REQUEST_TIMEOUT_MS = 15_000;
 const JITTER_FACTOR = 0.2; // ±20%
 
 function withJitter(ms: number): number {
@@ -90,12 +91,14 @@ export function useProviders(): ProvidersState {
       return;
     }
 
+    clearTimer();
     // Abort any inflight request
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
+    const requestTimeout = window.setTimeout(() => abortRef.current?.signal === signal && abortRef.current.abort(), REQUEST_TIMEOUT_MS);
 
-    void fetchProviderStatuses(signal)
+    return fetchProviderStatuses(signal)
       .then((raw) => {
         if (!mountedRef.current || signal.aborted) return;
 
@@ -108,12 +111,15 @@ export function useProviders(): ProvidersState {
         // Schedule next healthy poll
         scheduleNext(withJitter(HEALTHY_POLL_INTERVAL_MS), load);
       })
-      .catch((err: unknown) => {
+      .catch(() => {
         if (!mountedRef.current) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        // A superseded request must never overwrite the newer request's state.
+        // An abort of the current request is its deadline expiring and should retry.
+        if (abortRef.current?.signal !== signal) return;
+        if (signal.aborted && document.visibilityState === "hidden") return;
 
         failureCount.current += 1;
-        if (!loaded) setLoaded(true); // stop indefinite spinner
+        setLoaded(true); // stop indefinite spinner
 
         if (failureCount.current > MAX_CONSECUTIVE_FAILURES) {
           setError("Backend offline — click to refresh");
@@ -123,8 +129,9 @@ export function useProviders(): ProvidersState {
         const delay = getBackoffMs(failureCount.current);
         setError(`Backend unreachable — retrying in ${Math.round(delay / 1000)}s`);
         scheduleNext(delay, load);
-      });
-  }, [loaded, scheduleNext]); // eslint-disable-line react-hooks/exhaustive-deps
+      })
+      .finally(() => window.clearTimeout(requestTimeout));
+  }, [clearTimer, scheduleNext]);
 
   const refresh = useCallback(() => {
     clearTimer();
@@ -139,11 +146,14 @@ export function useProviders(): ProvidersState {
       if (document.visibilityState === "visible") {
         // Only refresh if we have an error or haven't loaded yet
         refresh();
+      } else {
+        clearTimer();
+        abortRef.current?.abort();
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [refresh]);
+  }, [clearTimer, refresh]);
 
   // Mount/unmount lifecycle
   useEffect(() => {
@@ -154,10 +164,15 @@ export function useProviders(): ProvidersState {
       clearTimer();
       abortRef.current?.abort();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clearTimer, load]);
 
   // ── Derived helpers (memoised) ─────────────────────────────────────────────
-  const providerOptions = useMemo(() => buildProviderOptions(statuses), [statuses]);
+  const providerOptions = useMemo(() => {
+    const options = buildProviderOptions(statuses);
+    return error ? options.map((option) => option.mode === "mock" ? option : ({
+      ...option, health: "unavailable" as const, available: false, healthReason: error,
+    })) : options;
+  }, [error, statuses]);
 
   const getModelOptions = useCallback(
     (mode: ProviderMode): ModelOption[] => {
@@ -187,12 +202,13 @@ export function useProviders(): ProvidersState {
   const getHealth = useCallback(
     (mode: ProviderMode): ProviderHealth => {
       if (!loaded) return "checking";
-      if (mode === "mock" || mode === "local") return "healthy";
+      if (mode === "mock") return "healthy";
+      if (error) return "unavailable";
       const backendId = mode === "real" ? "gemini" : mode;
       const status = statuses.find((s) => s.id === backendId);
       return status?.state ?? "unknown";
     },
-    [loaded, statuses],
+    [error, loaded, statuses],
   );
 
   const reprobeCx = useCallback(async () => {

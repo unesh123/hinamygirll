@@ -418,8 +418,17 @@ def decode_all_display_fields(json_text: str) -> list[str]:
     return values
 
 
+_PROSE_THINK_OPEN_PATTERN = re.compile(
+    r"(?is)^\s*(?:Here\'s a thinking process:?|Thinking Process:?|Thought Process:?|\[Thinking Process\]|\*\*Thinking Process:?\*\*)\s*"
+)
+_PROSE_THINK_CLOSE_PATTERN = re.compile(
+    r"(?i)(?:(?<=\n\n)|(?<=\n---\n)|(?<=\n\*\*\*\n)|(?<=\n))(?=(?:Hey\b|Hi\b|Hello\b|Namaste\b|Sure\b|Certainly\b|Of course\b|Regarding\b|The\b|In\b|Based on\b|Here is\b|\*\*(?:Final )?(?:Answer|Response):?\*\*|[A-Z][a-z]+[,.]?\s+(?:I |you |we |it |is |was |has |are )))"
+)
+
+
 class ThinkingStreamFilter:
-    """Quarantine reasoning blocks (<think>...</think>, <thought>...</thought>) during streaming.
+    """Quarantine reasoning blocks (<think>...</think>, <thought>...</thought>,
+    or prose "Here's a thinking process:...") during streaming.
 
     Ensures that internal reasoning tokens, prompt reflections, and chain-of-thought
     are never emitted onto the live display/voice wire, while collecting them
@@ -428,6 +437,7 @@ class ThinkingStreamFilter:
 
     def __init__(self) -> None:
         self._in_think = False
+        self._think_mode = "tag"  # "tag" or "prose"
         self._pending = ""
         self._curr_thought: list[str] = []
         self.extracted_thoughts: list[str] = []
@@ -444,6 +454,15 @@ class ThinkingStreamFilter:
                     out.append(self._pending[:m.start()])
                     self._pending = self._pending[m.end():]
                     self._in_think = True
+                    self._think_mode = "tag"
+                    continue
+                # Check for prose thinking block at start of generation
+                prose_m = _PROSE_THINK_OPEN_PATTERN.search(self._pending)
+                if prose_m:
+                    out.append(self._pending[:prose_m.start()])
+                    self._pending = self._pending[prose_m.end():]
+                    self._in_think = True
+                    self._think_mode = "prose"
                     continue
                 last_lt = self._pending.rfind("<")
                 if last_lt != -1 and len(self._pending) - last_lt <= 10:
@@ -455,25 +474,55 @@ class ThinkingStreamFilter:
                 out.append(self._pending)
                 self._pending = ""
             else:
-                m = re.search(r"</(?:think|thought)>", self._pending, re.IGNORECASE)
-                if m:
-                    self._curr_thought.append(self._pending[:m.start()])
-                    thought_body = "".join(self._curr_thought).strip()
-                    if thought_body:
-                        self.extracted_thoughts.append(thought_body)
-                    self._curr_thought = []
-                    self._in_think = False
-                    self._pending = self._pending[m.end():]
-                    continue
-                last_close = self._pending.rfind("</")
-                if last_close != -1 and len(self._pending) - last_close <= 11:
-                    tail = self._pending[last_close:].lower()
-                    if "</think>".startswith(tail) or "</thought>".startswith(tail):
-                        self._curr_thought.append(self._pending[:last_close])
-                        self._pending = self._pending[last_close:]
-                        break
-                self._curr_thought.append(self._pending)
-                self._pending = ""
+                if self._think_mode == "tag":
+                    m = re.search(r"</(?:think|thought)>", self._pending, re.IGNORECASE)
+                    if m:
+                        self._curr_thought.append(self._pending[:m.start()])
+                        thought_body = "".join(self._curr_thought).strip()
+                        if thought_body:
+                            self.extracted_thoughts.append(thought_body)
+                        self._curr_thought = []
+                        self._in_think = False
+                        self._pending = self._pending[m.end():]
+                        continue
+                    last_close = self._pending.rfind("</")
+                    if last_close != -1 and len(self._pending) - last_close <= 11:
+                        tail = self._pending[last_close:].lower()
+                        if "</think>".startswith(tail) or "</thought>".startswith(tail):
+                            self._curr_thought.append(self._pending[:last_close])
+                            self._pending = self._pending[last_close:]
+                            break
+                    self._curr_thought.append(self._pending)
+                    self._pending = ""
+                else:
+                    # Prose thinking mode: search across window including previous newline context
+                    tag_m = re.search(r"</(?:think|thought)>", self._pending, re.IGNORECASE)
+                    if tag_m:
+                        self._curr_thought.append(self._pending[:tag_m.start()])
+                        thought_body = "".join(self._curr_thought).strip()
+                        if thought_body:
+                            self.extracted_thoughts.append(thought_body)
+                        self._curr_thought = []
+                        self._in_think = False
+                        self._pending = self._pending[tag_m.end():]
+                        continue
+
+                    # Check if transition occurs in self._pending, taking into account if _curr_thought had trailing newline
+                    prefix = "\n\n" if (self._curr_thought and self._curr_thought[-1].endswith("\n")) else ""
+                    window = prefix + self._pending
+                    trans_m = _PROSE_THINK_CLOSE_PATTERN.search(window)
+                    if trans_m:
+                        trans_idx_in_pending = max(0, trans_m.start() - len(prefix))
+                        self._curr_thought.append(self._pending[:trans_idx_in_pending])
+                        thought_body = "".join(self._curr_thought).strip()
+                        if thought_body:
+                            self.extracted_thoughts.append(thought_body)
+                        self._curr_thought = []
+                        self._in_think = False
+                        self._pending = self._pending[trans_idx_in_pending:]
+                        continue
+                    self._curr_thought.append(self._pending)
+                    self._pending = ""
         return "".join(out)
 
     def finish(self) -> str:
@@ -484,6 +533,14 @@ class ThinkingStreamFilter:
                 self.extracted_thoughts.append(thought_body)
             self._pending = ""
             self._in_think = False
+            return ""
+        # Check if pending text is itself a stray prose thinking block
+        prose_m = _PROSE_THINK_OPEN_PATTERN.search(self._pending)
+        if prose_m:
+            thought_body = self._pending[prose_m.end():].strip()
+            if thought_body:
+                self.extracted_thoughts.append(thought_body)
+            self._pending = ""
             return ""
         res = self._pending
         self._pending = ""
@@ -590,17 +647,16 @@ _DANGLING_CALL_CLOSE_PATTERN = re.compile(
 # code samples survived it. Only a fence whose entire body names an invocation
 # goes; an answer that discusses this markup inside a fenced example keeps it.
 _FENCED_CALL_PATTERN = re.compile(
-    r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*"
-    r"(?:(?:tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*)"
+    r"[ \t]*`{3,}(?:[^\S\n]*[A-Za-z0-9_-]*)?[ \t]*\r?\n?[ \t]*"
+    r"(?:(?:TOOL_REQUEST|tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*|\{\s*[\"'](?:tool|name|function)[\"']\s*:\s*[\"'][^\"']+[\"'])[\s\S]*?"
     r"[ \t]*(?:\r?\n[ \t]*)?`{3,}[ \t]*\r?\n?",
     re.IGNORECASE,
 )
 # The same fence with no closer, because the stream stopped inside it. Anchored
-# to the end of the answer: a fence that opens with a name and carries on is a
-# code sample whose language hint happens to start with "function".
+# to the end of the answer: a fence that opens with a tool request and carries on.
 _UNCLOSED_FENCED_CALL_PATTERN = re.compile(
-    r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*"
-    r"(?:(?:tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*)"
+    r"[ \t]*`{3,}(?:[^\S\n]*[A-Za-z0-9_-]*)?[ \t]*\r?\n?[ \t]*"
+    r"(?:(?:TOOL_REQUEST|tool|function|antml)[\w:.\-]*(?:[_.:\-][\w:.\-]+)*|\{\s*[\"'](?:tool|name|function)[\"']\s*:\s*[\"'][^\"']+[\"'])[\s\S]*"
     r"[ \t]*\Z",
     re.IGNORECASE,
 )
@@ -734,7 +790,7 @@ def drop_inlined_document_code(text: str) -> str:
 
 
 def strip_simulated_tool_calls(text: str) -> str:
-    """Remove tool-call markup a model wrote into its answer.
+    """Remove tool-call markup and unescaped machine traces a model wrote into its answer.
 
     Runs over the assembled answer, not a stream delta: an unbalanced tag
     fragment cannot be told apart from real text until the text is complete.
@@ -742,25 +798,95 @@ def strip_simulated_tool_calls(text: str) -> str:
     markup, the markup is the answer — except for a fence whose entire content
     is the call itself, which is not an example of anything.
     """
+    if not text:
+        return ""
+    # 0. Strip fenced code blocks representing tool requests, tool calls, or web searches
+    text = re.sub(
+        r"[ \t]*`{3,}[^\S\n]*(?:TOOL_REQUEST|tool_call|web_search|json|xml)?[ \t]*\r?\n[ \t]*"
+        r"(?:TOOL_REQUEST|tool_call|web_search|search|\{\s*[\"'](?:tool|name|function)[\"']\s*:\s*[\"'][^\"']+[\"'])[\s\S]*?"
+        r"(?:`{3,}|$)",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
     text = _UNCLOSED_FENCED_CALL_PATTERN.sub(
         "", _FENCED_CALL_PATTERN.sub("", text)
     )
-    if "<" not in text:
-        return text
-    parts = text.split("```")
-    # Even indexes sit outside a fence; odd indexes are fenced code samples.
-    scrubbed = [
-        part
-        if index % 2
-        else _STRAY_TOOL_TAG_PATTERN.sub(
-            "",
-            _DANGLING_CALL_CLOSE_PATTERN.sub(
+
+    # 1. Strip raw TOOL_REQUEST blocks and balanced/unbalanced JSON arguments
+    while True:
+        m = re.search(r"(?i)\bTOOL_REQUEST\b", text)
+        if not m:
+            break
+        start = m.start()
+        # Include any leading fence backticks on the same line or immediately preceding
+        fence_start = text.rfind("```", max(0, start - 10), start)
+        if fence_start != -1:
+            start = fence_start
+        brace_idx = text.find("{", m.end())
+        newline_idx = text.find("\n", m.end())
+        if brace_idx != -1 and (newline_idx == -1 or brace_idx < newline_idx + 10):
+            depth = 0
+            end_pos = -1
+            for i in range(brace_idx, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_pos = i + 1
+                        break
+            if end_pos != -1:
+                trailing_fence = text.find("```", end_pos)
+                if trailing_fence != -1 and trailing_fence <= end_pos + 10:
+                    end_pos = trailing_fence + 3
+                text = text[:start] + text[end_pos:].lstrip()
+                continue
+        end_line = text.find("\n", m.end())
+        if end_line != -1:
+            text = text[:start] + text[end_line + 1:]
+        else:
+            text = text[:start]
+
+    # 2. Strip standalone JSON tool calls like {"tool": "web_search", "args": {...}}
+    text = re.sub(
+        r'(?is)\{\s*"(?:tool|name|function)"\s*:\s*"[^"]+"\s*,\s*"(?:args|parameters|arguments)"\s*:\s*\{[^{}]*\}\s*\}\s*',
+        "",
+        text,
+    )
+
+    # 3. Strip tool tags (web_search, search, etc.)
+    if "<" in text:
+        parts = text.split("```")
+        scrubbed = [
+            part
+            if index % 2
+            else re.sub(
+                r"<\s*/?(?:web_search|search|web_research|google_search)[^>]*>.*?(?:<\s*/\s*(?:web_search|search|web_research|google_search)\s*>|$)",
                 "",
-                _SIMULATED_TOOL_CALL_PATTERN.sub(
-                    "", _SPECIAL_TOKEN_CALL_PATTERN.sub("", part)
+                _STRAY_TOOL_TAG_PATTERN.sub(
+                    "",
+                    _DANGLING_CALL_CLOSE_PATTERN.sub(
+                        "",
+                        _SIMULATED_TOOL_CALL_PATTERN.sub(
+                            "", _SPECIAL_TOKEN_CALL_PATTERN.sub("", part)
+                        ),
+                    ),
                 ),
-            ),
-        )
-        for index, part in enumerate(parts)
-    ]
-    return "```".join(scrubbed)
+                flags=re.DOTALL | re.IGNORECASE,
+            )
+            for index, part in enumerate(parts)
+        ]
+        text = "```".join(scrubbed)
+
+    # 4. Scrub trailing leaked JSON tool fragments (e.g. topic ... 2025"})
+    text = re.sub(r'(?:^|\n)[^"{\n]*["\']\s*\}\s*$', '', text)
+
+    # 5. Clean stray TOOL_REQUEST lines
+    text = re.sub(r'(?i)\bTOOL_REQUEST\b[^\n]*\n?', '', text)
+
+    # 6. Clean any orphaned empty code blocks resulting from stripping
+    text = re.sub(r"[ \t]*`{3,}[^\S\n]*\r?\n?[ \t]*`{3,}", "", text)
+
+    return text.strip()

@@ -126,30 +126,43 @@ async def _legacy_search(query: str, count: int = 20) -> dict[str, Any]:
     seen_domains: dict[str, int] = {}
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            search_tasks = [
-                _fetch_ddg_batch(client, query, 0),
-                _fetch_ddg_batch(client, f"{query} latest news updates", 0),
-                _fetch_ddg_batch(client, f"{query} current status report", 0),
-                _fetch_ddg_batch(client, query, 30),
-            ]
-            batches = await asyncio.gather(*search_tasks, return_exceptions=True)
-            for batch in batches:
-                if isinstance(batch, list):
-                    for item in batch:
-                        url = item["url"]
-                        domain = item.get("domain", "Web")
-                        if url in seen_urls:
-                            continue
-                        if seen_domains.get(domain, 0) >= 3:
-                            continue
-                        seen_urls.add(url)
-                        seen_domains[domain] = seen_domains.get(domain, 0) + 1
-                        results.append(item)
-                        if len(results) >= target_count:
-                            break
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            # Fast-path: fetch primary query first (completes in ~1.2s)
+            primary_items = await _fetch_ddg_batch(client, query, 0)
+            for item in primary_items:
+                url = item["url"]
+                domain = item.get("domain", "Web")
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                seen_domains[domain] = seen_domains.get(domain, 0) + 1
+                results.append(item)
                 if len(results) >= target_count:
                     break
+
+            # If primary batch yielded fewer than 5 results, fetch additional batches
+            if len(results) < 5:
+                search_tasks = [
+                    _fetch_ddg_batch(client, f"{query} latest news", 0),
+                    _fetch_ddg_batch(client, query, 30),
+                ]
+                batches = await asyncio.gather(*search_tasks, return_exceptions=True)
+                for batch in batches:
+                    if isinstance(batch, list):
+                        for item in batch:
+                            url = item["url"]
+                            domain = item.get("domain", "Web")
+                            if url in seen_urls:
+                                continue
+                            if seen_domains.get(domain, 0) >= 3:
+                                continue
+                            seen_urls.add(url)
+                            seen_domains[domain] = seen_domains.get(domain, 0) + 1
+                            results.append(item)
+                            if len(results) >= target_count:
+                                break
+                    if len(results) >= target_count:
+                        break
     except Exception as error:
         logger.warning("Deep multi-source web search encountered error: %s", error)
 
@@ -224,8 +237,10 @@ async def search_bright_data_serp(query: str, count: int = 20) -> list[dict[str,
     return []
 
 
-async def search_web(params: dict[str, Any]) -> dict[str, Any]:
+async def search_web(params: dict[str, Any] | str) -> dict[str, Any]:
     """Search current web/news sources through Bright Data SERP, You.com, or deep multi-source search (20+ sources)."""
+    if isinstance(params, str):
+        params = {"query": params}
     query = str(
         params.get("query")
         or params.get("q")
@@ -261,6 +276,16 @@ async def search_web(params: dict[str, Any]) -> dict[str, Any]:
             "sources": sources,
             "sourceCount": len(sources),
         }
+
+    # If Exa API is configured, use it for high-precision semantic search
+    if settings.exa_configured:
+        try:
+            from .exa_tool import exa_client
+            exa_res = await exa_client.search(query, num_results=min(count, 20), highlights=True)
+            if exa_res.get("sources") and len(exa_res["sources"]) > 0:
+                return exa_res
+        except Exception as exc:
+            logger.warning("Exa search error, falling back: %s", exc)
 
     if not settings.youcom_configured:
         return await _legacy_search(query, count=count)
@@ -774,15 +799,30 @@ async def research_web_status(params: dict[str, Any]) -> dict[str, Any]:
 
 async def extract_web_pages(params: dict[str, Any]) -> dict[str, Any]:
     urls = _string_list(params.get("urls"), limit=MAX_WEB_URLS)
+    settings = get_settings()
+    if settings.exa_configured and not settings.youcom_configured:
+        try:
+            from .exa_tool import exa_client
+            return await exa_client.get_contents(urls, text=True)
+        except Exception as exc:
+            logger.warning("Exa get_contents failed: %s", exc)
     try:
-        return await YouComClient(get_settings()).contents(
+        return await YouComClient(settings).contents(
             urls,
             max_age=int(params["maxAge"]) if params.get("maxAge") is not None else None,
         )
     except (TypeError, ValueError):
         return {"error": "maxAge must be a whole number of seconds.", "code": "YOUCOM_INVALID_MAX_AGE", "pages": [], "sources": [], "sourceCount": 0}
-    except YouComError as error:
-        return _provider_error(error)
+    except Exception as error:
+        if settings.exa_configured:
+            try:
+                from .exa_tool import exa_client
+                return await exa_client.get_contents(urls, text=True)
+            except Exception:
+                pass
+        if isinstance(error, YouComError):
+            return _provider_error(error)
+        return {"error": str(error), "pages": [], "sources": [], "sourceCount": 0}
 
 
 async def finance_research(params: dict[str, Any]) -> dict[str, Any]:

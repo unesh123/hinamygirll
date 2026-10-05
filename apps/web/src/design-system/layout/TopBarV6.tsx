@@ -31,6 +31,7 @@ export interface TopBarV6Props {
   onOpenGoalDetails?: () => void;
   onSelectModel?: (modelId: string, providerId: string) => void;
   selectedModelId?: string | null;
+  selectedProviderId?: string | null;
   isAutoRouter?: boolean;
   executiveMode: ExecutiveMode;
   onExecutiveModeChange: (mode: ExecutiveMode) => void;
@@ -47,6 +48,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   onOpenSearch,
   onSelectModel,
   selectedModelId,
+  selectedProviderId,
   isAutoRouter,
   executiveMode,
   onExecutiveModeChange,
@@ -70,11 +72,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        background: isDark ? "rgba(9, 10, 15, 0.94)" : "#ffffff",
+        background: isDark ? "rgba(9, 10, 15, 0.98)" : "#ffffff",
         borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        zIndex: 50,
+        zIndex: 2500,
         userSelect: "none",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif",
         padding: "0 14px",
@@ -230,9 +230,22 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
 
       {/* ── Center: INA ISLAND APEX CORE ─────────────────── */}
       {islandProps && (
-        <div style={{ display: "flex", justifyContent: "center" }}>
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%, -50%)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            pointerEvents: "auto",
+            zIndex: 10,
+          }}
+        >
           <DynamicIslandCompanion
             {...islandProps}
+            inlineInTopBar={true}
             isDark={isDark}
             availableModels={models}
             onSelectModel={onSelectModel}
@@ -247,6 +260,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           models={models}
           providers={providers}
           selectedModelId={selectedModelId}
+          selectedProviderId={selectedProviderId}
           isAutoRouter={isAuto}
           onSelectAuto={() => onSelectModel?.("auto", "auto")}
           onSelectModel={(model) => onSelectModel?.(model.id, model.provider)}

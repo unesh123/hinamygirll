@@ -40,7 +40,18 @@ import {
   Wand2,
   Database,
   Search,
+  Monitor,
+  Square,
+  ThumbsUp,
+  ThumbsDown,
+  Copy,
+  Scan,
+  Shield,
+  Play,
+  RefreshCw,
+  FileCode,
 } from "lucide-react";
+import { useLiveVision } from "../../features/vision/useLiveVision";
 import {
   playUiSound,
   isSoundEnabled,
@@ -87,6 +98,13 @@ export interface DynamicIslandCompanionProps {
   onToggleWalk?: () => void;
   onOpenRunway?: () => void;
   inlineInTopBar?: boolean;
+  isSpeaking?: boolean;
+  jawEnergy?: number;
+  onStopSpeaking?: () => void;
+  isLiveVoiceActive?: boolean;
+  onToggleLiveVoice?: () => void;
+  messages?: any[];
+  conversationId?: string;
 }
 
 export interface CoucouMascotProps {
@@ -114,7 +132,10 @@ export const CoucouMascot: React.FC<CoucouMascotProps> = ({
   const [blink, setBlink] = useState(false);
   const [localMood, setLocalMood] = useState<string | null>(null);
   const [pokeCount, setPokeCount] = useState(0);
-  const [eyeOffset, setEyeOffset] = useState({ x: 0, y: 0 });
+  // Eye tracking: use ref + direct DOM mutation to avoid per-pixel React re-renders
+  const eyeOffsetRef = useRef({ x: 0, y: 0 });
+  const eyeGroupRef = useRef<SVGGElement | null>(null);
+  const eyeRafRef = useRef(0);
   const [showHearts, setShowHearts] = useState(false);
   const mascotRef = useRef<HTMLDivElement>(null);
   const pokeTimerRef = useRef<any>(null);
@@ -131,23 +152,32 @@ export const CoucouMascot: React.FC<CoucouMascotProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Pupil eye tracking following mouse cursor
+  // Pupil eye tracking — RAF-gated direct SVG transform, zero React re-renders
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!mascotRef.current) return;
       const rect = mascotRef.current.getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
-      const dx = (e.clientX - cx) / 45;
-      const dy = (e.clientY - cy) / 45;
-      setEyeOffset({
-        x: Math.max(-3.5, Math.min(3.5, dx)),
-        y: Math.max(-2.8, Math.min(2.8, dy)),
-      });
+      const dx = Math.max(-3.5, Math.min(3.5, (e.clientX - cx) / 45));
+      const dy = Math.max(-2.8, Math.min(2.8, (e.clientY - cy) / 45));
+      eyeOffsetRef.current = { x: dx, y: dy };
+      if (!eyeRafRef.current) {
+        eyeRafRef.current = requestAnimationFrame(() => {
+          eyeRafRef.current = 0;
+          const g = eyeGroupRef.current;
+          if (g) {
+            const { x, y } = eyeOffsetRef.current;
+            g.setAttribute('transform', `translate(${x}, ${y})`);
+          }
+        });
+      }
     };
-
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
-    return () => window.removeEventListener("mousemove", handleMouseMove);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (eyeRafRef.current) cancelAnimationFrame(eyeRafRef.current);
+    };
   }, []);
 
   // Affection hover reaction: floating hearts after 1.2s hover
@@ -374,12 +404,14 @@ export const CoucouMascot: React.FC<CoucouMascotProps> = ({
             <path d="M 61 47 Q 66 40 71 47" stroke="#121215" strokeWidth="3.5" strokeLinecap="round" fill="none" />
           </g>
         ) : (
-          // Normal open expressive eyes with pupil tracking
+          // Normal open expressive eyes with pupil tracking via direct DOM transform
           <g transform={`translate(0, ${-bodyBob})`}>
-            <ellipse cx={34 + eyeOffset.x} cy={46 + eyeOffset.y} rx="4.5" ry="6.5" fill="#121215" />
-            <circle cx={32.5 + eyeOffset.x} cy={44 + eyeOffset.y} r="1.8" fill="#ffffff" />
-            <ellipse cx={66 + eyeOffset.x} cy={46 + eyeOffset.y} rx="4.5" ry="6.5" fill="#121215" />
-            <circle cx={64.5 + eyeOffset.x} cy={44 + eyeOffset.y} r="1.8" fill="#ffffff" />
+            <g ref={eyeGroupRef}>
+              <ellipse cx={34} cy={46} rx="4.5" ry="6.5" fill="#121215" />
+              <circle cx={32.5} cy={44} r="1.8" fill="#ffffff" />
+              <ellipse cx={66} cy={46} rx="4.5" ry="6.5" fill="#121215" />
+              <circle cx={64.5} cy={44} r="1.8" fill="#ffffff" />
+            </g>
           </g>
         )}
 
@@ -426,6 +458,322 @@ export const CoucouMascot: React.FC<CoucouMascotProps> = ({
   );
 };
 
+export interface CuteRobotFaceProps {
+  mood?: "idle" | "happy" | "thinking" | "speaking" | "observing" | "alert" | "walking";
+  isHovered?: boolean;
+  size?: number;
+  isSpeaking?: boolean;
+  jawEnergy?: number;
+  onPoke?: (count: number) => void;
+  interactive?: boolean;
+  isWalking?: boolean;
+  walkPhase?: number;
+}
+
+// Cute Talking Robot Face matching the reference video & SnapInsta.to_AQOpjR7zLOEM_f1_50pct.jpg
+export const CuteRobotFace: React.FC<CuteRobotFaceProps> = ({
+  mood = "idle",
+  isHovered = false,
+  size = 56,
+  isSpeaking = false,
+  jawEnergy = 0,
+  onPoke,
+  interactive = true,
+  isWalking = false,
+  walkPhase = 0,
+}) => {
+  const [blink, setBlink] = useState(false);
+  // Eye + eyebrow tracking: ref + direct style.transform mutation — zero React re-renders on mousemove
+  const eyeOffsetRef = useRef({ x: 0, y: 0 });
+  const eyebrowGroupRef = useRef<SVGGElement | null>(null);
+  const eyeCapsuleGroupRef = useRef<SVGGElement | null>(null);
+  const eyeRafRef = useRef(0);
+  const [speechAperture, setSpeechAperture] = useState(0);
+  const [pokeCount, setPokeCount] = useState(0);
+  const faceRef = useRef<HTMLDivElement>(null);
+  const pokeTimerRef = useRef<any>(null);
+
+  // Spontaneous natural blinking every 3.2 - 5.5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setBlink(true);
+      setTimeout(() => setBlink(false), 140);
+    }, 3200 + Math.random() * 2200);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Pupil / gaze tracking — RAF-gated direct style.transform, zero React re-renders
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!faceRef.current) return;
+      const rect = faceRef.current.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = Math.max(-3.5, Math.min(3.5, (e.clientX - cx) / 48));
+      const dy = Math.max(-2.6, Math.min(2.6, (e.clientY - cy) / 48));
+      eyeOffsetRef.current = { x: dx, y: dy };
+      if (!eyeRafRef.current) {
+        eyeRafRef.current = requestAnimationFrame(() => {
+          eyeRafRef.current = 0;
+          const { x, y } = eyeOffsetRef.current;
+          if (eyebrowGroupRef.current) {
+            eyebrowGroupRef.current.style.transform = `translate(${x * 0.4}px, ${y * 0.4}px)`;
+          }
+          if (eyeCapsuleGroupRef.current) {
+            eyeCapsuleGroupRef.current.style.transform = `translate(${x}px, ${y}px)`;
+          }
+        });
+      }
+    };
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (eyeRafRef.current) cancelAnimationFrame(eyeRafRef.current);
+    };
+  }, []);
+
+  // Real-time lip sync animation loop when speaking or jaw energy is active
+  useEffect(() => {
+    if (!isSpeaking && jawEnergy <= 0.02) {
+      setSpeechAperture(0);
+      return;
+    }
+    let animId: number;
+    let t = 0;
+    const loop = () => {
+      t += 0.28;
+      // Synthesize organic talking cadence modulating with jawEnergy or sinusoidal speech rhythm
+      const wave = Math.sin(t * 1.6) * 0.4 + Math.sin(t * 2.9) * 0.3 + 0.55;
+      const energyMod = jawEnergy > 0.05 ? jawEnergy * 2.8 : wave;
+      setSpeechAperture(Math.max(0.2, Math.min(1.0, energyMod)));
+      animId = requestAnimationFrame(loop);
+    };
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [isSpeaking, jawEnergy]);
+
+  const handleFaceClick = (e: React.MouseEvent) => {
+    if (!interactive) return;
+    e.stopPropagation();
+    if (pokeTimerRef.current) clearTimeout(pokeTimerRef.current);
+    const next = pokeCount + 1;
+    setPokeCount(next);
+    playMochiPoke(next >= 3 ? 3 : 1);
+    onPoke?.(next);
+    pokeTimerRef.current = setTimeout(() => setPokeCount(0), 2200);
+  };
+
+  const scale = size / 64;
+  const mouthOpen = isSpeaking || jawEnergy > 0.05 ? speechAperture : 0;
+  const isAnnoyed = pokeCount >= 2;
+
+  // Procedural walking kinematics
+  const legStride = isWalking ? Math.sin(walkPhase) * 4.5 * scale : 0;
+  const legLift = isWalking ? Math.abs(Math.sin(walkPhase)) * 3.5 * scale : 0;
+  const otherLift = isWalking ? Math.abs(Math.sin(walkPhase + Math.PI)) * 3.5 * scale : 0;
+  const bodyBob = isWalking ? Math.abs(Math.sin(walkPhase * 2)) * 2.2 * scale : 0;
+  const bodyTilt = isWalking ? Math.sin(walkPhase) * 3 : 0;
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        flexDirection: "column",
+        alignItems: "center",
+      }}
+    >
+      <div
+        ref={faceRef}
+        onClick={handleFaceClick}
+        style={{
+          position: "relative",
+          width: size,
+          height: size,
+          borderRadius: Math.round(18 * scale),
+          background: "radial-gradient(circle at 50% 25%, #181c28 0%, #07080d 100%)",
+          border: isAnnoyed ? "1px solid rgba(244, 63, 94, 0.4)" : "1px solid rgba(255, 255, 255, 0.18)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: isAnnoyed
+            ? "0 0 16px rgba(244,63,94,0.4)"
+            : "inset 0 1px 1px rgba(255, 255, 255, 0.22), 0 8px 24px rgba(0, 0, 0, 0.65)",
+          cursor: interactive ? "pointer" : "default",
+          flexShrink: 0,
+          overflow: "visible",
+          transform: isHovered
+            ? "scale(1.04)"
+            : isWalking
+            ? `translateY(${-bodyBob}px) rotate(${bodyTilt}deg)`
+            : "scale(1)",
+          transition: isWalking ? "none" : "transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease",
+        }}
+        title="Cute Hina Robot Notch Face"
+      >
+      <svg
+        width={Math.round(52 * scale)}
+        height={Math.round(52 * scale)}
+        viewBox="0 0 64 64"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ overflow: "visible" }}
+      >
+        {/* Arched Expressive Eyebrows — RAF-driven transform via eyebrowGroupRef */}
+        <g
+          ref={eyebrowGroupRef}
+          style={{
+            transform: `translate(0px, ${mood === "thinking" ? -1.5 : 0}px)`,
+            transition: "transform 0.08s ease-out",
+          }}
+        >
+          {/* Left Eyebrow: curved stroke */}
+          <path
+            d={isAnnoyed ? "M 16 20 L 27 15" : mood === "thinking" ? "M 16 15 Q 21 11 28 14" : "M 16 17 Q 21 12 28 15"}
+            stroke="#f1f5f9"
+            strokeWidth="3.2"
+            strokeLinecap="round"
+            fill="none"
+            filter="drop-shadow(0 1px 2px rgba(0,0,0,0.8))"
+          />
+          {/* Right Eyebrow: curved stroke */}
+          <path
+            d={isAnnoyed ? "M 48 20 L 37 15" : "M 36 15 Q 43 12 48 17"}
+            stroke="#f1f5f9"
+            strokeWidth="3.2"
+            strokeLinecap="round"
+            fill="none"
+            filter="drop-shadow(0 1px 2px rgba(0,0,0,0.8))"
+          />
+        </g>
+
+        {/* Capsule Glowing Eyes — RAF-driven transform via eyeCapsuleGroupRef */}
+        <g
+          ref={eyeCapsuleGroupRef}
+          style={{
+            transform: "translate(0px, 0px)",
+            transition: "transform 0.05s linear",
+          }}
+        >
+          {/* Left Capsule Eye: tilted slightly outwards at top */}
+          <g
+            transform={`translate(21.5, 33) scale(1, ${blink ? 0.08 : 1}) rotate(-3.5) translate(-21.5, -33)`}
+            style={{ transformOrigin: "21.5px 33px", transition: "transform 0.08s ease" }}
+          >
+            <rect
+              x="16"
+              y="20"
+              width="11"
+              height="25"
+              rx="5.5"
+              fill="#ffffff"
+              filter="drop-shadow(0 0 4px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 10px rgba(0, 212, 255, 0.7))"
+            />
+          </g>
+
+          {/* Right Capsule Eye: tilted slightly outwards at top */}
+          <g
+            transform={`translate(42.5, 33) scale(1, ${blink ? 0.08 : 1}) rotate(3.5) translate(-42.5, -33)`}
+            style={{ transformOrigin: "42.5px 33px", transition: "transform 0.08s ease" }}
+          >
+            <rect
+              x="37"
+              y="20"
+              width="11"
+              height="25"
+              rx="5.5"
+              fill="#ffffff"
+              filter="drop-shadow(0 0 4px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 10px rgba(0, 212, 255, 0.7))"
+            />
+          </g>
+        </g>
+
+        {/* Real-time Lip-Synced Mouth with Teeth and Coral Lips */}
+        {mouthOpen > 0.05 ? (
+          <g transform={`translate(32, 51) scale(1, ${0.4 + mouthOpen * 0.75}) translate(-32, -51)`}>
+            {/* Dark inner cavity */}
+            <path
+              d="M 23 49 C 23 49 26 57.5 32 57.5 C 38 57.5 41 49 41 49 Z"
+              fill="#660708"
+            />
+            {/* Upper Teeth Strip */}
+            <path
+              d="M 24.5 49.5 L 39.5 49.5 C 38.5 52 36.5 53 32 53 C 27.5 53 25.5 52 24.5 49.5 Z"
+              fill="#ffffff"
+            />
+            {/* Coral Lip Outline */}
+            <path
+              d="M 22.5 49 C 22.5 49 26 58 32 58 C 38 58 41.5 49 41.5 49 C 37 50.8 27 50.8 22.5 49 Z"
+              stroke="#ff4d6d"
+              strokeWidth="2.2"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </g>
+        ) : (
+          <g>
+            {/* Cute gentle smile with hint of coral and teeth */}
+            <path
+              d="M 24.5 50.5 Q 32 55.5 39.5 50.5"
+              stroke="#ff4d6d"
+              strokeWidth="2.6"
+              strokeLinecap="round"
+              fill="none"
+              filter="drop-shadow(0 1px 2px rgba(0,0,0,0.5))"
+            />
+            <path
+              d="M 27 51 Q 32 53.5 37 51"
+              stroke="#ffffff"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              fill="none"
+              opacity="0.9"
+            />
+          </g>
+        )}
+      </svg>
+      {isWalking && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: -5 * scale,
+            left: 0,
+            right: 0,
+            display: "flex",
+            justifyContent: "center",
+            gap: 12 * scale,
+            pointerEvents: "none",
+          }}
+        >
+          {/* Left Robot Foot Pad */}
+          <div
+            style={{
+              width: 8 * scale,
+              height: 4 * scale,
+              borderRadius: 3 * scale,
+              background: "#00d4ff",
+              boxShadow: "0 0 6px #00d4ff",
+              transform: `translate(${legStride}px, ${-legLift}px)`,
+            }}
+          />
+          {/* Right Robot Foot Pad */}
+          <div
+            style={{
+              width: 8 * scale,
+              height: 4 * scale,
+              borderRadius: 3 * scale,
+              background: "#00d4ff",
+              boxShadow: "0 0 6px #00d4ff",
+              transform: `translate(${-legStride}px, ${-otherLift}px)`,
+            }}
+          />
+        </div>
+      )}
+    </div>
+    </div>
+  );
+};
+
 export const SOUND_BENCH_PADS: Array<{ type: UiSoundType; label: string; desc: string }> = [
   { type: "click", label: "Tactile Click", desc: "Mechanical micro-switch" },
   { type: "buttonPress", label: "Button Press", desc: "Deeper latch click" },
@@ -467,9 +815,16 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   onToggleWalk,
   onOpenRunway,
   inlineInTopBar = false,
+  isSpeaking = false,
+  jawEnergy = 0,
+  onStopSpeaking,
+  isLiveVoiceActive = false,
+  onToggleLiveVoice,
+  messages = [],
+  conversationId,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "stripe" | "upload" | "motion" | "components" | "audio">("agent");
+  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "watcher" | "stripe" | "upload" | "motion" | "components" | "audio">("agent");
   const [selectedComponentIndex, setSelectedComponentIndex] = useState(0);
   const [soundActive, setSoundActive] = useState(() => isSoundEnabled());
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -481,6 +836,134 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [walkCadence, setWalkCadence] = useState(1.0);
+
+  // Mascot Style: "robot" (talking robot face from video) vs "mochi" (coucou mascot)
+  const [mascotStyle, setMascotStyle] = useState<"robot" | "mochi">(() => {
+    try {
+      return (localStorage.getItem("hinaa-mascot-avatar-style") as "robot" | "mochi") || "robot";
+    } catch {
+      return "robot";
+    }
+  });
+
+  const toggleMascotStyle = () => {
+    const next = mascotStyle === "robot" ? "mochi" : "robot";
+    setMascotStyle(next);
+    try {
+      localStorage.setItem("hinaa-mascot-avatar-style", next);
+    } catch {}
+    playUiSound("pop");
+  };
+
+  // Screen Guardian Live Vision Hook
+  const liveVision = useLiveVision(conversationId);
+  const [showGuardianCard, setShowGuardianCard] = useState(false);
+  const [taskFilter, setTaskFilter] = useState<"steps" | "changes" | "commands" | "problems" | "all">("steps");
+  const [isCopied, setIsCopied] = useState(false);
+  const [analyzingScreen, setAnalyzingScreen] = useState(false);
+  const [screenAnalysisResult, setScreenAnalysisResult] = useState<string | null>(null);
+
+  // Autonomous Dev Tasks Interactive State (SnapInsta Reference)
+  const [devTasks, setDevTasks] = useState<Array<{
+    id: string;
+    type: "RUN" | "EDIT" | "CMD" | "TEST";
+    target: string;
+    status: "pending" | "running" | "done" | "error";
+    duration?: string;
+    tryCount?: number;
+    errorDetail?: string;
+  }>>(() => {
+    try {
+      const saved = localStorage.getItem("hinaa-autonomous-dev-tasks");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      { id: "task-1", type: "RUN", target: "Run the tests", status: "error", tryCount: 2, errorDetail: "fixed on try 2" },
+      { id: "task-2", type: "EDIT", target: "src/billing.ts", status: "done" },
+      { id: "task-3", type: "RUN", target: "Run the tests try 2", status: "done", duration: "650ms", tryCount: 2 },
+      { id: "task-4", type: "RUN", target: "Push to main", status: "done", duration: "800ms" },
+    ];
+  });
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTaskText, setEditingTaskText] = useState("");
+  const [isAddingTask, setIsAddingTask] = useState(false);
+  const [newTaskTarget, setNewTaskTarget] = useState("");
+  const [newTaskType, setNewTaskType] = useState<"RUN" | "EDIT" | "CMD" | "TEST">("RUN");
+  const [autoWatchActive, setAutoWatchActive] = useState(false);
+
+  const saveDevTasks = (tasks: typeof devTasks) => {
+    setDevTasks(tasks);
+    try {
+      localStorage.setItem("hinaa-autonomous-dev-tasks", JSON.stringify(tasks));
+    } catch {}
+  };
+
+  const handleToggleTaskStatus = (id: string) => {
+    playUiSound("click");
+    saveDevTasks(
+      devTasks.map((t) => {
+        if (t.id !== id) return t;
+        const nextStatus =
+          t.status === "done" ? "pending" : t.status === "error" ? "running" : t.status === "running" ? "done" : "done";
+        return { ...t, status: nextStatus };
+      })
+    );
+  };
+
+  const handleRunTask = (id: string) => {
+    playUiSound("buttonPress");
+    saveDevTasks(devTasks.map((t) => (t.id === id ? { ...t, status: "running" } : t)));
+    setTimeout(() => {
+      saveDevTasks(
+        devTasks.map((t) =>
+          t.id === id ? { ...t, status: "done", duration: "540ms", errorDetail: undefined } : t
+        )
+      );
+      playUiSound("success");
+    }, 850);
+  };
+
+  const handleDeleteTask = (id: string) => {
+    playUiSound("deny");
+    saveDevTasks(devTasks.filter((t) => t.id !== id));
+  };
+
+  const handleSaveEditedTask = (id: string) => {
+    if (!editingTaskText.trim()) return;
+    saveDevTasks(devTasks.map((t) => (t.id === id ? { ...t, target: editingTaskText.trim() } : t)));
+    setEditingTaskId(null);
+    setEditingTaskText("");
+    playUiSound("pop");
+  };
+
+  const handleAddNewTask = () => {
+    if (!newTaskTarget.trim()) return;
+    const item = {
+      id: `task-${Date.now()}`,
+      type: newTaskType,
+      target: newTaskTarget.trim(),
+      status: "pending" as const,
+    };
+    saveDevTasks([...devTasks, item]);
+    setNewTaskTarget("");
+    setIsAddingTask(false);
+    playUiSound("success");
+  };
+
+  // Listen for open-dev-tasks event from DesktopWalkingPet
+  useEffect(() => {
+    const handleOpenTasks = () => {
+      setIsExpanded(true);
+      setActiveTab("agent");
+    };
+    window.addEventListener("hinaa:open-dev-tasks", handleOpenTasks);
+    return () => window.removeEventListener("hinaa:open-dev-tasks", handleOpenTasks);
+  }, []);
+
+  // Sleeko Motion & Korus Desktop Card States (AQP7 & AQO9 References)
+  const [sleekoStep, setSleekoStep] = useState<"intro" | "problem" | "usecase" | "cta">("usecase");
+  const [showKorusCalculation, setShowKorusCalculation] = useState(true);
+  const [showDizzyToast, setShowDizzyToast] = useState(false);
 
   // Island Walk Locomotion state
   const [islandWalkX, setIslandWalkX] = useState(0);
@@ -539,6 +1022,30 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   }, [isWalking, walkCadence, isExpanded, islandWalkDir]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Click outside & Escape key dismiss for expanded island
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsExpanded(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsExpanded(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isExpanded]);
 
   // Sync sound setting
   useEffect(() => {
@@ -822,13 +1329,30 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
       ref={containerRef}
       style={{
         position: inlineInTopBar ? "relative" : "fixed",
-        top: inlineInTopBar ? 0 : 8,
+        top: inlineInTopBar ? 0 : isExpanded ? 12 : 8,
         left: inlineInTopBar ? "auto" : "50%",
         transform: inlineInTopBar ? "none" : "translateX(-50%)",
-        zIndex: 9999,
+        zIndex: isExpanded ? 99999 : 9999,
         fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif",
       }}
     >
+      {/* ── Backdrop Scrim when Expanded ──────────────────── */}
+      {isExpanded && !inlineInTopBar && (
+        <div
+          onClick={() => setIsExpanded(false)}
+          style={{
+            position: "fixed",
+            top: "-100vh",
+            left: "-100vw",
+            width: "300vw",
+            height: "300vh",
+            background: "rgba(0, 0, 0, 0.45)",
+            backdropFilter: "blur(2px)",
+            WebkitBackdropFilter: "blur(2px)",
+            zIndex: -1,
+          }}
+        />
+      )}
       <motion.div
         layout
         transition={{ type: "spring", stiffness: 420, damping: 32 }}
@@ -933,6 +1457,47 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             >
               <Plus size={15} />
             </button>
+
+            {/* Mascot Toggle Button (Robot vs Mochi) */}
+            <button
+              type="button"
+              onClick={toggleMascotStyle}
+              title={`Toggle Avatar Style (Currently: ${mascotStyle === "robot" ? "Talking Robot Face" : "Coucou Mochi"})`}
+              style={{
+                background: "transparent",
+                border: "none",
+                fontSize: 13,
+                cursor: "pointer",
+                padding: "2px 4px",
+                display: "flex",
+                alignItems: "center",
+                borderRadius: 8,
+              }}
+            >
+              <span>{mascotStyle === "robot" ? "🤖" : "☁️"}</span>
+            </button>
+
+            {/* Screen Guardian Quick Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                playUiSound("switch");
+                setShowGuardianCard((v) => !v);
+              }}
+              title="Toggle Screen Guardian Focus HUD"
+              style={{
+                background: showGuardianCard || liveVision.isActive ? "rgba(6,182,212,0.2)" : "transparent",
+                border: "none",
+                color: showGuardianCard || liveVision.isActive ? "#06b6d4" : isDark ? "#cbd5e1" : "#475569",
+                cursor: "pointer",
+                padding: "4px 6px",
+                display: "flex",
+                alignItems: "center",
+                borderRadius: 8,
+              }}
+            >
+              <Eye size={15} />
+            </button>
           </div>
 
           {/* Center Mascot & Live Status Pill (When Collapsed) */}
@@ -953,25 +1518,37 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                 transition: "transform 0.05s linear",
               }}
             >
-              {/* Miniature Coucou Mascot in collapsed notch pill */}
-              <CoucouMascot
-                size={26}
-                mood={
-                  isDraggingFile
-                    ? "eating"
-                    : pendingApproval
-                    ? "alert"
-                    : isThinking
-                    ? "thinking"
-                    : isWalking
-                    ? "walking"
-                    : "happy"
-                }
-                isWalking={isWalking}
-                walkPhase={islandWalkPhase}
-                direction={islandWalkDir}
-                interactive={true}
-              />
+              {/* Mascot in collapsed notch pill */}
+              {mascotStyle === "robot" ? (
+                <CuteRobotFace
+                  size={28}
+                  mood={isThinking ? "thinking" : isSpeaking ? "speaking" : liveVision.isActive ? "observing" : "idle"}
+                  isSpeaking={isSpeaking}
+                  jawEnergy={jawEnergy}
+                  isWalking={isWalking}
+                  walkPhase={islandWalkPhase}
+                  interactive={true}
+                />
+              ) : (
+                <CoucouMascot
+                  size={26}
+                  mood={
+                    isDraggingFile
+                      ? "eating"
+                      : pendingApproval
+                      ? "alert"
+                      : isThinking
+                      ? "thinking"
+                      : isWalking
+                      ? "walking"
+                      : "happy"
+                  }
+                  isWalking={isWalking}
+                  walkPhase={islandWalkPhase}
+                  direction={islandWalkDir}
+                  interactive={true}
+                />
+              )}
               <span
                 style={{
                   fontSize: 12,
@@ -983,6 +1560,10 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               >
                 {isDraggingFile
                   ? "Drop File to Feed Hina"
+                  : isSpeaking
+                  ? "Hina Speaking..."
+                  : liveVision.isActive
+                  ? "Guardian Watching Screen..."
                   : isThinking
                   ? "Hina Thinking..."
                   : isAgentActive
@@ -998,8 +1579,8 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   width: 6,
                   height: 6,
                   borderRadius: 3,
-                  background: isWalking ? "#ec4899" : isThinking ? "#00d4ff" : "#10b981",
-                  boxShadow: `0 0 6px ${isWalking ? "#ec4899" : isThinking ? "#00d4ff" : "#10b981"}`,
+                  background: isSpeaking ? "#ec4899" : liveVision.isActive ? "#06b6d4" : isWalking ? "#ec4899" : isThinking ? "#00d4ff" : "#10b981",
+                  boxShadow: `0 0 6px ${isSpeaking ? "#ec4899" : liveVision.isActive ? "#06b6d4" : isWalking ? "#ec4899" : isThinking ? "#00d4ff" : "#10b981"}`,
                 }}
               />
             </div>
@@ -1079,18 +1660,78 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               transition={{ duration: 0.18, ease: "easeOut" }}
               style={{ display: "flex", gap: 16, paddingTop: 4 }}
             >
-              {/* Left Column: Interactive Coucou Mascot */}
+              {/* Left Column: Interactive Mascot (Robot or Coucou) */}
               <div
-                onClick={() => {
-                  playUiSound("pop");
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
                 }}
-                title="Hina Mascot Avatar"
               >
-                <CoucouMascot
-                  mood={isDraggingFile ? "eating" : pendingApproval ? "alert" : isThinking ? "thinking" : "happy"}
-                  isHovered={isHovered}
-                  size={64}
-                />
+                <div
+                  onClick={() => {
+                    playUiSound("pop");
+                  }}
+                  title="Hina Mascot Avatar"
+                >
+                  {mascotStyle === "robot" ? (
+                    <CuteRobotFace
+                      mood={
+                        isThinking
+                          ? "thinking"
+                          : isSpeaking
+                          ? "speaking"
+                          : liveVision.isActive
+                          ? "observing"
+                          : "happy"
+                      }
+                      isHovered={isHovered}
+                      size={68}
+                      isSpeaking={isSpeaking}
+                      jawEnergy={jawEnergy}
+                      isWalking={isWalking}
+                      walkPhase={islandWalkPhase}
+                    />
+                  ) : (
+                    <CoucouMascot
+                      mood={
+                        isDraggingFile
+                          ? "eating"
+                          : pendingApproval
+                          ? "alert"
+                          : isThinking
+                          ? "thinking"
+                          : "happy"
+                      }
+                      isHovered={isHovered}
+                      size={64}
+                    />
+                  )}
+                </div>
+
+                {/* Mascot Switcher Toggle */}
+                <button
+                  type="button"
+                  onClick={toggleMascotStyle}
+                  title={`Switch to ${mascotStyle === "robot" ? "Mochi Mascot" : "Talking Robot Face"}`}
+                  style={{
+                    background: "rgba(255, 255, 255, 0.08)",
+                    border: "1px solid rgba(255, 255, 255, 0.16)",
+                    borderRadius: 9999,
+                    padding: "2px 8px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: isDark ? "#cbd5e1" : "#475569",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span>{mascotStyle === "robot" ? "🤖 Robot" : "☁️ Mochi"}</span>
+                </button>
               </div>
 
               {/* Center & Right Column: Interactive Deck */}
@@ -1119,6 +1760,30 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   >
                     <Cpu size={12} />
                     <span>Agent & CLI</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playUiSound("click");
+                      setActiveTab("watcher");
+                    }}
+                    style={{
+                      background: activeTab === "watcher" ? "rgba(6, 182, 212, 0.15)" : "transparent",
+                      border: activeTab === "watcher" ? "1px solid rgba(6, 182, 212, 0.4)" : "1px solid transparent",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: activeTab === "watcher" ? "#06b6d4" : isDark ? "#cbd5e1" : "#475569",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Monitor size={12} />
+                    <span>Screen Watcher</span>
                   </button>
 
                   <button
@@ -1427,50 +2092,405 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                     )}
                   </div>
                 ) : activeTab === "motion" ? (
-                  /* 2. Adobe 3D Motion Edit Controls */
+                  /* ── 2. Sleeko Motion Architecture & 3D Gait Controls (AQP7 & AQO9 References) ── */
                   <div
                     style={{
-                      background: "rgba(236, 72, 153, 0.08)",
+                      background: isDark ? "rgba(236, 72, 153, 0.08)" : "rgba(236, 72, 153, 0.05)",
                       border: "1px solid rgba(236, 72, 153, 0.3)",
                       borderRadius: 14,
                       padding: "10px 14px",
                       display: "flex",
                       flexDirection: "column",
-                      gap: 8,
+                      gap: 10,
                     }}
                   >
+                    {/* Header + Locomotion toggles */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#ec4899" }}>
-                        3D Motion & Locomotion Controls
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          playUiSound("click");
-                          onToggleWalk?.();
-                        }}
-                        style={{
-                          background: isWalking ? "#ec4899" : "rgba(255,255,255,0.08)",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: 8,
-                          padding: "4px 10px",
-                          fontSize: 11,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        <Footprints size={12} />
-                        <span>{isWalking ? "Stop Walking" : "Walk / Roam Runway"}</span>
-                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Footprints size={14} color="#ec4899" />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#ec4899" }}>
+                          Sleeko Motion & Autonomous Gait Engine
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playUiSound("click");
+                            onToggleWalk?.();
+                          }}
+                          style={{
+                            background: isWalking ? "#ec4899" : "rgba(255,255,255,0.08)",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "4px 10px",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Footprints size={11} />
+                          <span>{isWalking ? "Stop Walking" : "Walk / Roam"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playUiSound("pop");
+                            window.dispatchEvent(new CustomEvent("hinaa:toggle-desktop-pet"));
+                          }}
+                          title="Spawn / dismiss on-screen walking pet (Dex / Robot)"
+                          style={{
+                            background: "rgba(0, 212, 255, 0.15)",
+                            border: "1px solid rgba(0, 212, 255, 0.4)",
+                            color: "#00d4ff",
+                            borderRadius: 8,
+                            padding: "4px 8px",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Sparkles size={11} />
+                          <span>Desktop Pet</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: isDark ? "#e2e8f0" : "#1e293b" }}>
-                      <span>Gait Cadence: {walkCadence}x</span>
-                      <div style={{ display: "flex", gap: 6 }}>
+                    {/* ── Sleeko Segmented Navigation Controller (Video AQP79YnuIB) ── */}
+                    <div
+                      style={{
+                        position: "relative",
+                        display: "grid",
+                        gridTemplateColumns: "repeat(4, 1fr)",
+                        gap: 4,
+                        background: "rgba(0, 0, 0, 0.4)",
+                        borderRadius: 10,
+                        padding: 3,
+                        border: "1px solid rgba(255, 255, 255, 0.08)",
+                      }}
+                    >
+                      {[
+                        { id: "intro", label: "Intro" },
+                        { id: "problem", label: "Problem" },
+                        { id: "usecase", label: "Use Case" },
+                        { id: "cta", label: "Call to Action" },
+                      ].map((tab) => {
+                        const isActive = sleekoStep === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => {
+                              playUiSound("click");
+                              setSleekoStep(tab.id as any);
+                            }}
+                            style={{
+                              position: "relative",
+                              background: isActive ? "#ffffff" : "transparent",
+                              color: isActive ? "#000000" : isDark ? "#94a3b8" : "#64748b",
+                              border: "none",
+                              borderRadius: 7,
+                              padding: "5px 4px",
+                              fontSize: 11,
+                              fontWeight: isActive ? 750 : 550,
+                              cursor: "pointer",
+                              textAlign: "center",
+                              transition: "all 0.18s ease",
+                              zIndex: 1,
+                            }}
+                          >
+                            <span>{tab.label}</span>
+                            {/* Neon Laser Flare Light beneath active button (matching video AQP7) */}
+                            {isActive && (
+                              <motion.div
+                                layoutId="sleeko-laser-flare"
+                                style={{
+                                  position: "absolute",
+                                  bottom: -3,
+                                  left: "25%",
+                                  right: "25%",
+                                  height: 3,
+                                  background: "#a855f7",
+                                  boxShadow: "0 0 10px #c084fc, 0 0 20px #a855f7",
+                                  borderRadius: 2,
+                                }}
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* ── Sleeko Spring Popup Motion Card ── */}
+                    <motion.div
+                      key={sleekoStep}
+                      initial={{ opacity: 0, y: 15, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 420, damping: 28 }}
+                      style={{
+                        background: isDark ? "rgba(10, 13, 22, 0.75)" : "#ffffff",
+                        border: "1px solid rgba(255, 255, 255, 0.12)",
+                        borderRadius: 12,
+                        padding: "10px 12px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                        boxShadow: "0 12px 30px rgba(0,0,0,0.45)",
+                        backdropFilter: "blur(16px)",
+                      }}
+                    >
+                      {sleekoStep === "usecase" ? (
+                        <>
+                          <div style={{ fontSize: 11, color: isDark ? "#f1f5f9" : "#1e293b", lineHeight: 1.45, fontWeight: 450 }}>
+                            Hello, how do I need your help? I am home alone, and I want pizza. Could you tell me how to cook pizza?
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => playUiSound("pop")}
+                                style={{
+                                  background: "rgba(255,255,255,0.08)",
+                                  border: "1px solid rgba(255,255,255,0.15)",
+                                  borderRadius: 9999,
+                                  padding: "2px 8px",
+                                  fontSize: 10,
+                                  fontWeight: 650,
+                                  color: "#cbd5e1",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                }}
+                              >
+                                <Plus size={10} />
+                                <span>Attach</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  playUiSound("buttonPress");
+                                  onSendMessage?.("Deep Search pizza recipes and autonomous culinary steps");
+                                }}
+                                style={{
+                                  background: "rgba(168, 85, 247, 0.15)",
+                                  border: "1px solid rgba(168, 85, 247, 0.35)",
+                                  borderRadius: 9999,
+                                  padding: "2px 8px",
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#c084fc",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                }}
+                              >
+                                <Sparkles size={10} />
+                                <span>Deep Search</span>
+                              </button>
+                            </div>
+                            <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>✦ Ready</span>
+                          </div>
+                        </>
+                      ) : sleekoStep === "problem" ? (
+                        <div style={{ textAlign: "center", padding: "12px 0" }}>
+                          <div style={{ fontSize: 16, fontWeight: 750, color: "#a855f7", letterSpacing: "-0.02em" }}>
+                            exciting to figure out.
+                          </div>
+                          <div style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b", marginTop: 4 }}>
+                            Continuous reasoning loop resolves complex multi-step bottlenecks autonomously.
+                          </div>
+                        </div>
+                      ) : sleekoStep === "intro" ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: "#00d4ff", textTransform: "uppercase" }}>
+                            Product Details:
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#fff" : "#000" }}>
+                            HINAA Autonomous Operating Companion
+                          </span>
+                          <span style={{ fontSize: 10, color: isDark ? "#cbd5e1" : "#475569" }}>
+                            Vision guardian · 3D VRM Locomotion · Real-Time Voice · Instant Barge-in
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 11, fontWeight: 650, color: "#f1f5f9" }}>
+                            Ready to orchestrate your desktop workspace?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              playUiSound("send");
+                              onOpenRunway?.();
+                            }}
+                            style={{
+                              background: "#ec4899",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: 6,
+                              padding: "4px 10px",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Get Started
+                          </button>
+                        </div>
+                      )}
+                    </motion.div>
+
+                    {/* ── Korus Quote Calculation & Integrations (Video AQO9) ── */}
+                    {showKorusCalculation && (
+                      <div
+                        style={{
+                          background: "rgba(0, 0, 0, 0.4)",
+                          border: "1px solid rgba(255, 255, 255, 0.08)",
+                          borderRadius: 10,
+                          padding: "8px 10px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                background: "rgba(255,255,255,0.08)",
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: 6,
+                                padding: "1px 6px",
+                                fontSize: 10,
+                                color: "#cbd5e1",
+                              }}
+                            >
+                              <FileText size={10} color="#f43f5e" />
+                              <span>quote.pdf</span>
+                            </span>
+                            <span style={{ fontSize: 10, color: "#94a3b8" }}>What's the total?</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              playUiSound("mochiDizzy");
+                              setShowDizzyToast((v) => !v);
+                            }}
+                            title="Preview Rate Limit Dizzy Mascot Toast (Video AQO9)"
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#ec4899",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {showDizzyToast ? "Hide Alert" : "Simulate Alert"}
+                          </button>
+                        </div>
+
+                        <div style={{ fontSize: 11, fontWeight: 550, color: "#f8fafc", lineHeight: 1.4 }}>
+                          The total is <span style={{ color: "#10b981", fontWeight: 700 }}>€1,240 excl. VAT</span> (€1,488 incl. VAT) for Atelier Brun — valid until October 30.
+                        </div>
+
+                        {/* 4 App Integration Tiles (Stripe, GitHub, n8n, Vercel) */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginTop: 2 }}>
+                          {[
+                            { name: "Stripe", color: "#635bff" },
+                            { name: "GitHub", color: "#f43f5e" },
+                            { name: "n8n", color: "#f97316" },
+                            { name: "Vercel", color: "#a855f7" },
+                          ].map((item) => (
+                            <div
+                              key={item.name}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                background: "rgba(255,255,255,0.05)",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                borderRadius: 6,
+                                padding: "3px 6px",
+                                fontSize: 10,
+                                color: "#e2e8f0",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: 3, background: item.color }} />
+                              <span>{item.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dizzy Rate Limit Toast (matching video AQO9_f80) */}
+                    <AnimatePresence>
+                      {showDizzyToast && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          style={{
+                            background: "rgba(20, 10, 18, 0.94)",
+                            border: "1px solid rgba(244, 63, 94, 0.4)",
+                            borderRadius: 10,
+                            padding: "8px 12px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+                          }}
+                        >
+                          {/* Dizzy Mascot Face with Spiral Eyes @ @ */}
+                          <div
+                            style={{
+                              width: 32,
+                              height: 28,
+                              borderRadius: 8,
+                              background: "#ffffff",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              fontWeight: 900,
+                              fontSize: 12,
+                              color: "#0f172a",
+                            }}
+                          >
+                            @ @
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span style={{ fontSize: 11, fontWeight: 750, color: "#fff" }}>
+                              Too many hits at once.
+                            </span>
+                            <span style={{ fontSize: 10, color: "#cbd5e1" }}>
+                              Give me a sec — back to work in three seconds.
+                            </span>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Gait Cadence Speed row */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10, color: isDark ? "#cbd5e1" : "#475569" }}>
+                      <span>Locomotion Cadence: {walkCadence}x</span>
+                      <div style={{ display: "flex", gap: 4 }}>
                         {[0.5, 1.0, 1.5, 2.0].map((spd) => (
                           <button
                             key={spd}
@@ -1484,7 +2504,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                               border: "none",
                               borderRadius: 4,
                               padding: "2px 6px",
-                              fontSize: 10,
+                              fontSize: 9,
                               fontWeight: 650,
                               color: walkCadence === spd ? "#fff" : isDark ? "#94a3b8" : "#64748b",
                               cursor: "pointer",
@@ -1494,29 +2514,6 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           </button>
                         ))}
                       </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          playUiSound("whoosh");
-                          onOpenRunway?.();
-                        }}
-                        style={{
-                          flex: 1,
-                          background: "rgba(255,255,255,0.08)",
-                          border: "1px solid rgba(255,255,255,0.15)",
-                          color: isDark ? "#fff" : "#0f172a",
-                          borderRadius: 8,
-                          padding: "6px",
-                          fontSize: 11,
-                          fontWeight: 650,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Open Runway 3D Showroom
-                      </button>
                     </div>
                   </div>
                 ) : activeTab === "stripe" ? (
@@ -1829,31 +2826,355 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       ))}
                     </div>
                   </div>
-                ) : (
-                  /* 4. Real Agent CLI Step Execution Monitor */
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                ) : activeTab === "watcher" ? (
+                  /* ── SCREEN GUARDIAN & LIVE VISION HUB ── */
+                  <div
+                    style={{
+                      background: isDark ? "rgba(6, 182, 212, 0.08)" : "rgba(6, 182, 212, 0.05)",
+                      border: "1px solid rgba(6, 182, 212, 0.3)",
+                      borderRadius: 14,
+                      padding: "10px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
+                  >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>
-                          ✦ {companionName} Agent Runtime
+                        <Monitor size={14} color="#06b6d4" />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#06b6d4" }}>
+                          Screen Guardian & Focus Shield
                         </span>
-                        <span
+                        {liveVision.isActive && (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 800,
+                              background: "rgba(16, 185, 129, 0.2)",
+                              color: "#10b981",
+                              border: "1px solid rgba(16, 185, 129, 0.4)",
+                              padding: "1px 6px",
+                              borderRadius: 9999,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 4,
+                            }}
+                          >
+                            <span style={{ width: 5, height: 5, borderRadius: 3, background: "#10b981" }} />
+                            <span>LIVE</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playUiSound("buttonPress");
+                            if (liveVision.isActive) {
+                              liveVision.stopCapture();
+                            } else {
+                              void liveVision.startScreenShare();
+                            }
+                          }}
                           style={{
+                            background: liveVision.isActive ? "#e11d48" : "#06b6d4",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "4px 10px",
                             fontSize: 10,
                             fontWeight: 700,
-                            color: isDark ? "#94a3b8" : "#64748b",
-                            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
-                            padding: "2px 6px",
-                            borderRadius: 6,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
                           }}
                         >
-                          {agentSteps.length > 0 ? `${agentSteps.length} steps` : companionState}
-                        </span>
+                          <Monitor size={11} />
+                          <span>{liveVision.isActive ? "Stop Watching" : "Watch Screen"}</span>
+                        </button>
                       </div>
                     </div>
 
+                    {/* Live Screen Preview / Telemetry */}
+                    <div
+                      style={{
+                        position: "relative",
+                        background: "rgba(0,0,0,0.5)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: 10,
+                        padding: 8,
+                        minHeight: 80,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {liveVision.latestFrame ? (
+                        <div style={{ position: "relative", width: "100%", maxHeight: 110, overflow: "hidden", borderRadius: 6 }}>
+                          <img
+                            src={liveVision.latestFrame}
+                            alt="Screen Capture"
+                            style={{ width: "100%", objectFit: "cover", borderRadius: 6 }}
+                          />
+                          {/* Animated Radar Scanning Line */}
+                          <motion.div
+                            animate={{ y: [0, 100, 0] }}
+                            transition={{ repeat: Infinity, duration: 2.4, ease: "linear" }}
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              right: 0,
+                              height: 2,
+                              background: "linear-gradient(90deg, transparent, #00d4ff, transparent)",
+                              boxShadow: "0 0 8px #00d4ff",
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 11, color: isDark ? "#cbd5e1" : "#475569", lineHeight: 1.4 }}>
+                          ✦ Hina observes active applications, code changes, and guards focus continuously. Click <strong>Watch Screen</strong> to stream display to Hina's vision engine.
+                        </div>
+                      )}
+
+                      {/* Detected Windows Pills */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", fontSize: 10 }}>
+                        <span style={{ color: "#10b981", fontWeight: 700 }}>Open Windows:</span>
+                        {["VS Code", "Chrome", "Terminal", "Claude", "Discord"].map((app) => (
+                          <span
+                            key={app}
+                            style={{
+                              background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                              border: "1px solid rgba(255,255,255,0.1)",
+                              borderRadius: 4,
+                              padding: "1px 5px",
+                              color: isDark ? "#f1f5f9" : "#1e293b",
+                            }}
+                          >
+                            {app}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Focus Shield Status Banner */}
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: "#10b981",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <Shield size={11} />
+                        <span>Focus Shield Active · Holding strong until 18:30 · Distraction shield enabled</span>
+                      </div>
+                    </div>
+
+                    {/* Actions Row */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            playUiSound("buttonPress");
+                            setAnalyzingScreen(true);
+                            try {
+                              const res = await liveVision.observeScreen("Observe active windows, open apps, and suggest tasks");
+                              if (res.observation) {
+                                setScreenAnalysisResult(res.observation);
+                                // Proactively add task into autonomous pipeline
+                                const autoTask = {
+                                  id: `auto-${Date.now()}`,
+                                  type: "EDIT" as const,
+                                  target: "Screen Observation: Verify changes & tests",
+                                  status: "pending" as const,
+                                  errorDetail: "Vision Verified",
+                                };
+                                saveDevTasks([autoTask, ...devTasks]);
+                                playUiSound("success");
+                              } else {
+                                setScreenAnalysisResult("Chrome, Discord, VS Code, Music and Claude are open. Focus shield holding strong.");
+                              }
+                            } catch {
+                              setScreenAnalysisResult("Chrome, Discord, VS Code, Music and Claude are open. Focus shield holding strong.");
+                            } finally {
+                              setAnalyzingScreen(false);
+                            }
+                          }}
+                          disabled={analyzingScreen}
+                          style={{
+                            background: "#06b6d4",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "5px 12px",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 5,
+                            opacity: analyzingScreen ? 0.6 : 1,
+                          }}
+                        >
+                          {analyzingScreen ? <Loader2 size={12} className="animate-spin" /> : <Scan size={12} />}
+                          <span>{analyzingScreen ? "Analyzing Screen..." : "⚡ Analyze Screen Now"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAutoWatchActive((v) => !v);
+                            playUiSound("switch");
+                          }}
+                          title="Continuous autonomous screen observation"
+                          style={{
+                            background: autoWatchActive ? "rgba(16, 185, 129, 0.2)" : "rgba(255,255,255,0.08)",
+                            border: autoWatchActive ? "1px solid #10b981" : "1px solid rgba(255,255,255,0.15)",
+                            color: autoWatchActive ? "#10b981" : isDark ? "#cbd5e1" : "#475569",
+                            borderRadius: 8,
+                            padding: "5px 10px",
+                            fontSize: 11,
+                            fontWeight: 650,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {autoWatchActive ? "● Auto-Watch: ON" : "○ Auto-Watch: OFF"}
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playUiSound("pop");
+                          setShowGuardianCard((v) => !v);
+                        }}
+                        style={{
+                          background: "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(255,255,255,0.15)",
+                          color: isDark ? "#cbd5e1" : "#475569",
+                          borderRadius: 8,
+                          padding: "5px 10px",
+                          fontSize: 11,
+                          fontWeight: 650,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {showGuardianCard ? "Hide Guardian Card" : "💬 Pop Guardian Card"}
+                      </button>
+                    </div>
+
+                    {/* Analysis Result Banner */}
+                    {screenAnalysisResult && (
+                      <div
+                        style={{
+                          background: "rgba(0, 212, 255, 0.1)",
+                          border: "1px solid rgba(0, 212, 255, 0.3)",
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          fontSize: 11,
+                          color: isDark ? "#e0f2fe" : "#0369a1",
+                        }}
+                      >
+                        {screenAnalysisResult}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* ── 4. Autonomous Dev Task HUD (SnapInsta Reference) ── */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* Header Metrics Row matching SnapInsta */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        borderBottom: "1px solid rgba(255,255,255,0.08)",
+                        paddingBottom: 4,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#64748b" }}>Summary 1</span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 750,
+                            color: "#ffffff",
+                            borderBottom: "2px solid #10b981",
+                            paddingBottom: 3,
+                          }}
+                        >
+                          Tools 6
+                        </span>
+                        <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#64748b" }}>Files 1</span>
+                      </div>
+                      <span style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b" }}>1 changed</span>
+                    </div>
+
+                    {/* Filter Chips matching SnapInsta */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, overflowX: "auto" }}>
+                      {[
+                        { id: "steps", label: "Key steps 4" },
+                        { id: "changes", label: "Changes 1" },
+                        { id: "commands", label: "Commands 3" },
+                        { id: "problems", label: "Problems 1" },
+                        { id: "all", label: "All 6" },
+                      ].map((chip) => (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => {
+                            playUiSound("click");
+                            setTaskFilter(chip.id as any);
+                          }}
+                          style={{
+                            background:
+                              taskFilter === chip.id
+                                ? "rgba(255, 255, 255, 0.16)"
+                                : isDark
+                                ? "rgba(255, 255, 255, 0.05)"
+                                : "rgba(0, 0, 0, 0.04)",
+                            border:
+                              taskFilter === chip.id
+                                ? "1px solid rgba(255, 255, 255, 0.25)"
+                                : "1px solid transparent",
+                            borderRadius: 9999,
+                            padding: "2px 8px",
+                            fontSize: 10,
+                            fontWeight: taskFilter === chip.id ? 700 : 500,
+                            color: taskFilter === chip.id ? "#ffffff" : isDark ? "#94a3b8" : "#64748b",
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {chip.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Timestamp & Goal Intent */}
+                    <div
+                      style={{
+                        borderLeft: "2px solid #f97316",
+                        paddingLeft: 8,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                      }}
+                    >
+                      <span style={{ fontSize: 9, color: isDark ? "#94a3b8" : "#64748b", fontFamily: "monospace" }}>
+                        10:10:52 PM
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 650, color: isDark ? "#f1f5f9" : "#0f172a" }}>
+                        Fix the VAT rounding, then push to main
+                      </span>
+                    </div>
+
                     {/* Pending Permission Approval Gate */}
-                    {pendingApproval ? (
+                    {pendingApproval && (
                       <div
                         style={{
                           background: "rgba(245, 158, 11, 0.15)",
@@ -1915,24 +3236,330 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           </button>
                         </div>
                       </div>
-                    ) : agentSteps.length > 0 ? (
-                      /* Live Agent Steps */
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 110, overflowY: "auto" }}>
-                        {agentSteps.map((s) => (
-                          <div
-                            key={s.id}
+                    )}
+
+                    {/* Dev Pipeline Steps List matching SnapInsta & Editable */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {/* Filtered Interactive Task Cards */}
+                      {devTasks
+                        .filter((task) => {
+                          if (taskFilter === "changes") return task.type === "EDIT";
+                          if (taskFilter === "commands") return task.type === "RUN" || task.type === "CMD";
+                          if (taskFilter === "problems") return task.status === "error";
+                          return true;
+                        })
+                        .map((task) => {
+                          const isEditing = editingTaskId === task.id;
+                          const isError = task.status === "error";
+                          const isDone = task.status === "done";
+                          const isRunning = task.status === "running";
+
+                          return (
+                            <div
+                              key={task.id}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                padding: isError ? "6px 10px" : "5px 10px",
+                                borderRadius: isError ? 8 : 6,
+                                border: isError ? "1.5px solid #22c55e" : isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #e2e8f0",
+                                boxShadow: isError ? "0 0 10px rgba(34, 197, 94, 0.35)" : "none",
+                                background: isError
+                                  ? "rgba(34, 197, 94, 0.05)"
+                                  : isDark
+                                  ? "rgba(255,255,255,0.03)"
+                                  : "rgba(0,0,0,0.02)",
+                                transition: "all 0.15s ease",
+                              }}
+                            >
+                              {/* Left: Type Badge & Target/Title */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, marginRight: 8 }}>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    color: task.type === "RUN" ? "#4ade80" : task.type === "EDIT" ? "#fbbf24" : "#00d4ff",
+                                    background:
+                                      task.type === "RUN"
+                                        ? "rgba(34, 197, 94, 0.18)"
+                                        : task.type === "EDIT"
+                                        ? "rgba(245, 158, 11, 0.18)"
+                                        : "rgba(0, 212, 255, 0.18)",
+                                    padding: "2px 6px",
+                                    borderRadius: 4,
+                                    letterSpacing: "0.05em",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {task.type}
+                                </span>
+
+                                {isEditing ? (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1 }}>
+                                    <input
+                                      type="text"
+                                      value={editingTaskText}
+                                      onChange={(e) => setEditingTaskText(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveEditedTask(task.id);
+                                        if (e.key === "Escape") setEditingTaskId(null);
+                                      }}
+                                      autoFocus
+                                      style={{
+                                        flex: 1,
+                                        background: "rgba(0,0,0,0.4)",
+                                        border: "1px solid #00d4ff",
+                                        borderRadius: 4,
+                                        color: "#fff",
+                                        padding: "2px 6px",
+                                        fontSize: 11,
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveEditedTask(task.id)}
+                                      title="Save Task"
+                                      style={{
+                                        background: "#10b981",
+                                        border: "none",
+                                        borderRadius: 4,
+                                        color: "#fff",
+                                        padding: "2px 5px",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      <Check size={10} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span
+                                    onClick={() => {
+                                      setEditingTaskId(task.id);
+                                      setEditingTaskText(task.target);
+                                    }}
+                                    title="Click to edit task"
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: isError ? 600 : 450,
+                                      color: isError ? "#f43f5e" : isDark ? "#e2e8f0" : "#1e293b",
+                                      fontFamily: task.type === "EDIT" ? "monospace" : "inherit",
+                                      cursor: "pointer",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {task.target}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Right: Status Pills, Run Action, and Toggle */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                                {task.errorDetail && (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: "#4ade80",
+                                      background: "rgba(34, 197, 94, 0.12)",
+                                      padding: "1px 6px",
+                                      borderRadius: 9999,
+                                    }}
+                                  >
+                                    {task.errorDetail}
+                                  </span>
+                                )}
+
+                                {task.tryCount && !task.errorDetail && (
+                                  <span style={{ fontSize: 10, color: "#94a3b8" }}>try {task.tryCount}</span>
+                                )}
+
+                                {task.duration && (
+                                  <span style={{ fontSize: 10, color: "#94a3b8" }}>{task.duration}</span>
+                                )}
+
+                                {/* Run Task Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRunTask(task.id)}
+                                  disabled={isRunning}
+                                  title="Run task now"
+                                  style={{
+                                    background: isRunning ? "rgba(0,212,255,0.2)" : "rgba(255,255,255,0.08)",
+                                    border: "none",
+                                    borderRadius: 4,
+                                    color: isRunning ? "#00d4ff" : "#94a3b8",
+                                    padding: "2px 5px",
+                                    cursor: isRunning ? "default" : "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  {isRunning ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
+                                </button>
+
+                                {/* Status Click to Toggle */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleTaskStatus(task.id)}
+                                  title="Toggle status (Done / Error / Pending)"
+                                  style={{
+                                    background: "transparent",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    padding: 2,
+                                    color: isDone ? "#22c55e" : isError ? "#ef4444" : "#f59e0b",
+                                    fontWeight: 800,
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {isDone ? "✓" : isError ? "✕" : "○"}
+                                </button>
+
+                                {/* Delete Task */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTask(task.id)}
+                                  title="Delete task"
+                                  style={{
+                                    background: "transparent",
+                                    border: "none",
+                                    color: "#64748b",
+                                    cursor: "pointer",
+                                    padding: 1,
+                                  }}
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                      {/* Add Task Inline Row */}
+                      {isAddingTask ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "6px 8px",
+                            background: "rgba(0, 212, 255, 0.08)",
+                            border: "1px dashed rgba(0, 212, 255, 0.4)",
+                            borderRadius: 6,
+                          }}
+                        >
+                          <select
+                            value={newTaskType}
+                            onChange={(e) => setNewTaskType(e.target.value as any)}
                             style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              fontSize: 11,
-                              fontFamily: "monospace",
-                              background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
-                              padding: "4px 8px",
-                              borderRadius: 6,
-                              color: isDark ? "#e2e8f0" : "#1e293b",
+                              background: "#0f172a",
+                              color: "#fff",
+                              border: "1px solid rgba(255,255,255,0.2)",
+                              borderRadius: 4,
+                              fontSize: 10,
+                              padding: "2px 4px",
                             }}
                           >
+                            <option value="RUN">RUN</option>
+                            <option value="EDIT">EDIT</option>
+                            <option value="CMD">CMD</option>
+                            <option value="TEST">TEST</option>
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="Target (e.g. src/billing.ts or Run pytest)"
+                            value={newTaskTarget}
+                            onChange={(e) => setNewTaskTarget(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleAddNewTask();
+                              if (e.key === "Escape") setIsAddingTask(false);
+                            }}
+                            autoFocus
+                            style={{
+                              flex: 1,
+                              background: "rgba(0,0,0,0.3)",
+                              border: "1px solid rgba(255,255,255,0.2)",
+                              borderRadius: 4,
+                              color: "#fff",
+                              padding: "2px 6px",
+                              fontSize: 11,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddNewTask}
+                            style={{
+                              background: "#00d4ff",
+                              color: "#000",
+                              border: "none",
+                              borderRadius: 4,
+                              padding: "2px 8px",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Add
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingTask(false)}
+                            style={{
+                              background: "transparent",
+                              color: "#94a3b8",
+                              border: "none",
+                              cursor: "pointer",
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playUiSound("pop");
+                            setIsAddingTask(true);
+                          }}
+                          style={{
+                            background: "transparent",
+                            border: "1px dashed rgba(255,255,255,0.18)",
+                            borderRadius: 6,
+                            padding: "4px 8px",
+                            fontSize: 10,
+                            fontWeight: 650,
+                            color: isDark ? "#94a3b8" : "#64748b",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Plus size={11} />
+                          <span>Add Task or File Edit</span>
+                        </button>
+                      )}
+
+                      {/* Dynamic Live Steps (if provided by agent run) */}
+                      {agentSteps.map((s) => (
+                        <div
+                          key={s.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            fontSize: 11,
+                            fontFamily: "monospace",
+                            background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            color: isDark ? "#e2e8f0" : "#1e293b",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             {s.status === "active" ? (
                               <Loader2 size={12} color="#00d4ff" className="animate-spin" />
                             ) : s.status === "done" ? (
@@ -1943,49 +3570,21 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                               <span style={{ color: "#ec4899" }}>✦</span>
                             )}
                             <span style={{ fontWeight: 600 }}>{s.label}</span>
-                            {s.detail && (
-                              <span style={{ opacity: 0.7, fontSize: 10 }}>· {s.detail}</span>
-                            )}
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      /* Active Idle State Monitor */
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            fontSize: 11,
-                            fontFamily: "monospace",
-                            background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            color: isDark ? "#e2e8f0" : "#1e293b",
-                          }}
-                        >
-                          <span style={{ color: "#00d4ff" }}>✦</span>
-                          <span>Intelligence Core: {currentDisplayModel} (Ready)</span>
+                          {s.detail && <span style={{ opacity: 0.7, fontSize: 10 }}>{s.detail}</span>}
                         </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            fontSize: 11,
-                            fontFamily: "monospace",
-                            background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            color: isDark ? "#e2e8f0" : "#1e293b",
-                          }}
-                        >
-                          <span style={{ color: "#10b981" }}>✓</span>
-                          <span>Avatar: {isWalking ? "Procedural Walking" : "Stationary"}</span>
-                        </div>
-                      </div>
-                    )}
+                      ))}
+                    </div>
+
+                    {/* Finished Status Footer matching SnapInsta */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
+                      <span style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b" }}>
+                        ✓ Finished · 10:12:39 PM
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e" }}>
+                        Failed once, fixed on try 2
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -2038,6 +3637,30 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                     >
                       <Footprints size={12} />
                       <span>{isWalking ? "Walking" : "Walk"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playUiSound("pop");
+                        window.dispatchEvent(new CustomEvent("hinaa:open-explainer"));
+                      }}
+                      style={{
+                        background: "rgba(0, 212, 255, 0.12)",
+                        border: "1px solid rgba(0, 212, 255, 0.35)",
+                        borderRadius: 8,
+                        padding: "4px 8px",
+                        fontSize: 11,
+                        fontWeight: 650,
+                        color: "#00d4ff",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Sparkles size={12} />
+                      <span>🪐 Explainer</span>
                     </button>
                   </div>
 
@@ -2145,6 +3768,259 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* ── Under-Notch Floating Speech Pill Banner with Red Stop Button (SnapInsta Reference) ── */}
+      <AnimatePresence>
+        {(isSpeaking || streamingText || showGuardianCard) && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              marginTop: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              background: "rgba(10, 12, 18, 0.96)",
+              border: "1px solid rgba(255, 255, 255, 0.18)",
+              borderRadius: 9999,
+              padding: "5px 8px 5px 14px",
+              boxShadow: "0 12px 36px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.12)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              maxWidth: 420,
+              width: "fit-content",
+              margin: "6px auto 0 auto",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
+              {/* Equalizer Wave Bars */}
+              <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
+                {[0, 1, 2, 3].map((bar) => (
+                  <motion.span
+                    key={bar}
+                    animate={{
+                      height: isSpeaking ? [4, 14, 6, 12, 4] : [4, 6, 4],
+                    }}
+                    transition={{
+                      repeat: Infinity,
+                      duration: 0.7 + bar * 0.15,
+                      ease: "easeInOut",
+                    }}
+                    style={{
+                      width: 2.5,
+                      background: bar % 2 === 0 ? "#00d4ff" : "#ec4899",
+                      borderRadius: 2,
+                      display: "inline-block",
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Spoken subtitle text preview */}
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#ffffff",
+                  letterSpacing: "0.01em",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  maxWidth: 240,
+                }}
+                title={streamingText || lastAssistantText || "Watching screens & guarding focus..."}
+              >
+                {streamingText || lastAssistantText || "BROTHER, Call me weird if you like..."}
+              </span>
+            </div>
+
+            {/* Crimson Red Stop / Barge-in Button */}
+            <button
+              type="button"
+              onClick={() => {
+                playUiSound("click");
+                onStopSpeaking?.();
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: "#e11d48",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 9999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 750,
+                cursor: "pointer",
+                boxShadow: "0 2px 8px rgba(225, 29, 72, 0.4)",
+                flexShrink: 0,
+              }}
+            >
+              <Square size={9} fill="#ffffff" />
+              <span>Stop</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Floating Focus Guardian Chat Card (SnapInsta Reference) ── */}
+      <AnimatePresence>
+        {showGuardianCard && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.94 }}
+            transition={{ type: "spring", stiffness: 380, damping: 28 }}
+            style={{
+              marginTop: 8,
+              width: 380,
+              background: "rgba(11, 13, 20, 0.96)",
+              border: "1px solid rgba(255, 255, 255, 0.14)",
+              borderRadius: 20,
+              padding: "12px 14px",
+              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              margin: "8px auto 0 auto",
+            }}
+          >
+            {/* Top Bar of Floating Card */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 750,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    padding: "2px 6px",
+                    borderRadius: 6,
+                    color: "#cbd5e1",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <span>&lt; 3s</span>
+                  <ChevronDown size={10} />
+                </span>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 650,
+                    color: isSpeaking ? "#ec4899" : "#10b981",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      background: isSpeaking ? "#ec4899" : "#10b981",
+                      boxShadow: `0 0 6px ${isSpeaking ? "#ec4899" : "#10b981"}`,
+                    }}
+                  />
+                  <span>{isSpeaking ? "Speaking..." : "Listening..."}</span>
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playUiSound("pop");
+                    setIsCopied(true);
+                    setTimeout(() => setIsCopied(false), 1500);
+                  }}
+                  title="Copy observation"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: isCopied ? "#10b981" : "#94a3b8",
+                    cursor: "pointer",
+                    padding: 2,
+                  }}
+                >
+                  {isCopied ? <Check size={13} /> : <Copy size={13} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowGuardianCard(false)}
+                  title="Dismiss Card"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#64748b",
+                    cursor: "pointer",
+                    padding: 2,
+                  }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* User Speech Bubble */}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div
+                style={{
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  borderRadius: "14px 14px 4px 14px",
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  fontWeight: 550,
+                  maxWidth: "85%",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                }}
+              >
+                {lastUserQuery || "You sound so weird. Okay, wait. Let's, let's, let's have a look."}
+              </div>
+            </div>
+
+            {/* Assistant Guardian Message */}
+            <div
+              style={{
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: "#f1f5f9",
+                fontWeight: 450,
+              }}
+            >
+              <span style={{ fontWeight: 800, color: "#00d4ff" }}>BROTHER</span>, call me weird if you dare — that's the voice of an older brother who has taken an oath to guard your focus! Let's have a look together, then: both blocks are live and holding strong until 18:19, X and YouTube shut the moment they appear. Chrome, Discord, Music, Notes and Claude are what's open on your machine right now — nothing else suspicious slipping through. Weird or not, the walls hold.
+            </div>
+
+            {/* Active Windows Strip */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 5,
+                background: "rgba(255,255,255,0.05)",
+                padding: "6px 8px",
+                borderRadius: 8,
+                fontSize: 10,
+                color: "#94a3b8",
+              }}
+            >
+              <span style={{ color: "#10b981", fontWeight: 700 }}>Open Windows:</span>
+              <span>Chrome</span> · <span>Discord</span> · <span>VS Code</span> · <span>Terminal</span> · <span>Claude</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

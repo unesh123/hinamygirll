@@ -23,6 +23,7 @@ from . import prodcamp
 from . import social_reach
 from . import computer_operator
 from . import ui_control
+from . import exa_tool
 
 __all__ = ["registry"]
 

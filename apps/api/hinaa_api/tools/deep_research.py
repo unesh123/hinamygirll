@@ -262,7 +262,29 @@ async def _search_youcom(query: str, count: int) -> list[dict[str, Any]]:
     return items
 
 
+async def _search_exa(query: str, count: int) -> list[dict[str, Any]]:
+    from ..config import get_settings
+    settings = get_settings()
+    if not settings.exa_configured:
+        return []
+    try:
+        from .exa_tool import exa_client
+        result = await exa_client.search(query, num_results=count, highlights=True)
+        items = []
+        for s in (result.get("sources") or result.get("results") or [])[:count]:
+            items.append({
+                "title": _clean(s.get("title") or "", 180),
+                "snippet": _clean(s.get("snippet") or "", 320),
+                "url": s.get("url") or "",
+                "source": "Exa Semantic Web",
+            })
+        return items
+    except Exception:
+        return []
+
+
 SOURCE_RUNNERS = {
+    "exa": _search_exa,
     "youcombined": _search_youcom,
     "wikipedia": _search_wikipedia,
     "arxiv": _search_arxiv,
@@ -277,7 +299,7 @@ SOURCE_RUNNERS = {
 async def _run_source(name: str, query: str, count: int) -> tuple[str, list[dict[str, Any]], str | None]:
     try:
         runner = SOURCE_RUNNERS[name]
-        if name == "youcombined":
+        if name in {"youcombined", "exa"}:
             items = await asyncio.wait_for(runner(query, count), timeout=SOURCE_TIMEOUT_SECONDS + 4)
         else:
             items = await asyncio.wait_for(runner(query), timeout=SOURCE_TIMEOUT_SECONDS + 4)
@@ -295,7 +317,8 @@ def _compose_report(topic: str, per_source: dict[str, list[dict[str, Any]]], sta
     # Round-robin merge keeps every represented source near the top.
     while True:
         progressed = False
-        for source in ["youcombined", "worldnews", "nepalnews", "wikipedia", "arxiv", "github", "hackernews", "stackoverflow"]:
+        for source in ["exa", "youcombined", "worldnews", "nepalnews", "wikipedia", "arxiv", "github", "hackernews", "stackoverflow"]:
+
             items = per_source.get(source) or []
             if round_no < len(items):
                 progressed = True

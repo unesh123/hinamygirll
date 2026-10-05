@@ -47,7 +47,7 @@ export interface CompanionDockProps {
   onToggleWalk?: () => void;
 }
 
-export const CompanionDock: React.FC<CompanionDockProps> = ({
+export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
   dockMode,
   onChangeDockMode,
   companionId = "hinaa",
@@ -451,7 +451,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
         />
 
         {/* Live speech feedback */}
-        {(streamingText || partialTranscript || lastAssistantText) && !dismissedSubtitle && (
+        {Boolean(streamingText || partialTranscript || (!isWalking && lastAssistantText)) && !dismissedSubtitle && (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -502,4 +502,5 @@ export const CompanionDock: React.FC<CompanionDockProps> = ({
       </div>
     </aside>
   );
-};
+});
+

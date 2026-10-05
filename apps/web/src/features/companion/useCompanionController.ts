@@ -344,6 +344,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const activeTurnId = useRef<string | null>(null);
   const finalizedTurnIds = useRef<Set<string>>(new Set());
   const latestStreamedTextRef = useRef<string>("");
+  const liveDeltaBufferRef = useRef<string>("");
+  const liveRafIdRef = useRef<number | null>(null);
 
   const clearTimers = useCallback(() => {
     for (const timer of timers.current) window.clearTimeout(timer);
@@ -565,6 +567,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       setState("thinking");
 
       let streamRafId: any = null;
+      let lastStreamFlushTime = 0;
       try {
         let rawStreamed = "";
         let streamed = "";
@@ -639,18 +642,33 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               }
             }
 
-            // Batch streaming deltas via requestAnimationFrame to avoid React thrashing during 50K/100K streams
+            // Batch streaming deltas smoothly at ~36ms (~28 FPS) to leave 70%+ of main-thread budget for 120 FPS scrolling
+            const now = typeof performance !== "undefined" ? performance.now() : Date.now();
             if (!streamRafId) {
-              const scheduleFrame =
-                typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
-                  ? window.requestAnimationFrame
-                  : (cb: () => void) => setTimeout(cb, 16);
-              streamRafId = scheduleFrame(() => {
+              const timeSinceLastFlush = now - lastStreamFlushTime;
+              const flushDeltas = () => {
                 streamRafId = null;
+                lastStreamFlushTime = typeof performance !== "undefined" ? performance.now() : Date.now();
                 streamed = getSafeAssistantStreamingText(rawStreamed);
                 setStreamingText(streamed);
                 setState(streamed ? "speaking" : "thinking");
-              });
+              };
+
+              if (timeSinceLastFlush >= 36) {
+                if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+                  streamRafId = window.requestAnimationFrame(flushDeltas);
+                } else {
+                  streamRafId = window.setTimeout(flushDeltas, 16);
+                }
+              } else {
+                streamRafId = window.setTimeout(() => {
+                  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+                    window.requestAnimationFrame(flushDeltas);
+                  } else {
+                    flushDeltas();
+                  }
+                }, Math.max(8, 36 - timeSinceLastFlush));
+              }
             }
           } else if (event.type === "plan") {
             latestStreamedTextRef.current = "";
@@ -669,11 +687,10 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               sentenceBuffer = "";
             }
             if (streamRafId) {
-              const cancelFrame =
-                typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
-                  ? window.cancelAnimationFrame
-                  : clearTimeout;
-              cancelFrame(streamRafId);
+              if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+                window.cancelAnimationFrame(streamRafId);
+              }
+              window.clearTimeout(streamRafId);
               streamRafId = null;
             }
             setIsSearching(false);
@@ -1048,11 +1065,30 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   }, []);
 
   const applyLiveDelta = useCallback((delta: string) => {
-    setStreamingText((current) => current + delta);
-    setState("speaking");
+    liveDeltaBufferRef.current += delta;
+    if (liveRafIdRef.current === null) {
+      const scheduleFrame =
+        typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame
+          : (cb: () => void) => setTimeout(cb, 16);
+      liveRafIdRef.current = scheduleFrame(() => {
+        liveRafIdRef.current = null;
+        const buffered = liveDeltaBufferRef.current;
+        liveDeltaBufferRef.current = "";
+        setStreamingText((current) => current + buffered);
+        setState("speaking");
+      });
+    }
   }, []);
 
   const applyLivePlan = useCallback((plan: AssistantTurnPlan) => {
+    if (liveRafIdRef.current !== null) {
+      if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(liveRafIdRef.current);
+      }
+      liveRafIdRef.current = null;
+    }
+    liveDeltaBufferRef.current = "";
     setActivePlan(plan);
     setStreamingText("");
     const displayText = getAssistantDisplayText(serializeAssistantTurn(plan));

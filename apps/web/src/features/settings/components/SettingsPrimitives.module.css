@@ -70,6 +70,7 @@
 
 .rowControl {
   flex-shrink: 0;
+  min-width: 0;
 }
 
 /* ── Select ──────────────────────────────────────────────────────────────── */
@@ -224,4 +225,15 @@
 @keyframes status-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+@media (max-width: 640px) {
+  .row { padding: 10px 0; }
+  .row:has(.select), .row:has(.rowControl > span) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .row:has(.select) .rowControl { width: 100%; }
+  .select { width: 100%; max-width: 100%; }
+  .statusPill { white-space: nowrap; }
 }

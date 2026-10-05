@@ -303,5 +303,5 @@ def test_real_mode_missing_configuration_returns_typed_stream_error(client: Test
     error = events[-1]
     assert error["type"] == "error"
     assert error["code"] == "PROVIDER_CONFIGURATION_MISSING"
-    assert "AZURE_SPEECH_KEY" in error["message"]
+    assert "AZURE_SPEECH_KEY" not in error["message"]
     assert "GEMINI_API_KEY" in error["message"]

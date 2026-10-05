@@ -22,9 +22,9 @@ export function usePerformanceClock(options: {
   tier?: PerformanceTier;
 }) {
   const scheduler = useMemo(() => new PerformanceScheduler(), []);
-  const [frame, setFrame] = useState<ActivePerformanceFrame>(() =>
-    scheduler.sample(),
-  );
+  const frameRef = useRef<ActivePerformanceFrame>(scheduler.sample());
+  const [frameVersion, setFrameVersion] = useState(0);
+  
   const [autoTier, setAutoTier] = useState<PerformanceTier>("high");
   const generationRef = useRef(0);
   const frameTimesRef = useRef<number[]>([]);
@@ -41,14 +41,16 @@ export function usePerformanceClock(options: {
   useEffect(() => {
     if (options.interrupted) {
       generationRef.current = scheduler.interrupt();
-      setFrame(scheduler.sample());
+      frameRef.current = scheduler.sample();
+      setFrameVersion((v) => v + 1);
     }
   }, [options.interrupted, scheduler]);
 
   useEffect(() => {
     if (!options.plan) return;
     scheduler.loadFromPlan(options.plan, generationRef.current);
-    setFrame(scheduler.sample(generationRef.current));
+    frameRef.current = scheduler.sample(generationRef.current);
+    setFrameVersion((v) => v + 1);
   }, [options.plan, scheduler]);
 
   useEffect(() => {
@@ -57,11 +59,16 @@ export function usePerformanceClock(options: {
 
   useEffect(() => {
     let raf = 0;
-    const tick = () => {
-      setFrame(scheduler.sample(generationRef.current));
-      // Passive FPS probe for tier auto-degradation on weaker phones.
+    let lastTick = 0;
+    const tick = (nowMs: number) => {
+      // Throttle React DOM state updates to ~30fps (33ms) to prevent main-thread saturation
+      if (nowMs - lastTick >= 33) {
+        lastTick = nowMs;
+        frameRef.current = scheduler.sample(generationRef.current);
+      }
+
+      // Passive FPS probe for tier auto-degradation on weaker devices
       if (options.tier === undefined) {
-        const nowMs = performance.now();
         const times = frameTimesRef.current;
         times.push(nowMs);
         while (times.length > 0 && nowMs - times[0]! > FPS_SAMPLE_WINDOW_MS) {
@@ -83,5 +90,5 @@ export function usePerformanceClock(options: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduler, effectiveTier, options.tier]);
 
-  return frame;
+  return useMemo(() => ({ frameRef, frameVersion }), [frameVersion]);
 }

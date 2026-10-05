@@ -17,7 +17,9 @@ export type ProviderMode =
   | "tokentable"
   | "xkiro"
   | "cavoti"
-  | "apmix";
+  | "apmix"
+  | "experiential";
+
 
 export interface ProviderStatus {
   id: string;

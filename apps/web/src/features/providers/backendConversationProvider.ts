@@ -111,20 +111,7 @@ export class BackendConversationProvider implements ConversationProvider {
       payload.voiceEngine = request.voiceEngine;
     }
     if (
-      (this.mode === "openai" ||
-        this.mode === "custom" ||
-        this.mode === "claude" ||
-        this.mode === "qwen" ||
-        this.mode === "agent-router" ||
-        this.mode === "cx-gateway" ||
-        this.mode === "codecraft" ||
-        this.mode === "pgsgrove" ||
-        this.mode === "seekai" ||
-        this.mode === "tokentable" ||
-        this.mode === "xkiro" ||
-        this.mode === "cavoti" ||
-        this.mode === "apmix" ||
-        this.mode === "real") &&
+      this.mode !== "mock" && this.mode !== "local" &&
       request.brainModel
     ) {
       payload.brainModel = request.brainModel;

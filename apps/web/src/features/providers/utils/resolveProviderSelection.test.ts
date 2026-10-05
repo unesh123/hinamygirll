@@ -28,6 +28,22 @@ function providersWith(
 }
 
 describe("resolveProviderSelection", () => {
+  it.each(["groq", "experiential"] as const)("automatically selects a working %s instead of offline fallback", (mode) => {
+    const selection = resolveProviderSelection(
+      { preferredMode: "auto", preferredModelByProvider: {} },
+      providersWith({ [mode]: "healthy", local: "healthy", mock: "healthy" }, { [mode]: ["configured-model"] }),
+    );
+    expect(selection.activeMode).toBe(mode);
+    expect(selection.activeModel).toBe("configured-model");
+  });
+
+  it("tries a degraded cloud brain before switching to deterministic local replies", () => {
+    const selection = resolveProviderSelection(
+      { preferredMode: "auto", preferredModelByProvider: {} },
+      providersWith({ openai: "degraded", local: "healthy", mock: "healthy" }),
+    );
+    expect(selection.activeMode).toBe("openai");
+  });
   it("recovers from an unavailable persisted provider to mock mode", () => {
     const preferences: ProviderPreferences = {
       preferredMode: "cx-gateway",

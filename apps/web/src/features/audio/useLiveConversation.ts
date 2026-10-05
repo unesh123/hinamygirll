@@ -795,7 +795,7 @@ export function useLiveConversation({
           "The live response plan was invalid and was not animated.",
         );
       }
-    } else if (event.type === "tts.audio" && event.audioBase64) {
+    } else if ((event.type === "tts.audio" || event.type === "tts.audio.chunk") && event.audioBase64) {
       const encodedAudio = event.audioBase64;
       const eventGeneration = event.generation;
       latency.current.mark("tts_request_started");
@@ -924,6 +924,7 @@ export function useLiveConversation({
                 }
               }
             },
+            (event as any).vendorAlignment || undefined,
           );
         } catch (playErr) {
           console.error("[HINAA] TTS playback failed:", playErr);
