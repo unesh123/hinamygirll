@@ -80,11 +80,20 @@ export async function synthesizeSpeech(
   mode: ProviderMode,
   signal: AbortSignal,
   language: "ne-NP" | "hi-IN" | "en-US" | "mixed" = "mixed",
+  realtime = false,
+  voiceEngine?: string,
 ): Promise<{ blob: Blob; provider: string; latencyMs: number }> {
   const response = await fetch("/api/v1/speech/synthesis", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, companionId, providerMode: mode, language }),
+    body: JSON.stringify({
+      text,
+      companionId,
+      providerMode: mode,
+      language,
+      realtime,
+      voiceEngine: voiceEngine || undefined,
+    }),
     signal,
   });
   if (!response.ok) {

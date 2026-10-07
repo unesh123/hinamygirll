@@ -48,6 +48,10 @@ class ClientHello(StrictModel):
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
     ] = None
+    voiceEngine: Annotated[
+        str | None,
+        Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
+    ] = None
     authTicket: Annotated[str | None, Field(min_length=16, max_length=64)] = None
 
 
@@ -107,16 +111,16 @@ def _is_dead_silence(pcm: bytes) -> bool:
 
 
 
-def _tts_media_type(provider_id: str, elevenlabs_output_format: str) -> str:
-    """Return the real audio MIME type for the bytes a TTS provider produced.
-
-    Previously this event field was hardcoded to "audio/wav" for every
-    provider. ElevenLabs and Deepgram return MP3 (per ELEVENLABS_OUTPUT_FORMAT / encoding=mp3)
-    — mislabeling those bytes as audio/wav is silently incorrect and is a real cause of
-    "she isn't speaking" on stricter mobile audio decoders.
-    """
-    if provider_id in {"deepgram", "fish-audio"}:
+def _tts_media_type(provider_id: str, elevenlabs_output_format: str, audio: bytes = b"") -> str:
+    """Return the real audio MIME type for the bytes a TTS provider produced."""
+    if audio.startswith(b"RIFF"):
+        return "audio/wav"
+    if audio.startswith(b"ID3") or audio[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
         return "audio/mpeg"
+    if provider_id == "fish-audio":
+        return "audio/mpeg"
+    if provider_id == "deepgram":
+        return "audio/wav"
     if provider_id == "elevenlabs":
         if elevenlabs_output_format.startswith("mp3"):
             return "audio/mpeg"
@@ -197,12 +201,21 @@ class RealtimeGateway:
     async def handle(self, websocket: WebSocket, *, user_id: str | None = None) -> None:
         await websocket.accept()
         session: LiveSession | None = None
+        from .integrations.remote_pc import request_pc
+        from .tools import policy as tool_policy
+        pc_context_token = request_pc.set(None)
+        host_token = tool_policy.set_request_host(getattr(websocket, "headers", {}).get("host"))
         try:
             first = await asyncio.wait_for(
                 websocket.receive_json(), timeout=self.settings.realtime_idle_timeout_seconds
             )
             hello = ClientHello.model_validate(first)
-            session = LiveSession(hello=hello, user_id=self._resolve_identity(hello, user_id))
+            if hello.authTicket:
+                authenticated_user, pc_context = realtime_tickets.consume_bundle(hello.authTicket)
+                request_pc.set(pc_context if authenticated_user else None)
+            else:
+                authenticated_user = self._resolve_identity(hello, user_id)
+            session = LiveSession(hello=hello, user_id=authenticated_user)
             if self.settings.auth_mode == "clerk" and session.user_id is None:
                 await websocket.close(code=4401, reason="Sign in is required.")
                 return
@@ -261,6 +274,8 @@ class RealtimeGateway:
             logger.error("realtime: ClientHello validation failed: %s", e)
             await self._error(websocket, session, "PROTOCOL_MESSAGE_INVALID", False)
         finally:
+            request_pc.reset(pc_context_token)
+            tool_policy.reset_request_host(host_token)
             if session and session.processing:
                 session.processing.cancel()
                 with suppress(asyncio.CancelledError):
@@ -606,7 +621,7 @@ class RealtimeGateway:
                         "text": phrase,
                         "audioBase64": base64.b64encode(speech.value).decode("ascii"),
                         "mediaType": _tts_media_type(
-                            speech.provider, self.settings.elevenlabs_output_format
+                            speech.provider, self.settings.elevenlabs_output_format, speech.value
                         ),
                         "provider": speech.provider,
                         "requestedVoice": voice,
@@ -777,6 +792,7 @@ class RealtimeGateway:
                         volume=effective_volume,
                         delivery_mode=voice_plan.mode,
                         live=True,
+                        voice_engine=session.hello.voiceEngine,
                     )
                 )
                 sentence_tasks.append((phrase, task))
@@ -914,6 +930,7 @@ class RealtimeGateway:
                             volume=effective_volume,
                             delivery_mode=voice_plan.mode,
                             live=True,
+                            voice_engine=session.hello.voiceEngine,
                         )
                     )
                     sentence_tasks.append((phrase, task))

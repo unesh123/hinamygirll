@@ -1,3 +1,9 @@
+import {runtimeMeasurements} from "./features/telemetry/runtimeMeasurements";
+import { pcSessionToken } from "./lib/remotePcSession";
+import { browserSpeechLocale, resolveConversationLocale } from "./features/audio/languagePolicy";
+import { ProgressiveSpeech } from "./features/audio/progressiveSpeech";
+import { cleanSpeechText } from "./features/audio/streamingSpeechText";
+import { PhraseDetector } from "./features/audio/phraseDetector";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/react";
 import "./App.css";
@@ -124,6 +130,9 @@ export function ClerkFetchInterceptor() {
             const headers = new Headers(resource instanceof Request ? resource.headers : undefined);
             new Headers(config?.headers).forEach((value, key) => headers.set(key, value));
             headers.set("Authorization", `Bearer ${token}`);
+            headers.delete("X-HINAA-PC-Session");
+            const pcToken = pcSessionToken();
+            if (pcToken) headers.set("X-HINAA-PC-Session", pcToken);
             config = { ...config, headers };
           }
         } catch (e) {
@@ -298,12 +307,7 @@ export function deriveSpokenText(displayText: string | undefined): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (!clean) return '';
-  // Split into sentences
-  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
-  // Find first real sentence (not just a label or fragment < 15 chars)
-  const real = sentences.find(s => s.trim().length >= 15) || sentences[0];
-  const spoken = real.trim();
-  return spoken.length > 180 ? spoken.slice(0, 177) + '…' : spoken;
+  return clean;
 }
 
 /** Check if the last spokenText was derived from displayText (fallback). */
@@ -356,9 +360,15 @@ export default function App() {
   });
   const [playbackSession, setPlaybackSession] = useState<PlaybackSession | null>(null);
   const activePlaybackId = useRef<string | null>(null);
+  const progressiveSpeechRef = useRef<ProgressiveSpeech | null>(null);
   // Audio unlock state: AudioContext may be suspended by browser autoplay policy.
   // When blocked, we show an unlock button so the user can tap to resume audio.
   const [audioBlocked, setAudioBlocked] = useState(false);
+  useEffect(() => {
+    if (playback.muted) progressiveSpeechRef.current?.cancel();
+    return undefined;
+  }, [playback.muted]);
+  useEffect(() => () => progressiveSpeechRef.current?.cancel(), []);
   const audioBlockedRef = useRef(false);
   useEffect(() => {
     // The watchdog exists to answer one question: is audio blocked by the
@@ -447,8 +457,7 @@ export default function App() {
   // When in Runway 3D mode (voice avatar), request concise conversational voice mode
   // When in Work mode, use the selected executive mode (report, research, deep-reasoning, chat)
   const requestResponseMode: ResponseMode | undefined =
-    sakuraView === "showroom" ? "concise_voice"
-      : executiveMode === "report" ? "professional"
+    executiveMode === "report" ? "professional"
       : executiveMode === "research" ? "research"
       : executiveMode === "deep-reasoning" ? "technical"
       : undefined;
@@ -522,6 +531,23 @@ export default function App() {
       setAvatarUploadMessage(error instanceof Error ? error.message : "HINAA could not import that VRM.");
     }
   };
+
+  const [voiceEngine, setVoiceEngine] = useState<string>(() => {
+    try {
+      const prefs = localStorage.getItem("hinaa-model-prefs");
+      return prefs ? (JSON.parse(prefs).voiceEngine || "elevenlabs") : "elevenlabs";
+    } catch {
+      return "elevenlabs";
+    }
+  });
+  const handleSelectVoiceEngine = useCallback((engine: string) => {
+    setVoiceEngine(engine);
+    try {
+      const raw = localStorage.getItem("hinaa-model-prefs");
+      const current = raw ? JSON.parse(raw) : {};
+      localStorage.setItem("hinaa-model-prefs", JSON.stringify({ ...current, voiceEngine: engine }));
+    } catch {}
+  }, []);
 
   // A WebSocket is transport only. Head data needs fresh external VMC while
   // facial animation additionally needs at least one supported blendshape.
@@ -648,6 +674,8 @@ export default function App() {
   });
 
   const interruptPlayback = useCallback((status: "interrupted" | "failed" = "interrupted", error?: string) => {
+    progressiveSpeechRef.current?.cancel();
+    progressiveSpeechRef.current = null;
     const playbackId = activePlaybackId.current;
     activePlaybackId.current = null;
     playback.stop();
@@ -706,148 +734,78 @@ export default function App() {
     }
     void unlockAudio();
     interruptPlayback();
+    const timingTurn = runtimeMeasurements.beginTurn();
     const text = textToSend || (attachedImage ? "Look at this image" : "");
     const imageData = attachedImage;
     setInput("");
     setAttachedImage(null);
     void (async () => {
-      let streamSpoken = false;
+      const mode = controller.routing.activeMode;
+      const companionId = controller.companionId;
+      let browserFirst = true;
+      let generating = true;
+      playback.beginSpeechStream();
+      const queue = new ProgressiveSpeech({
+        synthesize: async (phrase, signal) => {
+          if (playback.muted || !mode || mode === "mock") return null;
+          const speech = await synthesizeSpeech(
+            phrase,
+            companionId,
+            mode,
+            AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
+            resolveConversationLocale(phrase, settings.language.activePolicy),
+            true,
+            voiceEngine,
+          );
+          runtimeMeasurements.synthesized(speech.latencyMs);
+          return /placeholder|mock/i.test(speech.provider) ? null : speech;
+        },
+        play: (phrase, audio, signal) => new Promise<void>((resolve, reject) => {
+          if (signal.aborted || playback.muted) { resolve(); return; }
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener("abort", finish);
+            resolve();
+          };
+          const started = () => {
+            runtimeMeasurements.speechStarted(timingTurn, audio?.provider || "browser");
+            setVoiceReply({
+            kind: audio ? "cloud" : "browser",
+            label: audio ? `Speaking with ${audio.provider}` : "Speaking with device voice",
+            detail: generating ? "Text and voice are streaming together." : "Reading your answer.",
+          });
+          };
+          signal.addEventListener("abort", finish, { once: true });
+          if (audio) {
+            void playback.play(audio.blob, phrase, started, finish).catch(reject);
+          } else {
+            void playback.speakStreamChunk(phrase, browserFirst, browserSpeechLocale(phrase, settings.language.activePolicy), companionId, finish, started).then(ok => {
+              if (!ok) { finish(); setVoiceReply({ kind: "unavailable", label: "Voice could not start", detail: "Check the configured voice or device speech settings." }); }
+            }).catch(reject);
+            browserFirst = false;
+          }
+        }),
+        onError: () => setVoiceReply({ kind: "unavailable", label: "Voice playback failed", detail: "Your text answer is still available." }),
+      });
+      progressiveSpeechRef.current = queue;
       const result = await controller.sendText(text, {
         imageUrl: imageData || undefined,
-        attachments: imageData
-          ? [{ kind: "image", role: attachmentRole ?? "inspection", url: imageData }]
-          : undefined,
-        reference_images:
-          imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
+        attachments: imageData ? [{ kind: "image", role: attachmentRole ?? "inspection", url: imageData }] : undefined,
+        reference_images: imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
         responseMode: requestResponseMode,
-        onSentenceChunk: (chunk: string, isFirst: boolean) => {
-          if (!playback.muted) {
-            streamSpoken = true;
-            void playback.speakStreamChunk(
-              chunk,
-              isFirst,
-              settings.language.activePolicy,
-              controller.companionId,
-            );
-          }
-        },
+        onSentenceChunk: phrase => { if (!playback.muted) queue.enqueue(phrase); },
       });
-      const plan = result?.plan;
-      if (!result || !plan) return;
-
-      if (streamSpoken) {
-        setVoiceReply({
-          kind: "browser",
-          label: "Live streaming voice active",
-          detail: "Vocalized in real-time as tokens generated",
-        });
-        return;
-      }
-
-      // Use spokenText if it's a genuine short summary; fall back to derived form if it's too long or missing
-      const rawSpoken = plan.spokenText?.trim() || '';
-      const spoken = (rawSpoken && rawSpoken.length <= 200 && rawSpoken !== plan.displayText?.trim())
-        ? rawSpoken
-        : deriveSpokenText(plan.displayText);
-
-      const playbackId = `playback-${result.turnId}-${Date.now()}`;
-      activePlaybackId.current = playbackId;
-      const createSession = (provider: string, status: PlaybackSessionStatus): PlaybackSession => ({
-        playbackId,
-        turnId: result.turnId,
-        conversationId: "browser-session",
-        companionId: controller.companionId,
-        provider,
-        spokenText: spoken,
-        locale: plan.language,
-        status,
-      });
-      const updateSession = (status: PlaybackSessionStatus, patch: Partial<PlaybackSession> = {}) => {
-        if (activePlaybackId.current !== playbackId) return false;
-        setPlaybackSession((current) => current?.playbackId === playbackId
-          ? { ...current, status, ...patch }
-          : { ...createSession(patch.provider ?? "browser", status), ...patch });
-        return true;
-      };
-      const startBrowserFallback = async (detail: string) => {
-        updateSession("preparing", { provider: "browser-speech" });
-        const started = await playback.speakBrowser(spoken, plan.language, controller.companionId);
-        if (!started || activePlaybackId.current !== playbackId) {
-          updateSession("failed", { error: "Browser speech could not start." });
-          setVoiceReply({
-            kind: "unavailable",
-            label: "Voice could not start",
-            detail: "Enable a browser voice or configure ElevenLabs in Settings.",
-          });
-          return;
-        }
-        updateSession("playing", { provider: "browser-speech", startedAt: new Date().toISOString() });
-        setVoiceReply({ kind: "browser", label: "Speaking with local browser voice", detail });
-      };
-
-      const ttsMode = controller.routing.activeMode;
-      if (!ttsMode || ttsMode === "mock") {
-        await startBrowserFallback(
-          "Demo mode uses your device voice until a cloud or local TTS engine is configured.",
-        );
-        return;
-      }
-
-      // Track TTS terminal state to prevent duplicate fallback.
-      // Backend has a generous timeout; frontend has 25s to support longer responses.
-      // Once one fires, the other must not start another voice.
-      let ttsTerminalReached = false;
-      const markTtsTerminal = () => { ttsTerminalReached = true; };
-
-      try {
-        updateSession("buffering", { provider: ttsMode });
-        // TTS with 25-second timeout — falls back to browser speech on timeout
-        const ttsController = new AbortController();
-        const ttsTimeout = setTimeout(() => {
-          if (!ttsTerminalReached) ttsController.abort();
-        }, 25_000);
-        const speech = await synthesizeSpeech(
-          spoken,
-          controller.companionId,
-          ttsMode,
-          ttsController.signal,
-        );
-        clearTimeout(ttsTimeout);
-        if (activePlaybackId.current !== playbackId) return;
-        if (/placeholder|mock/i.test(speech.provider)) {
-          markTtsTerminal();
-          await startBrowserFallback(
-            "The selected mode has no intelligible server voice yet, so Hinaa is using your device voice.",
-          );
-          return;
-        }
-        await playback.play(speech.blob, spoken);
-        markTtsTerminal();
-        if (!updateSession("playing", {
-          provider: speech.provider,
-          startedAt: new Date().toISOString(),
-        })) return;
-        setVoiceReply({
-          kind: "cloud",
-          label: `Speaking with ${speech.provider}`,
-          detail: speech.latencyMs > 0 ? `${speech.latencyMs} ms synthesis` : undefined,
-        });
-      } catch (error) {
-        if (activePlaybackId.current !== playbackId) return;
-        // Prevent duplicate fallback — only one terminal outcome per turn
-        if (ttsTerminalReached) return;
-        markTtsTerminal();
-        // If TTS timed out or failed, try browser speech as fallback
-        const reason = error instanceof Error ? error.message : "Cloud voice is unavailable";
-        if (reason.includes("aborted") || reason.includes("timeout")) {
-          await startBrowserFallback(
-            "Voice synthesis took too long. Using your device voice instead.",
-          );
-        } else {
-          await startBrowserFallback(
-            `${reason}. Using the device voice instead.`,
-          );
-        }
+      generating = false;
+      if (progressiveSpeechRef.current !== queue) return;
+      if (!result?.plan) { queue.cancel(); playback.stop(); return; }
+      // Structured-only providers emit no visible deltas. Speak their full answer
+      // through the same bounded phrase queue, without replaying streamed content.
+      if (!queue.hasPhrases && !playback.muted) {
+        const detector = new PhraseDetector({ maxBufferChars: 160, minPhraseChars: 12 });
+        const fullText = cleanSpeechText(result.plan.displayText || result.plan.spokenText || "");
+        for (const phrase of [...detector.push(fullText), ...detector.flush()]) queue.enqueue(phrase);
       }
     })();
   }, [input, live.active, controller, playback, attachedImage, interruptPlayback, requestResponseMode]);
@@ -1252,6 +1210,8 @@ export default function App() {
                 conversationId: activeConversationId,
                 messages: controller.messages,
               }}
+              voiceEngine={voiceEngine}
+              onSelectVoiceEngine={handleSelectVoiceEngine}
             />
 
 
@@ -1346,6 +1306,8 @@ export default function App() {
                 getModelOptions={providers.getModelOptions}
                 onOpenTerminal={openTerminalHands}
                 onOpenVault={() => setSakuraView("vault")}
+                voiceEngine={voiceEngine}
+                onSelectVoiceEngine={handleSelectVoiceEngine}
               />
             )}
 

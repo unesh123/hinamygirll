@@ -36,12 +36,13 @@ export const IMAGE_ENGINES = [
 ];
 
 export const VOICE_ENGINES = [
-  { id: "auto", label: "Auto Voice", desc: "Fastest responsive neural speech (Deepgram Aura / Luna)", icon: "✨" },
-  { id: "deepgram", label: "Deepgram Aura (Luna / Anime Cute)", desc: "Cute, playful anime-style voice with $200 API credits", icon: "⚡" },
-  { id: "deepgram-thalia", label: "Deepgram Aura (Thalia / Expressive)", desc: "Expressive feminine conversational voice", icon: "🌸" },
-  { id: "deepgram-asteria", label: "Deepgram Aura (Asteria / Bright)", desc: "Bright youthful feminine voice", icon: "✨" },
+  { id: "elevenlabs", label: "ElevenLabs (Aisha / Sweet Girlfriend)", desc: "Ultra-expressive streaming sweet girlfriend neural voice (Turbo v2.5)", icon: "💖" },
+  { id: "auto", label: "Auto (ElevenLabs Aisha)", desc: "Sweet expressive girlfriend neural voice (ElevenLabs Aisha / Turbo v2.5)", icon: "✨" },
   { id: "fish-audio", label: "Fish Audio Studio", desc: "State-of-the-art multilingual voice (Fish Speech 1.5)", icon: "🐟" },
-  { id: "elevenlabs", label: "ElevenLabs Neural", desc: "Ultra-expressive streaming neural voice (Turbo v2.5)", icon: "🎙" },
+  { id: "deepgram", label: "Deepgram Aura (Athena / Deep Velvety)", desc: "Deep, velvety, seductive feminine voice with natural warmth", icon: "💎" },
+  { id: "deepgram-thalia", label: "Deepgram Aura (Thalia / Expressive)", desc: "Expressive feminine conversational voice", icon: "🌸" },
+  { id: "deepgram-luna", label: "Deepgram Aura (Luna / Anime Cute)", desc: "Playful anime-style feminine voice", icon: "⚡" },
+  { id: "deepgram-asteria", label: "Deepgram Aura (Asteria / Bright)", desc: "Bright youthful feminine voice", icon: "✨" },
   { id: "gemini-live", label: "Gemini Live", desc: "Sub-300ms bidirectional speech stream", icon: "🎙" },
   { id: "azure-speech", label: "Azure Neural", desc: "Expressive high-fidelity voices", icon: "🌐" },
   { id: "browser-native", label: "Browser Native", desc: "Zero-latency offline client TTS", icon: "🔊" },

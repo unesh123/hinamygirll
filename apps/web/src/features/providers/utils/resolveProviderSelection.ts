@@ -48,8 +48,8 @@ export function resolveVoiceRoute(
     providers.statuses.find((s) => s.id === id)?.state ?? "unknown";
 
   const sttProvider: VoiceRoute["sttProvider"] =
-    health("deepgram") === "healthy" ? "deepgram"
-    : health("elevenlabs") === "healthy" ? "elevenlabs"
+    health("elevenlabs") === "healthy" ? "elevenlabs"
+    : health("deepgram") === "healthy" ? "deepgram"
     : "browser";
   const brainProvider: VoiceRoute["brainProvider"] =
     providers.getHealth("codecraft") === "healthy" ? "claude"
@@ -60,9 +60,9 @@ export function resolveVoiceRoute(
     : providers.getHealth("openai") === "healthy" ? "openai"
     : "gemini";
   const ttsProvider: VoiceRoute["ttsProvider"] =
-    health("deepgram") === "healthy" ? "deepgram"
+    health("elevenlabs") === "healthy" ? "elevenlabs"
+    : health("deepgram") === "healthy" ? "deepgram"
     : health("fish-audio") === "healthy" ? "fish-audio"
-    : health("elevenlabs") === "healthy" ? "elevenlabs"
     : health("azure-speech") === "healthy" ? "azure"
     : "browser";
   return {

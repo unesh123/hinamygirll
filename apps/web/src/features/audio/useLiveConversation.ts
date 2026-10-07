@@ -1171,7 +1171,7 @@ export function useLiveConversation({
         voiceRoute: {
           ...prev.voiceRoute,
           brainProvider: effectiveMode === "mock" ? "mock" : "claude",
-          ttsProvider: effectiveMode === "mock" ? "mock" : "deepgram",
+          ttsProvider: effectiveMode === "mock" ? "mock" : "elevenlabs",
         },
       }));
       turnTaking.current.setSessionState("listening");

@@ -994,6 +994,7 @@ class ProviderRouter:
         self.local_stt = make_local_stt(settings)
         self.local_llm = LocalLLMProvider()
         self.local_tts = make_local_tts(settings)
+        self._deepgram_tts_provider: DeepgramTTSProvider | None = None
 
     def _require_real(self) -> None:
         if missing := self.settings.missing_real_configuration():
@@ -1431,15 +1432,15 @@ class ProviderRouter:
             )
         if mode == "xkiro":
             self._require_xkiro_brain()
-            active_xkiro_key = self.settings.active_xkiro_key
+            active_xkiro_keys = self.settings.active_xkiro_keys
             active_xkiro_base_url = self.settings.active_xkiro_base_url
-            assert active_xkiro_key and active_xkiro_base_url
+            assert active_xkiro_keys and active_xkiro_base_url
             try:
                 model = self.settings.resolve_xkiro_model(brain_model)
             except ValueError:
                 model = self.settings.active_xkiro_model
             return OpenAILLMProvider(
-                active_xkiro_key.get_secret_value(),
+                active_xkiro_keys,
                 model,
                 base_url=active_xkiro_base_url,
                 provider_id="xkiro",
@@ -1509,28 +1510,67 @@ class ProviderRouter:
             output_format=self.settings.elevenlabs_output_format,
         )
 
-    def tts(self, mode: str, companion_id: CompanionId | None = None) -> TTSProvider:
+    def tts(self, mode: str, companion_id: CompanionId | None = None, voice_engine: str | None = None) -> TTSProvider:
         if mode == "mock":
             return self.mock_tts
         if mode == "local":
             return self.local_tts
-        # Deepgram Aura is the preferred voice provider when configured or selected.
+
+        effective_engine = (voice_engine or "").lower().strip()
+
+        # Explicit engine selections
+        if effective_engine == "elevenlabs" and self.settings.elevenlabs_configured:
+            return make_elevenlabs_provider(
+                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+            )
+        if effective_engine.startswith("deepgram") and self.settings.deepgram_configured:
+            assert self.settings.deepgram_api_key
+            if self._deepgram_tts_provider is None:
+                self._deepgram_tts_provider = DeepgramTTSProvider(
+                    api_key=self.settings.deepgram_api_key.get_secret_value(),
+                    base_url=self.settings.deepgram_base_url,
+                )
+            return self._deepgram_tts_provider
+        if effective_engine in ("fish-audio", "fish") and self.settings.fish_audio_configured:
+            assert self.settings.fish_audio_api_key
+            voice_id = (
+                self.settings.fish_audio_hiro_voice_id
+                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                else self.settings.fish_audio_hinaa_voice_id
+            )
+            return FishAudioTTSProvider(
+                FishAudioConfig(
+                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                    base_url=self.settings.fish_audio_base_url,
+                    voice_id=voice_id,
+                    model_id=self.settings.fish_audio_model_id,
+                    output_format=self.settings.fish_audio_output_format,
+                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                )
+            )
+
+        # Primary neural voice: ElevenLabs (Aisha / Sweet Girlfriend)
+        if self.settings.elevenlabs_configured and (
+            not effective_engine
+            or effective_engine == "auto"
+            or self.settings.voice_provider in ("auto", "elevenlabs")
+        ):
+            return make_elevenlabs_provider(
+                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+            )
+
+        # Deepgram Aura fallback when ElevenLabs is unconfigured
         if (
             self.settings.voice_provider == "deepgram"
             or (self.settings.deepgram_configured and not self.settings.elevenlabs_configured)
         ) and self.settings.deepgram_configured:
             assert self.settings.deepgram_api_key
-            return DeepgramTTSProvider(
-                api_key=self.settings.deepgram_api_key.get_secret_value(),
-                base_url=self.settings.deepgram_base_url,
-            )
-        if self.settings.elevenlabs_configured and self.settings.voice_provider in {
-            "auto",
-            "elevenlabs",
-        }:
-            return make_elevenlabs_provider(
-                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
-            )
+            if self._deepgram_tts_provider is None:
+                self._deepgram_tts_provider = DeepgramTTSProvider(
+                    api_key=self.settings.deepgram_api_key.get_secret_value(),
+                    base_url=self.settings.deepgram_base_url,
+                )
+            return self._deepgram_tts_provider
         if (
             self.settings.voice_provider == "fish-audio"
             or (self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0] and not self.settings.elevenlabs_configured)
@@ -1661,8 +1701,22 @@ class ConversationService:
             self.rag_service = RAGKnowledgeService(workspace_root=str(ws_root))
             self.rag_service.index_repository_memory()
         except Exception:
-            logger.warning("RAGKnowledgeService initialization or spec indexing failed", exc_info=True)
             self.rag_service = None
+        self._deepgram_tts_provider: DeepgramTTSProvider | None = None
+
+    def _get_deepgram_tts_provider(self) -> DeepgramTTSProvider | None:
+        if not self.settings.deepgram_configured:
+            return None
+        assert self.settings.deepgram_api_key
+        if self._deepgram_tts_provider is None:
+            if hasattr(self.router, "_deepgram_tts_provider") and self.router._deepgram_tts_provider is not None:
+                self._deepgram_tts_provider = self.router._deepgram_tts_provider
+            else:
+                self._deepgram_tts_provider = DeepgramTTSProvider(
+                    api_key=self.settings.deepgram_api_key.get_secret_value(),
+                    base_url=self.settings.deepgram_base_url,
+                )
+        return self._deepgram_tts_provider
 
 
     def _fast_key_bad(self, provider_id: str) -> bool:
@@ -2069,6 +2123,13 @@ class ConversationService:
             if command in {"image", "draw", "generate", "img"} and rest and not any(
                 t.toolName == "image_generate" for t in plan.toolRequests
             ):
+                _lower_check = rest.casefold().strip()
+                if (
+                    not _lower_check
+                    or re.match(r"^(?:no\b|don'?t\b|dont\b|stop\b|cancel\b|abort\b|never\b|why\b|what\b|who\b|hey\b|hi\b|hello\b)", _lower_check)
+                    or re.search(r"\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|not\s+an\s+image|stop\s+generating|why\s+are\s+you|getting\s+that\s+tag|why\s+tag)\b", _lower_check)
+                ):
+                    return
                 image_parameters: dict[str, object] = {
                     "prompt": rest,
                     "count": 1,
@@ -2907,6 +2968,7 @@ class ConversationService:
         )
         if BROWSER_PATTERN.search(text):
             allowed_set.update([
+                "browser_cloud_agent",
                 "browser_execute_task",
                 "browser_navigate",
                 "browser_click",
@@ -3044,6 +3106,9 @@ class ConversationService:
         if tool.toolName == "youtube_playback_request":
             q = parameters.get("query") or "music"
             return f"Playing '{q}' on YouTube."
+        if tool.toolName == "browser_cloud_agent":
+            t = parameters.get("task") or "cloud browser task"
+            return f"Starting autonomous cloud browser task: '{t}'."
         if tool.toolName == "browser_execute_task":
             g = parameters.get("goal") or "task"
             return f"Starting autonomous browser task for: '{g}'."
@@ -3168,6 +3233,20 @@ class ConversationService:
         }
         if is_generate_cmd:
             from .tools.intent_gate import requested_count
+
+            # Negation / Conversational inquiry check:
+            # If the user is negating ("no, don't need images"), asking meta questions
+            # ("why are you getting that tag?"), or purely conversing ("hey hina"),
+            # do NOT hijack the turn into an image generation job!
+            _arg_lower = (clean_args or "").strip().lower()
+            _is_negation_or_meta = bool(
+                not _arg_lower
+                or re.match(r"^(?:no\b|don'?t\b|dont\b|stop\b|cancel\b|abort\b|never\b|why\b|what\b|who\b|hey\b|hi\b|hello\b)", _arg_lower)
+                or re.search(r"\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|not\s+an\s+image|stop\s+generating|why\s+are\s+you|getting\s+that\s+tag|why\s+tag)\b", _arg_lower)
+            )
+            if _is_negation_or_meta:
+                logger.info("Explicit slash '%s' bypassed for conversational/negation intent: %s", cmd, clean_args)
+                return
 
             prompt_text = clean_args or "beautiful digital artwork"
             # The batch size is a request for how many pictures, not part of the
@@ -6152,8 +6231,8 @@ class ConversationService:
         # nothing but decoration keeps its original text instead of going silent.
         text = speech_text_for_tts(request.text) or request.text
         try:
-            async with asyncio.timeout(max(20.0, self.settings.provider_timeout_seconds)):
-                provider = self.router.tts(request.providerMode, request.companionId)
+            async with asyncio.timeout(12.0 if request.realtime else max(25.0, self.settings.provider_timeout_seconds)):
+                provider = self.router.tts(request.providerMode, request.companionId, request.voiceEngine)
                 if isinstance(provider, DeepgramTTSProvider):
                     dg_voice = (
                         self.settings.deepgram_tts_model_hiro
@@ -6219,15 +6298,20 @@ class ConversationService:
                         text=text,
                         companion_id=request.companionId,
                         voice_id=voice_id,
-                        model_id=choose_text_tts_model(
+                        model_id=(choose_live_tts_model(
+                            text,
+                            configured_model=self.settings.elevenlabs_model_id,
+                            fast_model=self.settings.elevenlabs_tts_model_fast,
+                            nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                        ) if request.realtime else choose_text_tts_model(
                             text,
                             configured_model=self.settings.elevenlabs_model_id,
                             nepali_model=self.settings.elevenlabs_tts_model_nepali,
-                        ),
+                        )),
                         # Without this the bubble voice falls back to the "warm"
                         # performance pace, which is deliberately slow, and the
                         # two speech channels disagree on how fast she talks.
-                        rate=resolve_calibration("natural").rate,
+                        rate=1.12 if request.realtime else resolve_calibration("natural").rate,
                     )
                 voice = resolve_voice(
                     request.companionId,
@@ -6251,12 +6335,10 @@ class ConversationService:
                                 if request.companionId == "hiro"
                                 else self.settings.deepgram_tts_model_hinaa
                             )
-                            dg = DeepgramTTSProvider(
-                                api_key=self.settings.deepgram_api_key.get_secret_value(),
-                                base_url=self.settings.deepgram_base_url,
-                            )
-                            return await dg.synthesize(text, voice=dg_voice)
-                        raise
+                            dg = self._get_deepgram_tts_provider()
+                            if dg is not None:
+                                return await dg.synthesize(text, voice=dg_voice)
+                            raise
                 return await provider.synthesize(text, voice)
         except TimeoutError as error:
             raise HinaaError(
@@ -6294,7 +6376,7 @@ class ConversationService:
         ledger = get_run_ledger()
         started = time.perf_counter()
         try:
-            async with asyncio.timeout(self.settings.provider_timeout_seconds):
+            async with asyncio.timeout(max(15.0, self.settings.provider_timeout_seconds)):
                 result = await provider.synthesize_full(
                     text,
                     voice=voice_id,
@@ -6366,10 +6448,9 @@ class ConversationService:
             hinaa_voice=self.settings.deepgram_tts_model_hinaa,
             hiro_voice=self.settings.deepgram_tts_model_hiro,
         )
-        provider = DeepgramTTSProvider(
-            api_key=self.settings.deepgram_api_key.get_secret_value(),
-            base_url=self.settings.deepgram_base_url,
-        )
+        provider = self._get_deepgram_tts_provider()
+        if provider is None:
+            return None
         ledger = get_run_ledger()
         started = time.perf_counter()
         try:
@@ -6383,7 +6464,7 @@ class ConversationService:
                 provider="deepgram-fallback",
                 voice_id=voice,
                 model_id=voice,
-                output_format="mp3",
+                output_format="wav",
                 latency_ms=int((time.perf_counter() - started) * 1000),
                 ok=True,
                 audio_bytes=len(result.value),
@@ -6396,7 +6477,7 @@ class ConversationService:
                 provider="deepgram-fallback",
                 voice_id=voice,
                 model_id=voice,
-                output_format="mp3",
+                output_format="wav",
                 latency_ms=int((time.perf_counter() - started) * 1000),
                 ok=False,
                 error=str(error),
@@ -6416,8 +6497,9 @@ class ConversationService:
         delivery_mode: str = "warm",
         language: str = "mixed",
         live: bool = False,
+        voice_engine: str | None = None,
     ) -> ProviderResult[bytes]:
-        provider = self.router.tts(mode, companion_id)
+        provider = self.router.tts(mode, companion_id, voice_engine)
         if isinstance(provider, DeepgramTTSProvider):
             has_devanagari = bool(re.search(r"[\u0900-\u097F]", text))
             if has_devanagari and self.settings.azure_configured:

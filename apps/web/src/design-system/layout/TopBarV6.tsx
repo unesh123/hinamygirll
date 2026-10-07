@@ -1,5 +1,5 @@
 import { UserButton } from "@clerk/react";
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   MessageSquare,
   Brain,
@@ -12,10 +12,12 @@ import {
   Settings,
   Sparkles,
   Plus,
+  Mic,
 } from "lucide-react";
 import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 import { DynamicIslandCompanion, type DynamicIslandCompanionProps } from "./DynamicIslandCompanion";
+import { VOICE_ENGINES } from "./ModelControlBar";
 
 export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault" | "models";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
@@ -38,6 +40,8 @@ export interface TopBarV6Props {
   onExecutiveModeChange: (mode: ExecutiveMode) => void;
   onNewChat?: () => void;
   islandProps?: DynamicIslandCompanionProps;
+  voiceEngine?: string;
+  onSelectVoiceEngine?: (engine: string) => void;
 }
 
 export const TopBarV6: React.FC<TopBarV6Props> = ({
@@ -55,9 +59,27 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   onExecutiveModeChange,
   onNewChat,
   islandProps,
+  voiceEngine = "elevenlabs",
+  onSelectVoiceEngine,
 }) => {
   const { models, providers, runtime, loading, refetch } = useCapabilities();
   const isAuto = isAutoRouter ?? !selectedModelId;
+  const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
+  const voiceRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (voiceRef.current && !voiceRef.current.contains(e.target as Node)) {
+        setVoiceDropdownOpen(false);
+      }
+    }
+    if (voiceDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [voiceDropdownOpen]);
+
+  const activeVoiceObj = VOICE_ENGINES.find((v) => v.id === voiceEngine) || VOICE_ENGINES[0];
 
   const handleModeClick = (mode: ExecutiveMode) => {
     onExecutiveModeChange(mode);
@@ -73,6 +95,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        flexWrap: "nowrap",
+        overflow: "hidden",
         background: isDark ? "rgba(9, 10, 15, 0.98)" : "#ffffff",
         borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
         zIndex: 2500,
@@ -83,10 +107,11 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
         position: "relative",
       }}
     >
+      <span className="topbar-v6__mobile-brand">HINA</span>
       {/* ── Left: Breadcrumb & Executive Workspace Modes ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div className="topbar-v6__left" style={{ display: "flex", alignItems: "center", gap: 12 }}>
         {/* Breadcrumb */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div className="topbar-v6__breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
             type="button"
             style={{
@@ -232,11 +257,10 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
       {/* ── Center: INA ISLAND APEX CORE ─────────────────── */}
       {islandProps && (
         <div
+          className="topbar-v6__island-container"
           style={{
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            transform: "translate(-50%, -50%)",
+            position: "relative",
+            flexShrink: 0,
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
@@ -268,6 +292,130 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           backendConnected={runtime.backendConnected}
           isDark={isDark}
         />
+
+        {/* 💖 TopBar Voice Engine Selector */}
+        <div ref={voiceRef} style={{ position: "relative" }}>
+          <button
+            type="button"
+            data-testid="topbar-voice-engine-btn"
+            onClick={() => setVoiceDropdownOpen((o) => !o)}
+            title={`Voice Engine: ${activeVoiceObj.label} — ${activeVoiceObj.desc}`}
+            style={{
+              height: 32,
+              padding: "0 10px",
+              borderRadius: 8,
+              border: isDark ? "1px solid rgba(236, 72, 153, 0.4)" : "1px solid rgba(236, 72, 153, 0.45)",
+              background: isDark
+                ? "linear-gradient(135deg, rgba(236, 72, 153, 0.15) 0%, rgba(139, 92, 246, 0.08) 100%)"
+                : "linear-gradient(135deg, rgba(236, 72, 153, 0.08) 0%, rgba(139, 92, 246, 0.05) 100%)",
+              color: isDark ? "#f472b6" : "#db2777",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 650,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              boxShadow: isDark ? "0 0 12px rgba(236, 72, 153, 0.2)" : "none",
+            }}
+          >
+            <Mic size={13} strokeWidth={2.5} style={{ color: "#ec4899" }} />
+            <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activeVoiceObj.id === "elevenlabs" ? "💖 Aisha (ElevenLabs)" : activeVoiceObj.label}
+            </span>
+            <ChevronDown size={11} style={{ opacity: 0.7, transform: voiceDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+          </button>
+
+          {voiceDropdownOpen && (
+            <div
+              data-testid="topbar-voice-dropdown"
+              style={{
+                position: "absolute",
+                top: "calc(100% + 6px)",
+                right: 0,
+                width: 290,
+                background: isDark ? "#0d1018" : "#ffffff",
+                border: isDark ? "1px solid rgba(255, 255, 255, 0.14)" : "1px solid #e2e8f0",
+                borderRadius: 12,
+                boxShadow: isDark
+                  ? "0 20px 50px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(236, 72, 153, 0.2)"
+                  : "0 16px 40px rgba(0, 0, 0, 0.15)",
+                backdropFilter: "blur(20px)",
+                WebkitBackdropFilter: "blur(20px)",
+                padding: "8px 6px",
+                zIndex: 99999,
+              }}
+            >
+              <div
+                style={{
+                  padding: "4px 8px 8px 8px",
+                  fontSize: 10,
+                  fontWeight: 750,
+                  letterSpacing: "0.08em",
+                  color: isDark ? "#94a3b8" : "#64748b",
+                  textTransform: "uppercase",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #f1f5f9",
+                  marginBottom: 4,
+                }}
+              >
+                <span>HINA Voice Engine</span>
+                <span style={{ color: "#ec4899", fontSize: 9, fontWeight: 700 }}>Aisha Neural</span>
+              </div>
+              {VOICE_ENGINES.map((voice) => {
+                const isSelected = (voiceEngine || "elevenlabs") === voice.id;
+                return (
+                  <button
+                    key={voice.id}
+                    type="button"
+                    data-testid={`topbar-voice-option-${voice.id}`}
+                    onClick={() => {
+                      onSelectVoiceEngine?.(voice.id);
+                      setVoiceDropdownOpen(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 10px",
+                      background: isSelected
+                        ? (isDark ? "rgba(236, 72, 153, 0.18)" : "rgba(236, 72, 153, 0.1)")
+                        : "transparent",
+                      border: isSelected
+                        ? (isDark ? "1px solid rgba(236, 72, 153, 0.4)" : "1px solid rgba(236, 72, 153, 0.3)")
+                        : "1px solid transparent",
+                      borderRadius: 8,
+                      color: isDark ? "#ffffff" : "#0f172a",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontSize: 12,
+                      fontWeight: isSelected ? 700 : 500,
+                      gap: 8,
+                      transition: "all 0.12s ease",
+                      marginBottom: 2,
+                    }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>{voice.icon}</span>
+                        <span style={{ color: isSelected ? "#ec4899" : (isDark ? "#f1f5f9" : "#1e293b") }}>
+                          {voice.label}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 10, color: isDark ? "#64748b" : "#94a3b8", marginTop: 2, whiteSpace: "normal" }}>
+                        {voice.desc}
+                      </span>
+                    </div>
+                    {isSelected && <span style={{ color: "#ec4899", fontSize: 13, fontWeight: 800 }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* + New Chat Session */}
         {onNewChat && (

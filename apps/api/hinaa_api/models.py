@@ -280,6 +280,11 @@ class SpeechRequest(StrictModel):
     text: Annotated[str, Field(min_length=1, max_length=4000)]
     companionId: CompanionId = "hinaa"
     providerMode: ProviderMode = "mock"
+    realtime: bool = False
+    voiceEngine: Annotated[
+        str | None,
+        Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
+    ] = None
 
     @field_validator("providerMode", mode="before")
     @classmethod
@@ -353,3 +358,12 @@ class TextHumanizerResponse(StrictModel):
     mode: str
     reviewMetrics: ReviewMetrics | None = None
     reviewIdeas: list[str] | None = None
+
+
+class ImageStudioConfigPayload(BaseModel):
+    openai_image_api_key: str | None = None
+    openai_image_base_url: str | None = None
+    openai_image_model: str | None = None
+    stability_api_key: str | None = None
+    magnific_api_key: str | None = None
+
