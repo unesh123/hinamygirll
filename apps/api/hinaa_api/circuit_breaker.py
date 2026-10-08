@@ -144,22 +144,21 @@ class ProviderCircuitBreaker:
             return
 
         if error_code == "PROVIDER_TIMEOUT":
-            if self.consecutive_failures >= self.failure_threshold:
-                self.state = CircuitBreakerState.TIMEOUT
-                self.cooloff_until = now + 20.0
-                logger.warning(
-                    "Circuit breaker [%s]: TIMEOUT cooldown after %d failures",
-                    self.provider_id,
-                    self.consecutive_failures,
-                )
-            else:
-                self.state = CircuitBreakerState.DEGRADED
-                logger.info(
-                    "Circuit breaker [%s]: TIMEOUT recorded (%d/%d), kept DEGRADED",
-                    self.provider_id,
-                    self.consecutive_failures,
-                    self.failure_threshold,
-                )
+            # A timeout means the gateway accepted the request and then hung;
+            # every retry costs the user the full turn timeout in silence, so
+            # the provider is benched from the very first hang, escalating on
+            # repeats. A single blip still recovers: the cooloff expires, one
+            # cheap probe runs, and a healthy answer resets the breaker.
+            self.state = CircuitBreakerState.TIMEOUT
+            escalations = min(self.consecutive_failures - 1, 3)
+            cooldown = min(30.0 * (2 ** escalations), self.max_cooldown_seconds)
+            self.cooloff_until = now + cooldown
+            logger.warning(
+                "Circuit breaker [%s]: TIMEOUT bench for %.0fs after %d consecutive hang(s)",
+                self.provider_id,
+                cooldown,
+                self.consecutive_failures,
+            )
             return
 
         if error_code in {"PROVIDER_HOST_UNREACHABLE", "OFFLINE"}:

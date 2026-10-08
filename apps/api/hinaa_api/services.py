@@ -13,7 +13,11 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from .config import Settings
-from .circuit_breaker import peek_circuit_breaker
+from .circuit_breaker import (
+    CircuitBreakerState,
+    get_circuit_breaker,
+    peek_circuit_breaker,
+)
 from .brain_ledger import fingerprint_for, record_call, row_for_brain
 from .capabilities import brain_accepts_images
 from .response.notation import MathNotationStream, ascii_math, plainify_math
@@ -1754,6 +1758,49 @@ class ConversationService:
             )
         except Exception:  # a badge is never worth failing a turn over
             logger.debug("Brain ledger write refused", exc_info=True)
+        # The badge ledger above is cosmetic; this is the load-bearing half.
+        # Providers record their own HTTP failures into their breaker, but a
+        # hung gateway is killed by the turn-layer ``asyncio.timeout`` and the
+        # provider never learns of it — without this, a dead primary hangs
+        # every single turn for the full timeout instead of being benched.
+        # The 2s dedupe window keeps a provider that did record its own
+        # outcome from being counted twice for the same call.
+        try:
+            breaker = get_circuit_breaker(brain_id)
+            now = time.monotonic()
+            if ok:
+                if now - breaker.last_success_timestamp > 2.0:
+                    breaker.record_success()
+            elif now - breaker.last_failure_timestamp > 2.0:
+                breaker.record_failure(code or "PROVIDER_UNAVAILABLE", detail)
+        except Exception:  # health bookkeeping never fails a turn either
+            logger.debug("Circuit breaker note refused", exc_info=True)
+
+    def _primary_cooloff_remaining(self, mode: str) -> float:
+        """Seconds the requested primary brain is benched for; 0 when it may try.
+
+        A brain whose gateway hangs costs the user a full turn timeout of
+        silence every time it is tried. While its breaker is cooling down the
+        turn goes straight to the fallback chain instead of paying that again.
+        """
+        breaker = peek_circuit_breaker(mode)
+        if breaker is None:
+            return 0.0
+        return breaker.cooldown_remaining()
+
+    def _primary_probing(self, mode: str) -> bool:
+        """True when the primary is past cooloff but not yet proven healthy.
+
+        The probe turn runs on a cheap budget: if the brain still hangs, the
+        turn fails over in seconds instead of another full timeout.
+        """
+        breaker = peek_circuit_breaker(mode)
+        return (
+            breaker is not None
+            and breaker.cooldown_remaining() <= 0
+            and breaker.state
+            not in {CircuitBreakerState.READY, CircuitBreakerState.DEGRADED}
+        )
 
     def _mark_persisted(self, user_id: str, session_id: str, fact: str) -> None:
         key = (user_id, session_id)
@@ -4579,9 +4626,23 @@ class ConversationService:
         # too short for mwapi.dev (which needs 3-8s cold) and caused constant
         # timeouts. HINAA_LLM_TIMEOUT_SECONDS=90 from .env.local applies here.
         primary_plan_timeout = self.settings.llm_timeout_seconds
+        # Same bench rule as the streaming path: a brain whose gateway hangs
+        # must not be paid another full timeout of silence on every turn, and
+        # a brain past cooloff proves recovery on a cheap probe budget.
+        primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
+            primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
 
         try:
+            if primary_bench_cooloff:
+                raise HinaaError(
+                    "PROVIDER_TIMEOUT",
+                    f"Primary brain {request.providerMode} is benched for "
+                    f"{primary_bench_cooloff:.0f}s after hanging on recent turns.",
+                    503,
+                    True,
+                )
             async with asyncio.timeout(primary_plan_timeout):
                 provider = (
                     None
@@ -4639,7 +4700,10 @@ class ConversationService:
                     True,
                 )
 
-            self._record_brain_call(attempted_brain, ok=False, error=error)
+            # A benched brain was never tried; recording the skip as a fresh
+            # failure would push its cooloff forward forever.
+            if not primary_bench_cooloff:
+                self._record_brain_call(attempted_brain, ok=False, error=error)
 
             if getattr(error, "code", None) == "SAFETY_REFUSAL":
                 logger.warning("Primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
@@ -5332,11 +5396,27 @@ class ConversationService:
         primary_live_timeout = max(
             self.settings.llm_stream_ceiling_seconds, primary_idle_timeout
         )
+        # A brain benched by its breaker (a gateway that accepted the request
+        # and hung) must not be paid another full turn window of silence: the
+        # turn goes straight to the fallback chain. A brain past cooloff but
+        # not yet proven healthy gets a cheap probe budget for the same reason.
+        primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
+            primary_idle_timeout = min(primary_idle_timeout, 12.0)
+            primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []
         primary_idle_expired: Callable[[], bool] = lambda: False
         attempted_brain = request.providerMode
 
         try:
+            if primary_bench_cooloff:
+                raise HinaaError(
+                    "PROVIDER_TIMEOUT",
+                    f"Primary brain {request.providerMode} is benched for "
+                    f"{primary_bench_cooloff:.0f}s after hanging on recent turns.",
+                    503,
+                    True,
+                )
             async with live_generation_window(
                 ceiling_s=primary_live_timeout,
                 idle_s=primary_idle_timeout,
@@ -5453,7 +5533,11 @@ class ConversationService:
                     True,
                 )
 
-            self._record_brain_call(attempted_brain, ok=False, error=error)
+            # A benched brain was never tried, so the skip must not record
+            # another failure — that would push its cooloff forward on every
+            # turn and it would never get a recovery probe.
+            if not primary_bench_cooloff:
+                self._record_brain_call(attempted_brain, ok=False, error=error)
 
             if getattr(error, "code", None) == "SAFETY_REFUSAL":
                 logger.warning("Live primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")

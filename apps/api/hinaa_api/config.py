@@ -579,7 +579,11 @@ class Settings(BaseSettings):
     # Long-form documents need a generous ceiling: a 10k-word report takes
     # 3-4 minutes even on fast models.
     llm_timeout_seconds: float = Field(300.0, alias="HINAA_LLM_TIMEOUT_SECONDS")
-    llm_stream_idle_timeout_seconds: float = Field(120.0, alias="HINAA_LLM_STREAM_IDLE_TIMEOUT_SECONDS")
+    # The idle deadline only measures silence between tokens — a healthy stream
+    # resets it on every delta, so 30s of quiet already means the gateway hung.
+    # The old 120s let a dead brain hold a live voice turn hostage for two
+    # full minutes before the fallback chain even started.
+    llm_stream_idle_timeout_seconds: float = Field(30.0, alias="HINAA_LLM_STREAM_IDLE_TIMEOUT_SECONDS")
     # A live (streamed) turn is judged by liveness, not by wall clock: the idle
     # deadline above moves forward on every token, so a long document is never
     # killed merely for being long. This ceiling is only the backstop for a
