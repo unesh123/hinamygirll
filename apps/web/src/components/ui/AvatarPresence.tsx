@@ -367,6 +367,12 @@ function Model({
   // peak amplitude (partial blinks are common), close/open durations, and a
   // slight left/right lid asymmetry that makes the face read organic.
   const blinkShape = useRef({ peak: 0.78, close: 0.07, open: 0.14, asym: 1.0 });
+  // Current combined blink amplitude, exposed so the gaze layer can dip the
+  // eyes with the lids (real blink-linked gaze coordination).
+  const blinkLevel = useRef(0);
+  // How long speech audio has sat in a pause — used to land blink bursts
+  // at phrase boundaries instead of mid-syllable.
+  const blinkPauseHold = useRef(0);
   const saccadeTimer = useRef(3.2 + Math.random() * 2);
   const saccadeTarget = useRef({ x: 0, y: 0 });
   // Current mouth weights (smoothed)
@@ -885,6 +891,7 @@ function Model({
         set(VRMExpressionPresetName.BlinkLeft,  blL);
         set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
+        blinkLevel.current = (blL + blR) / 2;
       } else {
         // Natural auto-blink: variable amplitude (partial blinks are common),
         // fast close / slower open with a soft ease, slight lid asymmetry,
@@ -899,6 +906,17 @@ function Model({
             asym: 0.90 + Math.random() * 0.16,
           };
         };
+        // Blink bursts at speech pauses: humans blink at phrase boundaries.
+        // When she is speaking but the audio energy dips into a pause, pull
+        // the next blink forward so it lands in the gap, not mid-syllable.
+        if (isSpeakingNow && blinkTimer.current > 0.9 && smoothEnergyRef.current < 0.07) {
+          blinkPauseHold.current += realDt;
+          if (blinkPauseHold.current > 0.28) {
+            blinkTimer.current = Math.min(blinkTimer.current, 0.10 + Math.random() * 0.18);
+          }
+        } else {
+          blinkPauseHold.current = 0;
+        }
         blinkTimer.current -= realDt;
         let bvL = 0, bvR = 0;
         const smooth = (u: number) => u * u * (3 - 2 * u);
@@ -934,6 +952,7 @@ function Model({
         set(VRMExpressionPresetName.Blink, (bvL + bvR) / 2);
         set(VRMExpressionPresetName.BlinkLeft, Math.max(bvL, winkL));
         set(VRMExpressionPresetName.BlinkRight, bvR);
+        blinkLevel.current = (bvL + bvR) / 2;
       }
 
       /* ── LAYER 4: HIGH-LEVEL EMOTION ACTING & MICRO-EXPRESSIONS ────── */
@@ -1015,6 +1034,11 @@ function Model({
         gazX *= 0.25;
         gazY *= 0.25;
       }
+      // Blink-linked gaze coordination: the eyes dip with the closing lids
+      // and recover as they reopen — the micro-motion that sells a blink as
+      // alive instead of a texture toggle.
+      gazY -= blinkLevel.current * 0.045;
+      gazX *= 1 - blinkLevel.current * 0.4;
       if (vrm.lookAt) {
         try {
           (vrm.lookAt as any).target = undefined;
