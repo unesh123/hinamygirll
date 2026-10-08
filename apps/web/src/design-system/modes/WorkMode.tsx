@@ -886,6 +886,7 @@ export function WorkMode({
         plan={plan}
         avatarModel={avatarModel}
         avatarMode={avatarMode}
+        onChangeAvatarMode={onChangeAvatarMode}
         avatarPresentation={avatarPresentation}
         companionName={companionName}
         jawEnergy={jawEnergy}

@@ -29,6 +29,7 @@ export interface CompanionDockProps {
   plan?: AssistantTurnPlan;
   avatarModel?: string;
   avatarMode?: PresenceMode;
+  onChangeAvatarMode?: (mode: PresenceMode) => void;
   avatarPresentation?: AvatarPresentation;
   companionName?: string;
   jawEnergy?: number | React.MutableRefObject<number>;
@@ -55,7 +56,8 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
   companionState = "idle",
   plan,
   avatarModel,
-  avatarMode = "half",
+  avatarMode = "portrait",
+  onChangeAvatarMode,
   avatarPresentation,
   companionName = "Hinaa",
   jawEnergy,
@@ -167,7 +169,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
         <div style={{ flex: 1, position: "relative" }}>
           <AvatarPresence
             key={`presence-${avatarModel || "default"}`}
-            mode={isWalking ? "full" : "portrait"}
+            mode={isWalking ? "full" : avatarMode === "hidden" ? "portrait" : avatarMode}
             state={companionState}
             jawEnergy={typeof jawEnergy === "object" ? jawEnergy : undefined}
             speakingRef={speakingRef}
@@ -178,6 +180,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
             expressionText={streamingText || partialTranscript || lastAssistantText}
             isWalking={isWalking}
             onToggleWalk={onToggleWalk}
+            onModeChange={onChangeAvatarMode}
             plan={plan}
           />
         </div>
@@ -437,7 +440,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
 
         <AvatarPresence
           key={`presence-${avatarModel || "default"}`}
-          mode={avatarMode === "full" ? "full" : isWalking ? "full" : "portrait"}
+          mode={isWalking ? "full" : avatarMode === "hidden" ? "portrait" : avatarMode}
           state={companionState}
           jawEnergy={typeof jawEnergy === "object" ? jawEnergy : undefined}
           speakingRef={speakingRef}
@@ -448,6 +451,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
           expressionText={streamingText || partialTranscript || lastAssistantText}
           isWalking={isWalking}
           onToggleWalk={onToggleWalk}
+          onModeChange={onChangeAvatarMode}
           plan={plan}
         />
 

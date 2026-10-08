@@ -52,8 +52,8 @@
 ## 2. WHAT IS LEFT — gap analysis (ranked)
 
 ### P0 — Reality discipline (do first; cheap, high leverage)
-1. **`hinaa_perfection_blueprint.py` is still simulation.** It hard-codes knowledge graphs as `"CONNECTED"` and a `99.999%` target. Rule to adopt: **no feature is "ACTIVE" until a real integration test executes it** (write → restart → retrieve → assert). Either delete the blueprint or convert every claim into a live check that hits real code.
-2. **Fresh-env test reproducibility.** A clean venv cannot run the backend suite (missing `bs4`, `playwright`, etc. — not pinned in requirements). Pin all test deps in `requirements-dev.txt` so any AI/agent can run `pytest apps/api/tests` cold.
+1. ~~**`hinaa_perfection_blueprint.py` is still simulation.**~~ **DONE 2026-10-08:** deleted (`hinaa_perfection_blueprint.py`, `.bat`, `scripts/` duplicate). It hard-coded `"CONNECTED"` graphs and a `99.999%` target. Standing rule: **no feature is "ACTIVE" until a real integration test executes it** (write → restart → retrieve → assert). The pytest + vitest suites are the only scoreboard.
+2. ~~**Fresh-env test reproducibility.**~~ **DONE 2026-10-08:** `apps/api/requirements-dev.txt` pins `beautifulsoup4`, `playwright`, `exa-py`, `tzdata` — a clean venv can run `pytest apps/api/tests` cold.
 
 ### P1 — Frontier-grade completion (the 10 items from the architecture conversations)
 | # | Goal | Already exists | Missing to be "perfect" |
