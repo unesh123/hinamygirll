@@ -25,6 +25,7 @@ from . import social_reach
 from . import computer_operator
 from . import ui_control
 from . import exa_tool
+from . import coding_agent_tool
 
 __all__ = ["registry"]
 

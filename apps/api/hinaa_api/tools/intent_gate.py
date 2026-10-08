@@ -46,6 +46,7 @@ GATED_TOOLS = {
     "browser_press_key",
     "computer_operator",
     "ui_control",
+    "coding_agent",
 }
 
 # Gated calls whose every required parameter this module reads out of the owner's
@@ -244,6 +245,23 @@ _COMPUTER_APP_ASK = re.compile(
     | \b(?:media\s+(?:play|pause|toggle|next|skip|prev|previous|volume\s+up|volume\s+down|mute))\b
     | \b(?:next\s+(?:track|song)|previous\s+(?:track|song)|pause\s+music|resume\s+music|stop\s+music|mute\s+audio)\b
     """
+)
+
+_CODE_WORK_ASK = re.compile(
+    r"""(?ix)
+    \b(?:fix|patch|edit|refactor|debug|repair|update|rewrite|implement|modify|change)\b
+    [^.?!]{0,140}?
+    \b[\w\-]{1,60}(?:/[\w\-]{1,60})*\.(?:py|ts|tsx|js|jsx|html|css|json|md|java|cs|cpp|c|go|rs|sql|sh|bat|ps1|toml|yaml|yml)\b
+    |
+    \b(?:create|write|build|scaffold|generate)\b
+    [^.?!]{0,140}?
+    \b(?:a|an|the|new)?\s*[\w\- ]{0,60}?\b(?:file|script|module|program|game|app)\b[^.?!]{0,80}?
+    \b[\w\-]{1,60}\.(?:py|ts|tsx|js|jsx|html|css|java|cs|cpp|go|rs|sql|sh)\b
+    """
+)
+
+_CODE_FILE_PATH = re.compile(
+    r"(?i)\b[\w\-]{1,60}(?:[/\\][\w\-]{1,60})*\.(?:py|ts|tsx|js|jsx|html|css|json|md|java|cs|cpp|c|go|rs|sql|sh|bat|ps1|toml|yaml|yml)\b"
 )
 
 _DESKTOP_GUI_ASK = re.compile(
@@ -712,6 +730,21 @@ def sanction_tools(
             sanction.parameters["computer_operator"] = {
                 "action": "open_application",
                 "target": editor,
+            }
+        return sanction
+
+    if _CODE_WORK_ASK.search(lowered) and not ABORT.search(lowered):
+        # "fix the bug in auth.py" / "create a snake game in snake.py" — the file
+        # he named is the target, his sentence is the task, and the coding agent
+        # does the patch-verify-repair loop instead of describing the fix.
+        # META_FRAMING is deliberately NOT a guard here: "fix" is a complaint verb
+        # when it points at Hina, but a concrete file path makes it a work order.
+        path_match = _CODE_FILE_PATH.search(raw)
+        if path_match:
+            sanction.allowed.add("coding_agent")
+            sanction.parameters["coding_agent"] = {
+                "task": raw,
+                "file_path": path_match.group(0).replace("\\", "/"),
             }
         return sanction
 

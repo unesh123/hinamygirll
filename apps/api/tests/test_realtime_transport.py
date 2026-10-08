@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from hinaa_api.config import Settings
@@ -27,9 +28,13 @@ def test_realtime_url_is_served_under_both_route_prefixes() -> None:
         assert client.get("/api/v1/realtime/url").status_code == 200
 
 
-def test_realtime_url_advertises_the_websocket_path_not_the_http_alias() -> None:
+def test_realtime_url_advertises_the_websocket_path_not_the_http_alias(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     # /api/v1/realtime is an HTTP-only alias; the upgrade route is /v1/realtime.
     with app_with() as client:
+        # The endpoint falls back to .runtime/live/runner-state.json (a cwd-relative
+        # runtime file) so a live local Hina can point her preview at the public
+        # socket. Isolated to a tmp cwd, the test must never see that file.
+        monkeypatch.chdir(tmp_path)
         payload = client.get(
             "/api/v1/realtime/url", headers={"host": "hinaa.example"}
         ).json()
@@ -44,8 +49,9 @@ def test_realtime_url_prefers_the_configured_public_origin() -> None:
     assert payload["source"] == "configured"
 
 
-def test_realtime_url_reports_plain_ws_for_loopback_origins() -> None:
+def test_realtime_url_reports_plain_ws_for_loopback_origins(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     with app_with() as client:
+        monkeypatch.chdir(tmp_path)  # never see the live runner's state file
         payload = client.get(
             "/v1/realtime/url", headers={"host": "localhost:8000"}
         ).json()

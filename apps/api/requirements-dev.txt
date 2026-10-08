@@ -6,4 +6,10 @@ pip-audit==2.10.1
 pytest==9.1.1
 pytest-asyncio==1.4.0
 ruff==0.16.0
+# Test-suite runtime deps — without these a fresh venv fails collection/imports
+# (toolchain imports bs4/playwright/exa; reminder scheduling needs IANA tz on Windows)
+beautifulsoup4==4.15.0
+playwright==1.63.0
+exa-py==2.25.0
+tzdata==2026.5
 
