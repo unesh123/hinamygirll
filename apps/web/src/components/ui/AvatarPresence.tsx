@@ -363,6 +363,10 @@ function Model({
   const t           = useRef(0);
   const blinkTimer  = useRef(2 + Math.random() * 3);
   const doubleBlink = useRef(false);
+  // Per-blink shape — rerolled every blink so no two blinks look identical:
+  // peak amplitude (partial blinks are common), close/open durations, and a
+  // slight left/right lid asymmetry that makes the face read organic.
+  const blinkShape = useRef({ peak: 0.78, close: 0.07, open: 0.14, asym: 1.0 });
   const saccadeTimer = useRef(3.2 + Math.random() * 2);
   const saccadeTarget = useRef({ x: 0, y: 0 });
   // Current mouth weights (smoothed)
@@ -882,34 +886,54 @@ function Model({
         set(VRMExpressionPresetName.BlinkRight, blR);
         set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
       } else {
-        // Natural auto-blink: quick shut, soft open, never fully clamped closure
+        // Natural auto-blink: variable amplitude (partial blinks are common),
+        // fast close / slower open with a soft ease, slight lid asymmetry,
+        // quick follow-through on double blinks, slower heavy blinks when
+        // drowsy, and a quicker rhythm while she is speaking.
+        const rollBlinkShape = () => {
+          const drowsyHeavy = affectiveProfile.drowsy;
+          blinkShape.current = {
+            peak: 0.55 + Math.random() * 0.35 + drowsyHeavy * 0.08,
+            close: (0.055 + Math.random() * 0.035) * (1 + drowsyHeavy * 0.9),
+            open: (0.115 + Math.random() * 0.065) * (1 + drowsyHeavy * 0.6),
+            asym: 0.90 + Math.random() * 0.16,
+          };
+        };
         blinkTimer.current -= realDt;
-        let bv = 0;
+        let bvL = 0, bvR = 0;
         const smooth = (u: number) => u * u * (3 - 2 * u);
-        const CLOSE = Math.max(0.055, realDt);
-        const OPEN = Math.max(0.115, realDt);
         if (blinkTimer.current <= 0) {
           const tBlink = -blinkTimer.current;
+          const { peak, close: CLOSE, open: OPEN, asym } = blinkShape.current;
           if (tBlink < CLOSE) {
-            bv = 0.9 * smooth(tBlink / CLOSE);
+            const u = smooth(tBlink / CLOSE);
+            bvL = peak * u;
+            bvR = peak * asym * u;
           } else if (tBlink < CLOSE + OPEN) {
-            bv = 0.9 * (1 - smooth((tBlink - CLOSE) / OPEN));
+            const u = 1 - smooth((tBlink - CLOSE) / OPEN);
+            bvL = peak * u;
+            bvR = peak * asym * u;
           } else if (doubleBlink.current) {
+            // Second blink of a pair follows quickly (real double-blink
+            // cadence is ~120-260 ms, not seconds).
             doubleBlink.current = false;
-            blinkTimer.current = 1.6 + Math.random() * 3.6;
-          } else if (Math.random() < 0.18) {
+            blinkTimer.current = 0.12 + Math.random() * 0.14;
+            rollBlinkShape();
+          } else if (Math.random() < 0.16) {
             doubleBlink.current = true;
             blinkTimer.current = Math.max(0.04, realDt);
           } else {
-            blinkTimer.current = 2.2 + Math.random() * 4;
+            const rhythm = isSpeakingNow ? 0.72 : 1 + affectiveProfile.drowsy * 0.35;
+            blinkTimer.current = (2.3 + Math.random() * 3.9) * rhythm;
+            rollBlinkShape();
           }
         }
         // Playful / flirty subtle asymmetric micro-wink (rare charming anime moment)
         const isPlayful = rawIntent === "playful" || rawIntent === "flirty_warm";
         const winkL = isPlayful && Math.sin(t.current * 0.45) > 0.97 ? 0.65 : 0;
-        set(VRMExpressionPresetName.Blink, bv);
-        set(VRMExpressionPresetName.BlinkLeft, Math.max(bv, winkL));
-        set(VRMExpressionPresetName.BlinkRight, bv);
+        set(VRMExpressionPresetName.Blink, (bvL + bvR) / 2);
+        set(VRMExpressionPresetName.BlinkLeft, Math.max(bvL, winkL));
+        set(VRMExpressionPresetName.BlinkRight, bvR);
       }
 
       /* ── LAYER 4: HIGH-LEVEL EMOTION ACTING & MICRO-EXPRESSIONS ────── */

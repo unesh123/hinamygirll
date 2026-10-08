@@ -433,6 +433,10 @@ export default function App() {
   }, []);
   const unlockAudio = useCallback(async () => {
     try {
+      // Only replay when audio was genuinely blocked and the last utterance
+      // never reached the speakers. Replaying on every unlock re-spoke the
+      // previous reply each time the user sent a new message.
+      const wasBlocked = audioBlockedRef.current;
       await playback.unlockAudio();
       const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
       if (ctx && ctx.state === "suspended") {
@@ -440,7 +444,7 @@ export default function App() {
       }
       audioBlockedRef.current = false;
       setAudioBlocked(false);
-      if (playback.hasReplay) {
+      if (wasBlocked && playback.hasReplay && !playback.playing) {
         void playback.replay();
       }
     } catch {

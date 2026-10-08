@@ -193,7 +193,7 @@ export function useAudioPlayback(): PlaybackController {
         }
         const audio = new Audio(url);
         try {
-          audio.playbackRate = 1.08;
+          audio.playbackRate = 1.0;
           audio.volume = mutedRef.current ? 0 : 1;
         } catch {}
         activeHtmlAudioRef.current = audio;
@@ -319,8 +319,10 @@ export function useAudioPlayback(): PlaybackController {
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(masterRef.current);
-      // Fast, natural talking pace: 1.08x rate for energetic, snappy delivery
-      const playbackRate = 1.08;
+      // Natural voice: 1.0x — the server-side pace calibration owns tempo.
+      // BufferSource playbackRate resamples (no pitch preservation), so 1.08
+      // was pitching her voice up ~8% and thinning it out.
+      const playbackRate = 1.0;
       source.playbackRate.value = playbackRate;
       const effectiveDuration = buffer.duration / playbackRate;
 
@@ -549,8 +551,8 @@ export function useAudioPlayback(): PlaybackController {
           console.warn("[HINAA] No female voice available in OS speech engine; refusing male voice for Hina");
           return false;
         }
-        utterance.pitch = 1.18; // Sweet, lively anime companion pitch
-        utterance.rate = 1.05;
+        utterance.pitch = 1.08; // Gentle feminine lift — 1.18 read squeaky/thin
+        utterance.rate = 0.98;
         utterance.volume = 1;
       } else {
         // Hiro companion: calm male voice
@@ -795,9 +797,9 @@ export function useAudioPlayback(): PlaybackController {
           console.warn("[HINAA] No female voice available in browser; refusing male voice for stream chunk");
           return false;
         }
-        utterance.pitch = 1.18;
-        // High speed speech generation as requested by user
-        utterance.rate = 1.18;
+        utterance.pitch = 1.08;
+        // Natural conversational pace — 1.18 was racing and thinning her voice
+        utterance.rate = 0.98;
         utterance.volume = 1;
       } else {
         selectedVoice =
