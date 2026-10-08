@@ -76,6 +76,7 @@ def test_clerk_mode_verifies_with_only_a_secret_key() -> None:
         HINAA_AUTH_MODE="clerk",
         CLERK_SECRET_KEY="sk_test_probe_value",
         CLERK_JWT_KEY=None,
+        _env_file=None,
     )
     with pytest.raises(HinaaError) as caught:
         resolve_auth(_request("hinaa-workspace.vercel.app"), settings, _memory())
@@ -84,7 +85,7 @@ def test_clerk_mode_verifies_with_only_a_secret_key() -> None:
 
 
 def test_clerk_mode_reports_missing_credentials_as_not_configured() -> None:
-    settings = Settings(HINAA_AUTH_MODE="clerk", CLERK_SECRET_KEY=None, CLERK_JWT_KEY=None)
+    settings = Settings(HINAA_AUTH_MODE="clerk", CLERK_SECRET_KEY=None, CLERK_JWT_KEY=None, _env_file=None)
     with pytest.raises(HinaaError) as caught:
         resolve_auth(_request("hinaa-workspace.vercel.app"), settings, _memory())
     assert caught.value.code == "AUTH_NOT_CONFIGURED"

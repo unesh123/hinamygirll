@@ -606,6 +606,79 @@ class MagnificProvider:
         stored = self.asset_store.store_bytes(raw_bytes=out_media.bytes_data, mime_type=out_media.mime_type, source=AssetSource.GENERATED)
         return MediaResult(asset_ref=stored, provider=result.provider, task_id=result.task_id)
 
+    # ── Local offline fallback (no provider key needed) ──────────────────
+    async def _local_upscale(self, resolved: Any, scale: float, prompt: str) -> MediaResult:
+        """Pillow upscale for when no image provider is configured.
+
+        LANCZOS resampling with a light sharpen is not a neural upscaler, but
+        it is real work he can use offline — far better than refusing the
+        turn with a credential error on a machine that has no key.
+        """
+        def work() -> bytes:
+            import io
+
+            from PIL import Image, ImageEnhance, ImageFilter
+
+            factor = max(1, min(int(scale), 4))
+            img = Image.open(io.BytesIO(resolved.bytes_data)).convert("RGB")
+            width, height = img.size
+            out_w = min(width * factor, 8192)
+            out_h = min(height * factor, 8192)
+            img = img.resize((out_w, out_h), Image.Resampling.LANCZOS)
+            img = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=68, threshold=2))
+            if prompt.strip():
+                img = ImageEnhance.Sharpness(img).enhance(1.08)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+
+        png = await asyncio.to_thread(work)
+        stored = self.asset_store.store_bytes(
+            raw_bytes=png,
+            mime_type="image/png",
+            source=AssetSource.GENERATED,
+        )
+        return MediaResult(asset_ref=stored, provider="local:pillow-upscale", task_id=None, credits_used=0)
+
+    async def _local_relight(self, resolved: Any, lighting_prompt: str) -> MediaResult:
+        """Pillow color-grade approximation of relighting, for offline use.
+
+        Reads the prompt's temperature (warm sunset vs cool moonlight) and
+        grades the channels accordingly; an honest local stand-in when no
+        relight provider key exists.
+        """
+        def work() -> bytes:
+            import io
+
+            from PIL import Image, ImageEnhance
+
+            text = lighting_prompt.lower()
+            warm = any(k in text for k in ("warm", "golden", "sunset", "sunrise", "amber", "candle", "evening"))
+            cool = any(k in text for k in ("cool", "cold", "blue", "moon", "night", "cyan", "overcast"))
+            img = Image.open(io.BytesIO(resolved.bytes_data)).convert("RGB")
+            r, g, b = img.split()
+            if warm:
+                r = ImageEnhance.Brightness(r).enhance(1.18)
+                b = ImageEnhance.Brightness(b).enhance(0.86)
+            elif cool:
+                b = ImageEnhance.Brightness(b).enhance(1.18)
+                r = ImageEnhance.Brightness(r).enhance(0.88)
+            img = Image.merge("RGB", (r, g, b))
+            if warm or cool:
+                img = ImageEnhance.Color(img).enhance(1.12)
+            img = ImageEnhance.Contrast(img).enhance(1.06)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+
+        png = await asyncio.to_thread(work)
+        stored = self.asset_store.store_bytes(
+            raw_bytes=png,
+            mime_type="image/png",
+            source=AssetSource.GENERATED,
+        )
+        return MediaResult(asset_ref=stored, provider="local:pillow-relight", task_id=None, credits_used=0)
+
     # ── Upscale (Creative Fabric) ────────────────────────────────────────
     async def upscale(
         self,
@@ -623,7 +696,8 @@ class MagnificProvider:
         eff_scale = factor if factor is not None else scale
         resolved = await self.resolver.resolve(image_ref, role="upscale_source")
         if not self.is_configured:
-            raise MagnificProviderError("CREDENTIAL_MISSING", "Configure a valid image provider before running this operation.", status_code=503)
+            logger.info("No image provider key; running upscale locally with Pillow")
+            return await self._local_upscale(resolved, eff_scale, prompt)
         headers = self._get_headers()
         b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")
         submit_path = "/v1/ai/image-upscaler"
@@ -677,7 +751,8 @@ class MagnificProvider:
         resolved = await self.resolver.resolve(image_ref, role="relight_source")
 
         if not self.is_configured:
-            raise MagnificProviderError("CREDENTIAL_MISSING", "Configure a valid image provider before running this operation.", status_code=503)
+            logger.info("No image provider key; grading relight locally with Pillow")
+            return await self._local_relight(resolved, lighting_prompt)
 
         headers = self._get_headers()
         b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")

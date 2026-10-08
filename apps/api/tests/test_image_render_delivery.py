@@ -73,6 +73,11 @@ class _Cloud:
     def available(self) -> bool:
         return True
 
+    def honours_reference_image(self) -> bool:
+        # This stub models the Freepik-direct branch of the contract: the
+        # endpoint has no input-image field, so a reference is never honoured.
+        return False
+
     async def generate(self, prompt: str, **_kwargs):
         self.calls.append("generate")
         return SimpleNamespace(image_urls=[RENDER_URL], provider="magnific:text-to-image")

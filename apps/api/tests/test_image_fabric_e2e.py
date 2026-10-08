@@ -17,7 +17,10 @@ def client():
 def test_asset_upload_and_retrieve_lifecycle(client: TestClient):
     """Test POST /v1/assets and GET /v1/assets/{asset_id}/file."""
     # 1x1 transparent PNG
-    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    # 1x1 PNG Pillow can actually decode — the old hand-written bytes were
+    # subtly corrupt and only survived because the cloud path never decoded
+    # the image locally.
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xa8\x088\xf1\x1f\x00\x05d\x02\x90\xdf,\x9di\x00\x00\x00\x00IEND\xaeB`\x82"
     
     response = client.post(
         "/v1/assets",
@@ -59,7 +62,10 @@ def test_tool_execute_image_upscale_and_relight(client: TestClient, monkeypatch)
     from hinaa_api.tools.image_fabric import image_fabric
     monkeypatch.setattr(type(image_fabric.magnific), "is_configured", property(lambda self: False))
 
-    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    # 1x1 PNG Pillow can actually decode — the old hand-written bytes were
+    # subtly corrupt and only survived because the cloud path never decoded
+    # the image locally.
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xa8\x088\xf1\x1f\x00\x05d\x02\x90\xdf,\x9di\x00\x00\x00\x00IEND\xaeB`\x82"
     upload_res = client.post(
         "/v1/assets",
         files={"file": ("input.png", io.BytesIO(png_bytes), "image/png")},

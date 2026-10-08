@@ -48,6 +48,26 @@ def _wsl_distributions() -> list[str]:
         return []
 
 
+def _powershell_exe() -> str:
+    """Locate powershell.exe even when WindowsPowerShell is missing from PATH.
+
+    The backend inherits a minimal PATH from its launcher, and on machines
+    where that PATH lacks the WindowsPowerShell directory the bare name fails
+    with WinError 2 — every terminal command then reported "failed" even
+    though PowerShell is installed at its well-known System32 location.
+    """
+    import shutil
+
+    found = shutil.which("powershell.exe")
+    if found:
+        return found
+    candidate = (
+        Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    )
+    return str(candidate) if candidate.exists() else "powershell.exe"
+
+
 def _run_command(command: list[str], cwd: Path, env: dict[str, str], timeout: int) -> tuple[int, bytes, bytes]:
     # Windows Uvicorn uses a Selector event loop, which cannot create asyncio
     # subprocess transports. Run process I/O in a worker thread instead.
@@ -249,7 +269,7 @@ async def execute_terminal_hands(params: TerminalExecuteParams | dict[str, Any])
         return {"status":"rejected", "command":cmd, "error":"Working directory must be an existing folder inside the Hina workspace."}
 
     active_runtime = "powershell" if os.name == "nt" else "linux-bash"
-    sub_cmd = ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", cmd] if os.name == "nt" else ["/bin/bash", "-c", cmd]
+    sub_cmd = [_powershell_exe(), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", cmd] if os.name == "nt" else ["/bin/bash", "-c", cmd]
     if params.runtime in ("linux", "kali") and os.name == "nt":
         distributions = await asyncio.to_thread(_wsl_distributions)
         chosen = next((name for name in distributions if "kali" in name.lower()), None) if params.runtime == "kali" else next(iter(distributions), None)

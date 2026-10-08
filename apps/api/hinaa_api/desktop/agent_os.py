@@ -223,6 +223,28 @@ class GeneralUIAgent(BaseAppAgent):
             ok = await NativeComputerOperator.type_text(txt)
             priority = ActionPriorityLevel.NATIVE_OS_PRIMITIVE
             detail = f"Typed text"
+        elif action == "media_control":
+            # "Play daft punk on spotify" lands here. The old fallthrough
+            # tried to open an application literally named "search_and_play"
+            # and always failed. Open Spotify's search for the requested
+            # track instead — the web player works even when the desktop app
+            # is not installed, and Spotify hands focus to the app when it is.
+            from urllib.parse import quote
+
+            query = str(task.params.get("query", "")).strip()
+            target_url = (
+                f"https://open.spotify.com/search/{quote(query)}"
+                if query
+                else "https://open.spotify.com"
+            )
+            res = await NativeComputerOperator.open_application(target_url)
+            ok = res.success
+            priority = ActionPriorityLevel.API_SEMANTIC
+            detail = (
+                f"Spotify search opened for '{query}' — tap the top result to play."
+                if query
+                else "Opened Spotify."
+            )
         else:
             app_target = task.params.get("target", task.target_app)
             res = await NativeComputerOperator.open_application(app_target)

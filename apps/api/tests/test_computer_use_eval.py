@@ -21,6 +21,15 @@ from hinaa_api.tools.computer_operator import (
 from hinaa_api.harness.motion_brain import get_motion_director, SemanticIntent
 
 
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_desktop(monkeypatch):
+    """Evals verify the operator's logic with the desktop rehearsed, never
+    driven: a test run must not type into a real chat, press real keys, or
+    open real windows. Real-desktop execution stays available in production,
+    where this variable is unset."""
+    monkeypatch.setenv("HINAA_COMPUTER_DRY_RUN", "1")
+
+
 @pytest.mark.asyncio
 async def test_eval_01_spotify_playback():
     """Test 01: Semantic media control and deep link search on Spotify."""

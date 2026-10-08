@@ -571,6 +571,20 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
 
         # ── local fallback (ComfyUI) ─────────────────────────────────────
         if not await comfyui_provider.health_check():
+            # A silent failure here is what left him staring at "Image 1
+            # failed" with no line in any log: name the set and the reason.
+            if has_reference:
+                logger.warning(
+                    "Image workflow %s failed: no configured image provider can "
+                    "read his reference image, and the local renderer is offline.",
+                    generation_set_id,
+                )
+            else:
+                logger.warning(
+                    "Image workflow %s failed: no cloud provider is configured "
+                    "and the local renderer is offline.",
+                    generation_set_id,
+                )
             with session_factory() as session:
                 for job in session.query(ImageJob).filter_by(generation_set_id=generation_set_id, status="pending").all():
                     job.status = "failed"

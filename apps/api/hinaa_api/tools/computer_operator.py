@@ -56,6 +56,7 @@ from pydantic import BaseModel, Field
 
 from hinaa_api.integrations.desktop_bridge_auth import bridge_token
 from hinaa_api.tools.registry import registry, ToolDefinition
+from hinaa_api.tools.terminal_hands import _powershell_exe
 from hinaa_api.harness.motion_brain import get_motion_director, SemanticIntent, SpatialStation
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,17 @@ class NativeComputerOperator:
     _pending_confirmations: Dict[str, Dict[str, Any]] = {}
 
     @classmethod
+    def _dry_run(cls) -> bool:
+        """When HINAA_COMPUTER_DRY_RUN=1 no keystroke, click, launch, or
+        message ever reaches the real desktop.
+
+        The evaluation suites set this so a `pytest` run can never type into
+        a real WhatsApp chat or send a real message — that exact accident is
+        why this switch exists. Production runs leave it unset.
+        """
+        return os.environ.get("HINAA_COMPUTER_DRY_RUN", "").strip().lower() in {"1", "true", "yes"}
+
+    @classmethod
     def emit_motion_event(cls, event_type: str, detail: str = "") -> None:
         """Publishes computer operation events to the Motion Brain."""
         try:
@@ -234,7 +246,7 @@ class NativeComputerOperator:
                 # Fast running apps enumeration
                 cmd = "Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object -ExpandProperty ProcessName"
                 res = subprocess.run(
-                    ["powershell", "-NoProfile", "-Command", cmd],
+                    [_powershell_exe(), "-NoProfile", "-Command", cmd],
                     capture_output=True,
                     text=True,
                     timeout=1.8,
@@ -306,6 +318,8 @@ class NativeComputerOperator:
     async def mouse_move(cls, x: int, y: int, smooth: bool = True) -> bool:
         """Moves cursor to (x, y) coordinates. If smooth=True, glides naturally."""
         cls.emit_motion_event("computer_action", f"Move mouse to ({x}, {y})")
+        if cls._dry_run():
+            return True
         if cls.is_daemon_live():
             res = await cls.send_daemon_action({"action": "mouse_move", "x": x, "y": y, "smooth": smooth})
             if res and res.get("success"):
@@ -354,7 +368,7 @@ class NativeComputerOperator:
         $wscript.AppActivate('{target}')
         """
         try:
-            res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], capture_output=True, timeout=2.0)
+            res = subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps_script], capture_output=True, timeout=2.0)
             return "True" in res.stdout
         except Exception:
             return False
@@ -405,7 +419,7 @@ class NativeComputerOperator:
 
             try:
                 ps = "Get-Process | Where-Object MainWindowTitle | Select-Object Id, ProcessName, MainWindowTitle | ConvertTo-Json -Compress"
-                res = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=2.5)
+                res = subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=2.5)
                 raw = res.stdout.strip()
                 if raw:
                     data = json.loads(raw)
@@ -430,7 +444,7 @@ class NativeComputerOperator:
         if platform.system() == "Windows":
             try:
                 ps = f"$p = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' -or $_.ProcessName -like '*{target}*' }} | Select-Object -First 1; if ($p) {{ $p.CloseMainWindow() }}"
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=3.0)
+                subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps], timeout=3.0)
                 return True
             except Exception:
                 return False
@@ -463,7 +477,7 @@ class NativeComputerOperator:
                     [Win32Win]::ShowWindow([Win32Win]::GetForegroundWindow(), {show_cmd})
                 }}
                 """
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=3.0)
+                subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps], timeout=3.0)
                 return True
             except Exception:
                 return False
@@ -473,6 +487,8 @@ class NativeComputerOperator:
     async def click(cls, x: Optional[int] = None, y: Optional[int] = None, button: str = "left", clicks: int = 1) -> bool:
         """Sends native mouse click at screen coordinates."""
         cls.emit_motion_event("computer_action", f"Click {button} x{clicks} at ({x}, {y})")
+        if cls._dry_run():
+            return True
         if cls.is_daemon_live():
             res = await cls.send_daemon_action({"action": "click", "x": x, "y": y, "button": button, "clicks": clicks})
             if res and res.get("success"):
@@ -582,7 +598,7 @@ class NativeComputerOperator:
                 $g.Dispose()
                 $bmp.Dispose()
                 """
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=4.0)
+                subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps], timeout=4.0)
                 if filepath.exists() and filepath.stat().st_size > 0:
                     return {
                         "success": True,
@@ -640,6 +656,8 @@ class NativeComputerOperator:
     async def type_text(cls, text: str, clear_first: bool = False) -> bool:
         """Types text using native keystrokes."""
         cls.emit_motion_event("computer_action", f"Type text: {text[:20]}")
+        if cls._dry_run():
+            return True
         if cls.is_daemon_live():
             res = await cls.send_daemon_action({"action": "type_text", "text": text, "clear_first": clear_first})
             if res and res.get("success"):
@@ -654,7 +672,7 @@ class NativeComputerOperator:
                 {clear_cmd}
                 $wscript.SendKeys('{safe_text}')
                 """
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=3.0)
+                subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps], timeout=3.0)
                 return True
             except Exception:
                 return False
@@ -664,6 +682,8 @@ class NativeComputerOperator:
     async def press_hotkey(cls, keys: str) -> bool:
         """Triggers hotkey combinations (e.g. enter, ctrl+f, alt+tab, escape)."""
         cls.emit_motion_event("computer_action", f"Hotkey: {keys}")
+        if cls._dry_run():
+            return True
         if cls.is_daemon_live():
             res = await cls.send_daemon_action({"action": "press_hotkey", "keys": keys})
             if res and res.get("success"):
@@ -687,7 +707,7 @@ class NativeComputerOperator:
                 $wscript = New-Object -ComObject WScript.Shell
                 $wscript.SendKeys('{mapped}')
                 """
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=2.0)
+                subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps], timeout=2.0)
                 return True
             except Exception:
                 return False
@@ -697,6 +717,8 @@ class NativeComputerOperator:
     async def scroll(cls, direction: str = "down", amount: int = 3) -> bool:
         """Scrolls mouse wheel up or down."""
         cls.emit_motion_event("computer_action", f"Scroll {direction}")
+        if cls._dry_run():
+            return True
         if cls.is_daemon_live():
             res = await cls.send_daemon_action({"action": "scroll", "direction": direction, "amount": amount})
             if res and res.get("success"):
@@ -806,7 +828,8 @@ class NativeComputerOperator:
         if system == "Windows":
             try:
                 if resolved.startswith("http://") or resolved.startswith("https://") or resolved.startswith("spotify:") or resolved.startswith("ms-settings:") or resolved.startswith("microsoft.windows."):
-                    subprocess.Popen(["explorer.exe", resolved], shell=False)
+                    if not cls._dry_run():
+                        subprocess.Popen(["explorer.exe", resolved], shell=False)
                 else:
                     safe_target = resolved.replace("'", "''").replace('"', '')
                     workspace = os.environ.get("WORKSPACE_ROOT") or str(Path(__file__).resolve().parents[4])
@@ -838,16 +861,34 @@ class NativeComputerOperator:
                         }}
                     }}
                     """
-                    subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=8.0, check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                    if not cls._dry_run():
+                        subprocess.run([_powershell_exe(), "-NoProfile", "-Command", ps], timeout=8.0, check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
                 await asyncio.sleep(0.4)
                 obs = cls.observe()
+                # Verify against what the desktop actually shows afterwards:
+                # a URL target is verified when any known browser holds a
+                # window; an app target when its process or the foreground
+                # title names it. "Verification pending" forever meant every
+                # launch looked unconfirmed to the mission loop.
+                is_url = resolved.startswith(("http://", "https://", "spotify:", "ms-settings:", "microsoft.windows."))
+                if is_url:
+                    verified = bool({"chrome", "msedge", "firefox", "brave", "arc", "opera"} & set(obs.running_apps))
+                else:
+                    token = resolved.split("\\")[-1].split(".")[0].lower()
+                    verified = any(token in app for app in obs.running_apps) or (
+                        bool(token) and token in obs.active_window_title.lower()
+                    )
                 return ComputerActionResult(
                     success=True,
                     action="open_application",
                     target=app_or_url,
-                    detail=f"Launch/focus requested for '{app_or_url}'. Window verification is pending.",
-                    verified=False,
+                    detail=(
+                        f"'{app_or_url}' is up — verified on the desktop."
+                        if verified
+                        else f"Launch/focus requested for '{app_or_url}'. Window verification is pending."
+                    ),
+                    verified=verified,
                     observation=obs,
                 )
             except Exception as e:
@@ -882,7 +923,7 @@ class NativeComputerOperator:
             clean_phone = "".join(c for c in recipient if c.isdigit() or c == "+")
             if len(clean_phone) >= 7 and (clean_phone.startswith("+") or clean_phone.isdigit()):
                 encoded_msg = urllib.parse.quote(text)
-                if platform.system() == "Windows":
+                if platform.system() == "Windows" and not cls._dry_run():
                     os.system(f'start "" "whatsapp://send?phone={clean_phone}&text={encoded_msg}"')
                 await asyncio.sleep(0.5)
             else:
@@ -968,6 +1009,15 @@ class NativeComputerOperator:
     async def media_control(cls, action: str, query: Optional[str] = None) -> ComputerActionResult:
         """Controls music and media playback."""
         cls.emit_motion_event("computer_action", f"Media {action}")
+        if cls._dry_run():
+            return ComputerActionResult(
+                success=True,
+                action="media_control",
+                target=action,
+                detail=f"(dry run) media command '{action}' — no keys reached the desktop.",
+                verified=True,
+                observation=cls.observe(),
+            )
         action_lower = action.strip().lower()
         system = platform.system()
 

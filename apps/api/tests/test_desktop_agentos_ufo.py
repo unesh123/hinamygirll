@@ -15,6 +15,13 @@ from hinaa_api.desktop.agent_os import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_desktop(monkeypatch):
+    """Missions route through NativeComputerOperator; keep every keystroke,
+    launch, and message off the real desktop during test runs."""
+    monkeypatch.setenv("HINAA_COMPUTER_DRY_RUN", "1")
+
+
 @pytest.mark.asyncio
 async def test_host_agent_task_dag_planning():
     host = HostAgent()
