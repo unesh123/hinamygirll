@@ -815,3 +815,62 @@ def test_desktop_gui_autonomous_operator_sanctioned(gate_settings):
 
 
 
+
+
+def test_terminal_command_sanctioned_as_terminal_hands(gate_settings):
+    """A shell order is a terminal_hands call, not an app launch.
+
+    Live proof: "run python --version in the terminal" was routed to
+    computer_operator.open_application with target "python", which tried to
+    launch a program instead of running the command.
+    """
+    s = sanction_tools("run python --version in the terminal")
+    assert s.permits("terminal_hands")
+    assert s.parameters["terminal_hands"]["command"] == "python --version"
+    assert not s.permits("app_launch")
+
+    s_shell = sanction_tools("execute git status in the shell")
+    assert s_shell.permits("terminal_hands")
+    assert s_shell.parameters["terminal_hands"]["command"] == "git status"
+
+    s_ps = sanction_tools("run npm install in powershell")
+    assert s_ps.permits("terminal_hands")
+    assert s_ps.parameters["terminal_hands"]["command"] == "npm install"
+
+    s_cmd = sanction_tools("run the command ls -la")
+    assert s_cmd.permits("terminal_hands")
+    assert s_cmd.parameters["terminal_hands"]["command"] == "ls -la"
+
+    s_quoted = sanction_tools('run "python --version" in the terminal please')
+    assert s_quoted.permits("terminal_hands")
+    assert s_quoted.parameters["terminal_hands"]["command"] == "python --version"
+
+    # Opening the terminal itself stays a UI/app action, never a shell order.
+    s_open = sanction_tools("open terminal")
+    assert not s_open.permits("terminal_hands")
+
+    # Meta complaints about her own behavior authorize nothing.
+    s_meta = sanction_tools("why can't you run things in the terminal")
+    assert not s_meta.permits("terminal_hands")
+
+
+def test_terminal_gate_files_call_from_words_alone(gate_settings):
+    """The gate specifies the command completely, so a brain that planned
+    nothing still owes him the run."""
+    plan = _gated(gate_settings, "run python --version in the terminal", [])
+    names = [req.toolName for req in plan.toolRequests]
+    assert "terminal_hands" in names
+    req = next(req for req in plan.toolRequests if req.toolName == "terminal_hands")
+    assert req.parameters["command"] == "python --version"
+
+
+def test_terminal_gate_drops_invented_call(gate_settings):
+    """A terminal call the owner never asked for is dropped like any other
+    invented gated call."""
+    plan = _gated(
+        gate_settings,
+        "what is the capital of nepal",
+        [("terminal_hands", {"command": "rm -rf /"})],
+    )
+    names = [req.toolName for req in plan.toolRequests]
+    assert "terminal_hands" not in names

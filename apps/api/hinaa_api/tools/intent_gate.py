@@ -47,6 +47,7 @@ GATED_TOOLS = {
     "computer_operator",
     "ui_control",
     "coding_agent",
+    "terminal_hands",
 }
 
 # Gated calls whose every required parameter this module reads out of the owner's
@@ -63,6 +64,7 @@ SELF_SPECIFIED = {
     "browser_scroll": ("direction",),
     "browser_press_key": ("key",),
     "computer_operator": ("action",),
+    "terminal_hands": ("command",),
 }
 
 
@@ -226,6 +228,19 @@ _BROWSER_TASK_ASK = re.compile(
         scroll\s+(?:down|up) |
         search\s+(?:on\s+google|on\s+the\s+web|in\s+browser)
     )\b
+    """
+)
+
+_TERMINAL_CMD_ASK = re.compile(
+    r"""(?ix)
+    \b(?:run|execute|exec)\s+
+    (?:the\s+command\s+[:`]?\s*)?
+    (.+?)
+    \s+(?:in|on|through|using|via|from)\s+(?:the\s+|my\s+)?
+    (?:terminal|shell|console|command\s*(?:line|prompt)|powershell|cmd|git\s+bash|wsl)\b
+    |
+    \b(?:run|execute|exec)\s+(?:the\s+)?command\s+[:`]?\s*(.+?)
+    \s*$
     """
 )
 
@@ -912,6 +927,20 @@ def sanction_tools(
         else:
             sanction.parameters["computer_operator"] = {"action": "click", "x": x, "y": y}
         return sanction
+
+    terminal_match = _TERMINAL_CMD_ASK.search(raw)
+    if terminal_match and not META_FRAMING.search(lowered):
+        # "run python --version in the terminal" is a shell order, not an app
+        # launch -- and the app-launch pattern below would otherwise swallow the
+        # first word of the command as the program name. The command itself is
+        # the parameter, quoted or bare, so the gate can file the call outright.
+        command = next((g for g in terminal_match.groups() if g), "").strip()
+        command = command.strip("\"'`").rstrip(".!?,;").strip()
+        command = re.sub(r"(?i)\s+(?:please|for\s+me|now)$", "", command).strip()
+        if command:
+            sanction.allowed.add("terminal_hands")
+            sanction.parameters["terminal_hands"] = {"command": command}
+            return sanction
 
     if _COMPUTER_APP_ASK.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.update(["computer_operator", "app_launch", "system_info"])
