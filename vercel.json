@@ -7,27 +7,27 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/api/:path*"
+      "destination": "https://watershed-these-more-examination.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/v1/:path*"
+      "destination": "https://watershed-these-more-examination.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health/:path*",
-      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/health/:path*"
+      "destination": "https://watershed-these-more-examination.trycloudflare.com/health/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/health"
+      "destination": "https://watershed-these-more-examination.trycloudflare.com/health"
     },
     {
       "source": "/healthz",
-      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/healthz"
+      "destination": "https://watershed-these-more-examination.trycloudflare.com/healthz"
     },
     {
       "source": "/readyz",
-      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/readyz"
+      "destination": "https://watershed-these-more-examination.trycloudflare.com/readyz"
     },
     {
       "source": "/((?!api/|v1/|health|healthz|readyz|models/|assets/|worklets/|animations/|test-assets/).*)",
