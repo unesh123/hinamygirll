@@ -12,10 +12,10 @@ import {
   PictureInPicture,
   Footprints,
 } from "lucide-react";
-import { VRMAvatar } from "../../features/avatar/VRMAvatar";
+import { AvatarPresence, type PresenceMode } from "../../components/ui/AvatarPresence";
+import type { AvatarPresentation } from "../../features/avatar/avatarPresentation";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY } from "../../features/avatar/avatarRegistry";
-import type { PresenceMode } from "../../components/ui/AvatarPresence";
 import type { CompanionId, CompanionState } from "../../features/companion/types";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 
@@ -29,6 +29,7 @@ export interface CompanionDockProps {
   plan?: AssistantTurnPlan;
   avatarModel?: string;
   avatarMode?: PresenceMode;
+  avatarPresentation?: AvatarPresentation;
   companionName?: string;
   jawEnergy?: number | React.MutableRefObject<number>;
   speakingRef?: React.MutableRefObject<boolean>;
@@ -55,6 +56,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
   plan,
   avatarModel,
   avatarMode = "half",
+  avatarPresentation,
   companionName = "Hinaa",
   jawEnergy,
   speakingRef,
@@ -163,21 +165,20 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
         </div>
 
         <div style={{ flex: 1, position: "relative" }}>
-          <VRMAvatar
-            key={`vrm-${avatarModel || "default"}`}
-            companionId={companionId || "hinaa"}
+          <AvatarPresence
+            key={`presence-${avatarModel || "default"}`}
+            mode={isWalking ? "full" : "portrait"}
             state={companionState}
-            plan={plan}
-            reducedMotion={false}
-            textOnly={false}
-            jawEnergy={jawEnergy}
+            jawEnergy={typeof jawEnergy === "object" ? jawEnergy : undefined}
             speakingRef={speakingRef}
             visemeEvents={visemeEvents}
             audioStartTimeRef={audioStartTimeRef}
-            speechBridge={speechBridge}
-            modelUrl={avatarModel ?? null}
-            closeUp={!isWalking}
-            walkMode={isWalking}
+            modelUrl={avatarModel}
+            presentation={avatarPresentation}
+            expressionText={streamingText || partialTranscript || lastAssistantText}
+            isWalking={isWalking}
+            onToggleWalk={onToggleWalk}
+            plan={plan}
           />
         </div>
       </motion.div>
@@ -434,20 +435,20 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
           </motion.div>
         )}
 
-        <VRMAvatar
-          companionId={companionId || "hinaa"}
+        <AvatarPresence
+          key={`presence-${avatarModel || "default"}`}
+          mode={avatarMode === "full" ? "full" : isWalking ? "full" : "portrait"}
           state={companionState}
-          plan={plan}
-          reducedMotion={false}
-          textOnly={false}
-          jawEnergy={jawEnergy}
+          jawEnergy={typeof jawEnergy === "object" ? jawEnergy : undefined}
           speakingRef={speakingRef}
           visemeEvents={visemeEvents}
           audioStartTimeRef={audioStartTimeRef}
-          speechBridge={speechBridge}
-          modelUrl={avatarModel ?? null}
-          closeUp={!isWalking && avatarMode !== "full"}
-          walkMode={isWalking}
+          modelUrl={avatarModel}
+          presentation={avatarPresentation}
+          expressionText={streamingText || partialTranscript || lastAssistantText}
+          isWalking={isWalking}
+          onToggleWalk={onToggleWalk}
+          plan={plan}
         />
 
         {/* Live speech feedback */}

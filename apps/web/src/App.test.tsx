@@ -208,4 +208,36 @@ describe("URLs that earn the Clerk token", () => {
     expect(isHinaApiUrl("/apiary/private")).toBe(false);
     expect(isHinaApiUrl("/v10/private")).toBe(false);
   });
+  it("requests cloud speech while the text stream is open and never replays the final plan", async () => {
+    localStorage.setItem("hinaa_settings_v1", JSON.stringify({ _version: 7, provider: { preferredMode: "claude", preferredModelByProvider: {} }, language: { activePolicy: "en-US" } }));
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const requests: Array<{text: string; realtime: boolean}> = [];
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).includes("/v1/providers")) return Response.json([{ id: "claude", state: "healthy", capabilities: ["llm", "text-stream", "model:claude-sonnet-4-6", "default-model:claude-sonnet-4-6"] }]);
+      if (String(url).includes("/conversations/turns:stream")) return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }), { headers: { "Content-Type": "application/x-ndjson" } });
+      if (String(url).includes("/speech/synthesis")) {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(new Blob(["audio"], {type:"audio/mpeg"}), { headers: {"X-HINAA-Provider":"elevenlabs"} });
+      }
+      return Response.json({}, {status:404});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("AudioContext", undefined);
+    render(<App />);
+    await waitFor(() => expect(fetchMock.mock.calls.some(call => String(call[0]).includes("/v1/providers"))).toBe(true));
+    const input=screen.getByPlaceholderText("Ask HINA anything — chat mode...");
+    fireEvent.change(input,{target:{value:"Explain it completely"}}); fireEvent.keyDown(input,{key:"Enter"});
+    await waitFor(() => expect(stream).toBeDefined());
+    const emit=(event:unknown)=>stream.enqueue(new TextEncoder().encode(JSON.stringify(event)+"\n"));
+    emit({type:"text.delta",delta:"First spoken sentence. "});
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toMatchObject({text:"First spoken sentence.",realtime:true});
+    emit({type:"text.delta",delta:"Second spoken sentence. "});
+    const plan=buildMockPlan("First spoken sentence. Second spoken sentence.","hinaa");
+    plan.displayText="First spoken sentence. Second spoken sentence.";
+    emit({type:"plan",plan}); stream.close();
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.map(request=>request.text)).toEqual(["First spoken sentence.","Second spoken sentence."]);
+  });
+
 });

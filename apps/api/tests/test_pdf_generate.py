@@ -11,7 +11,7 @@ from hinaa_api.tools import pdf_generate
 async def test_pdf_generator_preserves_user_content_without_canned_research(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def fake_render(*, doc_id: str, title: str, author: str, category: str, sections: list[tuple[str, object]], verification_note: str = ""):
+    def fake_render(*, doc_id: str, title: str, author: str, category: str, sections: list[tuple[str, object]], verification_note: str = "", **_kwargs):
         captured.update(title=title, author=author, category=category, sections=sections, note=verification_note)
         output = tmp_path / f"{doc_id}.pdf"
         output.write_bytes(b"%PDF-1.7 test")
@@ -46,7 +46,7 @@ async def test_pdf_generator_topic_only_uses_live_research(monkeypatch, tmp_path
     """A bare topic yields a cited research dossier, or an honest refusal — never a template."""
     captured: dict[str, object] = {}
 
-    def fake_render(*, doc_id: str, title: str, author: str, category: str, sections: list[tuple[str, object]], verification_note: str = ""):
+    def fake_render(*, doc_id: str, title: str, author: str, category: str, sections: list[tuple[str, object]], verification_note: str = "", **_kwargs):
         captured.update(title=title, author=author, sections=sections, note=verification_note)
         output = tmp_path / f"{doc_id}.pdf"
         output.write_bytes(b"%PDF-1.7 research")

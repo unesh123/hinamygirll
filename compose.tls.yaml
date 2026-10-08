@@ -1,0 +1,26 @@
+# Production HTTPS edge; use with compose.production.yaml on your Linux host.
+services:
+  edge:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      HINAA_API_DOMAIN: ${HINAA_API_DOMAIN:?Set the API DNS hostname}
+      HINAA_TLS_EMAIL: ${HINAA_TLS_EMAIL:?Set the certificate contact email}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - hina-tls-data:/data
+      - hina-tls-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  hina-tls-data:
+  hina-tls-config:

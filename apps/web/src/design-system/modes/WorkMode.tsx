@@ -29,6 +29,7 @@ import {
   Loader2,
   Eye,
   Footprints,
+  Volume2,
 } from "lucide-react";
 import { useLiveVision } from "../../features/vision/useLiveVision";
 import { downloadMarkdownPdf, downloadMarkdownPptx } from "../../features/documents/exportPdf";
@@ -134,7 +135,7 @@ import { AgentActivityCard, type ActivityStep } from "../../features/chat/compon
 import { SearchingLoader, WebSearchLoader } from "../../components/ui/SearchingLoader";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY, DEFAULT_AVATAR_FILE } from "../../features/avatar/avatarRegistry";
-import { VRMAvatar } from "../../features/avatar/VRMAvatar";
+import { AvatarPresence } from "../../components/ui/AvatarPresence";
 import { ModelControlBar } from "../layout/ModelControlBar";
 import type { PresenceMode } from "../../components/ui/AvatarPresence";
 import type { ExecutiveMode } from "../layout/TopBarV6";
@@ -521,7 +522,7 @@ export function WorkMode({
       setActionMode("research");
       setIntelligenceLevel("deep");
     } else if (executiveMode === "report") {
-      setActionMode("create");
+      setActionMode("chat");
       setIntelligenceLevel("deep");
     } else if (executiveMode === "chat") {
       setActionMode("chat");
@@ -626,17 +627,32 @@ export function WorkMode({
       const mode = options?.mode;
       const isGoal = options?.isGoalMode ?? goalModeEnabled;
 
+      // Cleanse accidental /image prefix if followed by normal conversational input or negation
+      if (/^\/image\s+/i.test(text)) {
+        const withoutTag = text.replace(/^\/image\s+/i, "").trim();
+        const isConversational =
+          !withoutTag ||
+          /^(?:hey|hi|hello|no\b|don'?t|dont|stop|cancel|why|what|who|how|can you|babe|meri\s+jaan|sun|suno|kya|kaise|main|namaste|hina|tell|explain)\b/i.test(withoutTag) ||
+          /\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|stop\s+generating|why\s+are\s+you|tag|getting\s+that\s+tag)\b/i.test(withoutTag);
+        if (isConversational) {
+          text = withoutTag;
+        }
+      }
+
       if ((isGoal || mode === "goal") && !text.startsWith("/goal")) {
         text = `/goal ${text}`;
       } else if (mode === "research" && !text.startsWith("/search") && !text.startsWith("/research")) {
         text = `/search ${text}`;
-      } else if (mode === "create" && !text.startsWith("/image") && !text.startsWith("/draw")) {
-        text = `/image ${text}`;
       } else if (mode === "code" && !text.startsWith("/code")) {
         text = `/code ${text}`;
       }
 
       onSend(text, options?.attachmentRole);
+
+      // Reset one-shot action mode back to normal chat so it never sticks to subsequent turns
+      if (actionMode !== "chat" && !isGoal) {
+        setActionMode("chat");
+      }
 
       // Requirements 1 & 2: Object stays IN THE THREAD
       const detected = matchLocalActionIntent(text);
@@ -651,36 +667,6 @@ export function WorkMode({
             actionDraft: {
               ...detected,
               status: "success",
-            },
-          });
-        } else if (detected.intent === "pdf.doc") {
-          onAddMessage({
-            id: `action-pdf-${Date.now()}`,
-            role: "assistant",
-            text: `Compiling PDF document: "${data?.title || text}"`,
-            createdAt: new Date().toISOString(),
-            actionDraft: {
-              ...detected,
-              status: "running",
-            },
-          });
-        } else if (detected.intent === "image.job") {
-          onAddMessage({
-            id: `action-image-${Date.now()}`,
-            role: "assistant",
-            text: `Generating image for "${data?.prompt || text}"`,
-            createdAt: new Date().toISOString(),
-            actionDraft: {
-              ...detected,
-              status: "running",
-              fields: {
-                ...detected.fields,
-                data: {
-                  ...data,
-                  stage: "generating",
-                  elapsedSeconds: 0,
-                },
-              },
             },
           });
         }
@@ -900,6 +886,7 @@ export function WorkMode({
         plan={plan}
         avatarModel={avatarModel}
         avatarMode={avatarMode}
+        avatarPresentation={avatarPresentation}
         companionName={companionName}
         jawEnergy={jawEnergy}
         speakingRef={speakingRef}
@@ -1010,20 +997,22 @@ export function WorkMode({
         </div>
       )}
 
-      {/* ── Adobe 3D Motion Timeline & Telemetry Scrubber ── */}
-      <AdobeMotionTimeline
-        isDark={isDark}
-        activeModel={activeProviderModel || activeProviderMode || "qwen3.8-max"}
-        latencyMs={plan?.latencyMs ?? undefined}
-        isWalking={isWalking}
-        onToggleWalk={handleToggleWalk}
-        onOpenTerminal={() => onOpenTerminal?.()}
-        isVoiceActive={isVoiceActive}
-        companionState={companionState}
-        messageCount={messages.length}
-        showCompanionButton={!isMobile && Boolean(avatarModel) && dockMode === "hidden"}
-        onShowCompanion={() => handleDockModeChange("right")}
-      />
+      {/* ── Adobe 3D Motion Timeline & Telemetry Scrubber (Desktop Only) ── */}
+      {!isMobile && (
+        <AdobeMotionTimeline
+          isDark={isDark}
+          activeModel={activeProviderModel || activeProviderMode || "qwen3.8-max"}
+          latencyMs={plan?.latencyMs ?? undefined}
+          isWalking={isWalking}
+          onToggleWalk={handleToggleWalk}
+          onOpenTerminal={() => onOpenTerminal?.()}
+          isVoiceActive={isVoiceActive}
+          companionState={companionState}
+          messageCount={messages.length}
+          showCompanionButton={Boolean(avatarModel) && dockMode === "hidden"}
+          onShowCompanion={() => handleDockModeChange("right")}
+        />
+      )}
 
       {/* ── Voice Active Banner ───────────────────────── */}
       {isVoiceActive && (
@@ -1154,21 +1143,23 @@ export function WorkMode({
 
           {/* Dedicated Full Portrait 3D VRM Canvas */}
           <div style={{ flex: 1, position: "relative", width: "100%", height: "100%" }}>
-            <VRMAvatar
-              companionId={companionId}
+            <AvatarPresence
+              mode={avatarMode === "hidden" ? "portrait" : avatarMode}
               state={companionState}
-              plan={plan}
-              reducedMotion={false}
-              textOnly={false}
-              jawEnergy={jawEnergy}
+              liveStatus={{ active: isVoiceActive, paused: false, detail: isVoiceActive ? "listening" : "", status: companionState === "speaking" ? "idle" : "listening", microphoneLevel: 0 }}
+              jawEnergy={typeof jawEnergy === "object" ? jawEnergy : undefined}
               speakingRef={speakingRef}
               visemeEvents={visemeEvents}
               audioStartTimeRef={audioStartTimeRef}
-              speechBridge={speechBridge}
-              modelUrl={avatarModel ?? null}
-              closeUp={avatarMode !== "full"}
-              walkMode={isWalking}
+              modelUrl={avatarModel}
+              presentation={avatarPresentation}
+              onModeChange={onChangeAvatarMode}
+              expressionText={companionState === "speaking" ? (streamingText || (messages.filter((m) => m.role === "assistant").slice(-1)[0]?.text) || plan?.displayText) : undefined}
+              isWalking={isWalking}
+              onToggleWalk={handleToggleWalk}
+              plan={plan}
             />
+
           </div>
 
           {/* Bottom Floating Card: Live Speech Subtitle & Push to Talk */}
@@ -1205,7 +1196,7 @@ export function WorkMode({
                 <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>
                   {companionName}
                 </div>
-                <div>{streamingText || partialTranscript || messages[messages.length - 1]?.text}</div>
+                <div>{streamingText || partialTranscript || (messages.filter((m) => m.role === "assistant").slice(-1)[0]?.text) || ""}</div>
               </motion.div>
             )}
 
@@ -1448,10 +1439,6 @@ export function WorkMode({
           {(() => {
             const hasActiveTurn = isThinking || isSearching || Boolean(streamingText);
             if (!hasActiveTurn) return null;
-            // Prevent rendering an empty ghost bubble while the brain panel is already displaying the live planning/search phase
-            if (!streamingText && (isThinking || isSearching)) {
-              return null;
-            }
             const lastMsg = messages[messages.length - 1];
             if (
               lastMsg &&
@@ -1866,7 +1853,13 @@ export function WorkMode({
           onToggleGoalMode={toggleGoalMode}
           attachedImage={attachedImage}
           onImageAttach={onImageAttach}
-          onSelectArtifact={(command) => onInputChange(`${command} `)}
+          onSelectArtifact={(command) => {
+            if (command === "/image") {
+              onInputChange("Generate a beautiful illustration of ");
+            } else {
+              onInputChange(`${command} `);
+            }
+          }}
         />
       </div>
         </>
@@ -2011,12 +2004,13 @@ export const WorkMessage = React.memo(function WorkMessage({
           fields: {
             data: {
               prompt: res?.prompt || "",
-              stage: "saved",
+              stage: res?.status === "failed" || res?.status === "error" ? "failed" : resUrl ? "saved" : "generating",
+              note: res?.error || res?.message,
               isSearchFallback: false,
               thumbnailUrl: resUrl,
               resultUrl: resUrl,
               images: res?.images || (resUrl ? [resUrl] : []),
-              model: res?.mode || "FLUX.1 [dev]",
+              model: res?.renderer || res?.provider || "Image provider",
             },
           },
         } as any;
@@ -2040,22 +2034,22 @@ export const WorkMessage = React.memo(function WorkMessage({
               tr.toolName === "freepik_image_generate"
           )?.result;
           const mergedData =
-            imageToolResult && (imageToolResult.images?.length || imageToolResult.status === "completed")
+            imageToolResult
               ? {
                   ...rawData,
-                  stage: imageToolResult.status === "completed" ? "saved" : rawData.stage,
+                  stage: imageToolResult.status === "failed" || imageToolResult.status === "error" ? "failed" : imageToolResult.images?.length ? "saved" : "generating",
+                  note: imageToolResult.error || imageToolResult.message || rawData.note,
                   images: imageToolResult.images || rawData.images,
                   resultUrl: imageToolResult.images?.[0] || rawData.resultUrl,
                   thumbnailUrl: imageToolResult.images?.[0] || rawData.thumbnailUrl,
                   slots: imageToolResult.slots || rawData.slots,
-                  model: imageToolResult.mode
-                    ? imageToolResult.mode.includes("flux")
-                      ? "FLUX.1 [dev]"
-                      : imageToolResult.mode
-                    : rawData.model,
+                  model: imageToolResult.renderer || imageToolResult.provider || rawData.model,
                 }
               : rawData;
-          return <ImageJobCard data={mergedData} compact={false} />;
+          const linkedData = !imageToolResult && message.id.startsWith("action-image-")
+            ? { ...mergedData, stage: "failed" as const, note: "This earlier request has no linked renderer job. Submit a new request after connecting an image provider." }
+            : mergedData;
+          return <ImageJobCard data={linkedData} compact={false} />;
         })()}
         {draft.intent === "split" && (
           <SplitCard
@@ -2176,6 +2170,42 @@ export const WorkMessage = React.memo(function WorkMessage({
                 <span>Slides</span>
               </button>
             )}
+            <button
+              type="button"
+              onPointerDown={() => {
+                if (typeof window !== "undefined" && typeof (window as any).__hinaaUnlockAudio === "function") {
+                  try { (window as any).__hinaaUnlockAudio(); } catch {}
+                }
+              }}
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  if (typeof (window as any).__hinaaUnlockAudio === "function") {
+                    try { (window as any).__hinaaUnlockAudio(); } catch {}
+                  }
+                  window.dispatchEvent(
+                    new CustomEvent("hinaa:speak-text", {
+                      detail: { text: cleanText || message.text },
+                    }),
+                  );
+                }
+              }}
+              title="Listen to Hina speak this message"
+              style={{
+                background: "none",
+                border: "none",
+                color: isDark ? "rgba(255, 255, 255, 0.6)" : "#94a3b8",
+                cursor: "pointer",
+                padding: 4,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              <Volume2 size={13} />
+              <span>Voice</span>
+            </button>
             <button
               type="button"
               onClick={handleCopy}
@@ -2445,7 +2475,7 @@ function WorkWelcome({
     { label: "Explain a concept", prompt: "Explain Retrieval-Augmented Generation in simple terms with an example: " },
     { label: "Research live", prompt: "Research the latest developments in " },
     { label: "Create a document", prompt: "Create a comprehensive document about " },
-    { label: "Generate an image", prompt: "/image " },
+    { label: "Create an illustration", prompt: "Generate a beautiful illustration of " },
   ];
 
   const activeSuggestions = useMemo(() => {

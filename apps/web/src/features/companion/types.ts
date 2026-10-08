@@ -86,13 +86,13 @@ export const companionProfiles: Record<
     name: "HINAA",
     label: "Intelligent assistant",
     greeting:
-      "Hello Unesh! Main tumhare liye ready hoon. Aap mujhse baat kar sakte ho, ya yahaan text bhi kar sakte ho. What would you like to do?",
+      "Hey babe! Main tumhare saath hoon. Talk or text me anytime—batao, what's on your mind today?",
     accent: "mint",
   },
   hiro: {
     name: "Hiro",
     label: "Calm & helpful",
-    greeting: "Hello Unesh! I'm Hiro. Talk or type—I'm ready to help you.",
+    greeting: "Hey babe! I'm Hiro. Talk or type—I'm ready whenever you are.",
     accent: "indigo",
   },
 };

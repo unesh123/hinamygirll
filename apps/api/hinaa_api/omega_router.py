@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Literal, Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -120,6 +120,7 @@ async def stream_heartbeat_events(request: Request) -> StreamingResponse:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TerminalRunRequest(BaseModel):
+    runtime: Literal["auto", "linux", "kali", "powershell", "cmd"] = "auto"
     command: str = Field(..., description="The shell command or script to execute")
     cwd: Optional[str] = Field(default=None, description="Working directory relative to project root")
     timeout_seconds: int = Field(default=30, ge=1, le=120, description="Max execution timeout in seconds")
@@ -133,6 +134,7 @@ async def execute_terminal_command(body: TerminalRunRequest, request: Request) -
     result = await execute_terminal_hands(
         TerminalExecuteParams(
             command=body.command,
+            runtime=body.runtime,
             cwd=body.cwd,
             timeout_seconds=body.timeout_seconds,
         )
@@ -212,8 +214,9 @@ class GitHubActionRequest(BaseModel):
 
 @omega_router.post("/v1/integrations/github/action")
 @omega_router.post("/api/v1/integrations/github/action")
-async def execute_github_action(body: GitHubActionRequest) -> Dict[str, Any]:
+async def execute_github_action(body: GitHubActionRequest, request: Request) -> Dict[str, Any]:
     """Execute rapid repository inspect or branch action."""
+    tool_policy.enforce("terminal_hands", request.app.state.settings)
     return await saas_bridge_manager.execute_github_quick_action(body.action, body.params)
 
 
@@ -226,8 +229,10 @@ class OutlookSendRequest(BaseModel):
 
 @omega_router.post("/v1/integrations/email/send")
 @omega_router.post("/api/v1/integrations/email/send")
-async def send_outlook_email(body: OutlookSendRequest) -> Dict[str, Any]:
+async def send_outlook_email(body: OutlookSendRequest, request: Request) -> Dict[str, Any]:
     """Draft or deliver institutional Outlook / Office 365 email."""
+    if body.send_now:
+        tool_policy.enforce("send_email", request.app.state.settings)
     return await saas_bridge_manager.send_outlook_email(
         recipient=body.recipient,
         subject=body.subject,
@@ -242,3 +247,67 @@ async def get_today_agenda() -> Dict[str, Any]:
     """Return daily engineering schedule and academic timetable."""
     agenda = saas_bridge_manager.get_todays_agenda()
     return {"agenda": agenda, "count": len(agenda)}
+
+
+@omega_router.get("/v1/integrations/outlook/inbox")
+@omega_router.get("/api/v1/integrations/outlook/inbox")
+async def outlook_inbox(limit: int = Query(default=10, ge=1, le=25)) -> Dict[str, Any]:
+    from .tools.email import execute_read_outlook
+    return await execute_read_outlook({"limit": limit})
+
+
+@omega_router.get("/v1/terminal/status")
+@omega_router.get("/api/v1/terminal/status")
+async def terminal_status(request: Request) -> Dict[str, Any]:
+    import os
+    from .tools.terminal_hands import _wsl_distributions
+    verdict = tool_policy.decide("terminal_hands", request.app.state.settings, request.headers.get("host"))
+    distributions = await asyncio.to_thread(_wsl_distributions) if os.name == "nt" else []
+    return {"execution_allowed": verdict.permitted,
+            "runtimes": ["powershell", "cmd"] if os.name == "nt" else ["linux"],
+            "wsl_distributions": distributions,
+            "message": "Terminal connected to this host." if verdict.permitted else "Your PC terminal is available through the local workspace. This live site has no paired remote PC session."}
+
+
+@omega_router.post("/api/v1/pc/pair")
+async def pair_pc(request: Request) -> Dict[str, Any]:
+    from .integrations.remote_pc import pc_grants
+    from .persistence.auth import reached_through_edge
+    from urllib.parse import urlsplit
+    auth = getattr(request.state, "hinaa_auth", None)
+    settings = request.app.state.settings
+    allowed = [value.strip() for value in (settings.hinaa_allowed_user_ids or "").split(",") if value.strip()]
+    origin = request.headers.get("origin")
+    if reached_through_edge(request) or not tool_policy.is_loopback_host(request.headers.get("host")):
+        raise HTTPException(403, "Pair the PC from the local workspace on this machine.")
+    if origin and urlsplit(origin).hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise HTTPException(403, "Pairing must originate from the local workspace.")
+    if not auth or len(allowed) != 1 or auth.auth_subject != allowed[0]:
+        raise HTTPException(403, "PC pairing requires a configured single owner and authenticated local session.")
+    token, expiry = pc_grants.issue(auth.auth_subject, tool_policy.LOCAL_EFFECT_TOOLS)
+    return {"token": token, "expires_at": expiry, "message": "PC session created for 15 minutes. Keep the pairing code private."}
+
+
+@omega_router.post("/api/v1/pc/disconnect")
+async def disconnect_pc(request: Request) -> Dict[str, Any]:
+    from .integrations.remote_pc import pc_grants
+    auth = getattr(request.state, "hinaa_auth", None)
+    if not auth:
+        raise HTTPException(401, "Owner sign-in required")
+    pc_grants.revoke(request.headers.get("X-HINAA-PC-Session", ""), auth.auth_subject)
+    return {"status": "disconnected", "message": "PC access revoked for subsequent actions. Already-running commands must be cancelled separately."}
+
+
+@omega_router.get("/api/v1/integrations/github/mcp")
+async def verify_github_mcp() -> Dict[str, Any]:
+    from .integrations.github_mcp import GitHubMCP
+    return await GitHubMCP().run()
+
+class GitHubMCPCall(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+@omega_router.post("/api/v1/integrations/github/mcp/call")
+async def github_mcp_call(body: GitHubMCPCall) -> Dict[str, Any]:
+    from .integrations.github_mcp import GitHubMCP
+    return await GitHubMCP().run(body.name, body.arguments)

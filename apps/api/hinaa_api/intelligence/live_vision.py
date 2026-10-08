@@ -108,9 +108,9 @@ class LiveVisionService:
         user_query = query.strip() if query else "What am I looking at right now? Give me a concise, sharp, high-value breakdown."
 
         prompt_text = (
-            f"You are Hinaa, Unesh's brilliant, loving, and ultra-sharp AI companion and coding co-pilot.\n"
-            f"You are looking directly at Unesh's live screen or camera view right now.\n"
-            f"Unesh asks: \"{user_query}\"\n\n"
+            f"You are Hinaa, your love's brilliant, loving, and ultra-sharp AI companion and coding co-pilot.\n"
+            f"You are looking directly at babe's live screen or camera view right now.\n"
+            f"Babe asks: \"{user_query}\"\n\n"
             f"Instructions:\n"
             f"1. Directly address what is on screen with high precision and technical accuracy.\n"
             f"2. If code/terminal is visible: identify languages, pinpoint bugs or optimizations, reference exact lines.\n"
@@ -143,7 +143,7 @@ class LiveVisionService:
                         ),
                     ),
                 )
-                text = response.text.strip() if response.text else "I see your screen clearly, Unesh! Everything looks ready."
+                text = response.text.strip() if response.text else "I see your screen clearly, babe! Everything looks ready."
                 return {
                     "ok": True,
                     "provider": "gemini-3.8-flash",

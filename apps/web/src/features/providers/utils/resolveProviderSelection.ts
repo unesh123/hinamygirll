@@ -60,7 +60,7 @@ export function resolveVoiceRoute(
     : providers.getHealth("openai") === "healthy" ? "openai"
     : "gemini";
   const ttsProvider: VoiceRoute["ttsProvider"] =
-    health("elevenlabs") === "healthy" ? "elevenlabs"
+    health("elevenlabs") !== "unavailable" && health("elevenlabs") !== "disabled" ? "elevenlabs"
     : health("deepgram") === "healthy" ? "deepgram"
     : health("fish-audio") === "healthy" ? "fish-audio"
     : health("azure-speech") === "healthy" ? "azure"

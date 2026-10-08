@@ -11,11 +11,12 @@ from .specialists import (
     PlanningSpecialist,
     CodingSpecialist,
     SynthesisSpecialist,
+    OperatorSpecialist,
 )
 
 logger = logging.getLogger(__name__)
 
-SpecialistType = Literal["planner", "researcher", "coder", "synthesizer", "memory"]
+SpecialistType = Literal["planner", "researcher", "coder", "synthesizer", "memory", "operator"]
 
 @dataclass
 class BrainRunEvent:
@@ -46,6 +47,7 @@ class HinaBrainCoordinator:
         self.memory = MemorySpecialist()
         self.planner = PlanningSpecialist()
         self.coder = CodingSpecialist()
+        self.operator = OperatorSpecialist()
         self.synthesizer = SynthesisSpecialist()
 
     def _route_intent(self, user_text: str, available_tools: list[str]) -> list[SpecialistType]:
@@ -62,6 +64,14 @@ class HinaBrainCoordinator:
         code_signals = ["code", "write", "build", "implement", "fix", "debug", "function", "class", "script", ".py", ".js", ".ts"]
         if any(s in text_lower for s in code_signals) or "/code" in user_text:
             specialists.append("coder")
+
+        # Operator needed? (desktop apps, browser, OS automation)
+        operator_signals = [
+            "browser", "browse", "website", "web", "url", "click", "mouse", "desktop",
+            "app", "open", "launch", "window", "screenshot", "screen", "terminal", "powershell"
+        ]
+        if any(s in text_lower for s in operator_signals) or any(user_text.startswith(c) for c in ("/browser", "/mouse", "/click", "/open", "/app", "/daemon", "/screenshot")):
+            specialists.append("operator")
         
         # Memory needed? (always useful for multi-turn)
         specialists.append("memory")
@@ -201,6 +211,38 @@ class HinaBrainCoordinator:
                 )
             return {"error": str(e)}
 
+    async def _specialist_operator(self, user_text: str, available_tools: list[str], run_id: str, turn_id: str, session_id: str | None, event_queue: asyncio.Queue) -> dict:
+        start_time = time.time()
+        await event_queue.put(BrainRunEvent(event_type="brain.specialist.started", run_id=run_id, specialist="operator"))
+        try:
+            result = await self.operator.run(user_text, self.tool_executor, available_tools, timeout=self.specialist_timeout)
+            await event_queue.put(BrainRunEvent(event_type="brain.specialist.completed", run_id=run_id, specialist="operator", payload=result))
+            if self.ledger:
+                self.ledger.record_receipt(
+                    turn_id=turn_id,
+                    step_type="brain.operator",
+                    step_name="OperatorSpecialist",
+                    status="completed" if result.get("success", True) else "failed",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    input_summary=user_text,
+                    output_summary=result.get("detail", ""),
+                    session_id=session_id
+                )
+            return result
+        except Exception as e:
+            await event_queue.put(BrainRunEvent(event_type="brain.specialist.failed", run_id=run_id, specialist="operator", payload={"error": str(e)}))
+            if self.ledger:
+                self.ledger.record_receipt(
+                    turn_id=turn_id,
+                    step_type="brain.operator",
+                    step_name="OperatorSpecialist",
+                    status="failed",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    error=str(e),
+                    session_id=session_id
+                )
+            return {"error": str(e)}
+
     async def _specialist_synthesize(self, user_text: str, specialist_outputs: dict, run_id: str, turn_id: str, session_id: str | None, event_queue: asyncio.Queue) -> dict:
         start_time = time.time()
         await event_queue.put(BrainRunEvent(event_type="brain.specialist.started", run_id=run_id, specialist="synthesizer"))
@@ -277,6 +319,10 @@ class HinaBrainCoordinator:
                 if "coder" in route:
                     concurrent_tasks.append(
                         (sem_run(self._specialist_code(user_text, run_id, turn_id, session_id, event_queue)), "coder")
+                    )
+                if "operator" in route:
+                    concurrent_tasks.append(
+                        (sem_run(self._specialist_operator(user_text, tools, run_id, turn_id, session_id, event_queue)), "operator")
                     )
                 
                 if concurrent_tasks:

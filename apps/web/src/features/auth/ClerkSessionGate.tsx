@@ -14,12 +14,20 @@ export function ClerkSessionGate() {
   const checkAccess = useCallback(async () => {
     setAccess("checking");
     try {
-      const token = await getToken();
+      let token = await getToken();
       if (!token) { setAccess("denied"); return; }
       const base = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
-      const response = await fetch(`${base}/api/v1/auth/session`, {
+      let response = await fetch(`${base}/api/v1/auth/session`, {
         headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000), cache: "no-store",
       });
+      if (response.status === 401) {
+        token = await getToken({ skipCache: true });
+        if (token) {
+          response = await fetch(`${base}/api/v1/auth/session`, {
+            headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000), cache: "no-store",
+          });
+        }
+      }
       if (response.status === 401 || response.status === 403) { setAccess("denied"); return; }
       const result = response.ok ? await response.json() : null;
       setAccess(result?.authenticated === true ? "allowed" : "offline");

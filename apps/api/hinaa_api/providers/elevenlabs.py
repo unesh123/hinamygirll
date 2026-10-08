@@ -309,9 +309,10 @@ class ElevenLabsError(Exception):
     Never the API key, an auth header, or a raw upstream body — see reason_from_body,
     which keeps the rejected-request explanation that made a silent phrase findable.
     """
-    def __init__(self, status: ElevenLabsStatus, message: str) -> None:
+    def __init__(self, status: ElevenLabsStatus, message: str, *, retryable: bool | None = None) -> None:
         super().__init__(message)
         self.el_status = status
+        self.retryable = (status in (ElevenLabsStatus.quotaFailed, ElevenLabsStatus.timeout)) if retryable is None else retryable
 
     def to_browser_safe_dict(self) -> dict:
         return {"provider": "elevenlabs", "status": self.el_status.value, "message": str(self)}
@@ -382,13 +383,12 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
                 async for chunk in self.synthesize(text, **synthesize_kwargs):
                     chunks.append(chunk)
             except ElevenLabsError as error:
-                if (
-                    error.el_status is ElevenLabsStatus.quotaFailed
-                    and attempt < self._config.tts_retry_attempts
-                ):
+                if chunks or not error.retryable:
+                    raise
+                if attempt < self._config.tts_retry_attempts:
                     backoff = self._config.tts_retry_backoff_s * (2 ** attempt)
                     logger.warning(
-                        "ElevenLabs TTS quota burst (attempt %d); retrying in %.1fs",
+                        "ElevenLabs TTS retry (attempt %d); retrying in %.1fs",
                         attempt + 1,
                         backoff,
                     )
@@ -487,7 +487,10 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
                                 reason,
                             )
                             raise ElevenLabsError(
-                                mapped, f"ElevenLabs HTTP {response.status_code}: {reason}"
+                                mapped, f"ElevenLabs HTTP {response.status_code}: {reason}",
+                                retryable=(response.status_code >= 500 or (
+                                    response.status_code == 429 and "quota_exceeded" not in reason.lower()
+                                )),
                             )
                         self._status = ElevenLabsStatus.available
                         async for chunk in response.aiter_bytes(self._config.stream_chunk_bytes):
@@ -1194,13 +1197,12 @@ class ElevenLabsWebSocketStreamingProvider(TTSProvider):
                 ):
                     chunks.append(chunk)
             except ElevenLabsError as error:
-                if (
-                    error.el_status is ElevenLabsStatus.quotaFailed
-                    and attempt < self._config.tts_retry_attempts
-                ):
+                if chunks or not error.retryable:
+                    raise
+                if attempt < self._config.tts_retry_attempts:
                     backoff = self._config.tts_retry_backoff_s * (2**attempt)
                     logger.warning(
-                        "ElevenLabs websocket quota burst (attempt %d); retrying in %.1fs",
+                        "ElevenLabs websocket retry (attempt %d); retrying in %.1fs",
                         attempt + 1,
                         backoff,
                     )
@@ -1388,7 +1390,7 @@ class VoicePerformancePlanner:
         elif mode == "bright":
             stability = 0.38
             style_intensity = 0.28
-            pace = 1.03
+            pace = 1.0
         elif mode == "calm":
             stability = 0.60
             similarity = 0.85
@@ -1406,11 +1408,11 @@ class VoicePerformancePlanner:
         elif mode == "playful":
             stability = 0.33
             style_intensity = 0.38
-            pace = 1.06
+            pace = 1.01
         elif mode == "celebratory":
             stability = 0.36
             style_intensity = 0.34
-            pace = 1.04
+            pace = 1.0
         elif mode == "apologetic":
             stability = 0.58
             similarity = 0.85

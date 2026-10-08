@@ -32,7 +32,10 @@ export interface PlaybackController {
     isFirst: boolean,
     language?: string,
     companionId?: string,
+    onEnded?: () => void,
+    onStarted?: () => void,
   ) => Promise<boolean>;
+  beginSpeechStream: () => void;
   replay: () => Promise<void>;
   stop: () => void;
   toggleMute: () => void;
@@ -68,11 +71,28 @@ export function useAudioPlayback(): PlaybackController {
   const streamChunkQueueRef = useRef<SpeechSynthesisUtterance[]>([]);
   const streamActiveRef = useRef(false);
   const browserWatchdogRef = useRef<number | undefined>(undefined);
+  const streamReplayRef = useRef<Array<{blob?: Blob; text: string; language?: string; companionId?: string; providerVisemes?: VisemeEvent[]}>>([]);
+  const captureStreamReplayRef = useRef(false);
+  const replayAbortRef = useRef<AbortController | null>(null);
+  const beginSpeechStream = useCallback(() => { streamReplayRef.current = []; captureStreamReplayRef.current = true; setHasReplay(false); }, []);
   const lastBrowserSpeechRef = useRef<{ text: string; language: string; companionId?: string } | null>(null);
+  const activeHtmlAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const ensureGraph = useCallback(() => {
-    if (contextRef.current) return contextRef.current;
-    const context = new AudioContext({ latencyHint: "interactive" });
+    if (contextRef.current && contextRef.current.state !== "closed") return contextRef.current;
+    let context: AudioContext;
+    if (typeof window !== "undefined" && (window as any).__hinaaAudioCtx && (window as any).__hinaaAudioCtx.state !== "closed") {
+      context = (window as any).__hinaaAudioCtx;
+    } else {
+      const AudioContextClass = typeof window !== "undefined" ? (window.AudioContext || (window as any).webkitAudioContext) : undefined;
+      if (!AudioContextClass) {
+        throw new Error("Audio output is unavailable on this device.");
+      }
+      context = new AudioContextClass({ latencyHint: "interactive" });
+      if (typeof window !== "undefined") {
+        (window as any).__hinaaAudioCtx = context;
+      }
+    }
     const master = context.createGain();
     master.gain.value = mutedRef.current ? 0 : 1;
     const analyser = context.createAnalyser();
@@ -83,14 +103,11 @@ export function useAudioPlayback(): PlaybackController {
     contextRef.current = context;
     masterRef.current = master;
     analyserRef.current = analyser;
-    if (typeof window !== "undefined") {
-      (window as any).__hinaaAudioCtx = context;
-    }
     return context;
   }, []);
 
   const syncPlaying = useCallback(() => {
-    const next = sourcesRef.current.size > 0 || browserSpeechActiveRef.current;
+    const next = sourcesRef.current.size > 0 || browserSpeechActiveRef.current || Boolean(activeHtmlAudioRef.current && !activeHtmlAudioRef.current.paused);
     playingRef.current = next;
     if (!next) {
       // Playback stopped/ended: immediately close the mouth.
@@ -106,10 +123,20 @@ export function useAudioPlayback(): PlaybackController {
   }, []);
 
   const stop = useCallback(() => {
+    replayAbortRef.current?.abort();
+    replayAbortRef.current = null;
+    captureStreamReplayRef.current = false;
     sessionRef.current += 1;
     browserSpeechActiveRef.current = false;
     streamActiveRef.current = false;
     streamChunkQueueRef.current = [];
+    if (activeHtmlAudioRef.current) {
+      try {
+        activeHtmlAudioRef.current.pause();
+        activeHtmlAudioRef.current.currentTime = 0;
+      } catch {}
+      activeHtmlAudioRef.current = null;
+    }
     if (browserWatchdogRef.current !== undefined) {
       window.clearTimeout(browserWatchdogRef.current);
       browserWatchdogRef.current = undefined;
@@ -152,22 +179,98 @@ export function useAudioPlayback(): PlaybackController {
       providerVisemes?: VisemeEvent[],
     ) => {
       const session = sessionRef.current;
-      let context: AudioContext;
+      const playHtml5AudioFallback = async (originalErr?: Error) => {
+        if (typeof window === "undefined" || typeof Audio === "undefined") {
+          onEnded?.();
+          throw new Error("Audio is blocked. Tap the audio control to enable playback.");
+        }
+        let url = "";
+        try {
+          url = URL.createObjectURL(blob);
+        } catch {
+          onEnded?.();
+          throw new Error("The voice audio could not be decoded. Please retry.");
+        }
+        const audio = new Audio(url);
+        try {
+          audio.playbackRate = 1.08;
+          audio.volume = mutedRef.current ? 0 : 1;
+        } catch {}
+        activeHtmlAudioRef.current = audio;
+
+        lastBlobRef.current = blob;
+        lastTextRef.current = spokenText ?? "";
+        lastProviderVisemesRef.current = providerVisemes;
+        lastBrowserSpeechRef.current = null;
+        setHasReplay(true);
+
+        return new Promise<void>((resolve, reject) => {
+          let endedDispatched = false;
+          const finish = (err?: Error) => {
+            if (endedDispatched) return;
+            endedDispatched = true;
+            try { URL.revokeObjectURL(url); } catch {}
+            if (activeHtmlAudioRef.current === audio) {
+              activeHtmlAudioRef.current = null;
+            }
+            syncPlaying();
+            onEnded?.();
+            if (err) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          };
+
+          audio.onended = () => finish();
+          audio.onerror = () => {
+            finish(originalErr || new Error("Audio is blocked. Tap the audio control to enable playback."));
+          };
+          audio.onplay = () => {
+            if (session !== sessionRef.current) return;
+            onStarted?.();
+            syncPlaying();
+          };
+
+          try {
+            const playPromise = audio.play();
+            if (playPromise !== undefined && typeof playPromise.then === "function") {
+              playPromise
+                .then(() => {
+                  syncPlaying();
+                })
+                .catch((err) => {
+                  console.warn("[HINAA] HTML5 Audio autoplay blocked:", err);
+                  finish(originalErr || new Error("Audio is blocked. Tap the audio control to enable playback."));
+                });
+            } else {
+              finish(originalErr || new Error("Audio is blocked. Tap the audio control to enable playback."));
+            }
+          } catch {
+            finish(originalErr || new Error("Audio is blocked. Tap the audio control to enable playback."));
+          }
+        });
+      };
+
+      let context: AudioContext | null = null;
       try {
         context = ensureGraph();
       } catch (e) {
         console.warn("[HINAA] AudioContext creation failed:", e);
-        onEnded?.();
-        return;
       }
-      if (context.state === "suspended") {
+
+      if (context && context.state !== "running") {
         try {
           await context.resume();
         } catch {
-          onEnded?.();
-          return;
+          // ignore resume error and fallback
         }
       }
+
+      if (!context || context.state !== "running") {
+        return await playHtml5AudioFallback();
+      }
+
       if (session !== sessionRef.current) {
         onEnded?.();
         return;
@@ -181,11 +284,26 @@ export function useAudioPlayback(): PlaybackController {
           onEnded?.();
           return;
         }
-        buffer = await context.decodeAudioData(bytes);
+        try {
+          buffer = await context.decodeAudioData(bytes.slice(0));
+        } catch (decodeErr) {
+          // Only declared raw PCM can bypass the decoder; damaged MP3 is not PCM.
+          if (["audio/pcm", "audio/raw"].includes(blob.type) && bytes.byteLength % 2 === 0) {
+            const pcm16 = new Int16Array(bytes);
+            if (pcm16.length === 0) throw decodeErr;
+            const sampleRate = (blob as any).sampleRate || 24_000;
+            buffer = context.createBuffer(1, pcm16.length, sampleRate);
+            const channel = buffer.getChannelData(0);
+            for (let i = 0; i < pcm16.length; i++) {
+              channel[i] = pcm16[i] / 32768.0;
+            }
+          } else {
+            throw decodeErr;
+          }
+        }
       } catch (e) {
-        console.warn("[HINAA] Audio decode failed:", e);
-        onEnded?.();
-        return;
+        console.warn("[HINAA] Audio decode failed, falling back to HTML5 audio:", e);
+        return await playHtml5AudioFallback(new Error("The voice audio could not be decoded. Please retry."));
       }
       if (session !== sessionRef.current || !masterRef.current) {
         onEnded?.();
@@ -201,6 +319,10 @@ export function useAudioPlayback(): PlaybackController {
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(masterRef.current);
+      // Fast, natural talking pace: 1.08x rate for energetic, snappy delivery
+      const playbackRate = 1.08;
+      source.playbackRate.value = playbackRate;
+      const effectiveDuration = buffer.duration / playbackRate;
 
       // Gapless, click-free seam: schedule exactly where the previous chunk
       // ends (no negative overlap — that double-plays 25ms at every chunk
@@ -208,7 +330,7 @@ export function useAudioPlayback(): PlaybackController {
       const previousEndedAt = endedAtRef.current;
       const isContinuation = previousEndedAt > context.currentTime;
       const startAt = Math.max(context.currentTime + 0.02, previousEndedAt);
-      endedAtRef.current = startAt + buffer.duration;
+      endedAtRef.current = startAt + effectiveDuration;
       sourcesRef.current.add(source);
       syncPlaying();
 
@@ -217,8 +339,8 @@ export function useAudioPlayback(): PlaybackController {
       // chunk's syllables must APPEND to the existing timeline at the right
       // offset — replacing it would jerk the mouth back to the start of the
       // sentence on every packet.
-      if ((spokenText || providerVisemes?.length) && buffer.duration > 0) {
-        const durationMs = buffer.duration * 1000;
+      if ((spokenText || providerVisemes?.length) && effectiveDuration > 0) {
+        const durationMs = effectiveDuration * 1000;
         if (isContinuation && visemeEvents.current.length > 0) {
           const offsetMs = Math.max(
             0,
@@ -247,8 +369,8 @@ export function useAudioPlayback(): PlaybackController {
       }
       const calibrationMs = speech.current.calibrationMs;
       const totalDurationSec = isContinuation
-        ? Math.max(buffer.duration, endedAtRef.current - audioStartTimeRef.current)
-        : buffer.duration;
+        ? Math.max(effectiveDuration, endedAtRef.current - audioStartTimeRef.current)
+        : effectiveDuration;
       const webAudioTiming = new WebAudioSpeechTimingSource({
         context,
         startTime: audioStartTimeRef.current,
@@ -316,6 +438,8 @@ export function useAudioPlayback(): PlaybackController {
         frameRef.current = window.requestAnimationFrame(tick);
       }
 
+      if (captureStreamReplayRef.current) streamReplayRef.current.push({ blob, text: spokenText ?? "", providerVisemes });
+      else streamReplayRef.current = [];
       onStarted?.();
     },
     [ensureGraph, syncPlaying],
@@ -372,7 +496,9 @@ export function useAudioPlayback(): PlaybackController {
           /\bsamantha\b/i, /\bvictoria\b/i, /\bkaren\b/i, /\bsonia\b/i, /\bheera\b/i,
           /\bneerja\b/i, /\bhazel\b/i, /\bsusan\b/i, /\bgirl\b/i, /\bfemale\b/i,
           /\bwoman\b/i, /natural.*female/i, /google us english/i, /microsoft zira/i,
-          /microsoft jenny/i, /microsoft aria/i
+          /microsoft jenny/i, /microsoft aria/i, /ayumi/i, /haruka/i, /sayaka/i,
+          /huihui/i, /yaoyao/i, /catherine/i, /linda/i, /eva/i, /fiona/i, /moira/i,
+          /veena/i, /priya/i, /ananya/i, /kalpana/i, /shruti/i, /sunita/i, /sangeeta/i
         ];
         return femalePatterns.some((pattern) => pattern.test(lower));
       };
@@ -414,13 +540,16 @@ export function useAudioPlayback(): PlaybackController {
         if (!selectedVoice) {
           selectedVoice = allVoices.find((v) => !isMaleVoice(v.name));
         }
-        // If strictly only male voices exist on this OS, pitch shift up high so it never sounds like a man
+        // Priority 5: Any voice matching female patterns
         if (!selectedVoice) {
-          selectedVoice = candidateVoices[0] || allVoices[0];
-          utterance.pitch = 1.35; // Feminine pitch shift
-        } else {
-          utterance.pitch = 1.18; // Sweet, lively anime companion pitch
+          selectedVoice = allVoices.find((v) => isFemaleVoice(v.name));
         }
+        // If strictly only male voices exist on this OS, refuse male voice for Hina
+        if (!selectedVoice && allVoices.length > 0) {
+          console.warn("[HINAA] No female voice available in OS speech engine; refusing male voice for Hina");
+          return false;
+        }
+        utterance.pitch = 1.18; // Sweet, lively anime companion pitch
         utterance.rate = 1.05;
         utterance.volume = 1;
       } else {
@@ -437,6 +566,7 @@ export function useAudioPlayback(): PlaybackController {
         180_000,
         Math.max(700, text.trim().split(/\s+/).length * 310),
       );
+      streamReplayRef.current = [];
       lastBrowserSpeechRef.current = { text, language: normalizedLanguage, companionId };
       lastBlobRef.current = null;
       setHasReplay(true);
@@ -557,6 +687,8 @@ export function useAudioPlayback(): PlaybackController {
       isFirst: boolean,
       language: string = "en-US",
       companionId?: string,
+      onEnded?: () => void,
+      onStarted?: () => void,
     ): Promise<boolean> => {
       if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
       const engine = window.speechSynthesis;
@@ -574,11 +706,13 @@ export function useAudioPlayback(): PlaybackController {
       if (clean.length < 2) return false;
 
       if (isFirst) {
+        const capture = captureStreamReplayRef.current;
         stop();
+        captureStreamReplayRef.current = capture;
         streamChunkQueueRef.current = [];
         streamActiveRef.current = true;
       } else if (!streamActiveRef.current) {
-        return false;
+        streamActiveRef.current = true;
       }
 
       const session = sessionRef.current;
@@ -614,7 +748,9 @@ export function useAudioPlayback(): PlaybackController {
           /\bsamantha\b/i, /\bvictoria\b/i, /\bkaren\b/i, /\bsonia\b/i, /\bheera\b/i,
           /\bneerja\b/i, /\bhazel\b/i, /\bsusan\b/i, /\bgirl\b/i, /\bfemale\b/i,
           /\bwoman\b/i, /natural.*female/i, /google us english/i, /microsoft zira/i,
-          /microsoft jenny/i, /microsoft aria/i,
+          /microsoft jenny/i, /microsoft aria/i, /ayumi/i, /haruka/i, /sayaka/i,
+          /huihui/i, /yaoyao/i, /catherine/i, /linda/i, /eva/i, /fiona/i, /moira/i,
+          /veena/i, /priya/i, /ananya/i, /kalpana/i, /shruti/i, /sunita/i, /sangeeta/i
         ];
         return femalePatterns.some((pattern) => pattern.test(lower));
       };
@@ -652,7 +788,14 @@ export function useAudioPlayback(): PlaybackController {
             candidateVoices.find((v) => !isMaleVoice(v.name)) ||
             allVoices.find((v) => !isMaleVoice(v.name));
         }
-        utterance.pitch = selectedVoice ? 1.15 : 1.35;
+        if (!selectedVoice) {
+          selectedVoice = allVoices.find((v) => isFemaleVoice(v.name));
+        }
+        if (!selectedVoice && allVoices.length > 0) {
+          console.warn("[HINAA] No female voice available in browser; refusing male voice for stream chunk");
+          return false;
+        }
+        utterance.pitch = 1.18;
         // High speed speech generation as requested by user
         utterance.rate = 1.18;
         utterance.volume = 1;
@@ -672,18 +815,16 @@ export function useAudioPlayback(): PlaybackController {
       );
 
       const chunkVisemes = textToVisemeEvents(clean, chunkDurationMs);
-      if (isFirst) {
-        visemeEvents.current = chunkVisemes;
-      } else {
-        visemeEvents.current = [...visemeEvents.current, ...chunkVisemes];
-      }
-
       let startedAt: number | null = null;
       let finished = false;
+      const browserTiming = new BrowserSpeechTimingSource({ durationMs: chunkDurationMs, visemes: chunkVisemes });
 
       const finish = () => {
         if (session !== sessionRef.current || finished) return;
         finished = true;
+        if (browserWatchdogRef.current !== undefined) { window.clearTimeout(browserWatchdogRef.current); browserWatchdogRef.current = undefined; }
+        browserTiming.onUtteranceEnd();
+        onEnded?.();
         const idx = streamChunkQueueRef.current.indexOf(utterance);
         if (idx !== -1) streamChunkQueueRef.current.splice(idx, 1);
         if (streamChunkQueueRef.current.length === 0) {
@@ -698,13 +839,28 @@ export function useAudioPlayback(): PlaybackController {
         }
       };
 
+      utterance.onboundary = (event) => {
+        if (session !== sessionRef.current || startedAt === null || finished || event.charIndex < 0) return;
+        const elapsed = performance.now() - startedAt;
+        const remaining = clean.slice(event.charIndex);
+        const duration = Math.max(300, remaining.trim().split(/\s+/).length * 270);
+        visemeEvents.current = textToVisemeEvents(remaining, duration, elapsed);
+        speech.current.events = visemeEvents.current;
+        speech.current.timingSource = "browser-boundary";
+        browserTiming.retarget({ startMs: elapsed, visemes: visemeEvents.current, durationMs: elapsed + duration });
+      };
+      utterance.onpause = () => { if (session !== sessionRef.current || finished) return; browserTiming.onUtterancePause(); speech.current.state = "paused"; jawEnergy.current = 0; };
+      utterance.onresume = () => { if (session !== sessionRef.current || finished) return; browserTiming.onUtteranceResume(); speech.current.state = "playing"; };
       utterance.onend = finish;
       utterance.onerror = finish;
       utterance.onstart = () => {
         if (session !== sessionRef.current || finished) return;
         startedAt = performance.now();
         browserSpeechActiveRef.current = true;
-        speech.current.state = "playing";
+        visemeEvents.current = chunkVisemes;
+        browserTiming.onUtteranceStart();
+        speech.current = { utteranceId: session, state: "playing", source: "browser", timingSource: "text", calibrationMs: 0, events: chunkVisemes, elapsedMs: () => performance.now() - (startedAt ?? performance.now()), timing: browserTiming };
+        onStarted?.();
         syncPlaying();
         if (frameRef.current !== undefined) {
           window.cancelAnimationFrame(frameRef.current);
@@ -715,8 +871,8 @@ export function useAudioPlayback(): PlaybackController {
             jawEnergy.current = 0;
             return;
           }
-          const elapsedMs = performance.now() - (startedAt || performance.now());
-          const currentViseme = getActiveViseme(elapsedMs, chunkVisemes);
+          const elapsedMs = browserTiming.getPlaybackTime();
+          const currentViseme = browserTiming.isPlaying() ? browserTiming.getVisemeAt(elapsedMs) : null;
           const targetEnergy = currentViseme?.mouth !== "closed" ? currentViseme?.weight ?? 0 : 0;
           jawEnergy.current += (targetEnergy - jawEnergy.current) * (targetEnergy > jawEnergy.current ? 0.55 : 0.25);
           frameRef.current = window.requestAnimationFrame(tick);
@@ -725,8 +881,13 @@ export function useAudioPlayback(): PlaybackController {
       };
 
       streamChunkQueueRef.current.push(utterance);
+      browserWatchdogRef.current = window.setTimeout(finish, Math.max(8_000, chunkDurationMs * 2 + 5_000));
       try {
         engine.speak(utterance);
+        if (captureStreamReplayRef.current) streamReplayRef.current.push({ text: clean, language: normalizedLanguage, companionId });
+        lastBrowserSpeechRef.current = { text: clean, language: normalizedLanguage, companionId };
+        lastBlobRef.current = null;
+        setHasReplay(true);
         return true;
       } catch {
         finish();
@@ -737,6 +898,24 @@ export function useAudioPlayback(): PlaybackController {
   );
 
   const replay = useCallback(async () => {
+    const phrases = [...streamReplayRef.current];
+    if (phrases.length) {
+      stop();
+      const abort = new AbortController();
+      replayAbortRef.current = abort;
+      for (const phrase of phrases) {
+        if (abort.signal.aborted) return;
+        await new Promise<void>((resolve, reject) => {
+          const finish = () => { abort.signal.removeEventListener("abort", finish); resolve(); };
+          abort.signal.addEventListener("abort", finish, { once: true });
+          if (phrase.blob) void play(phrase.blob, phrase.text, undefined, finish, phrase.providerVisemes).catch(reject);
+          else void speakStreamChunk(phrase.text, false, phrase.language, phrase.companionId, finish).then(ok => { if (!ok) finish(); }).catch(reject);
+        });
+      }
+      if (!abort.signal.aborted) streamReplayRef.current = phrases;
+      if (replayAbortRef.current === abort) replayAbortRef.current = null;
+      return;
+    }
     if (lastBlobRef.current) {
       stop();
       await play(lastBlobRef.current, lastTextRef.current, undefined, undefined, lastProviderVisemesRef.current);
@@ -749,7 +928,7 @@ export function useAudioPlayback(): PlaybackController {
         (lastBrowserSpeechRef.current as any).companionId,
       );
     }
-  }, [play, speakBrowser, stop]);
+  }, [play, speakBrowser, speakStreamChunk, stop]);
 
   const toggleMute = useCallback(() => {
     mutedRef.current = !mutedRef.current;
@@ -776,10 +955,70 @@ export function useAudioPlayback(): PlaybackController {
     }
   }, [syncPlaying]);
 
-  const isAudioBlocked = useCallback(() => contextRef.current?.state === "suspended", []);
-  const unlockAudio = useCallback(async () => {
-    if (contextRef.current?.state === "suspended") await contextRef.current.resume();
+  const isAudioBlocked = useCallback(() => {
+    return Boolean(contextRef.current && contextRef.current.state !== "running");
   }, []);
+
+  const unlockAudio = useCallback(async () => {
+    try {
+      const ctx = ensureGraph();
+      if (ctx.state === "suspended") {
+        void ctx.resume();
+      }
+      // Prime audio context synchronously with a silent 1-sample buffer to satisfy autoplay policies
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    } catch (e) {
+      console.warn("[HINAA] Audio unlock failed:", e);
+    }
+    // Also prime HTML5 Audio subsystem for Brave/Safari without interfering with active speech
+    try {
+      if (typeof window !== "undefined" && typeof Audio !== "undefined" && !(window as any).__hinaaHtmlPrimed) {
+        (window as any).__hinaaHtmlPrimed = true;
+        const primer = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFRm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+        primer.volume = 0.01;
+        const p = primer.play();
+        if (p && typeof p.then === "function") {
+          p.then(() => {
+            try { primer.pause(); } catch {}
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }, [ensureGraph]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__hinaaUnlockAudio = unlockAudio;
+    }
+  }, [unlockAudio]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let unlocked = false;
+    const autoUnlock = () => {
+      if (unlocked) return;
+      unlocked = true;
+      void unlockAudio();
+      window.removeEventListener("pointerdown", autoUnlock);
+      window.removeEventListener("click", autoUnlock);
+      window.removeEventListener("touchstart", autoUnlock);
+      window.removeEventListener("keydown", autoUnlock);
+    };
+    window.addEventListener("pointerdown", autoUnlock, { passive: true });
+    window.addEventListener("click", autoUnlock, { passive: true });
+    window.addEventListener("touchstart", autoUnlock, { passive: true });
+    window.addEventListener("keydown", autoUnlock, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", autoUnlock);
+      window.removeEventListener("click", autoUnlock);
+      window.removeEventListener("touchstart", autoUnlock);
+      window.removeEventListener("keydown", autoUnlock);
+    };
+  }, [unlockAudio]);
 
   useEffect(
     () => () => {
@@ -814,6 +1053,9 @@ export function useAudioPlayback(): PlaybackController {
       contextRef.current = null;
       masterRef.current = null;
       analyserRef.current = null;
+      if (typeof window !== "undefined") {
+        delete (window as any).__hinaaAudioCtx;
+      }
     },
     [],
   );
@@ -861,6 +1103,7 @@ export function useAudioPlayback(): PlaybackController {
     speakBrowser,
     speakStreamChunk,
     replay,
+    beginSpeechStream,
     stop,
     toggleMute,
   };

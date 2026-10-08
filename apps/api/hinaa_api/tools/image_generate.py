@@ -45,7 +45,13 @@ comfyui_provider = LocalComfyUIProvider(
 
 
 def cloud_image_available() -> bool:
-    """Check if Stability AI, Magnific, or Freepik cloud image rendering is configured."""
+    """Check if OpenAI-compatible proxy, Stability AI, Magnific, or Freepik cloud image rendering is configured."""
+    try:
+        from ..providers.openai_image import OpenAIImageProvider
+        if OpenAIImageProvider(get_settings()).available():
+            return True
+    except Exception:
+        pass
     try:
         from ..providers.stability_ai import StabilityAIProvider
         if StabilityAIProvider(get_settings()).available():
@@ -397,6 +403,15 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
         session.add_all(jobs)
         session.commit()
 
+    openai_img = None
+    try:
+        from ..providers.openai_image import OpenAIImageProvider
+        cand_openai = OpenAIImageProvider(settings)
+        if cand_openai.available():
+            openai_img = cand_openai
+    except Exception:
+        pass
+
     cloud = MagnificProvider(settings)
     stability = None
     try:
@@ -407,7 +422,12 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
     except Exception:
         pass
 
-    use_cloud = cloud.available() or (stability is not None and stability.available())
+    has_reference = bool(_reference_candidate(params) or params.reference_query)
+    use_cloud = (
+        (openai_img is not None and openai_img.available())
+        or cloud.available()
+        or (stability is not None and stability.available())
+    ) and (not has_reference or cloud.honours_reference_image())
 
     try:
         reference_url, reference_b64 = (await _resolve_reference(params)) if use_cloud else (None, None)
@@ -424,8 +444,26 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                     session.commit()
                     try:
                         blob = None
-                        provider_tag = "magnific"
-                        if cloud.available():
+                        provider_tag = "openai_proxy"
+                        if openai_img and openai_img.available() and not has_reference:
+                            try:
+                                res = await openai_img.generate_image(
+                                    final_prompt,
+                                    negative_prompt=negative,
+                                    width=job.width,
+                                    height=job.height,
+                                    seed=job.seed,
+                                    style_preset=params.style,
+                                )
+                                blob = res.image_bytes
+                                provider_tag = res.provider
+                            except Exception as o_err:
+                                logger.warning(
+                                    "OpenAI-compatible image provider failed (%s); trying Magnific/Stability fallback...",
+                                    o_err,
+                                )
+
+                        if blob is None and cloud.available():
                             try:
                                 result = await cloud.generate(
                                     final_prompt,
@@ -479,6 +517,8 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                                     "Magnific/Freepik render failed (%s); failing over to Stability AI...",
                                     m_err,
                                 )
+                                if reference_url or reference_b64:
+                                    raise
                                 if stability and stability.available():
                                     st_res = await stability.generate_image(
                                         final_prompt,
@@ -490,7 +530,7 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                                     provider_tag = st_res.provider
                                 else:
                                     raise
-                        elif stability and stability.available():
+                        elif blob is None and stability and stability.available():
                             st_res = await stability.generate_image(
                                 final_prompt,
                                 negative_prompt=negative,
@@ -499,8 +539,8 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                             )
                             blob = st_res.image_bytes
                             provider_tag = st_res.provider
-                        else:
-                            raise RuntimeError("No cloud image provider is configured.")
+                        elif blob is None:
+                            raise RuntimeError("No cloud image provider is configured or succeeded.")
 
                         file_path = store / f"HINAA_{job.id}_{job.seed}.png"
                         file_path.write_bytes(blob)
@@ -603,7 +643,7 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
     comfy_ready = await comfyui_provider.health_check()
     gateway_carries_reference = cloud_ready and MagnificProvider(get_settings()).honours_reference_image()
 
-    if params.reference_images and not (gateway_carries_reference or comfy_ready):
+    if (params.reference_images or params.reference_url or params.reference_image_b64 or params.reference_query) and not (gateway_carries_reference or (comfy_ready and params.reference_images and not (params.reference_url or params.reference_image_b64 or params.reference_query))):
         return {
             "status": "error",
             "code": "REFERENCE_RENDERER_UNAVAILABLE",
@@ -619,8 +659,9 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
             "status": "error",
             "code": "IMAGE_RENDERER_UNAVAILABLE",
             "error": (
-                "Local ComfyUI is unavailable and no cloud image gateway is configured. "
-                "Start ComfyUI on http://127.0.0.1:8188 or configure Freepik/Codex keys."
+                "No active image generator is currently connected. "
+                "Configure an authorized image API with a supported model, validate provider credits, "
+                f"or start local ComfyUI at {settings.comfyui_base_url}."
             ),
         }
 
@@ -659,12 +700,33 @@ async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
     # Fire and forget
     asyncio.create_task(run_image_job(generation_set_id, params))
 
+    active_renderer = "comfyui-local"
+    if cloud_ready:
+        try:
+            from ..providers.openai_image import OpenAIImageProvider
+            o_cand = OpenAIImageProvider(get_settings())
+            if (_reference_candidate(params) or params.reference_query):
+                active_renderer = "magnific-flux" if gateway_carries_reference else "comfyui-local"
+            elif o_cand.available():
+                active_renderer = f"openai-proxy ({o_cand.model})"
+            elif MagnificProvider(get_settings()).available():
+                active_renderer = "magnific-flux"
+            else:
+                from ..providers.stability_ai import StabilityAIProvider
+                s_cand = StabilityAIProvider(get_settings())
+                if s_cand.available():
+                    active_renderer = "stability-ai"
+                else:
+                    active_renderer = "magnific-flux"
+        except Exception:
+            active_renderer = "magnific-flux"
+
     return {
         "status": "processing",
         "job_id": generation_set_id,
         "total": total_count,
         "strategy": strategy,
-        "renderer": "magnific-flux" if cloud_ready else "comfyui-local",
+        "renderer": active_renderer,
         "style": params.style,
         "mode": params.mode,
         "reference_applied": bool(params.reference_url or params.reference_image_b64 or params.reference_query or params.reference_images),

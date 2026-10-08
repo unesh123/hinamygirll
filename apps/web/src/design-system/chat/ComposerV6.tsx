@@ -24,6 +24,7 @@ import {
   Zap,
   Layout,
   Headphones,
+  Loader2,
 } from "lucide-react";
 import { ModelSelectorV7 } from "./ModelSelectorV7";
 import { ShapeshiftCard } from "../../features/chat/components/ShapeshiftCard";
@@ -159,6 +160,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [previewChip, setPreviewChip] = useState<ContextChip | null>(null);
   const [dismissedShapeshiftInput, setDismissedShapeshiftInput] = useState<string>("");
+  const [attachedDocuments, setAttachedDocuments] = useState<Array<{ name: string; text: string; kind: string; charCount: number }>>([]);
+  const [isExtractingDoc, setIsExtractingDoc] = useState(false);
 
   const voiceTyping = useVoiceTyping({
     onTranscript: useCallback((text: string, isFinal: boolean) => {
@@ -251,11 +254,33 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
       onEscDismiss?.();
     }
     if (e.key === "Enter" && !e.shiftKey) {
+      if (typeof window !== "undefined" && typeof (window as any).__hinaaUnlockAudio === "function") {
+        try { (window as any).__hinaaUnlockAudio(); } catch {}
+      }
       e.preventDefault();
-      if (value.trim() || attachedImage) {
+      if (value.trim() || attachedImage || attachedDocuments.length > 0) {
         playSendSound();
         if (isGenerating) {
           onStop?.();
+        }
+        if (attachedDocuments.length > 0) {
+          const docContext = attachedDocuments
+            .map((d) => `\n\n📄 [ATTACHED DOCUMENT: ${d.name} (${d.kind})]\n\`\`\`\n${d.text}\n\`\`\`\n`)
+            .join("\n");
+          const finalInput = value.trim()
+            ? `${value.trim()}\n${docContext}`
+            : `Please analyze this attached document:\n${docContext}`;
+          onChange(finalInput);
+          setAttachedDocuments([]);
+          setTimeout(() => {
+            onSend({
+              mode: isGoalMode ? "goal" : actionMode,
+              intelligence: intelligenceLevel,
+              attachmentRole: selectedRole,
+              isGoalMode,
+            });
+          }, 50);
+          return;
         }
         onSend({
           mode: isGoalMode ? "goal" : actionMode,
@@ -274,15 +299,59 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     }
   };
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      onImageAttach?.(reader.result as string, selectedRole);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        onImageAttach?.(reader.result as string, selectedRole);
+      };
+      reader.readAsDataURL(file);
+      e.target.value = "";
+      return;
+    }
+
+    // Document / PDF / Text handling
+    setIsExtractingDoc(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      const isPlain = ["txt", "md", "markdown", "json", "csv", "log", "yaml", "yml", "py", "js", "ts", "html", "css", "sql"].includes(ext);
+
+      let docText = "";
+      if (isPlain) {
+        docText = await file.text();
+      } else {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/v1/documents/extract", {
+          method: "POST",
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          docText = data.text || "";
+        } else {
+          docText = await file.text().catch(() => "");
+        }
+      }
+
+      if (docText.trim()) {
+        const newDoc = {
+          name: file.name,
+          text: docText,
+          kind: ext.toUpperCase() || "DOC",
+          charCount: docText.length,
+        };
+        setAttachedDocuments((prev) => [...prev, newDoc]);
+      }
+    } catch (err) {
+      console.error("Document extraction error:", err);
+    } finally {
+      setIsExtractingDoc(false);
+      e.target.value = "";
+    }
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -808,7 +877,18 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 {/* One attachment is real: the hidden input below accepts image/* and
                     the turn payload carries a single imageUrl. */}
                 {[
-                  { label: "Upload Image", icon: ImageIcon, action: () => fileInputRef.current?.click() },
+                  { label: "Upload Image", icon: ImageIcon, action: () => {
+                    if (fileInputRef.current) {
+                      fileInputRef.current.accept = "image/*";
+                      fileInputRef.current.click();
+                    }
+                  }},
+                  { label: "Upload Document / PDF", icon: FileText, action: () => {
+                    if (fileInputRef.current) {
+                      fileInputRef.current.accept = ".pdf,.txt,.md,.json,.csv,.docx,.doc,.log,.yaml,.yml,.py,.js,.ts";
+                      fileInputRef.current.click();
+                    }
+                  }},
                 ].map((item) => (
                   <button
                     key={item.label}
@@ -836,6 +916,64 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                     <span>{item.label}</span>
                   </button>
                 ))}
+
+                {/* 2. Modes & Tools */}
+                <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary, #847a83)", padding: "4px 8px" }}>
+                  MODES & TOOLS
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleGoalMode?.();
+                    setShowPlusMenu(false);
+                  }}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: isGoalMode ? "var(--surface-subtle)" : "transparent",
+                    fontSize: 12,
+                    color: isGoalMode ? "var(--accent-primary, #dc5f8b)" : "var(--text-primary, #1e191d)",
+                    fontWeight: isGoalMode ? 700 : 500,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <Target size={13} style={{ color: "var(--accent-primary, #dc5f8b)" }} />
+                  <span>{isGoalMode ? "Goal Mode (Active)" : "Autonomous Goal Mode"}</span>
+                </button>
+                {onToggleLiveVision && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleLiveVision?.();
+                      setShowPlusMenu(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: isLiveVisionActive ? "var(--surface-subtle)" : "transparent",
+                      fontSize: 12,
+                      color: isLiveVisionActive ? "#10b981" : "var(--text-primary, #1e191d)",
+                      fontWeight: isLiveVisionActive ? 700 : 500,
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <Eye size={13} style={{ color: isLiveVisionActive ? "#10b981" : "var(--accent-primary, #dc5f8b)" }} />
+                    <span>{isLiveVisionActive ? "Stop Live Eyes" : "Live Eyes (Screen Share)"}</span>
+                  </button>
+                )}
 
                 {/* 3. Create */}
                 <div style={{ height: 1, background: "var(--border-subtle, rgba(0,0,0,0.06))", margin: "4px 0" }} />
@@ -882,7 +1020,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.pdf,.txt,.md,.json,.csv,.docx,.doc,.log,.yaml,.yml,.py,.js,.ts"
               style={{ display: "none" }}
               onChange={handleFileChange}
             />
@@ -1056,7 +1194,30 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             </button>
           )}
 
-          {voiceTyping.isSupported && (
+          {onVoiceToggle ? (
+            <button
+              type="button"
+              data-testid="composer-voice-btn"
+              onClick={onVoiceToggle}
+              title={isVoiceActive ? "Mute / End Live Voice Call with Hina" : "Talk with Hina (Live Voice Call)"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: isVoiceActive ? "rgba(236, 72, 153, 0.25)" : "var(--surface-subtle, #f6f3f7)",
+                border: isVoiceActive ? "1.5px solid #ec4899" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                color: isVoiceActive ? "#ec4899" : "var(--text-secondary, #5e545d)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                boxShadow: isVoiceActive ? "0 0 12px rgba(236, 72, 153, 0.5)" : "none",
+              }}
+            >
+              <Mic size={15} />
+            </button>
+          ) : voiceTyping.isSupported ? (
             <button
               type="button"
               data-testid="composer-voice-typing-btn"
@@ -1079,14 +1240,14 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             >
               <Mic size={15} />
             </button>
-          )}
+          ) : null}
 
-          {onVoiceToggle && (
+          {onVoiceToggle && voiceTyping.isSupported && (
             <button
               type="button"
-              data-testid="composer-voice-btn"
-              onClick={onVoiceToggle}
-              title={isVoiceActive ? "Mute Live Audio Stream" : "Live Real-Time Audio Call"}
+              data-testid="composer-voice-typing-btn"
+              onClick={() => voiceTyping.toggleListening()}
+              title={voiceTyping.isListening ? "Stop Dictation" : "Voice Dictation (Speech-to-Text into message)"}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1094,14 +1255,14 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 width: 32,
                 height: 32,
                 borderRadius: "50%",
-                background: isVoiceActive ? "var(--accent-subtle, rgba(220, 95, 139, 0.15))" : "var(--surface-subtle, #f6f3f7)",
-                border: isVoiceActive ? "1px solid var(--accent-primary, #dc5f8b)" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
-                color: isVoiceActive ? "var(--accent-primary, #dc5f8b)" : "var(--text-secondary, #5e545d)",
+                background: voiceTyping.isListening ? "rgba(99, 102, 241, 0.2)" : "var(--surface-subtle, #f6f3f7)",
+                border: voiceTyping.isListening ? "1px solid #6366f1" : "1px solid var(--border-subtle, rgba(0,0,0,0.08))",
+                color: voiceTyping.isListening ? "#6366f1" : "var(--text-secondary, #5e545d)",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
             >
-              <Headphones size={15} />
+              <FileText size={14} />
             </button>
           )}
 
@@ -1129,9 +1290,36 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             <button
               type="button"
               data-testid="composer-send-btn"
+              onPointerDown={() => {
+                if (typeof window !== "undefined" && typeof (window as any).__hinaaUnlockAudio === "function") {
+                  try { (window as any).__hinaaUnlockAudio(); } catch {}
+                }
+              }}
               onClick={() => {
-                if (value.trim() || attachedImage) {
+                if (typeof window !== "undefined" && typeof (window as any).__hinaaUnlockAudio === "function") {
+                  try { (window as any).__hinaaUnlockAudio(); } catch {}
+                }
+                if (value.trim() || attachedImage || attachedDocuments.length > 0) {
                   playSendSound();
+                  if (attachedDocuments.length > 0) {
+                    const docContext = attachedDocuments
+                      .map((d) => `\n\n📄 [ATTACHED DOCUMENT: ${d.name} (${d.kind})]\n\`\`\`\n${d.text}\n\`\`\`\n`)
+                      .join("\n");
+                    const finalInput = value.trim()
+                      ? `${value.trim()}\n${docContext}`
+                      : `Please analyze this attached document:\n${docContext}`;
+                    onChange(finalInput);
+                    setAttachedDocuments([]);
+                    setTimeout(() => {
+                      onSend({
+                        mode: isGoalMode ? "goal" : actionMode,
+                        intelligence: intelligenceLevel,
+                        attachmentRole: selectedRole,
+                        isGoalMode,
+                      });
+                    }, 50);
+                    return;
+                  }
                 }
                 if (isGenerating) onStop?.();
                 onSend({

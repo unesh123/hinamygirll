@@ -154,7 +154,7 @@ class MagnificProvider:
     # ── Configuration probes ─────────────────────────────────────────────
     @property
     def api_key(self) -> str | None:
-        key = self.settings.magnific_api_key or self.settings.freepik_api_key
+        key = (self.settings.freepik_api_key or self.settings.magnific_api_key) if "freepik.com" in self._base_url() else (self.settings.magnific_api_key or self.settings.freepik_api_key)
         if key is None:
             return None
         value = key.get_secret_value() if hasattr(key, "get_secret_value") else str(key)
@@ -184,7 +184,7 @@ class MagnificProvider:
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        if self.settings.freepik_api_key and not self.settings.magnific_api_key:
+        if "freepik.com" in self._base_url():
             headers["x-freepik-api-key"] = key
         else:
             headers["x-magnific-api-key"] = key
@@ -250,9 +250,13 @@ class MagnificProvider:
 
         # Check if targeting Freepik direct synchronous text-to-image
         if "freepik.com" in base:
+            if reference:
+                raise MagnificError("REFERENCE_UNSUPPORTED", "The selected Freepik text-only endpoint cannot preserve reference images.")
             path = "/v1/ai/text-to-image"
             aspect = _aspect_for(width, height)
-            engine = model or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
+            engine = model or getattr(self.settings, "magnific_model_quality", "flux-dev")
+            if "seedance" in engine.lower():
+                engine = "flux-schnell"
             payload: dict[str, Any] = {
                 "prompt": final_prompt,
                 "negative_prompt": negative_prompt,
@@ -292,6 +296,8 @@ class MagnificProvider:
             provider_name = "magnific:flux-kontext-pro"
         else:
             flux_model = model or getattr(self.settings, "magnific_model_quality", "flux-dev")
+            if "seedance" in flux_model.lower():
+                flux_model = "flux-dev"
             t2i_template = getattr(self.settings, "magnific_t2i_path", "/v1/ai/text-to-image/{model}")
             path = t2i_template.format(model=flux_model) if "{model}" in t2i_template else t2i_template
             payload = {
@@ -308,7 +314,7 @@ class MagnificProvider:
             try:
                 response = await self._post(client, f"{base}{path}", payload)
             except MagnificError as exc:
-                if "api.magnific.com" in base and ("credits" in exc.message.lower() or exc.retryable):
+                if not reference and "api.magnific.com" in base and ("credits" in exc.message.lower() or exc.retryable):
                     logger.warning("Magnific endpoint returned %s; falling back to Freepik direct engine", exc.message)
                     fp_url = "https://api.freepik.com/v1/ai/text-to-image"
                     fp_headers = {
@@ -387,7 +393,7 @@ class MagnificProvider:
             return body
 
     # ── Upscale (Unified for URL strings and MediaResult) ─────────────────
-    async def upscale(
+    async def _upscale_url(
         self,
         image_url: str | None = None,
         *,
@@ -401,62 +407,6 @@ class MagnificProvider:
         prompt: str | None = None,
         optimized_for: str = "standard",
     ) -> Any:
-        # If image_ref is passed from image_fabric, return a MediaResult
-        if image_ref is not None:
-            eff_factor = factor or int(scale)
-            resolved = await self.resolver.resolve(image_ref, role="upscale_source")
-
-            if not self.is_configured:
-                stored = self.asset_store.store_bytes(
-                    raw_bytes=resolved.bytes_data,
-                    filename=f"upscaled_{resolved.asset_id[:8]}.png",
-                    mime_type="image/png",
-                    source=AssetSource.GENERATED,
-                )
-                return MediaResult(
-                    asset_ref=stored,
-                    provider="magnific:mock-upscale",
-                    credits_used=10,
-                )
-
-            headers = self._get_headers()
-            b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")
-            payload = {
-                "image": f"data:{resolved.mime_type};base64,{b64_image}",
-                "scale": eff_factor,
-                "flavor": flavor,
-                "prompt": prompt or "",
-            }
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{self._base_url()}/upscale",
-                    headers=headers,
-                    json=payload,
-                )
-                if resp.status_code not in (200, 201):
-                    raise MagnificProviderError(
-                        "IMAGE_PROVIDER_ERROR",
-                        f"Magnific upscale failed with HTTP {resp.status_code}: {resp.text[:200]}",
-                        status_code=resp.status_code,
-                    )
-                result_json = resp.json()
-                out_url = result_json.get("url") or result_json.get("data", {}).get("url")
-                if not out_url:
-                    raise MagnificProviderError("IMAGE_PROVIDER_ERROR", "Provider did not return an upscaled image URL.")
-
-                out_media = await self.resolver.resolve(out_url, role="output")
-                stored = self.asset_store.store_bytes(
-                    raw_bytes=out_media.bytes_data,
-                    mime_type=out_media.mime_type,
-                    source=AssetSource.GENERATED,
-                )
-                return MediaResult(
-                    asset_ref=stored,
-                    provider="magnific:upscale",
-                    credits_used=result_json.get("costCredits", 10),
-                )
-
         target_url = image_url or ""
         if self.api_key is None:
             raise MagnificError("MAGNIFIC_NOT_CONFIGURED", "No Magnific/Freepik API key is configured.")
@@ -505,16 +455,7 @@ class MagnificProvider:
         count = min(max(1, count), 12)
 
         if not self.is_configured:
-            return [
-                {
-                    "id": f"stock_mock_{i}",
-                    "title": f"{clean_query.title()} Result {i+1}",
-                    "url": "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=800&q=80",
-                    "thumbnailUrl": "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=300&q=80",
-                    "source": "Stock Catalog",
-                }
-                for i in range(count)
-            ]
+            raise MagnificProviderError("CREDENTIAL_MISSING", "Configure a valid image provider before running this operation.", status_code=503)
 
         try:
             headers = self._get_headers()
@@ -551,16 +492,7 @@ class MagnificProvider:
         except Exception as exc:
             logger.warning("Stock search API error, using safe fallback: %s", exc)
 
-        return [
-            {
-                "id": f"stock_{i}",
-                "title": f"{clean_query.title()} Stock {i+1}",
-                "url": "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=800&q=80",
-                "thumbnailUrl": "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=300&q=80",
-                "source": "Stock Catalog",
-            }
-            for i in range(count)
-        ]
+        return []
 
     # ── Still Image (Creative Fabric) ────────────────────────────────────
     async def generate_still_image(
@@ -575,10 +507,7 @@ class MagnificProvider:
             raise MagnificProviderError("VALIDATION_ERROR", "Prompt is required for still image generation.")
 
         lowered_model = model.lower()
-        if "seedance" in lowered_model:
-            model = "seedance-5.0"
-            lowered_model = "seedance-5.0"
-        elif any(marker in lowered_model for marker in ("video", "animate", "motion", "clip")):
+        if any(marker in lowered_model for marker in ("seedance", "video", "animate", "motion", "clip")):
             raise MagnificProviderError(
                 "VIDEO_GENERATION_FORBIDDEN",
                 "Video generation is strictly forbidden in this environment.",
@@ -586,19 +515,7 @@ class MagnificProvider:
             )
 
         if not self.is_configured:
-            mock_url = "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=1024&q=80"
-            out_media = await self.resolver.resolve(mock_url, role="output")
-            stored = self.asset_store.store_bytes(
-                raw_bytes=out_media.bytes_data,
-                filename="generated_quality_still.png",
-                mime_type=out_media.mime_type,
-                source=AssetSource.GENERATED,
-            )
-            return MediaResult(
-                asset_ref=stored,
-                provider="magnific:mock-still-image",
-                credits_used=8,
-            )
+            raise MagnificProviderError("CREDENTIAL_MISSING", "Configure a valid image provider before running this operation.", status_code=503)
 
         headers = self._get_headers()
         submit_path = f"/v1/ai/text-to-image/{model}"
@@ -675,81 +592,38 @@ class MagnificProvider:
         resolved = await self.resolver.resolve(reference, role="reference")
 
         if not self.is_configured:
-            mock_bytes = resolved.bytes_data
-            stored = self.asset_store.store_bytes(
-                raw_bytes=mock_bytes,
-                filename=f"generated_ref_{resolved.asset_id[:8]}.png",
-                mime_type="image/png",
-                source=AssetSource.GENERATED,
-            )
-            return MediaResult(
-                asset_ref=stored,
-                provider="magnific:mock-reference",
-                credits_used=5,
-            )
+            raise MagnificProviderError("CREDENTIAL_MISSING", "Configure a valid image provider before running this operation.", status_code=503)
 
-        headers = self._get_headers()
+        if not self.honours_reference_image():
+            raise MagnificProviderError("REFERENCE_UNSUPPORTED", "The selected provider endpoint cannot preserve reference images.", status_code=422)
         b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")
-        payload = {
-            "prompt": prompt,
-            "image": f"data:{resolved.mime_type};base64,{b64_image}",
-            "strength": max(0.1, min(1.0, strength)),
-            "style": style,
-        }
-
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.post(
-                f"{self._base_url()}/image-to-image",
-                headers=headers,
-                json=payload,
-            )
-            if resp.status_code not in (200, 201):
-                raise MagnificProviderError(
-                    "IMAGE_PROVIDER_ERROR",
-                    f"Magnific reference generation failed with HTTP {resp.status_code}: {resp.text[:200]}",
-                    status_code=resp.status_code,
-                )
-            result_json = resp.json()
-            out_url = result_json.get("url") or result_json.get("data", {}).get("url")
-            if not out_url:
-                raise MagnificProviderError("IMAGE_PROVIDER_ERROR", "Provider did not return a valid output image URL.")
-
-            out_media = await self.resolver.resolve(out_url, role="output")
-            stored = self.asset_store.store_bytes(
-                raw_bytes=out_media.bytes_data,
-                mime_type=out_media.mime_type,
-                source=AssetSource.GENERATED,
-            )
-            return MediaResult(
-                asset_ref=stored,
-                provider="magnific:image-to-image",
-                credits_used=result_json.get("costCredits", 8),
-            )
+        result = await self.generate(
+            prompt=f"{prompt.strip()}. Style: {style}", width=1024, height=1024,
+            reference_image_b64=f"data:{resolved.mime_type};base64,{b64_image}",
+            guidance_scale=max(0.0, min(9.0, strength * 9.0)),
+        )
+        out_media = await self.resolver.resolve(result.image_urls[0], role="output")
+        stored = self.asset_store.store_bytes(raw_bytes=out_media.bytes_data, mime_type=out_media.mime_type, source=AssetSource.GENERATED)
+        return MediaResult(asset_ref=stored, provider=result.provider, task_id=result.task_id)
 
     # ── Upscale (Creative Fabric) ────────────────────────────────────────
     async def upscale(
         self,
-        image_ref: str,
+        image_url: str | None = None,
+        *,
+        image_ref: str | None = None,
         scale: float = 2.0,
         factor: int | None = None,
         flavor: str = "photo",
         prompt: str = "",
         **kwargs: Any,
-    ) -> MediaResult:
+    ) -> Any:
+        if image_ref is None:
+            return await self._upscale_url(image_url, scale=factor or scale, prompt=prompt, **kwargs)
         eff_scale = factor if factor is not None else scale
         resolved = await self.resolver.resolve(image_ref, role="upscale_source")
         if not self.is_configured:
-            stored = self.asset_store.store_bytes(
-                raw_bytes=resolved.bytes_data,
-                filename=f"upscaled_{resolved.asset_id[:8]}.png",
-                mime_type=resolved.mime_type or "image/png",
-                source=AssetSource.GENERATED,
-            )
-            return MediaResult(
-                asset_ref=stored,
-                provider="magnific:mock-upscale",
-                credits_used=8,
-            )
+            raise MagnificProviderError("CREDENTIAL_MISSING", "Configure a valid image provider before running this operation.", status_code=503)
         headers = self._get_headers()
         b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")
         submit_path = "/v1/ai/image-upscaler"
@@ -803,17 +677,7 @@ class MagnificProvider:
         resolved = await self.resolver.resolve(image_ref, role="relight_source")
 
         if not self.is_configured:
-            stored = self.asset_store.store_bytes(
-                raw_bytes=resolved.bytes_data,
-                filename=f"relit_{resolved.asset_id[:8]}.png",
-                mime_type="image/png",
-                source=AssetSource.GENERATED,
-            )
-            return MediaResult(
-                asset_ref=stored,
-                provider="magnific:mock-relight",
-                credits_used=8,
-            )
+            raise MagnificProviderError("CREDENTIAL_MISSING", "Configure a valid image provider before running this operation.", status_code=503)
 
         headers = self._get_headers()
         b64_image = base64.b64encode(resolved.bytes_data).decode("ascii")

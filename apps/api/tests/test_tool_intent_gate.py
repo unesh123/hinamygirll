@@ -731,3 +731,87 @@ def test_media_browser_and_computer_tools_sanctioned(gate_settings):
     plan = _gated(gate_settings, "play Saiyara on youtube", [("youtube_playback_request", {"query": "Saiyara", "autoplay": True})])
     assert any(t.toolName == "youtube_playback_request" for t in plan.toolRequests)
 
+
+def test_slash_image_negation_and_meta_inquiry_bypassed(gate_settings):
+    """Ensure conversational queries or negations prefixed with /image do NOT trigger image_generate."""
+    # 1. Negative statement
+    plan_no = _gated(gate_settings, "/image No, I don't need images.", [("image_generate", {"prompt": "No, I don't need ."})])
+    assert not any(t.toolName == "image_generate" for t in plan_no.toolRequests)
+
+    # 2. Greeting / conversation
+    plan_greet = _gated(gate_settings, "/image Hey Hina!", [("image_generate", {"prompt": "Hey Hina!"})])
+    assert not any(t.toolName == "image_generate" for t in plan_greet.toolRequests)
+
+    # 3. Meta inquiry about tag
+    plan_tag = _gated(gate_settings, "/image What is this? Why are you getting that tag, Hina?", [("image_generate", {"prompt": "What is this? Why are you getting that tag, Hina?"})])
+    assert not any(t.toolName == "image_generate" for t in plan_tag.toolRequests)
+
+    # 4. Legitimate image generation prompt DOES trigger
+    s_valid = sanction_tools("/image a cyberpunk cityscape at sunset")
+    assert s_valid.permits("image_generate")
+    plan_valid = _gated(gate_settings, "/image a cyberpunk cityscape at sunset", [("image_generate", {"prompt": "a cyberpunk cityscape at sunset"})])
+    assert any(t.toolName == "image_generate" for t in plan_valid.toolRequests)
+
+
+def test_desktop_gui_autonomous_operator_sanctioned(gate_settings):
+    """Verify autonomous desktop GUI mouse, click, screenshot, and daemon requests are properly sanctioned."""
+    # Mouse gliding
+    s_move = sanction_tools("move mouse to 600, 450")
+    assert s_move.permits("computer_operator")
+    assert s_move.parameters["computer_operator"]["action"] == "mouse_move"
+    assert s_move.parameters["computer_operator"]["x"] == 600
+    assert s_move.parameters["computer_operator"]["y"] == 450
+
+    # Clicking at coords
+    s_click = sanction_tools("click at 300, 200")
+    assert s_click.permits("computer_operator")
+    assert s_click.parameters["computer_operator"]["action"] == "click"
+    assert s_click.parameters["computer_operator"]["x"] == 300
+    assert s_click.parameters["computer_operator"]["y"] == 200
+
+    # Double click
+    s_dbl = sanction_tools("double click")
+    assert s_dbl.permits("computer_operator")
+    assert s_dbl.parameters["computer_operator"]["action"] == "double_click"
+
+    # Right click
+    s_right = sanction_tools("right click")
+    assert s_right.permits("computer_operator")
+    assert s_right.parameters["computer_operator"]["action"] == "right_click"
+
+    # Drag and drop
+    s_drag = sanction_tools("drag from 100, 100 to 500, 500")
+    assert s_drag.permits("computer_operator")
+    assert s_drag.parameters["computer_operator"]["action"] == "drag"
+    assert s_drag.parameters["computer_operator"]["start_x"] == 100
+    assert s_drag.parameters["computer_operator"]["start_y"] == 100
+    assert s_drag.parameters["computer_operator"]["end_x"] == 500
+    assert s_drag.parameters["computer_operator"]["end_y"] == 500
+
+    # Screenshot
+    s_shot = sanction_tools("take a screenshot")
+    assert s_shot.permits("computer_operator")
+    assert s_shot.parameters["computer_operator"]["action"] == "screenshot"
+
+    # Desktop daemon status
+    s_daemon = sanction_tools("check desktop daemon status")
+    assert s_daemon.permits("computer_operator")
+    assert s_daemon.parameters["computer_operator"]["action"] == "daemon_status"
+
+    # Slash commands
+    s_slash_mouse = sanction_tools("/mouse 400 300")
+    assert s_slash_mouse.permits("computer_operator")
+    assert s_slash_mouse.parameters["computer_operator"]["action"] == "mouse_move"
+    assert s_slash_mouse.parameters["computer_operator"]["x"] == 400
+    assert s_slash_mouse.parameters["computer_operator"]["y"] == 300
+
+    s_slash_shot = sanction_tools("/screenshot")
+    assert s_slash_shot.permits("computer_operator")
+    assert s_slash_shot.parameters["computer_operator"]["action"] == "screenshot"
+
+    s_slash_daemon = sanction_tools("/daemon")
+    assert s_slash_daemon.permits("computer_operator")
+    assert s_slash_daemon.parameters["computer_operator"]["action"] == "daemon_status"
+
+
+

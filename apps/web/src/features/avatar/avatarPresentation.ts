@@ -34,8 +34,11 @@ export function defaultAvatarPresentation(modelUrl: string): AvatarPresentation 
 
 export function normalizeAvatarPresentation(value: Partial<AvatarPresentation> | undefined, modelUrl: string): AvatarPresentation {
   const fallback = defaultAvatarPresentation(modelUrl);
-  const rotationY = typeof value?.rotationY === "number" && Number.isFinite(value.rotationY)
+  const rawRotation = typeof value?.rotationY === "number" && Number.isFinite(value.rotationY)
     ? value.rotationY : fallback.rotationY;
+  const rotationY = (fallback.rotationY === Math.PI && rawRotation === 0 && (!value?.poseMode || value.poseMode === "relaxed"))
+    ? Math.PI
+    : rawRotation;
   const offsetY = typeof value?.offsetY === "number" && Number.isFinite(value.offsetY)
     ? Math.max(-1.5, Math.min(1.5, value.offsetY)) : fallback.offsetY;
   const scale = typeof value?.scale === "number" && Number.isFinite(value.scale)

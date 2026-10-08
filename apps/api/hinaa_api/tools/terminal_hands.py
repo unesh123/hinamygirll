@@ -14,6 +14,8 @@ import shlex
 import socket
 import ssl
 import subprocess
+import sys
+from typing import Literal
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel, Field
@@ -23,7 +25,7 @@ from hinaa_api.tools.registry import registry, ToolDefinition
 logger = logging.getLogger("hinaa.tools.terminal_hands")
 
 # Root directory whitelist boundary
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 # Command blocklist to prevent destructive accidental OS wipes
 DISALLOWED_COMMANDS = [
@@ -35,21 +37,43 @@ DISALLOWED_COMMANDS = [
     "drop database",
 ]
 
-# Check if WSL is available on Windows
-WSL_AVAILABLE = False
-if os.name == "nt":
+def _wsl_distributions() -> list[str]:
+    if os.name != "nt":
+        return []
     try:
-        r = subprocess.run(["wsl", "--status"], capture_output=True, timeout=3)
-        WSL_AVAILABLE = (r.returncode == 0)
-    except Exception:
-        WSL_AVAILABLE = False
+        result = subprocess.run(["wsl.exe", "--list", "--quiet"], capture_output=True, timeout=5,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+        return [line.strip() for line in result.stdout.decode("utf-16-le", errors="replace").replace("\x00", "").splitlines() if line.strip()] if result.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+
+
+def _run_command(command: list[str], cwd: Path, env: dict[str, str], timeout: int) -> tuple[int, bytes, bytes]:
+    # Windows Uvicorn uses a Selector event loop, which cannot create asyncio
+    # subprocess transports. Run process I/O in a worker thread instead.
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            cwd=str(cwd), env=env, creationflags=flags,
+                            start_new_session=os.name != "nt")
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return proc.returncode, out, err
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill.exe", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, timeout=10, creationflags=flags)
+        else:
+            import signal
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        raise
 
 
 class TerminalExecuteParams(BaseModel):
     command: str = Field(..., description="The shell command or script to execute (e.g. 'git status', 'uname -a', 'python -m pytest')")
     cwd: str | None = Field(default=None, description="Working directory relative to project root")
-    timeout_seconds: int = Field(default=30, le=120, description="Max execution timeout in seconds")
-    runtime: str = Field(default="auto", description="Execution runtime: 'auto', 'linux', 'kali', 'powershell', 'cmd'")
+    timeout_seconds: int = Field(default=30, ge=1, le=120, description="Max execution timeout in seconds")
+    runtime: Literal["auto", "linux", "kali", "powershell", "cmd"] = Field(default="auto", description="Execution runtime: 'auto', 'linux', 'kali', 'powershell', 'cmd'")
     env: dict[str, str] | None = Field(default=None, description="Optional extra environment variables")
 
 
@@ -150,13 +174,11 @@ async def _run_security_audit_action(action: str, target: str) -> dict[str, Any]
     elif action == "sec:gitleaks":
         try:
             # Check recent git diff for secret tokens
-            proc = await asyncio.create_subprocess_exec(
-                "git", "diff", "HEAD~1",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(PROJECT_ROOT),
+            code, stdout, stderr = await asyncio.to_thread(
+                _run_command, ["git", "diff", "HEAD~1"], PROJECT_ROOT, dict(os.environ), 15,
             )
-            stdout, _ = await proc.communicate()
+            if code != 0:
+                return {"auditType": "Git Secret Exposure Scan", "error": "Git diff could not be read; ensure this workspace has a previous commit."}
             diff_text = stdout.decode("utf-8", errors="replace")
             
             patterns = [
@@ -221,93 +243,36 @@ async def execute_terminal_hands(params: TerminalExecuteParams | dict[str, Any])
                 "securityAudit": audit_result,
             }
 
-    # 3. Resolve working directory
-    resolved_cwd = PROJECT_ROOT
-    if params.cwd:
-        candidate = (PROJECT_ROOT / params.cwd).resolve()
-        if candidate.is_relative_to(PROJECT_ROOT) and candidate.exists():
-            resolved_cwd = candidate
+    # Reject invalid paths rather than silently running in another directory.
+    resolved_cwd = (PROJECT_ROOT / (params.cwd or ".")).resolve()
+    if not resolved_cwd.is_relative_to(PROJECT_ROOT) or not resolved_cwd.is_dir():
+        return {"status":"rejected", "command":cmd, "error":"Working directory must be an existing folder inside the Hina workspace."}
 
-    # 4. Resolve Runtime: Kali Linux (WSL), PowerShell, or Native Shell
-    active_runtime = "native"
-    sub_cmd: list[str] | str = cmd
-
-    want_linux = params.runtime in ("linux", "kali") or (
-        params.runtime == "auto"
-        and os.name == "nt"
-        and WSL_AVAILABLE
-        and any(
-            cmd_lower.startswith(x)
-            for x in (
-                "uname", "apt", "cat /etc", "grep ", "ps aux", "df -h",
-                "free -m", "which ", "whoami", "ip a", "netstat", "nmap",
-                "curl -", "sed ", "awk ", "ls -l", "top -b"
-            )
-        )
-    )
-
-    if want_linux:
-        if os.name == "nt" and WSL_AVAILABLE:
-            active_runtime = "kali-linux-wsl"
-            wsl_cwd = _to_wsl_path(resolved_cwd)
-            # Run inside Kali Linux with working directory set
-            wrapped = f"cd {shlex.quote(wsl_cwd)} && {cmd}"
-            sub_cmd = ["wsl", "-d", "kali-linux", "--", "bash", "-c", wrapped]
-        else:
-            active_runtime = "linux-bash"
-            sub_cmd = ["/bin/bash", "-c", cmd]
-    elif params.runtime == "powershell" and os.name == "nt":
-        active_runtime = "powershell"
-        sub_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd]
+    active_runtime = "powershell" if os.name == "nt" else "linux-bash"
+    sub_cmd = ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", cmd] if os.name == "nt" else ["/bin/bash", "-c", cmd]
+    if params.runtime in ("linux", "kali") and os.name == "nt":
+        distributions = await asyncio.to_thread(_wsl_distributions)
+        chosen = next((name for name in distributions if "kali" in name.lower()), None) if params.runtime == "kali" else next(iter(distributions), None)
+        if not chosen:
+            return {"status":"unavailable", "command":cmd, "runtime":params.runtime,
+                    "error":"Kali Linux WSL is not installed or running. Use PowerShell, or install your chosen WSL distribution before selecting this runtime."}
+        active_runtime = f"wsl:{chosen}"
+        sub_cmd = ["wsl.exe", "-d", chosen, "--cd", _to_wsl_path(resolved_cwd), "--", "bash", "-c", cmd]
     elif params.runtime == "cmd" and os.name == "nt":
-        active_runtime = "cmd"
-        sub_cmd = ["cmd.exe", "/c", cmd]
+        active_runtime, sub_cmd = "cmd", ["cmd.exe", "/d", "/c", cmd]
+    elif params.runtime in ("powershell", "cmd") and os.name != "nt":
+        return {"status":"unavailable", "command":cmd, "runtime":params.runtime, "error":"This runtime requires a Windows host."}
 
-    logger.info("Executing terminal command: %s (runtime=%s, cwd=%s)", cmd, active_runtime, resolved_cwd)
-
-    # 5. Build environment
     proc_env = os.environ.copy()
+    python_bin = PROJECT_ROOT / "apps/api/.venv" / ("Scripts" if os.name == "nt" else "bin")
+    proc_env["PATH"] = str(python_bin) + os.pathsep + proc_env.get("PATH", "")
     if params.env:
         proc_env.update(params.env)
-
-    # 6. Execute subprocess
     try:
-        if isinstance(sub_cmd, list):
-            proc = await asyncio.create_subprocess_exec(
-                *sub_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(resolved_cwd) if active_runtime != "kali-linux-wsl" else None,
-                env=proc_env,
-            )
-        else:
-            proc = await asyncio.create_subprocess_shell(
-                sub_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(resolved_cwd),
-                env=proc_env,
-            )
-
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=params.timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            return {
-                "status": "timeout",
-                "runtime": active_runtime,
-                "command": cmd,
-                "timeoutSeconds": params.timeout_seconds,
-                "error": f"Command timed out after {params.timeout_seconds} seconds.",
-            }
-
+        exit_code, stdout_bytes, stderr_bytes = await asyncio.to_thread(
+            _run_command, sub_cmd, resolved_cwd, proc_env, params.timeout_seconds)
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
-        exit_code = proc.returncode
 
         # Truncate giant outputs if needed
         max_output_len = 10000
@@ -328,6 +293,9 @@ async def execute_terminal_hands(params: TerminalExecuteParams | dict[str, Any])
                 else f"Command failed with exit code {exit_code} on {active_runtime}."
             ),
         }
+    except subprocess.TimeoutExpired:
+        return {"status":"timeout", "runtime":active_runtime, "command":cmd,
+                "timeoutSeconds":params.timeout_seconds, "error":f"Command timed out after {params.timeout_seconds} seconds; its process tree was stopped."}
     except Exception as exc:
         logger.error("Terminal execution failed: %s", exc)
         return {

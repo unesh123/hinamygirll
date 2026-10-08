@@ -16,10 +16,21 @@ import {
   Sparkles,
 } from "lucide-react";
 
+const API_BASE = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
+
+async function bridgeRequest(path: string, init?: RequestInit) {
+  const response = await fetch(`${API_BASE}/api/v1/integrations/${path}`, { ...init, signal: AbortSignal.timeout(20000) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || data.detail || data.error?.message || `Request failed (${response.status})`);
+  if (["failed", "error", "unavailable", "rejected"].includes(data.status)) throw new Error(data.message || data.error || "The integration could not complete this action.");
+  return data;
+}
+
 export interface SaaSIntegration {
   service: "github" | "outlook" | "google_calendar" | "notion" | "spotify";
   status: "connected" | "disconnected" | "error" | "rate_limited";
   account_identifier?: string | null;
+  status_text?: string;
   last_sync_time?: string | null;
   features_supported: string[];
   metadata?: Record<string, any>;
@@ -47,24 +58,48 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
   // GitHub Quick Action
   const [gitActionLoading, setGitActionLoading] = useState(false);
   const [gitOutput, setGitOutput] = useState<string | null>(null);
+  const [mcpStatus, setMCPStatus] = useState("");
+  const [mcpLoading, setMCPLoading] = useState(false);
+  const verifyMCP = async () => {
+    setMCPLoading(true);
+    try { const result = await bridgeRequest("github/mcp"); setMCPStatus(`GitHub MCP verified: ${result.tools.length} read-only tools discovered.`); }
+    catch (error) {setMCPStatus(error instanceof Error ? error.message : "GitHub MCP connection failed");}
+    finally {setMCPLoading(false);}
+  };
 
   // Outlook Quick Draft
   const [emailDraft, setEmailDraft] = useState({
-    recipient: "dean@college.edu.np",
-    subject: "HINAA Autonomous Node Progress Report",
-    body: "Attached is the latest technical status and academic milestone verification.",
+    recipient: "",
+    subject: "",
+    body: "",
   });
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
+  const [inbox, setInbox] = useState<Array<{id: string; subject: string; bodyPreview: string}>>([]);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const readInbox = async () => {
+    setInboxLoading(true);
+    setEmailStatus(null);
+    try {
+      const data = await bridgeRequest("outlook/inbox?limit=10");
+      setInbox(data.messages || []);
+      if (!(data.messages || []).length) setEmailStatus("Your Outlook inbox has no messages.");
+    } catch (error) {
+      setInbox([]);
+      setEmailStatus(error instanceof Error ? error.message : "Could not read Outlook.");
+    } finally { setInboxLoading(false); }
+  };
 
   const fetchIntegrations = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/v1/integrations/status");
-      if (!res.ok) throw new Error("Failed to load integrations status");
-      const data = await res.json();
-      setIntegrations(data.integrations || []);
+      const data = await bridgeRequest("status");
+      setIntegrations((data.integrations || []).map((item: {service_id: string; connected: boolean; status_text: string; capabilities: string[]}) => ({
+        service: item.service_id === "spotify_media" ? "spotify" : item.service_id,
+        status: item.connected ? "connected" : "disconnected", status_text: item.status_text,
+        features_supported: item.capabilities || [],
+      })));
     } catch (err: any) {
       setError(err?.message || "Failed to load integrations");
     } finally {
@@ -74,11 +109,8 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
 
   const fetchAgenda = useCallback(async () => {
     try {
-      const res = await fetch("/v1/integrations/agenda");
-      if (res.ok) {
-        const data = await res.json();
-        setAgenda(data.agenda || []);
-      }
+      const data = await bridgeRequest("agenda");
+      setAgenda(data.agenda || []);
     } catch {
       // Agenda load is non-critical
     }
@@ -93,12 +125,11 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
     setGitActionLoading(true);
     setGitOutput(null);
     try {
-      const res = await fetch("/v1/integrations/github/action", {
+      const data = await bridgeRequest("github/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      const data = await res.json();
       setGitOutput(data.output || JSON.stringify(data, null, 2));
     } catch (err: any) {
       setGitOutput(`Error executing GitHub action: ${err.message}`);
@@ -111,14 +142,12 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
     setIsSendingEmail(true);
     setEmailStatus(null);
     try {
-      const res = await fetch("/v1/integrations/email/send", {
+      const data = await bridgeRequest("email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...emailDraft, send_now: sendNow }),
       });
-      const data = await res.json();
-      setEmailStatus(data.message || (sendNow ? "Email delivered!" : "Draft created in Outlook!"));
-      setTimeout(() => setEmailStatus(null), 3500);
+      setEmailStatus(data.message || (sendNow ? "Sending request accepted; delivery is unverified." : "Draft prepared for review."));
     } catch (err: any) {
       setEmailStatus(`Failed: ${err.message}`);
     } finally {
@@ -230,7 +259,7 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 300px), 1fr))",
           gap: 16,
         }}
       >
@@ -271,7 +300,7 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
                         {item.service.replace(/_/g, " ")}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-tertiary, #71717a)" }}>
-                        {item.account_identifier || "Default Integration Node"}
+                        {item.status_text || "Connection status unavailable"}
                       </div>
                     </div>
                   </div>
@@ -297,7 +326,7 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
                         backgroundColor: isConnected ? "#4ade80" : "#a1a1aa",
                       }}
                     />
-                    {isConnected ? "Active" : "Ready"}
+                    {isConnected ? "Configured" : "Disconnected"}
                   </span>
                 </div>
 
@@ -431,6 +460,20 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
         </div>
       )}
 
+      <section aria-label="GitHub MCP">
+        <button type="button" disabled={mcpLoading} onClick={verifyMCP}>{mcpLoading ? "Connecting GitHub MCP…" : "Verify GitHub MCP"}</button>
+        {mcpStatus && <p role="status">{mcpStatus}</p>}
+      </section>
+      <section aria-label="Outlook inbox" style={{minWidth: 0}}>
+        <button type="button" onClick={readInbox} disabled={inboxLoading}>
+          {inboxLoading ? "Reading Outlook…" : "Read Outlook inbox"}
+        </button>
+        {inbox.map(message => <article key={message.id} style={{padding: 12, overflowWrap: "anywhere"}}>
+          <strong>{message.subject || "(No subject)"}</strong>
+          <p>{message.bodyPreview}</p>
+        </article>)}
+      </section>
+
       {/* ── Two-Column Operational Row: Calendar Agenda & Outlook Quick Sender ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 20 }}>
         {/* Google Calendar Timetable */}
@@ -448,6 +491,7 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {agenda.length === 0 && <p>No calendar events are connected yet.</p>}
             {agenda.map((ev) => (
               <div
                 key={ev.id}
@@ -573,7 +617,7 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
               <button
                 type="button"
                 onClick={() => handleSendEmail(false)}
-                disabled={isSendingEmail}
+                disabled={isSendingEmail || !emailDraft.recipient.trim() || !emailDraft.subject.trim() || !emailDraft.body.trim()}
                 style={{
                   flex: 1,
                   padding: "8px 12px",
@@ -591,7 +635,7 @@ export function SaaSBridgePanel({ onOpenTerminal }: SaaSBridgePanelProps) {
               <button
                 type="button"
                 onClick={() => handleSendEmail(true)}
-                disabled={isSendingEmail}
+                disabled={isSendingEmail || !emailDraft.recipient.trim() || !emailDraft.subject.trim() || !emailDraft.body.trim()}
                 style={{
                   flex: 1,
                   padding: "8px 12px",

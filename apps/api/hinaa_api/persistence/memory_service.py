@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.exc import IntegrityError
 
 from ..errors import HinaaError
 from .orm import (
@@ -112,16 +113,18 @@ class MemoryService:
             if user is None:
                 user = User(auth_subject=auth_subject)
                 session.add(user)
-                session.flush()
-                session.add(
-                    MemoryConsent(
-                        user_id=user.id,
-                        purpose="explicit_memory",
-                        action="account_created",
-                    )
-                )
-                session.commit()
-                session.refresh(user)
+                try:
+                    session.flush()
+                    session.add(MemoryConsent(user_id=user.id, purpose="explicit_memory", action="account_created"))
+                    session.commit()
+                    session.refresh(user)
+                except IntegrityError:
+                    # Concurrent authenticated requests can create the same subject.
+                    # Roll back the losing insert and reuse the committed identity.
+                    session.rollback()
+                    user = session.scalar(select(User).where(User.auth_subject == auth_subject))
+                    if user is None:
+                        raise
             return user
 
     def set_memory_enabled(self, user_id: str, enabled: bool) -> dict[str, object]:

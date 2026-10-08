@@ -128,7 +128,7 @@ export function WelcomeScene({ userName, onAction }: WelcomeSceneProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.5 }}
         >
-          Main tumhare liye ready hoon. What would you like to do?
+          Main tumhare saath hoon, babe. What would you like to do?
         </motion.p>
       </div>
 

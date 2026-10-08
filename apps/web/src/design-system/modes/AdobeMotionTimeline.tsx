@@ -47,8 +47,8 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
   showCompanionButton,
   onShowCompanion,
 }) => {
-  const [activeKeyframe, setActiveKeyframe] = useState<number>(3);
-  const [fps, setFps] = useState<number>(60);
+  const activeKeyframe = companionState === "thinking" ? 2 : companionState === "working" ? 3
+    : companionState === "speaking" ? 4 : companionState === "listening" ? 1 : 0;
 
   const contextPercent = tokensUsed !== undefined && totalTokens !== undefined && totalTokens > 0 ? Math.min(100, Math.round((tokensUsed / totalTokens) * 100)) : null;
 
@@ -156,10 +156,8 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
           <button
             key={kf.id}
             type="button"
-            onClick={() => {
-              playUiSound("click");
-              setActiveKeyframe(kf.id);
-            }}
+            aria-pressed={activeKeyframe === kf.id}
+            title={activeKeyframe === kf.id ? "Current runtime activity" : "Inactive runtime phase"}
             style={{
               display: "inline-flex",
               alignItems: "center",

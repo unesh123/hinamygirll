@@ -164,14 +164,8 @@ def _anthropic_messages(prompt: PromptPackage) -> list[dict[str, Any]]:
         final_content = build_anthropic_content(user_text, attachments)
 
         if messages and messages[-1]["role"] == "user":
-            prev = messages[-1]["content"]
-            if isinstance(prev, str) and isinstance(final_content, str):
-                messages[-1]["content"] = f"{prev}\n\n{final_content}"
-            elif isinstance(prev, list) and isinstance(final_content, list):
-                messages[-1]["content"].extend(final_content)
-            else:
-                messages.append({"role": "assistant", "content": "Got it."})
-                messages.append({"role": "user", "content": final_content})
+            messages.append({"role": "assistant", "content": "I understand. Let's continue."})
+            messages.append({"role": "user", "content": final_content})
         else:
             messages.append({"role": "user", "content": final_content})
 

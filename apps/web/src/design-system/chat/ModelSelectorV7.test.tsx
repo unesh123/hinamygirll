@@ -9,6 +9,14 @@ const models: DiscoveredModel[] = ["claude", "experiential"].map((provider) => (
 }));
 
 describe("model picker", () => {
+  it("renders outside clipping ancestors without changing their scroll position", () => {
+    const view=render(<div style={{overflow:"hidden",height:50}}><ModelSelectorV7 models={models} onSelectAuto={vi.fn()} onSelectModel={vi.fn()}/></div>);
+    fireEvent.click(screen.getByTestId("composer-model-selector-btn"));
+    const menu=screen.getByRole("menu");
+    expect(menu.parentElement).toBe(document.body);
+    expect(view.container.contains(menu)).toBe(false);
+    expect(menu).toHaveStyle({position:"fixed"});
+  });
   it("recognizes the persisted Gemini request mode in the discovery catalog", () => {
     render(<ModelSelectorV7 models={[{ ...models[0], provider: "gemini", name: "Configured Gemini" }]}
       selectedModelId="shared-model" selectedProviderId="real" isAutoRouter={false}

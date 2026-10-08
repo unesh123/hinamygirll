@@ -70,6 +70,15 @@ const EMOTION_TARGETS: Record<string, Partial<VrmExpressionWeights>> = {
   happy: { happy: 0.55, relaxed: 0.18 },
   excited: { happy: 0.8, aa: 0.35, relaxed: 0.1 },
   playful: { happy: 0.5, ih: 0.28, relaxed: 0.15 },
+  celebratory: { happy: 0.85, surprised: 0.3, relaxed: 0.15 },
+  joyful: { happy: 0.8, relaxed: 0.2 },
+  laughing: { happy: 0.95, relaxed: 0.2 },
+  flirty_warm: { happy: 0.6, relaxed: 0.35 },
+  curious: { relaxed: 0.35, happy: 0.22, surprised: 0.05 },
+  empathetic: { relaxed: 0.4, sad: 0.25 },
+  pouting: { sad: 0.35, angry: 0.3, ou: 0.3 },
+  confident: { happy: 0.7, relaxed: 0.25 },
+  warm: { happy: 0.5, relaxed: 0.25 },
   shy: { happy: 0.28, relaxed: 0.32 },
   concerned: { sad: 0.35, aa: 0.12, relaxed: 0.15 },
   sad: { sad: 0.75, relaxed: 0.1 },
@@ -83,11 +92,14 @@ const FACE_PRESET_TARGETS: Record<string, Partial<VrmExpressionWeights>> = {
   soft_smile: { happy: 0.5, relaxed: 0.15 },
   big_smile: { happy: 1.0 },
   blush: { happy: 0.35, relaxed: 0.3 },
-  pout: { ou: 0.4 },
+  pout: { ou: 0.4, sad: 0.2 },
   concerned: { sad: 0.3, aa: 0.1 },
   surprised: { surprised: 0.7, aa: 0.3 },
   thinking: { aa: 0.1, neutral: 0.3 },
+  laughing: { happy: 0.95 },
+  confident: { happy: 0.75, relaxed: 0.2 },
 };
+
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));

@@ -20,11 +20,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, Field
 
 from . import __version__, realtime_tickets
-from .audio import validate_wav
+from .audio import validate_wav, ensure_wav_or_mp3
 from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
-from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse
+from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse, ImageStudioConfigPayload
 from .astra import AstraRequest, AstraRuntime
 from .creative import CreativeJobStore, CreativeModelRegistry, MagnificBudgetManager
 from .media import AssetSource, get_asset_store
@@ -1028,22 +1028,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         correlation_id = _correlation_id(request.headers.get("X-Correlation-ID"))
         request.state.correlation_id = correlation_id
         host_token = tool_policy.set_request_host(request.headers.get("host"))
+        from .integrations.remote_pc import request_pc
+        pc_context_token = request_pc.set(None)
         try:
             # The live instance is private as a whole, including routes that
-            # do not have their own persistence/auth dependency. Only minimal
-            # liveness and CORS preflight remain available before sign-in.
-            if active_settings.auth_mode == "clerk" and request.method != "OPTIONS" and request.url.path != "/health/live":
+            # do not have their own persistence/auth dependency. Minimal liveness,
+            # CORS preflight, realtime URL discovery, and speech synthesis remain
+            # accessible so audio and voice connection never hit a 401 wall.
+            _exempt_paths = {
+                "/health/live",
+                "/v1/realtime/url",
+                "/api/v1/realtime/url",
+                "/v1/speech/synthesis",
+                "/api/v1/speech/synthesis",
+            }
+            if (
+                active_settings.auth_mode == "clerk"
+                and request.method != "OPTIONS"
+                and request.url.path not in _exempt_paths
+            ):
                 try:
                     if memory_service is None:
                         raise HinaaError("AUTH_NOT_CONFIGURED", "Private runtime requires persistence.", 503)
-                    await asyncio.to_thread(
+                    auth = await asyncio.to_thread(
                         resolve_auth, request, active_settings, memory_service,
                         authorization=request.headers.get("Authorization"),
+                        x_hinaa_dev_user=request.headers.get("X-HINAA-Dev-User"),
                     )
+                    request.state.hinaa_auth = auth
+                    if auth.mode == "clerk":
+                        request_pc.set((request.headers.get("X-HINAA-PC-Session", ""), auth.auth_subject))
                 except HinaaError as error:
                     return await hinaa_error_handler(request, error)
             response = await call_next(request)
         finally:
+            request_pc.reset(pc_context_token)
             tool_policy.reset_request_host(host_token)
         response.headers["X-Correlation-ID"] = correlation_id
         response.headers["Cache-Control"] = "no-store"
@@ -1097,6 +1116,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if path is None or reference is None or not path.is_file():
             raise HTTPException(status_code=404, detail="Asset not found")
         return FileResponse(path, media_type=reference.mime_type, filename=reference.filename or path.name)
+
+    @app.post("/v1/documents/extract")
+    @app.post("/api/v1/documents/extract")
+    async def extract_document_file(file: UploadFile = File(...)) -> dict[str, Any]:
+        """Extract text from an uploaded document (PDF, TXT, MD, DOCX, CSV, JSON, code, etc.) for live AI analysis."""
+        from .document_ingestion import extract_uploaded_document, MAX_UPLOAD_BYTES
+        try:
+            raw_bytes = await file.read(MAX_UPLOAD_BYTES + 1)
+            if len(raw_bytes) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Document exceeds the 10 MiB upload limit.")
+            if not raw_bytes:
+                raise HTTPException(status_code=400, detail="The document is empty.")
+            extraction = await asyncio.to_thread(extract_uploaded_document, raw_bytes, file.filename)
+            return {
+                "success": True,
+                "filename": file.filename,
+                "kind": extraction.kind,
+                "parser": extraction.parser,
+                "text": extraction.text,
+                "char_count": extraction.char_count,
+                "truncated": extraction.truncated,
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception:
+            logger.warning("Document extraction failed", exc_info=True)
+            raise HTTPException(status_code=400, detail="Could not extract readable document text.")
+        finally:
+            await file.close()
 
     @app.post("/v1/conversations/{conversation_id}/assets/select")
     @app.post("/api/v1/conversations/{conversation_id}/assets/select")
@@ -2448,6 +2498,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/v1/realtime/ticket")
+    @app.post("/api/v1/realtime/ticket")
     async def realtime_ticket(request: Request) -> dict[str, object]:
         """Buy the identity a WebSocket handshake cannot carry.
 
@@ -2458,6 +2509,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         frame. The ticket is short lived and single use, and it never rides in a
         URL where a proxy or an access log could keep it.
         """
+        from .integrations.remote_pc import request_pc
         auth = await conversation_auth(request)
         if auth is None:
             raise HinaaError(
@@ -2468,15 +2520,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 True,
             )
         return {
-            "ticket": realtime_tickets.issue(auth.user_id),
+            "ticket": realtime_tickets.issue(auth.user_id, pc_context=request_pc.get()) if request_pc.get() else realtime_tickets.issue(auth.user_id),
             "expiresInSeconds": realtime_tickets.TICKET_TTL_SECONDS,
         }
 
     @app.websocket("/v1/realtime")
+    @app.websocket("/api/v1/realtime")
     async def realtime_session(websocket: WebSocket) -> None:
         await realtime.handle(websocket, user_id=_resolve_user_id(websocket))
 
     @app.get("/v1/realtime/url")
+    @app.get("/api/v1/realtime/url")
     async def realtime_url(request: Request) -> dict[str, object]:
         """Where a browser must open the realtime WebSocket.
 
@@ -2487,6 +2541,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         baked into the bundle.
         """
         configured = (active_settings.realtime_public_origin or "").strip()
+        if not configured:
+            try:
+                import json
+                from pathlib import Path
+                state_file = Path(".runtime/live/runner-state.json")
+                if state_file.exists():
+                    state_data = json.loads(state_file.read_text("utf-8"))
+                    configured = (state_data.get("tunnelOrigin") or state_data.get("publishedOrigin") or "").strip()
+            except Exception:
+                pass
         host = (request.headers.get("host") or "").strip()
         forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
 
@@ -2555,31 +2619,153 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Self-diagnostic for the image pipeline so a failing render explains
         itself: cloud key present? local renderer alive? which one will run?"""
         from hinaa_api.config import get_settings as _studio_settings
+        from hinaa_api.tools.image_generate import comfyui_provider, MagnificProvider
         settings = _studio_settings()
-        cloud_ready = bool(getattr(settings, "magnific_configured", False))
+
+        openai_ready = False
+        openai_model = "gemini-3.1-flash-image"
+        try:
+            from hinaa_api.providers.openai_image import OpenAIImageProvider
+            o_prov = OpenAIImageProvider(settings)
+            if o_prov.available():
+                openai_ready = True
+                openai_model = o_prov.model
+        except Exception:
+            openai_ready = False
+
+        stability_ready = False
+        try:
+            from hinaa_api.providers.stability_ai import StabilityAIProvider
+            s_prov = StabilityAIProvider(settings)
+            if s_prov.available():
+                stability_ready = True
+        except Exception:
+            stability_ready = False
+
+        magnific_ready = False
+        try:
+            magnific_ready = MagnificProvider(settings).available()
+        except Exception:
+            magnific_ready = False
+
         comfy_ready = False
         try:
-            from hinaa_api.tools.image_generate import comfyui_provider
             comfy_ready = bool(await comfyui_provider.health_check())
-        except Exception:  # noqa: BLE001 - diagnostics must never 500
+        except Exception:
             comfy_ready = False
-        if cloud_ready:
-            renderer, detail = "magnific-flux", "Magnific FLUX cloud generation is active."
+
+        cloud_ready = openai_ready or stability_ready or magnific_ready
+
+        if openai_ready:
+            renderer = f"openai-proxy ({openai_model})"
+            detail = f"Cloud generation active via OpenAI-compatible endpoint ({openai_model})."
+        elif stability_ready:
+            renderer = "stability-ai"
+            detail = "Cloud generation active via Stability AI."
+        elif magnific_ready:
+            renderer = "magnific-flux"
+            detail = "Magnific FLUX cloud generation is active."
         elif comfy_ready:
-            renderer, detail = "comfyui-local", "Cloud key not found — generating through local ComfyUI."
+            renderer = "comfyui-local"
+            detail = "Cloud key not found — generating through local ComfyUI."
         else:
-            renderer, detail = "none", "No image renderer is reachable right now."
+            renderer = "none"
+            detail = "No image renderer is reachable right now."
+
         return {
             "renderer": renderer,
-            "magnificConfigured": cloud_ready,
+            "cloudReady": cloud_ready,
+            "openaiConfigured": openai_ready,
+            "stabilityConfigured": stability_ready,
+            "magnificConfigured": magnific_ready,
             "comfyAvailable": comfy_ready,
             "detail": detail,
-            "setup": [] if cloud_ready else [
-                "Add MAGNIFIC_API_KEY=<your Freepik/Magnific developer key> to apps/api/.env.local",
-                "Get a key at https://www.freepik.com/developers/dashboard/api-key",
-                "Or start ComfyUI on http://127.0.0.1:8188 for fully local generation",
-                "Restart the API afterwards (uvicorn reads .env.local at boot)",
+            "setup": [] if (cloud_ready or comfy_ready) else [
+                "Configure OPENAI_IMAGE_API_KEY and OPENAI_IMAGE_BASE_URL (for Gemini 3.1 Flash Image, OpenRouter, Fal, etc.)",
+                "Or add STABILITY_API_KEY=<your Stability API key>",
+                "Or add MAGNIFIC_API_KEY=<your Freepik/Magnific developer key>",
+                "Or start ComfyUI on http://127.0.0.1:8188 for local generation",
             ],
+        }
+
+    @app.get("/v1/image-studio/config")
+    @app.get("/api/v1/image-studio/config")
+    async def get_image_studio_config() -> dict:
+        return {
+            "openaiImageApiKeyConfigured": bool(
+                os.getenv("OPENAI_IMAGE_API_KEY")
+                or os.getenv("IMAGE_PROXY_API_KEY")
+            ),
+            "openaiImageBaseUrl": (
+                os.getenv("OPENAI_IMAGE_BASE_URL")
+                or os.getenv("IMAGE_PROXY_BASE_URL")
+                or "https://api.openai.com/v1"
+            ),
+            "openaiImageModel": (
+                os.getenv("OPENAI_IMAGE_MODEL")
+                or os.getenv("IMAGE_MODEL")
+                or "gemini-3.1-flash-image"
+            ),
+            "stabilityApiKeyConfigured": bool(os.getenv("STABILITY_API_KEY")),
+            "magnificApiKeyConfigured": bool(os.getenv("MAGNIFIC_API_KEY")),
+        }
+
+    @app.post("/v1/image-studio/config")
+    @app.post("/api/v1/image-studio/config")
+    async def update_image_studio_config(payload: ImageStudioConfigPayload) -> dict:
+        updates: dict[str, str] = {}
+        if payload.openai_image_api_key is not None:
+            val = payload.openai_image_api_key.strip()
+            if val:
+                os.environ["OPENAI_IMAGE_API_KEY"] = val
+                updates["OPENAI_IMAGE_API_KEY"] = val
+        if payload.openai_image_base_url is not None:
+            val = payload.openai_image_base_url.strip()
+            if val:
+                os.environ["OPENAI_IMAGE_BASE_URL"] = val
+                updates["OPENAI_IMAGE_BASE_URL"] = val
+        if payload.openai_image_model is not None:
+            val = payload.openai_image_model.strip()
+            if val:
+                os.environ["OPENAI_IMAGE_MODEL"] = val
+                updates["OPENAI_IMAGE_MODEL"] = val
+        if payload.stability_api_key is not None:
+            val = payload.stability_api_key.strip()
+            if val:
+                os.environ["STABILITY_API_KEY"] = val
+                updates["STABILITY_API_KEY"] = val
+        if payload.magnific_api_key is not None:
+            val = payload.magnific_api_key.strip()
+            if val:
+                os.environ["MAGNIFIC_API_KEY"] = val
+                updates["MAGNIFIC_API_KEY"] = val
+
+        if updates:
+            env_path = Path(__file__).resolve().parent.parent / ".env.local"
+            lines = []
+            if env_path.exists():
+                lines = env_path.read_text(encoding="utf-8").splitlines()
+            updated_keys = set()
+            new_lines = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k, _ = stripped.split("=", 1)
+                    k = k.strip()
+                    if k in updates:
+                        new_lines.append(f"{k}={updates[k]}")
+                        updated_keys.add(k)
+                        continue
+                new_lines.append(line)
+            for k, v in updates.items():
+                if k not in updated_keys:
+                    new_lines.append(f"{k}={v}")
+            env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+        return {
+            "status": "success",
+            "updatedKeys": list(updates.keys()),
+            "message": "Image studio configuration saved successfully.",
         }
 
     @app.get("/v1/generated-images")
@@ -5060,21 +5246,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def synthesize(body: SpeechRequest) -> Response:
         started = perf_counter()
         result = await service.synthesize(body)
-        media_type = (
-            "audio/mpeg"
-            if result.provider in ("elevenlabs", "fish-audio")
-            or result.value[:3] == b"ID3"
-            or result.value[:2] == b"\xff\xfb"
-            else "audio/wav"
-        )
+        final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+        filename = "hinaa-turn.mp3" if media_type == "audio/mpeg" else "hinaa-turn.wav"
         return Response(
-            result.value,
+            final_audio,
             media_type=media_type,
             headers={
                 "X-HINAA-Provider": result.provider,
                 "X-HINAA-Latency-Ms": str(result.latency_ms),
                 "X-HINAA-Total-Ms": str(int((perf_counter() - started) * 1000)),
-                "Content-Disposition": 'inline; filename="hinaa-turn.wav"',
+                "Content-Disposition": f'inline; filename="{filename}"',
             },
         )
 

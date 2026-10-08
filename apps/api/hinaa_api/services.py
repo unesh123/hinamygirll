@@ -1511,18 +1511,19 @@ class ProviderRouter:
         )
 
     def tts(self, mode: str, companion_id: CompanionId | None = None, voice_engine: str | None = None) -> TTSProvider:
-        if mode == "mock":
-            return self.mock_tts
-        if mode == "local":
-            return self.local_tts
-
         effective_engine = (voice_engine or "").lower().strip()
 
-        # Explicit engine selections
-        if effective_engine == "elevenlabs" and self.settings.elevenlabs_configured:
+        # Primary neural voice: ElevenLabs (Aisha / Sweet Girlfriend)
+        if self.settings.elevenlabs_configured and (
+            effective_engine == "elevenlabs"
+            or not effective_engine
+            or effective_engine == "auto"
+            or self.settings.voice_provider in ("auto", "elevenlabs")
+        ):
             return make_elevenlabs_provider(
                 self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
             )
+
         if effective_engine.startswith("deepgram") and self.settings.deepgram_configured:
             assert self.settings.deepgram_api_key
             if self._deepgram_tts_provider is None:
@@ -1549,15 +1550,10 @@ class ProviderRouter:
                 )
             )
 
-        # Primary neural voice: ElevenLabs (Aisha / Sweet Girlfriend)
-        if self.settings.elevenlabs_configured and (
-            not effective_engine
-            or effective_engine == "auto"
-            or self.settings.voice_provider in ("auto", "elevenlabs")
-        ):
-            return make_elevenlabs_provider(
-                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
-            )
+        if mode == "mock":
+            return self.mock_tts
+        if mode == "local":
+            return self.local_tts
 
         # Deepgram Aura fallback when ElevenLabs is unconfigured
         if (
@@ -4779,10 +4775,9 @@ class ConversationService:
                             reason="deterministic-intent",
                         )
                     )
-            # Deterministic Image Generation Guarantee
+            # Deterministic Image Generation Guarantee (only when user explicitly requests image generation)
             if (
                 gate_decision.intent == HinaaIntent.IMAGE_GENERATE
-                or "image_generate" in allowed_tools
             ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
                 prompt_to_use = gate_decision.arguments.get("prompt") or request.text
                 if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
@@ -4818,10 +4813,9 @@ class ConversationService:
                     result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
                     result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
 
-            # Deterministic Document & Presentation Generation Guarantee
+            # Deterministic Document & Presentation Generation Guarantee (only when user requested document)
             if (
                 gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
-                or any(t in allowed_tools for t in ("pdf_generate", "document_generate", "create_gamma_presentation"))
             ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
                 is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
                 doc_topic = request.text
@@ -5803,10 +5797,9 @@ class ConversationService:
                 user_id=user_id,
             )
             self._gate_tool_intents(request, result.value, user_id=user_id)
-            # Deterministic Image Generation Guarantee
+            # Deterministic Image Generation Guarantee (only when user explicitly requests image generation)
             if (
                 gate_decision.intent == HinaaIntent.IMAGE_GENERATE
-                or "image_generate" in live_allowed_tools
             ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
                 prompt_to_use = gate_decision.arguments.get("prompt") or request.text
                 if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
@@ -5842,10 +5835,9 @@ class ConversationService:
                     result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
                     result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
 
-            # Deterministic Document & Presentation Generation Guarantee
+            # Deterministic Document & Presentation Generation Guarantee (only when user requested document)
             if (
                 gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
-                or any(t in live_allowed_tools for t in ("pdf_generate", "document_generate", "create_gamma_presentation"))
             ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
                 is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
                 doc_topic = request.text
@@ -6134,11 +6126,11 @@ class ConversationService:
                         if remainder:
                             yield _make_delta_event(remainder)
                 else:
+                    # Never re-emit text that was already streamed to the client
                     import os
                     common = os.path.commonprefix([full_text, streamed_so_far])
-                    # Only emit remainder if common prefix covers >= 80% of streamed_so_far
-                    if len(common) >= int(len(streamed_so_far) * 0.8):
-                        remainder = full_text[len(common):]
+                    if len(common) >= len(streamed_so_far):
+                        remainder = full_text[len(streamed_so_far):]
                         if remainder:
                             yield _make_delta_event(remainder)
         finally:
@@ -6309,9 +6301,10 @@ class ConversationService:
                             nepali_model=self.settings.elevenlabs_tts_model_nepali,
                         )),
                         # Without this the bubble voice falls back to the "warm"
-                        # performance pace, which is deliberately slow, and the
-                        # two speech channels disagree on how fast she talks.
-                        rate=1.12 if request.realtime else resolve_calibration("natural").rate,
+                        # performance pace, and the two speech channels disagree on
+                        # how fast she talks. One calibration ("natural") is the
+                        # single source of truth for both live and bubble voice.
+                        rate=resolve_calibration("natural").rate,
                     )
                 voice = resolve_voice(
                     request.companionId,

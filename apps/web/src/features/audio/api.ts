@@ -1,3 +1,5 @@
+import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
+
 export type ProviderMode =
   | "mock"
   | "local"
@@ -36,7 +38,10 @@ export interface ProviderStatus {
 export async function fetchProviderStatuses(
   signal?: AbortSignal,
 ): Promise<ProviderStatus[]> {
-  const response = await fetch("/api/v1/providers", { signal });
+  const response = await fetch("/api/v1/providers", {
+    headers: { ...hinaaIdentityHeaders() },
+    signal,
+  });
   if (!response.ok)
     throw new Error(`Provider status failed (${response.status})`);
   return (await response.json()) as ProviderStatus[];
@@ -60,6 +65,7 @@ export async function transcribeAudio(
   form.append("provider_mode", mode);
   const response = await fetch("/api/v1/speech/transcriptions", {
     method: "POST",
+    headers: { ...hinaaIdentityHeaders() },
     body: form,
     signal,
   });
@@ -85,7 +91,10 @@ export async function synthesizeSpeech(
 ): Promise<{ blob: Blob; provider: string; latencyMs: number }> {
   const response = await fetch("/api/v1/speech/synthesis", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...hinaaIdentityHeaders(),
+    },
     body: JSON.stringify({
       text,
       companionId,
@@ -128,7 +137,10 @@ export async function reprobeCxGateway(): Promise<{
 }> {
   const response = await fetch("/api/v1/providers/cx/reprobe", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...hinaaIdentityHeaders(),
+    },
   });
   if (!response.ok) {
     throw new Error(`Reprobe failed (${response.status})`);

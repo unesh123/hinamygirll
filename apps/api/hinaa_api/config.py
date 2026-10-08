@@ -316,6 +316,10 @@ class Settings(BaseSettings):
         None,
         validation_alias=AliasChoices("XKIRO_API_KEY", "XK_IRO_API_KEY"),
     )
+    xkiro_api_key1: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("XKIRO_API_KEY1", "XK_IRO_API_KEY1"),
+    )
     xkiro_base_url: str = Field(
         "https://api.xkiro.com/v1",
         validation_alias=AliasChoices("XKIRO_BASE_URL", "XK_IRO_BASE_URL"),
@@ -325,7 +329,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
     )
     xkiro_allowed_models_raw: str = Field(
-        "qwen/qwen3.8-max:free,qwen/qwen3.7-flash:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free,qwen/qwen3-coder-plus:free,qwen/qwen3-vl-plus:free",
+        "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free,deepseek/deepseek-v4.1-flash:free,minimax/minimax-m2.7:free,qwen/qwen3-coder-plus:free,qwen/qwen3-vl-plus:free,inclusionai/ling-3.0-flash-sante:free,meta/muse-spark-1.3-contributor:free,stealth/space-bunny-alpha:free,*",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
     )
     # Cavoti AI Gateway — frontier models (claude-fable-5, claude-opus-5, claude-haiku-4-5)
@@ -463,8 +467,8 @@ class Settings(BaseSettings):
     magnific_t2i_path: str = Field("/v1/ai/text-to-image/{model}", alias="MAGNIFIC_T2I_PATH")
     magnific_reference_path: str = Field("/v1/ai/text-to-image/flux-kontext-pro", alias="MAGNIFIC_REFERENCE_PATH")
     magnific_upscale_path: str = Field("/v1/ai/image-upscaler", alias="MAGNIFIC_UPSCALE_PATH")
-    magnific_model_fast: str = Field("seedance-5.0", alias="MAGNIFIC_MODEL_FAST")
-    magnific_model_quality: str = Field("seedance-5.0", alias="MAGNIFIC_MODEL_QUALITY")
+    magnific_model_fast: str = Field("flux-dev", alias="MAGNIFIC_MODEL_FAST")
+    magnific_model_quality: str = Field("flux-dev", alias="MAGNIFIC_MODEL_QUALITY")
     magnific_reference_strength: float = Field(0.7, alias="MAGNIFIC_REFERENCE_STRENGTH")
     # Drives the Magnific second pass for `quality`-tier /image requests.
     magnific_upscale_default: bool = Field(True, alias="MAGNIFIC_UPSCALE_DEFAULT")
@@ -484,12 +488,12 @@ class Settings(BaseSettings):
     azure_speech_male_voice: str = Field("hi-IN-MadhurNeural", alias="AZURE_SPEECH_MALE_VOICE")
     elevenlabs_api_key: SecretStr | None = Field(None, alias="ELEVENLABS_API_KEY")
     elevenlabs_base_url: str = Field("https://api.elevenlabs.io", alias="ELEVENLABS_BASE_URL")
-    elevenlabs_voice_id: str = Field("21m00Tcm4LoLmXQzje3p", alias="ELEVENLABS_VOICE_ID")
-    elevenlabs_hinaa_voice_id: str = Field("21m00Tcm4LoLmXQzje3p", alias="ELEVENLABS_HINAA_VOICE_ID")
+    elevenlabs_voice_id: str = Field("WUgmmuDCpFXQ4z0NUUYX", alias="ELEVENLABS_VOICE_ID")
+    elevenlabs_hinaa_voice_id: str = Field("WUgmmuDCpFXQ4z0NUUYX", alias="ELEVENLABS_HINAA_VOICE_ID")
     elevenlabs_hiro_voice_id: str = Field("ErXwobaYiN019PkySvjV", alias="ELEVENLABS_HIRO_VOICE_ID")
-    elevenlabs_model_id: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_MODEL_ID")
+    elevenlabs_model_id: str = Field("eleven_turbo_v2_5", alias="ELEVENLABS_MODEL_ID")
     elevenlabs_stt_model_id: str = Field("scribe_v2", alias="ELEVENLABS_STT_MODEL_ID")
-    elevenlabs_tts_model_fast: str = Field("eleven_flash_v2_5", alias="ELEVENLABS_TTS_MODEL_FAST")
+    elevenlabs_tts_model_fast: str = Field("eleven_turbo_v2_5", alias="ELEVENLABS_TTS_MODEL_FAST")
     elevenlabs_tts_model_expressive: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_TTS_MODEL_EXPRESSIVE")
     elevenlabs_output_format: str = Field("mp3_44100_128", alias="ELEVENLABS_OUTPUT_FORMAT")
     elevenlabs_language_policy: str = Field("auto", alias="ELEVENLABS_LANGUAGE_POLICY")
@@ -511,7 +515,7 @@ class Settings(BaseSettings):
     # an identity, not a fallback chain, so ElevenLabs is the default authority
     # and the others are only reached when it is absent or this says otherwise.
     voice_provider: Literal["auto", "elevenlabs", "fish-audio", "deepgram", "azure"] = Field(
-        "deepgram", alias="HINAA_VOICE_PROVIDER"
+        "elevenlabs", alias="HINAA_VOICE_PROVIDER"
     )
     # Fish Audio — server-side multilingual TTS with Nepali/English
     # switching. The key is read from FISH_AUDIO_API_KEY or the legacy
@@ -541,8 +545,8 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DEEPGRAM_BASE_URL", "Deepgram_BASE_URL"),
     )
     deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
-    # Deepgram Aura cute anime-style voice for Hinaa (aura-2-luna-en)
-    deepgram_tts_model_hinaa: str = Field("aura-2-luna-en", alias="DEEPGRAM_TTS_MODEL_HINAA")
+    # Deepgram Aura deep velvety feminine voice for Hinaa (aura-2-athena-en)
+    deepgram_tts_model_hinaa: str = Field("aura-2-athena-en", alias="DEEPGRAM_TTS_MODEL_HINAA")
     # /v1/listen only accepts prerecorded models; flux is realtime-only and 404s here.
     deepgram_stt_model: str = Field("nova-2-general", alias="DEEPGRAM_STT_MODEL")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
@@ -1373,8 +1377,10 @@ class Settings(BaseSettings):
     @property
     def xkiro_configured(self) -> bool:
         return bool(
-            self.xkiro_api_key
-            and self.xkiro_api_key.get_secret_value()
+            (
+                (self.xkiro_api_key and self.xkiro_api_key.get_secret_value())
+                or (self.xkiro_api_key1 and self.xkiro_api_key1.get_secret_value())
+            )
             and self.active_xkiro_base_url
         )
 
@@ -1382,7 +1388,18 @@ class Settings(BaseSettings):
     def active_xkiro_key(self) -> SecretStr | None:
         if self.xkiro_api_key and self.xkiro_api_key.get_secret_value():
             return self.xkiro_api_key
+        if self.xkiro_api_key1 and self.xkiro_api_key1.get_secret_value():
+            return self.xkiro_api_key1
         return None
+
+    @property
+    def active_xkiro_keys(self) -> list[str]:
+        keys: list[str] = []
+        if self.xkiro_api_key and self.xkiro_api_key.get_secret_value():
+            keys.append(self.xkiro_api_key.get_secret_value())
+        if self.xkiro_api_key1 and self.xkiro_api_key1.get_secret_value():
+            keys.append(self.xkiro_api_key1.get_secret_value())
+        return keys
 
     @property
     def active_xkiro_base_url(self) -> str | None:

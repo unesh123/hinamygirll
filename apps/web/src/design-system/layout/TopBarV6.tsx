@@ -1,5 +1,6 @@
+import { createPortal } from "react-dom";
 import { UserButton } from "@clerk/react";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import {
   MessageSquare,
   Brain,
@@ -66,16 +67,56 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   const isAuto = isAutoRouter ?? !selectedModelId;
   const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
   const voiceRef = useRef<HTMLDivElement>(null);
+  const voiceMenuRef = useRef<HTMLDivElement>(null);
+  const voiceButtonRef = useRef<HTMLButtonElement>(null);
+  const voiceMenuId = useId();
+  const [voicePosition, setVoicePosition] = useState({ left: 10, top: 60, width: 290, maxHeight: 420 });
+  useLayoutEffect(() => {
+    if (!voiceDropdownOpen) return;
+    const update = () => {
+      const rect = voiceButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const viewport = window.visualViewport;
+      const width = viewport?.width ?? window.innerWidth;
+      const height = viewport?.height ?? window.innerHeight;
+      const x = viewport?.offsetLeft ?? 0;
+      const y = viewport?.offsetTop ?? 0;
+      const menuWidth = Math.min(290, Math.max(0, width - 20));
+      const below = y + height - rect.bottom - 18;
+      const above = rect.top - y - 18;
+      const openAbove = below < 160 && above > below;
+      const maxHeight = Math.max(0, Math.min(420, openAbove ? above : below));
+      setVoicePosition({ left: Math.max(x + 10, Math.min(rect.right - menuWidth, x + width - menuWidth - 10)), top: openAbove ? rect.top - maxHeight - 8 : rect.bottom + 8, width: menuWidth, maxHeight });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    };
+  }, [voiceDropdownOpen]);
+  useEffect(() => {
+    if (voiceDropdownOpen) voiceMenuRef.current?.querySelector<HTMLButtonElement>('button[aria-checked="true"]')?.focus();
+  }, [voiceDropdownOpen]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (voiceRef.current && !voiceRef.current.contains(e.target as Node)) {
+      if (voiceRef.current && !voiceRef.current.contains(e.target as Node) && !voiceMenuRef.current?.contains(e.target as Node)) {
         setVoiceDropdownOpen(false);
       }
     }
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setVoiceDropdownOpen(false); voiceButtonRef.current?.focus(); }
+    };
     if (voiceDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", escape);
+      return () => { document.removeEventListener("mousedown", handleClickOutside); document.removeEventListener("keydown", escape); };
     }
   }, [voiceDropdownOpen]);
 
@@ -298,6 +339,11 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <button
             type="button"
             data-testid="topbar-voice-engine-btn"
+            ref={voiceButtonRef}
+            aria-label="Choose voice engine"
+            aria-haspopup="menu"
+            aria-expanded={voiceDropdownOpen}
+            aria-controls={voiceDropdownOpen ? voiceMenuId : undefined}
             onClick={() => setVoiceDropdownOpen((o) => !o)}
             title={`Voice Engine: ${activeVoiceObj.label} — ${activeVoiceObj.desc}`}
             style={{
@@ -326,14 +372,26 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             <ChevronDown size={11} style={{ opacity: 0.7, transform: voiceDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
           </button>
 
-          {voiceDropdownOpen && (
+          {voiceDropdownOpen && createPortal(
             <div
               data-testid="topbar-voice-dropdown"
+              ref={voiceMenuRef}
+              id={voiceMenuId}
+              role="menu"
+              aria-label="Voice engines"
+              onKeyDown={(event) => {
+                if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+                event.preventDefault();
+                const items = Array.from(voiceMenuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitemradio"]') ?? []);
+                const index = items.indexOf(document.activeElement as HTMLButtonElement);
+                const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+                items[next]?.focus();
+              }}
               style={{
-                position: "absolute",
-                top: "calc(100% + 6px)",
-                right: 0,
-                width: 290,
+                position: "fixed",
+                ...voicePosition,
+                overflowY: "auto",
+                boxSizing: "border-box",
                 background: isDark ? "#0d1018" : "#ffffff",
                 border: isDark ? "1px solid rgba(255, 255, 255, 0.14)" : "1px solid #e2e8f0",
                 borderRadius: 12,
@@ -371,9 +429,12 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
                     key={voice.id}
                     type="button"
                     data-testid={`topbar-voice-option-${voice.id}`}
+                    role="menuitemradio"
+                    aria-checked={isSelected}
                     onClick={() => {
                       onSelectVoiceEngine?.(voice.id);
                       setVoiceDropdownOpen(false);
+                      voiceButtonRef.current?.focus();
                     }}
                     style={{
                       width: "100%",
@@ -413,7 +474,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
                   </button>
                 );
               })}
-            </div>
+            </div>, document.body
           )}
         </div>
 

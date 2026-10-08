@@ -96,20 +96,23 @@ def local_effects_permitted(settings: "Settings", host_header: str | None) -> bo
 
 def decide(tool_name: str, settings: "Settings", host_header: str | None) -> Verdict:
     """Gate a tool on its real effect, before any caller-supplied approval is read."""
+    from ..integrations.remote_pc import remote_tool_allowed
+    if tool_name in LOCAL_EFFECT_TOOLS and remote_tool_allowed(tool_name):
+        return Verdict(True)
     if tool_name in LOCAL_EFFECT_TOOLS and not local_effects_permitted(settings, host_header):
         return Verdict(
             False,
             "LOCAL_TOOL_NOT_PERMITTED",
             f"{tool_name} runs on the computer hosting HINAA, so it is limited to requests "
-            "made on that machine. Set HINAA_ALLOW_REMOTE_LOCAL_TOOLS=true to allow it over "
-            "the public URL again.",
+            "made on that machine or within an owner-bound PC session. Pair your PC from "
+            "the local workspace before using this tool on the live site.",
         )
     if tool_name in IRREVERSIBLE_EXTERNAL_TOOLS and not is_loopback_host(host_header):
         return Verdict(
             False,
             "IRREVERSIBLE_TOOL_NOT_PERMITTED",
-            f"{tool_name} cannot be undone and HINAA cannot verify who is asking over the "
-            "public URL yet, so it must be run on the host machine. Sign-in will replace this gate.",
+            f"{tool_name} requires a confirmed local workflow. A PC pairing grant does not "
+            "authorize external sending or publishing.",
         )
     return Verdict(True)
 

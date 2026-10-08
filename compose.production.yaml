@@ -1,0 +1,40 @@
+# Start only after supplying a private .env.production and configuring TLS.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      ENVIRONMENT: production
+      HINAA_AUTH_MODE: clerk
+      HINAA_PERSISTENCE_ENABLED: "true"
+      HINAA_ALLOW_REMOTE_LOCAL_TOOLS: "false"
+      HINAA_ALLOW_TUNNEL_DEV_AUTH: "false"
+      HINAA_ALLOW_OIDC_SCAFFOLD_TOKENS: "false"
+      PORT: "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - hina-home:/home/hina
+      - hina-data:/app/data
+      - hina-documents:/app/hinaa_api/data
+      - hina-cognitive:/app/.hina
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  hina-home:
+  hina-data:
+  hina-documents:
+  hina-cognitive:

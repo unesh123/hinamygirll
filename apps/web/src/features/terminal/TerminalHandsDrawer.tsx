@@ -1,3 +1,4 @@
+import {PCSessionPanel} from "./PCSessionPanel";
 import React, { useState, useEffect, useRef } from "react";
 import {
   Terminal,
@@ -18,7 +19,7 @@ import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import { HarnessInspectorView } from "./HarnessInspectorView";
 
 interface TerminalExecutionResult {
-  status: "success" | "error" | "rejected";
+  status: "success" | "error" | "rejected" | "timeout" | "unavailable" | "failed";
   runtime?: string;
   command: string;
   exitCode?: number;
@@ -36,6 +37,18 @@ interface TerminalHandsDrawerProps {
 }
 
 export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: TerminalHandsDrawerProps) {
+  const [hostRevision, setHostRevision] = useState(0);
+  const [hostStatus, setHostStatus] = useState<{execution_allowed: boolean; message: string} | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const abort = new AbortController();
+    const apiBase = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
+    fetch(`${apiBase}/api/v1/terminal/status`, {headers: hinaaIdentityHeaders(), signal: abort.signal})
+      .then(async response => {if (!response.ok) throw new Error("Host status unavailable"); return response.json();})
+      .then(status => {if (!abort.signal.aborted) setHostStatus(status);})
+      .catch(() => {if (!abort.signal.aborted) setHostStatus(null);});
+    return () => abort.abort();
+  }, [isOpen, hostRevision]);
   const [drawerMode, setDrawerMode] = useState<"terminal" | "harness">("terminal");
   const [command, setCommand] = useState(initialCommand || "");
   const [runtime, setRuntime] = useState<"auto" | "kali" | "powershell" | "cmd">("auto");
@@ -64,18 +77,21 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
 
   const executeCommand = async (cmdToRun: string, specificRuntime?: "auto" | "kali" | "powershell" | "cmd") => {
     const trimmed = cmdToRun.trim();
-    if (!trimmed || isExecuting) return;
+    if (!trimmed || isExecuting || hostStatus?.execution_allowed === false) return;
 
     setIsExecuting(true);
     const startTs = new Date().toLocaleTimeString();
     const activeRt = specificRuntime || runtime;
 
+    const abort = new AbortController();
+    const deadline = window.setTimeout(() => abort.abort(), 40000);
     try {
       const apiBase = import.meta.env.VITE_HINAA_API_BASE_URL
         ? String(import.meta.env.VITE_HINAA_API_BASE_URL).replace(/\/+$/, "")
         : "";
       const response = await fetch(`${apiBase}/v1/terminal/execute`, {
         method: "POST",
+        signal: abort.signal,
         headers: {
           "Content-Type": "application/json",
           "bypass-tunnel-reminder": "true",
@@ -84,6 +100,9 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         body: JSON.stringify({ command: trimmed, runtime: activeRt }),
       });
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || (typeof data.error === "string" ? data.error : null) || `Terminal request failed (${response.status}).`);
+      }
       setHistory((prev) => [
         ...prev,
         {
@@ -101,11 +120,12 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
           status: "error",
           command: trimmed,
           runtime: activeRt,
-          error: err?.message || "Network execution error",
+          error: abort.signal.aborted ? "The terminal request exceeded 40 seconds. Check the workspace connection and retry." : err?.message || "Network execution error",
           timestamp: startTs,
         },
       ]);
     } finally {
+      window.clearTimeout(deadline);
       setIsExecuting(false);
     }
   };
@@ -142,8 +162,9 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         bottom: 0,
         left: 0,
         right: 0,
-        height: isMaximized ? "85vh" : "420px",
+        height: isMaximized ? "85dvh" : "420px",
         background: "#09090b",
+        overflow: "hidden",
         borderTop: "1px solid rgba(255,255,255,0.12)",
         boxShadow: "0 -8px 32px rgba(0,0,0,0.6)",
         zIndex: 1200,
@@ -160,12 +181,14 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 8,
           padding: "8px 16px",
           background: "#121215",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
           <div
             style={{
               display: "flex",
@@ -193,7 +216,7 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
               border: "1px solid rgba(16, 185, 129, 0.3)",
             }}
           >
-            SANDBOXED
+            WORKSPACE SHELL
           </span>
 
           {/* Drawer View Mode Switcher */}
@@ -257,12 +280,12 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         </div>
 
         {/* Quick Action Pills */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           {quickPills.map((pill) => (
             <button
               key={pill.label}
               onClick={() => executeCommand(pill.cmd, pill.runtime)}
-              disabled={isExecuting}
+              disabled={isExecuting || hostStatus?.execution_allowed === false}
               style={{
                 background: "rgba(255,255,255,0.05)",
                 border: "1px solid rgba(255,255,255,0.1)",
@@ -322,6 +345,8 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         </div>
       </div>
 
+      {hostStatus && <div role="status" style={{padding: "8px 12px", color: hostStatus.execution_allowed ? "#86efac" : "#fbbf24", overflowWrap: "anywhere"}}>{hostStatus.message}</div>}
+      <PCSessionPanel onChanged={() => setHostRevision(value => value + 1)}/>
       {drawerMode === "harness" ? (
         <HarnessInspectorView />
       ) : (
@@ -341,7 +366,7 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
       >
         {history.length === 0 && (
           <div style={{ color: "#71717a", padding: "16px 0", fontSize: "12px" }}>
-            <p style={{ margin: "0 0 6px 0" }}>⚡ <strong>Computer Hands Ready.</strong> Execute sandboxed workspace commands, git operations, or python scripts.</p>
+            <p style={{ margin: "0 0 6px 0" }}>⚡ <strong>Computer Hands Ready.</strong> Execute commands on the host inside the workspace, git operations, or python scripts.</p>
             <p style={{ margin: 0 }}>Type a command below or click a quick action above.</p>
           </div>
         )}
@@ -464,12 +489,14 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         <input
           ref={inputRef}
           type="text"
+          aria-label="Terminal command"
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           placeholder="Enter command (e.g. git status, python test.py, cargo check)..."
-          disabled={isExecuting}
+          disabled={isExecuting || hostStatus?.execution_allowed === false}
           style={{
             flex: 1,
+            minWidth: 0,
             background: "transparent",
             border: "none",
             outline: "none",
@@ -480,7 +507,7 @@ export function TerminalHandsDrawer({ isOpen, onClose, initialCommand }: Termina
         />
         <button
           type="submit"
-          disabled={!command.trim() || isExecuting}
+          disabled={!command.trim() || isExecuting || hostStatus?.execution_allowed === false}
           style={{
             display: "flex",
             alignItems: "center",

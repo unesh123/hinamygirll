@@ -1,11 +1,13 @@
 export interface PhraseDetectorOptions {
   maxBufferChars: number;
   minPhraseChars: number;
+  earlyFirstPhrase?: boolean;
 }
 
 const DEFAULTS: PhraseDetectorOptions = {
   maxBufferChars: 160,
   minPhraseChars: 12,
+  earlyFirstPhrase: false,
 };
 
 const SENTENCE_END = /[.!?।…]\s+/;
@@ -17,6 +19,7 @@ const SAFE_SOFT_BREAK = /[,;:]\s+/;
  */
 export class PhraseDetector {
   private buffer = "";
+  private phraseCount = 0;
   private readonly options: PhraseDetectorOptions;
 
   constructor(options: Partial<PhraseDetectorOptions> = {}) {
@@ -25,6 +28,7 @@ export class PhraseDetector {
 
   reset(): void {
     this.buffer = "";
+    this.phraseCount = 0;
   }
 
   pending(): string {
@@ -38,7 +42,7 @@ export class PhraseDetector {
 
     while (true) {
       const hard = this.buffer.search(SENTENCE_END);
-      if (hard >= 0) {
+      if (hard >= 0 && hard < this.options.maxBufferChars) {
         const end =
           hard + (this.buffer.slice(hard).match(SENTENCE_END)?.[0].length ?? 1);
         const phrase = this.buffer.slice(0, end).trim();
@@ -46,10 +50,29 @@ export class PhraseDetector {
         if (
           phrase.length >= this.options.minPhraseChars ||
           /[.!?।…]$/.test(phrase)
-        )
+        ) {
+          this.phraseCount++;
           phrases.push(phrase);
-        else this.buffer = `${phrase} ${this.buffer}`.trimStart();
+        } else {
+          this.buffer = `${phrase} ${this.buffer}`.trimStart();
+        }
         continue;
+      }
+
+      if (this.options.earlyFirstPhrase && this.phraseCount === 0) {
+        const softMatch = this.buffer.slice(0, this.options.maxBufferChars).match(SAFE_SOFT_BREAK);
+        if (softMatch && softMatch.index !== undefined) {
+          const cut = softMatch.index + softMatch[0].length;
+          if (cut >= this.options.minPhraseChars) {
+            const phrase = this.buffer.slice(0, cut).trim();
+            this.buffer = this.buffer.slice(cut).trimStart();
+            if (phrase) {
+              this.phraseCount++;
+              phrases.push(phrase);
+              continue;
+            }
+          }
+        }
       }
 
       if (this.buffer.length >= this.options.maxBufferChars) {
@@ -60,7 +83,10 @@ export class PhraseDetector {
             : this.options.maxBufferChars;
         const phrase = this.buffer.slice(0, cut).trim();
         this.buffer = this.buffer.slice(cut).trimStart();
-        if (phrase) phrases.push(phrase);
+        if (phrase) {
+          this.phraseCount++;
+          phrases.push(phrase);
+        }
         continue;
       }
       break;
@@ -76,7 +102,7 @@ export class PhraseDetector {
 
   private findSoftBreak(text: string): number {
     // Avoid splitting inside paths, URLs, env vars, decimals.
-    const candidate = text.search(SAFE_SOFT_BREAK);
+    const candidate = text.slice(0, this.options.maxBufferChars).search(SAFE_SOFT_BREAK);
     if (candidate < 0) {
       const space = text.lastIndexOf(" ", this.options.maxBufferChars);
       return space > this.options.minPhraseChars ? space : -1;

@@ -21,4 +21,5 @@ async def test_progressive_voice_selects_fast_model_without_changing_identity(se
     assert call["model_id"] == expected_model
     assert call["voice_id"] == settings.elevenlabs_hinaa_voice_id
     if realtime:
-        assert call["rate"] == 1.12
+        from hinaa_api.voice_profiles import CALIBRATIONS
+        assert call["rate"] == CALIBRATIONS["natural"].rate

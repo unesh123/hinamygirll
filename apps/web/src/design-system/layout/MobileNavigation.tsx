@@ -93,15 +93,17 @@ export function MobileNavigation({
           bottom: 0;
           left: 0;
           right: 0;
-          background: var(--bg-elevated);
-          backdrop-filter: blur(20px) saturate(1.2);
-          -webkit-backdrop-filter: blur(20px) saturate(1.2);
-          border-top: 1px solid var(--border-subtle);
-          padding: var(--space-1) var(--space-2);
-          padding-bottom: max(var(--space-1), env(safe-area-inset-bottom));
-          z-index: var(--z-sticky);
-          justify-content: center;
-          gap: var(--space-1);
+          background: var(--surface-overlay, rgba(15, 17, 23, 0.94));
+          backdrop-filter: blur(24px) saturate(1.4);
+          -webkit-backdrop-filter: blur(24px) saturate(1.4);
+          border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+          padding: 6px 12px;
+          padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+          z-index: 1000;
+          justify-content: space-around;
+          align-items: center;
+          gap: 4px;
+          box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
         }
 
         @media (max-width: 768px) {

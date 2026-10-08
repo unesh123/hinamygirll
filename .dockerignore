@@ -1,0 +1,20 @@
+# Only the API source, dependencies and container entrypoint enter the build context.
+*
+!Dockerfile
+!apps/
+!apps/api/
+!apps/api/requirements.txt
+!apps/api/hinaa_api/
+!apps/api/hinaa_api/**
+!scripts/
+!scripts/start-api-container.py
+**/__pycache__/
+**/*.pyc
+**/.env*
+**/*.db
+**/*.sqlite*
+**/.hina/
+**/.hinaa/
+**/data/
+**/exports/
+**/uploads/

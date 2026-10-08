@@ -138,6 +138,23 @@ export function ClerkFetchInterceptor() {
         } catch (e) {
           console.error("Failed to get Clerk token", e);
         }
+
+        let response = await originalFetch(resource, config);
+        // If 401 Unauthorized, the session token may have expired. Refresh with skipCache and retry once.
+        if (response.status === 401) {
+          try {
+            const freshToken = await getToken({ skipCache: true });
+            if (freshToken) {
+              const retryHeaders = new Headers(config?.headers);
+              retryHeaders.set("Authorization", `Bearer ${freshToken}`);
+              config = { ...config, headers: retryHeaders };
+              response = await originalFetch(resource, config);
+            }
+          } catch (refreshErr) {
+            console.warn("Clerk token refresh retry failed", refreshErr);
+          }
+        }
+        return response;
       }
       return originalFetch(resource, config);
     };
@@ -294,6 +311,7 @@ function CompanionSwitch({ value, onChange }: { value: CompanionId; onChange: (i
 let wasFallbackDerived = false;
 export function deriveSpokenText(displayText: string | undefined): string {
   if (!displayText) return '';
+  wasFallbackDerived = true;
   // Strip markdown syntax
   let clean = displayText
     .replace(/```[\s\S]*?```/g, '') // code blocks
@@ -307,7 +325,12 @@ export function deriveSpokenText(displayText: string | undefined): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (!clean) return '';
-  return clean;
+  // Split into sentences
+  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
+  // Find first real sentence (not just a label or fragment < 15 chars)
+  const real = sentences.find((s) => s.trim().length >= 15) || sentences[0];
+  const spoken = real.trim();
+  return spoken.length > 180 ? spoken.slice(0, 177) + '…' : spoken;
 }
 
 /** Check if the last spokenText was derived from displayText (fallback). */
@@ -417,6 +440,9 @@ export default function App() {
       }
       audioBlockedRef.current = false;
       setAudioBlocked(false);
+      if (playback.hasReplay) {
+        void playback.replay();
+      }
     } catch {
       // AudioContext unlock failed — browser may require a different gesture
     }
@@ -454,13 +480,12 @@ export default function App() {
   };
   // `chat` deliberately sends nothing: the backend then infers the mode from the
   // wording, so a greeting stays a greeting even with the chip selected.
-  // When in Runway 3D mode (voice avatar), request concise conversational voice mode
   // When in Work mode, use the selected executive mode (report, research, deep-reasoning, chat)
   const requestResponseMode: ResponseMode | undefined =
     executiveMode === "report" ? "professional"
       : executiveMode === "research" ? "research"
       : executiveMode === "deep-reasoning" ? "technical"
-      : undefined;
+      : "conversation";
 
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -535,17 +560,22 @@ export default function App() {
   const [voiceEngine, setVoiceEngine] = useState<string>(() => {
     try {
       const prefs = localStorage.getItem("hinaa-model-prefs");
-      return prefs ? (JSON.parse(prefs).voiceEngine || "elevenlabs") : "elevenlabs";
+      const saved = prefs ? JSON.parse(prefs).voiceEngine : undefined;
+      if (!saved || saved === "auto" || saved.startsWith("deepgram")) {
+        return "elevenlabs";
+      }
+      return saved;
     } catch {
       return "elevenlabs";
     }
   });
   const handleSelectVoiceEngine = useCallback((engine: string) => {
-    setVoiceEngine(engine);
+    const effective = (engine === "auto" || !engine || engine.startsWith("deepgram")) ? "elevenlabs" : engine;
+    setVoiceEngine(effective);
     try {
       const raw = localStorage.getItem("hinaa-model-prefs");
       const current = raw ? JSON.parse(raw) : {};
-      localStorage.setItem("hinaa-model-prefs", JSON.stringify({ ...current, voiceEngine: engine }));
+      localStorage.setItem("hinaa-model-prefs", JSON.stringify({ ...current, voiceEngine: effective }));
     } catch {}
   }, []);
 
@@ -704,6 +734,40 @@ export default function App() {
     }
   }, [controller, interruptPlayback, live]);
 
+  useEffect(() => {
+    const handleSpeak = async (e: any) => {
+      const text = e.detail?.text;
+      if (!text || playback.muted) return;
+      void unlockAudio();
+      interruptPlayback();
+      const companionId = controller.companionId;
+      const mode = controller.routing.activeMode || "agent-router";
+      const effectiveMode = (!mode || mode === "mock") ? "agent-router" : mode;
+      const effectiveEngine = (voiceEngine === "auto" || !voiceEngine || voiceEngine.startsWith("deepgram")) ? "elevenlabs" : voiceEngine;
+      try {
+        const speech = await synthesizeSpeech(
+          text.slice(0, 400),
+          companionId,
+          effectiveMode,
+          AbortSignal.timeout(15_000),
+          resolveConversationLocale(text, settings.language.activePolicy),
+          true,
+          effectiveEngine,
+        );
+        if (speech?.blob && !/placeholder|mock/i.test(speech.provider)) {
+          void playback.play(speech.blob, text);
+        } else {
+          void playback.speakBrowser(text, browserSpeechLocale(text, settings.language.activePolicy), companionId);
+        }
+      } catch (err) {
+        console.warn("[HINAA] Direct speak failed:", err);
+        void playback.speakBrowser(text, browserSpeechLocale(text, settings.language.activePolicy), companionId);
+      }
+    };
+    window.addEventListener("hinaa:speak-text", handleSpeak);
+    return () => window.removeEventListener("hinaa:speak-text", handleSpeak);
+  }, [controller.companionId, controller.routing.activeMode, playback, settings.language.activePolicy, unlockAudio, interruptPlayback, voiceEngine]);
+
   // A started playback owns its own terminal transition. The hook changes
   // `playing` when decoded audio or browser speech ends; no render effect can
   // initiate another playback, so refresh/rerender cannot replay a turn.
@@ -740,25 +804,32 @@ export default function App() {
     setInput("");
     setAttachedImage(null);
     void (async () => {
-      const mode = controller.routing.activeMode;
+      const mode = controller.routing.activeMode || "agent-router";
       const companionId = controller.companionId;
       let browserFirst = true;
       let generating = true;
       playback.beginSpeechStream();
+      const effectiveEngine = (voiceEngine === "auto" || !voiceEngine || voiceEngine.startsWith("deepgram")) ? "elevenlabs" : voiceEngine;
       const queue = new ProgressiveSpeech({
         synthesize: async (phrase, signal) => {
-          if (playback.muted || !mode || mode === "mock") return null;
-          const speech = await synthesizeSpeech(
-            phrase,
-            companionId,
-            mode,
-            AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
-            resolveConversationLocale(phrase, settings.language.activePolicy),
-            true,
-            voiceEngine,
-          );
-          runtimeMeasurements.synthesized(speech.latencyMs);
-          return /placeholder|mock/i.test(speech.provider) ? null : speech;
+          if (playback.muted) return null;
+          const effectiveMode = (!mode || mode === "mock") ? "agent-router" : mode;
+          try {
+            const speech = await synthesizeSpeech(
+              phrase,
+              companionId,
+              effectiveMode,
+              AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+              resolveConversationLocale(phrase, settings.language.activePolicy),
+              true,
+              effectiveEngine,
+            );
+            runtimeMeasurements.synthesized(speech.latencyMs);
+            return /placeholder|mock/i.test(speech.provider) ? null : speech;
+          } catch (err) {
+            console.warn("[HINAA] Neural speech synthesis failed for phrase:", phrase, err);
+            return null;
+          }
         },
         play: (phrase, audio, signal) => new Promise<void>((resolve, reject) => {
           if (signal.aborted || playback.muted) { resolve(); return; }
@@ -787,7 +858,7 @@ export default function App() {
             browserFirst = false;
           }
         }),
-        onError: () => setVoiceReply({ kind: "unavailable", label: "Voice playback failed", detail: "Your text answer is still available." }),
+        onError: error => setVoiceReply({ kind: "unavailable", label: "Voice playback failed", detail: error instanceof Error ? error.message : "Your text answer is still available." }),
       });
       progressiveSpeechRef.current = queue;
       const result = await controller.sendText(text, {
@@ -795,6 +866,7 @@ export default function App() {
         attachments: imageData ? [{ kind: "image", role: attachmentRole ?? "inspection", url: imageData }] : undefined,
         reference_images: imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
         responseMode: requestResponseMode,
+        voiceEngine: effectiveEngine,
         onSentenceChunk: phrase => { if (!playback.muted) queue.enqueue(phrase); },
       });
       generating = false;
@@ -804,11 +876,15 @@ export default function App() {
       // through the same bounded phrase queue, without replaying streamed content.
       if (!queue.hasPhrases && !playback.muted) {
         const detector = new PhraseDetector({ maxBufferChars: 160, minPhraseChars: 12 });
-        const fullText = cleanSpeechText(result.plan.displayText || result.plan.spokenText || "");
+        const rawSpoken = result.plan.spokenText?.trim() || "";
+        const spoken = (rawSpoken && rawSpoken.length <= 200 && rawSpoken !== result.plan.displayText?.trim())
+          ? rawSpoken
+          : deriveSpokenText(result.plan.displayText);
+        const fullText = cleanSpeechText(spoken || result.plan.displayText || "");
         for (const phrase of [...detector.push(fullText), ...detector.flush()]) queue.enqueue(phrase);
       }
     })();
-  }, [input, live.active, controller, playback, attachedImage, interruptPlayback, requestResponseMode]);
+  }, [input, live.active, controller, playback, attachedImage, interruptPlayback, requestResponseMode, voiceEngine]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
     // A command changes HINAA's working surface and leaves an explicit intent
@@ -1064,6 +1140,11 @@ export default function App() {
     }
   };
 
+  const liveCompanionState: "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error" =
+    (live.active && !playback.playing)
+      ? (live.status === "paused" ? "idle" : "listening")
+      : (playback.playing ? "speaking" : mapCompanionState(controller.state));
+
   // Voice Lab — developer-only diagnostic route
   const isVoiceLab = typeof window !== "undefined" && window.location.pathname === "/dev/voice-lab";
   if (isVoiceLab) return <VoiceLab />;
@@ -1075,7 +1156,7 @@ export default function App() {
           <DesktopTitleBar />
           <FloatingCompanionIsland
             companionName={companionProfiles[controller.companionId]?.name || "Hinaa"}
-            companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+            companionState={liveCompanionState}
             isVoiceActive={live.active}
             onToggleVoice={() => {
               if (live.active) live.stop();
@@ -1225,7 +1306,7 @@ export default function App() {
                 isWalking={isWalking}
                 onToggleWalk={() => setIsWalking((w) => !w)}
                 companionId={controller.companionId}
-                companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+                companionState={liveCompanionState}
                 plan={controller.activePlan}
                 messages={controller.messages}
                 streamingText={controller.streamingText}
@@ -1341,7 +1422,7 @@ export default function App() {
                 onStopVoice={() => live.stop()}
                 partialTranscript={controller.partialTranscript}
                 streamingText={controller.streamingText}
-                companionState={playback.playing ? "speaking" : mapCompanionState(controller.state)}
+                companionState={liveCompanionState}
                 companionName={companionProfiles[controller.companionId]?.name || "Hinaa"}
                 jawEnergy={playback.jawEnergy}
                 speakingRef={playback.playingRef}

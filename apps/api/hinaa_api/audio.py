@@ -53,14 +53,30 @@ def synthesize_mock_wav(text: str) -> bytes:
     return synthesize_placeholder_wav(text, voice_style="neutral")
 
 
-def pcm_to_wav(pcm: bytes) -> bytes:
+def pcm_to_wav(
+    pcm: bytes,
+    sample_rate: int = 24_000,
+    channels: int = CHANNELS,
+    sample_width: int = SAMPLE_WIDTH,
+) -> bytes:
     output = io.BytesIO()
     with wave.open(output, "wb") as target:
-        target.setnchannels(CHANNELS)
-        target.setsampwidth(SAMPLE_WIDTH)
-        target.setframerate(SAMPLE_RATE)
+        target.setnchannels(channels)
+        target.setsampwidth(sample_width)
+        target.setframerate(sample_rate)
         target.writeframes(pcm)
     return output.getvalue()
+
+
+def ensure_wav_or_mp3(data: bytes, sample_rate: int = 24_000) -> tuple[bytes, str]:
+    if data.startswith(b"RIFF"):
+        return data, "audio/wav"
+    if data.startswith(b"ID3") or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xfa"):
+        return data, "audio/mpeg"
+    if data.startswith(b"OggS"):
+        return data, "audio/ogg"
+    # Uncontained PCM audio (e.g. ElevenLabs WebSocket pcm_24000): wrap in valid WAV container
+    return pcm_to_wav(data, sample_rate=sample_rate), "audio/wav"
 
 
 def synthesize_placeholder_wav(text: str, *, voice_style: str = "neutral") -> bytes:

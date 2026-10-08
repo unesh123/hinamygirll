@@ -262,3 +262,55 @@ async def test_magnific_task_polling_does_not_finish_on_pending_preview(monkeypa
 @pytest.mark.parametrize("tool", ["browser_navigate", "file_read", "file_write", "app_launch", "clipboard_get", "clipboard_set", "screenshot"])
 def test_private_and_external_tools_require_explicit_confirmation(tool):
     assert registry.get_tool(tool).requires_confirmation is True
+
+
+@pytest.mark.asyncio
+async def test_magnific_url_upscale_is_not_shadowed(monkeypatch, tmp_path):
+    seen = []
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"data": {"generated": [PNG_DATA_URL]}})
+    provider = _provider_with_transport(monkeypatch, tmp_path, handler)
+    output = await provider.upscale(PNG_DATA_URL, optimized_for="standard")
+    assert output == PNG_DATA_URL
+    assert seen == ["/v1/ai/image-upscaler"]
+
+
+@pytest.mark.asyncio
+async def test_reference_generation_uses_kontext_task_contract(monkeypatch, tmp_path):
+    seen = []
+    def handler(request):
+        seen.append((request.method, request.url.path, json.loads(request.content) if request.content else {}))
+        if request.method == "POST":
+            return httpx.Response(200, json={"data": {"task_id": "reference-1"}})
+        return httpx.Response(200, json={"data": {"status": "COMPLETED", "generated": [PNG_DATA_URL]}})
+    provider = _provider_with_transport(monkeypatch, tmp_path, handler)
+    output = await provider.reference_generate("retain this subject", PNG_DATA_URL)
+    assert output.asset_ref is not None
+    assert output.task_id == "reference-1"
+    assert seen[0][1] == "/v1/ai/text-to-image/flux-kontext-pro"
+    assert seen[0][2]["input_image"].startswith("data:image/png;base64,")
+    assert seen[1][1].endswith("/reference-1")
+
+
+def test_image_studio_config_endpoints(client):
+    res = client.get("/v1/image-studio/config")
+    assert res.status_code == 200
+    data = res.json()
+    assert "openaiImageApiKeyConfigured" in data
+    assert "openaiImageBaseUrl" in data
+
+    post_res = client.post(
+        "/v1/image-studio/config",
+        json={
+            "openai_image_model": "test-flash-model",
+            "openai_image_base_url": "https://api.testproxy.com/v1",
+        },
+    )
+    assert post_res.status_code == 200
+    assert post_res.json()["status"] == "success"
+
+    verify_res = client.get("/v1/image-studio/config")
+    assert verify_res.json()["openaiImageModel"] == "test-flash-model"
+    assert verify_res.json()["openaiImageBaseUrl"] == "https://api.testproxy.com/v1"
+

@@ -67,4 +67,13 @@ describe("PhraseDetector", () => {
     detector.reset();
     expect(detector.pending()).toBe("");
   });
+  it("bounds long sentences for low-latency synthesis without dropping words", () => {
+    const detector=new PhraseDetector({maxBufferChars:80,minPhraseChars:12});
+    const text="This explanation contains several useful details and should keep talking without a long synthesis pause even if there is no punctuation until the final conclusion. ";
+    const phrases=[...detector.push(text),...detector.flush()];
+    expect(phrases.length).toBeGreaterThan(1);
+    expect(phrases.every(phrase=>phrase.length<=80)).toBe(true);
+    expect(phrases.join(" ")).toBe(text.trim());
+  });
+
 });

@@ -2,7 +2,6 @@ import React, { useState, useEffect, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, ChevronDown, ChevronUp, Globe, ExternalLink, Sparkles, Search } from "lucide-react";
 
-import { COGNITIVE_PHRASES } from "../../features/companion/cognitiveStatuses";
 import { CipherDecoderText, GyroOrbLoader, InfinityPathLoader } from "./HinaCyberLoaders";
 
 export interface BrainSource {
@@ -33,36 +32,10 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
     latencyMs,
     defaultExpanded = false,
   }) => {
-    // If not live and has neither thought nor sources, don't render anything
     const hasContent = Boolean((thought && thought.trim().length > 0) || sources.length > 0);
-    if (!isLive && !hasContent) {
-      return null;
-    }
-
     const [isExpanded, setIsExpanded] = useState<boolean>(defaultExpanded || isLive);
-    const [stages, setStages] = useState<string[]>(() => {
-      // Pick 8 randomized phrases from the 100+ bank on each turn
-      const shuffled = [...COGNITIVE_PHRASES].sort(() => 0.5 - Math.random());
-      return shuffled.slice(0, 8);
-    });
-    const [stageIndex, setStageIndex] = useState(0);
-
-    useEffect(() => {
-      if (!isLive) {
-        setIsExpanded(defaultExpanded);
-        return;
-      }
-      setIsExpanded(true);
-      // Reshuffle on new live turn
-      const shuffled = [...COGNITIVE_PHRASES].sort(() => 0.5 - Math.random());
-      setStages(shuffled.slice(0, 8));
-      setStageIndex(0);
-
-      const interval = window.setInterval(() => {
-        setStageIndex((prev) => (prev + 1) % 8);
-      }, 2000);
-      return () => window.clearInterval(interval);
-    }, [isLive, defaultExpanded]);
+    useEffect(() => { setIsExpanded(isLive || defaultExpanded); }, [isLive, defaultExpanded]);
+    if (!isLive && !hasContent) return null;
 
     // Format duration string if latencyMs is present
     const durationLabel = latencyMs
@@ -72,7 +45,7 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
     const sourcesCount = sources.length;
     const currentStageText = isSearching
       ? `Hina is searching web: ${searchQuery || "information"}...`
-      : stages[stageIndex] || "Sincronizando pensamientos profundos...";
+      : "Preparing your response…";
 
     return (
       <div
@@ -386,14 +359,9 @@ export const HinaBrainThinking: React.FC<HinaBrainThinkingProps> = memo(
                 >
                   <GyroOrbLoader size={32} color="#ec4899" />
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <CipherDecoderText
-                      text={isSearching ? "SEARCH_INDEX_QUERY" : currentStageText}
-                      color="#db2777"
-                      accentColor="#4FF8FF"
-                      style={{ fontSize: 13, fontWeight: 650 }}
-                    />
+                    <span role="status" style={{ fontSize: 13, fontWeight: 650, color: "var(--text-primary)" }}>{isSearching ? "Searching external sources…" : currentStageText}</span>
                     <span style={{ fontSize: 10, color: "var(--text-tertiary, #64748b)" }}>
-                      {isSearching ? "Synthesizing external multi-domain groundings..." : "Dual-Cognitive Synapse · Autonomous Agentic Co-Processor"}
+                      {isSearching ? "Gathering search results" : "Waiting for the model response"}
                     </span>
                   </div>
                 </div>

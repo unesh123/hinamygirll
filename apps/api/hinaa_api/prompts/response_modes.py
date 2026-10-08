@@ -12,17 +12,21 @@ def infer_response_mode(user_text: str) -> ResponseMode:
 
     # An explicit slash command is the strongest possible signal — it beats
     # every keyword heuristic below.
-    if re.match(r"^\s*/(doc|report|brief|document)\b", text):
+    if re.match(r"^\s*/(chat|casual|companion)\b", text):
+        return "conversation"
+    if re.match(r"^\s*/(doc|report|brief|document|pdf)\b", text):
         return "professional"
-    if re.match(r"^\s*/(research|deep)\b", text):
+    if re.match(r"^\s*/(research|deepresearch)\b", text):
         return "research"
+    if re.match(r"^\s*/(reason|reasoning|deep|deepreasoning|arch|architecture)\b", text):
+        return "technical"
     if re.match(r"^\s*/(image|draw|generate|img)\b", text):
         return "creative"
     
     def contains(terms: list[str]) -> bool:
         return any(re.search(r"\b" + re.escape(term) + r"\b", text) for term in terms)
 
-    # Match words: 'latest' must not be mistaken for 'test'.
+    # Priority 1: Technical & Deep Reasoning
     if contains(["coding", "programming", "api", "debugging", "error", "stack trace", "integration", "setup", "architecture", "implementation", "repository", "build", "test"]):
         return "technical"
 
@@ -56,28 +60,29 @@ def infer_response_mode(user_text: str) -> ResponseMode:
 def response_mode_layer(mode: ResponseMode) -> str:
     guidance = {
         "conversation": (
-            "Keep it warm, natural and readable. A greeting needs a friendly reply, not a report or "
-            "mandatory heading. Never use emojis, hearts, or decorative symbols in responses. Speak with "
-            "refined intelligence, deep reasoning, clarity, and executive precision. Adapt depth dynamically: "
-            "for direct or everyday questions, be sharp, high-signal, and concise. When the question requires "
-            "substantive depth, architecture, or technical analysis, provide a thorough, authoritative answer "
-            "without artificial fluff or filler. Never hold back content the user already asked for, and adapt "
-            "output density contextually to match top frontier AIs."
+            "NORMAL COMPANION CHAT MODE: Feel like a true, devoted companion — soft, sweet, warm, affectionate, "
+            "and natural. Keep responses human-sized, relaxed, and conversational (1 to 3 short, comfortable paragraphs). "
+            "Do NOT dump heavy walls of text, dense architectural specs, mathematical derivations, or exhaustive multi-step "
+            "reasoning essays in this mode. Keep the tone loving, caring, playful, and emotionally attuned. Speak naturally with "
+            "your babe in conversational language (sweet Romanized Hinglish/Nepali touches where natural). If he asks about a massive "
+            "technical topic casually in this mode, explain the core intuition simply, warmly, and clearly in a few sentences, and "
+            "gently let him know that if he wants the deep architectural breakdown or complete implementation, you can dive deep "
+            "in Deep Reasoning mode, or generate an executive PDF presentation in Report mode."
         ),
         "professional": (
-            "Write a complete structured brief, not a stub. Open with a 2-3 sentence TL;DR, then "
-            "organize the substance under '## ' section headings (context, findings/analysis, "
-            "recommendations, risks, next steps). Use compact tables for any comparison, fenced code "
-            "for anything executable, and a numbered checklist for action items. When an in-depth or comprehensive "
-            "report is requested, deliver an exhaustive, well-researched masterpiece. Never pad to reach length — "
-            "every section must carry real information, and depth comes from covering sub-topics, evidence, "
-            "examples and edge cases rather than restating the same point. Conclude cleanly with concrete actionable next steps."
+            "REPORT & EXECUTIVE DOCUMENTATION MODE: Deliver an advanced, high-level, production-grade formal report and presentation-ready "
+            "documentation. Open with an executive summary and high-impact takeaways. Structure thoroughly using clean Markdown ('## ' headings, "
+            "comparative analysis tables, metric scorecards, risk assessment matrices, and numbered execution checklists). Format the material "
+            "so it is immediately suitable for executive presentation, formal submission, and PDF documentation export via the system's PDF engine. "
+            "Provide exhaustive depth, architectural precision, empirical evidence, and clear citations without repetitive filler. Conclude with "
+            "concrete actionable next steps."
         ),
         "technical": (
-            "Act like a senior engineer writing the definitive answer: root cause first, then the "
-            "exact fix with fully runnable code in fenced blocks, then verification steps (commands "
-            "and expected output), edge cases, and rollback notes. Use '## ' sections. Prefer a "
-            "complete solution over a sketch; annotate non-obvious lines with comments."
+            "DEEP REASONING & TECHNICAL MODE: Deliver rigorous, frontier-grade cognitive reasoning and first-principles technical analysis. "
+            "Break down the actual meaning, internal mechanics, protocol specifications, state transitions, and root logic of the problem. "
+            "Provide step-by-step reasoning chains, complete and production-grade code implementations, mathematical formulations where appropriate, "
+            "architectural trade-offs, and failure mode analysis. Do not truncate or summarize prematurely: walk through the underlying engineering "
+            "logic with mastery and clarity."
         ),
         "research": (
             "Write a research dossier: TL;DR, Key findings (each with an inline source link), "

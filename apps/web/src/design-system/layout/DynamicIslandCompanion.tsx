@@ -839,7 +839,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   }, []);
 
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "watcher" | "stripe" | "upload" | "motion" | "components" | "audio">("agent");
+  const [activeTab, setActiveTab] = useState<"agent" | "chat" | "stripe" | "upload" | "motion" | "components" | "audio">("agent");
   const [selectedComponentIndex, setSelectedComponentIndex] = useState(0);
   const [soundActive, setSoundActive] = useState(() => isSoundEnabled());
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -870,13 +870,10 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
     playUiSound("pop");
   };
 
-  // Screen Guardian Live Vision Hook
+  // Live Screen Vision Hook
   const liveVision = useLiveVision(conversationId);
-  const [showGuardianCard, setShowGuardianCard] = useState(false);
   const [taskFilter, setTaskFilter] = useState<"steps" | "changes" | "commands" | "problems" | "all">("steps");
   const [isCopied, setIsCopied] = useState(false);
-  const [analyzingScreen, setAnalyzingScreen] = useState(false);
-  const [screenAnalysisResult, setScreenAnalysisResult] = useState<string | null>(null);
 
   // Autonomous Dev Tasks Interactive State (SnapInsta Reference)
   const [devTasks, setDevTasks] = useState<Array<{
@@ -1524,28 +1521,6 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
             >
               <span>{mascotStyle === "robot" ? "🤖" : "☁️"}</span>
             </button>
-
-            {/* Screen Guardian Quick Toggle */}
-            <button
-              type="button"
-              onClick={() => {
-                playUiSound("switch");
-                setShowGuardianCard((v) => !v);
-              }}
-              title="Toggle Screen Guardian Focus HUD"
-              style={{
-                background: showGuardianCard || liveVision.isActive ? "rgba(6,182,212,0.2)" : "transparent",
-                border: "none",
-                color: showGuardianCard || liveVision.isActive ? "#06b6d4" : isDark ? "#cbd5e1" : "#475569",
-                cursor: "pointer",
-                padding: "4px 6px",
-                display: "flex",
-                alignItems: "center",
-                borderRadius: 8,
-              }}
-            >
-              <Eye size={15} />
-            </button>
           </div>
 
           {/* Center Mascot & Live Status Pill (When Collapsed) */}
@@ -1611,7 +1586,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   : isSpeaking
                   ? "Hina Speaking..."
                   : liveVision.isActive
-                  ? "Guardian Watching Screen..."
+                  ? "Screen Sharing Active..."
                   : isThinking
                   ? "Hina Thinking..."
                   : isAgentActive
@@ -1702,14 +1677,19 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
 
       {/* ── Under-Notch Floating Speech Pill Banner with Red Stop Button (SnapInsta Reference) ── */}
       <AnimatePresence>
-        {!isExpanded && (isSpeaking || streamingText || showGuardianCard) && (
+        {!isExpanded && (isSpeaking || Boolean(streamingText)) && (
           <motion.div
             initial={{ opacity: 0, y: -6, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.95 }}
             transition={{ duration: 0.2 }}
             style={{
-              marginTop: 6,
+              position: inlineInTopBar ? "absolute" : "relative",
+              top: inlineInTopBar ? "calc(100% + 6px)" : "auto",
+              left: inlineInTopBar ? "50%" : "auto",
+              transform: inlineInTopBar ? "translateX(-50%)" : "none",
+              zIndex: 10000,
+              marginTop: inlineInTopBar ? 0 : 6,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -1722,8 +1702,8 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               backdropFilter: "blur(20px)",
               WebkitBackdropFilter: "blur(20px)",
               maxWidth: 420,
-              width: "fit-content",
-              margin: "6px auto 0 auto",
+              width: "max-content",
+              margin: inlineInTopBar ? 0 : "6px auto 0 auto",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
@@ -1762,9 +1742,9 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   textOverflow: "ellipsis",
                   maxWidth: 240,
                 }}
-                title={streamingText || lastAssistantText || "Watching screens & guarding focus..."}
+                title={streamingText || lastAssistantText || "Hina Live Companion"}
               >
-                {streamingText || lastAssistantText || "BROTHER, Call me weird if you like..."}
+                {streamingText || lastAssistantText || "Hina is ready..."}
               </span>
             </div>
 
@@ -1794,161 +1774,6 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
               <Square size={9} fill="#ffffff" />
               <span>Stop</span>
             </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Floating Focus Guardian Chat Card (SnapInsta Reference) ── */}
-      <AnimatePresence>
-        {!isExpanded && showGuardianCard && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.94 }}
-            transition={{ type: "spring", stiffness: 380, damping: 28 }}
-            style={{
-              marginTop: 8,
-              width: 380,
-              background: "rgba(11, 13, 20, 0.96)",
-              border: "1px solid rgba(255, 255, 255, 0.14)",
-              borderRadius: 20,
-              padding: "12px 14px",
-              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
-              backdropFilter: "blur(24px)",
-              WebkitBackdropFilter: "blur(24px)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-              margin: "8px auto 0 auto",
-            }}
-          >
-            {/* Top Bar of Floating Card */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 750,
-                    background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    padding: "2px 6px",
-                    borderRadius: 6,
-                    color: "#cbd5e1",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  <span>&lt; 3s</span>
-                  <ChevronDown size={10} />
-                </span>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 650,
-                    color: isSpeaking ? "#ec4899" : "#10b981",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: 3,
-                      background: isSpeaking ? "#ec4899" : "#10b981",
-                      boxShadow: `0 0 6px ${isSpeaking ? "#ec4899" : "#10b981"}`,
-                    }}
-                  />
-                  <span>{isSpeaking ? "Speaking..." : "Listening..."}</span>
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    playUiSound("pop");
-                    setIsCopied(true);
-                    setTimeout(() => setIsCopied(false), 1500);
-                  }}
-                  title="Copy observation"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: isCopied ? "#10b981" : "#94a3b8",
-                    cursor: "pointer",
-                    padding: 2,
-                  }}
-                >
-                  {isCopied ? <Check size={13} /> : <Copy size={13} />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowGuardianCard(false)}
-                  title="Dismiss Card"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "#64748b",
-                    cursor: "pointer",
-                    padding: 2,
-                  }}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            </div>
-
-            {/* User Speech Bubble */}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <div
-                style={{
-                  background: "#ffffff",
-                  color: "#0f172a",
-                  borderRadius: "14px 14px 4px 14px",
-                  padding: "8px 12px",
-                  fontSize: 12,
-                  fontWeight: 550,
-                  maxWidth: "85%",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                }}
-              >
-                {lastUserQuery || "You sound so weird. Okay, wait. Let's, let's, let's have a look."}
-              </div>
-            </div>
-
-            {/* Assistant Guardian Message */}
-            <div
-              style={{
-                fontSize: 12,
-                lineHeight: 1.5,
-                color: "#f1f5f9",
-                fontWeight: 450,
-              }}
-            >
-              <span style={{ fontWeight: 800, color: "#00d4ff" }}>BROTHER</span>, call me weird if you dare — that's the voice of an older brother who has taken an oath to guard your focus! Let's have a look together, then: both blocks are live and holding strong until 18:19, X and YouTube shut the moment they appear. Chrome, Discord, Music, Notes and Claude are what's open on your machine right now — nothing else suspicious slipping through. Weird or not, the walls hold.
-            </div>
-
-            {/* Active Windows Strip */}
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 5,
-                background: "rgba(255,255,255,0.05)",
-                padding: "6px 8px",
-                borderRadius: 8,
-                fontSize: 10,
-                color: "#94a3b8",
-              }}
-            >
-              <span style={{ color: "#10b981", fontWeight: 700 }}>Open Windows:</span>
-              <span>Chrome</span> · <span>Discord</span> · <span>VS Code</span> · <span>Terminal</span> · <span>Claude</span>
-            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2122,28 +1947,6 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   }}
                 >
                   <span>{mascotStyle === "robot" ? "🤖" : "☁️"}</span>
-                </button>
-
-                {/* Screen Guardian Quick Toggle */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    playUiSound("switch");
-                    setActiveTab("watcher");
-                  }}
-                  title="Switch to Screen Watcher & Focus HUD"
-                  style={{
-                    background: activeTab === "watcher" || liveVision.isActive ? "rgba(6,182,212,0.2)" : "transparent",
-                    border: "none",
-                    color: activeTab === "watcher" || liveVision.isActive ? "#06b6d4" : isDark ? "#cbd5e1" : "#475569",
-                    cursor: "pointer",
-                    padding: "4px 6px",
-                    display: "flex",
-                    alignItems: "center",
-                    borderRadius: 8,
-                  }}
-                >
-                  <Eye size={15} />
                 </button>
               </div>
 
@@ -2379,31 +2182,6 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                   >
                     <Cpu size={12} />
                     <span>Agent & CLI</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      playUiSound("click");
-                      setActiveTab("watcher");
-                    }}
-                    style={{
-                      background: activeTab === "watcher" ? "rgba(6, 182, 212, 0.15)" : "transparent",
-                      border: activeTab === "watcher" ? "1px solid rgba(6, 182, 212, 0.4)" : "1px solid transparent",
-                      borderRadius: 8,
-                      padding: "3px 8px",
-                      fontSize: 11,
-                      fontWeight: 650,
-                      color: activeTab === "watcher" ? "#06b6d4" : isDark ? "#cbd5e1" : "#475569",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Monitor size={12} />
-                    <span>Screen Watcher</span>
                   </button>
 
                   <button
@@ -2956,7 +2734,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                             HINAA Autonomous Operating Companion
                           </span>
                           <span style={{ fontSize: 10, color: isDark ? "#cbd5e1" : "#475569" }}>
-                            Vision guardian · 3D VRM Locomotion · Real-Time Voice · Instant Barge-in
+                            Vision AI · 3D VRM Locomotion · Real-Time Voice · Instant Barge-in
                           </span>
                         </div>
                       ) : (
@@ -3462,264 +3240,7 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       ))}
                     </div>
                   </div>
-                ) : activeTab === "watcher" ? (
-                  /* ── SCREEN GUARDIAN & LIVE VISION HUB ── */
-                  <div
-                    style={{
-                      background: isDark ? "rgba(6, 182, 212, 0.08)" : "rgba(6, 182, 212, 0.05)",
-                      border: "1px solid rgba(6, 182, 212, 0.3)",
-                      borderRadius: 14,
-                      padding: "10px 14px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 10,
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <Monitor size={14} color="#06b6d4" />
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#06b6d4" }}>
-                          Screen Guardian & Focus Shield
-                        </span>
-                        {liveVision.isActive && (
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 800,
-                              background: "rgba(16, 185, 129, 0.2)",
-                              color: "#10b981",
-                              border: "1px solid rgba(16, 185, 129, 0.4)",
-                              padding: "1px 6px",
-                              borderRadius: 9999,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                            }}
-                          >
-                            <span style={{ width: 5, height: 5, borderRadius: 3, background: "#10b981" }} />
-                            <span>LIVE</span>
-                          </span>
-                        )}
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            playUiSound("buttonPress");
-                            if (liveVision.isActive) {
-                              liveVision.stopCapture();
-                            } else {
-                              void liveVision.startScreenShare();
-                            }
-                          }}
-                          style={{
-                            background: liveVision.isActive ? "#e11d48" : "#06b6d4",
-                            color: "#fff",
-                            border: "none",
-                            borderRadius: 8,
-                            padding: "4px 10px",
-                            fontSize: 10,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                          }}
-                        >
-                          <Monitor size={11} />
-                          <span>{liveVision.isActive ? "Stop Watching" : "Watch Screen"}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Live Screen Preview / Telemetry */}
-                    <div
-                      style={{
-                        position: "relative",
-                        background: "rgba(0,0,0,0.5)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: 10,
-                        padding: 8,
-                        minHeight: 80,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                        overflow: "hidden",
-                      }}
-                    >
-                      {liveVision.latestFrame ? (
-                        <div style={{ position: "relative", width: "100%", maxHeight: 110, overflow: "hidden", borderRadius: 6 }}>
-                          <img
-                            src={liveVision.latestFrame}
-                            alt="Screen Capture"
-                            style={{ width: "100%", objectFit: "cover", borderRadius: 6 }}
-                          />
-                          {/* Animated Radar Scanning Line */}
-                          <motion.div
-                            animate={{ y: [0, 100, 0] }}
-                            transition={{ repeat: Infinity, duration: 2.4, ease: "linear" }}
-                            style={{
-                              position: "absolute",
-                              left: 0,
-                              right: 0,
-                              height: 2,
-                              background: "linear-gradient(90deg, transparent, #00d4ff, transparent)",
-                              boxShadow: "0 0 8px #00d4ff",
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: 11, color: isDark ? "#cbd5e1" : "#475569", lineHeight: 1.4 }}>
-                          ✦ Hina observes active applications, code changes, and guards focus continuously. Click <strong>Watch Screen</strong> to stream display to Hina's vision engine.
-                        </div>
-                      )}
-
-                      {/* Detected Windows Pills */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", fontSize: 10 }}>
-                        <span style={{ color: "#10b981", fontWeight: 700 }}>Open Windows:</span>
-                        {["VS Code", "Chrome", "Terminal", "Claude", "Discord"].map((app) => (
-                          <span
-                            key={app}
-                            style={{
-                              background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
-                              border: "1px solid rgba(255,255,255,0.1)",
-                              borderRadius: 4,
-                              padding: "1px 5px",
-                              color: isDark ? "#f1f5f9" : "#1e293b",
-                            }}
-                          >
-                            {app}
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* Focus Shield Status Banner */}
-                      <div
-                        style={{
-                          fontSize: 10,
-                          color: "#10b981",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        <Shield size={11} />
-                        <span>Focus Shield Active · Holding strong until 18:30 · Distraction shield enabled</span>
-                      </div>
-                    </div>
-
-                    {/* Actions Row */}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            playUiSound("buttonPress");
-                            setAnalyzingScreen(true);
-                            try {
-                              const res = await liveVision.observeScreen("Observe active windows, open apps, and suggest tasks");
-                              if (res.observation) {
-                                setScreenAnalysisResult(res.observation);
-                                // Proactively add task into autonomous pipeline
-                                const autoTask = {
-                                  id: `auto-${Date.now()}`,
-                                  type: "EDIT" as const,
-                                  target: "Screen Observation: Verify changes & tests",
-                                  status: "pending" as const,
-                                  errorDetail: "Vision Verified",
-                                };
-                                saveDevTasks([autoTask, ...devTasks]);
-                                playUiSound("success");
-                              } else {
-                                setScreenAnalysisResult("Chrome, Discord, VS Code, Music and Claude are open. Focus shield holding strong.");
-                              }
-                            } catch {
-                              setScreenAnalysisResult("Chrome, Discord, VS Code, Music and Claude are open. Focus shield holding strong.");
-                            } finally {
-                              setAnalyzingScreen(false);
-                            }
-                          }}
-                          disabled={analyzingScreen}
-                          style={{
-                            background: "#06b6d4",
-                            color: "#fff",
-                            border: "none",
-                            borderRadius: 8,
-                            padding: "5px 12px",
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 5,
-                            opacity: analyzingScreen ? 0.6 : 1,
-                          }}
-                        >
-                          {analyzingScreen ? <Loader2 size={12} className="animate-spin" /> : <Scan size={12} />}
-                          <span>{analyzingScreen ? "Analyzing Screen..." : "⚡ Analyze Screen Now"}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAutoWatchActive((v) => !v);
-                            playUiSound("switch");
-                          }}
-                          title="Continuous autonomous screen observation"
-                          style={{
-                            background: autoWatchActive ? "rgba(16, 185, 129, 0.2)" : "rgba(255,255,255,0.08)",
-                            border: autoWatchActive ? "1px solid #10b981" : "1px solid rgba(255,255,255,0.15)",
-                            color: autoWatchActive ? "#10b981" : isDark ? "#cbd5e1" : "#475569",
-                            borderRadius: 8,
-                            padding: "5px 10px",
-                            fontSize: 11,
-                            fontWeight: 650,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {autoWatchActive ? "● Auto-Watch: ON" : "○ Auto-Watch: OFF"}
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          playUiSound("pop");
-                          setShowGuardianCard((v) => !v);
-                        }}
-                        style={{
-                          background: "rgba(255,255,255,0.08)",
-                          border: "1px solid rgba(255,255,255,0.15)",
-                          color: isDark ? "#cbd5e1" : "#475569",
-                          borderRadius: 8,
-                          padding: "5px 10px",
-                          fontSize: 11,
-                          fontWeight: 650,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {showGuardianCard ? "Hide Guardian Card" : "💬 Pop Guardian Card"}
-                      </button>
-                    </div>
-
-                    {/* Analysis Result Banner */}
-                    {screenAnalysisResult && (
-                      <div
-                        style={{
-                          background: "rgba(0, 212, 255, 0.1)",
-                          border: "1px solid rgba(0, 212, 255, 0.3)",
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                          fontSize: 11,
-                          color: isDark ? "#e0f2fe" : "#0369a1",
-                        }}
-                      >
-                        {screenAnalysisResult}
-                      </div>
-                    )}
-                  </div>
-                ) : (
+) : (
                   /* ── 4. Autonomous Dev Task HUD (SnapInsta Reference) ── */
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {/* Header Metrics Row matching SnapInsta */}

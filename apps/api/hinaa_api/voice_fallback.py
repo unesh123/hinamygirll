@@ -12,6 +12,8 @@ They are deliberately pure (no network, no I/O) so the policy is unit-testable.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import time
 from typing import Any
 
@@ -35,6 +37,26 @@ _FALLBACK_STATUSES = frozenset(
 # without a restart.
 _COOLDOWN_SECONDS = 600.0
 _cooldowns: dict[str, float] = {}
+_COOLDOWN_FILE = Path(__file__).resolve().parents[2] / ".runtime" / "live" / "voice_cooldown.json"
+
+
+def _load_persisted_cooldowns() -> dict[str, float]:
+    try:
+        if _COOLDOWN_FILE.is_file():
+            data = json.loads(_COOLDOWN_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return {str(k): float(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_persisted_cooldowns(cooldowns: dict[str, float]) -> None:
+    try:
+        _COOLDOWN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _COOLDOWN_FILE.write_text(json.dumps(cooldowns), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def fallback_voice_id(companion_id: str, *, hinaa_voice: str, hiro_voice: str) -> str:
@@ -69,20 +91,34 @@ def note_voice_failure(provider: str, error: Exception, *, now: float | None = N
     """
     if status_of(error) is None:
         return
-    _cooldowns[provider] = (now if now is not None else time.time()) + _COOLDOWN_SECONDS
+    current_time = now if now is not None else time.time()
+    _cooldowns[provider] = current_time + _COOLDOWN_SECONDS
+    _save_persisted_cooldowns(_cooldowns)
 
 
 def voice_on_cooldown(provider: str, *, now: float | None = None) -> bool:
     """True while the primary voice is being skipped after a hard refusal."""
+    current_time = now if now is not None else time.time()
     until = _cooldowns.get(provider)
     if until is None:
+        persisted = _load_persisted_cooldowns()
+        until = persisted.get(provider)
+        if until is not None:
+            _cooldowns[provider] = until
+    if until is None:
         return False
-    return (now if now is not None else time.time()) < until
+    return current_time < until
 
 
 def clear_voice_cooldown(provider: str | None = None) -> None:
     """Forget cooldowns (used by tests and by a manual provider refresh)."""
     if provider is None:
         _cooldowns.clear()
+        try:
+            if _COOLDOWN_FILE.is_file():
+                _COOLDOWN_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
     else:
         _cooldowns.pop(provider, None)
+        _save_persisted_cooldowns(_cooldowns)

@@ -34,6 +34,9 @@ class GeneratePDFParams(BaseModel):
     content: str | None = Field(None, max_length=100_000, description="User-provided document content or notes")
     author: str | None = Field("HINAA AI Academic Studio", max_length=120, description="Document author or student name")
     category: str | None = Field("Document", max_length=80, description="Document type")
+    theme: str | None = Field("crimson_gold", max_length=60, description="Visual theme preset: crimson_gold, cyber_dark, emerald, sakura, editorial_slate, classic")
+    includeCover: bool | None = Field(None, description="Include standalone executive cover page")
+    include_cover: bool | None = Field(None, description="Alias for includeCover")
     query: str | None = Field(None, max_length=500, description="Search query or subject alias")
     subject: str | None = Field(None, max_length=500, description="Topic alias")
     prompt: str | None = Field(None, max_length=500, description="Prompt alias")
@@ -510,7 +513,71 @@ def _clean_text_for_pdf(text: str) -> str:
     return text.encode("latin-1", "replace").decode("latin-1").replace("?", "")
 
 
-def _get_numbered_canvas_class(doc_title: str):
+THEME_PALETTES = {
+    "crimson_gold": {
+        "primary": "#1e1b4b",
+        "accent": "#991b1b",
+        "secondary": "#d97706",
+        "dark": "#18181b",
+        "body": "#27272a",
+        "bg_light": "#fffbeb",
+        "border": "#fde68a",
+        "table_header_bg": "#881337",
+    },
+    "cyber_dark": {
+        "primary": "#0f172a",
+        "accent": "#06b6d4",
+        "secondary": "#6366f1",
+        "dark": "#0f172a",
+        "body": "#334155",
+        "bg_light": "#f0fdfa",
+        "border": "#cbd5e1",
+        "table_header_bg": "#0f172a",
+    },
+    "emerald": {
+        "primary": "#064e3b",
+        "accent": "#059669",
+        "secondary": "#10b981",
+        "dark": "#1e293b",
+        "body": "#334155",
+        "bg_light": "#f0fdf4",
+        "border": "#a7f3d0",
+        "table_header_bg": "#065f46",
+    },
+    "sakura": {
+        "primary": "#831843",
+        "accent": "#db2777",
+        "secondary": "#f43f5e",
+        "dark": "#1e293b",
+        "body": "#334155",
+        "bg_light": "#fdf2f8",
+        "border": "#fbcfe8",
+        "table_header_bg": "#9d174d",
+    },
+    "editorial_slate": {
+        "primary": "#0f172a",
+        "accent": "#2563eb",
+        "secondary": "#64748b",
+        "dark": "#1e293b",
+        "body": "#334155",
+        "bg_light": "#f8fafc",
+        "border": "#e2e8f0",
+        "table_header_bg": "#1e293b",
+    },
+    "classic": {
+        "primary": "#0f172a",
+        "accent": "#be185d",
+        "secondary": "#64748b",
+        "dark": "#1e293b",
+        "body": "#334155",
+        "bg_light": "#f8fafc",
+        "border": "#e2e8f0",
+        "table_header_bg": "#0f172a",
+    },
+}
+
+
+def _get_numbered_canvas_class(doc_title: str, theme_accent: str = "#991b1b", theme_primary: str = "#0f172a"):
     from reportlab.pdfgen import canvas
     from reportlab.lib import colors
     from reportlab.lib.units import mm
@@ -541,24 +608,25 @@ def _get_numbered_canvas_class(doc_title: str):
             # Running header on page 2+
             if page_num > 1:
                 self.setFont("Helvetica-Bold", 8)
-                self.setFillColor(colors.HexColor("#0f172a"))
+                self.setFillColor(colors.HexColor(theme_primary))
                 clean_title = _clean_text_for_pdf(str(doc_title))[:75]
                 self.drawString(15 * mm, 297 * mm - 10 * mm, clean_title)
                 self.setFont("Helvetica", 7.5)
-                self.setFillColor(colors.HexColor("#94a3b8"))
+                self.setFillColor(colors.HexColor(theme_accent))
                 self.drawRightString(210 * mm - 15 * mm, 297 * mm - 10 * mm, "EXECUTIVE REPORT")
-                self.setStrokeColor(colors.HexColor("#e2e8f0"))
+                self.setStrokeColor(colors.HexColor(theme_accent))
                 self.setLineWidth(0.6)
                 self.line(15 * mm, 297 * mm - 12 * mm, 210 * mm - 15 * mm, 297 * mm - 12 * mm)
 
             # Running footer on all pages
-            self.setStrokeColor(colors.HexColor("#e2e8f0"))
-            self.setLineWidth(0.6)
-            self.line(15 * mm, 12 * mm, 210 * mm - 15 * mm, 12 * mm)
-            self.setFont("Helvetica", 8)
-            self.setFillColor(colors.HexColor("#64748b"))
-            self.drawString(15 * mm, 8 * mm, "HINAA Frontier Academic Studio | Executive Edition")
-            self.drawRightString(210 * mm - 15 * mm, 8 * mm, f"Page {page_num} of {total_pages}")
+            if page_num > 1 or total_pages == 1:
+                self.setStrokeColor(colors.HexColor("#e2e8f0"))
+                self.setLineWidth(0.6)
+                self.line(15 * mm, 12 * mm, 210 * mm - 15 * mm, 12 * mm)
+                self.setFont("Helvetica", 8)
+                self.setFillColor(colors.HexColor("#64748b"))
+                self.drawString(15 * mm, 8 * mm, "HINAA Frontier Academic Studio | Executive Edition")
+                self.drawRightString(210 * mm - 15 * mm, 8 * mm, f"Page {page_num} of {total_pages}")
             self.restoreState()
 
     return NumberedCanvas
@@ -572,15 +640,29 @@ def _generate_reportlab_pdf(
     sections: list[tuple[str, Any]],
     *,
     verification_note: str,
+    theme: str = "crimson_gold",
+    include_cover: bool = False,
 ) -> tuple[Path, int]:
     """Compile document using ReportLab SimpleDocTemplate with professional typography, tables, and running footers."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch, mm
-    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, PageBreak
 
     output_path = DOCS_DIR / f"{doc_id}.pdf"
+
+    selected_theme = (theme or "crimson_gold").lower().replace("-", "_").strip()
+    palette = THEME_PALETTES.get(selected_theme, THEME_PALETTES["crimson_gold"])
+
+    c_primary = colors.HexColor(palette["primary"])
+    c_accent = colors.HexColor(palette["accent"])
+    c_secondary = colors.HexColor(palette["secondary"])
+    c_dark = colors.HexColor(palette["dark"])
+    c_body = colors.HexColor(palette["body"])
+    c_bg_light = colors.HexColor(palette["bg_light"])
+    c_border = colors.HexColor(palette["border"])
+    c_tbl_hdr = colors.HexColor(palette["table_header_bg"])
 
     margin = 15 * mm
     doc = SimpleDocTemplate(
@@ -597,13 +679,6 @@ def _generate_reportlab_pdf(
     )
 
     styles = getSampleStyleSheet()
-
-    c_primary = colors.HexColor("#0f172a")
-    c_accent = colors.HexColor("#be185d")
-    c_dark = colors.HexColor("#1e293b")
-    c_body = colors.HexColor("#334155")
-    c_bg_light = colors.HexColor("#f8fafc")
-    c_border = colors.HexColor("#e2e8f0")
 
     badge_style = ParagraphStyle(
         "DocBadge",
@@ -676,38 +751,135 @@ def _generate_reportlab_pdf(
 
     story = []
 
-    # Banner Header
-    story.append(Paragraph(escape(_clean_text_for_pdf(category.upper())), badge_style))
-    story.append(Paragraph(escape(_clean_text_for_pdf(title)), title_style))
-    story.append(Paragraph(f"Prepared by {escape(_clean_text_for_pdf(author))} | Generated by HINAA AI Academic Studio", subtitle_style))
-    story.append(HRFlowable(width="100%", thickness=2, color=c_accent, spaceBefore=2, spaceAfter=10))
+    if include_cover:
+        # ── Full Standalone Executive Cover Page ──
+        story.append(Spacer(1, 20))
+        story.append(HRFlowable(width="100%", thickness=4, color=c_accent, spaceBefore=0, spaceAfter=2))
+        story.append(HRFlowable(width="100%", thickness=1.5, color=c_secondary, spaceBefore=0, spaceAfter=22))
 
-    # Metadata Executive Card
-    meta_data = [
-        [
-            Paragraph(f"<b>Document Category:</b> {escape(_clean_text_for_pdf(category))}", body_style),
-            Paragraph(f"<b>Document ID:</b> {escape(doc_id[:13])}", body_style),
-        ],
-        [
-            Paragraph(f"<b>Prepared By:</b> {escape(_clean_text_for_pdf(author))}", body_style),
-            Paragraph(f"<b>Source Provenance:</b> {escape(_clean_text_for_pdf(verification_note))}", body_style),
-        ],
-    ]
-    meta_table = Table(meta_data, colWidths=[280, 240])
-    meta_table.setStyle(
-        TableStyle([
+        cover_kicker_style = ParagraphStyle(
+            "CoverKicker",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=13,
+            textColor=c_accent,
+            spaceAfter=10,
+        )
+        story.append(Paragraph(escape(f"EXECUTIVE RESEARCH DOSSIER | {category.upper()}"), cover_kicker_style))
+
+        cover_title_style = ParagraphStyle(
+            "CoverTitle",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=24,
+            leading=30,
+            textColor=c_primary,
+            spaceAfter=12,
+        )
+        story.append(Paragraph(escape(_clean_text_for_pdf(title)), cover_title_style))
+
+        cover_sub_style = ParagraphStyle(
+            "CoverSub",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=10,
+            leading=15,
+            textColor=c_body,
+            spaceAfter=20,
+        )
+        story.append(Paragraph("Frontier Academic & Technical Intelligence Analysis — Verified Synthesis Edition", cover_sub_style))
+        story.append(HRFlowable(width="100%", thickness=1, color=c_border, spaceBefore=0, spaceAfter=20))
+
+        import datetime
+        date_str = datetime.datetime.now().strftime("%B %d, %Y")
+        cover_meta_data = [
+            [
+                Paragraph(f"<b>Principal Author:</b> {escape(_clean_text_for_pdf(author))}", body_style),
+                Paragraph(f"<b>Publication Date:</b> {date_str}", body_style),
+            ],
+            [
+                Paragraph("<b>Publishing Studio:</b> HINAA Frontier AI Academic Studio", body_style),
+                Paragraph(f"<b>Verification Hash:</b> {escape(doc_id[:13])}", body_style),
+            ],
+            [
+                Paragraph(f"<b>Provenance:</b> {escape(_clean_text_for_pdf(verification_note))}", body_style),
+                Paragraph(f"<b>Palette Theme:</b> {selected_theme.replace('_', ' ').title()}", body_style),
+            ],
+        ]
+        cover_meta_tbl = Table(cover_meta_data, colWidths=[260, 260])
+        cover_meta_tbl.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), c_bg_light),
             ("BOX", (0, 0), (-1, -1), 1, c_border),
-            ("LINELEFT", (0, 0), (0, -1), 3, c_accent),
+            ("LINELEFT", (0, 0), (0, -1), 4, c_accent),
             ("INNERGRID", (0, 0), (-1, -1), 0.5, c_border),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        story.append(cover_meta_tbl)
+        story.append(Spacer(1, 24))
+
+        # Table of Contents Preview
+        toc_rows = [[
+            Paragraph("<b>#</b>", ParagraphStyle("TOCNumH", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5, textColor=colors.white)),
+            Paragraph("<b>Dossier Section</b>", ParagraphStyle("TOCH", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5, textColor=colors.white)),
+            Paragraph("<b>Content Classification</b>", ParagraphStyle("TOCFocH", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5, textColor=colors.white)),
+        ]]
+        for idx, (sec_name, sec_c) in enumerate(sections[:8], start=1):
+            type_label = "Structured Matrix" if isinstance(sec_c, list) and sec_c and isinstance(sec_c[0], list) else "Analytical Text"
+            toc_rows.append([
+                Paragraph(str(idx), table_cell_style),
+                Paragraph(escape(_clean_text_for_pdf(sec_name)), table_cell_style),
+                Paragraph(type_label, table_cell_style),
+            ])
+        toc_tbl = Table(toc_rows, colWidths=[30, 320, 170])
+        toc_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), c_tbl_hdr),
+            ("BOX", (0, 0), (-1, -1), 0.8, c_border),
+            ("GRID", (0, 0), (-1, -1), 0.5, c_border),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, c_bg_light]),
             ("TOPPADDING", (0, 0), (-1, -1), 5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ("LEFTPADDING", (0, 0), (-1, -1), 8),
             ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ])
-    )
-    story.append(meta_table)
-    story.append(Spacer(1, 10))
+        ]))
+        story.append(toc_tbl)
+        story.append(PageBreak())
+    else:
+        # Banner Header (Concise layout)
+        story.append(Paragraph(escape(_clean_text_for_pdf(category.upper())), badge_style))
+        story.append(Paragraph(escape(_clean_text_for_pdf(title)), title_style))
+        story.append(Paragraph(f"Prepared by {escape(_clean_text_for_pdf(author))} | Generated by HINAA AI Academic Studio", subtitle_style))
+        story.append(HRFlowable(width="100%", thickness=2, color=c_accent, spaceBefore=2, spaceAfter=10))
+
+        # Metadata Executive Card
+        meta_data = [
+            [
+                Paragraph(f"<b>Document Category:</b> {escape(_clean_text_for_pdf(category))}", body_style),
+                Paragraph(f"<b>Document ID:</b> {escape(doc_id[:13])}", body_style),
+            ],
+            [
+                Paragraph(f"<b>Prepared By:</b> {escape(_clean_text_for_pdf(author))}", body_style),
+                Paragraph(f"<b>Source Provenance:</b> {escape(_clean_text_for_pdf(verification_note))}", body_style),
+            ],
+        ]
+        meta_table = Table(meta_data, colWidths=[280, 240])
+        meta_table.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), c_bg_light),
+                ("BOX", (0, 0), (-1, -1), 1, c_border),
+                ("LINELEFT", (0, 0), (0, -1), 3, c_accent),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, c_border),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ])
+        )
+        story.append(meta_table)
+        story.append(Spacer(1, 10))
 
     def render_block(block: Any) -> None:
         if isinstance(block, dict) and block.get("type") == "callout":
@@ -783,7 +955,7 @@ def _generate_reportlab_pdf(
                 table_flowable = Table(table_rows, colWidths=col_widths)
                 table_flowable.setStyle(
                     TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, 0), c_primary),
+                        ("BACKGROUND", (0, 0), (-1, 0), c_tbl_hdr),
                         ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
                         ("TOPPADDING", (0, 0), (-1, -1), 5),
@@ -791,7 +963,7 @@ def _generate_reportlab_pdf(
                         ("LEFTPADDING", (0, 0), (-1, -1), 6),
                         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
-                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, c_bg_light]),
                     ])
                 )
                 story.append(Spacer(1, 4))
@@ -840,7 +1012,7 @@ def _generate_reportlab_pdf(
             render_block(content)
         story.append(Spacer(1, 6))
 
-    canvas_class = _get_numbered_canvas_class(title)
+    canvas_class = _get_numbered_canvas_class(title, palette["accent"], palette["primary"])
     doc.build(story, canvasmaker=canvas_class)
 
     pages_rendered = max(1, getattr(doc, "page", 1))
@@ -882,6 +1054,12 @@ async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> di
 
     safe_name = f"{_sanitize_slug(title)}.pdf"
 
+    req_theme = getattr(params, "theme", None) or "crimson_gold"
+    explicit_cover = getattr(params, "includeCover", None)
+    if explicit_cover is None:
+        explicit_cover = getattr(params, "include_cover", None)
+    req_include_cover = explicit_cover if explicit_cover is not None else (len(sections) >= 3)
+
     file_path, page_count = _generate_reportlab_pdf(
         doc_id=doc_id,
         title=title,
@@ -889,6 +1067,8 @@ async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> di
         category=params.category or "Document",
         sections=sections,
         verification_note=PROVENANCE_NOTES[provenance],
+        theme=req_theme,
+        include_cover=req_include_cover,
     )
 
     file_size_bytes = file_path.stat().st_size
@@ -897,6 +1077,7 @@ async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> di
     python_snippet = f"""# HINAA generated document: {safe_name}
 # The downloadable PDF is the source of truth for this render.
 # Sections: {len(sections)} | Pages: {page_count} | Size: {file_size_kb} KB
+# Theme: {req_theme} | Standalone Cover: {req_include_cover}
 # Body source: {provenance}
 # Re-run generation through the /v1/tools/execute pdf_generate endpoint with
 # the same content to reproduce it; no unverified claims were added.
@@ -914,10 +1095,12 @@ async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> di
         "pageCount": page_count,
         "fileSizeBytes": file_size_bytes,
         "fileSizeKb": file_size_kb,
+        "theme": req_theme,
+        "hasCoverPage": req_include_cover,
         "topic": resolved_topic,
         "contentSource": provenance,
         "sectionCount": len(sections),
-        "summary": f"Compiled '{title}' into a {page_count}-page PDF ({file_size_kb} KB) from {provenance.replace('-', ' ')} content.",
+        "summary": f"Compiled '{title}' into a {page_count}-page executive PDF ({file_size_kb} KB, {req_theme} theme) from {provenance.replace('-', ' ')} content.",
         "pythonSnippet": python_snippet,
     }
     # /v1/generated-docs lists the sidecars, not the PDFs: gated on a caller
@@ -933,10 +1116,11 @@ pdf_generate_def = ToolDefinition(
     name="pdf_generate",
     display_name="PDF Generator",
     description=(
-        "Typeset a document as a PDF. Pass `content` to render text from this conversation verbatim; "
-        "with no content it compiles a live multi-source research pass on `topic`, where every finding "
-        "carries the address it came from. It writes no text of its own and returns DOCUMENT_NO_SOURCE "
-        "instead of a file when there is no real material to typeset."
+        "Typeset an executive publication-quality document as a PDF. Pass `content` to render text verbatim; "
+        "with no content it compiles a live multi-source research pass on `topic`. Supports executive visual themes "
+        "(crimson_gold, cyber_dark, emerald, sakura, editorial_slate, classic) and standalone cover pages. "
+        "Words are never invented: when neither content nor research sources are available it answers "
+        "DOCUMENT_NO_SOURCE rather than fabricating sections, figures, or citations."
     ),
     parameters={
         "topic": {"type": "string", "description": "Subject to research when no content is supplied"},
@@ -944,6 +1128,8 @@ pdf_generate_def = ToolDefinition(
         "content": {"type": "string", "description": "Source text to typeset; authoritative when provided"},
         "author": {"type": "string", "description": "Optional author name"},
         "category": {"type": "string", "description": "Document label, e.g. Research Report or Lecture Notes"},
+        "theme": {"type": "string", "description": "Visual theme preset: crimson_gold, cyber_dark, emerald, sakura, editorial_slate, classic"},
+        "include_cover": {"type": "boolean", "description": "Whether to render a dedicated executive cover page"},
     },
     required_parameters=[],
     permission_level="default",

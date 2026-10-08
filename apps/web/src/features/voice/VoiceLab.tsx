@@ -96,7 +96,7 @@ export function VoiceLab() {
       const res = await fetch("/api/v1/speech/synthesis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "Hello Unesh. HINAA voice synthesis is working.", companionId: "hinaa" }),
+        body: JSON.stringify({ text: "Hello babe. HINAA voice synthesis is working.", companionId: "hinaa" }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();

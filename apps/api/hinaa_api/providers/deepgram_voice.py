@@ -28,6 +28,27 @@ def pcm_to_wav(pcm: bytes, sample_rate: int = PCM_SAMPLE_RATE) -> bytes:
         handle.writeframes(pcm)
     return buffer.getvalue()
 
+def combine_wavs(wav_bytes_list: list[bytes]) -> bytes:
+    """Safely combine multiple WAV byte streams into a single valid WAV stream."""
+    if not wav_bytes_list:
+        return b""
+    if len(wav_bytes_list) == 1:
+        return wav_bytes_list[0]
+    try:
+        out_buf = io.BytesIO()
+        with wave.open(io.BytesIO(wav_bytes_list[0]), "rb") as w0:
+            params = w0.getparams()
+        with wave.open(out_buf, "wb") as out_w:
+            out_w.setparams(params)
+            for wb in wav_bytes_list:
+                with wave.open(io.BytesIO(wb), "rb") as rw:
+                    out_w.writeframes(rw.readframes(rw.getnframes()))
+        return out_buf.getvalue()
+    except Exception as err:
+        logger.warning("Could not cleanly combine WAV chunks (%s), joining directly: %s", type(err).__name__, err)
+        return b"".join(wav_bytes_list)
+
+
 class DeepgramTTSProvider(TTSProvider):
     id: str = "deepgram"
 
@@ -54,7 +75,7 @@ class DeepgramTTSProvider(TTSProvider):
 
         started = perf_counter()
         clean_text = text.strip()
-        url = f"{self._base_url}/v1/speak?model={voice}&encoding=mp3"
+        url = f"{self._base_url}/v1/speak?model={voice}&encoding=linear16&container=wav"
         headers = {
             "Authorization": f"Token {self._api_key}",
             "Content-Type": "application/json"
@@ -88,7 +109,7 @@ class DeepgramTTSProvider(TTSProvider):
 
                 try:
                     audio_chunks = await asyncio.gather(*[fetch_chunk(c) for c in merged_chunks])
-                    combined_audio = b"".join(audio_chunks)
+                    combined_audio = combine_wavs(audio_chunks)
                     return ProviderResult(
                         value=combined_audio,
                         provider=self.id,

@@ -40,14 +40,29 @@ function getAudioContext(): AudioContext | null {
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioContextClass) return null;
 
-  if (!audioCtx) {
+  if (typeof window !== "undefined" && (window as any).__hinaaAudioCtx && (window as any).__hinaaAudioCtx.state !== "closed") {
+    audioCtx = (window as any).__hinaaAudioCtx;
+  } else if (!audioCtx || audioCtx.state === "closed") {
     audioCtx = new AudioContextClass();
+    if (typeof window !== "undefined") {
+      (window as any).__hinaaAudioCtx = audioCtx;
+    }
   }
-  if (audioCtx.state === "suspended") {
-    // Attempt resume on user gesture
+  if (audioCtx && audioCtx.state === "suspended") {
     void audioCtx.resume();
   }
   return audioCtx;
+}
+
+export function primeAudioContext(): AudioContext | null {
+  const ctx = getAudioContext();
+  if (ctx && ctx.state === "suspended") {
+    void ctx.resume();
+  }
+  if (typeof window !== "undefined" && typeof (window as any).__hinaaUnlockAudio === "function") {
+    try { (window as any).__hinaaUnlockAudio(); } catch {}
+  }
+  return ctx;
 }
 
 export function isSoundEnabled(): boolean {

@@ -1,4 +1,4 @@
-export type SpecialistType = 'planner' | 'researcher' | 'coder' | 'synthesizer' | 'memory';
+export type SpecialistType = 'planner' | 'researcher' | 'coder' | 'synthesizer' | 'memory' | 'operator';
 export type SpecialistStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'skipped';
 
 export interface BrainSpecialist {

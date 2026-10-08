@@ -9,6 +9,7 @@ import { TurnTakingController } from "./turnTakingController";
 import type { ActiveLanguagePolicy } from "../settings/types/settings";
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import { recognitionLocale, browserSpeechLocale } from "./languagePolicy";
+import { pcm16ToWavBlob } from "./pcm";
 
 function parseTurnId(turnId: string): { turn: number; generation: number } {
   // Format: turn-{turnNumber}-{generation}
@@ -159,7 +160,7 @@ async function resolveWebsocketUrl(): Promise<string> {
     : "";
   try {
     const response = await fetch(`${apiBase}/api/v1/realtime/url`, {
-      headers: { accept: "application/json" },
+      headers: { accept: "application/json", ...hinaaIdentityHeaders() },
     });
     if (!response.ok) return sameOriginWebsocketUrl();
     const payload = (await response.json()) as { url?: unknown };
@@ -204,11 +205,14 @@ async function fetchRealtimeTicket(): Promise<string | null> {
 
 const liveLocaleForPolicy = recognitionLocale;
 
-function decodeAudio(value: string, mediaType = "audio/wav"): Blob {
+function decodeAudio(value: string, mediaType = "audio/wav", sampleRate = 24_000): Blob {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1)
     bytes[index] = binary.charCodeAt(index);
+  if (mediaType === "audio/pcm" || mediaType === "audio/raw") {
+    return pcm16ToWavBlob(bytes, sampleRate, 1);
+  }
   return new Blob([bytes], { type: mediaType });
 }
 
@@ -877,7 +881,7 @@ export function useLiveConversation({
         );
         let blob: Blob;
         try {
-          blob = decodeAudio(encodedAudio, event.mediaType);
+          blob = decodeAudio(encodedAudio, event.mediaType, (event as any).sampleRate || 24_000);
         } catch (decodeErr) {
           console.error("[HINAA] TTS audio decode failed:", decodeErr);
           playbackQueueRef.current.decoding -= 1;
@@ -1033,9 +1037,12 @@ export function useLiveConversation({
         setDetail("Previous response interrupted · listening");
       }
     } else if (event.type === "error") {
-      capturing.current = false;
-      setBrainPending(false);
       const code = event.code ?? "error";
+      const isFatal = (event as any).fatal !== false && !code.startsWith("AUDIO_FRAME_") && code !== "BINARY_DESCRIPTOR_REQUIRED";
+      if (isFatal) {
+        capturing.current = false;
+      }
+      setBrainPending(false);
       setDiagnostics((prev) => ({ ...prev, lastError: code, currentStage: `error-${code}` }));
       // Clear playback queue on error
       playbackQueueRef.current = { encodedChunks: 0, decoding: 0, decodedBuffers: 0, scheduledSources: 0, finalSequenceReceived: false };
@@ -1132,7 +1139,7 @@ export function useLiveConversation({
     setDiagnostics((prev) => ({ ...prev, sttSocketState: "connecting", currentStage: "stt-connecting" }));
     next.onopen = () => {
       reconnectAttempt.current = 0;
-      const requestedMode = callbacks.current.controller.routing.activeMode ?? "mock";
+      const requestedMode = callbacks.current.controller.routing.activeMode ?? "agent-router";
       const effectiveMode = forcedMockFallback.current ? "mock" : requestedMode;
       sendJson({
         type: "session.hello",
@@ -1140,6 +1147,7 @@ export function useLiveConversation({
         sessionId: conversationId ?? localSessionId.current,
         companionId: callbacks.current.controller.companionId,
         providerMode: effectiveMode,
+        voiceEngine: "elevenlabs",
         brainModel:
           effectiveMode === "codecraft" ||
           effectiveMode === "custom" ||
@@ -1315,7 +1323,7 @@ export function useLiveConversation({
         callbacks.current.controller.setLiveState("error");
         return;
       }
-      const effectiveMode = mode ?? "mock";
+      const effectiveMode = mode ?? "agent-router";
       setDetail(
         effectiveMode === "mock"
           ? "Diagnostic mock live · fixed demo transcript · pauses after one turn"

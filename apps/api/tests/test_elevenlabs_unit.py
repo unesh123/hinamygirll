@@ -477,13 +477,13 @@ async def test_a_rate_the_vendor_would_reject_is_clamped_not_sent(monkeypatch):
 
 def test_every_advertised_pace_is_one_the_provider_will_accept():
     """The live client hard-codes "natural" and offers no picker, so these numbers
-    ARE her speaking pace. They used to sit at 0.94-1.07 while the provider pinned
-    0.9, which is the measured gap behind "she is talking so slow, I can read it
-    faster than that".
+    ARE her speaking pace. The band has been measured from both directions:
+    0.94-1.07 read as "she is talking so slow" and 1.12-1.2 as "way too fast", so
+    the default lives just under 1.0 — natural conversation speed.
     """
     for name, tuning in CALIBRATIONS.items():
         assert ELEVENLABS_SPEED_MIN <= tuning.rate <= ELEVENLABS_SPEED_MAX, name
-    assert CALIBRATIONS["natural"].rate > 1.1, "the default must be brisk"
+    assert 0.9 <= CALIBRATIONS["natural"].rate <= 1.0, "the default must be natural, not rushed"
     assert CALIBRATIONS["lively"].rate >= CALIBRATIONS["natural"].rate
     assert CALIBRATIONS["soft"].rate <= CALIBRATIONS["natural"].rate
 
@@ -502,7 +502,7 @@ async def test_the_service_layer_forwards_the_rate_it_accepts(monkeypatch):
     sent = []
     provider = _turbo_provider(monkeypatch, sent)
     service = ConversationService(Settings())
-    service.router = SimpleNamespace(tts=lambda mode, companion_id: provider)
+    service.router = SimpleNamespace(tts=lambda mode, companion_id, voice_engine=None: provider)
 
     await service.synthesize_text(
         "Explain the deployment plan.", "hinaa", "elevenlabs", rate=1.15
@@ -538,3 +538,28 @@ async def test_the_requested_audio_format_goes_where_the_vendor_reads_it(monkeyp
     assert queries[0] == {"output_format": "pcm_16000"}
     assert "output_format" not in sent[0]
 
+
+
+@pytest.mark.asyncio
+async def test_exhausted_account_quota_is_not_retried(monkeypatch):
+    sent = []
+    _record_stream(monkeypatch, sent, status_code=429, error_body=b'{"detail":{"status":"quota_exceeded","message":"Insufficient credits"}}')
+    provider = ElevenLabsHTTPStreamingProvider(ElevenLabsConfig(api_key="k", voice_id="v", tts_retry_backoff_s=0))
+    with pytest.raises(ElevenLabsError):
+        await provider.synthesize_full("Hello")
+    assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_audio_failure_does_not_replay_the_phrase():
+    provider = ElevenLabsHTTPStreamingProvider(ElevenLabsConfig(api_key="k", voice_id="v", tts_retry_backoff_s=0))
+    attempts = 0
+    async def partial(text, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        yield b"partial audio"
+        raise ElevenLabsError(ElevenLabsStatus.timeout, "stream interrupted")
+    provider.synthesize = partial
+    with pytest.raises(ElevenLabsError):
+        await provider.synthesize_full("Hello")
+    assert attempts == 1

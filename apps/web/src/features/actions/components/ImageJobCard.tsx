@@ -29,23 +29,24 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
   }, [data.images, data.resultUrl, data.thumbnailUrl]);
 
   const isComplete = Boolean(
-    data.stage === "saved" || (resolvedImages.length > 0 && !data.isSearchFallback)
+    resolvedImages.length > 0 && !data.isSearchFallback
   );
 
   const [stage, setStage] = useState<"seeing" | "generating" | "saved" | "failed">(
-    data.stage === "failed" ? "failed" : isComplete ? "saved" : (data.stage || "generating")
+    data.stage === "failed" || (data.stage === "saved" && !isComplete) ? "failed" : isComplete ? "saved" : (data.stage || "generating")
   );
   const [elapsedSeconds, setElapsedSeconds] = useState(data.elapsedSeconds || 0);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Sync state when data props update
   useEffect(() => {
-    if (data.stage === "failed") {
+    if (data.stage === "failed" || (data.stage === "saved" && !isComplete)) {
       setStage("failed");
-    } else if (isComplete || data.stage === "saved") {
+    } else if (isComplete) {
       setStage("saved");
     } else if (data.stage) {
       setStage(data.stage);
@@ -82,16 +83,19 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
   const handleDownload = useCallback(async (url: string, index: number) => {
     if (!url) return;
     setIsDownloading(true);
+    setDownloadError(null);
     try {
       const slug = (data.prompt || "image")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .slice(0, 40);
-      const prefix = (data.model || "seedance").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const prefix = (data.model || "image").toLowerCase().replace(/[^a-z0-9]+/g, "-");
       const filename = `hina-${prefix}-${slug}-${index + 1}.png`;
 
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`Download returned HTTP ${res.status}`);
       const blob = await res.blob();
+      if (!blob.size || !blob.type.startsWith("image/")) throw new Error("The response was not an image");
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
@@ -100,15 +104,11 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
+      onCommit?.({ ...data, stage: "saved", elapsedSeconds });
     } catch {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `hina-image-${index + 1}.png`;
-      a.target = "_blank";
-      a.click();
+      setDownloadError("Couldn't download this image. Please try again.");
     } finally {
       setIsDownloading(false);
-      onCommit?.({ ...data, stage: "saved", elapsedSeconds });
     }
   }, [data, elapsedSeconds, onCommit]);
 
@@ -129,6 +129,8 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
           maxWidth: 540,
         }}
       >
+        {downloadError && <p role="alert" style={{ color: "var(--text-error, #dc2626)", margin: 0 }}>{downloadError}</p>}
+
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -164,7 +166,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
                     border: "1px solid rgba(147, 51, 234, 0.18)",
                   }}
                 >
-                  {data.model || "✨ Seedance 5.0"}
+                  {data.model || "Image provider"}
                 </span>
                 <span
                   style={{
@@ -411,7 +413,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
 
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: "0.86rem", fontWeight: 700, color: "#ffffff", letterSpacing: "0.01em" }}>
-                  {data.model ? `Synthesizing ${data.model}` : "Synthesizing Seedance 5.0 Visuals"}
+                  {data.model ? `Synthesizing ${data.model}` : "Rendering your image"}
                 </span>
                 <span style={{ fontSize: "0.72rem", color: "rgba(255, 255, 255, 0.65)", fontWeight: 500 }}>
                   High-res 1024×1024 · Ultra High Fidelity
@@ -456,7 +458,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>Generation could not complete</span>
               <span style={{ fontSize: "0.76rem", color: "#991b1b" }}>
-                {data.note || "The image generation service encountered an unexpected error. Please retry."}
+                {data.note || (data.stage === "saved" && !isComplete ? "No generated image was returned. Please retry." : "The image generation service encountered an unexpected error. Please retry.")}
               </span>
             </div>
           </div>
@@ -755,7 +757,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
                     {data.prompt}
                   </span>
                   <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.6)" }}>
-                    {data.model || "Seedance 5.0"} · {data.resolution || "1024 × 1024 PNG"}
+                    {data.model || "Image provider"} · {data.resolution || "1024 × 1024 PNG"}
                   </span>
                 </div>
               </div>

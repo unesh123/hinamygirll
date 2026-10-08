@@ -1,3 +1,4 @@
+import { StreamingSpeechText } from "../audio/streamingSpeechText";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import { BackendConversationProvider } from "../providers/backendConversationProvider";
@@ -352,7 +353,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     timers.current = [];
   }, []);
 
-  type TurnFinalization = { errorText?: string; preservePartial?: boolean };
+  type TurnFinalization = { errorText?: string; preservePartial?: boolean; planCompleted?: boolean };
 
   // This is the sole terminal path for browser-chat turns. It is intentionally
   // idempotent and sequence-aware: a stale response cannot unlock, overwrite,
@@ -367,12 +368,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     clearTimers();
     if (!result.preservePartial) setPartialTranscript("");
 
-    // Commit any partially streamed text so user never loses generated content on pause or stop
+    // Commit any partially streamed text so user never loses generated content on pause or stop,
+    // but only if the turn did not already complete cleanly with a structured plan message.
     const partialToSave = latestStreamedTextRef.current.trim();
-    if (partialToSave) {
+    if (partialToSave && !result.planCompleted) {
       setMessages((current) => [...current, createMessage("assistant", partialToSave)]);
-      latestStreamedTextRef.current = "";
     }
+    latestStreamedTextRef.current = "";
 
     setStreamingText("");
     setActivePlan(undefined);
@@ -566,12 +568,25 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       setCurrentAgentConfirmationStepId(undefined);
       setState("thinking");
 
-      let streamRafId: any = null;
+      let streamRafId: number | null = null;
+      let streamTimerId: ReturnType<typeof setTimeout> | null = null;
       let lastStreamFlushTime = 0;
+      const cancelStreamSchedules = () => {
+        if (streamTimerId !== null) {
+          clearTimeout(streamTimerId);
+          streamTimerId = null;
+        }
+        if (streamRafId !== null) {
+          if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+            window.cancelAnimationFrame(streamRafId);
+          }
+          streamRafId = null;
+        }
+      };
       try {
         let rawStreamed = "";
         let streamed = "";
-        let sentenceBuffer = "";
+        const speechText = new StreamingSpeechText();
         let isFirstSentence = true;
         let completedPlan: AssistantTurnPlan | undefined;
         let providerLatencyMs: number | undefined;
@@ -615,39 +630,23 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           } else if (event.type === "text.delta") {
             setIsSearching(false);
             rawStreamed += event.delta;
-            sentenceBuffer += event.delta;
-            latestStreamedTextRef.current = getSafeAssistantStreamingText(rawStreamed) || rawStreamed;
-            
-            // Check for sentence/clause boundary to stream speech concurrently with generation
-            const sentenceMatch = sentenceBuffer.match(/^([\s\S]*?[.!?\n\u0964\u0965;])(?:\s+|$)/);
-            const clauseMatch = (!sentenceMatch && sentenceBuffer.length > 45)
-              ? sentenceBuffer.match(/^([\s\S]*?[,:\-–—])(?:\s+)/)
-              : null;
-            const match = sentenceMatch || clauseMatch;
-            if (match) {
-              const fullSentence = match[1].trim();
-              sentenceBuffer = sentenceBuffer.slice(match[0].length);
-              if (
-                fullSentence.length > 2 &&
-                !META_REFLECTION_SPEECH_RE.test(fullSentence) &&
-                !/<(?:think|thought)>/i.test(fullSentence) &&
-                options?.onSentenceChunk
-              ) {
-                try {
-                  options.onSentenceChunk(fullSentence, isFirstSentence);
-                } catch {
-                  // Non-blocking
-                }
+            const safeStreamed = getSafeAssistantStreamingText(rawStreamed);
+            latestStreamedTextRef.current = safeStreamed;
+            for (const phrase of speechText.push(safeStreamed)) {
+              if (!META_REFLECTION_SPEECH_RE.test(phrase) && options?.onSentenceChunk) {
+                try { options.onSentenceChunk(phrase, isFirstSentence); } catch { /* speech must not block text */ }
                 isFirstSentence = false;
               }
             }
 
             // Batch streaming deltas smoothly at ~36ms (~28 FPS) to leave 70%+ of main-thread budget for 120 FPS scrolling
             const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-            if (!streamRafId) {
+            if (streamRafId === null && streamTimerId === null) {
               const timeSinceLastFlush = now - lastStreamFlushTime;
               const flushDeltas = () => {
                 streamRafId = null;
+                streamTimerId = null;
+                if (completedPlan || activeTurnId.current !== turnId) return;
                 lastStreamFlushTime = typeof performance !== "undefined" ? performance.now() : Date.now();
                 streamed = getSafeAssistantStreamingText(rawStreamed);
                 setStreamingText(streamed);
@@ -658,12 +657,14 @@ export function useCompanionController({ conversationId, routing, languagePolicy
                 if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
                   streamRafId = window.requestAnimationFrame(flushDeltas);
                 } else {
-                  streamRafId = window.setTimeout(flushDeltas, 16);
+                  flushDeltas();
                 }
               } else {
-                streamRafId = window.setTimeout(() => {
+                streamTimerId = setTimeout(() => {
+                  streamTimerId = null;
+                  if (completedPlan || activeTurnId.current !== turnId) return;
                   if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-                    window.requestAnimationFrame(flushDeltas);
+                    streamRafId = window.requestAnimationFrame(flushDeltas);
                   } else {
                     flushDeltas();
                   }
@@ -671,27 +672,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               }
             }
           } else if (event.type === "plan") {
+            cancelStreamSchedules();
             latestStreamedTextRef.current = "";
-            const finalRemaining = sentenceBuffer.trim();
-            if (
-              finalRemaining.length > 2 &&
-              !META_REFLECTION_SPEECH_RE.test(finalRemaining) &&
-              !/<(?:think|thought)>/i.test(finalRemaining) &&
-              options?.onSentenceChunk
-            ) {
-              try {
-                options.onSentenceChunk(finalRemaining, isFirstSentence);
-              } catch {
-                // Non-blocking
+            for (const phrase of speechText.flush()) {
+              if (!META_REFLECTION_SPEECH_RE.test(phrase) && options?.onSentenceChunk) {
+                try { options.onSentenceChunk(phrase, isFirstSentence); } catch { /* non-blocking */ }
+                isFirstSentence = false;
               }
-              sentenceBuffer = "";
-            }
-            if (streamRafId) {
-              if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
-                window.cancelAnimationFrame(streamRafId);
-              }
-              window.clearTimeout(streamRafId);
-              streamRafId = null;
             }
             setIsSearching(false);
             setSearchQuery("");
@@ -743,7 +730,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           finalizeTurn(turnId, { errorText: "Hinaa did not receive a complete response. Please try again." });
           return undefined;
         }
-        if (!finalizeTurn(turnId, { preservePartial: true })) return undefined;
+        if (!finalizeTurn(turnId, { preservePartial: true, planCompleted: true })) return undefined;
         // The controller is now unlocked, while the immutable turnId remains
         // available to the playback owner. This makes typed-chat TTS traceable
         // without allowing stale stream callbacks to mutate a later turn.
@@ -785,14 +772,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         finalizeTurn(turnId, { errorText: singleLine(friendly, "HINAA could not finish this turn.") });
         return undefined;
       } finally {
-        if (streamRafId) {
-          const cancelFrame =
-            typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
-              ? window.cancelAnimationFrame
-              : clearTimeout;
-          cancelFrame(streamRafId);
-          streamRafId = null;
-        }
+        cancelStreamSchedules();
         if (currentAbort.current === abortController) currentAbort.current = undefined;
       }
     },
@@ -869,7 +849,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             for (let attempt = 0; attempt < 180; attempt += 1) {
               await new Promise((resolve) => window.setTimeout(resolve, 1500));
               try {
-                const pollResponse = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(payload.job_id)}`);
+                const pollResponse = await fetch(`/api/v1/tools/poll?job_id=${encodeURIComponent(payload.job_id)}`, { signal: AbortSignal.timeout(12000) });
                 const progress = await pollResponse.json();
                 if (!pollResponse.ok) continue;
                 // The route answers "processing" | "completed" | "failed".
@@ -903,7 +883,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
                       thumbnailUrl: firstImg || existingData.thumbnailUrl || "",
                       images: generatedImages.length > 0 ? generatedImages : existingData.images,
                       slots: progress.slots || existingData.slots,
-                      model: progress.mode ? (progress.mode.includes("flux") ? "FLUX.1 [dev]" : progress.mode) : (existingData.model || "FLUX.1 [dev]"),
+                      model: progress.renderer || progress.provider || existingData.model,
+                      note: typeof progress.error === "string" ? progress.error : existingData.note,
                       resolution: progress.slots?.[0] ? `${progress.slots[0].width} × ${progress.slots[0].height}` : (existingData.resolution || "1024 × 1024"),
                     };
                     nextActionDraft = {
@@ -929,6 +910,11 @@ export function useCompanionController({ conversationId, routing, languagePolicy
                 // Keep the last known progress visible; the next poll may recover.
               }
             }
+            setMessages((current) => current.map((message) => message.id === messageId ? {
+              ...message,
+              toolResults: [...(message.toolResults || []).filter((item) => item.toolName !== request.toolName), { toolName: request.toolName, result: { status: "failed", error: "Image status checks timed out. Check the provider connection and job status before retrying." } }],
+              toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? { ...activity, status: "error", label: "Status checks timed out" } : activity),
+            } : message));
           })();
           return;
         }
@@ -957,7 +943,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               thumbnailUrl: firstDirectImg || existingData.thumbnailUrl || "",
               images: directImages.length > 0 ? directImages : existingData.images,
               slots: payload.slots || existingData.slots,
-              model: payload.mode ? (payload.mode.includes("flux") ? "FLUX.1 [dev]" : payload.mode) : (existingData.model || "FLUX.1 [dev]"),
+              model: payload.renderer || payload.provider || existingData.model,
+              note: typeof payload.error === "string" ? payload.error : existingData.note,
               resolution: payload.slots?.[0] ? `${payload.slots[0].width} × ${payload.slots[0].height}` : (existingData.resolution || "1024 × 1024"),
             };
             nextActionDraft = {

@@ -43,7 +43,9 @@ import asyncio
 import ctypes
 import json
 import logging
+import math
 import os
+from pathlib import Path
 import platform
 import subprocess
 import time
@@ -52,6 +54,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
+from hinaa_api.integrations.desktop_bridge_auth import bridge_token
 from hinaa_api.tools.registry import registry, ToolDefinition
 from hinaa_api.harness.motion_brain import get_motion_director, SemanticIntent, SpatialStation
 
@@ -264,12 +267,85 @@ class NativeComputerOperator:
     def get_active_window(cls) -> GeneralPerception:
         return cls.observe()
 
+    DAEMON_URL = "http://127.0.0.1:8765"
+
+    @classmethod
+    def is_daemon_live(cls) -> bool:
+        """Checks if the interactive desktop control daemon is responding on port 8765."""
+        import urllib.request
+        try:
+            req = urllib.request.Request(f"{cls.DAEMON_URL}/health", headers={"User-Agent": "HINAA-ComputerOperator", "Authorization": "Bearer " + bridge_token()})
+            with urllib.request.urlopen(req, timeout=0.35) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
+
+    @classmethod
+    async def send_daemon_action(cls, action_payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Sends an action to the local interactive desktop control daemon."""
+        import urllib.request
+        try:
+            data = json.dumps(action_payload).encode("utf-8")
+            req = urllib.request.Request(
+                f"{cls.DAEMON_URL}/api/action",
+                data=data,
+                headers={"Content-Type": "application/json", "User-Agent": "HINAA-ComputerOperator", "Authorization": "Bearer " + bridge_token()},
+            )
+            loop = asyncio.get_running_loop()
+            def _post():
+                with urllib.request.urlopen(req, timeout=4.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            return await loop.run_in_executor(None, _post)
+        except Exception as e:
+            logger.debug(f"Daemon call failed: {e}")
+            return None
+
     # ── Primitive Actuator API ─────────────────────────────────────────
+
+    @classmethod
+    async def mouse_move(cls, x: int, y: int, smooth: bool = True) -> bool:
+        """Moves cursor to (x, y) coordinates. If smooth=True, glides naturally."""
+        cls.emit_motion_event("computer_action", f"Move mouse to ({x}, {y})")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "mouse_move", "x": x, "y": y, "smooth": smooth})
+            if res and res.get("success"):
+                return True
+
+        if platform.system() == "Windows":
+            try:
+                user32 = ctypes.windll.user32
+                if not smooth:
+                    return bool(user32.SetCursorPos(x, y))
+
+                # Smooth cursor glide interpolation
+                class POINT(ctypes.Structure):
+                    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+                pt = POINT()
+                user32.GetCursorPos(ctypes.byref(pt))
+                start_x, start_y = pt.x, pt.y
+                steps = 15
+                for step in range(1, steps + 1):
+                    t = step / steps
+                    ease = 1.0 - math.pow(1.0 - t, 3)
+                    cur_x = int(start_x + (x - start_x) * ease)
+                    cur_y = int(start_y + (y - start_y) * ease)
+                    user32.SetCursorPos(cur_x, cur_y)
+                    await asyncio.sleep(0.012)
+                user32.SetCursorPos(x, y)
+                return True
+            except Exception:
+                return False
+        return True
 
     @classmethod
     async def focus_window(cls, target: str) -> bool:
         """Brings target window into foreground."""
         cls.emit_motion_event("computer_action", f"Focus {target}")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "focus_window", "target": target})
+            if res and res.get("success"):
+                return True
+
         if platform.system() != "Windows":
             return False
 
@@ -284,31 +360,291 @@ class NativeComputerOperator:
             return False
 
     @classmethod
-    async def click(cls, x: int = 0, y: int = 0, button: str = "left") -> bool:
+    async def list_windows(cls) -> list[dict[str, Any]]:
+        """Lists active top-level application windows."""
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "list_windows"})
+            if res and "windows" in res:
+                return res["windows"]
+        if platform.system() == "Windows":
+            try:
+                import ctypes, ctypes.wintypes
+                user32 = ctypes.windll.user32
+                windows = []
+
+                def enum_proc(hwnd, lParam):
+                    if user32.IsWindowVisible(hwnd):
+                        length = user32.GetWindowTextLengthW(hwnd)
+                        if length > 0:
+                            buff = ctypes.create_unicode_buffer(length + 1)
+                            user32.GetWindowTextW(hwnd, buff, length + 1)
+                            title = buff.value.strip()
+                            if title and title not in ("Default IME", "MSCTFIME UI"):
+                                pid = ctypes.c_ulong()
+                                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                                proc_name = ""
+                                try:
+                                    import psutil
+                                    proc_name = psutil.Process(pid.value).name()
+                                except Exception:
+                                    pass
+                                windows.append({
+                                    "hwnd": int(hwnd),
+                                    "pid": int(pid.value),
+                                    "process": proc_name,
+                                    "title": title,
+                                })
+                    return True
+
+                WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+                user32.EnumWindows(WNDENUMPROC(enum_proc), 0)
+                if windows:
+                    return windows
+            except Exception:
+                pass
+
+            try:
+                ps = "Get-Process | Where-Object MainWindowTitle | Select-Object Id, ProcessName, MainWindowTitle | ConvertTo-Json -Compress"
+                res = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=2.5)
+                raw = res.stdout.strip()
+                if raw:
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        data = [data]
+                    return [
+                        {"pid": item.get("Id"), "process": item.get("ProcessName", ""), "title": item.get("MainWindowTitle", "")}
+                        for item in data
+                    ]
+            except Exception:
+                pass
+        return []
+
+    @classmethod
+    async def close_window(cls, target: str) -> bool:
+        """Closes a target window."""
+        cls.emit_motion_event("computer_action", f"Close {target}")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "close_window", "target": target})
+            if res and res.get("success"):
+                return True
+        if platform.system() == "Windows":
+            try:
+                ps = f"$p = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' -or $_.ProcessName -like '*{target}*' }} | Select-Object -First 1; if ($p) {{ $p.CloseMainWindow() }}"
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=3.0)
+                return True
+            except Exception:
+                return False
+        return False
+
+    @classmethod
+    async def set_window_state(cls, target: str, state: str = "maximize") -> bool:
+        """Minimizes or maximizes a target window."""
+        cls.emit_motion_event("computer_action", f"{state.title()} {target}")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "set_window_state", "target": target, "state": state})
+            if res and res.get("success"):
+                return True
+        if platform.system() == "Windows":
+            try:
+                show_cmd = "3" if state == "maximize" else "2"
+                ps = f"""
+                $wscript = New-Object -ComObject WScript.Shell
+                if ($wscript.AppActivate('{target}')) {{
+                    Add-Type -TypeDefinition @"
+                    using System;
+                    using System.Runtime.InteropServices;
+                    public class Win32Win {{
+                        [DllImport("user32.dll")]
+                        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+                        [DllImport("user32.dll")]
+                        public static extern IntPtr GetForegroundWindow();
+                    }}
+"@
+                    [Win32Win]::ShowWindow([Win32Win]::GetForegroundWindow(), {show_cmd})
+                }}
+                """
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=3.0)
+                return True
+            except Exception:
+                return False
+        return False
+
+    @classmethod
+    async def click(cls, x: Optional[int] = None, y: Optional[int] = None, button: str = "left", clicks: int = 1) -> bool:
         """Sends native mouse click at screen coordinates."""
-        cls.emit_motion_event("computer_action", f"Click {button} at ({x}, {y})")
+        cls.emit_motion_event("computer_action", f"Click {button} x{clicks} at ({x}, {y})")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "click", "x": x, "y": y, "button": button, "clicks": clicks})
+            if res and res.get("success"):
+                return True
+
         if platform.system() == "Windows":
             try:
                 user32 = ctypes.windll.user32
-                if x > 0 or y > 0:
-                    user32.SetCursorPos(x, y)
-                await asyncio.sleep(0.05)
-                # Mouse event flags: MOUSEEVENTF_LEFTDOWN = 0x02, LEFTUP = 0x04, RIGHTDOWN = 0x08, RIGHTUP = 0x10
-                if button == "right":
-                    user32.mouse_event(0x08, 0, 0, 0, 0)
-                    user32.mouse_event(0x10, 0, 0, 0, 0)
-                else:
-                    user32.mouse_event(0x02, 0, 0, 0, 0)
-                    user32.mouse_event(0x04, 0, 0, 0, 0)
+                if x is not None and y is not None and (x > 0 or y > 0):
+                    await cls.mouse_move(x, y, smooth=True)
+                await asyncio.sleep(0.03)
+                btn = button.lower()
+                for i in range(clicks):
+                    if btn == "right":
+                        user32.mouse_event(0x08, 0, 0, 0, 0)
+                        user32.mouse_event(0x10, 0, 0, 0, 0)
+                    elif btn == "middle":
+                        user32.mouse_event(0x20, 0, 0, 0, 0)
+                        user32.mouse_event(0x40, 0, 0, 0, 0)
+                    else:
+                        user32.mouse_event(0x02, 0, 0, 0, 0)
+                        user32.mouse_event(0x04, 0, 0, 0, 0)
+                    if clicks > 1 and i < clicks - 1:
+                        await asyncio.sleep(0.08)
                 return True
             except Exception:
                 return False
         return True
 
     @classmethod
+    async def double_click(cls, x: Optional[int] = None, y: Optional[int] = None) -> bool:
+        """Double clicks at target coordinates."""
+        return await cls.click(x=x, y=y, button="left", clicks=2)
+
+    @classmethod
+    async def right_click(cls, x: Optional[int] = None, y: Optional[int] = None) -> bool:
+        """Right clicks to open context menu."""
+        return await cls.click(x=x, y=y, button="right", clicks=1)
+
+    @classmethod
+    async def drag(cls, start_x: int, start_y: int, end_x: int, end_y: int) -> bool:
+        """Drags mouse from start to end coordinates."""
+        cls.emit_motion_event("computer_action", f"Drag from ({start_x}, {start_y}) to ({end_x}, {end_y})")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "drag", "start_x": start_x, "start_y": start_y, "end_x": end_x, "end_y": end_y})
+            if res and res.get("success"):
+                return True
+
+        if platform.system() == "Windows":
+            try:
+                user32 = ctypes.windll.user32
+                await cls.mouse_move(start_x, start_y, smooth=True)
+                await asyncio.sleep(0.04)
+                user32.mouse_event(0x02, 0, 0, 0, 0)  # LEFTDOWN
+                await asyncio.sleep(0.04)
+                steps = 20
+                for step in range(1, steps + 1):
+                    t = step / steps
+                    cur_x = int(start_x + (end_x - start_x) * t)
+                    cur_y = int(start_y + (end_y - start_y) * t)
+                    user32.SetCursorPos(cur_x, cur_y)
+                    await asyncio.sleep(0.015)
+                user32.SetCursorPos(end_x, end_y)
+                await asyncio.sleep(0.04)
+                user32.mouse_event(0x04, 0, 0, 0, 0)  # LEFTUP
+                return True
+            except Exception:
+                return False
+        return True
+
+    @classmethod
+    async def screenshot(cls) -> Dict[str, Any]:
+        """Captures real full desktop screen."""
+        cls.emit_motion_event("computer_action", "Capture desktop screenshot")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "screenshot"})
+            if res and res.get("success"):
+                return res
+
+        screenshot_dir = Path(__file__).resolve().parents[3] / "apps" / "api" / "data" / "screenshots"
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"screen_{int(time.time() * 1000)}.png"
+        filepath = screenshot_dir / filename
+
+        # Fallback via local PIL ImageGrab
+        try:
+            from PIL import ImageGrab
+            img = ImageGrab.grab()
+            img.save(str(filepath), "PNG")
+            return {
+                "success": True,
+                "filepath": str(filepath),
+                "filename": filename,
+                "width": img.width,
+                "height": img.height,
+            }
+        except Exception as e:
+            logger.debug(f"PIL ImageGrab fallback failed ({e}), trying PowerShell CopyFromScreen")
+            try:
+                ps = f"""
+                Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+                $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+                $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+                $bmp.Save('{str(filepath).replace('\\', '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png)
+                $g.Dispose()
+                $bmp.Dispose()
+                """
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=4.0)
+                if filepath.exists() and filepath.stat().st_size > 0:
+                    return {
+                        "success": True,
+                        "filepath": str(filepath),
+                        "filename": filename,
+                    }
+            except Exception as ps_err:
+                logger.debug(f"PowerShell screenshot also failed: {ps_err}")
+            return {
+                "success": False,
+                "error": "Screen capture could not access display DC. Run 'scripts/start-desktop-daemon.bat' in your desktop session for physical screen access.",
+            }
+
+    @classmethod
+    async def chrome_control(
+        cls,
+        url: Optional[str] = None,
+        action: str = "navigate",
+        selector: Optional[str] = None,
+        text: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Drives Google Chrome autonomously via Playwright automation engine."""
+        cls.emit_motion_event("computer_action", f"Chrome: {action} {url or selector or ''}")
+        try:
+            from hinaa_api.tools.browser_automation import (
+                browser_navigate,
+                browser_click,
+                browser_type,
+                browser_extract,
+                BrowserNavigateParams,
+                BrowserClickParams,
+                BrowserTypeParams,
+                BrowserExtractParams,
+            )
+
+            if action == "navigate" and url:
+                msg = await browser_navigate(BrowserNavigateParams(url=url))
+                return {"success": True, "action": "navigate", "detail": msg}
+            elif action == "click" and selector:
+                msg = await browser_click(BrowserClickParams(selector=selector))
+                return {"success": True, "action": "click", "detail": msg}
+            elif action == "type" and selector and text:
+                msg = await browser_type(BrowserTypeParams(selector=selector, text=text))
+                return {"success": True, "action": "type", "detail": msg}
+            elif action == "extract":
+                msg = await browser_extract(BrowserExtractParams(selector=selector or "body", extract_type="text"))
+                return {"success": True, "action": "extract", "detail": msg}
+            else:
+                return {"success": False, "error": f"Unknown Chrome control action '{action}'."}
+        except Exception as e:
+            logger.error(f"chrome_control error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    @classmethod
     async def type_text(cls, text: str, clear_first: bool = False) -> bool:
         """Types text using native keystrokes."""
         cls.emit_motion_event("computer_action", f"Type text: {text[:20]}")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "type_text", "text": text, "clear_first": clear_first})
+            if res and res.get("success"):
+                return True
+
         if platform.system() == "Windows":
             try:
                 safe_text = text.replace("'", "''").replace("{", "{{").replace("}", "}}").replace("+", "{+}").replace("^", "{^}").replace("%", "{%}")
@@ -328,6 +664,11 @@ class NativeComputerOperator:
     async def press_hotkey(cls, keys: str) -> bool:
         """Triggers hotkey combinations (e.g. enter, ctrl+f, alt+tab, escape)."""
         cls.emit_motion_event("computer_action", f"Hotkey: {keys}")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "press_hotkey", "keys": keys})
+            if res and res.get("success"):
+                return True
+
         if platform.system() == "Windows":
             try:
                 key_map = {
@@ -356,10 +697,14 @@ class NativeComputerOperator:
     async def scroll(cls, direction: str = "down", amount: int = 3) -> bool:
         """Scrolls mouse wheel up or down."""
         cls.emit_motion_event("computer_action", f"Scroll {direction}")
+        if cls.is_daemon_live():
+            res = await cls.send_daemon_action({"action": "scroll", "direction": direction, "amount": amount})
+            if res and res.get("success"):
+                return True
+
         if platform.system() == "Windows":
             try:
                 user32 = ctypes.windll.user32
-                # MOUSEEVENTF_WHEEL = 0x0800. Positive is up (120), negative is down (-120)
                 delta = -120 * amount if direction == "down" else 120 * amount
                 user32.mouse_event(0x0800, 0, 0, delta, 0)
                 return True
@@ -384,6 +729,7 @@ class NativeComputerOperator:
 
         app_aliases = {
             "spotify": "spotify",
+            "spotify web": "https://open.spotify.com",
             "whatsapp": "whatsapp",
             "arc": "arc",
             "chrome": "chrome",
@@ -394,11 +740,38 @@ class NativeComputerOperator:
             "mozilla firefox": "firefox",
             "brave": "brave",
             "youtube": "https://www.youtube.com",
+            "netflix": "https://www.netflix.com",
+            "prime video": "https://www.primevideo.com",
+            "amazon prime": "https://www.primevideo.com",
+            "disney plus": "https://www.disneyplus.com",
+            "disney+": "https://www.disneyplus.com",
+            "hulu": "https://www.hulu.com",
+            "crunchyroll": "https://www.crunchyroll.com",
+            "twitch": "https://www.twitch.tv",
+            "tiktok": "https://www.tiktok.com",
+            "instagram": "https://www.instagram.com",
+            "twitter": "https://x.com",
+            "x": "https://x.com",
+            "gmail": "https://mail.google.com",
+            "google maps": "https://maps.google.com",
+            "maps": "https://maps.google.com",
+            "kimi": "https://www.kimi.com",
+            "kimi ai": "https://www.kimi.com",
+            "chatgpt": "https://chatgpt.com",
+            "chat gpt": "https://chatgpt.com",
+            "claude": "https://claude.ai",
+            "gemini": "https://gemini.google.com",
             "discord": "discord",
             "vscode": "code",
             "vs code": "code",
             "code": "code",
             "visual studio code": "code",
+            "integraphy": "Google.Antigravity",
+            "antigravity": "Google.Antigravity",
+            "antigravity ide": "Google.AntigravityIDE",
+            "cursor": "Anysphere.Cursor",
+            "opencode": "ai.opencode.desktop",
+            "zcode": "dev.zcode.app",
             "terminal": "wt",
             "windows terminal": "wt",
             "cmd": "cmd",
@@ -426,28 +799,46 @@ class NativeComputerOperator:
             "whatsapp desktop": "whatsapp:",
             "whatsapp web": "https://web.whatsapp.com",
         }
+        if cleaned.lower() in {"my editor", "preferred editor", "code editor", "integrity"}:
+            cleaned = os.getenv("HINAA_PREFERRED_EDITOR", "antigravity")
         resolved = app_aliases.get(cleaned.lower(), cleaned)
 
         if system == "Windows":
             try:
                 if resolved.startswith("http://") or resolved.startswith("https://") or resolved.startswith("spotify:") or resolved.startswith("ms-settings:") or resolved.startswith("microsoft.windows."):
-                    os.system(f'start "" "{resolved}"')
+                    subprocess.Popen(["explorer.exe", resolved], shell=False)
                 else:
                     safe_target = resolved.replace("'", "''").replace('"', '')
+                    workspace = os.environ.get("WORKSPACE_ROOT") or str(Path(__file__).resolve().parents[4])
+                    safe_workspace = workspace.replace("'", "''").replace('"', '')
                     ps = f"""
+                    $ErrorActionPreference = 'Stop'
                     $target = '{safe_target}'
+                    $wsPath = '{safe_workspace}'
                     $ws = New-Object -ComObject WScript.Shell
                     $activated = $ws.AppActivate($target)
                     if (-not $activated) {{
-                        $found = Get-StartApps | Where-Object {{ $_.Name -like "*$target*" -or $_.AppID -like "*$target*" }} | Select-Object -First 1
-                        if ($found) {{
-                            Start-Process "shell:AppsFolder\\$($found.AppID)" -ErrorAction SilentlyContinue
+                        $antigravityIdeExe = "$env:LOCALAPPDATA\\Programs\\Antigravity IDE\\Antigravity IDE.exe"
+                        $antigravityExe = "$env:LOCALAPPDATA\\Programs\\antigravity\\Antigravity.exe"
+                        if ($target -like "*AntigravityIDE*" -and (Test-Path $antigravityIdeExe)) {{
+                            Start-Process -FilePath $antigravityIdeExe -ArgumentList "`"$wsPath`"" -ErrorAction Stop
+                        }} elseif ($target -like "*Antigravity*" -and (Test-Path $antigravityExe)) {{
+                            Start-Process -FilePath $antigravityExe -ArgumentList "`"$wsPath`"" -ErrorAction Stop
+                        }} elseif ($target -eq "code") {{
+                            Start-Process -FilePath "code" -ArgumentList "`"$wsPath`"" -ErrorAction Stop
+                        }} elseif ($target -like "*cursor*") {{
+                            Start-Process -FilePath "cursor" -ArgumentList "`"$wsPath`"" -ErrorAction Stop
                         }} else {{
-                            Start-Process $target -ErrorAction SilentlyContinue
+                            $found = Get-StartApps | Where-Object {{ $_.Name -like "*$target*" -or $_.AppID -like "*$target*" }} | Select-Object -First 1
+                            if ($found) {{
+                                Start-Process "shell:AppsFolder\\$($found.AppID)" -ErrorAction Stop
+                            }} else {{
+                                Start-Process $target -ErrorAction Stop
+                            }}
                         }}
                     }}
                     """
-                    subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=4.0)
+                    subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=8.0, check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
                 await asyncio.sleep(0.4)
                 obs = cls.observe()
@@ -455,8 +846,8 @@ class NativeComputerOperator:
                     success=True,
                     action="open_application",
                     target=app_or_url,
-                    detail=f"Launched/focused '{app_or_url}'.",
-                    verified=True,
+                    detail=f"Launch/focus requested for '{app_or_url}'. Window verification is pending.",
+                    verified=False,
                     observation=obs,
                 )
             except Exception as e:
@@ -803,7 +1194,7 @@ computer_operator_tool_def = ToolDefinition(
     display_name="HINAA Computer-Use Engine v2",
     description=(
         "Autonomous Computer-Use Engine with 3-eye perception (Accessibility, DOM, Vision), "
-        "primitive actions (click, type, hotkey, scroll, open_application), safety confirmation gate, "
+        "primitive actions (mouse_move, click, double_click, right_click, drag, type_text, press_hotkey, scroll, screenshot, open_application, chrome_control, daemon_status), safety confirmation gate, "
         "and verified multi-step execution loops."
     ),
     parameters={
@@ -811,13 +1202,26 @@ computer_operator_tool_def = ToolDefinition(
             "type": "string",
             "enum": [
                 "observe_desktop",
+                "observe",
                 "open_app",
                 "open_application",
                 "media_control",
                 "type_text",
                 "press_hotkey",
+                "mouse_move",
                 "click",
+                "double_click",
+                "right_click",
+                "drag",
                 "scroll",
+                "screenshot",
+                "capture_screen",
+                "chrome_control",
+                "daemon_status",
+                "list_windows",
+                "close_window",
+                "minimize_window",
+                "maximize_window",
                 "draft_message",
                 "send_message",
                 "type_and_send",
@@ -840,11 +1244,43 @@ computer_operator_tool_def = ToolDefinition(
         },
         "x": {
             "type": "integer",
-            "description": "Horizontal screen coordinate for click/drag.",
+            "description": "Horizontal screen coordinate for click/drag/mouse_move.",
         },
         "y": {
             "type": "integer",
-            "description": "Vertical screen coordinate for click/drag.",
+            "description": "Vertical screen coordinate for click/drag/mouse_move.",
+        },
+        "start_x": {
+            "type": "integer",
+            "description": "Starting horizontal screen coordinate for drag.",
+        },
+        "start_y": {
+            "type": "integer",
+            "description": "Starting vertical screen coordinate for drag.",
+        },
+        "end_x": {
+            "type": "integer",
+            "description": "Ending horizontal screen coordinate for drag.",
+        },
+        "end_y": {
+            "type": "integer",
+            "description": "Ending vertical screen coordinate for drag.",
+        },
+        "button": {
+            "type": "string",
+            "description": "Mouse button ('left', 'right', 'middle').",
+        },
+        "url": {
+            "type": "string",
+            "description": "Target web URL for Chrome browser control.",
+        },
+        "selector": {
+            "type": "string",
+            "description": "CSS selector for Chrome browser interaction.",
+        },
+        "chrome_action": {
+            "type": "string",
+            "description": "Chrome automation action ('navigate', 'click', 'type', 'extract').",
         },
         "confirmed": {
             "type": "boolean",
@@ -875,6 +1311,7 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
     token = parameters.get("confirmation_token")
     x = int(parameters.get("x", 0))
     y = int(parameters.get("y", 0))
+    button = str(parameters.get("button", "left")).strip().lower()
 
     if action in ("observe_desktop", "observe"):
         obs = NativeComputerOperator.observe()
@@ -896,14 +1333,138 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
         ok = await NativeComputerOperator.press_hotkey(target or content)
         return {"success": ok, "action": "press_hotkey", "target": target or content}
 
+    elif action == "mouse_move":
+        ok = await NativeComputerOperator.mouse_move(x=x, y=y, smooth=True)
+        return {
+            "success": ok,
+            "action": "mouse_move",
+            "x": x,
+            "y": y,
+            "via_daemon": NativeComputerOperator.is_daemon_live(),
+            "detail": f"Cursor glided to ({x}, {y})",
+        }
+
     elif action == "click":
-        ok = await NativeComputerOperator.click(x=x, y=y)
-        return {"success": ok, "action": "click", "x": x, "y": y}
+        click_x = x if (x > 0 or y > 0) else None
+        click_y = y if (x > 0 or y > 0) else None
+        ok = await NativeComputerOperator.click(x=click_x, y=click_y, button=button)
+        return {
+            "success": ok,
+            "action": "click",
+            "x": x,
+            "y": y,
+            "button": button,
+            "via_daemon": NativeComputerOperator.is_daemon_live(),
+            "detail": f"Clicked {button} button at ({x}, {y})" if click_x is not None else f"Clicked {button} button at current position",
+        }
+
+    elif action == "double_click":
+        click_x = x if (x > 0 or y > 0) else None
+        click_y = y if (x > 0 or y > 0) else None
+        ok = await NativeComputerOperator.double_click(x=click_x, y=click_y)
+        return {
+            "success": ok,
+            "action": "double_click",
+            "x": x,
+            "y": y,
+            "via_daemon": NativeComputerOperator.is_daemon_live(),
+            "detail": f"Double-clicked at ({x}, {y})" if click_x is not None else "Double-clicked at current position",
+        }
+
+    elif action == "right_click":
+        click_x = x if (x > 0 or y > 0) else None
+        click_y = y if (x > 0 or y > 0) else None
+        ok = await NativeComputerOperator.right_click(x=click_x, y=click_y)
+        return {
+            "success": ok,
+            "action": "right_click",
+            "x": x,
+            "y": y,
+            "via_daemon": NativeComputerOperator.is_daemon_live(),
+            "detail": f"Right-clicked at ({x}, {y})" if click_x is not None else "Right-clicked at current position",
+        }
+
+    elif action == "drag":
+        start_x = int(parameters.get("start_x", x))
+        start_y = int(parameters.get("start_y", y))
+        end_x = int(parameters.get("end_x", parameters.get("target_x", 0)))
+        end_y = int(parameters.get("end_y", parameters.get("target_y", 0)))
+        ok = await NativeComputerOperator.drag(start_x=start_x, start_y=start_y, end_x=end_x, end_y=end_y)
+        return {
+            "success": ok,
+            "action": "drag",
+            "start_x": start_x,
+            "start_y": start_y,
+            "end_x": end_x,
+            "end_y": end_y,
+            "via_daemon": NativeComputerOperator.is_daemon_live(),
+            "detail": f"Dragged from ({start_x}, {start_y}) to ({end_x}, {end_y})",
+        }
+
+    elif action in ("screenshot", "capture_screen"):
+        res = await NativeComputerOperator.screenshot()
+        return res
+
+    elif action == "chrome_control":
+        chrome_act = str(parameters.get("chrome_action", "")).strip().lower() or "navigate"
+        target_url = parameters.get("url") or (target if target.startswith("http") else None)
+        res = await NativeComputerOperator.chrome_control(
+            url=target_url,
+            action=chrome_act,
+            selector=parameters.get("selector"),
+            text=content or parameters.get("text"),
+        )
+        return res
+
+    elif action == "daemon_status":
+        live = NativeComputerOperator.is_daemon_live()
+        return {
+            "success": True,
+            "daemon_online": live,
+            "daemon_url": NativeComputerOperator.DAEMON_URL,
+            "detail": (
+                "Desktop daemon is active and responsive on port 8765"
+                if live
+                else "Desktop daemon is offline. Run 'scripts/start-desktop-daemon.bat' for interactive desktop gliding."
+            ),
+        }
+
+    elif action == "list_windows":
+        windows = await NativeComputerOperator.list_windows()
+        return {
+            "success": True,
+            "action": "list_windows",
+            "windows": windows,
+            "count": len(windows),
+            "detail": f"Discovered {len(windows)} active desktop application windows.",
+        }
+
+    elif action == "close_window":
+        app_target = target or content
+        ok = await NativeComputerOperator.close_window(app_target)
+        return {
+            "success": ok,
+            "action": "close_window",
+            "target": app_target,
+            "detail": f"Closed window matching '{app_target}'" if ok else f"Could not find or close window matching '{app_target}'.",
+        }
+
+    elif action in ("minimize_window", "maximize_window"):
+        app_target = target or content
+        state = "minimize" if "minimize" in action else "maximize"
+        ok = await NativeComputerOperator.set_window_state(app_target, state=state)
+        return {
+            "success": ok,
+            "action": action,
+            "target": app_target,
+            "detail": f"{state.title()}d window matching '{app_target}'" if ok else f"Could not change window state for '{app_target}'.",
+        }
 
     elif action == "scroll":
         direction = target if target in ("up", "down") else "down"
-        ok = await NativeComputerOperator.scroll(direction=direction)
-        return {"success": ok, "action": "scroll", "direction": direction}
+        amount = int(parameters.get("amount", 3))
+        ok = await NativeComputerOperator.scroll(direction=direction, amount=amount)
+        return {"success": ok, "action": "scroll", "direction": direction, "amount": amount}
 
     elif action == "draft_message":
         res = await NativeComputerOperator.draft_message(app_name=target or "whatsapp", text=content, recipient=recipient)

@@ -104,6 +104,17 @@ class Runner:
         self.previous: dict = {}
         self.node = shutil.which("node")
         self.npx = Path(self.node).parent / "node_modules/npm/bin/npx-cli.js" if self.node else None
+        # A bundled runtime node (IDE/agent tooling shipping its own copy) can
+        # shadow the real install on PATH; it has no npm/npx beside it, so the
+        # deploy check below would fail for the wrong reason. Fall back to the
+        # standard install location before declaring Node missing.
+        if self.node and not (self.npx and self.npx.exists()):
+            for candidate in (Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs/node.exe",):
+                probe_npx = candidate.parent / "node_modules/npm/bin/npx-cli.js"
+                if candidate.exists() and probe_npx.exists():
+                    self.node = str(candidate)
+                    self.npx = probe_npx
+                    break
         if not self.node:
             raise RuntimeError("Node.js was not found. Install Node before starting Hina.")
         if not dev and not (WEB / "dist/index.html").exists():

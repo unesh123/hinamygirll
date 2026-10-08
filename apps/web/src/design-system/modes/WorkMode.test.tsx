@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { WorkMode } from "./WorkMode";
+import { WorkMode, WorkMessage } from "./WorkMode";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 import type { TranscriptMessage } from "../../features/companion/types";
 
@@ -9,7 +9,7 @@ const messages: TranscriptMessage[] = [
   {
     id: "m1",
     role: "assistant",
-    text: "Hello Unesh.",
+    text: "Hey babe.",
     timestamp: Date.now(),
   },
 ];
@@ -690,4 +690,16 @@ describe("WorkMode command palette", () => {
       expect(screen.getByText("Red mug")).toBeInTheDocument();
     });
   });
+});
+
+
+it("shows a failed image tool result instead of an indefinite optimistic generation", () => {
+  render(<WorkMessage message={{
+    id: "image-failure", role: "assistant", text: "Image request", timestamp: Date.now(),
+    actionDraft: { intent: "image.job", status: "running", fields: { data: { prompt: "Blue cup", stage: "generating" } } } as any,
+    toolResults: [{ toolName: "image_generate", result: { status: "failed", error: "Provider requires credits" } }],
+  }} />);
+  expect(screen.getByText("Generation Failed")).toBeInTheDocument();
+  expect(screen.getByText("Provider requires credits")).toBeInTheDocument();
+  expect(screen.queryByText(/Generating ·/)).not.toBeInTheDocument();
 });

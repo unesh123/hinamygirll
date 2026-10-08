@@ -59,6 +59,19 @@ export interface VRMAvatarProps {
   walkMode?: boolean;
 }
 
+const ALL_FINGER_BONES: VRMHumanBoneName[] = [
+  VRMHumanBoneName.LeftThumbMetacarpal, VRMHumanBoneName.LeftThumbProximal, VRMHumanBoneName.LeftThumbDistal,
+  VRMHumanBoneName.LeftIndexProximal, VRMHumanBoneName.LeftIndexIntermediate, VRMHumanBoneName.LeftIndexDistal,
+  VRMHumanBoneName.LeftMiddleProximal, VRMHumanBoneName.LeftMiddleIntermediate, VRMHumanBoneName.LeftMiddleDistal,
+  VRMHumanBoneName.LeftRingProximal, VRMHumanBoneName.LeftRingIntermediate, VRMHumanBoneName.LeftRingDistal,
+  VRMHumanBoneName.LeftLittleProximal, VRMHumanBoneName.LeftLittleIntermediate, VRMHumanBoneName.LeftLittleDistal,
+  VRMHumanBoneName.RightThumbMetacarpal, VRMHumanBoneName.RightThumbProximal, VRMHumanBoneName.RightThumbDistal,
+  VRMHumanBoneName.RightIndexProximal, VRMHumanBoneName.RightIndexIntermediate, VRMHumanBoneName.RightIndexDistal,
+  VRMHumanBoneName.RightMiddleProximal, VRMHumanBoneName.RightMiddleIntermediate, VRMHumanBoneName.RightMiddleDistal,
+  VRMHumanBoneName.RightRingProximal, VRMHumanBoneName.RightRingIntermediate, VRMHumanBoneName.RightRingDistal,
+  VRMHumanBoneName.RightLittleProximal, VRMHumanBoneName.RightLittleIntermediate, VRMHumanBoneName.RightLittleDistal,
+];
+
 /**
  * Model source order:
  *  1. /models/hinaa.vrm — drop your own VRoid Studio export here (see
@@ -354,6 +367,20 @@ function VrmRig({
     }
     return set;
   }, [vrm]);
+
+  const faceMesh = useMemo<THREE.SkinnedMesh | null>(() => {
+    let found: THREE.SkinnedMesh | null = null;
+    vrm.scene.traverse((obj) => {
+      const mesh = obj as THREE.SkinnedMesh;
+      if (mesh.isSkinnedMesh && mesh.morphTargetDictionary && mesh.morphTargetInfluences) {
+        if (mesh.name.toLowerCase().includes("face") || mesh.morphTargetDictionary["Fcl_ALL_Joy"] !== undefined || mesh.morphTargetDictionary["Fcl_EYE_Joy"] !== undefined) {
+          found = mesh;
+        }
+      }
+    });
+    return found;
+  }, [vrm]);
+
   if (typeof window !== "undefined") {
     (window as any).__HINAA_DEBUG_VRM = { vrm, metrics, camera };
   }
@@ -486,15 +513,15 @@ function VrmRig({
       weights.ou = perf.lipSync.ou;
       weights.ee = perf.lipSync.ee;
       weights.oh = perf.lipSync.oh;
-    } else if (isSpeaking && liveJaw > 0.025) {
-      // Dynamic syllable-based vowel cycle synced to speech energy (avoiding all-vowel mesh distortion)
-      const jawVowel = Math.min(0.85, liveJaw * 1.6);
-      const vowelCycle = Math.floor((time * 8.5) % 5);
-      weights.aa = vowelCycle === 0 ? jawVowel : 0;
-      weights.oh = vowelCycle === 1 ? jawVowel * 0.85 : 0;
-      weights.ih = vowelCycle === 2 ? jawVowel * 0.75 : 0;
-      weights.ee = vowelCycle === 3 ? jawVowel * 0.7 : 0;
-      weights.ou = vowelCycle === 4 ? jawVowel * 0.8 : 0;
+    } else if (isSpeaking && liveJaw > 0.02) {
+      // Smooth continuous vowel envelope shaped by speech energy
+      const env = Math.min(1, Math.max(0, liveJaw * 1.5));
+      if (env > 0.68) { weights.aa = env; }
+      else if (env > 0.45) { weights.ou = env * 0.85; }
+      else if (env > 0.25) { weights.ih = env * 0.70; }
+      else { weights.aa = Math.max(0.08, env * 0.5); }
+      // Radiant smile corners during speech
+      weights.happy = Math.max(weights.happy, 0.42);
     } else {
       weights.aa = 0;
       weights.ih = 0;
@@ -531,7 +558,7 @@ function VrmRig({
         if (availableExpressions.has("mouthFunnel")) manager.setValue("mouthFunnel" as any, (weights.oh + weights.ou) * 0.5);
         if (availableExpressions.has("mouthPucker")) manager.setValue("mouthPucker" as any, weights.ou * 0.8);
         if (availableExpressions.has("Joy")) manager.setValue("Joy" as any, weights.happy);
-        if (availableExpressions.has("Fun")) manager.setValue("Fun" as any, weights.happy);
+        if (availableExpressions.has("Fun")) manager.setValue("Fun" as any, weights.relaxed);
         if (availableExpressions.has("Angry")) manager.setValue("Angry" as any, weights.angry);
         if (availableExpressions.has("Sorrow")) manager.setValue("Sorrow" as any, weights.sad);
         if (availableExpressions.has("Surprised")) manager.setValue("Surprised" as any, weights.surprised);
@@ -539,6 +566,45 @@ function VrmRig({
         if (availableExpressions.has("Blink_L")) manager.setValue("Blink_L" as any, weights.blinkLeft);
         if (availableExpressions.has("Blink_R")) manager.setValue("Blink_R" as any, weights.blinkRight);
         manager.update();
+
+        // Direct high-level face morphs for VRoid anime rigs
+        if (faceMesh && faceMesh.morphTargetDictionary && faceMesh.morphTargetInfluences) {
+          const dict = faceMesh.morphTargetDictionary;
+          const infl = faceMesh.morphTargetInfluences;
+          const setTarget = (name: string, val: number) => {
+            const idx = dict[name];
+            if (idx !== undefined) infl[idx] = THREE.MathUtils.clamp(val, 0, 1);
+          };
+          if (weights.happy > 0.1 || isSpeaking) {
+            setTarget("Fcl_EYE_Joy", Math.max(weights.happy * 0.70, isSpeaking ? 0.35 : 0));
+            setTarget("Fcl_BRW_Joy", Math.max(weights.happy * 0.65, isSpeaking ? 0.30 : 0));
+            setTarget("Fcl_MTH_Up", isSpeaking ? Math.max(weights.happy * 0.60, 0.40) : 0.14);
+          } else {
+            setTarget("Fcl_MTH_Up", 0.14);
+          }
+          if (isSpeaking && weights.surprised > 0.55) {
+            setTarget("Fcl_EYE_Surprised", (weights.surprised - 0.55) * 1.5);
+            setTarget("Fcl_BRW_Surprised", weights.surprised * 0.65);
+          } else {
+            setTarget("Fcl_EYE_Surprised", 0);
+          }
+          if (weights.sad > 0.15) {
+            setTarget("Fcl_BRW_Sorrow", weights.sad * 0.65);
+            setTarget("Fcl_MTH_Down", weights.sad * 0.55);
+          }
+          if (weights.angry > 0.15) {
+            setTarget("Fcl_BRW_Angry", weights.angry * 0.5);
+          }
+          if (weights.relaxed > 0.2) {
+            setTarget("Fcl_BRW_Fun", weights.relaxed * 0.55);
+          }
+          if (!isSpeaking) {
+            setTarget("Fcl_HA_Fung1", 0);
+            setTarget("Fcl_MTH_SkinFung", 0);
+            setTarget("Fcl_MTH_SkinFung_R", 0);
+            setTarget("Fcl_MTH_SkinFung_L", 0);
+          }
+        }
       } catch {
         // Expression API drift — never let it break the frame.
       }
@@ -590,6 +656,7 @@ function VrmRig({
         VRMHumanBoneName.RightFoot,
       );
 
+      const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking");
       const headTarget = gestureHeadTarget(input.gesture, time, input.intensity);
       // Listening: shoulders settle — idle sway nearly stops, head gives a
       // soft attentive tilt toward you instead of random wander.
@@ -616,6 +683,7 @@ function VrmRig({
       const cursorHeadX = pointer ? THREE.MathUtils.clamp(-pointer.y * 0.12, -0.10, 0.10) : 0;
 
       if (head) {
+        const walkStabilizeYaw = isWalking ? -walkTurnYawRef.current : 0;
         head.rotation.x = THREE.MathUtils.damp(
           head.rotation.x,
           settled.x + cursorHeadX,
@@ -624,7 +692,7 @@ function VrmRig({
         );
         head.rotation.y = THREE.MathUtils.damp(
           head.rotation.y,
-          settled.y + idleY + saccade + cursorHeadY,
+          settled.y + idleY + saccade + cursorHeadY + walkStabilizeYaw,
           5,
           delta,
         );
@@ -787,6 +855,36 @@ function VrmRig({
           leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.08, 6, delta);
           leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.2 * armZSign, 6, delta);
         }
+      } else if (isSpeaking) {
+        // Conversational speaking: arms lift naturally into speech space with vocal cadence
+        const rightCadence = Math.sin(time * 2.1);
+        const leftCadence = Math.sin(time * 1.7);
+        if (rightArm) {
+          rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -0.45 + rightCadence * 0.12, 7, delta);
+          rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, 0.25 * armZSign, 7, delta);
+          rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, (-0.45 + rightCadence * 0.08) * armZSign, 7, delta);
+        }
+        if (rightLowerArm) {
+          rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.22, 7, delta);
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, (-0.60 + Math.sin(time * 2.1 + 0.4) * 0.15) * -armZSign, 7, delta);
+          rightLowerArm.rotation.z = THREE.MathUtils.damp(rightLowerArm.rotation.z, -0.35 * armZSign, 7, delta);
+        }
+        if (rightHand) {
+          rightHand.rotation.x = THREE.MathUtils.damp(rightHand.rotation.x, Math.sin(time * 2.1 + 0.8) * 0.16, 8, delta);
+          rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, -0.12 * armZSign, 8, delta);
+        }
+        if (leftArm) {
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -0.20 + leftCadence * 0.06, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, (0.85 + leftCadence * 0.05) * armZSign, 6, delta);
+        }
+        if (leftLowerArm) {
+          leftLowerArm.rotation.x = THREE.MathUtils.damp(leftLowerArm.rotation.x, 0.18, 6, delta);
+          leftLowerArm.rotation.z = THREE.MathUtils.damp(leftLowerArm.rotation.z, 0.25 * armZSign, 6, delta);
+        }
+        if (leftHand) {
+          leftHand.rotation.x = THREE.MathUtils.damp(leftHand.rotation.x, Math.sin(time * 1.7 + 0.5) * 0.08, 6, delta);
+          leftHand.rotation.z = THREE.MathUtils.damp(leftHand.rotation.z, 0.06 * armZSign, 6, delta);
+        }
       } else {
         // Natural resting companion pose: arms relaxed alongside torso, hands resting naturally
         if (leftArm) {
@@ -820,6 +918,49 @@ function VrmRig({
           rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, 0, 6, delta);
         }
       }
+
+      // Anatomical finger kinematics for all 30 phalanges
+      for (const fName of ALL_FINGER_BONES) {
+        const fNode = humanoid.getNormalizedBoneNode(fName)
+          ?? (fName === VRMHumanBoneName.LeftThumbMetacarpal ? humanoid.getNormalizedBoneNode("leftThumbProximal" as any) : null)
+          ?? (fName === VRMHumanBoneName.LeftThumbProximal ? humanoid.getNormalizedBoneNode("leftThumbIntermediate" as any) : null)
+          ?? (fName === VRMHumanBoneName.RightThumbMetacarpal ? humanoid.getNormalizedBoneNode("rightThumbProximal" as any) : null)
+          ?? (fName === VRMHumanBoneName.RightThumbProximal ? humanoid.getNormalizedBoneNode("rightThumbIntermediate" as any) : null);
+        if (!fNode) continue;
+
+        const isLeft = fName.startsWith("left");
+        const sign = (isLeft ? 1 : -1) * (isVrm1 ? -1 : 1);
+        const isThumb = fName.includes("Thumb");
+        const isIndex = fName.includes("Index");
+        const isMiddle = fName.includes("Middle");
+        const isRing = fName.includes("Ring");
+        const isLittle = fName.includes("Little");
+
+        const isProximal = fName.endsWith("Proximal") || fName.endsWith("Metacarpal");
+        const isIntermediate = fName.endsWith("Intermediate");
+
+        const jointMult = isProximal ? 0.38 : isIntermediate ? 0.42 : 0.20;
+        const baseCurl = isIndex ? 0.22 : isMiddle ? 0.28 : isRing ? 0.34 : isLittle ? 0.40 : 0.18;
+
+        const openModifier = isSpeaking ? (isLeft ? 0.08 : 0.14) * Math.max(0, Math.sin(time * 2.0)) : 0;
+        const phase = isIndex ? 0.3 : isMiddle ? 0.7 : isRing ? 1.1 : isLittle ? 1.5 : 0.1;
+        const microFlutter = Math.sin(time * 2.1 + phase) * 0.022 + Math.sin(time * 0.8 + phase * 2) * 0.015;
+
+        if (isThumb) {
+          const thumbCurl = Math.max(0.05, Math.min(0.8, (baseCurl - openModifier * 0.5 + microFlutter) * jointMult));
+          fNode.rotation.x = THREE.MathUtils.damp(fNode.rotation.x, -thumbCurl * 0.6, 10, delta);
+          fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, -sign * thumbCurl * 0.8, 10, delta);
+          fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, sign * thumbCurl * 0.3, 10, delta);
+        } else {
+          const totalCurl = Math.max(0.04, Math.min(1.2, (baseCurl - openModifier + microFlutter) * jointMult));
+          fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, sign * totalCurl, 10, delta);
+          if (isIndex) {
+            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, sign * (0.04 + openModifier * 0.06), 10, delta);
+          } else if (isLittle) {
+            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, -sign * (0.05 + openModifier * 0.08), 10, delta);
+          }
+        }
+      }
       // Breathing — subtle chest/hips rise whose depth and pace drift on slow
       // incommensurate cycles, so the rest state breathes like a person rather
       // than a loop. Quieter while listening; clamped to prevent Y-drift.
@@ -830,13 +971,13 @@ function VrmRig({
       if (chest) {
         chest.rotation.x = Math.max(0, inhale) * (quiet ? 0.0012 : 0.0032) * drift;
       }
-      const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking");
 
       if (isWalking) {
         // Natural human walking cadence ~3.6 rad/s
         const walkSpeed = 3.6;
         walkPhaseRef.current = (walkPhaseRef.current + delta * walkSpeed) % (Math.PI * 2);
         const phase = walkPhaseRef.current;
+        const walkStride = -Math.sin(phase);
 
         // Roam laterally across floor / runway
         const roamStep = 0.12 * walkDirectionRef.current * delta;
@@ -852,37 +993,36 @@ function VrmRig({
         const targetYaw = walkDirectionRef.current > 0 ? 0.22 : -0.22;
         walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, targetYaw, 5, delta);
 
-        // Pelvis / Hips dynamics
-        const hipBob = Math.abs(Math.sin(phase)) * 0.024;
-        const hipRoll = Math.sin(phase) * 0.045; // lateral weight shift
-        const hipYaw = Math.sin(phase) * 0.06; // pelvis twists forward with stride
+        // Pelvis / Hips dynamics (graceful runway lemniscate sway, vertical bob, forward pitch)
+        const hipBob = Math.sin(phase * 2) * 0.022;
+        const hipRoll = -walkStride * 0.080; // lateral weight shift
+        const hipYaw = walkStride * 0.090; // pelvis twists forward with stride
         if (hips) {
           hips.position.y = THREE.MathUtils.damp(hips.position.y, -hipBob, 12, delta);
           hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, hipRoll, 10, delta);
           hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, hipYaw, 10, delta);
-          hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.035, 8, delta);
+          hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.030, 8, delta);
         }
 
         if (spine) {
-          spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, -hipRoll * 0.5, 10, delta);
-          spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, -hipYaw * 0.5, 10, delta);
+          spine.rotation.z = THREE.MathUtils.damp(spine.rotation.z, -hipRoll * 0.70, 10, delta);
+          spine.rotation.y = THREE.MathUtils.damp(spine.rotation.y, -hipYaw * 0.75, 10, delta);
           spine.rotation.x = THREE.MathUtils.damp(spine.rotation.x, 0.015, 8, delta);
         }
 
-        // Upper legs (Stride)
-        const legSwing = Math.sin(phase) * 0.44;
+        // Upper legs (Stride: negative X tilts thigh forward, positive X tilts thigh backward)
         if (leftUpperLeg) {
-          leftUpperLeg.rotation.x = THREE.MathUtils.damp(leftUpperLeg.rotation.x, legSwing, 16, delta);
+          leftUpperLeg.rotation.x = THREE.MathUtils.damp(leftUpperLeg.rotation.x, -walkStride * 0.44, 16, delta);
           leftUpperLeg.rotation.z = THREE.MathUtils.damp(leftUpperLeg.rotation.z, -0.035, 10, delta);
         }
         if (rightUpperLeg) {
-          rightUpperLeg.rotation.x = THREE.MathUtils.damp(rightUpperLeg.rotation.x, -legSwing, 16, delta);
+          rightUpperLeg.rotation.x = THREE.MathUtils.damp(rightUpperLeg.rotation.x, walkStride * 0.44, 16, delta);
           rightUpperLeg.rotation.z = THREE.MathUtils.damp(rightUpperLeg.rotation.z, 0.035, 10, delta);
         }
 
-        // Lower legs (Knee flexion on recovery/swing phase only)
-        const leftKnee = Math.max(0, -Math.sin(phase)) * 0.82;
-        const rightKnee = Math.max(0, Math.sin(phase)) * 0.82;
+        // Lower legs (High recovery swing flexion)
+        const leftKnee = Math.max(0, walkStride) * 1.05;
+        const rightKnee = Math.max(0, -walkStride) * 1.05;
         if (leftLowerLeg) {
           leftLowerLeg.rotation.x = THREE.MathUtils.damp(leftLowerLeg.rotation.x, leftKnee, 16, delta);
         }
@@ -890,40 +1030,65 @@ function VrmRig({
           rightLowerLeg.rotation.x = THREE.MathUtils.damp(rightLowerLeg.rotation.x, rightKnee, 16, delta);
         }
 
-        // Feet articulation
+        // 3-Phase Anatomical Foot Roll (heel strike dorsiflexion -> flat plant -> toe push-off)
+        const leftFootPitch = walkStride > 0
+          ? -Math.pow(walkStride, 1.3) * 0.22
+          : Math.pow(-walkStride, 1.2) * 0.32;
+
+        const rightFootPitch = -walkStride > 0
+          ? -Math.pow(-walkStride, 1.3) * 0.22
+          : Math.pow(walkStride, 1.2) * 0.32;
+
         if (leftFoot) {
-          leftFoot.rotation.x = THREE.MathUtils.damp(leftFoot.rotation.x, -legSwing * 0.32, 12, delta);
+          leftFoot.rotation.x = THREE.MathUtils.damp(leftFoot.rotation.x, leftFootPitch, 14, delta);
         }
         if (rightFoot) {
-          rightFoot.rotation.x = THREE.MathUtils.damp(rightFoot.rotation.x, legSwing * 0.32, 12, delta);
+          rightFoot.rotation.x = THREE.MathUtils.damp(rightFoot.rotation.x, rightFootPitch, 14, delta);
         }
 
         // Synchronized footstep audio on step contact
-        const stepSin = Math.sin(phase);
-        if (stepSin > 0.38 && lastFootstepSideRef.current !== "left") {
+        if (walkStride > 0.38 && lastFootstepSideRef.current !== "left") {
           lastFootstepSideRef.current = "left";
           playFootstepSound();
-        } else if (stepSin < -0.38 && lastFootstepSideRef.current !== "right") {
+        } else if (walkStride < -0.38 && lastFootstepSideRef.current !== "right") {
           lastFootstepSideRef.current = "right";
           playFootstepSound();
         }
 
-        // Arms natural counter-swing when not executing an expressive gesture
+        // Arms natural counter-swing with dynamic elbow lag and wrist whip
         if (input.gesture === "none" || !input.gesture || input.gesture === "walk") {
-          const armSwing = Math.sin(phase) * 0.35;
+          const armSwingLeft = walkStride * 0.38;
+          const armSwingRight = -walkStride * 0.38;
+          const phaseLagElbow = (walkPhaseRef.current - 0.35) % (Math.PI * 2);
+          const elbowSwing = -Math.sin(phaseLagElbow);
+          const leftElbowFlex = Math.max(0, elbowSwing) * 0.32 + 0.10;
+          const rightElbowFlex = Math.max(0, -elbowSwing) * 0.32 + 0.10;
+          const phaseLagWrist = (walkPhaseRef.current - 0.70) % (Math.PI * 2);
+          const wristSwing = -Math.sin(phaseLagWrist) * 0.15;
+
           if (leftArm) {
-            leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -armSwing, 12, delta);
+            leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.06, 8, delta);
+            leftArm.rotation.y = THREE.MathUtils.damp(leftArm.rotation.y, armSwingLeft, 12, delta);
             leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, 1.15 * armZSign, 8, delta);
           }
           if (rightArm) {
-            rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, armSwing, 12, delta);
+            rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, 0.06, 8, delta);
+            rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, armSwingRight, 12, delta);
             rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, -1.15 * armZSign, 8, delta);
           }
           if (leftLowerArm) {
-            leftLowerArm.rotation.x = THREE.MathUtils.damp(leftLowerArm.rotation.x, 0.15 + Math.max(0, -armSwing) * 0.25, 10, delta);
+            leftLowerArm.rotation.x = THREE.MathUtils.damp(leftLowerArm.rotation.x, 0.15, 8, delta);
+            leftLowerArm.rotation.y = THREE.MathUtils.damp(leftLowerArm.rotation.y, -leftElbowFlex, 12, delta);
           }
           if (rightLowerArm) {
-            rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.15 + Math.max(0, armSwing) * 0.25, 10, delta);
+            rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.15, 8, delta);
+            rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, rightElbowFlex, 12, delta);
+          }
+          if (leftHand) {
+            leftHand.rotation.y = THREE.MathUtils.damp(leftHand.rotation.y, wristSwing, 12, delta);
+          }
+          if (rightHand) {
+            rightHand.rotation.y = THREE.MathUtils.damp(rightHand.rotation.y, -wristSwing, 12, delta);
           }
         }
       } else {

@@ -1,3 +1,5 @@
+import {useEffect, useState} from "react";
+import {runtimeMeasurements} from "../../telemetry/runtimeMeasurements";
 /**
  * DiagnosticsSettings — provider health list and version info.
  * Useful for debugging; normal users can ignore this section.
@@ -14,8 +16,18 @@ interface Props {
 const APP_VERSION = "HINAA V3.1 · 478dd8f · 2026-09-05";
 
 export function DiagnosticsSettings({ providers }: Props) {
+  const [timings, setTimings] = useState(() => runtimeMeasurements.snapshot());
+  useEffect(() => {const timer = setInterval(() => setTimings(runtimeMeasurements.snapshot()), 1000); return () => clearInterval(timer);}, []);
+  const ms = (value: number | null) => value === null ? "Not measured" : `${Math.round(value)} ms`;
   return (
     <SettingsSection label="Diagnostics" divider>
+      <SettingsRow label="Avatar frame rate" description="Measured from the active avatar render loop; hidden or inactive views show no result.">
+        <span>{timings.fps === null ? "Not measured" : `${timings.fps.toFixed(1)} FPS`} · p95 {ms(timings.frameP95Ms)}</span>
+      </SettingsRow>
+      <SettingsRow label="Time to first voice" description="From submitting text to the actual playback-start callback. This includes generation and speech preparation.">
+        <span>{ms(timings.speechOnsetMs)}{timings.speechProvider ? ` · ${timings.speechProvider}` : ""}</span>
+      </SettingsRow>
+      <SettingsRow label="Last speech synthesis" description="Provider-reported synthesis time; separate from playback onset."><span>{ms(timings.synthesisMs)}</span></SettingsRow>
       <SettingsRow label="App version">
         <span className={styles.mono}>{APP_VERSION}</span>
       </SettingsRow>

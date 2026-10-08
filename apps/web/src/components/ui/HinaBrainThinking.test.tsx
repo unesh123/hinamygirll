@@ -8,6 +8,14 @@ describe("HinaBrainThinking", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("can transition from empty to thinking and back without changing hook order", () => {
+    const { rerender, container } = render(<HinaBrainThinking />);
+    rerender(<HinaBrainThinking isLive />);
+    expect(screen.getByRole("status")).toHaveTextContent("Preparing your response");
+    rerender(<HinaBrainThinking />);
+    expect(container.firstChild).toBeNull();
+  });
+
   it("renders live thinking status during active streaming", () => {
     render(<HinaBrainThinking isLive={true} />);
     expect(screen.getByText("Hina is thinking & synthesizing...")).toBeInTheDocument();

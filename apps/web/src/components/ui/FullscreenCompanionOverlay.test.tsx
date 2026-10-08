@@ -7,7 +7,7 @@ const messages: TranscriptMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    text: "Hello Unesh. I am ready whenever you are.",
+    text: "Hey babe. I am ready whenever you are.",
     createdAt: "2026-08-13T10:00:00.000Z",
   },
   {
@@ -45,7 +45,7 @@ describe("FullscreenCompanionOverlay", () => {
 
     expect(screen.getByRole("button", { name: "Start live conversation" })).toBeInTheDocument();
     expect(screen.getByText("Voice is ready on this device.")).toBeInTheDocument();
-    expect(screen.getByText("Hello Unesh. I am ready whenever you are.")).toBeInTheDocument();
+    expect(screen.getByText("Hey babe. I am ready whenever you are.")).toBeInTheDocument();
     expect(screen.getByText("Help me plan my local image workflow.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Start live conversation" }));

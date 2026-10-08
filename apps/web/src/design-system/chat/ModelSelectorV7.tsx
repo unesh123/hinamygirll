@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useId } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronDown,
   Cpu,
@@ -39,6 +40,37 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
+  const [position, setPosition] = useState({left:10, top:54, width:300, maxHeight:420});
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const update = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const viewport = window.visualViewport;
+      const width = viewport?.width ?? window.innerWidth;
+      const height = viewport?.height ?? window.innerHeight;
+      const offsetTop = viewport?.offsetTop ?? 0;
+      const offsetLeft = viewport?.offsetLeft ?? 0;
+      const menuWidth = Math.min(320, width - 20);
+      const below = offsetTop + height - rect.bottom - 18;
+      const above = rect.top - offsetTop - 18;
+      const openAbove = placement === "top" ? above >= 160 || above > below : below < 160 && above > below;
+      const maxHeight = Math.max(80, Math.min(420, openAbove ? above : below));
+      const left = Math.max(offsetLeft + 10, Math.min(rect.left, offsetLeft + width - menuWidth - 10));
+      setPosition({left, top:openAbove ? rect.top - maxHeight - 8 : rect.bottom + 8, width:menuWidth, maxHeight});
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    };
+  }, [isOpen, placement]);
   useEffect(() => {
     if (isOpen) {
       const selected = menuRef.current?.querySelector<HTMLButtonElement>('button[aria-checked="true"]:not(:disabled)');
@@ -141,7 +173,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
           cursor: "pointer",
           transition: "all 0.15s ease",
         }}
-        title="Select intelligence routing or pin a specific model"
+        aria-label={`Select model: ${activeLabel}`}
       >
         {isAutoRouter ? (
           <Cpu size={11} style={{ opacity: 0.8 }} />
@@ -152,7 +184,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
         <ChevronDown size={10} style={{ opacity: 0.6 }} />
       </button>
 
-      {isOpen && (
+      {isOpen && createPortal(
         <div
           ref={menuRef}
           id={menuId}
@@ -171,14 +203,11 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
           data-testid="composer-model-dropdown"
           className="model-selector-v7__dropdown"
           style={{
-            position: "absolute",
-            top: placement === "bottom" ? "calc(100% + 8px)" : undefined,
-            bottom: placement === "top" ? "calc(100% + 8px)" : undefined,
-            right: placement === "top" ? 0 : undefined,
-            left: placement === "bottom" ? 0 : undefined,
-            width: "min(300px, calc(100vw - 20px))",
-            maxWidth: "calc(100vw - 20px)",
-            maxHeight: "min(420px, 65vh)",
+            position: "fixed",
+            left: position.left,
+            top: position.top,
+            width: position.width,
+            maxHeight: position.maxHeight,
             overflowY: "auto",
             WebkitOverflowScrolling: "touch",
             padding: 6,
@@ -452,7 +481,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
               </div>
             );
           })}
-        </div>
+        </div>, document.body
       )}
     </div>
   );

@@ -9,6 +9,7 @@ Provides unified connectivity and orchestration across:
 """
 from __future__ import annotations
 
+from .outlook_graph import configured as outlook_configured
 import datetime
 import logging
 import os
@@ -33,7 +34,7 @@ class SaaSBridgedManager:
 
     def get_all_statuses(self) -> List[SaaSIntegrationStatus]:
         github_token = os.getenv("GITHUB_TOKEN") or ""
-        outlook_user = os.getenv("SMTP_USER") or os.getenv("OUTLOOK_EMAIL") or ""
+        outlook_ready = outlook_configured() or bool((os.getenv("SMTP_USER") or os.getenv("OUTLOOK_EMAIL")) and (os.getenv("SMTP_PASSWORD") or os.getenv("OUTLOOK_PASSWORD")))
         notion_token = os.getenv("NOTION_API_KEY") or ""
         gcal_token = os.getenv("GOOGLE_CALENDAR_CREDENTIALS") or ""
         spotify_client = os.getenv("SPOTIFY_CLIENT_ID") or ""
@@ -44,7 +45,7 @@ class SaaSBridgedManager:
                 display_name="GitHub / GitLab Workspace",
                 category="developer",
                 connected=bool(github_token),
-                status_text="Authenticated (Ready for PRs, Commits & Merges)" if github_token else "Local Git Available (Token Optional)",
+                status_text="Token configured; repository permissions unverified" if github_token else "Local Git Available (Token Optional)",
                 capabilities=["git-status", "read-tree", "create-pr", "commit-changes", "issue-tracker"],
                 icon="git-branch",
             ),
@@ -52,8 +53,8 @@ class SaaSBridgedManager:
                 service_id="outlook",
                 display_name="Microsoft Outlook & Office 365",
                 category="communication",
-                connected=True,  # Local SMTP & Graph fallback active
-                status_text="Active (Direct Academic Drafts & SMTP Relays)",
+                connected=outlook_ready,
+                status_text="Credentials configured; mailbox verification required" if outlook_ready else "Disconnected — local drafts available; Microsoft sign-in required",
                 capabilities=["draft-email", "send-institutional-email", "faculty-feedback", "academic-notices"],
                 icon="mail",
             ),
@@ -62,7 +63,7 @@ class SaaSBridgedManager:
                 display_name="Google Calendar & Scheduling",
                 category="productivity",
                 connected=bool(gcal_token),
-                status_text="Autonomous Agenda Scheduler Ready" if gcal_token else "Local Clock Grounded (Sept 2026)",
+                status_text="Credentials configured; calendar sync not implemented" if gcal_token else "Disconnected — connect a calendar provider",
                 capabilities=["agenda-overview", "schedule-reminder", "exam-deadlines", "class-timetable"],
                 icon="calendar",
             ),
@@ -71,7 +72,7 @@ class SaaSBridgedManager:
                 display_name="Notion Engineering Workspace",
                 category="documentation",
                 connected=bool(notion_token),
-                status_text="Notion API Connected" if notion_token else "Markdown Artifacts Active (Local SQLite/Vault)",
+                status_text="Token configured; page sync not implemented" if notion_token else "Markdown Artifacts Active (Local SQLite/Vault)",
                 capabilities=["sync-dossier", "export-page", "task-kanban", "knowledge-base"],
                 icon="file-text",
             ),
@@ -121,34 +122,9 @@ class SaaSBridgedManager:
 
     def get_todays_agenda(self) -> List[Dict[str, Any]]:
         """Return today's scheduled curriculum milestones and research agenda."""
-        now = datetime.datetime.now()
-        date_str = now.strftime("%A, %B %d, %Y")
-        return [
-            {
-                "id": "agenda-01",
-                "time": "09:00 - 11:00",
-                "title": "Autonomous Agent Swarms: Multi-Model Architecture",
-                "location": "Virtual Lab · HINAA Workspace",
-                "category": "engineering",
-                "completed": True,
-            },
-            {
-                "id": "agenda-02",
-                "time": "13:00 - 15:00",
-                "title": "VIP Deep Vault: Ethical Hacking Defense & Packet Audits",
-                "location": "Cybersecurity Sandbox",
-                "category": "cybersecurity",
-                "completed": False,
-            },
-            {
-                "id": "agenda-03",
-                "time": "17:00 - 18:30",
-                "title": "Deep Thinking & Rust Performance Optimization Sync",
-                "location": "Terminal Hands Suite",
-                "category": "systems",
-                "completed": False,
-            },
-        ]
+        # No fabricated classes or events; an agenda requires a real calendar adapter.
+        return []
+
 
 
 # Global singleton

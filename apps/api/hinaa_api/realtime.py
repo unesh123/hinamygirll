@@ -255,8 +255,13 @@ class RealtimeGateway:
                 if message.get("type") == "websocket.disconnect":
                     break
                 if message.get("text") is None:
-                    logger.warning("realtime: binary received without JSON descriptor — BINARY_DESCRIPTOR_REQUIRED sent")
-                    await self._error(websocket, session, "BINARY_DESCRIPTOR_REQUIRED", False)
+                    frame = message.get("bytes")
+                    if frame and isinstance(frame, (bytes, bytearray)):
+                        if len(frame) % 2 == 0 and len(session.audio) + len(frame) <= self.settings.realtime_max_buffer_bytes:
+                            session.audio.extend(frame)
+                            session.expected_sequence += 1
+                        continue
+                    logger.warning("realtime: unrecognized non-text frame received")
                     continue
                 msg_type = ""
                 try:
@@ -328,8 +333,14 @@ class RealtimeGateway:
                 await self._error(websocket, session, "AUDIO_FRAME_MISSING", False)
                 return
             frame = binary_message.get("bytes")
-            if frame is None or len(frame) != descriptor.byteLength or len(frame) % 2:
-                await self._error(websocket, session, "AUDIO_FRAME_INVALID", False)
+            if frame is None:
+                if binary_message.get("text"):
+                    await self._control(websocket, session, binary_message["text"])
+                return
+            if len(frame) != descriptor.byteLength or len(frame) % 2:
+                if len(frame) % 2 == 0 and len(session.audio) + len(frame) <= self.settings.realtime_max_buffer_bytes:
+                    session.audio.extend(frame)
+                    session.expected_sequence = descriptor.sequence + 1
                 return
             if descriptor.generation != session.hello.generation:
                 await self._send(
@@ -437,7 +448,7 @@ class RealtimeGateway:
         """
         try:
             provider = self.service.router.tts(
-                session.hello.providerMode, session.hello.companionId
+                session.hello.providerMode, session.hello.companionId, session.hello.voiceEngine
             )
             if not isinstance(provider, ElevenLabsWebSocketStreamingProvider):
                 return None

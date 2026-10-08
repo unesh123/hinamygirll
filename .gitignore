@@ -96,3 +96,13 @@ cloudflared.exe
 **/.hina/lake/
 apps/api/.hina/
 
+
+# API process-local cognitive memory
+apps/api/.hina/
+
+.env.production
+!/.env.production.example
+
+# Private desktop captures and mail credentials
+apps/api/data/screenshots/
+*.dpapi

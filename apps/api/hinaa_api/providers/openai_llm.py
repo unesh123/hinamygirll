@@ -290,13 +290,19 @@ class OpenAILLMProvider:
 
     def __init__(
         self,
-        key: str,
+        key: str | list[str],
         model: str,
         *,
         base_url: str = OPENAI_CHAT_COMPLETIONS_URL,
         provider_id: str = "openai",
     ) -> None:
-        self._key = key
+        if isinstance(key, list):
+            self._keys = [k.strip() for k in key if isinstance(k, str) and k.strip()]
+        elif isinstance(key, str) and key.strip():
+            self._keys = [key.strip()]
+        else:
+            self._keys = []
+        self._key_index = 0
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._provider_id = provider_id
@@ -305,6 +311,16 @@ class OpenAILLMProvider:
         # class-level OpenAI default.
         self.id = provider_id
         self._circuit_breaker = get_circuit_breaker(provider_id)
+
+    @property
+    def _key(self) -> str:
+        if not self._keys:
+            return ""
+        return self._keys[self._key_index % len(self._keys)]
+
+    def _rotate_key(self) -> None:
+        if len(self._keys) > 1:
+            self._key_index = (self._key_index + 1) % len(self._keys)
 
     @property
     def model(self) -> str:
@@ -741,6 +757,9 @@ class OpenAILLMProvider:
             msg = f"{self._provider_label()} returned 404 (endpoint or model mismatch)."
             self._circuit_breaker.record_failure("ENDPOINT_MISMATCH", msg)
             raise HinaaError("ENDPOINT_MISMATCH", msg, 404, user_action_required=True)
+
+        if response.status_code in {401, 403, 429}:
+            self._rotate_key()
 
         if response.status_code in {401, 403}:
             msg = (

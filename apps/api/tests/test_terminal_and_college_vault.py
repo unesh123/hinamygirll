@@ -128,3 +128,31 @@ async def test_email_draft_mode():
     assert res["status"] == "draft_created"
     assert res["recipient"] == "dean@college.edu.np"
     assert "HINAA Academic Partner" in res["body"]
+
+
+@pytest.mark.asyncio
+async def test_terminal_rejects_working_directory_escape(tmp_path):
+    result=await execute_terminal_hands({"command":"echo check", "cwd":"../../../../outside-hina-workspace"})
+    assert result["status"] == "rejected"
+    assert "workspace" in result["error"]
+
+@pytest.mark.asyncio
+async def test_terminal_preserves_timeout_and_output(monkeypatch):
+    import subprocess
+    from hinaa_api.tools import terminal_hands
+    def expired(*args):
+        raise subprocess.TimeoutExpired("test",1)
+    monkeypatch.setattr(terminal_hands,"_run_command",expired)
+    result=await execute_terminal_hands({"command":"echo test", "timeout_seconds":1})
+    assert result["status"] == "timeout"
+    assert result["timeoutSeconds"] == 1
+
+@pytest.mark.asyncio
+async def test_terminal_runtime_passes_through_api(client, monkeypatch):
+    from hinaa_api import omega_router as module
+    async def fake(params):
+        return {"status":"success","runtime":params.runtime,"stdout":"test"}
+    monkeypatch.setattr(module,"execute_terminal_hands",fake)
+    response=client.post("/api/v1/terminal/execute",json={"command":"echo test","runtime":"powershell"})
+    assert response.status_code == 200
+    assert response.json()["runtime"] == "powershell"

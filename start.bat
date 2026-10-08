@@ -1,11 +1,10 @@
 @echo off
 setlocal
+title HINAA — AI Companion Live Runner
 cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-live.ps1" -Dev
-set "EXIT_CODE=%ERRORLEVEL%"
-if not "%EXIT_CODE%"=="0" (
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\live-console.ps1"
+if errorlevel 1 (
   echo.
-  echo HINAA failed to start. Exit code: %EXIT_CODE%
+  echo [Hina] Console exited with code %ERRORLEVEL%.
   pause
 )
-exit /b %EXIT_CODE%

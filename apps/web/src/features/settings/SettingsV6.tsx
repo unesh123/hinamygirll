@@ -28,6 +28,7 @@ import type { ProvidersState } from "../providers/types/provider";
 import { AppearanceSettings } from "./sections/AppearanceSettings";
 import { LanguageSettings } from "./sections/LanguageSettings";
 import { ProviderSettings } from "./sections/ProviderSettings";
+import { MediaSettings } from "./sections/MediaSettings";
 import { AutomationSettings } from "./sections/AutomationSettings";
 import { DiagnosticsSettings } from "./sections/DiagnosticsSettings";
 import { useCapabilities } from "../providers/hooks/useCapabilities";
@@ -509,53 +510,10 @@ export function SettingsV6({
                 <div>
                   <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Media & Image Studio</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
-                    Configure generative image pipelines, FLUX models, and local ComfyUI settings.
+                    Configure generative image pipelines, OpenAI-compatible proxy keys, models, and ComfyUI.
                   </p>
                 </div>
-
-                <div
-                  style={{
-                    padding: 16,
-                    borderRadius: 12,
-                    background: "rgba(255, 255, 255, 0.03)",
-                    border: "1px solid rgba(255, 255, 255, 0.08)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>Default Generator</div>
-                  <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.5)" }}>
-                    Active image creation engine for Studio and in-chat generation.
-                  </div>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <div
-                      style={{
-                        padding: "8px 14px",
-                        borderRadius: 8,
-                        background: "rgba(238, 145, 173, 0.15)",
-                        border: "1px solid rgba(238, 145, 173, 0.35)",
-                        color: "#ffc2d8",
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                    >
-                      Magnific FLUX (Default)
-                    </div>
-                    <div
-                      style={{
-                        padding: "8px 14px",
-                        borderRadius: 8,
-                        background: "rgba(255, 255, 255, 0.04)",
-                        border: "1px solid rgba(255, 255, 255, 0.1)",
-                        color: "rgba(255, 255, 255, 0.6)",
-                        fontSize: 12,
-                      }}
-                    >
-                      ComfyUI (Local)
-                    </div>
-                  </div>
-                </div>
+                <MediaSettings />
               </div>
             )}
 

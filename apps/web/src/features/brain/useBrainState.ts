@@ -6,6 +6,7 @@ const SPECIALIST_LABELS: Record<SpecialistType, string> = {
   planner: 'Planning',
   researcher: 'Research',
   coder: 'Coding',
+  operator: 'Operator',
   synthesizer: 'Synthesis',
   memory: 'Memory',
 };
@@ -30,6 +31,7 @@ export function useBrainState({
       { type: 'planner', status: 'idle', label: SPECIALIST_LABELS.planner },
       { type: 'researcher', status: 'idle', label: SPECIALIST_LABELS.researcher },
       { type: 'coder', status: 'idle', label: SPECIALIST_LABELS.coder },
+      { type: 'operator', status: 'idle', label: SPECIALIST_LABELS.operator },
       { type: 'synthesizer', status: 'idle', label: SPECIALIST_LABELS.synthesizer },
       { type: 'memory', status: 'idle', label: SPECIALIST_LABELS.memory },
     ];
@@ -48,6 +50,8 @@ export function useBrainState({
         matchedType = 'planner';
       } else if (idLower.includes('search') || idLower.includes('research') || labelLower.includes('search')) {
         matchedType = 'researcher';
+      } else if (idLower.includes('browser') || idLower.includes('operator') || idLower.includes('desktop') || labelLower.includes('browser') || labelLower.includes('mouse') || labelLower.includes('click') || labelLower.includes('operator')) {
+        matchedType = 'operator';
       } else if (idLower.includes('code') || labelLower.includes('code') || labelLower.includes('tool')) {
         matchedType = 'coder';
       } else if (idLower.includes('memory') || labelLower.includes('memory')) {

@@ -24,6 +24,7 @@ from hinaa_api.models import ToolRequest
 # Tools the model may never self-assign. Anything outside this set is left alone
 # (preferences, artifact lookups, and slash commands are handled elsewhere).
 GATED_TOOLS = {
+    "read_outlook",
     "image_generate",
     "image_upscale",
     "image_relight",
@@ -51,6 +52,7 @@ GATED_TOOLS = {
 # words. Anything a call still needs from the model — a search query, a document
 # topic — is not here, because then the model is choosing the work again.
 SELF_SPECIFIED = {
+    "read_outlook": ("limit",),
     "image_generate": ("prompt",),
     "reminder.create": ("title", "at"),
     "design_website": ("brief",),
@@ -241,6 +243,25 @@ _COMPUTER_APP_ASK = re.compile(
     | \b(?:computer\s+operator|desktop\s+operator|os\s+action|desktop\s+app|desktop\s+automation)\b
     | \b(?:media\s+(?:play|pause|toggle|next|skip|prev|previous|volume\s+up|volume\s+down|mute))\b
     | \b(?:next\s+(?:track|song)|previous\s+(?:track|song)|pause\s+music|resume\s+music|stop\s+music|mute\s+audio)\b
+    """
+)
+
+_DESKTOP_GUI_ASK = re.compile(
+    r"""(?ix)
+    \b(?:
+        move\s+(?:the\s+)?(?:mouse|cursor)\s*(?:to|at)? |
+        glide\s+(?:the\s+)?(?:mouse|cursor)\s*(?:to|at)? |
+        (?:mouse|cursor)\s+(?:move|glide|position)\s*(?:to|at)? |
+        (?:double|right|left|middle)\s+click |
+        click\s+(?:at|on)?\s*\(?\d+[\s,]+\d+\)? |
+        click\s+(?:the\s+)?(?:right|left|middle)\s+(?:mouse\s+)?button |
+        drag\s+(?:the\s+)?(?:mouse|cursor|window)?\s*from |
+        take\s+(?:a\s+)?(?:desktop\s+)?screenshot |
+        capture\s+(?:the\s+)?(?:desktop|screen) |
+        screen\s*shot |
+        desktop\s+daemon |
+        daemon\s+status
+    )\b
     """
 )
 
@@ -519,14 +540,14 @@ def _parse_when(text: str, now: datetime) -> tuple[datetime | None, str | None]:
     return None, None
 
 
-def _slash_parameters(tool: str, args: str, now: datetime) -> dict[str, Any]:
+def _slash_parameters(tool: str, args: str, now: datetime, verb: str = "") -> dict[str, Any]:
     """The arguments he typed after the verb, read back out of his own sentence.
 
     A slash command is where he names the action himself, so the subject is
     already in the text. Leaving these empty made the gate refuse the call the
     plan had filed for it: "/image a red fox" came back with nothing running.
     """
-    if not args:
+    if not args and verb not in ("screenshot", "daemon"):
         return {}
     if tool == "image_generate":
         return {"prompt": extract_image_subject(args) or args, "count": requested_count(args)}
@@ -538,11 +559,23 @@ def _slash_parameters(tool: str, args: str, now: datetime) -> dict[str, Any]:
         return {"title": title, "at": when.isoformat(timespec="minutes")} if when and title else {}
     if tool == "youtube_playback_request":
         return {"query": args}
+    if tool == "browser_cloud_agent":
+        return {"task": args}
     if tool == "browser_execute_task":
         return {"goal": args}
     if tool == "browser_navigate":
         return {"url": args}
     if tool == "computer_operator":
+        if verb in ("click", "mouse"):
+            m = re.search(r"\(?(\d+)[,\s]+(\d+)\)?", args)
+            x = int(m.group(1)) if m else 0
+            y = int(m.group(2)) if m else 0
+            act = "click" if verb == "click" else "mouse_move"
+            return {"action": act, "x": x, "y": y}
+        elif verb == "screenshot":
+            return {"action": "screenshot"}
+        elif verb == "daemon":
+            return {"action": "daemon_status"}
         return {"action": "open_application", "target": args}
     return {}
 
@@ -591,8 +624,13 @@ def sanction_tools(
             "song": "youtube_playback_request",
             "browse": "browser_navigate",
             "browser": "browser_execute_task",
+            "cloudbrowser": "browser_cloud_agent",
             "app": "computer_operator",
             "open": "computer_operator",
+            "click": "computer_operator",
+            "mouse": "computer_operator",
+            "screenshot": "computer_operator",
+            "daemon": "computer_operator",
         }
         tool = mapping.get(verb)
         if tool in _DOCUMENT_FAMILY:
@@ -604,14 +642,27 @@ def sanction_tools(
             sanction.parameters["youtube_playback_request"] = {"query": typed_args or "music"}
             sanction.parameters["computer_operator"] = {"action": "youtube_play", "target": typed_args or "music"}
         elif tool:
-            sanction.allowed.add(tool)
             typed_args = re.sub(r"^\s*/[\w-]+\s*", "", raw).strip()
+            _typed_lower = typed_args.casefold()
+            if tool in {"image_generate", "image_search"}:
+                if (
+                    not _typed_lower
+                    or re.match(r"^(?:no\b|don'?t\b|dont\b|stop\b|cancel\b|abort\b|never\b|why\b|what\b|who\b|hey\b|hi\b|hello\b)", _typed_lower)
+                    or re.search(r"\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|not\s+an\s+image|stop\s+generating|why\s+are\s+you|getting\s+that\s+tag|why\s+tag)\b", _typed_lower)
+                ):
+                    return sanction
+            sanction.allowed.add(tool)
             sanction.parameters[tool] = _slash_parameters(
-                tool, typed_args, now or datetime.now()
+                tool, typed_args, now or datetime.now(), verb=verb
             )
         return sanction
 
     lowered = raw.casefold()
+    if re.search(r"\b(?:read|check|show|summari[sz]e)\s+(?:me\s+)?(?:my\s+|the\s+)?(?:outlook\s+)?(?:inbox|e-?mails?|mail)\b", lowered) and not META_FRAMING.search(lowered) and not _CAPABILITY_INQUIRY.search(lowered):
+        sanction.allowed.add("read_outlook")
+        sanction.parameters["read_outlook"] = {"limit": 10}
+        return sanction
+
     has_image_noun = bool(re.search(rf"(?ix) \b{IMAGE_NOUNS} \b", lowered))
     generate_verb = bool(re.search(rf"(?ix) \b{GENERATE_VERBS} \b", lowered))
     fetch_verb = bool(re.search(rf"(?ix) \b{FETCH_VERBS} \b", lowered))
@@ -647,6 +698,21 @@ def sanction_tools(
         # still owes him a page.
         sanction.allowed.add("design_website")
         sanction.parameters["design_website"] = {"brief": raw}
+        # "…and open it in my editor / antigravity" — he wants the build AND the
+        # workshop door opened, codex-style. The editor launch is a local-only
+        # desktop action; the site itself is built and previewed by design_website.
+        if re.search(
+            r"(?i)\b(?:open|launch|start)\b[^.?!]*\b(?:editor|antigravity|vs\s*code|vscode|cursor|ide)\b",
+            lowered,
+        ):
+            import os
+
+            editor = os.environ.get("HINAA_PREFERRED_EDITOR", "antigravity")
+            sanction.allowed.update(["computer_operator", "app_launch"])
+            sanction.parameters["computer_operator"] = {
+                "action": "open_application",
+                "target": editor,
+            }
         return sanction
 
     if _VARIANT_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -743,6 +809,7 @@ def sanction_tools(
 
     if _BROWSER_TASK_ASK.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.update([
+            "browser_cloud_agent",
             "browser_execute_task",
             "browser_navigate",
             "browser_click",
@@ -774,6 +841,43 @@ def sanction_tools(
     if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.add("ui_control")
         sanction.parameters["ui_control"] = {}
+        return sanction
+
+    if _DESKTOP_GUI_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("computer_operator")
+        if re.search(r"(?i)\b(?:screenshot|capture\s+(?:the\s+)?(?:screen|desktop)|screen\s*shot)\b", lowered):
+            sanction.parameters["computer_operator"] = {"action": "screenshot"}
+            return sanction
+
+        if re.search(r"(?i)\b(?:desktop\s+daemon|daemon\s+status)\b", lowered):
+            sanction.parameters["computer_operator"] = {"action": "daemon_status"}
+            return sanction
+
+        drag_matches = re.findall(r"\(?(\d+)[,\s]+(\d+)\)?", raw)
+        if "drag" in lowered and len(drag_matches) >= 2:
+            sanction.parameters["computer_operator"] = {
+                "action": "drag",
+                "start_x": int(drag_matches[0][0]),
+                "start_y": int(drag_matches[0][1]),
+                "end_x": int(drag_matches[1][0]),
+                "end_y": int(drag_matches[1][1]),
+            }
+            return sanction
+
+        coord_match = re.search(r"\(?(\d+)[,\s]+(\d+)\)?", raw)
+        x = int(coord_match.group(1)) if coord_match else 0
+        y = int(coord_match.group(2)) if coord_match else 0
+
+        if re.search(r"(?i)\b(?:move|glide|position)\b", lowered):
+            sanction.parameters["computer_operator"] = {"action": "mouse_move", "x": x, "y": y}
+            return sanction
+
+        if "double" in lowered:
+            sanction.parameters["computer_operator"] = {"action": "double_click", "x": x, "y": y}
+        elif "right" in lowered:
+            sanction.parameters["computer_operator"] = {"action": "right_click", "x": x, "y": y}
+        else:
+            sanction.parameters["computer_operator"] = {"action": "click", "x": x, "y": y}
         return sanction
 
     if _COMPUTER_APP_ASK.search(lowered) and not META_FRAMING.search(lowered):

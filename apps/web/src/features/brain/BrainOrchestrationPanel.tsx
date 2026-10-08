@@ -6,6 +6,7 @@ import {
   Code2,
   Sparkles,
   Database,
+  Monitor,
   Check,
   X,
   Loader2,
@@ -55,6 +56,13 @@ const SPECIALIST_CONFIG: Record<
     subtitle: 'Generation',
     color: '#8b5cf6',
     glow: 'rgba(139, 92, 246, 0.4)',
+  },
+  operator: {
+    icon: Monitor,
+    title: 'Operator',
+    subtitle: 'OS & Web',
+    color: '#10b981',
+    glow: 'rgba(16, 185, 129, 0.4)',
   },
   synthesizer: {
     icon: Sparkles,

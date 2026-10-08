@@ -243,8 +243,8 @@ export function buildMockPlan(
       displayText = "नमस्ते! मैं हिना हूँ। आज हम क्या नया बनाएँ या सीखें?";
       spokenText = "नमस्ते! मैं हिना हूँ। आज हम क्या नया बनाएँ?";
     } else {
-      displayText = "Hello Unesh! I'm right here with you. What would you like to build or explore today?";
-      spokenText = "Hello Unesh! I'm right here. What would you like to build today?";
+      displayText = "Hey babe! I'm right here with you. What would you like to build or explore today?";
+      spokenText = "Hey babe! I'm right here. What would you like to build today?";
     }
   }
 

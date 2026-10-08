@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import StaticPool, QueuePool
 
 from ..config import Settings
 from .orm import Base
@@ -18,12 +18,14 @@ def make_engine(database_url: str) -> Engine:
         database_path = make_url(database_url).database
         if database_path and database_path != ":memory:":
             Path(database_path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
-        # StaticPool keeps a shared in-memory database across connections/tests.
+        # Only in-memory SQLite needs a shared connection. File databases need
+        # one connection per checkout: sharing a StaticPool connection across
+        # concurrent auth/speech requests corrupts transaction boundaries.
         engine = create_engine(
             database_url,
             future=True,
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
+            connect_args={"check_same_thread": False, "timeout": 15},
+            poolclass=StaticPool if database_path in (None, "", ":memory:") else QueuePool,
         )
 
         @event.listens_for(engine, "connect")
