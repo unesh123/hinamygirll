@@ -977,6 +977,19 @@ function Model({
       } else if (affectiveProfile.scenarioArchetype === "casual_bro") {
         gazX = THREE.MathUtils.clamp(gazX, -0.04, 0.04);
         gazY = THREE.MathUtils.clamp(gazY, -0.03, 0.03);
+      } else if (activeIntent === "shy" || affectiveProfile.scenarioArchetype === "shy_flustered") {
+        // Bashful: gaze drops and slips sideways, occasionally darting back.
+        const dartBack = Math.sin(t.current * 0.35) > 0.75;
+        gazX = dartBack ? 0 : -0.055 + Math.sin(t.current * 0.4) * 0.012;
+        gazY = dartBack ? 0.01 : -0.045 + Math.sin(t.current * 0.3) * 0.008;
+      } else if (affectiveProfile.drowsy > 0.45) {
+        // Heavy lids, drifting downward gaze.
+        gazX = Math.sin(t.current * 0.22) * 0.02;
+        gazY = -0.035 + Math.sin(t.current * 0.16 + 0.5) * 0.012;
+      } else if (activeIntent === "determined" || affectiveProfile.scenarioArchetype === "determined_focus") {
+        // Determined: eyes locked forward, saccades suppressed.
+        gazX *= 0.25;
+        gazY *= 0.25;
       }
       if (vrm.lookAt) {
         try {
@@ -1251,6 +1264,23 @@ function Model({
     const cq = curQRef.current;
 
     const convo = convoEnergyRef.current;
+
+    /* ── LAYER 5B: EMOTION-DRIVEN BODY LANGUAGE ────────────────────────
+     * The face speaks the intent; the body must agree. Continuous affective
+     * dims sculpt the conversational cadence (arousal quickens and enlarges
+     * it, drowsiness slows and droops it, sorrow weighs it down), and
+     * discrete intents layer signature poses on the arms and hands. */
+    const bodyGain = (1 + affectiveProfile.arousal * 0.35) * (1 - affectiveProfile.drowsy * 0.55);
+    const bodyConvo = convo * bodyGain;
+    const bodyDroop = affectiveProfile.drowsy * 0.09 + Math.max(0, -affectiveProfile.valence) * 0.07;
+    const bodyArchetype = affectiveProfile.scenarioArchetype;
+    const shyPose = activeIntent === "shy" || bodyArchetype === "shy_flustered";
+    const heavyPose = activeIntent === "sad" || activeIntent === "sleepy"
+      || bodyArchetype === "melancholy_soft" || bodyArchetype === "serene_cozy";
+    const excitedPose = activeIntent === "excited" || activeIntent === "awe";
+    const firmPose = activeIntent === "determined" || bodyArchetype === "determined_focus";
+    const fidgetPose = activeIntent === "nervous" || bodyArchetype === "nervous_awkward";
+
     for (const boneName of POSE_BONES) {
       const bone = nb[boneName];
       const cur  = cq[boneName];
@@ -1273,12 +1303,43 @@ function Model({
           rotX = 0.15 + bounce;
           rotY = -side * (0.22 + bounce * 0.5);
           rotZ = -side * 0.12;
+        } else if (shyPose) {
+          // Self-conscious: arms hugged close, drifting gently inward.
+          const sway = Math.sin(t.current * 1.1) * 0.02;
+          rotX = 0.05 + sway;
+          rotY = -side * (0.26 + sway);
+          rotZ = -side * 0.02;
+        } else if (heavyPose) {
+          // Sad or sleepy: arms hang heavy with a slow, tired drift.
+          const heavy = Math.sin(t.current * 0.8) * 0.015;
+          rotX = -(0.04 + bodyDroop) + heavy;
+          rotY = -side * 0.05;
+          rotZ = -side * (0.03 + bodyDroop * 0.4);
+        } else if (excitedPose) {
+          // Bright, bouncy energy — faster and higher than celebration.
+          const bounce = Math.sin(t.current * 6.5) * 0.10;
+          rotX = 0.10 + bounce;
+          rotY = -side * (0.16 + bounce * 0.4);
+          rotZ = -side * (0.10 + Math.abs(bounce) * 0.5);
+        } else if (firmPose) {
+          // Determined: steady, planted, no cadence wobble.
+          rotX = 0.10;
+          rotY = -side * 0.08;
+          rotZ = -side * 0.05;
+        } else if (fidgetPose) {
+          // Nervous: small, fast fidgeting under the conversation.
+          const fidget = Math.sin(t.current * 9.0) * 0.02;
+          rotX = convo * 0.06 + fidget;
+          rotY = -side * (convo * 0.12 + fidget);
+          rotZ = -side * convo * 0.05;
         } else {
-          // Dynamic conversational upper arm gesture with vocal cadence
+          // Dynamic conversational upper arm gesture with vocal cadence,
+          // sculpted by affect: arousal adds flutter, drowsiness droops.
           const cadence = isLeft ? Math.sin(t.current * 1.7) : Math.sin(t.current * 2.1);
-          rotX = convo * 0.08 * (0.8 + 0.3 * cadence);
-          rotY = -side * convo * (isLeft ? 0.14 : 0.22) * (0.8 + 0.3 * cadence);
-          rotZ = -side * convo * (isLeft ? 0.06 : 0.10);
+          const flutter = Math.sin(t.current * (isLeft ? 5.3 : 6.1)) * affectiveProfile.arousal * 0.35;
+          rotX = bodyConvo * 0.08 * (0.8 + 0.3 * cadence + flutter) - bodyDroop;
+          rotY = -side * bodyConvo * (isLeft ? 0.14 : 0.22) * (0.8 + 0.3 * cadence);
+          rotZ = -side * bodyConvo * (isLeft ? 0.06 : 0.10);
         }
 
         if (wWeight > 0.001) {
@@ -1294,10 +1355,31 @@ function Model({
           const bounce = Math.sin(t.current * 5.0) * 0.10;
           rotX = 0.20 + bounce;
           rotZ = side * (0.48 + bounce);
+        } else if (shyPose) {
+          // Forearms drawn up in front of the body, hands near the waist.
+          const sway = Math.sin(t.current * 1.1 + 0.4) * 0.02;
+          rotX = 0.06 + sway;
+          rotZ = side * (0.52 + sway);
+        } else if (heavyPose) {
+          // Limbs go slack; elbows barely hold any bend.
+          const heavy = Math.sin(t.current * 0.8 + 0.3) * 0.012;
+          rotX = -(bodyDroop * 0.5) + heavy;
+          rotZ = side * Math.max(0.06, 0.18 - bodyDroop);
+        } else if (excitedPose) {
+          const bounce = Math.sin(t.current * 6.5 + 0.3) * 0.12;
+          rotX = 0.14 + bounce;
+          rotZ = side * (0.40 + Math.abs(bounce));
+        } else if (firmPose) {
+          rotX = 0.08;
+          rotZ = side * 0.30;
+        } else if (fidgetPose) {
+          const fidget = Math.sin(t.current * 9.0 + 0.5) * 0.03;
+          rotX = convo * 0.12 + fidget;
+          rotZ = side * (convo * 0.30 + fidget);
         } else {
           const cadence = isLeft ? Math.sin(t.current * 1.7 + 0.5) : Math.sin(t.current * 2.1 + 0.4);
-          rotX = convo * 0.16 * (0.8 + 0.25 * cadence);
-          rotZ = side * convo * (isLeft ? 0.28 : 0.42) * (0.85 + 0.25 * cadence);
+          rotX = bodyConvo * 0.16 * (0.8 + 0.25 * cadence) - bodyDroop * 0.5;
+          rotZ = side * bodyConvo * (isLeft ? 0.28 : 0.42) * (0.85 + 0.25 * cadence) * (1 - affectiveProfile.drowsy * 0.4);
         }
 
         if (wWeight > 0.001) {
@@ -1316,11 +1398,29 @@ function Model({
           const bounce = Math.sin(t.current * 5.0) * 0.12;
           rotX = bounce;
           rotZ = side * 0.15;
+        } else if (shyPose) {
+          const sway = Math.sin(t.current * 1.1 + 0.8) * 0.015;
+          rotX = 0.10 + sway;
+          rotZ = -side * 0.06;
+        } else if (heavyPose) {
+          rotX = -(0.05 + bodyDroop);
+          rotZ = -side * 0.03;
+        } else if (excitedPose) {
+          const bounce = Math.sin(t.current * 6.5 + 0.6) * 0.12;
+          rotX = bounce;
+          rotZ = side * 0.18;
+        } else if (firmPose) {
+          rotX = 0.06;
+          rotZ = -side * 0.05;
+        } else if (fidgetPose) {
+          const fidget = Math.sin(t.current * 9.0 + 0.7) * 0.03;
+          rotX = convo * 0.12 + fidget;
+          rotZ = -side * fidget * 0.5;
         } else {
           const cadence = isLeft ? Math.sin(t.current * 1.7 + 1.0) : Math.sin(t.current * 2.1 + 0.8);
-          rotX = convo * (isLeft ? 0.10 : 0.18) * cadence;
-          rotZ = -side * convo * (isLeft ? 0.07 : 0.14) * (isLeft ? Math.cos(t.current * 1.7) : Math.cos(t.current * 2.1 + 0.4));
-          rotY = side * convo * (isLeft ? 0.05 : 0.12) * cadence;
+          rotX = bodyConvo * (isLeft ? 0.10 : 0.18) * cadence;
+          rotZ = -side * bodyConvo * (isLeft ? 0.07 : 0.14) * (isLeft ? Math.cos(t.current * 1.7) : Math.cos(t.current * 2.1 + 0.4));
+          rotY = side * bodyConvo * (isLeft ? 0.05 : 0.12) * cadence;
         }
 
         if (wWeight > 0.001) {
@@ -1377,6 +1477,16 @@ function Model({
           intentCurlDelta = 0.12;
         } else if (activeIntent === "celebratory" || activeIntent === "laughing") {
           intentCurlDelta = -0.15;
+        } else if (shyPose || fidgetPose) {
+          // Fingers softly curl inward when bashful or uneasy.
+          intentCurlDelta = 0.10;
+        } else if (heavyPose) {
+          // Sleepy/sorrowful hands go loose and open.
+          intentCurlDelta = -0.10;
+        } else if (excitedPose) {
+          intentCurlDelta = -0.08;
+        } else if (firmPose) {
+          intentCurlDelta = 0.08;
         }
         const totalCurl = Math.max(0.04, Math.min(1.2, (baseCurl - openModifier + intentCurlDelta + microFlutter) * jointMult));
         fRotZ = sign * totalCurl;
@@ -1399,12 +1509,16 @@ function Model({
       jawBone.rotation.x = THREE.MathUtils.damp(jawBone.rotation.x, -mouthDrive * 0.42, 16, dt);
     }
 
-    /* ── IDLE / ALWAYS-ON BREATHING ───────────────────────────────── */
+    /* ── IDLE / ALWAYS-ON BREATHING ─────────────────────────────────
+     * Breath follows feeling: arousal quickens and deepens it, drowsiness
+     * slows it into long, heavy draws, sorrow adds weight. */
     const chestBone = chestBoneRef.current;
     const chestRest = chestRestQRef.current;
     if (chestBone && chestRest) {
-      const depth = speakingRef.current ? 0.030 : 0.024;
-      const breathe = Math.sin(t.current * 1.5) * depth;
+      const breathRate = 1.5 + affectiveProfile.arousal * 0.9 - affectiveProfile.drowsy * 0.7;
+      const depth = (speakingRef.current ? 0.030 : 0.024)
+        * (1 + affectiveProfile.arousal * 0.4 + Math.max(0, -affectiveProfile.valence) * 0.15);
+      const breathe = Math.sin(t.current * breathRate) * depth;
       const drift = Math.sin(t.current * 0.6 + 1.0) * 0.006;
       chestBone.quaternion.copy(
         scratch.target.copy(chestRest).multiply(

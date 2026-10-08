@@ -269,7 +269,7 @@ async def coding_agent_handler(params: CodingAgentParams) -> dict[str, Any]:
             "provider": provider_label,
             "fileSizeBytes": len(full_content.encode("utf-8")),
             "hash": compute_file_hash(full_content)[:12],
-            "verification": verification["output"] or "not requested",
+            "verification": verification["output"] or ("passed" if verification["ran"] else "not requested"),
             "evidence": evidence,
             "summary": str(payload.get("summary") or f"Created {params.file_path}."),
         }
