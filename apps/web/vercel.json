@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://lung-former-stations-stem.trycloudflare.com/api/:path*"
+      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://lung-former-stations-stem.trycloudflare.com/v1/:path*"
+      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://lung-former-stations-stem.trycloudflare.com/health"
+      "destination": "https://travels-reproduce-dollar-malpractice.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",
