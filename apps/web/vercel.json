@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://bookstore-reference-federal-luxury.trycloudflare.com/api/:path*"
+      "destination": "https://shots-mike-ports-did.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://bookstore-reference-federal-luxury.trycloudflare.com/v1/:path*"
+      "destination": "https://shots-mike-ports-did.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://bookstore-reference-federal-luxury.trycloudflare.com/health"
+      "destination": "https://shots-mike-ports-did.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",
