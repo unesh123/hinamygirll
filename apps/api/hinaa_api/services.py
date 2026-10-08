@@ -1904,6 +1904,27 @@ class ConversationService:
             self._persist_learned_memories(user_id, request.sessionId)
         except Exception:  # pragma: no cover - a memory failure must not cost the turn
             logger.warning("Failed to capture facts from the incoming turn", exc_info=True)
+        # Consolidation pass on every real turn: preference extraction with
+        # conflict detection and temporal supersession ("I hate React" ->
+        # "I like React now" retires the older fact). Best-effort — a
+        # consolidation failure must never cost the live turn.
+        if can_keep:
+            try:
+                from .cognitive.consolidation import DurableMemoryAdapter, MemoryConsolidator
+
+                MemoryConsolidator.consolidate_turn(
+                    user_id=user_id,  # type: ignore[arg-type]
+                    user_text=request.text,
+                    assistant_text="",
+                    memory_manager=DurableMemoryAdapter(self.memory_service),
+                    conversation_id=f"session:{request.sessionId[:60]}",
+                    # SessionMemory already owns identity/biographical facts;
+                    # consolidation on this path exists for preference
+                    # contradiction resolution, so keep its scope narrow.
+                    preference_only=True,
+                )
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("turn consolidation skipped", exc_info=True)
         return can_keep
 
     def _handle_continuity_promotions(self, user_id: str, convo_id: str | None, text: str) -> None:

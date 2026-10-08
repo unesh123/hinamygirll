@@ -16,10 +16,88 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 logger = logging.getLogger("hinaa.cognitive.consolidation")
+
+
+class DurableMemoryAdapter:
+    """Adapts the durable MemoryService to the consolidator's manager surface.
+
+    The consolidator was written against MemoryManagerV2 (attribute-style
+    records); the live turn path owns the durable MemoryService (dict-style
+    rows, consent-gated writes). This adapter bridges them so consolidation —
+    preference extraction, conflict detection, supersession — runs on real
+    conversations, not only on cognitive-kernel runs.
+
+    Auto-extracted facts are stored with ``explicit=False`` (pending consent
+    state): she may learn unprompted, but the memory UI marks it as observed
+    rather than owner-approved, and the store's sensitive-content filter and
+    memory toggle still gate every write.
+    """
+
+    def __init__(self, service: Any) -> None:
+        self._service = service
+
+    def get_active_semantic_memories(self, user_id: str) -> List[Any]:
+        try:
+            rows = self._service.list_memories(user_id)
+        except Exception as err:
+            logger.debug("consolidation memory listing failed: %s", err)
+            return []
+        return [
+            SimpleNamespace(content=str(row.get("content", "")), memory_id=str(row.get("id", "")))
+            for row in rows
+            if row.get("status") in ("approved", "pending")
+        ]
+
+    def remember(
+        self,
+        user_id: str,
+        content: str,
+        category: str = "preference",
+        confidence: float = 0.9,
+        source_turn_ref: Optional[str] = None,
+    ) -> Any:
+        row = None
+        try:
+            row = self._service.remember(
+                user_id,
+                content,
+                category=category,
+                source_turn_ref=source_turn_ref,
+                explicit=False,
+            )
+        except Exception as err:
+            # Best-effort writes: a store failure (disabled memory, sensitive
+            # filter, DB outage) degrades consolidation, never the live turn.
+            logger.debug("consolidation remember skipped: %s", err)
+            return None
+        return SimpleNamespace(memory_id=str(row.get("id", "")))
+
+    def supersede_memory(
+        self,
+        user_id: str,
+        old_id: str,
+        new_content: str,
+        source_turn_ref: Optional[str] = None,
+    ) -> tuple[Any, Any]:
+        try:
+            old_row, new_row = self._service.supersede_memory(
+                user_id,
+                old_id,
+                new_content,
+                source_turn_ref=source_turn_ref,
+            )
+        except Exception as err:
+            logger.debug("consolidation supersede skipped: %s", err)
+            return None, None
+        return (
+            SimpleNamespace(memory_id=str(old_row.get("id", ""))),
+            SimpleNamespace(memory_id=str(new_row.get("id", ""))),
+        )
 
 
 class MemoryConsolidator:
@@ -75,16 +153,26 @@ class MemoryConsolidator:
         *,
         conversation_id: Optional[str] = None,
         project_id: Optional[str] = None,
+        preference_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Executes a consolidation pass after a turn/interaction.
         Returns list of newly learned or superseded memory records.
+
+        ``preference_only`` narrows extraction to preference-class statements
+        (prefer/like/dislike/hate/always use/never use). The live turn path
+        uses this because SessionMemory already owns identity and biographical
+        extraction; consolidating those here too would store the same fact
+        twice under different wordings.
         """
         consolidated = []
         lowered = user_text.lower()
 
         # Check for user preference statements: "I prefer X", "My name is X", "I use X"
-        pref_match = re.search(r"\b(?:i\s+prefer|i\s+like|always\s+use|my\s+name\s+is|i\s+work\s+at)\s+([^\.\n\!]{2,80})", user_text, re.IGNORECASE)
+        if preference_only:
+            pref_match = re.search(r"\b(?:i\s+prefer|i\s+like|i\s+dislike|i\s+hate|always\s+use|never\s+use)\s+([^\.\n\!]{2,80})", user_text, re.IGNORECASE)
+        else:
+            pref_match = re.search(r"\b(?:i\s+prefer|i\s+like|always\s+use|my\s+name\s+is|i\s+work\s+at)\s+([^\.\n\!]{2,80})", user_text, re.IGNORECASE)
         if pref_match:
             candidate = pref_match.group(0).strip()
             # Verify if this conflicts with existing semantic facts
@@ -99,12 +187,15 @@ class MemoryConsolidator:
                 old_id = conflicting_fact.memory_id
                 superseded_by_id = str(uuid4())
                 if hasattr(memory_manager, "supersede_memory"):
-                    _, new_item = memory_manager.supersede_memory(
+                    supersede_result = memory_manager.supersede_memory(
                         user_id=user_id,
                         old_id=old_id,
                         new_content=candidate,
                         source_turn_ref=conversation_id,
                     )
+                    if supersede_result is None or supersede_result[1] is None:
+                        return consolidated  # store rejected the write; nothing happened
+                    _, new_item = supersede_result
                     superseded_by_id = new_item.memory_id
                 elif hasattr(memory_manager, "supersede_fact"):
                     memory_manager.supersede_fact(
@@ -129,6 +220,8 @@ class MemoryConsolidator:
                         confidence=0.9,
                         source_turn_ref=conversation_id,
                     )
+                    if new_item is None:
+                        return consolidated  # store rejected the write; nothing happened
                     consolidated.append({
                         "action": "added",
                         "id": getattr(new_item, "memory_id", str(uuid4())),

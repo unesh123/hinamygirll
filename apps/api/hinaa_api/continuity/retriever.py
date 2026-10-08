@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -334,10 +335,23 @@ class CrossSessionMemoryRetriever:
             ).all()
 
             for mem in all_explicit:
-                # Calculate keyword overlap
+                # Hybrid retrieval score = relevance + recency + importance + confidence.
+                # relevance: token overlap with the query; importance: preference/
+                # procedural categories carry standing weight; recency: exponential
+                # decay over ~2 weeks so fresh facts outrank stale ones; confidence:
+                # owner-approved rows outrank pending observations.
                 mem_lowered = mem.content.lower()
                 overlap = any(t in mem_lowered for t in tokens) if tokens else False
                 is_pref = mem.category in ("preference", "procedural", "workflow", "correction")
+
+                days_old = 30.0
+                if mem.updated_at is not None:
+                    updated = mem.updated_at
+                    if updated.tzinfo is None:
+                        updated = updated.replace(tzinfo=UTC)
+                    days_old = max(0.0, (datetime.now(UTC) - updated).total_seconds() / 86400.0)
+                recency_boost = 0.3 * math.exp(-days_old / 14.0)
+                confidence_term = 0.2 if mem.status == "approved" else 0.05
 
                 score = 0.8
                 if mem.status == "superseded":
@@ -349,6 +363,7 @@ class CrossSessionMemoryRetriever:
                     score = 1.3
                 elif is_pref:
                     score = 1.0
+                score += recency_boost + confidence_term
 
                 evidence.append(
                     MemoryEvidence(
