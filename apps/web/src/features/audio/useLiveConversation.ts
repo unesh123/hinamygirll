@@ -1495,6 +1495,39 @@ export function useLiveConversation({
     setDiagnostics((prev) => ({ ...prev, currentStage: "committed-manual" }));
   }, [sendJson]);
 
+  // ── Typed barge-in: a typed message while she is speaking stops her voice
+  // immediately, without starting a mic capture. The old submit path simply
+  // returned early during a live session, so her reply played to the end over
+  // the top of whatever he had just typed. ──
+  const interruptSpeech = useCallback(() => {
+    if (!active.current) return;
+    manualAudioStop.current = true;
+    setBrainPending(false);
+    callbacks.current.playback.stop();
+    playbackState.current = false;
+    generation.current += 1;
+    playbackQueueRef.current = {
+      encodedChunks: 0,
+      decoding: 0,
+      decodedBuffers: 0,
+      scheduledSources: 0,
+      finalSequenceReceived: false,
+    };
+    turnCompleteReceivedRef.current = false;
+    rawAssistantTextRef.current = "";
+    visibleAssistantTextRef.current = "";
+    lastSpokenTextRef.current = "";
+    phraseDetector.current.reset();
+    latency.current.mark("interruption_detected");
+    latency.current.mark("playback_stopped");
+    sendJson({ type: "interrupt", generation: generation.current });
+    turnTaking.current.setSessionState("listening");
+    window.clearTimeout(drainTimerRef.current);
+    activeTurnIdRef.current = "";
+    setDiagnostics((prev) => ({ ...prev, currentStage: "interrupted", audioChunksReceived: 0 }));
+    setDetail("Interrupted · typed message takes over");
+  }, [sendJson]);
+
   const startPushToTalk = useCallback(() => {
     if (!active.current || !ready.current || pausedRef.current || pushToTalkHeld.current) return;
     pushToTalkHeld.current = true;
@@ -1535,6 +1568,7 @@ export function useLiveConversation({
     paused,
     diagnostics,
     manualCommit,
+    interruptSpeech,
     startPushToTalk,
     stopPushToTalk,
     start,

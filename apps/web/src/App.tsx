@@ -792,7 +792,14 @@ export default function App() {
   const submit = useCallback((event?: any, overrideText?: string, attachmentRole?: AttachmentRole) => {
     if (event && "preventDefault" in event) event.preventDefault();
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
-    if ((!textToSend && !attachedImage) || live.active) return;
+    if (!textToSend && !attachedImage) return;
+    // Typed barge-in: a message that arrives while she is speaking stops her
+    // mid-sentence — during a live voice session too. The old guard returned
+    // early whenever live mode was active, so her previous reply played to
+    // the end over the top of the new message.
+    if (live.active) {
+      live.interruptSpeech();
+    }
     // Barge-in: if audio is playing or generation is ongoing, interrupt playback and cleanly transition turn
     if (playback.playing) {
       interruptPlayback();
@@ -888,7 +895,7 @@ export default function App() {
         for (const phrase of [...detector.push(fullText), ...detector.flush()]) queue.enqueue(phrase);
       }
     })();
-  }, [input, live.active, controller, playback, attachedImage, interruptPlayback, requestResponseMode, voiceEngine]);
+  }, [input, live.active, live.interruptSpeech, controller, playback, attachedImage, interruptPlayback, requestResponseMode, voiceEngine]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
     // A command changes HINAA's working surface and leaves an explicit intent
