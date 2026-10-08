@@ -373,6 +373,10 @@ function Model({
   // How long speech audio has sat in a pause — used to land blink bursts
   // at phrase boundaries instead of mid-syllable.
   const blinkPauseHold = useRef(0);
+  // Blink-recovery brow lift: detects the reopening edge of a blink and
+  // floats the brows up for a beat, then damps back to neutral.
+  const prevBlinkLevel = useRef(0);
+  const browLift = useRef(0);
   const saccadeTimer = useRef(3.2 + Math.random() * 2);
   const saccadeTarget = useRef({ x: 0, y: 0 });
   // Current mouth weights (smoothed)
@@ -1053,6 +1057,16 @@ function Model({
     vrm.update(dt);
 
     /* ── LAYER 4B: HIGH-LEVEL DIRECT FACE MESH ANIME ACTING ───────── */
+    // Blink-recovery brow lift: when the lids reopen after a real blink, the
+    // brows float up a touch and settle — the coupled micro-motion that makes
+    // a blink read as muscular, not a texture toggle.
+    const blinkNow = blinkLevel.current;
+    if (prevBlinkLevel.current > 0.45 && blinkNow < 0.18) {
+      browLift.current = Math.min(0.10, 0.045 + blinkShape.current.peak * 0.05);
+    }
+    prevBlinkLevel.current = blinkNow;
+    browLift.current = THREE.MathUtils.damp(browLift.current, 0, 5.5, dt);
+
     const setDirectMorph = (targetName: string, targetWeight: number, rate = 14) => {
       const mesh = faceMeshRef.current;
       if (!mesh || !mesh.morphTargetInfluences) return;
@@ -1072,7 +1086,10 @@ function Model({
         isSpeakingNow,
       );
       for (const [targetName, targetWeight] of Object.entries(directTargets)) {
-        setDirectMorph(targetName, targetWeight);
+        const lift = (targetName === "Fcl_BRW_Surprised" || targetName === "Fcl_BRW_Joy")
+          ? browLift.current * 0.5
+          : 0;
+        setDirectMorph(targetName, Math.min(0.9, targetWeight + lift));
       }
     }
 

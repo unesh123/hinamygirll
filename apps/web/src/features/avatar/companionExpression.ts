@@ -681,7 +681,10 @@ export function computeDirectMorphTargets(
   const browAngry = Math.min(0.65, Math.max(0,
     pout * 0.35 +
     (thoughtfulness > 0.75 ? 0.15 : 0) +
-    (valence < -0.4 ? 0.20 : 0)
+    (valence < -0.4 ? 0.20 : 0) +
+    // Emphasis furrow: brows knit slightly on stressed syllables — the
+    // micro-expression that makes emphatic speech read as felt, not recited.
+    (isSpeaking ? vocalStress * 0.30 : 0)
   ));
 
   // 4. Radiant mouth corners & charming asymmetric smirk
