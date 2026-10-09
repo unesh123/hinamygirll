@@ -727,10 +727,47 @@ def _strip_unverified_document_claims(text: str) -> tuple[str, bool]:
     return cleaned.strip(), True
 
 
+def _trim_to_sentences(text: str, max_chars: int, max_sentences: int) -> str:
+    """Hard-trim prose at sentence boundaries. A model that rambles past the
+    budget loses the tail, never a word mid-way."""
+    if len(text) <= max_chars:
+        return text
+    sentences = re.split(r"(?<=[.!?।॥])\s+", text.strip())
+    kept: list[str] = []
+    total = 0
+    for sentence in sentences:
+        if kept and (total + len(sentence) + 1 > max_chars or len(kept) >= max_sentences):
+            break
+        kept.append(sentence)
+        total += len(sentence) + 1
+    trimmed = " ".join(kept).strip()
+    if len(trimmed) > max_chars:
+        # One sentence alone ran past the budget: cut on a word boundary.
+        trimmed = text[:max_chars].rsplit(" ", 1)[0].rstrip(",;:") + "."
+    return trimmed or text[:max_chars]
+
+
+def _trim_display_for_chat(text: str, max_chars: int = 700) -> str:
+    """Casual questions get a casual answer. A model that turns "why did that
+    happen?" into a headed, tabled lecture loses everything from the first
+    structural marker down, then the prose itself is sentence-trimmed. The
+    structure cut applies at any length: the repetition guard can collapse a
+    lecture under the character budget with its headers intact."""
+    if "```" in text:
+        return text
+    structure = re.search(r"\n\s*(?:#{1,6}\s|[-•*] |\|)", text)
+    if structure and structure.start() > 80:
+        text = text[: structure.start()].rstrip()
+    if len(text) <= max_chars:
+        return text
+    return _trim_to_sentences(text, max_chars, max_sentences=6)
+
+
 def _apply_response_quality_guard(
     plan: AssistantTurnPlan,
     is_live: bool = False,
     evidence_sources: Any = None,
+    user_text: str | None = None,
 ) -> None:
     """Normalize a completed plan without changing meaning or tool requests."""
     clean_display, display_laughed = _clean_natural_speech_and_display(plan.displayText)
@@ -821,6 +858,22 @@ def _apply_response_quality_guard(
             plan.displayText, plan.spokenText, is_progress=False, live=is_live
         )
         plan.spokenText = voice_text
+
+    # Hard brevity, decided from HIS ask, not her mood: the weak brains answer
+    # a casual complaint with a headed, tabled 800-word lecture (measured in
+    # the live transcripts). Chat depth speaks in three sentences and shows
+    # prose; deep asks keep their length. Turns that filed tools keep their
+    # display as-is -- artifact cards carry their own text.
+    if user_text:
+        from .intelligence.answer_depth import AnswerDepth, AnswerDepthController
+
+        depth = AnswerDepthController.infer_depth(user_text)
+        chatty = depth in (AnswerDepth.QUICK, AnswerDepth.STANDARD)
+        plan.spokenText = _trim_to_sentences(
+            plan.spokenText or "", 450 if chatty else 900, 3 if chatty else 6
+        )
+        if chatty and not plan.toolRequests:
+            plan.displayText = _trim_display_for_chat(plan.displayText or "")
 
 
 # ── Casual-chat fast path ──────────────────────────────────────────────────
@@ -3115,7 +3168,7 @@ class ConversationService:
             note = "I could not reach the queue, so the running job may still finish."
             plan.displayText = self._blocked_reply(plan.displayText, note)
             plan.spokenText = self._blocked_reply(plan.spokenText, note)
-            _apply_response_quality_guard(plan)
+            _apply_response_quality_guard(plan, user_text=request.text)
             return
 
         added = [tool for tool in kept if tool.reason == "deterministic-intent"]
@@ -3123,7 +3176,7 @@ class ConversationService:
             confirmation = " ".join(self._action_confirmation(tool) for tool in added)
             plan.displayText = confirmation
             plan.spokenText = confirmation
-            _apply_response_quality_guard(plan)
+            _apply_response_quality_guard(plan, user_text=request.text)
             return
 
         if kept and denies_capability(plan.displayText or ""):
@@ -3138,7 +3191,7 @@ class ConversationService:
                     field,
                     f"{confirmation} {remaining}".strip() if remaining.strip() else confirmation,
                 )
-            _apply_response_quality_guard(plan)
+            _apply_response_quality_guard(plan, user_text=request.text)
             return
 
         if dropped or sanction.abort:
@@ -4818,7 +4871,7 @@ class ConversationService:
                     resolved_model = None
                 else:
                     raise error
-        _apply_response_quality_guard(result.value, evidence_sources=grounded_sources)
+        _apply_response_quality_guard(result.value, evidence_sources=grounded_sources, user_text=request.text)
         result.value.requestedProvider = requested_provider
         result.value.requestedModel = requested_model
         result.value.resolvedProvider = resolved_provider
@@ -5862,7 +5915,7 @@ class ConversationService:
             except Exception as rec_exc:
                 logger.warning("Simulated tool recovery failed: %r", rec_exc, exc_info=True)
 
-        _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources)
+        _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources, user_text=request.text)
         result.value.requestedProvider = requested_provider
         result.value.requestedModel = requested_model
         result.value.resolvedProvider = resolved_provider

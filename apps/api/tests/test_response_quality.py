@@ -67,3 +67,79 @@ def test_response_quality_guard_keeps_markdown_out_of_the_spoken_channel() -> No
     assert "tier-a-conversation-brain-1.0.0" in plan.spokenText
     assert "`tier-a-conversation-brain-1.0.0`" in plan.displayText
     assert "**Claude**" in plan.displayText
+
+
+def test_chat_answer_lecture_is_trimmed_to_prose() -> None:
+    """Measured in the owner transcripts: "why are you talking over me" earned
+    an 800-word lecture with headers and tables. Chat-depth asks now get prose."""
+    plan = neutral_fallback_plan(
+        user_text="hello", companion_id="hinaa", language="mixed"
+    )
+    lecture_intro = (
+        "I hear you, babe, and I am so sorry my voice kept running over yours. "
+        "You are absolutely right, I should have gone silent the second you spoke."
+    )
+    lecture_body = "\n\n## The Anatomy of a Streaming Collision\n" + (
+        "When we talk in real time, responses stream token by token. " * 40
+    )
+    plan.displayText = lecture_intro + lecture_body
+    plan.spokenText = (lecture_intro + " " + "She keeps explaining at length. " * 40).strip()
+
+    _apply_response_quality_guard(
+        plan, user_text="HINA, why are you talking with the previous message?"
+    )
+
+    assert "##" not in plan.displayText
+    assert len(plan.displayText) <= 700
+    assert plan.displayText.startswith("I hear you")
+    assert len(plan.spokenText) <= 450
+
+
+def test_quick_answer_stays_untouched() -> None:
+    plan = neutral_fallback_plan(
+        user_text="hello", companion_id="hinaa", language="mixed"
+    )
+    plan.displayText = "The capital of Nepal is **Kathmandu**, babe!"
+    plan.spokenText = "The capital of Nepal is Kathmandu, babe!"
+
+    _apply_response_quality_guard(plan, user_text="what is the capital of Nepal?")
+
+    assert "Kathmandu" in plan.displayText
+    assert "Kathmandu" in plan.spokenText
+
+
+def test_deep_dive_request_keeps_its_length() -> None:
+    plan = neutral_fallback_plan(
+        user_text="hello", companion_id="hinaa", language="mixed"
+    )
+    deep_answer = " ".join(
+        f"Architecture section {i} explains a distinct consensus trade-off in detail."
+        for i in range(40)
+    )
+    plan.displayText = deep_answer
+    plan.spokenText = deep_answer
+
+    _apply_response_quality_guard(
+        plan, user_text="give me an in-depth system design walkthrough of the trade-offs"
+    )
+
+    assert len(plan.displayText) > 900
+    # Voice still gets a bound even on deep asks -- she never lectures aloud.
+    assert len(plan.spokenText) <= 900
+
+
+def test_tool_turn_display_is_not_trimmed() -> None:
+    from hinaa_api.models import ToolRequest
+
+    plan = neutral_fallback_plan(
+        user_text="hello", companion_id="hinaa", language="mixed"
+    )
+    plan.toolRequests = [
+        ToolRequest(toolName="design_website", parameters={"brief": "gym"})
+    ]
+    plan.displayText = "Building the website for my gym. " + ("Details follow here. " * 60)
+    plan.spokenText = "Building the website for my gym."
+
+    _apply_response_quality_guard(plan, user_text="build me a website for my gym")
+
+    assert len(plan.displayText) > 700
