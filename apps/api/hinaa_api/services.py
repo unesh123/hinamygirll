@@ -876,6 +876,12 @@ def _apply_response_quality_guard(
             plan.displayText = _trim_display_for_chat(plan.displayText or "")
 
 
+# Seconds of output silence before she acknowledges out loud. A hung primary
+# pays its timeout before failover, and he otherwise stares at a frozen veil
+# the whole time; six seconds is long enough that a healthy brain never
+# triggers it and short enough that a hang is answered.
+_SILENCE_ACK_SECONDS = 6.0
+
 # ── Casual-chat fast path ──────────────────────────────────────────────────
 # Reasoning brains (cx/gpt-5.6-sol, agent-router) spend hidden tokens before
 # the first visible token, which is why social small talk feels slow. Short,
@@ -6310,13 +6316,33 @@ class ConversationService:
             })
             return
 
+        # Silence watchdog: when the first brain hangs (a dead primary pays its
+        # timeout before failover), he otherwise stares at a frozen veil for
+        # the whole wait. After six seconds of no output she acknowledges out
+        # loud -- the transient bubble shows it, her voice says it, and the
+        # final plan still lands as clean answer text.
+        ack_watchdog = asyncio.create_task(asyncio.sleep(_SILENCE_ACK_SECONDS))
+        ack_retired = False
+
         try:
             while True:
                 getter = asyncio.create_task(queue.get())
-                done, _ = await asyncio.wait(
-                    {getter, turn_task}, return_when=asyncio.FIRST_COMPLETED
-                )
+                wait_set: set[asyncio.Task[Any]] = {getter, turn_task}
+                if not ack_retired:
+                    wait_set.add(ack_watchdog)
+                done, _ = await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED)
+                if ack_watchdog in done and not ack_retired:
+                    ack_retired = True
+                    if not emitted:
+                        ack = "One sec, babe…"
+                        emitted.append(ack)
+                        yield _make_delta_event(ack)
+                    getter.cancel()
+                    continue
                 if getter in done:
+                    if not ack_retired:
+                        ack_retired = True
+                        ack_watchdog.cancel()
                     item = getter.result()
                     if item is not None:
                         kind, data = item
@@ -6328,6 +6354,7 @@ class ConversationService:
                             yield self._event(event_name, payload)
                     continue
                 getter.cancel()
+                ack_watchdog.cancel()
                 # The turn finished; drain any deltas/events queued a beat earlier.
                 while not queue.empty():
                     item = queue.get_nowait()
@@ -6384,6 +6411,7 @@ class ConversationService:
                         if remainder:
                             yield _make_delta_event(remainder)
         finally:
+            ack_watchdog.cancel()
             if not turn_task.done():
                 turn_task.cancel()
 

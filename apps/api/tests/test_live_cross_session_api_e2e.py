@@ -204,3 +204,65 @@ def test_e2e_image_turn_keeps_slow_path_for_asset_binding(api_client):
     plan_event = next((e for e in events if e.get("type") == "plan"), None)
     assert plan_event is not None
     assert plan_event.get("provider") != "deterministic-intent"
+
+
+def test_e2e_silence_watchdog_acknowledges_slow_brain(api_client, monkeypatch):
+    """A hung primary made him stare at a frozen veil for the full timeout.
+    After a few seconds of silence she says something, and the final plan
+    still lands as clean answer text."""
+    import asyncio
+
+    import hinaa_api.services as services_module
+    from hinaa_api.services import ConversationService
+
+    monkeypatch.setattr(services_module, "_SILENCE_ACK_SECONDS", 0.05)
+
+    original = ConversationService.create_live_plan
+
+    async def slow_create_live_plan(self, request, emit_delta, *, user_id=None, emit_event=None):
+        await asyncio.sleep(0.3)
+        return await original(self, request, emit_delta, user_id=user_id, emit_event=emit_event)
+
+    monkeypatch.setattr(ConversationService, "create_live_plan", slow_create_live_plan)
+
+    payload = {
+        "sessionId": "convo-e2e-watchdog-1",
+        "conversationId": "convo-e2e-watchdog-1",
+        "text": "hello there, how are you",
+        "providerMode": "mock",
+        "companionId": "hinaa",
+    }
+    headers = {"X-HINAA-Dev-User": "test-user-live", "X-Conversation-ID": "convo-e2e-watchdog-1"}
+    resp = api_client.post("/v1/conversations/turns:stream", json=payload, headers=headers)
+    assert resp.status_code == 200
+    events = _parse_stream_events(resp)
+
+    deltas = [e.get("delta", "") for e in events if e.get("type") == "text.delta"]
+    assert any("One sec" in d for d in deltas), f"no acknowledgement delta in {deltas[:3]}"
+
+    # The final plan is still the clean answer, not the acknowledgement.
+    plan_event = next((e for e in events if e.get("type") == "plan"), None)
+    assert plan_event is not None
+    assert "One sec" not in (plan_event.get("plan", {}).get("displayText") or "")
+    assert any(e.get("type") == "run.completed" for e in events)
+
+
+def test_e2e_fast_brain_never_triggers_watchdog(api_client, monkeypatch):
+    """A healthy brain answers before the watchdog fires; no ack is emitted."""
+    import hinaa_api.services as services_module
+
+    monkeypatch.setattr(services_module, "_SILENCE_ACK_SECONDS", 30.0)
+
+    payload = {
+        "sessionId": "convo-e2e-watchdog-2",
+        "conversationId": "convo-e2e-watchdog-2",
+        "text": "hello there, how are you",
+        "providerMode": "mock",
+        "companionId": "hinaa",
+    }
+    headers = {"X-HINAA-Dev-User": "test-user-live", "X-Conversation-ID": "convo-e2e-watchdog-2"}
+    resp = api_client.post("/v1/conversations/turns:stream", json=payload, headers=headers)
+    assert resp.status_code == 200
+    events = _parse_stream_events(resp)
+    deltas = [e.get("delta", "") for e in events if e.get("type") == "text.delta"]
+    assert not any("One sec" in d for d in deltas)
