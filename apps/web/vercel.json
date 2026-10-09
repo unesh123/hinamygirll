@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/api/:path*"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/v1/:path*"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/health"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",

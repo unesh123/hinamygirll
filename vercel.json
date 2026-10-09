@@ -7,27 +7,27 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/api/:path*"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/v1/:path*"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health/:path*",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/health/:path*"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/health/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/health"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/health"
     },
     {
       "source": "/healthz",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/healthz"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/healthz"
     },
     {
       "source": "/readyz",
-      "destination": "https://creatures-lean-munich-glasses.trycloudflare.com/readyz"
+      "destination": "https://approval-rivers-weekends-struck.trycloudflare.com/readyz"
     },
     {
       "source": "/((?!api/|v1/|health|healthz|readyz|models/|assets/|worklets/|animations/|test-assets/).*)",
