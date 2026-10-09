@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import json
 import re
 from typing import Any
@@ -31,6 +33,40 @@ from .timing import ProviderTiming
 from .display_stream_decoder import AdaptiveStreamDecoder
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+
+
+# One keep-alive client per event loop. A fresh AsyncClient per brain call pays
+# a full TCP+TLS handshake to the gateway — and a fallback turn makes several
+# brain calls, so the tax multiplied inside a single reply. Keyed by running
+# loop so tests on fresh loops never share a client; test doubles without
+# `is_closed` are treated as closed and simply rebuilt per call, which keeps
+# the old per-call construction semantics for fakes.
+_SHARED_CLIENTS: dict[int, httpx.AsyncClient] = {}
+
+
+def _shared_client() -> httpx.AsyncClient:
+    try:
+        loop_key = id(asyncio.get_running_loop())
+    except RuntimeError:  # pragma: no cover - defensive, never happens in async code
+        loop_key = 0
+    client = _SHARED_CLIENTS.get(loop_key)
+    if client is None or getattr(client, "is_closed", True):
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(300.0, connect=10.0),
+            limits=httpx.Limits(
+                max_connections=12,
+                max_keepalive_connections=6,
+                keepalive_expiry=120,
+            ),
+        )
+        _SHARED_CLIENTS[loop_key] = client
+    return client
+
+
+@contextlib.asynccontextmanager
+async def _pooled_client() -> AsyncIterator[httpx.AsyncClient]:
+    """Yield the loop's shared client without closing it at block end."""
+    yield _shared_client()
 
 
 def _sanitize_delta(value: str) -> str:
@@ -578,7 +614,7 @@ class OpenAILLMProvider:
         # QwenCloud & custom gateways document `max_tokens`; standard
         # OpenAI uses `max_completion_tokens`. Both get the full budget.
         payload["max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"] = _llm_budget_tokens(prompt)
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with _pooled_client() as client:
             response = await client.post(
                 self._chat_url(),
                 headers=self._headers(),
@@ -603,7 +639,7 @@ class OpenAILLMProvider:
             # Dynamically budgeted tokens based on turn depth and interaction mode
             "max_tokens": _llm_budget_tokens(prompt),
         }
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with _pooled_client() as client:
             response = await client.post(
                 self._chat_url(),
                 headers=self._headers(),
@@ -630,7 +666,7 @@ class OpenAILLMProvider:
             "max_completion_tokens": 4096,
             "response_format": {"type": "json_object"},
         }
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with _pooled_client() as client:
             response = await client.post(
                 self._chat_url(),
                 headers=self._headers(),
@@ -664,8 +700,6 @@ class OpenAILLMProvider:
                 "max_tokens": budget,
                 "stream": True,
             }
-
-            timeout = 300.0
         else:
             payload = {
                 "model": self._model,
@@ -674,8 +708,7 @@ class OpenAILLMProvider:
                 "max_completion_tokens": budget,
                 "stream": True,
             }
-            timeout = 300.0
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with _pooled_client() as client:
             async with client.stream(
                 "POST",
                 self._chat_url(),

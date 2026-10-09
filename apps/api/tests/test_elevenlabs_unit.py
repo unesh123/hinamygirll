@@ -275,6 +275,8 @@ def _record_stream(monkeypatch, sent, status_code=200, error_body=b"", queries=N
             return False
 
     class _Client:
+        is_closed = False
+
         def __init__(self, *args, **kwargs):
             pass
 
@@ -284,7 +286,7 @@ def _record_stream(monkeypatch, sent, status_code=200, error_body=b"", queries=N
         async def __aexit__(self, *_exc):
             return False
 
-        def stream(self, method, url, headers=None, params=None, json=None):
+        def stream(self, method, url, headers=None, params=None, json=None, timeout=None):
             sent.append(json)
             if queries is not None:
                 queries.append(params)

@@ -39,6 +39,31 @@ from .base import ProviderResult, TTSProvider
 logger = logging.getLogger("hinaa.elevenlabs")
 
 
+# One keep-alive client per event loop. A fresh AsyncClient per phrase pays a
+# full TCP+TLS handshake to api.elevenlabs.io — measured: 4.4s cold synthesis
+# vs 1.6s warm, and every chat phrase and mic utterance was paying the cold
+# price. Keyed by running loop so tests on fresh loops never share a client.
+_SHARED_CLIENTS: dict[int, httpx.AsyncClient] = {}
+
+
+def _shared_client() -> httpx.AsyncClient:
+    try:
+        loop_key = id(asyncio.get_running_loop())
+    except RuntimeError:  # pragma: no cover - defensive, never happens in async code
+        loop_key = 0
+    client = _SHARED_CLIENTS.get(loop_key)
+    if client is None or getattr(client, "is_closed", True):
+        client = httpx.AsyncClient(
+            limits=httpx.Limits(
+                max_connections=8,
+                max_keepalive_connections=4,
+                keepalive_expiry=120,
+            )
+        )
+        _SHARED_CLIENTS[loop_key] = client
+    return client
+
+
 # Devanagari decides nothing by itself: Nepali and Hindi share the script, and a
 # Nepali turn answered in a Hindi voice is the kind of wrongness nobody can
 # unhear. These are the words each language uses where the other does not, and
@@ -472,31 +497,32 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
             payload["language_code"] = language_code
         try:
             async with _tts_gate(self._config.tts_max_concurrency):
-                async with httpx.AsyncClient(timeout=self._config.request_timeout_s) as client:
-                    async with client.stream(
-                        "POST", url, headers=headers, params=params, json=payload
-                    ) as response:
-                        if response.status_code != 200:
-                            mapped = map_elevenlabs_http_error(response.status_code)
-                            self._status = mapped
-                            reason = reason_from_body(await response.aread())
-                            logger.error(
-                                "ElevenLabs rejected %d: %s (%s)",
-                                response.status_code,
-                                mapped.value,
-                                reason,
-                            )
-                            raise ElevenLabsError(
-                                mapped, f"ElevenLabs HTTP {response.status_code}: {reason}",
-                                retryable=(response.status_code >= 500 or (
-                                    response.status_code == 429 and "quota_exceeded" not in reason.lower()
-                                )),
-                            )
-                        self._status = ElevenLabsStatus.available
-                        async for chunk in response.aiter_bytes(self._config.stream_chunk_bytes):
-                            if cancel and cancel.is_cancelled:
-                                return
-                            yield chunk
+                client = _shared_client()
+                async with client.stream(
+                    "POST", url, headers=headers, params=params, json=payload,
+                    timeout=self._config.request_timeout_s,
+                ) as response:
+                    if response.status_code != 200:
+                        mapped = map_elevenlabs_http_error(response.status_code)
+                        self._status = mapped
+                        reason = reason_from_body(await response.aread())
+                        logger.error(
+                            "ElevenLabs rejected %d: %s (%s)",
+                            response.status_code,
+                            mapped.value,
+                            reason,
+                        )
+                        raise ElevenLabsError(
+                            mapped, f"ElevenLabs HTTP {response.status_code}: {reason}",
+                            retryable=(response.status_code >= 500 or (
+                                response.status_code == 429 and "quota_exceeded" not in reason.lower()
+                            )),
+                        )
+                    self._status = ElevenLabsStatus.available
+                    async for chunk in response.aiter_bytes(self._config.stream_chunk_bytes):
+                        if cancel and cancel.is_cancelled:
+                            return
+                        yield chunk
         except httpx.TimeoutException as exc:
             self._status = ElevenLabsStatus.timeout
             raise ElevenLabsError(ElevenLabsStatus.timeout, "ElevenLabs request timed out.") from exc
@@ -1301,27 +1327,30 @@ class ElevenLabsSTTProvider:
 
         result_text = ""
         try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout_s) as client:
-                response = await client.post(url, headers=headers, files=files, data=data)
-                if response.status_code == 200:
-                    raw_text = response.json().get("text", "")
-                    # Clean out non-verbal audio event markers like [tone], [laughter], [music], [sigh], etc.
-                    import re
-                    result_text = re.sub(r"\[[a-zA-Z0-9_\s-]+\]", "", raw_text).strip()
-                    logger.info("ElevenLabs STT raw: %r -> cleaned: %r", raw_text, result_text)
-                else:
-                    # Previously this branch only logged and returned "", which the
-                    # realtime layer treated as "the user said nothing" — making
-                    # every STT failure look like Hinaa is deaf. Raise instead so
-                    # the client sees the real failure code.
-                    logger.error("ElevenLabs STT error %s: %s", response.status_code, response.text)
-                    mapped = map_elevenlabs_http_error(response.status_code)
-                    raise HinaaError(
-                        f"ELEVENLABS_STT_{mapped.value.upper()}",
-                        f"ElevenLabs speech recognition failed (HTTP {response.status_code}).",
-                        503,
-                        True,
-                    )
+            client = _shared_client()
+            response = await client.post(
+                url, headers=headers, files=files, data=data,
+                timeout=self._config.request_timeout_s,
+            )
+            if response.status_code == 200:
+                raw_text = response.json().get("text", "")
+                # Clean out non-verbal audio event markers like [tone], [laughter], [music], [sigh], etc.
+                import re
+                result_text = re.sub(r"\[[a-zA-Z0-9_\s-]+\]", "", raw_text).strip()
+                logger.info("ElevenLabs STT raw: %r -> cleaned: %r", raw_text, result_text)
+            else:
+                # Previously this branch only logged and returned "", which the
+                # realtime layer treated as "the user said nothing" — making
+                # every STT failure look like Hinaa is deaf. Raise instead so
+                # the client sees the real failure code.
+                logger.error("ElevenLabs STT error %s: %s", response.status_code, response.text)
+                mapped = map_elevenlabs_http_error(response.status_code)
+                raise HinaaError(
+                    f"ELEVENLABS_STT_{mapped.value.upper()}",
+                    f"ElevenLabs speech recognition failed (HTTP {response.status_code}).",
+                    503,
+                    True,
+                )
         except HinaaError:
             raise
         except httpx.TimeoutException as exc:
