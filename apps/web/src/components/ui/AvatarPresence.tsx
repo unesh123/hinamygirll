@@ -1089,6 +1089,25 @@ function Model({
         const lift = (targetName === "Fcl_BRW_Surprised" || targetName === "Fcl_BRW_Joy")
           ? browLift.current * 0.5
           : 0;
+        // Fcl_EYE_Close is shared between two owners: the blink layer drives it
+        // through the blink presets (verified: the default model binds blink →
+        // morph Fcl_EYE_Close), and this layer eases it toward the drowsy-lid
+        // pose. A damped drowsy write of ~0 applied after vrm.update() stomped
+        // the blink mid-flight every frame — she read as never blinking. Damp
+        // the drowsy base only, then lay the live blink on top, instant and
+        // undamped, so the lid follows the blink envelope exactly.
+        if (targetName === "Fcl_EYE_Close") {
+          setDirectMorph(targetName, Math.min(0.9, targetWeight));
+          const mesh = faceMeshRef.current;
+          const idx = morphDictRef.current[targetName];
+          if (mesh && mesh.morphTargetInfluences && idx !== undefined) {
+            const drowsyBase = curDirectMorphsRef.current[targetName] ?? 0;
+            mesh.morphTargetInfluences[idx] = THREE.MathUtils.clamp(
+              Math.max(drowsyBase, blinkLevel.current), 0, 1,
+            );
+          }
+          continue;
+        }
         setDirectMorph(targetName, Math.min(0.9, targetWeight + lift));
       }
     }
