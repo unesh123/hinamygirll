@@ -7,27 +7,27 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/api/:path*"
+      "destination": "https://incidents-entries-advantage-heritage.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/v1/:path*"
+      "destination": "https://incidents-entries-advantage-heritage.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health/:path*",
-      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/health/:path*"
+      "destination": "https://incidents-entries-advantage-heritage.trycloudflare.com/health/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/health"
+      "destination": "https://incidents-entries-advantage-heritage.trycloudflare.com/health"
     },
     {
       "source": "/healthz",
-      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/healthz"
+      "destination": "https://incidents-entries-advantage-heritage.trycloudflare.com/healthz"
     },
     {
       "source": "/readyz",
-      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/readyz"
+      "destination": "https://incidents-entries-advantage-heritage.trycloudflare.com/readyz"
     },
     {
       "source": "/((?!api/|v1/|health|healthz|readyz|models/|assets/|worklets/|animations/|test-assets/).*)",

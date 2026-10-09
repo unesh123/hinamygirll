@@ -839,6 +839,14 @@ export default function App() {
       let generating = true;
       playback.beginSpeechStream();
       const effectiveEngine = (voiceEngine === "auto" || !voiceEngine || voiceEngine.startsWith("deepgram")) ? "elevenlabs" : voiceEngine;
+      // Streamed speech budget: a long essay is fine on screen but exhausting
+      // read aloud sentence-by-sentence — and free-tier brains often restate
+      // the same answer two or three ways in one reply, which sounds exactly
+      // like she is repeating herself. She speaks the gist live; the complete
+      // text stays on screen. The completion path below is already capped by
+      // deriveSpokenText; this caps the streaming path the same way.
+      const STREAMED_SPEECH_WORD_BUDGET = 90;
+      let streamedSpeechWords = 0;
       const queue = new ProgressiveSpeech({
         synthesize: async (phrase, signal) => {
           if (playback.muted) return null;
@@ -896,7 +904,11 @@ export default function App() {
         reference_images: imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
         responseMode: requestResponseMode,
         voiceEngine: effectiveEngine,
-        onSentenceChunk: phrase => { if (!playback.muted) queue.enqueue(phrase); },
+        onSentenceChunk: phrase => {
+          if (playback.muted) return;
+          streamedSpeechWords += phrase.trim().split(/\s+/).filter(Boolean).length;
+          if (streamedSpeechWords <= STREAMED_SPEECH_WORD_BUDGET) queue.enqueue(phrase);
+        },
       });
       generating = false;
       if (progressiveSpeechRef.current !== queue) return;

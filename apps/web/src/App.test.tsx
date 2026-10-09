@@ -103,6 +103,93 @@ describe("HINAA assistant workspace", () => {
     utterance.onend?.();
   }, 10_000);
 
+  it("caps streamed speech at the word budget instead of reading a rambling reply aloud", async () => {
+    // A free-tier brain can restate the same answer three ways in one reply.
+    // She must speak the gist and stop — reading every sentence aloud is what
+    // sounded like "repeating the message". The full text still lands on screen.
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel: vi.fn() });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+    localStorage.setItem("hinaa_settings_v1", JSON.stringify({
+      _version: 7,
+      appearance: { theme: "system", motion: "system", avatarVisible: true, avatarStyle: "procedural" },
+      provider: { preferredMode: "claude", preferredModelByProvider: {} },
+      language: { activePolicy: "en-US" },
+      automation: { autoRunTools: false },
+    }));
+
+    const sentences = [
+      "The morning market wakes slowly under a soft pink sky.",
+      "Vendors arrange mangoes in bright pyramids beside the temple steps.",
+      "A bus exhales at the corner and swallows a crowd of office bags.",
+      "The tea seller pours thin streams between two steel cups.",
+      "Pigeons scatter from the clock tower and circle back again.",
+      "A tailor opens his shutters and measures cloth with his forearm.",
+      "Schoolchildren race paper boats along the monsoon drain.",
+      "The florist threads marigolds into long orange ropes.",
+      "An old radio argues with the static above the paan stall.",
+      "The river carries the afternoon light toward the bridge.",
+      "Evening gathers slowly over the rooftops and water tanks.",
+      "The town exhales and the first stars arrive on schedule.",
+    ];
+    const essay = sentences.join(" ");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/v1/providers")) {
+          return Response.json([{
+            id: "claude", state: "healthy",
+            capabilities: ["llm", "text-stream", "model:claude-sonnet-4-6", "default-model:claude-sonnet-4-6"],
+          }]);
+        }
+        if (String(input).includes("/conversations/turns:stream")) {
+          const lines = [
+            ...sentences.map((s) => JSON.stringify({ type: "text.delta", delta: `${s} ` })),
+            JSON.stringify({ type: "plan", plan: buildMockPlan(essay, "hinaa") }),
+          ];
+          return new Response(`${lines.join("\n")}\n`, {
+            status: 200,
+            headers: { "Content-Type": "application/x-ndjson" },
+          });
+        }
+        return new Response("{}", { status: 404, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+
+    render(<App />);
+    const composer = screen.getByPlaceholderText("Ask HINA anything — chat mode...");
+    fireEvent.change(composer, { target: { value: "Tell me about the town." } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    // Drain the speech queue: every utterance ends as soon as it starts, so
+    // the next queued phrase can speak, until the queue runs dry.
+    let drained = 0;
+    let quietPolls = 0;
+    const deadline = Date.now() + 9_000;
+    while (Date.now() < deadline && quietPolls < 12) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (drained < speak.mock.calls.length) {
+        const utt = speak.mock.calls[drained][0] as FakeUtterance;
+        drained += 1;
+        quietPolls = 0;
+        utt.onend?.();
+      } else {
+        quietPolls += 1;
+      }
+    }
+
+    const spokenWords = speak.mock.calls
+      .map((call) => String((call[0] as FakeUtterance).text))
+      .join(" ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+    const essayWords = essay.split(/\s+/).filter(Boolean).length;
+    expect(essayWords).toBeGreaterThan(90); // the reply really was a ramble
+    expect(spokenWords).toBeGreaterThan(40); // she still speaks the gist…
+    expect(spokenWords).toBeLessThanOrEqual(90); // …but never the whole essay
+  }, 15_000);
+
   async function sendAttachedPicture(roleLabel: string): Promise<any> {
     localStorage.setItem("hinaa_settings_v1", JSON.stringify({
       _version: 7,
