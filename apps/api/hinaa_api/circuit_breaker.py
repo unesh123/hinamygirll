@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import random
 from enum import Enum
-from time import monotonic
+from pathlib import Path
+from time import monotonic, time as wall_time
 from typing import Any
 
 logger = logging.getLogger("hinaa.circuit_breaker")
@@ -96,8 +98,19 @@ class ProviderCircuitBreaker:
             self.state = CircuitBreakerState.DEGRADED
         else:
             self.state = CircuitBreakerState.READY
+        _persist()
 
     def record_failure(
+        self,
+        error_code: str,
+        error_message: str,
+        retry_after: float | None = None,
+    ) -> None:
+        """Record a failure, then remember the bench across a restart."""
+        self._record_failure(error_code, error_message, retry_after)
+        _persist()
+
+    def _record_failure(
         self,
         error_code: str,
         error_message: str,
@@ -207,6 +220,87 @@ class ProviderCircuitBreaker:
 
 
 _REGISTRY: dict[str, ProviderCircuitBreaker] = {}
+
+# Persistence is opt-in: the live server enables it at startup so a restart
+# remembers which providers were benched, while tests leave it off and keep
+# their own isolated in-process breakers.
+_STATE_FILE: Path | None = None
+
+
+def _persist() -> None:
+    """Write the benched providers to disk with wall-clock cooloff expiry."""
+    if _STATE_FILE is None:
+        return
+    try:
+        now_mono = monotonic()
+        now_wall = wall_time()
+        payload: dict[str, Any] = {}
+        for provider_id, breaker in _REGISTRY.items():
+            remaining = max(0.0, breaker.cooloff_until - now_mono)
+            if remaining <= 0.0:
+                continue
+            if breaker.state in {CircuitBreakerState.READY, CircuitBreakerState.DEGRADED}:
+                continue
+            payload[provider_id] = {
+                "state": breaker.state.value,
+                "consecutiveFailures": breaker.consecutive_failures,
+                "cooloffUntilWall": now_wall + remaining,
+                "lastFailureCode": breaker.last_failure_code,
+                "lastFailureMessage": breaker.last_failure_message,
+            }
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(_STATE_FILE)
+    except Exception:
+        logger.debug("Circuit breaker state could not be persisted", exc_info=True)
+
+
+def _restore() -> None:
+    """Bench providers whose cooloff was still running when the process died."""
+    if _STATE_FILE is None or not _STATE_FILE.exists():
+        return
+    try:
+        payload = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("Circuit breaker state file unreadable", exc_info=True)
+        return
+    now_wall = wall_time()
+    now_mono = monotonic()
+    for provider_id, entry in payload.items():
+        if not isinstance(entry, dict):
+            continue
+        remaining = float(entry.get("cooloffUntilWall") or 0.0) - now_wall
+        if remaining <= 0.0:
+            continue  # cooled off while the server was down; probe fresh
+        breaker = get_circuit_breaker(provider_id)
+        try:
+            breaker.state = CircuitBreakerState(str(entry.get("state")))
+        except ValueError:
+            continue
+        breaker.consecutive_failures = int(entry.get("consecutiveFailures") or 1)
+        breaker.cooloff_until = now_mono + remaining
+        breaker.last_failure_code = str(entry.get("lastFailureCode") or "")
+        breaker.last_failure_message = str(entry.get("lastFailureMessage") or "")
+        logger.info(
+            "Circuit breaker [%s]: restored %s bench (%.0fs remaining)",
+            provider_id,
+            breaker.state.value,
+            remaining,
+        )
+
+
+def enable_persistence(path: Path | str) -> None:
+    """Turn on cross-restart memory for provider benches (live server only)."""
+    global _STATE_FILE
+    _STATE_FILE = Path(path)
+    _restore()
+
+
+def disable_persistence() -> None:
+    """Detach the state file. Tests use this to stay in-memory only."""
+    global _STATE_FILE
+    _STATE_FILE = None
 
 
 def get_circuit_breaker(provider_id: str) -> ProviderCircuitBreaker:

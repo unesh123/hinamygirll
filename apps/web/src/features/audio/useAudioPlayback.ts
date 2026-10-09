@@ -64,6 +64,11 @@ export function useAudioPlayback(): PlaybackController {
   const lastTextRef = useRef<string>("");
   const lastProviderVisemesRef = useRef<VisemeEvent[] | undefined>(undefined);
   const sessionRef = useRef(0);
+  // Timestamp of the last speechSynthesis.cancel(). Chrome restarts a
+  // just-cancelled utterance when the next speak() lands within a few hundred
+  // milliseconds of cancel() — that replayed her previous reply over his new
+  // message. Browser speech paths below let the engine settle first.
+  const lastBrowserCancelAtRef = useRef(0);
   const frameRef = useRef<number | undefined>(undefined);
   const mutedRef = useRef(false);
   const playingRef = useRef(false);
@@ -144,6 +149,7 @@ export function useAudioPlayback(): PlaybackController {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
+        lastBrowserCancelAtRef.current = performance.now();
       } catch {
         // Browser speech is optional; stopping decoded audio must still work.
       }
@@ -660,6 +666,14 @@ export function useAudioPlayback(): PlaybackController {
       };
 
       try {
+        // Settle after a fresh cancel(): a speak() that lands too soon makes
+        // Chrome replay the interrupted utterance — her previous reply talking
+        // over his new message.
+        const sinceCancel = performance.now() - lastBrowserCancelAtRef.current;
+        if (sinceCancel < 250) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250 - sinceCancel));
+        }
+        if (session !== sessionRef.current) return false; // interrupted while settling
         engine.speak(utterance);
         // producing audio (or never fires onend after a pause) — the avatar
         // would then pose "playing" forever and the conversation would hang.
@@ -885,6 +899,18 @@ export function useAudioPlayback(): PlaybackController {
       streamChunkQueueRef.current.push(utterance);
       browserWatchdogRef.current = window.setTimeout(finish, Math.max(8_000, chunkDurationMs * 2 + 5_000));
       try {
+        // Same cancel-then-speak race as speakBrowser: settle before speaking
+        // or Chrome replays the interrupted utterance over his new message.
+        const sinceCancel = performance.now() - lastBrowserCancelAtRef.current;
+        if (sinceCancel < 250) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250 - sinceCancel));
+        }
+        if (session !== sessionRef.current) {
+          // Interrupted while the engine settled: drop the chunk quietly.
+          const staleIdx = streamChunkQueueRef.current.indexOf(utterance);
+          if (staleIdx !== -1) streamChunkQueueRef.current.splice(staleIdx, 1);
+          return false;
+        }
         engine.speak(utterance);
         if (captureStreamReplayRef.current) streamReplayRef.current.push({ text: clean, language: normalizedLanguage, companionId });
         lastBrowserSpeechRef.current = { text: clean, language: normalizedLanguage, companionId };

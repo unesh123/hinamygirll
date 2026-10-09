@@ -78,6 +78,9 @@ def public_environment() -> dict[str, str]:
         "HINAA_AUTH_MODE": "clerk", "HINAA_ALLOWED_USER_IDS": owner,
         "HINAA_PERSISTENCE_ENABLED": "true", "ENVIRONMENT": "production",
         "HINAA_ALLOW_TUNNEL_DEV_AUTH": "false", "HINAA_ALLOW_REMOTE_LOCAL_TOOLS": "false",
+        # Provider benches survive a restart, so the first turn after one does
+        # not pay the dead-primary hang again. Off in dev and under pytest.
+        "HINAA_BREAKER_PERSISTENCE": "1",
         "CLERK_AUTHORIZED_PARTIES": "https://hinaa-workspace.vercel.app,http://127.0.0.1:5173,http://localhost:5173",
     }
 

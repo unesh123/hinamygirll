@@ -106,3 +106,6 @@ apps/api/.hina/
 # Private desktop captures and mail credentials
 apps/api/data/screenshots/
 *.dpapi
+
+# Provider circuit-breaker benches (runtime state, per live instance)
+apps/api/hinaa_api/data/circuit_breakers*.json

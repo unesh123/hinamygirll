@@ -3187,6 +3187,9 @@ class ConversationService:
             if action == "open_application":
                 return f"Opening {target}."
             return f"Executing desktop action '{action}'."
+        if tool.toolName == "terminal_hands":
+            command = (parameters.get("command") or "").strip()
+            return f"Running {command} in the terminal." if command else "Running that in the terminal."
         if tool.toolName == "ui_control":
             return "Adjusting HINAA workspace interface."
         return f"Running {tool.toolName}."
@@ -6164,6 +6167,95 @@ class ConversationService:
             )
             delta_sequence += 1
             return ev
+
+        # Instant-action path: when his sentence fully specifies the work --
+        # "open netflix", "run X in the terminal", "remind me at 6", "build a
+        # site for my gym" -- the gate files the same call the slow path would
+        # and then replaces the brain's 20-45 second monologue with the action
+        # confirmation anyway. Acting immediately turns that wait into an
+        # instant answer, and she speaks while the tool runs. A question mark
+        # keeps the brain: he asked something, so action alone is not the reply.
+        # State-bound tools stay on the slow path: image_generate binds its
+        # reference asset from conversation state inside create_live_plan, and
+        # an instant filing would lose the picture he pointed at.
+        from .prompts.performance import build_plan_from_text
+        from .tools.intent_gate import gate_tool_requests
+
+        _INSTANT_ACTION_TOOLS = frozenset({
+            "computer_operator",
+            "terminal_hands",
+            "reminder.create",
+            "youtube_playback_request",
+            "ui_control",
+            "design_website",
+            "browser_navigate",
+            "browser_execute_task",
+            "browser_press_key",
+            "browser_scroll",
+        })
+        instant_requests, _, _instant_sanction = gate_tool_requests(
+            request.text, [], known_subjects=CHARACTER_ENTITY_MAP
+        )
+        if (
+            instant_requests
+            and "?" not in request.text
+            and all(getattr(req, "reason", None) == "deterministic-intent" for req in instant_requests)
+            and all(req.toolName in _INSTANT_ACTION_TOOLS for req in instant_requests)
+        ):
+            confirmation = " ".join(self._action_confirmation(req) for req in instant_requests)
+            instant_plan = build_plan_from_text(
+                text=confirmation,
+                companion_id=request.companionId or "hinaa",
+                language=getattr(request, "language", None) or "en-US",
+                depth="conversational",
+            )
+            instant_plan.toolRequests = list(instant_requests)
+            yield _make_delta_event(confirmation)
+            instant_elapsed_ms = int((time.time() - start_time) * 1000)
+            yield self._event("planning.completed", {
+                "step": 1,
+                "durationMs": instant_elapsed_ms,
+                "correlationId": correlation_id,
+            })
+            instant_total = len(instant_requests)
+            for idx, tool_req in enumerate(instant_requests, 1):
+                tool_run_id = str(uuid.uuid4())
+                yield self._event("tool.started", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "step": idx,
+                    "totalSteps": instant_total,
+                    "parameters": tool_req.parameters,
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.progress", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "message": f"Processing {tool_req.toolName}...",
+                })
+                yield self._event("tool.proposed", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "parameters": tool_req.parameters,
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.completed", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "status": "ready",
+                })
+            yield self._event("plan", {
+                "plan": instant_plan.model_dump(),
+                "provider": "deterministic-intent",
+            })
+            yield self._event("usage", {"latencyMs": instant_elapsed_ms})
+            yield self._event("run.completed", {
+                "runId": correlation_id,
+                "status": "completed",
+                "latencyMs": instant_elapsed_ms,
+                "totalDurationMs": int((time.time() - start_time) * 1000),
+            })
+            return
 
         try:
             while True:

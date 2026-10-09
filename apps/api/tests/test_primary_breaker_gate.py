@@ -155,3 +155,77 @@ def test_live_idle_default_is_thirty_seconds() -> None:
     """The idle deadline measures silence between tokens; 120s of quiet let a
     hung gateway hold a live voice turn for two minutes before failover."""
     assert _settings().llm_stream_idle_timeout_seconds == 30.0
+
+
+
+def test_bench_survives_restart_via_state_file(tmp_path) -> None:
+    """A provider benched before a restart is still benched after it.
+
+    The registry runs on monotonic clocks, which die with the process; without
+    the wall-clock state file the first turn after every restart paid the full
+    dead-primary hang again, as if nothing had ever been learned.
+    """
+    from hinaa_api.circuit_breaker import disable_persistence, enable_persistence
+
+    state_file = tmp_path / "breakers.json"
+    enable_persistence(state_file)
+    try:
+        get_circuit_breaker("agent-router").record_failure("PROVIDER_TIMEOUT", "hung")
+        assert state_file.exists()
+
+        # Simulated restart: the process registry is gone, the file remains.
+        reset_circuit_breakers()
+        enable_persistence(state_file)
+
+        restored = get_circuit_breaker("agent-router")
+        assert restored.state == CircuitBreakerState.TIMEOUT
+        assert restored.cooldown_remaining() > 0
+        assert restored.last_failure_code == "PROVIDER_TIMEOUT"
+    finally:
+        disable_persistence()
+
+
+def test_cooled_off_bench_is_not_restored(tmp_path) -> None:
+    """A bench that expired while the server was down does not haunt the next boot."""
+    import json
+    from time import time as wall_time
+
+    from hinaa_api.circuit_breaker import disable_persistence, enable_persistence
+
+    state_file = tmp_path / "breakers.json"
+    state_file.write_text(
+        json.dumps({
+            "agent-router": {
+                "state": "timeout",
+                "consecutiveFailures": 2,
+                "cooloffUntilWall": wall_time() - 5,
+                "lastFailureCode": "PROVIDER_TIMEOUT",
+                "lastFailureMessage": "hung",
+            }
+        }),
+        encoding="utf-8",
+    )
+    enable_persistence(state_file)
+    try:
+        breaker = get_circuit_breaker("agent-router")
+        assert breaker.cooldown_remaining() == 0.0
+    finally:
+        disable_persistence()
+
+
+def test_success_clears_provider_from_state_file(tmp_path) -> None:
+    """A recovered provider leaves the file, so the next boot probes it fresh."""
+    import json
+
+    from hinaa_api.circuit_breaker import disable_persistence, enable_persistence
+
+    state_file = tmp_path / "breakers.json"
+    enable_persistence(state_file)
+    try:
+        breaker = get_circuit_breaker("agent-router")
+        breaker.record_failure("PROVIDER_TIMEOUT", "hung")
+        breaker.record_success(latency_ms=800)
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
+        assert "agent-router" not in payload
+    finally:
+        disable_persistence()

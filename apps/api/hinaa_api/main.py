@@ -976,6 +976,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             owner_id=active_settings.dev_auth_subject,
         )
         heartbeat_daemon.start()
+        # A restart must not forget which providers were benched: the first
+        # turn after boot would otherwise pay the full dead-primary hang again.
+        # Live only, armed by the runner's environment -- a test app on a
+        # throwaway sqlite file must never read the live benches nor write
+        # its stub-gateway 403s into them.
+        if os.environ.get("HINAA_BREAKER_PERSISTENCE") == "1":
+            from .circuit_breaker import enable_persistence
+            enable_persistence(
+                Path(__file__).resolve().parent / "data" / "circuit_breakers.json"
+        )
         yield
         heartbeat_daemon.stop()
         scheduler_stop.set()

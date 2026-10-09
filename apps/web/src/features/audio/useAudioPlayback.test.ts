@@ -83,6 +83,9 @@ describe("useAudioPlayback browser fallback", () => {
     await act(async()=> (speak.mock.calls[1][0] as FakeUtterance).onend?.());
     let replay!: Promise<void>;
     act(()=>{ replay=result.current.replay(); });
+    // Replay speaks right after a cancel(), and the engine needs a beat before
+    // the next speak() or Chrome replays the interrupted utterance instead.
+    await act(async()=>{ await new Promise(r=>setTimeout(r,300)); });
     expect(speak.mock.calls[2][0].text).toBe("First phrase.");
     await act(async()=> (speak.mock.calls[2][0] as FakeUtterance).onend?.());
     expect(speak.mock.calls[3][0].text).toBe("Second phrase.");

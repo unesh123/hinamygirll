@@ -129,3 +129,78 @@ def test_e2e_project_architecture_cross_session_recall(api_client):
     deltas = "".join(e.get("delta", "") for e in events_d if e.get("type") == "text.delta")
     combined_text = f"{display_text} {deltas}"
     assert "postgresql" in combined_text.lower(), f"Expected 'PostgreSQL' in response, got: {combined_text}"
+
+
+
+def test_e2e_instant_action_path_files_call_without_brain(api_client):
+    """A fully specified command answers in milliseconds, not after a brain turn.
+
+    The gate already replaced the brain's monologue with the action confirmation
+    on these turns, so the slow path bought him a 20-45 second wait for text he
+    never saw. The instant path emits the confirmation and the filed call first.
+    """
+    payload = {
+        "sessionId": "convo-e2e-instant-1",
+        "conversationId": "convo-e2e-instant-1",
+        "text": "open netflix",
+        "providerMode": "mock",
+        "companionId": "hinaa",
+    }
+    headers = {"X-HINAA-Dev-User": "test-user-live", "X-Conversation-ID": "convo-e2e-instant-1"}
+    resp = api_client.post("/v1/conversations/turns:stream", json=payload, headers=headers)
+    assert resp.status_code == 200
+    events = _parse_stream_events(resp)
+
+    plan_event = next((e for e in events if e.get("type") == "plan"), None)
+    assert plan_event is not None
+    assert plan_event.get("provider") == "deterministic-intent"
+    plan_data = plan_event.get("plan", {})
+    tool_requests = plan_data.get("toolRequests", [])
+    tool_names = [t.get("toolName") for t in tool_requests]
+    assert "computer_operator" in tool_names
+    req = next(t for t in tool_requests if t.get("toolName") == "computer_operator")
+    assert req["parameters"]["action"] == "open_application"
+    assert req["parameters"]["target"].lower().startswith("netflix")
+    assert "Opening" in (plan_data.get("displayText") or "")
+
+    # The confirmation streamed as a delta too, and the run completed.
+    deltas = "".join(e.get("delta", "") for e in events if e.get("type") == "text.delta")
+    assert "Opening" in deltas
+    assert any(e.get("type") == "run.completed" for e in events)
+
+
+def test_e2e_question_never_takes_instant_path(api_client):
+    """"will you open netflix?" still deserves a brain -- he asked, not ordered."""
+    payload = {
+        "sessionId": "convo-e2e-instant-2",
+        "conversationId": "convo-e2e-instant-2",
+        "text": "can you open netflix?",
+        "providerMode": "mock",
+        "companionId": "hinaa",
+    }
+    headers = {"X-HINAA-Dev-User": "test-user-live", "X-Conversation-ID": "convo-e2e-instant-2"}
+    resp = api_client.post("/v1/conversations/turns:stream", json=payload, headers=headers)
+    assert resp.status_code == 200
+    events = _parse_stream_events(resp)
+    plan_event = next((e for e in events if e.get("type") == "plan"), None)
+    assert plan_event is not None
+    assert plan_event.get("provider") != "deterministic-intent"
+
+
+def test_e2e_image_turn_keeps_slow_path_for_asset_binding(api_client):
+    """Image turns stay on the brain path so the reference asset from
+    conversation state still binds to the call."""
+    payload = {
+        "sessionId": "convo-e2e-instant-3",
+        "conversationId": "convo-e2e-instant-3",
+        "text": "generate an image of a sunset over mountains",
+        "providerMode": "mock",
+        "companionId": "hinaa",
+    }
+    headers = {"X-HINAA-Dev-User": "test-user-live", "X-Conversation-ID": "convo-e2e-instant-3"}
+    resp = api_client.post("/v1/conversations/turns:stream", json=payload, headers=headers)
+    assert resp.status_code == 200
+    events = _parse_stream_events(resp)
+    plan_event = next((e for e in events if e.get("type") == "plan"), None)
+    assert plan_event is not None
+    assert plan_event.get("provider") != "deterministic-intent"

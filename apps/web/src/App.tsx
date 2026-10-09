@@ -738,6 +738,21 @@ export default function App() {
     }
   }, [controller, interruptPlayback, live]);
 
+  // Dictation barge-in: the moment text starts appearing in the composer --
+  // typed by hand or dictated through Wispr Flow -- she falls silent and
+  // listens. Waiting for submit meant her previous reply played over his
+  // dictation and her mouth kept moving while he was talking.
+  const lastComposerValueRef = useRef(input);
+  useEffect(() => {
+    const grew = input.length > lastComposerValueRef.current.length;
+    lastComposerValueRef.current = input;
+    if (!grew || !input.trim() || !playback.playing) return;
+    if (live.active) {
+      live.interruptSpeech();
+    }
+    interruptPlayback();
+  }, [input, playback.playing, interruptPlayback, live.active, live.interruptSpeech]);
+
   useEffect(() => {
     const handleSpeak = async (e: any) => {
       const text = e.detail?.text;
