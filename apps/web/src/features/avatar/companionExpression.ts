@@ -613,6 +613,37 @@ export function computeAffectiveProfile(
 }
 
 /**
+ * Every morph target `computeDirectMorphTargets` can emit. The GPU optimizer's
+ * morph prune keeps only morphs bound to named VRM expressions — and none of
+ * these have one — so any avatar that drives the rich face must pass this list
+ * as `keepMorphNames`, or the prune deletes the whole affective range and the
+ * face falls back to the six whole-face presets (measured: "limited
+ * expressions" despite the engine computing them every frame).
+ */
+export const DIRECT_MORPH_KEYS: readonly string[] = [
+  "Fcl_EYE_Joy",
+  "Fcl_EYE_Joy_R",
+  "Fcl_EYE_Joy_L",
+  "Fcl_EYE_Surprised",
+  "Fcl_BRW_Joy",
+  "Fcl_BRW_Fun",
+  "Fcl_BRW_Surprised",
+  "Fcl_BRW_Sorrow",
+  "Fcl_BRW_Angry",
+  "Fcl_MTH_Up",
+  "Fcl_MTH_Down",
+  "Fcl_MTH_SkinFung",
+  "Fcl_MTH_SkinFung_R",
+  "Fcl_MTH_SkinFung_L",
+  "Fcl_HA_Fung1",
+  "Fcl_EYE_Sorrow",
+  "Fcl_EYE_Fun",
+  "Fcl_EYE_Close",
+  "Fcl_MTH_Small",
+  "Fcl_MTH_Large",
+];
+
+/**
  * Computes high-level morph target influences across VRoid's 57 blendshapes.
  * Incorporates continuous affective dimensions, audio stress energy,
  * prime-frequency organic living micro-oscillations, and asymmetric micro-acting.

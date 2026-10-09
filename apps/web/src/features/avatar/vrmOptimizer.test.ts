@@ -140,6 +140,50 @@ describe("pruneVrmMorphTargets", () => {
     expect(mesh.morphTargetInfluences?.[aa!.binds[0].index]).toBeDefined();
   });
 
+  it("keeps directly-driven morphs named in keepMorphNames", () => {
+    const { vrm, geometry, mesh } = makeVrm();
+
+    // Regression: the live avatar drives ~20 Fcl_* morphs by dictionary name
+    // (companionExpression's DIRECT_MORPH_KEYS) and none of them is bound by a
+    // kept preset expression, so a preset-only prune deleted the whole
+    // affective range and froze the face on the six whole-face presets.
+    const removed = pruneVrmMorphTargets(
+      vrm,
+      ["happy", "aa", "blink"],
+      ["custom"],
+    );
+
+    // Only "sad" is dropped; "custom" survives via dictionary lookup and is
+    // re-indexed to the end.
+    expect(removed).toBe(1);
+    expect(geometry.morphAttributes.position).toHaveLength(4);
+    expect(mesh.morphTargetDictionary).toEqual({
+      happy: 0,
+      aa: 1,
+      blink: 2,
+      custom: 3,
+    });
+    expect(mesh.morphTargetInfluences).toHaveLength(4);
+  });
+
+  it("ignores keepMorphNames that the mesh dictionary does not contain", () => {
+    const { vrm, geometry, mesh } = makeVrm();
+
+    const removed = pruneVrmMorphTargets(
+      vrm,
+      ["happy", "aa", "blink"],
+      ["no_such_morph", "ALSO_MISSING"],
+    );
+
+    expect(removed).toBe(2);
+    expect(geometry.morphAttributes.position).toHaveLength(3);
+    expect(mesh.morphTargetDictionary).toEqual({
+      happy: 0,
+      aa: 1,
+      blink: 2,
+    });
+  });
+
   it("is a no-op when every morph is bound", () => {
     const { vrm, geometry, mesh } = makeVrm();
 

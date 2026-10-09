@@ -27,6 +27,10 @@ export interface VrmOptimizeOptions {
   maxTextureSize?: number;
   /** Expression names whose morph binds must be preserved (default VRM presets). */
   keepExpressionNames?: readonly string[];
+  /** Morph-target names driven directly by name (no expression bind), e.g. the
+   * Fcl_* anime acting morphs written straight into the face mesh. Preset-only
+   * keeping deletes exactly these, which silently freezes the rich face. */
+  keepMorphNames?: readonly string[];
 }
 
 const DEFAULT_MAX_TEXTURE_SIZE = 1024;
@@ -204,6 +208,7 @@ export function downscaleVrmTextures(
 export function pruneVrmMorphTargets(
   vrm: VRM,
   keepExpressionNames = DEFAULT_KEEP_EXPRESSIONS,
+  keepMorphNames: readonly string[] = [],
 ): number {
   const manager = vrm.expressionManager;
   if (!manager) return 0;
@@ -238,6 +243,24 @@ export function pruneVrmMorphTargets(
         usedIndices.set(mesh.uuid, set);
       }
     }
+  }
+
+  // 1b. Morphs driven directly by name (no expression bind owns them) survive
+  // by dictionary lookup on each mesh.
+  if (keepMorphNames.length > 0) {
+    const keepSet = new Set(keepMorphNames);
+    vrm.scene.traverse((object) => {
+      if (!isMesh(object)) return;
+      const dictionary = (object as THREE.Mesh).morphTargetDictionary;
+      if (!dictionary) return;
+      for (const [name, index] of Object.entries(dictionary)) {
+        if (!keepSet.has(name)) continue;
+        const mesh = object as THREE.Mesh;
+        const set = usedIndices.get(mesh.uuid) ?? new Set<number>();
+        set.add(index);
+        usedIndices.set(mesh.uuid, set);
+      }
+    });
   }
 
   // If no expression claimed a morph index, the rig uses names this keep-list
@@ -369,6 +392,7 @@ export function optimizeVrm(
     morphTargetsRemoved = pruneVrmMorphTargets(
       vrm,
       options.keepExpressionNames ?? DEFAULT_KEEP_EXPRESSIONS,
+      options.keepMorphNames ?? [],
     );
   } catch {
     // Non-fatal.

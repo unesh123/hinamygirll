@@ -27,6 +27,7 @@ import {
   type VrmExpressionInput,
 } from "./vrmExpressionMap";
 import { optimizeVrm, DEFAULT_KEEP_EXPRESSIONS } from "./vrmOptimizer";
+import { DIRECT_MORPH_KEYS } from "./companionExpression";
 import { normalizeVrmAvatar } from "./normalization";
 import { getDefaultAvatarForCompanion } from "./avatarRegistry";
 import { disposeVrmModel } from "./avatarDisposal";
@@ -162,7 +163,12 @@ async function loadAndOptimizeVrm(url: string): Promise<VRM> {
     // Non-fatal.
   }
   try {
-    optimizeVrm(vrm, { keepExpressionNames: DEFAULT_KEEP_EXPRESSIONS });
+    optimizeVrm(vrm, {
+      keepExpressionNames: DEFAULT_KEEP_EXPRESSIONS,
+      // This component writes Fcl_* acting morphs straight into the face mesh;
+      // a preset-only prune deletes them and freezes that acting layer.
+      keepMorphNames: DIRECT_MORPH_KEYS,
+    });
   } catch {
     // Non-fatal: model keeps its original resources.
   }

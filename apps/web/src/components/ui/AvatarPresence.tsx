@@ -30,6 +30,7 @@ import {
   getTemporalIntent,
   computeAffectiveProfile,
   computeDirectMorphTargets,
+  DIRECT_MORPH_KEYS,
   type CompanionExpressionIntent,
   type AffectiveProfile,
 } from "../../features/avatar/companionExpression";
@@ -487,6 +488,9 @@ function Model({
             "a", "i", "u", "e", "o",
             "joy", "sorrow", "fun", "blink_l", "blink_r",
           ],
+          // The anime acting layer drives these by name; a preset-only prune
+          // deleted them all and froze her face at the six whole-face presets.
+          keepMorphNames: DIRECT_MORPH_KEYS,
         });
       } catch { /* keep the model as loaded */ }
       v.scene.traverse((o: THREE.Object3D) => {

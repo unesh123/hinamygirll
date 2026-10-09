@@ -1,0 +1,9 @@
+{
+  "name": "hina-deploy-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned Vercel CLI for the live runner's public repoint deploys. Isolated from the pnpm workspace so `npx --yes vercel` (corruptible cache, EPERM-locked reinstalls) is no longer on the critical path.",
+  "dependencies": {
+    "vercel": "^63.1.2"
+  }
+}

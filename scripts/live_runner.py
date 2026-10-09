@@ -46,6 +46,20 @@ def port_open(port: int) -> bool:
         return False
 
 
+def sanitize_path() -> None:
+    """Drop PATH entries whose directory no longer exists.
+
+    A bundled IDE/agent runtime used to ship its own node.exe; an app update
+    deleted the binary but left the directory on PATH, so every child that
+    resolved `node` through the shell died with '"…\\node.exe" is not
+    recognized' and the public repoint deploy stalled forever. Children
+    inherit this process's environment, so scrubbing here fixes every spawn.
+    """
+    entries = os.environ.get("PATH", "").split(os.pathsep)
+    keep = [entry for entry in entries if entry and Path(entry).exists()]
+    os.environ["PATH"] = os.pathsep.join(keep)
+
+
 def tunnel_origin(path: Path) -> str | None:
     try:
         matches = re.findall(r"https://[a-z0-9-]+\.trycloudflare\.com", path.read_text(errors="replace"))
@@ -120,11 +134,18 @@ class Runner:
                     break
         if not self.node:
             raise RuntimeError("Node.js was not found. Install Node before starting Hina.")
+        # Pinned Vercel CLI installed once under tools/deploy. Preferred over
+        # `npx --yes vercel`: the npx cache corrupts when a deploy attempt is
+        # killed mid-install (EPERM on cleanup) and then every retry reinstalls
+        # over locked files, so the public repoint never recovers.
+        pinned_vercel = ROOT / "tools" / "deploy" / "node_modules" / "vercel" / "dist" / "index.js"
+        self.vercel: Path | None = pinned_vercel if pinned_vercel.exists() else None
         if not dev and not (WEB / "dist/index.html").exists():
             raise RuntimeError("The web build is missing. Run pnpm --dir apps/web build first.")
         if public and not (ROOT / "cloudflared.exe").exists():
             raise RuntimeError("The configured cloudflared.exe is missing.")
-        if deploy and (not self.npx or not self.npx.exists() or not (ROOT / ".vercel/output/static/index.html").exists()):
+        deploy_tool = self.vercel or (self.npx if self.npx and self.npx.exists() else None)
+        if deploy and (not deploy_tool or not (ROOT / ".vercel/output/static/index.html").exists()):
             raise RuntimeError("Prepare the production assets before enabling automatic public recovery.")
 
     def start(self, name: str, command: list[str], cwd: Path, env: dict | None = None) -> None:
@@ -209,8 +230,13 @@ class Runner:
         if tunnel_ok and self.deploy and self.origin != self.published and time.monotonic() >= self.publish_retry:
             repoint(self.origin)
             self.write_state(api_ok, web_ok, tunnel_ok, "publishing", None)
+            if self.vercel:
+                deploy_command = [self.node, str(self.vercel)]
+            else:
+                deploy_command = [self.node, str(self.npx), "--yes", "vercel"]
+            deploy_command += ["deploy", "--prebuilt", "--prod", "--yes", "--scope", "uneshs-projects"]
             with (RUNTIME / "deploy.log").open("ab") as log:
-                result = subprocess.run([self.node, str(self.npx), "--yes", "vercel", "deploy", "--prebuilt", "--prod", "--yes", "--scope", "uneshs-projects"],
+                result = subprocess.run(deploy_command,
                                         cwd=ROOT, stdout=log, stderr=log, timeout=240, creationflags=NO_WINDOW)
             if result.returncode == 0:
                 self.published, deploy_error = self.origin, None
@@ -240,6 +266,7 @@ def main():
     parser.add_argument("--deploy", action="store_true", help="Recover public routing using prebuilt assets")
     args = parser.parse_args()
     RUNTIME.mkdir(parents=True, exist_ok=True)
+    sanitize_path()
     # Exclusive OS file lock prevents two runners from fighting over ports.
     with (RUNTIME / "runner.lock").open("a+b") as lock:
         if os.name == "nt":
