@@ -17,6 +17,10 @@ export interface PlaybackController {
   audioStartTimeRef: React.MutableRefObject<number>;
   speech: SpeechPlaybackBridge;
   isAudioBlocked: () => boolean;
+  /** True only when replay material exists AND the last utterance never
+   *  produced sound (autoplay-blocked). A reply the user already heard must
+   *  never qualify — otherwise every unlock re-speaks the previous message. */
+  hasUnplayedReplay: () => boolean;
   unlockAudio: () => Promise<void>;
   play: (
     blob: Blob,
@@ -79,9 +83,22 @@ export function useAudioPlayback(): PlaybackController {
   const streamReplayRef = useRef<Array<{blob?: Blob; text: string; language?: string; companionId?: string; providerVisemes?: VisemeEvent[]}>>([]);
   const captureStreamReplayRef = useRef(false);
   const replayAbortRef = useRef<AbortController | null>(null);
-  const beginSpeechStream = useCallback(() => { streamReplayRef.current = []; captureStreamReplayRef.current = true; setHasReplay(false); }, []);
+  const beginSpeechStream = useCallback(() => {
+    streamReplayRef.current = [];
+    captureStreamReplayRef.current = true;
+    lastStartedRef.current = false;
+    // A new streamed turn supersedes the previous turn's single-shot replay
+    // material — otherwise a blocked first chunk would replay the LAST turn.
+    lastBrowserSpeechRef.current = null;
+    lastBlobRef.current = null;
+    setHasReplay(false);
+  }, []);
   const lastBrowserSpeechRef = useRef<{ text: string; language: string; companionId?: string } | null>(null);
   const activeHtmlAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Did the most recent utterance actually reach the speakers? Stays false
+  // when autoplay blocks playback before start — the only case where an
+  // unlock may legitimately replay.
+  const lastStartedRef = useRef(false);
 
   const ensureGraph = useCallback(() => {
     if (contextRef.current && contextRef.current.state !== "closed") return contextRef.current;
@@ -185,6 +202,7 @@ export function useAudioPlayback(): PlaybackController {
       providerVisemes?: VisemeEvent[],
     ) => {
       const session = sessionRef.current;
+      lastStartedRef.current = false;
       const playHtml5AudioFallback = async (originalErr?: Error) => {
         if (typeof window === "undefined" || typeof Audio === "undefined") {
           onEnded?.();
@@ -234,6 +252,7 @@ export function useAudioPlayback(): PlaybackController {
           };
           audio.onplay = () => {
             if (session !== sessionRef.current) return;
+            lastStartedRef.current = true;
             onStarted?.();
             syncPlaying();
           };
@@ -418,6 +437,7 @@ export function useAudioPlayback(): PlaybackController {
 
       try {
         source.start(startAt);
+        lastStartedRef.current = true;
       } catch (e) {
         console.warn("[HINAA] AudioBufferSource start failed:", e);
         sourcesRef.current.delete(source);
@@ -470,6 +490,7 @@ export function useAudioPlayback(): PlaybackController {
       if (!engine) return false;
       stop();
       const session = sessionRef.current;
+      lastStartedRef.current = false;
 
       const utterance = new SpeechSynthesisUtterance(text);
       const normalizedLanguage = language === "mixed" ? "hi-IN" : language;
@@ -615,6 +636,7 @@ export function useAudioPlayback(): PlaybackController {
       utterance.onstart = () => {
         if (session !== sessionRef.current || finished) return;
         startedAt = performance.now();
+        lastStartedRef.current = true;
         browserTiming.onUtteranceStart();
         browserSpeechActiveRef.current = true;
         speech.current.state = "playing";
@@ -872,6 +894,7 @@ export function useAudioPlayback(): PlaybackController {
       utterance.onstart = () => {
         if (session !== sessionRef.current || finished) return;
         startedAt = performance.now();
+        lastStartedRef.current = true;
         browserSpeechActiveRef.current = true;
         visemeEvents.current = chunkVisemes;
         browserTiming.onUtteranceStart();
@@ -897,6 +920,7 @@ export function useAudioPlayback(): PlaybackController {
       };
 
       streamChunkQueueRef.current.push(utterance);
+      lastStartedRef.current = false;
       browserWatchdogRef.current = window.setTimeout(finish, Math.max(8_000, chunkDurationMs * 2 + 5_000));
       try {
         // Same cancel-then-speak race as speakBrowser: settle before speaking
@@ -985,6 +1009,15 @@ export function useAudioPlayback(): PlaybackController {
 
   const isAudioBlocked = useCallback(() => {
     return Boolean(contextRef.current && contextRef.current.state !== "running");
+  }, []);
+
+  const hasUnplayedReplay = useCallback(() => {
+    if (lastStartedRef.current) return false;
+    return Boolean(
+      lastBlobRef.current ||
+      lastBrowserSpeechRef.current ||
+      streamReplayRef.current.length > 0,
+    );
   }, []);
 
   const unlockAudio = useCallback(async () => {
@@ -1126,6 +1159,7 @@ export function useAudioPlayback(): PlaybackController {
     audioStartTimeRef,
     speech,
     isAudioBlocked,
+    hasUnplayedReplay,
     unlockAudio,
     play,
     speakBrowser,

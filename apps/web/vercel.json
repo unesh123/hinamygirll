@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://heather-host-important-excellent.trycloudflare.com/api/:path*"
+      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://heather-host-important-excellent.trycloudflare.com/v1/:path*"
+      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://heather-host-important-excellent.trycloudflare.com/health"
+      "destination": "https://adjustment-motherboard-beings-river.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",

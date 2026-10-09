@@ -431,11 +431,13 @@ export default function App() {
     }
     return () => stopPolling();
   }, []);
-  const unlockAudio = useCallback(async () => {
+  const unlockAudio = useCallback(async (options?: { replay?: boolean }) => {
     try {
-      // Only replay when audio was genuinely blocked and the last utterance
-      // never reached the speakers. Replaying on every unlock re-spoke the
-      // previous reply each time the user sent a new message.
+      // Only replay when audio was genuinely blocked AND the last utterance
+      // never reached the speakers. A heard reply must never re-speak — that
+      // replayed the previous message every time a new one was sent while the
+      // idle AudioContext sat suspended (constant on mobile, and whenever she
+      // answered through the browser voice, which never touches AudioContext).
       const wasBlocked = audioBlockedRef.current;
       await playback.unlockAudio();
       const ctx = (window as any).__hinaaAudioCtx as AudioContext | undefined;
@@ -444,7 +446,8 @@ export default function App() {
       }
       audioBlockedRef.current = false;
       setAudioBlocked(false);
-      if (wasBlocked && playback.hasReplay && !playback.playing) {
+      const allowReplay = options?.replay ?? true;
+      if (allowReplay && wasBlocked && playback.hasUnplayedReplay() && !playback.playing) {
         void playback.replay();
       }
     } catch {
@@ -757,7 +760,7 @@ export default function App() {
     const handleSpeak = async (e: any) => {
       const text = e.detail?.text;
       if (!text || playback.muted) return;
-      void unlockAudio();
+      void unlockAudio({ replay: false });
       interruptPlayback();
       const companionId = controller.companionId;
       const mode = controller.routing.activeMode || "agent-router";
@@ -822,7 +825,7 @@ export default function App() {
     if (controller.state !== "idle" && controller.state !== "error") {
       controller.stop();
     }
-    void unlockAudio();
+    void unlockAudio({ replay: false });
     interruptPlayback();
     const timingTurn = runtimeMeasurements.beginTurn();
     const text = textToSend || (attachedImage ? "Look at this image" : "");
@@ -1496,7 +1499,7 @@ export default function App() {
                 boxShadow: "var(--shadow-lg)",
                 cursor: "pointer",
               }}
-              onClick={unlockAudio}
+              onClick={() => void unlockAudio()}
               role="button"
               aria-label="Enable HINAA voice"
             >

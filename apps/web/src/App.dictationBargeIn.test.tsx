@@ -48,6 +48,7 @@ vi.mock("./features/audio/useAudioPlayback", () => ({
     speakStreamChunk: vi.fn(),
     beginSpeechStream: vi.fn(),
     unlockAudio: vi.fn(),
+    hasUnplayedReplay: () => false,
     toggleMute: vi.fn(),
   }),
 }));

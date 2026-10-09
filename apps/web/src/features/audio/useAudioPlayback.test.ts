@@ -92,6 +92,55 @@ describe("useAudioPlayback browser fallback", () => {
     await act(async()=> { (speak.mock.calls[3][0] as FakeUtterance).onend?.(); await replay; });
   });
 
+  it("reports an unplayed replay only when the last utterance never sounded", async () => {
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel: vi.fn() });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+    const { result } = renderHook(() => useAudioPlayback());
+
+    // Nothing queued yet: no replay material at all.
+    expect(result.current.hasUnplayedReplay()).toBe(false);
+
+    // Queued but never started (autoplay-blocked): unlock may replay.
+    await act(async () => {
+      await result.current.speakBrowser("Blocked reply you never heard.", "en-US");
+    });
+    expect(result.current.hasUnplayedReplay()).toBe(true);
+
+    // Once the utterance actually starts, the user heard it — an unlock (or a
+    // new message) must NEVER re-speak it.
+    await act(async () => (speak.mock.calls[0][0] as FakeUtterance).onstart?.());
+    expect(result.current.hasUnplayedReplay()).toBe(false);
+    await act(async () => (speak.mock.calls[0][0] as FakeUtterance).onend?.());
+    expect(result.current.hasUnplayedReplay()).toBe(false);
+  });
+
+  it("resets the unplayed marker when a new speech stream begins", async () => {
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel: vi.fn() });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+    const { result } = renderHook(() => useAudioPlayback());
+
+    // A fully heard turn…
+    await act(async () => {
+      await result.current.speakBrowser("Reply one.", "en-US");
+    });
+    await act(async () => (speak.mock.calls[0][0] as FakeUtterance).onstart?.());
+    await act(async () => (speak.mock.calls[0][0] as FakeUtterance).onend?.());
+    expect(result.current.hasUnplayedReplay()).toBe(false);
+
+    // …then a new turn whose audio gets blocked before starting.
+    act(() => result.current.beginSpeechStream());
+    expect(result.current.hasUnplayedReplay()).toBe(false);
+    await act(async () => {
+      await result.current.speakStreamChunk("Blocked new reply.", true, "en-US", "hinaa");
+    });
+    expect(result.current.hasUnplayedReplay()).toBe(true);
+    act(() => result.current.stop());
+  });
+
 });
 
 
