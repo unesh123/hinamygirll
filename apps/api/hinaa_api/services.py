@@ -18,7 +18,13 @@ from .circuit_breaker import (
     get_circuit_breaker,
     peek_circuit_breaker,
 )
-from .brain_ledger import fingerprint_for, record_call, row_for_brain
+from .brain_ledger import (
+    aliases_for,
+    fingerprint_for,
+    newest_verdict,
+    record_call,
+    row_for_brain,
+)
 from .capabilities import brain_accepts_images
 from .response.notation import MathNotationStream, ascii_math, plainify_math
 from .errors import HinaaError
@@ -306,6 +312,7 @@ def _remove_repeated_passages(text: str) -> str:
     seen: set[str] = set()
     kept: list[str] = []
     pending_separator = ""
+    previous_key = ""
     for chunk in chunks:
         if not chunk:
             continue
@@ -313,6 +320,11 @@ def _remove_repeated_passages(text: str) -> str:
             pending_separator = chunk
             continue
         key = _comparison_key(chunk)
+        # A sentence repeated immediately after itself is a padding loop, not
+        # emphasis — drop it no matter how short it is ("Tokyo, babe. Tokyo,
+        # babe." measured live from a model pushed at a word floor).
+        if key and key == previous_key:
+            continue
         if len(key) >= 20 and key in seen:
             continue
         if key:
@@ -321,6 +333,7 @@ def _remove_repeated_passages(text: str) -> str:
             kept.append(pending_separator)
         kept.append(chunk)
         pending_separator = ""
+        previous_key = key
     return "".join(kept).strip()
 
 
@@ -3817,12 +3830,14 @@ class ConversationService:
     ) -> list[tuple[str, str | None]]:
         """Configured brains that can take this turn, strongest answer first.
 
-        The point of falling back is to keep the conversation intelligent, so
-        order follows answer quality rather than ease of reaching a gateway.
-        Gemini stays last among the configured brains: it is the always-ready
-        closer, and when the frontier brains are down a weaker real answer still
-        beats no answer. Behind all of them sits the measured OmniRoute gateway,
-        which only earns a slot while its ``/v1/models`` endpoint answers.
+        The point of falling back is to keep the conversation intelligent, but a
+        brain that answered minutes ago outranks a nominally stronger brain whose
+        last live call was a 403 or a timeout: fresh ledger evidence sorts the
+        ready list (healthy, then untested, then degraded, then unavailable), so
+        a fallback never walks a row of dead gateways before reaching a healthy
+        one. Ties keep the static quality order. Behind all of them sits the
+        measured OmniRoute gateway, which only earns a slot while its
+        ``/v1/models`` endpoint answers.
 
         ``requires_vision`` narrows that list to brains that will actually look
         at an attached picture. Without it a fallback lands on whichever brain
@@ -3863,6 +3878,24 @@ class ConversationService:
                 cooling.append((mode, model))
             else:
                 ready.append((mode, model))
+
+        def _health_rank(pair: tuple[str, str | None]) -> int:
+            row = row_for_brain(pair[0])
+            fingerprint = fingerprint_for(self.settings, row)
+            verdict = newest_verdict(
+                aliases_for(row),
+                fingerprints={brain: fingerprint for brain in aliases_for(row)},
+            )
+            if verdict is None:
+                return 1  # untested beats known-failing
+            if verdict.ok:
+                return 0
+            if verdict.state == "degraded":
+                return 2
+            return 3  # unavailable: rejected key or dead endpoint
+
+        # Stable sort: ties keep the static quality order above.
+        ready.sort(key=_health_rank)
 
         last_resort: list[tuple[str, str | None]] = []
         if primary != "omniroute" and self.settings.omniroute_configured:

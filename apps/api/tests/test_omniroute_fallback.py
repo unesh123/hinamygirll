@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from fastapi.testclient import TestClient
 
+from hinaa_api import brain_ledger
 from hinaa_api.circuit_breaker import reset_circuit_breakers
 from hinaa_api.config import Settings
 from hinaa_api.errors import HinaaError
@@ -504,3 +505,87 @@ class TestTurnLandsOnTheGateway:
         assert [plan for plan in plans if plan.get("resolvedProvider") == "omniroute"] == []
         error = next(event for event in events if event.get("type") == "error")
         assert error["code"] == "PROVIDER_UNAVAILABLE"
+
+
+class TestHealthFirstFallbackOrdering:
+    """Fresh ledger evidence outranks the static quality ladder.
+
+    A brain that answered minutes ago serves before a nominally stronger brain
+    whose last live call was throttled or rejected; otherwise every fallback
+    turn pays a walk of dead gateways before reaching a healthy one.
+    """
+
+    def _host(self) -> "_LadderHost":
+        return _LadderHost(
+            omniroute_settings(
+                PGSGROVE_API_KEY="test-pgs-key",
+                XKIRO_API_KEY="test-xkiro-key",
+                EXPLABS_API_KEY="test-explabs-key",
+                GEMINI_API_KEY="test-gemini-key",
+            )
+        )
+
+    @pytest.fixture(autouse=True)
+    def _isolated_ledger(self, monkeypatch, tmp_path):
+        _fake_probe(monkeypatch, serving=False)
+        monkeypatch.setenv(
+            "HINAA_BRAIN_LEDGER_PATH", str(tmp_path / "brain_outcomes.json")
+        )
+        brain_ledger.reset_ledger()
+        reset_circuit_breakers()
+        yield
+        brain_ledger.reset_ledger()
+        reset_circuit_breakers()
+
+    def test_static_quality_order_when_nobody_measured(self) -> None:
+        modes = self._host().modes("claude")
+
+        assert modes == ["experiential", "xkiro", "pgsgrove", "real"]
+
+    def test_measured_healthy_brain_jumps_the_ladder(self) -> None:
+        host = self._host()
+        brain_ledger.record_call(
+            "pgsgrove",
+            ok=True,
+            model="glm-5.3-flash",
+            fingerprint=brain_ledger.fingerprint_for(host.settings, "pgsgrove"),
+        )
+
+        modes = host.modes("claude")
+
+        assert modes[0] == "pgsgrove"
+        # Untested brains keep their static order behind the proven one.
+        assert modes[1:] == ["experiential", "xkiro", "real"]
+
+    def test_throttled_brain_sinks_below_untested_but_above_dead(self) -> None:
+        host = self._host()
+        brain_ledger.record_call(
+            "experiential",
+            ok=False,
+            code="PROVIDER_RATE_LIMIT",
+            detail="throttled",
+            fingerprint=brain_ledger.fingerprint_for(host.settings, "experiential"),
+        )
+        brain_ledger.record_call(
+            "pgsgrove",
+            ok=False,
+            code="PROVIDER_KEY_INVALID",
+            detail="rejected",
+            fingerprint=brain_ledger.fingerprint_for(host.settings, "pgsgrove"),
+        )
+
+        modes = host.modes("claude")
+
+        # Untested xkiro/real first, then the transiently throttled brain, and
+        # the rejected-credential brain last — a dead key must not delay a turn.
+        assert modes == ["xkiro", "real", "experiential", "pgsgrove"]
+
+    def test_a_verdict_measured_against_other_credentials_is_ignored(self) -> None:
+        host = self._host()
+        brain_ledger.record_call(
+            "pgsgrove", ok=True, model="glm-5.3-flash", fingerprint="stale-key"
+        )
+
+        modes = host.modes("claude")
+
+        assert modes[0] == "experiential", "stale evidence must report as untested"

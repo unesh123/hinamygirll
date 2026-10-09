@@ -185,8 +185,14 @@ def test_bench_survives_restart_via_state_file(tmp_path) -> None:
         disable_persistence()
 
 
-def test_cooled_off_bench_is_not_restored(tmp_path) -> None:
-    """A bench that expired while the server was down does not haunt the next boot."""
+def test_cooled_off_bench_returns_as_cheap_probe_not_full_silence(tmp_path) -> None:
+    """An expired bench must not bench again — but the failure is remembered.
+
+    Dropping the record entirely made the first turn after a restart pay the
+    full 30s idle hang on a brain already known to hang. Restoring the state
+    with an expired cooloff lets `_primary_probing` give it the cheap probe
+    budget instead, while `cooldown_remaining` stays zero so nothing is benched.
+    """
     import json
     from time import time as wall_time
 
@@ -209,6 +215,31 @@ def test_cooled_off_bench_is_not_restored(tmp_path) -> None:
     try:
         breaker = get_circuit_breaker("agent-router")
         assert breaker.cooldown_remaining() == 0.0
+        assert breaker.state == CircuitBreakerState.TIMEOUT
+        assert breaker.last_failure_code == "PROVIDER_TIMEOUT"
+    finally:
+        disable_persistence()
+
+
+def test_expired_bench_stays_in_state_file_for_the_next_boot(tmp_path) -> None:
+    """A bench whose cooloff ran out in-process still reaches the next boot."""
+    import json
+    from time import time as wall_time
+
+    from hinaa_api.circuit_breaker import disable_persistence, enable_persistence
+
+    state_file = tmp_path / "breakers.json"
+    enable_persistence(state_file)
+    try:
+        breaker = get_circuit_breaker("agent-router")
+        breaker.record_failure("PROVIDER_TIMEOUT", "hung")
+        breaker.cooloff_until = 0.0  # cooloff already ran out in this process
+        from hinaa_api.circuit_breaker import _persist
+
+        _persist()
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
+        assert payload["agent-router"]["state"] == "timeout"
+        assert payload["agent-router"]["cooloffUntilWall"] <= wall_time() + 1
     finally:
         disable_persistence()
 

@@ -137,7 +137,11 @@ def test_tool_turn_display_is_not_trimmed() -> None:
     plan.toolRequests = [
         ToolRequest(toolName="design_website", parameters={"brief": "gym"})
     ]
-    plan.displayText = "Building the website for my gym. " + ("Details follow here. " * 60)
+    # Varied filler, not a repeated sentence: the padding-loop guard collapses
+    # back-to-back identical sentences even on tool turns, by design.
+    plan.displayText = "Building the website for my gym. " + "".join(
+        f"Detail number {i} covers section {i} of the build. " for i in range(40)
+    )
     plan.spokenText = "Building the website for my gym."
 
     _apply_response_quality_guard(plan, user_text="build me a website for my gym")

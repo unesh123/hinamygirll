@@ -237,10 +237,11 @@ def _persist() -> None:
         payload: dict[str, Any] = {}
         for provider_id, breaker in _REGISTRY.items():
             remaining = max(0.0, breaker.cooloff_until - now_mono)
-            if remaining <= 0.0:
-                continue
             if breaker.state in {CircuitBreakerState.READY, CircuitBreakerState.DEGRADED}:
                 continue
+            # Expired benches are written too (with an already-past expiry): a
+            # brain that failed is probed on the cheap budget after a restart,
+            # not given another full-turn silence to fail inside.
             payload[provider_id] = {
                 "state": breaker.state.value,
                 "consecutiveFailures": breaker.consecutive_failures,
@@ -271,15 +272,19 @@ def _restore() -> None:
         if not isinstance(entry, dict):
             continue
         remaining = float(entry.get("cooloffUntilWall") or 0.0) - now_wall
-        if remaining <= 0.0:
-            continue  # cooled off while the server was down; probe fresh
         breaker = get_circuit_breaker(provider_id)
         try:
             breaker.state = CircuitBreakerState(str(entry.get("state")))
         except ValueError:
             continue
         breaker.consecutive_failures = int(entry.get("consecutiveFailures") or 1)
-        breaker.cooloff_until = now_mono + remaining
+        if remaining <= 0.0:
+            # Cooled off while the server was down: no bench, but the failure
+            # is still remembered, so the first turn probes it on the cheap
+            # budget instead of paying a full-turn silence again.
+            breaker.cooloff_until = now_mono
+        else:
+            breaker.cooloff_until = now_mono + remaining
         breaker.last_failure_code = str(entry.get("lastFailureCode") or "")
         breaker.last_failure_message = str(entry.get("lastFailureMessage") or "")
         logger.info(

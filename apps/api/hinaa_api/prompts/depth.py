@@ -30,6 +30,19 @@ _EXPLAIN = re.compile(
     r"(क्यों|क्या है|समझा|detail)",
     re.IGNORECASE,
 )
+
+# An explicit brevity ask outranks every expansion contract: "one line answer"
+# on a factual question must not inherit the 1,000-word explanatory floor —
+# measured live, that mismatch drove forced continuations while a fallback
+# model padded "Tokyo, babe." into repeated paragraphs to reach the floor.
+_BREVITY_ASK = re.compile(
+    r"\b(one[- ]?lin(?:e|er)|in (?:a|one) (?:single )?(?:sentence|word|line)|"
+    r"in short|in brief|briefly|short answer|quick answer|tl;?dr|"
+    r"keep (?:it|this) (?:short|brief|simple)|short and (?:sweet|simple)|"
+    r"summari[sz]e\b[^.?!]{0,20}\b(?:sentence|line|words))\b|"
+    r"(संक्षेप|संक्षिप्त)",
+    re.IGNORECASE,
+)
 # A report carries a 4,900-word contract, so only an explicit deliverable ask
 # earns it. Bare nouns that routinely appear inside ordinary questions ("what is
 # the current status of your memory?") must not inflate the answer into a
@@ -128,6 +141,10 @@ def infer_response_depth(
         return "safety_redirect"
     if _SUPPORTIVE.search(text):
         return "supportive"
+    # An explicit brevity ask beats even a selected deep mode: he consented to
+    # the mode's length in general, then asked for this answer short.
+    if _BREVITY_ASK.search(text):
+        return "conversational"
     # A bare acknowledgment contains no request to expand on, so it stays short
     # even while a deep mode is selected.
     if not _CLARIFY.match(text) and response_mode and response_mode != "conversation":
