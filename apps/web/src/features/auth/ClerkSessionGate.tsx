@@ -3,7 +3,14 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ArrowRight, LockKeyhole, RefreshCw, Sparkles } from "lucide-react";
 import App, { ClerkFetchInterceptor } from "../../App";
 import { defaultAvatarPresentation } from "../avatar/avatarPresentation";
+import { resolveApiBase } from "../../lib/apiBase";
 import "./sessionGate.css";
+
+/** Base URL for gate requests. Empty in dev (relative), explicit on the hosted site. */
+function apiBaseForGate(): string {
+  const status = resolveApiBase(import.meta.env.VITE_HINAA_API_BASE_URL, import.meta.env.PROD);
+  return status.kind === "configured" ? status.base : "";
+}
 
 const AvatarPresence = lazy(() => import("../../components/ui/AvatarPresence").then(module => ({ default: module.AvatarPresence })));
 
@@ -16,7 +23,7 @@ export function ClerkSessionGate() {
     try {
       let token = await getToken();
       if (!token) { setAccess("denied"); return; }
-      const base = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
+      const base = apiBaseForGate();
       let response = await fetch(`${base}/api/v1/auth/session`, {
         headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000), cache: "no-store",
       });
@@ -41,7 +48,7 @@ export function ClerkSessionGate() {
   const checkConnection = useCallback(async () => {
     setConnection("checking");
     try {
-      const base = String(import.meta.env.VITE_HINAA_API_BASE_URL || "").replace(/\/+$/, "");
+      const base = apiBaseForGate();
       const response = await fetch(`${base}/health/live`, { signal: AbortSignal.timeout(8000), cache: "no-store" });
       const result = response.ok ? await response.json() : null;
       setConnection(result?.service === "hinaa-api" && result.status === "ok" ? "online" : "offline");
