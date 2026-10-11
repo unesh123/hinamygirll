@@ -11,7 +11,9 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $repo "apps\api\.venv\Scripts\python.exe"
-$pnpm = (Get-Command pnpm -ErrorAction Stop).Source
+# Prefer pnpm.cmd: the bare `pnpm` resolves to pnpm.ps1, which Start-Process cannot launch.
+$pnpm = (Get-Command pnpm.cmd -ErrorAction SilentlyContinue).Source
+if (-not $pnpm) { $pnpm = (Get-Command pnpm -ErrorAction Stop).Source }
 $runtime = Join-Path $repo ".runtime"
 $web = Join-Path $repo "apps\web"
 
