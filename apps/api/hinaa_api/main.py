@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from . import __version__, realtime_tickets
 from .audio import validate_wav, ensure_wav_or_mp3
 from .avatar_assets import AvatarAssetError, AvatarAssetService
-from .runtime_paths import project_root
+from .runtime_paths import live_runner_state_path, project_root
 from .auth_safety import auth_safety_report
 from .realtime_origin import choose_realtime_origin
 from .config import Settings, get_settings
@@ -2559,7 +2559,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             try:
                 import json
                 from pathlib import Path
-                state_file = Path(".runtime/live/runner-state.json")
+                state_file = live_runner_state_path(active_settings.live_runner_state_file)
                 if state_file.exists():
                     state_data = json.loads(state_file.read_text("utf-8"))
                     configured = (state_data.get("tunnelOrigin") or state_data.get("publishedOrigin") or "").strip()

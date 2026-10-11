@@ -31,3 +31,15 @@ def project_root() -> Path:
 def runtime_dir(*parts: str) -> Path:
     """A path under ``<project root>/.runtime``, created on demand by callers."""
     return project_root().joinpath(".runtime", *parts)
+
+
+def live_runner_state_path(override: str | None) -> Path:
+    """Where the live runner's published-origin file lives.
+
+    An explicit override wins, so an API started from a worktree can read the
+    runner's state from the main checkout. Otherwise it is under the project root.
+    """
+    text = (override or "").strip()
+    if text:
+        return Path(text).expanduser().resolve()
+    return project_root() / ".runtime" / "live" / "runner-state.json"

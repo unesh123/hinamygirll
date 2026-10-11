@@ -639,6 +639,9 @@ class Settings(BaseSettings):
     # Browser-reachable origin for the realtime WebSocket (e.g. a tunnel host).
     # Unset → derived per request from the Host header; see GET /v1/realtime/url.
     realtime_public_origin: str | None = Field(None, alias="HINAA_REALTIME_PUBLIC_ORIGIN")
+    # Where the live runner writes its published tunnel origin. Set this when the
+    # API runs from a different checkout than the runner (for example a worktree).
+    live_runner_state_file: str | None = Field(None, alias="HINAA_LIVE_RUNNER_STATE")
     database_url: str = Field(DEFAULT_LOCAL_DATABASE_URL, alias="HINAA_DATABASE_URL")
     auth_mode: Literal["dev", "oidc", "clerk"] = Field("dev", alias="HINAA_AUTH_MODE")
     dev_auth_subject: str = Field("local-dev-user", alias="HINAA_DEV_AUTH_SUBJECT")
