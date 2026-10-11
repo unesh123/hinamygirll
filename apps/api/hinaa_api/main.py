@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from . import __version__, realtime_tickets
 from .audio import validate_wav, ensure_wav_or_mp3
 from .avatar_assets import AvatarAssetError, AvatarAssetService
+from .runtime_paths import project_root
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse, ImageStudioConfigPayload
@@ -454,7 +455,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     asset_store = get_asset_store()
     avatar_assets = AvatarAssetService(
         active_settings.local_workspace_dir,
-        Path(__file__).resolve().parents[3],
+        project_root(),
     )
     realtime = RealtimeGateway(active_settings, service)
     require_auth = (

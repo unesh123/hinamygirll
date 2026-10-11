@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 import secrets
 
-TOKEN_PATH = Path(__file__).resolve().parents[4] / ".runtime" / "desktop" / "bridge.token"
+from hinaa_api.runtime_paths import runtime_dir
+
+TOKEN_PATH = runtime_dir("desktop", "bridge.token")
 
 def bridge_token(*, create: bool = False) -> str:
     token = os.getenv("HINAA_DESKTOP_BRIDGE_TOKEN", "").strip()

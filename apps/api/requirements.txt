@@ -17,3 +17,7 @@ pyperclip==1.11.0
 psutil==7.2.2
 
 pypdf==6.19.0
+beautifulsoup4==4.15.0
+playwright==1.63.0
+exa-py==2.25.0
+tzdata==2026.5

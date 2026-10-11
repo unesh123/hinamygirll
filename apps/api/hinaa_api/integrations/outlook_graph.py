@@ -11,7 +11,9 @@ import time
 from urllib.parse import quote
 import httpx
 
-CACHE_PATH = Path(__file__).resolve().parents[4] / ".runtime" / "outlook" / "credentials.dpapi"
+from hinaa_api.runtime_paths import runtime_dir
+
+CACHE_PATH = runtime_dir("outlook", "credentials.dpapi")
 SCOPES = "offline_access https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite"
 
 class OutlookError(RuntimeError):

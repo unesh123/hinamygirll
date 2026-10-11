@@ -20,12 +20,13 @@ from pathlib import Path
 from typing import Any
 from pydantic import BaseModel, Field
 
+from hinaa_api.runtime_paths import project_root
 from hinaa_api.tools.registry import registry, ToolDefinition
 
 logger = logging.getLogger("hinaa.tools.terminal_hands")
 
 # Root directory whitelist boundary
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
+PROJECT_ROOT = project_root()
 
 # Command blocklist to prevent destructive accidental OS wipes
 DISALLOWED_COMMANDS = [
