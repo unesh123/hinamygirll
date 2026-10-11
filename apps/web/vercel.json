@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://configuring-decided-judy-gbp.trycloudflare.com/api/:path*"
+      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://configuring-decided-judy-gbp.trycloudflare.com/v1/:path*"
+      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://configuring-decided-judy-gbp.trycloudflare.com/health"
+      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",

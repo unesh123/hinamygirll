@@ -114,15 +114,24 @@ async def live_generation_window(
     idle_s: float,
     forward: Callable[[str], Awaitable[None]],
     sink: list[str] | None = None,
+    first_token_s: float | None = None,
 ) -> AsyncIterator[tuple[Callable[[str], Awaitable[None]], Callable[[], bool]]]:
     """Emit hook + liveness predicate for one live brain attempt.
 
     The idle deadline moves forward on every token, so a long answer is never
     killed merely for being long; only a silent stream is. ``ceiling_s`` remains
     as the absolute backstop against a hung connection.
+
+    ``first_token_s`` shortens the leash ONLY until the stream has produced its
+    first delta: a brain that has emitted nothing for several seconds has hung,
+    not "started slowly", and the turn should fail over instead of holding him
+    in silence for the whole inter-token idle budget. The first emit upgrades
+    the window to the full ``idle_s``, so slow-but-alive reasoning streams are
+    unaffected.
     """
     loop = asyncio.get_running_loop()
-    async with asyncio.timeout(ceiling_s), asyncio.timeout(idle_s) as idle_window:
+    initial_idle_s = idle_s if first_token_s is None else min(first_token_s, idle_s)
+    async with asyncio.timeout(ceiling_s), asyncio.timeout(initial_idle_s) as idle_window:
 
         async def emit(delta: str) -> None:
             if sink is not None:
@@ -5517,6 +5526,7 @@ class ConversationService:
                 idle_s=primary_idle_timeout,
                 forward=emit_delta,
                 sink=primary_text,
+                first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
             ) as (primary_emit, idle_expired):
                 primary_idle_expired = idle_expired
                 # The fast path shaves latency off short social chat. A turn
@@ -5740,6 +5750,7 @@ class ConversationService:
                                 ceiling_s=primary_live_timeout,
                                 idle_s=primary_idle_timeout,
                                 forward=emit_delta,
+                                first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
                             ) as (fallback_emit, _):
                                 if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                                     fallback_live_result = await fb_provider.create_live_plan(
@@ -5792,6 +5803,7 @@ class ConversationService:
                                     ceiling_s=primary_live_timeout,
                                     idle_s=primary_idle_timeout,
                                     forward=emit_delta,
+                                    first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
                                 ) as (fallback_emit, _):
                                     if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                                         fallback_live_result = await fb_provider.create_live_plan(
@@ -5923,6 +5935,7 @@ class ConversationService:
                         idle_s=primary_idle_timeout,
                         forward=emit_delta,
                         sink=recovery_deltas,
+                        first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
                     ) as (rec_emit, _):
                         rec_provider = self.router.llm(resolved_provider, resolved_model)
                         if isinstance(rec_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):

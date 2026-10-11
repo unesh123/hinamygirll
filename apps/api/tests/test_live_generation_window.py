@@ -92,6 +92,69 @@ async def test_sink_is_optional_for_callers_that_only_need_liveness() -> None:
         await emit("c")
 
 
+@pytest.mark.asyncio
+async def test_first_token_leash_abandons_a_brain_that_never_speaks() -> None:
+    """Measured production failure: a dead primary held a turn for the full
+    30s idle budget before failover. The first token gets a short leash."""
+    forwarded: list[str] = []
+
+    async def forward(delta: str) -> None:
+        forwarded.append(delta)
+
+    outcome = "completed"
+    try:
+        async with live_generation_window(
+            ceiling_s=10.0, idle_s=30.0, forward=forward, first_token_s=0.2
+        ) as (_emit, idle_expired):
+            await asyncio.sleep(1.0)  # brain hangs before saying anything
+    except TimeoutError:
+        outcome = "timeout"
+        assert idle_expired() is True
+    assert outcome == "timeout"
+    assert forwarded == []
+
+
+@pytest.mark.asyncio
+async def test_first_token_upgrades_to_the_full_idle_budget() -> None:
+    """Once the stream is alive, gaps get the normal inter-token budget —
+    a slow-but-speaking reasoning model must not be killed mid-thought."""
+    forwarded: list[str] = []
+
+    async def forward(delta: str) -> None:
+        forwarded.append(delta)
+
+    async with live_generation_window(
+        ceiling_s=10.0, idle_s=0.5, forward=forward, first_token_s=0.15
+    ) as (emit, idle_expired):
+        await emit("first")          # inside the first-token leash
+        await asyncio.sleep(0.3)     # longer than first_token_s, under idle_s
+        await emit("second")         # must survive
+    assert forwarded == ["first", "second"]
+    assert idle_expired() is False
+
+
+def test_first_token_timeout_is_clamped_to_the_idle_budget() -> None:
+    settings = Settings(
+        _env_file=None,
+        HINAA_PROVIDER_MODE="mock",
+        HINAA_LLM_STREAM_IDLE_TIMEOUT_SECONDS=15,
+        HINAA_LLM_STREAM_FIRST_TOKEN_TIMEOUT_SECONDS=60,
+    )
+    assert (
+        settings.llm_stream_first_token_timeout_seconds
+        <= settings.llm_stream_idle_timeout_seconds
+    )
+
+
+def test_first_token_timeout_defaults_well_below_the_idle_budget() -> None:
+    settings = Settings(_env_file=None, HINAA_PROVIDER_MODE="mock")
+    assert settings.llm_stream_first_token_timeout_seconds <= 8.0
+    assert (
+        settings.llm_stream_first_token_timeout_seconds
+        < settings.llm_stream_idle_timeout_seconds
+    )
+
+
 def test_salvaged_spoken_summary_scales_with_depth() -> None:
     body = "\n\n".join(
         f"### Section {index}\n\n" + " ".join(

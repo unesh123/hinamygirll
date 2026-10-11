@@ -590,6 +590,14 @@ class Settings(BaseSettings):
     # The old 120s let a dead brain hold a live voice turn hostage for two
     # full minutes before the fallback chain even started.
     llm_stream_idle_timeout_seconds: float = Field(30.0, alias="HINAA_LLM_STREAM_IDLE_TIMEOUT_SECONDS")
+    # The first token gets a far shorter leash than the tokens after it. A
+    # brain that has said NOTHING for ~8s has not started thinking slowly — it
+    # has hung, and every extra second of silence is a second he stares at a
+    # frozen veil. Measured on production: a dead primary held turns for the
+    # full 30s idle budget before the fallback chain even started. Once the
+    # stream is flowing, the normal idle budget above takes over, so slow-but-
+    # alive reasoning models are never killed mid-thought.
+    llm_stream_first_token_timeout_seconds: float = Field(8.0, alias="HINAA_LLM_STREAM_FIRST_TOKEN_TIMEOUT_SECONDS")
     # A live (streamed) turn is judged by liveness, not by wall clock: the idle
     # deadline above moves forward on every token, so a long document is never
     # killed merely for being long. This ceiling is only the backstop for a
@@ -766,6 +774,18 @@ class Settings(BaseSettings):
         if self.llm_stream_idle_timeout_seconds < 15:
             corrections.append("llm_stream_idle_timeout below 15s; clamped")
             object.__setattr__(self, "llm_stream_idle_timeout_seconds", 15.0)
+        if self.llm_stream_first_token_timeout_seconds < 3:
+            corrections.append("llm_stream_first_token_timeout below 3s; clamped")
+            object.__setattr__(self, "llm_stream_first_token_timeout_seconds", 3.0)
+        if self.llm_stream_first_token_timeout_seconds > self.llm_stream_idle_timeout_seconds:
+            corrections.append(
+                "llm_stream_first_token_timeout above the idle timeout; clamped to it"
+            )
+            object.__setattr__(
+                self,
+                "llm_stream_first_token_timeout_seconds",
+                self.llm_stream_idle_timeout_seconds,
+            )
         if self.llm_stream_ceiling_seconds < self.llm_stream_idle_timeout_seconds:
             corrections.append(
                 f"HINAA_LLM_STREAM_CEILING_SECONDS={self.llm_stream_ceiling_seconds}s is below the "
