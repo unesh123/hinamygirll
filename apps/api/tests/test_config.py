@@ -91,3 +91,31 @@ def test_agent_router_requires_key_and_base_url() -> None:
     )
     assert configured.agent_router_configured is True
     assert configured.active_agent_router_base_url == "https://router.example.test/v1"
+
+
+def test_production_refuses_tunnel_dev_auth() -> None:
+    # Regression: tunnel dev auth resolves anonymous public requests to the owner.
+    # Production must refuse to start with it on, even when clerk mode is set.
+    import pytest
+    from hinaa_api.config import Settings
+
+    with pytest.raises(ValueError, match="HINAA_ALLOW_TUNNEL_DEV_AUTH"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            HINAA_AUTH_MODE="clerk",
+            HINAA_ALLOW_TUNNEL_DEV_AUTH=True,
+        )
+
+
+def test_production_accepts_clerk_without_tunnel_dev_auth() -> None:
+    from hinaa_api.config import Settings
+
+    settings = Settings(
+        _env_file=None,
+        ENVIRONMENT="production",
+        HINAA_AUTH_MODE="clerk",
+        HINAA_ALLOW_TUNNEL_DEV_AUTH=False,
+    )
+    assert settings.auth_mode == "clerk"
+    assert settings.allow_tunnel_dev_auth is False

@@ -779,6 +779,11 @@ class Settings(BaseSettings):
                 "FATAL CONFIGURATION ERROR: Development authentication bypass cannot be enabled in production. "
                 "Set HINAA_AUTH_MODE=clerk and configure HINAA_ALLOWED_USER_IDS."
             )
+        if env == "production" and self.allow_tunnel_dev_auth:
+            raise ValueError(
+                "FATAL CONFIGURATION ERROR: HINAA_ALLOW_TUNNEL_DEV_AUTH lets public requests act as the owner. "
+                "Set it to false in production."
+            )
         return self
 
     @field_validator("allowed_origins", "clerk_authorized_parties", mode="before")
