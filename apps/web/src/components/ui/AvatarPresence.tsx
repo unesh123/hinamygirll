@@ -35,6 +35,11 @@ import {
   type AffectiveProfile,
 } from "../../features/avatar/companionExpression";
 import { getActiveViseme, type VisemeEvent } from "../../features/audio/textToViseme";
+import {
+  computeCoarticulatedMouthTarget,
+  COARTICULATION_LOOKAHEAD_MS,
+} from "../../features/avatar/mouthTargets";
+import { rollBlinkShapeSpec } from "../../features/avatar/blinkShape";
 import { SpeechPlaybackContext, sampleSpeechPlayback } from "../../features/audio/speechPlaybackBridge";
 import { optimizeVrm } from "../../features/avatar/vrmOptimizer";
 import { playFootstepSound } from "../../lib/uiSound";
@@ -123,9 +128,6 @@ const MODEL_CAMERA_PRESETS: Record<string, Partial<Record<PresenceMode, CameraPr
 
 /* ─── Mouth expression targets per viseme ───────────────── */
 type MouthKey = "aa" | "ih" | "ou" | "ee" | "oh";
-const VISEME_TO_VRM: Record<string, MouthKey> = {
-  aa: "aa", ih: "ih", ou: "ou", ee: "ee", oh: "oh", closed: "aa",
-};
 const ALL_MOUTH_KEYS: MouthKey[] = ["aa", "ih", "ou", "ee", "oh"];
 const VRM_PRESET: Record<MouthKey, VRMExpressionPresetName> = {
   aa: VRMExpressionPresetName.Aa,
@@ -196,6 +198,17 @@ function emotionForIntent(intent: CompanionExpressionIntent): EmotionBlend {
     default:
       return { [VRMExpressionPresetName.Neutral]: 0.20, [VRMExpressionPresetName.Relaxed]: 0.15 };
   }
+}
+
+function softenEmotion(blend: EmotionBlend, scale: number): EmotionBlend {
+  const out: EmotionBlend = {};
+  for (const key of Object.keys(blend) as VRMExpressionPresetName[]) {
+    out[key] = (blend[key] ?? 0) * scale;
+  }
+  // Resting pleasantness floor: idle never reads as a blank mask.
+  out[VRMExpressionPresetName.Happy] = Math.max(out[VRMExpressionPresetName.Happy] ?? 0, 0.18);
+  out[VRMExpressionPresetName.Relaxed] = Math.max(out[VRMExpressionPresetName.Relaxed] ?? 0, 0.24);
+  return out;
 }
 
 function emotionFor(state: CompanionState): EmotionBlend {
@@ -741,7 +754,10 @@ function Model({
     const affectiveProfile = computeAffectiveProfile(expressionText, state, planEmotionStr, speechProgress, isSpeakingNow, deliveryOccurrence);
     const directedEmotion = isSpeakingNow
       ? emotionForIntent(activeIntent)
-      : { [VRMExpressionPresetName.Relaxed]: 0.28, [VRMExpressionPresetName.Happy]: 0.18, [VRMExpressionPresetName.Surprised]: 0.0 };
+      // Listening/idle previously collapsed every intent into one fixed resting
+      // blend, so her face looked the same no matter the moment. Keep the
+      // intent visible at softened intensity over a pleasant resting floor.
+      : softenEmotion(emotionForIntent(activeIntent), 0.55);
 
     const targetGesture = audioSpeaking ? Math.min(1, jawEnergy.current * 2) : 0;
     gestureEnergy.current += (targetGesture - gestureEnergy.current) * (1 - Math.exp(-dt * 4));
@@ -816,18 +832,22 @@ function Model({
         const events = speechSample?.events ?? visemeEvents.current;
         let targetMouth: MouthKey | null = null;
         let targetWeight = 0;
+        let lookaheadMouth: MouthKey | null = null;
+        let lookaheadWeight = 0;
 
         if (events.length > 0) {
           // Use AudioContext time if available, else fallback to energy cycling
           if (speechSample) {
-            const active = speechSample.viseme;
-            if (active && active.mouth !== "closed") {
-              targetMouth = VISEME_TO_VRM[active.mouth] as MouthKey ?? "aa";
-              targetWeight = Math.max(0.10, active.weight * energy);
-            } else {
-              targetMouth = null;
-              targetWeight = 0;
-            }
+            // Anticipatory coarticulation: a real mouth starts shaping the NEXT
+            // phoneme ~50 ms before it sounds. Blending the upcoming viseme in
+            // at partial weight removes the robotic one-shape-at-a-time snap
+            // that made the lip-sync read as mechanical.
+            const upcoming = getActiveViseme(speechSample.timeMs + COARTICULATION_LOOKAHEAD_MS, events);
+            const coarticulated = computeCoarticulatedMouthTarget(speechSample.viseme, upcoming, energy);
+            targetMouth = coarticulated.mouth;
+            targetWeight = coarticulated.weight;
+            lookaheadMouth = coarticulated.lookaheadMouth;
+            lookaheadWeight = coarticulated.lookaheadWeight;
           } else {
             // Fallback when the AudioContext clock is unavailable: blend mouth
             // shape from the energy envelope instead of robotic 7Hz cycling.
@@ -847,7 +867,7 @@ function Model({
         // Smooth all mouth shapes (forward faster than decay: the mouth opens
         // onto the phoneme, then closes gradually into the next window).
         for (const k of ALL_MOUTH_KEYS) {
-          const tgt = k === targetMouth ? targetWeight : 0;
+          const tgt = k === targetMouth ? targetWeight : (k === lookaheadMouth ? lookaheadWeight : 0);
           const rate = tgt > mouthW.current[k] ? 28 : 18;
           mouthW.current[k] += (tgt - mouthW.current[k]) * (1 - Math.exp(-dt * rate));
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
@@ -911,13 +931,7 @@ function Model({
         // quick follow-through on double blinks, slower heavy blinks when
         // drowsy, and a quicker rhythm while she is speaking.
         const rollBlinkShape = () => {
-          const drowsyHeavy = affectiveProfile.drowsy;
-          blinkShape.current = {
-            peak: 0.55 + Math.random() * 0.35 + drowsyHeavy * 0.08,
-            close: (0.055 + Math.random() * 0.035) * (1 + drowsyHeavy * 0.9),
-            open: (0.115 + Math.random() * 0.065) * (1 + drowsyHeavy * 0.6),
-            asym: 0.90 + Math.random() * 0.16,
-          };
+          blinkShape.current = rollBlinkShapeSpec(affectiveProfile.drowsy);
         };
         // Blink bursts at speech pauses: humans blink at phrase boundaries.
         // When she is speaking but the audio energy dips into a pause, pull
