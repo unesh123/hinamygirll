@@ -10,6 +10,10 @@ import type { ActiveLanguagePolicy } from "../settings/types/settings";
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import { recognitionLocale, browserSpeechLocale } from "./languagePolicy";
 import { pcm16ToWavBlob } from "./pcm";
+import { chooseRealtimeTarget } from "./realtimeSocketTarget";
+
+/** The backend has no realtime address for this site; retrying cannot fix it. */
+export class RealtimeUnavailableError extends Error {}
 
 function parseTurnId(turnId: string): { turn: number; generation: number } {
   // Format: turn-{turnNumber}-{generation}
@@ -178,13 +182,22 @@ async function resolveWebsocketUrl(): Promise<string> {
     });
     if (!response.ok) return sameOriginWebsocketUrl();
     const payload = (await response.json()) as { url?: unknown };
-    const advertised = typeof payload.url === "string" ? payload.url : null;
-    // An answer pointing back at this origin is the route that cannot upgrade.
-    if (advertised?.startsWith("wss://") && !advertised.includes(`//${window.location.host}/`)) {
-      advertisedWebsocketUrl = advertised;
-      return advertised;
+    const target = chooseRealtimeTarget({
+      advertisedUrl: payload.url ?? null,
+      pageHost: window.location.host,
+      isHttps: true,
+      sameOriginUrl: sameOriginWebsocketUrl(),
+      answered: true,
+    });
+    if (target.kind === "advertised") {
+      advertisedWebsocketUrl = target.url;
+      return target.url;
     }
-  } catch {
+    if (target.kind === "unavailable") {
+      throw new RealtimeUnavailableError(target.reason);
+    }
+  } catch (error) {
+    if (error instanceof RealtimeUnavailableError) throw error;
     // Backend unreachable over HTTP too; same-origin is the only attempt left.
   }
   return sameOriginWebsocketUrl();
@@ -1140,10 +1153,19 @@ export function useLiveConversation({
   const connect = useCallback(async () => {
     // The ticket has to be in hand before the socket opens; onopen cannot wait.
     // A reconnect lands here again, so every socket spends a fresh one.
-    const [url, authTicket] = await Promise.all([
-      resolveWebsocketUrl(),
-      fetchRealtimeTicket(),
-    ]);
+    let resolved: [string, Awaited<ReturnType<typeof fetchRealtimeTicket>>];
+    try {
+      resolved = await Promise.all([resolveWebsocketUrl(), fetchRealtimeTicket()]);
+    } catch (error) {
+      if (!(error instanceof RealtimeUnavailableError)) throw error;
+      // Retrying cannot help when the backend has no realtime address: say so once.
+      callbacks.current.controller.applyLiveError(error.message);
+      teardownSession();
+      setStatus("error");
+      callbacks.current.controller.setLiveState("error");
+      return;
+    }
+    const [url, authTicket] = resolved;
     // The user can stop while the URL request is still in flight.
     if (!active.current) return;
     const next = new WebSocket(url);
