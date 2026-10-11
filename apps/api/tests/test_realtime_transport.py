@@ -35,11 +35,27 @@ def test_realtime_url_advertises_the_websocket_path_not_the_http_alias(tmp_path,
         # runtime file) so a live local Hina can point her preview at the public
         # socket. Isolated to a tmp cwd, the test must never see that file.
         monkeypatch.chdir(tmp_path)
+        # A direct request on this machine advertises its own host. A non-local
+        # hostname is treated as the public edge, and an unconfigured edge request
+        # must advertise nothing (see test_edge_request_without_origin_advertises_nothing).
         payload = client.get(
-            "/api/v1/realtime/url", headers={"host": "hinaa.example"}
+            "/api/v1/realtime/url", headers={"host": "127.0.0.1:8000"}
         ).json()
-    assert payload["url"] == "wss://hinaa.example/v1/realtime"
+    assert payload["url"] == "ws://127.0.0.1:8000/v1/realtime"
     assert payload["source"] == "host"
+
+
+def test_edge_request_without_origin_advertises_nothing(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression: an edge request advertised wss://<its own host>/v1/realtime, which
+    # the Vercel rewrite cannot upgrade. Nothing is advertised instead.
+    with app_with() as client:
+        monkeypatch.chdir(tmp_path)
+        payload = client.get(
+            "/api/v1/realtime/url",
+            headers={"host": "hinaa-workspace.vercel.app", "cf-connecting-ip": "203.0.113.9"},
+        ).json()
+    assert payload["url"] is None
+    assert payload["source"] == "unavailable-edge"
 
 
 def test_realtime_url_prefers_the_configured_public_origin() -> None:

@@ -24,6 +24,7 @@ from .audio import validate_wav, ensure_wav_or_mp3
 from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .runtime_paths import project_root
 from .auth_safety import auth_safety_report
+from .realtime_origin import choose_realtime_origin
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse, ImageStudioConfigPayload
@@ -2567,19 +2568,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         host = (request.headers.get("host") or "").strip()
         forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
 
-        origin = (configured or host).lower()
-        for prefix in ("https://", "http://", "wss://", "ws://"):
-            if origin.startswith(prefix):
-                origin = origin[len(prefix) :]
-                break
-        origin = origin.rstrip("/")
+        chosen = choose_realtime_origin(
+            configured=configured,
+            host=host,
+            edge_request=reached_through_edge(request),
+        )
+        origin = chosen.origin or ""
 
         is_local = origin.split(":")[0] in {"localhost", "127.0.0.1", "[::1]"}
         forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
         tls = forwarded_proto == "https" if forwarded_proto else not is_local
         return {
             "url": f"{'wss' if tls else 'ws'}://{origin}/v1/realtime" if origin else None,
-            "source": "configured" if configured else ("host" if host else "unavailable"),
+            "source": chosen.source,
             "observed": {"host": host or None, "xForwardedHost": forwarded_host or None},
         }
 
