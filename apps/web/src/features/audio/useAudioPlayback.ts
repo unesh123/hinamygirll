@@ -148,6 +148,16 @@ export function useAudioPlayback(): PlaybackController {
     replayAbortRef.current?.abort();
     replayAbortRef.current = null;
     captureStreamReplayRef.current = false;
+    // An interrupted reply must never come back: drop every piece of replay
+    // material here. Without this, interrupting her mid-reply left the old
+    // reply marked "unplayed" (the cancelled chunk had reset the heard
+    // marker), so a later audio-unlock tap re-spoke the previous message
+    // over his new one. The legitimate blocked-then-unblock flow never
+    // passes through stop(), so genuine autoplay replays still work.
+    streamReplayRef.current = [];
+    lastBlobRef.current = null;
+    lastBrowserSpeechRef.current = null;
+    setHasReplay(false);
     sessionRef.current += 1;
     browserSpeechActiveRef.current = false;
     streamActiveRef.current = false;
@@ -929,7 +939,11 @@ export function useAudioPlayback(): PlaybackController {
       };
 
       streamChunkQueueRef.current.push(utterance);
-      lastStartedRef.current = false;
+      // Only the first chunk of a new stream may reset the heard marker.
+      // Resetting it for every queued chunk marked a half-heard, then
+      // interrupted, reply as "unplayed" — the exact state that let a later
+      // unlock re-speak an old message over his new one.
+      if (isFirst) lastStartedRef.current = false;
       browserWatchdogRef.current = window.setTimeout(finish, Math.max(8_000, chunkDurationMs * 2 + 5_000));
       try {
         // Same cancel-then-speak race as speakBrowser: settle before speaking

@@ -157,6 +157,32 @@ describe("useAudioPlayback browser fallback", () => {
     act(() => result.current.stop());
   });
 
+  it("never replays a reply that was interrupted mid-stream", async () => {
+    const speak = vi.fn();
+    const cancel = vi.fn();
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+    const { result } = renderHook(() => useAudioPlayback());
+
+    act(() => result.current.beginSpeechStream());
+    await act(async () => {
+      await result.current.speakStreamChunk("First phrase.", true, "en-US", "hinaa");
+    });
+    // The first phrase reaches his ears.
+    await act(async () => (speak.mock.calls[0][0] as FakeUtterance).onstart?.());
+    await act(async () => (speak.mock.calls[0][0] as FakeUtterance).onend?.());
+    // The second phrase is queued in the engine but has not started yet…
+    await act(async () => {
+      await result.current.speakStreamChunk("Second phrase.", false, "en-US", "hinaa");
+    });
+    // …when his new message interrupts her mid-reply.
+    act(() => result.current.stop());
+    // The interrupted reply must NOT count as "unplayed": an unlock tap
+    // re-speaking it is the exact repeat-on-send bug he keeps hitting.
+    expect(result.current.hasUnplayedReplay()).toBe(false);
+  });
+
 });
 
 
