@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://killing-jennifer-spots-cornell.trycloudflare.com/api/:path*"
+      "destination": "https://donations-developed-carrier-approved.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://killing-jennifer-spots-cornell.trycloudflare.com/v1/:path*"
+      "destination": "https://donations-developed-carrier-approved.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://killing-jennifer-spots-cornell.trycloudflare.com/health"
+      "destination": "https://donations-developed-carrier-approved.trycloudflare.com/health"
     },
     {
       "source": "/((?!api/|v1/|health|models/|assets/|worklets/|animations/|test-assets/).*)",
