@@ -116,6 +116,22 @@ describe("useAudioPlayback browser fallback", () => {
     expect(result.current.hasUnplayedReplay()).toBe(false);
   });
 
+  it("counts a reply as heard when the engine ends it without firing onstart", async () => {
+    // Chrome sometimes skips onstart. A reply that reached onend was heard,
+    // so a later unlock or live toggle must not re-speak it.
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel: vi.fn() });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("AudioContext", undefined);
+    const { result } = renderHook(() => useAudioPlayback());
+
+    await act(async () => {
+      await result.current.speakBrowser("Reply heard without onstart.", "en-US");
+    });
+    await act(async () => (speak.mock.calls[0][0] as FakeUtterance).onend?.());
+    expect(result.current.hasUnplayedReplay()).toBe(false);
+  });
+
   it("resets the unplayed marker when a new speech stream begins", async () => {
     const speak = vi.fn();
     vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel: vi.fn() });

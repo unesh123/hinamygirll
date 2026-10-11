@@ -1083,7 +1083,7 @@ export default function App() {
         }
       } else if (action.action === "trigger_voice") {
         if (action.open !== false) {
-          unlockAudio();
+          unlockAudio({ replay: false });
           live.start();
         } else {
           live.stop();
@@ -1201,7 +1201,7 @@ export default function App() {
             isVoiceActive={live.active}
             onToggleVoice={() => {
               if (live.active) live.stop();
-              else { unlockAudio(); live.start(); }
+              else { unlockAudio({ replay: false }); live.start(); }
             }}
             onSendText={(text) => submit(undefined, text)}
             streamingText={controller.streamingText || controller.partialTranscript}
@@ -1325,7 +1325,7 @@ export default function App() {
                 onToggleLiveVoice: () => {
                   if (live.active) live.stop();
                   else {
-                    unlockAudio();
+                    unlockAudio({ replay: false });
                     live.start();
                   }
                 },
@@ -1573,7 +1573,7 @@ export default function App() {
             onToggleLiveVoice={() => {
               if (live.active) live.stop();
               else {
-                unlockAudio();
+                unlockAudio({ replay: false });
                 live.start();
               }
             }}

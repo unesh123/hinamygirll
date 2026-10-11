@@ -631,7 +631,13 @@ export function useAudioPlayback(): PlaybackController {
         jawEnergy.current = 0;
         syncPlaying();
       };
-      utterance.onend = finish;
+      // A reply that reached onend was heard, even when the engine skipped
+      // onstart (Chrome often does). Otherwise it stays "unplayed" and a later
+      // live toggle or unlock tap re-speaks it.
+      utterance.onend = () => {
+        if (session === sessionRef.current) lastStartedRef.current = true;
+        finish();
+      };
       utterance.onerror = finish;
       utterance.onstart = () => {
         if (session !== sessionRef.current || finished) return;
@@ -889,7 +895,10 @@ export function useAudioPlayback(): PlaybackController {
       };
       utterance.onpause = () => { if (session !== sessionRef.current || finished) return; browserTiming.onUtterancePause(); speech.current.state = "paused"; jawEnergy.current = 0; };
       utterance.onresume = () => { if (session !== sessionRef.current || finished) return; browserTiming.onUtteranceResume(); speech.current.state = "playing"; };
-      utterance.onend = finish;
+      utterance.onend = () => {
+        if (session === sessionRef.current) lastStartedRef.current = true;
+        finish();
+      };
       utterance.onerror = finish;
       utterance.onstart = () => {
         if (session !== sessionRef.current || finished) return;

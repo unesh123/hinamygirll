@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AvatarPresence } from "./AvatarPresence";
+import { AvatarPresence, resolvePoseOffsets } from "./AvatarPresence";
 
 const loading = vi.hoisted(() => ({ errors: [] as Array<() => void> }));
 vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => ({
@@ -20,6 +20,16 @@ vi.mock("@react-three/fiber", () => ({
 vi.mock("@react-three/drei", () => ({ ContactShadows: () => null }));
 vi.mock("./FullscreenCompanionOverlay", () => ({ FullscreenCompanionOverlay: () => null }));
 beforeEach(() => { loading.errors.length = 0; });
+
+describe("default model pose", () => {
+  it("gives the default Hinaa rig its tuned relaxed pose, not the generic one", () => {
+    const tuned = resolvePoseOffsets("/models/hinaa.vrm");
+    const generic = resolvePoseOffsets("/models/unknown-rig.vrm");
+    const defaults = resolvePoseOffsets("/models/hinaa-original.vrm");
+    expect(defaults).toBe(tuned);
+    expect(defaults).not.toBe(generic);
+  });
+});
 
 describe("avatar recovery", () => {
   it("shows load failure and retries without affecting the chat state", () => {

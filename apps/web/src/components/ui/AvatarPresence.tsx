@@ -222,13 +222,18 @@ const q = (x = 0, y = 0, z = 0) => new THREE.Quaternion().setFromEuler(new THREE
 // horizontal upper arms; mirrored Z offsets lower shoulders without touching
 // root scale/position or hands. Other known/managed rigs keep authored rest
 // until their Avatar Lab calibration produces a reviewed profile.
+const HINAA_RELAXED_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
+  leftShoulder: q(0, 0, 1.12), rightShoulder: q(0, 0, -1.12),
+  leftUpperArm: q(-0.06, 0.06, 0.32), rightUpperArm: q(-0.06, -0.06, -0.32),
+  leftLowerArm: q(0, 0, 0.36), rightLowerArm: q(0, 0, -0.36),
+  leftHand: q(0.08, 0.05, 0.12), rightHand: q(0.08, -0.05, -0.12),
+};
+
 const MODEL_POSE_OFFSETS: Record<string, Record<PoseBoneName, THREE.Quaternion>> = {
-  "/models/hinaa.vrm": {
-    leftShoulder: q(0, 0, 1.12), rightShoulder: q(0, 0, -1.12),
-    leftUpperArm: q(-0.06, 0.06, 0.32), rightUpperArm: q(-0.06, -0.06, -0.32),
-    leftLowerArm: q(0, 0, 0.36), rightLowerArm: q(0, 0, -0.36),
-    leftHand: q(0.08, 0.05, 0.12), rightHand: q(0.08, -0.05, -0.12),
-  },
+  "/models/hinaa.vrm": HINAA_RELAXED_POSE_OFFSETS,
+  // The default Hinaa rig (default model in App.tsx). It previously had no
+  // entry, so resolvePoseOffsets fell through to the generic pose.
+  "/models/hinaa-original.vrm": HINAA_RELAXED_POSE_OFFSETS,
   "/models/model_6164.vrm": {
     // Measured against the shipped VRM's actual horizontal upper-arm hierarchy.
     // Sharing rotation through shoulder → upper arm → forearm avoids a stiff
@@ -257,7 +262,7 @@ const GENERIC_RELAXED_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
   leftHand: q(0.06, 0.04, 0.10), rightHand: q(0.06, -0.04, -0.10),
 };
 
-function resolvePoseOffsets(url: string): Record<PoseBoneName, THREE.Quaternion> {
+export function resolvePoseOffsets(url: string): Record<PoseBoneName, THREE.Quaternion> {
   const norm = (url || "").toLowerCase();
   for (const [key, offsets] of Object.entries(MODEL_POSE_OFFSETS)) {
     if (norm.includes(key.toLowerCase()) || key.toLowerCase().includes(norm)) {
