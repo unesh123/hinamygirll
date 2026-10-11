@@ -83,7 +83,13 @@ async def test_mcp_rejects_mismatched_response_and_auth_errors():
 
 
 def test_http_pairing_owner_auth_and_remote_enforcement(tmp_path, monkeypatch):
-    from apps.api.tests.test_clerk_auth import _keys, _token
+    import sys
+    from pathlib import Path
+
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from test_clerk_auth import _keys, _token
     from hinaa_api.main import create_app
     from hinaa_api.tools import terminal_hands
     private, public = _keys()

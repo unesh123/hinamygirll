@@ -230,6 +230,9 @@ async def test_the_synthesis_gate_bounds_in_flight_requests_across_instances(
             state["peak"] = max(state["peak"], state["live"])
             return _StreamCtx()
 
+    from hinaa_api.providers import elevenlabs as elevenlabs_module
+
+    elevenlabs_module._SHARED_CLIENTS.clear()
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
     config = ElevenLabsConfig(api_key="k", voice_id="v", tts_max_concurrency=4)
 
@@ -292,6 +295,11 @@ def _record_stream(monkeypatch, sent, status_code=200, error_body=b"", queries=N
                 queries.append(params)
             return _Stream()
 
+    # The provider keeps one pooled client per event loop. Drop any client a
+    # previous test left behind, so this test's mock is the one that gets used.
+    from hinaa_api.providers import elevenlabs as elevenlabs_module
+
+    elevenlabs_module._SHARED_CLIENTS.clear()
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
 
 
@@ -396,7 +404,10 @@ async def test_elevenlabs_batch_stt_provider_mocked():
     mock_response.status_code = 200
     mock_response.json.return_value = {"text": "Namaste Hinaa"}
 
-    with patch("httpx.AsyncClient.post", return_value=mock_response) as mock_post:
+    from hinaa_api.providers import elevenlabs as elevenlabs_module
+
+    elevenlabs_module._SHARED_CLIENTS.clear()
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
         result = await provider.transcribe(dummy_pcm)
 
         assert result.value == "Namaste Hinaa"
