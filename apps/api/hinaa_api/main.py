@@ -23,6 +23,7 @@ from . import __version__, realtime_tickets
 from .audio import validate_wav, ensure_wav_or_mp3
 from .avatar_assets import AvatarAssetError, AvatarAssetService
 from .runtime_paths import project_root
+from .auth_safety import auth_safety_report
 from .config import Settings, get_settings
 from .errors import HinaaError, hinaa_error_handler, unhandled_error_handler
 from .models import ProviderStatus, SpeechRequest, ToolRequest, TranscriptResponse, TurnRequest, VoiceProfile, TextHumanizerRequest, TextHumanizerResponse, ImageStudioConfigPayload
@@ -1415,6 +1416,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "missingConfiguration": missing if not ready else [],
                 "persistenceEnabled": active_settings.persistence_enabled,
                 "authMode": active_settings.auth_mode,
+                "authSafety": auth_safety_report(active_settings),
                 "promptVersion": PROMPT_VERSION,
             },
         )
