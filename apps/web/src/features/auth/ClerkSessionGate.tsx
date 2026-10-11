@@ -4,6 +4,7 @@ import { ArrowRight, LockKeyhole, RefreshCw, Sparkles } from "lucide-react";
 import App, { ClerkFetchInterceptor } from "../../App";
 import { defaultAvatarPresentation } from "../avatar/avatarPresentation";
 import { resolveApiBase } from "../../lib/apiBase";
+import { signedInGateCopy, signedOutGateCopy } from "./sessionGateCopy";
 import "./sessionGate.css";
 
 /** Base URL for gate requests. Empty in dev (relative), explicit on the hosted site. */
@@ -63,6 +64,8 @@ export function ClerkSessionGate() {
 
   if (isLoaded && isSignedIn && access === "allowed") return <><ClerkFetchInterceptor /><App /></>;
 
+  const copy = isSignedIn ? signedInGateCopy(access) : signedOutGateCopy();
+
   return (
     <main className="auth-gate hina-session" aria-label="Sign in to Hina">
       <section className="hina-session__card">
@@ -75,8 +78,8 @@ export function ClerkSessionGate() {
         </div>
         <div className="hina-session__content">
           <p className="hina-session__eyebrow"><Sparkles size={14} /> YOUR PRIVATE WORKSPACE</p>
-          <h1>{isSignedIn ? access === "denied" ? <>Your workspace<br /><span>stays private.</span></> : <>Almost there.<br /><span>Connecting to Hina.</span></> : <>A little closer.<br /><span>A lot more possible.</span></>}</h1>
-          <p className="hina-session__intro">{isSignedIn && access === "denied" ? "This account does not have owner access. Switch to the owner account, or retry after access is configured." : "Think, create, and build with Hina. Your conversations, memories, and projects stay behind your sign-in."}</p>
+          <h1>{copy.headline}<br /><span>{copy.headlineSecond}</span></h1>
+          <p className="hina-session__intro">{copy.intro}</p>
           <div className="hina-session__features"><span>Thoughtful conversations</span><span>Connected models</span><span>A companion that stays</span></div>
           {isSignedIn ? <div className="hina-session__access-actions">
             <button className="hina-session__signin" type="button" onClick={() => void checkAccess()} disabled={access === "checking"}>{access === "checking" ? "Verifying your access…" : "Retry workspace access"}<RefreshCw size={16} /></button>
