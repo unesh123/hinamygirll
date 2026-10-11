@@ -140,6 +140,20 @@ function sameOriginWebsocketUrl(): string {
   return `${protocol}//${window.location.host}/api/v1/realtime`;
 }
 
+/**
+ * The message shown when realtime voice gives up. A socket aimed back at the
+ * page's own origin on HTTPS can never upgrade on Vercel, so say that plainly
+ * instead of implying the server is merely busy.
+ */
+export function realtimeGiveUpMessage(url: string, pageHost: string): string {
+  const host = url.split("/")[2] ?? url;
+  const sameOriginOnHttps = url.startsWith("wss://") && host === pageHost;
+  if (sameOriginOnHttps) {
+    return "Live voice cannot reach the backend from this site: the hosting route does not carry voice connections. Type to Hina, or check that the realtime origin is configured.";
+  }
+  return `Realtime voice stopped retrying ${host} after 10 attempts.`;
+}
+
 let advertisedWebsocketUrl: string | null = null;
 
 /**
@@ -1210,7 +1224,7 @@ export function useLiveConversation({
       if (reconnectAttempt.current >= 10) {
         const host = url.split("/")[2] ?? url;
         callbacks.current.controller.applyLiveError(
-          `Realtime voice stopped retrying ${host} after 10 attempts.`,
+          realtimeGiveUpMessage(url, window.location.host),
         );
         teardownSession();
         setStatus("error");
