@@ -1307,6 +1307,9 @@ function VrmModel({
           return;
         }
         setVrm(loaded);
+        // Dev-only inspection hook: lets the browser console read the live
+        // expression list. Never set in production builds.
+        if (import.meta.env.DEV) (window as any).__hinaaVrm = loaded;
         onReady();
       })
       .catch(() => {

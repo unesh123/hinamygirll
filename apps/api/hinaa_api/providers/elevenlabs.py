@@ -423,6 +423,82 @@ class ElevenLabsHTTPStreamingProvider(TTSProvider):
             elapsed_ms = int((time.time() - start) * 1000)
             return ProviderResult(b"".join(chunks), "elevenlabs", elapsed_ms)
 
+    async def synthesize_timed(
+        self,
+        text: str,
+        voice: str | None = None,
+        delivery_mode: str = "warm",
+        companion_id: str = "hinaa",
+        rate: float | None = None,
+        model_id: str | None = None,
+    ) -> tuple[bytes, SpeechAlignment | None, int]:
+        """Full audio plus per-character timing from ElevenLabs `with-timestamps`.
+
+        Returns (audio_bytes, alignment_or_None, elapsed_ms). Alignment is None
+        when the vendor omits it; callers then fall back to the text estimate.
+        """
+        import base64
+        import time
+
+        if not self._config.configured:
+            raise ElevenLabsError(ElevenLabsStatus.unavailable, "ElevenLabs is not configured.")
+        voice_id = voice or self._config.voice_id
+        resolved_model = model_id or self._config.model_id
+        url = f"{self._config.base_url}/v1/text-to-speech/{voice_id}/with-timestamps"
+        params = {"output_format": self._config.output_format}
+        headers = {
+            "xi-api-key": self._config.api_key,
+            "Content-Type": "application/json",
+        }
+        delivery = VoicePerformancePlanner().plan_delivery(delivery_mode, companion_id)
+        payload: dict[str, Any] = {
+            "text": text,
+            "model_id": resolved_model,
+            "voice_settings": {
+                "stability": delivery["stability"],
+                "similarity_boost": delivery["similarity"],
+                "style": delivery["style_intensity"],
+                "use_speaker_boost": True,
+                "speed": clamp_elevenlabs_speed(
+                    rate if rate is not None else delivery["pace"]
+                ),
+            },
+        }
+        language_code = language_code_for_model(text, resolved_model)
+        if language_code is not None:
+            payload["language_code"] = language_code
+
+        started = time.time()
+        try:
+            async with _tts_gate(self._config.tts_max_concurrency):
+                client = _shared_client()
+                response = await client.post(
+                    url, headers=headers, params=params, json=payload,
+                    timeout=self._config.request_timeout_s,
+                )
+        except httpx.TimeoutException as exc:
+            self._status = ElevenLabsStatus.timeout
+            raise ElevenLabsError(ElevenLabsStatus.timeout, "ElevenLabs request timed out.") from exc
+
+        if response.status_code != 200:
+            mapped = map_elevenlabs_http_error(response.status_code)
+            self._status = mapped
+            reason = reason_from_body(response.content)
+            raise ElevenLabsError(
+                mapped, f"ElevenLabs HTTP {response.status_code}: {reason}",
+                retryable=(response.status_code >= 500 or (
+                    response.status_code == 429 and "quota_exceeded" not in reason.lower()
+                )),
+            )
+        self._status = ElevenLabsStatus.available
+        body = response.json()
+        audio = base64.b64decode(body.get("audio_base64") or "")
+        alignment = _parse_alignment(
+            body.get("normalized_alignment") or body.get("alignment")
+        )
+        elapsed_ms = int((time.time() - started) * 1000)
+        return audio, alignment, elapsed_ms
+
 
     @property
     def available(self) -> bool:

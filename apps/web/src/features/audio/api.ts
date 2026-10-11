@@ -120,6 +120,63 @@ export async function synthesizeSpeech(
   };
 }
 
+/**
+ * Same as synthesizeSpeech, plus vendor character timing decoded from the
+ * X-HINAA-Alignment header. Alignment is [] when unavailable, so callers keep
+ * the text estimate.
+ */
+export async function synthesizeSpeechTimed(
+  text: string,
+  companionId: "hinaa" | "hiro",
+  mode: ProviderMode,
+  signal: AbortSignal,
+  language: "ne-NP" | "hi-IN" | "en-US" | "mixed" = "mixed",
+  realtime = false,
+  voiceEngine?: string,
+): Promise<{
+  blob: Blob;
+  provider: string;
+  latencyMs: number;
+  alignment: Array<{ char: string; startMs: number; durationMs: number }>;
+}> {
+  const response = await fetch("/api/v1/speech/synthesis/timed", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...hinaaIdentityHeaders(),
+    },
+    body: JSON.stringify({
+      text,
+      companionId,
+      providerMode: mode,
+      language,
+      realtime,
+      voiceEngine: voiceEngine || undefined,
+    }),
+    signal,
+  });
+  if (!response.ok) {
+    const error = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(error.message ?? `Voice synthesis failed (${response.status})`);
+  }
+  let alignment: Array<{ char: string; startMs: number; durationMs: number }> = [];
+  const raw = response.headers.get("X-HINAA-Alignment");
+  if (raw) {
+    try {
+      const parsed = JSON.parse(atob(raw));
+      if (Array.isArray(parsed)) alignment = parsed;
+    } catch {
+      alignment = [];
+    }
+  }
+  return {
+    blob: await response.blob(),
+    provider: response.headers.get("X-HINAA-Provider") ?? mode,
+    latencyMs: Number(response.headers.get("X-HINAA-Latency-Ms") ?? 0),
+    alignment,
+  };
+}
+
 export async function reprobeCxGateway(): Promise<{
   providerId: string;
   environment: string;

@@ -38,7 +38,9 @@ import { SearchingLoader } from "./components/ui/SearchingLoader";
 import type { PresenceMode } from "./components/ui/AvatarPresence";
 import { HinaDrawer } from "./components/lightswind/Drawer";
 import { SidebarProvider } from "./components/lightswind/Sidebar";
-import { synthesizeSpeech } from "./features/audio/api";
+import { synthesizeSpeech, synthesizeSpeechTimed } from "./features/audio/api";
+import type { SpeechAudio } from "./features/audio/progressiveSpeech";
+import { timedAlignmentToVisemes } from "./features/audio/textToViseme";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
 import { SpeechPlaybackContext } from "./features/audio/speechPlaybackBridge";
 import { useLiveConversation } from "./features/audio/useLiveConversation";
@@ -852,15 +854,37 @@ export default function App() {
           if (playback.muted) return null;
           const effectiveMode = (!mode || mode === "mock") ? "agent-router" : mode;
           try {
-            const speech = await synthesizeSpeech(
-              phrase,
-              companionId,
-              effectiveMode,
-              AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-              resolveConversationLocale(phrase, settings.language.activePolicy),
-              true,
-              effectiveEngine,
-            );
+            const locale = resolveConversationLocale(phrase, settings.language.activePolicy);
+            let speech: SpeechAudio;
+            try {
+              const timed = await synthesizeSpeechTimed(
+                phrase,
+                companionId,
+                effectiveMode,
+                AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+                locale,
+                true,
+                effectiveEngine,
+              );
+              speech = {
+                blob: timed.blob,
+                provider: timed.provider,
+                latencyMs: timed.latencyMs,
+                visemes: timedAlignmentToVisemes(timed.alignment),
+              };
+            } catch {
+              // Timing is an enhancement; the audio-only route is the fallback.
+              const plain = await synthesizeSpeech(
+                phrase,
+                companionId,
+                effectiveMode,
+                AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+                locale,
+                true,
+                effectiveEngine,
+              );
+              speech = { blob: plain.blob, provider: plain.provider, latencyMs: plain.latencyMs };
+            }
             runtimeMeasurements.synthesized(speech.latencyMs);
             return /placeholder|mock/i.test(speech.provider) ? null : speech;
           } catch (err) {
@@ -887,7 +911,7 @@ export default function App() {
           };
           signal.addEventListener("abort", finish, { once: true });
           if (audio) {
-            void playback.play(audio.blob, phrase, started, finish).catch(reject);
+            void playback.play(audio.blob, phrase, started, finish, audio.visemes).catch(reject);
           } else {
             void playback.speakStreamChunk(phrase, browserFirst, browserSpeechLocale(phrase, settings.language.activePolicy), companionId, finish, started).then(ok => {
               if (!ok) { finish(); setVoiceReply({ kind: "unavailable", label: "Voice could not start", detail: "Check the configured voice or device speech settings." }); }

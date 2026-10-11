@@ -5251,6 +5251,74 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reviewIdeas=review_ideas
         )
 
+    @app.post("/v1/speech/synthesis/timed")
+    @app.post("/api/v1/speech/synthesis/timed")
+    async def synthesize_timed(body: SpeechRequest) -> Response:
+        """Audio plus vendor character timing for lip-sync.
+
+        Opt-in and ElevenLabs-only. When timing is unavailable it still returns
+        the audio with an empty alignment, so the client falls back to the text
+        estimate and nothing is lost.
+        """
+        import base64
+        import json as _json
+
+        from .providers.elevenlabs import ElevenLabsHTTPStreamingProvider
+        from .voice_performance import speech_text_for_tts
+
+        started = perf_counter()
+        provider = service.router.tts(body.providerMode, body.companionId, body.voiceEngine)
+        if not isinstance(provider, ElevenLabsHTTPStreamingProvider):
+            result = await service.synthesize(body)
+            final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+            alignment: list[dict] | None = None
+            provider_name = result.provider
+        else:
+            text = speech_text_for_tts(body.text) or body.text
+            voice_id = (
+                service.settings.elevenlabs_hiro_voice_id
+                if body.companionId == "hiro"
+                else service.settings.elevenlabs_hinaa_voice_id
+            )
+            try:
+                audio_bytes, speech_alignment, _ms = await provider.synthesize_timed(
+                    text, voice=voice_id
+                )
+                final_audio, media_type = ensure_wav_or_mp3(audio_bytes, sample_rate=24_000)
+                alignment = (
+                    [
+                        {"char": c, "startMs": s, "durationMs": d}
+                        for c, s, d in zip(
+                            speech_alignment.characters,
+                            speech_alignment.start_times_ms,
+                            speech_alignment.durations_ms,
+                            strict=True,
+                        )
+                    ]
+                    if speech_alignment is not None
+                    else None
+                )
+                provider_name = "elevenlabs"
+            except Exception:
+                result = await service.synthesize(body)
+                final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+                alignment = None
+                provider_name = result.provider
+        filename = "hinaa-turn.mp3" if media_type == "audio/mpeg" else "hinaa-turn.wav"
+        alignment_header = base64.b64encode(
+            _json.dumps(alignment or []).encode("utf-8")
+        ).decode("ascii")
+        return Response(
+            final_audio,
+            media_type=media_type,
+            headers={
+                "X-HINAA-Provider": provider_name,
+                "X-HINAA-Latency-Ms": str(int((perf_counter() - started) * 1000)),
+                "X-HINAA-Alignment": alignment_header,
+                "Content-Disposition": f'inline; filename="{filename}"',
+            },
+        )
+
     @app.post("/v1/speech/synthesis")
     @app.post("/api/v1/speech/synthesis")
     async def synthesize(body: SpeechRequest) -> Response:

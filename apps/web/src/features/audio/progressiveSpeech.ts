@@ -1,4 +1,12 @@
-export interface SpeechAudio { blob: Blob; provider: string; latencyMs: number }
+import type { VisemeEvent } from "./textToViseme";
+
+export interface SpeechAudio {
+  blob: Blob;
+  provider: string;
+  latencyMs: number;
+  /** Vendor-timed mouth shapes for this clip (relative to clip start). */
+  visemes?: VisemeEvent[];
+}
 interface Phrase { text: string; audio?: Promise<SpeechAudio | null> }
 interface Options {
   synthesize: (text: string, signal: AbortSignal) => Promise<SpeechAudio | null>;

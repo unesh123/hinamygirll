@@ -4,7 +4,49 @@ import {
   getActiveViseme,
   normalizeProviderVisemeEvents,
   textToVisemeEvents,
+  timedAlignmentToVisemes,
+  visemesFromCharacterAlignment,
 } from "./textToViseme";
+
+describe("timedAlignmentToVisemes", () => {
+  it("adapts the timed route payload (char/startMs/durationMs) into visemes", () => {
+    const events = timedAlignmentToVisemes([
+      { char: "h", startMs: 0, durationMs: 60 },
+      { char: "e", startMs: 80, durationMs: 90 },
+      { char: "l", startMs: 170, durationMs: 40 },
+    ]);
+    expect(events).toEqual([{ timeMs: 80, durationMs: 90, mouth: "ee", weight: 0.85 }]);
+  });
+
+  it("returns no visemes when alignment is missing so the text estimate applies", () => {
+    expect(timedAlignmentToVisemes(undefined)).toEqual([]);
+    expect(timedAlignmentToVisemes([])).toEqual([]);
+  });
+});
+
+describe("visemesFromCharacterAlignment", () => {
+  it("maps vowels to mouth shapes at their real spoken times and rests on consonants", () => {
+    const events = visemesFromCharacterAlignment(
+      ["h", "a", "i"],
+      [0, 120, 240],
+      [80, 100, 90],
+    );
+    expect(events.map((e) => e.mouth)).toEqual(["aa", "ih"]);
+    expect(events[0]).toMatchObject({ timeMs: 120, durationMs: 100 });
+    expect(events[1]).toMatchObject({ timeMs: 240, durationMs: 90 });
+  });
+
+  it("returns nothing for mismatched or empty input so callers fall back", () => {
+    expect(visemesFromCharacterAlignment([], [], [])).toEqual([]);
+    expect(visemesFromCharacterAlignment(["a"], [0, 10], [5])).toEqual([]);
+  });
+
+  it("sorts events by start time even when the vendor sends them out of order", () => {
+    const events = visemesFromCharacterAlignment(["o", "u"], [300, 100], [50, 50]);
+    expect(events.map((e) => e.timeMs)).toEqual([100, 300]);
+    expect(events.map((e) => e.mouth)).toEqual(["ou", "oh"]);
+  });
+});
 
 describe("textToVisemeEvents", () => {
   it("returns no events for empty text or duration", () => {

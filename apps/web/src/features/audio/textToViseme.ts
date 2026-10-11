@@ -291,6 +291,60 @@ export function normalizeProviderVisemeEvents(
     .sort((a, b) => a.timeMs - b.timeMs);
 }
 
+/** Vowel class for one character; consonants keep the mouth closed. */
+function vowelMouthForChar(char: string): VrmMouth | null {
+  switch (char.toLowerCase()) {
+    case "a": return "aa";
+    case "e": return "ee";
+    case "i":
+    case "y": return "ih";
+    case "o": return "oh";
+    case "u": return "ou";
+    default: return null;
+  }
+}
+
+/**
+ * Character-level timing from the vendor (ElevenLabs `with-timestamps`) to
+ * viseme events. Each vowel opens the mouth for its real spoken span; anything
+ * else rests. Returns [] for empty or malformed input so callers fall back to
+ * the text estimate.
+ */
+export function visemesFromCharacterAlignment(
+  characters: readonly string[],
+  startTimesMs: readonly number[],
+  durationsMs: readonly number[],
+): VisemeEvent[] {
+  if (
+    characters.length === 0 ||
+    characters.length !== startTimesMs.length ||
+    characters.length !== durationsMs.length
+  ) {
+    return [];
+  }
+  const events: VisemeEvent[] = [];
+  for (let i = 0; i < characters.length; i++) {
+    const start = Math.max(0, startTimesMs[i]);
+    const duration = Math.max(16, durationsMs[i]);
+    const mouth = vowelMouthForChar(characters[i]);
+    if (!mouth) continue;
+    events.push({ timeMs: start, durationMs: duration, mouth, weight: 0.85 });
+  }
+  return events.sort((a, b) => a.timeMs - b.timeMs);
+}
+
+/** Adapter from the timed-route alignment payload to visemes. */
+export function timedAlignmentToVisemes(
+  alignment: ReadonlyArray<{ char: string; startMs: number; durationMs: number }> | null | undefined,
+): VisemeEvent[] {
+  if (!alignment?.length) return [];
+  return visemesFromCharacterAlignment(
+    alignment.map((a) => a.char),
+    alignment.map((a) => a.startMs),
+    alignment.map((a) => a.durationMs),
+  );
+}
+
 export function createLipSyncTimeline({
   text = "",
   durationMs,
