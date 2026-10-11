@@ -119,3 +119,43 @@ def test_production_accepts_clerk_without_tunnel_dev_auth() -> None:
     )
     assert settings.auth_mode == "clerk"
     assert settings.allow_tunnel_dev_auth is False
+
+
+def test_production_refuses_placeholder_realtime_origin() -> None:
+    # Regression: the production template ships HINAA_REALTIME_PUBLIC_ORIGIN as a
+    # REPLACE_WITH placeholder. Advertising it sends voice to a host that does not exist.
+    import pytest
+    from hinaa_api.config import Settings
+
+    with pytest.raises(ValueError, match="REPLACE_WITH placeholder"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            HINAA_AUTH_MODE="clerk",
+            HINAA_ALLOW_TUNNEL_DEV_AUTH=False,
+            HINAA_REALTIME_PUBLIC_ORIGIN="https://REPLACE_WITH_STABLE_API_DOMAIN",
+        )
+
+
+def test_production_accepts_a_real_realtime_origin() -> None:
+    from hinaa_api.config import Settings
+
+    settings = Settings(
+        _env_file=None,
+        ENVIRONMENT="production",
+        HINAA_AUTH_MODE="clerk",
+        HINAA_ALLOW_TUNNEL_DEV_AUTH=False,
+        HINAA_REALTIME_PUBLIC_ORIGIN="https://api.example.com",
+    )
+    assert settings.realtime_public_origin == "https://api.example.com"
+
+
+def test_development_tolerates_the_template_placeholder() -> None:
+    from hinaa_api.config import Settings
+
+    settings = Settings(
+        _env_file=None,
+        ENVIRONMENT="development",
+        HINAA_REALTIME_PUBLIC_ORIGIN="https://REPLACE_WITH_STABLE_API_DOMAIN",
+    )
+    assert settings.environment == "development"

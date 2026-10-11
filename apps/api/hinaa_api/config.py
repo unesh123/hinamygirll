@@ -10,6 +10,12 @@ from pydantic import AliasChoices, Field, SecretStr, field_validator, model_vali
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env.local"
+
+
+def is_placeholder_origin(value: str | None) -> bool:
+    """True for an unset-looking or template origin, e.g. REPLACE_WITH_STABLE_API_DOMAIN."""
+    text = str(value or "").strip()
+    return "REPLACE_WITH" in text.upper()
 # Anchored to this file, not the working directory: the API is launched from
 # apps/api, so CWD-relative "apps/api/data" paths resolve to a stray
 # apps/api/apps/api/data tree and split writes away from reads.
@@ -783,6 +789,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "FATAL CONFIGURATION ERROR: HINAA_ALLOW_TUNNEL_DEV_AUTH lets public requests act as the owner. "
                 "Set it to false in production."
+            )
+        if env == "production" and is_placeholder_origin(self.realtime_public_origin):
+            raise ValueError(
+                "FATAL CONFIGURATION ERROR: HINAA_REALTIME_PUBLIC_ORIGIN is still a REPLACE_WITH placeholder. "
+                "Set it to the https:// address of the backend, or leave it unset."
             )
         return self
 
