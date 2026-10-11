@@ -141,3 +141,44 @@ def test_owner_session_check_and_remote_terminal_gate(tmp_path):
         result = client.post("/api/v1/terminal/execute", json={"command":"echo must-not-run"}, headers=headers)
         assert result.status_code == 403
         assert result.json()["code"] == "LOCAL_TOOL_NOT_PERMITTED"
+
+
+EDGE_HEADERS = {"CF-Connecting-IP": "203.0.113.9", "Host": "hinaa-workspace.vercel.app"}
+
+
+def test_edge_request_without_token_is_never_the_owner(tmp_path) -> None:
+    # Regression: with allow_tunnel_dev_auth on, an anonymous public request was
+    # resolved to the configured owner subject. An edge request must be refused.
+    private_key, public_key = _keys()
+    settings = _settings(tmp_path, public_key).model_copy(
+        update={"allow_tunnel_dev_auth": True, "dev_auth_subject": "owner-subject"}
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/v1/conversations", headers=EDGE_HEADERS)
+
+    assert response.status_code == 401
+
+
+def test_edge_request_with_forged_dev_header_is_refused(tmp_path) -> None:
+    private_key, public_key = _keys()
+    with TestClient(create_app(_settings(tmp_path, public_key))) as client:
+        response = client.get(
+            "/v1/conversations",
+            headers={**EDGE_HEADERS, "X-HINAA-Dev-User": "owner-subject"},
+        )
+
+    assert response.status_code == 401
+
+
+def test_edge_request_with_invalid_token_is_refused_even_with_tunnel_dev_auth(tmp_path) -> None:
+    private_key, public_key = _keys()
+    settings = _settings(tmp_path, public_key).model_copy(
+        update={"allow_tunnel_dev_auth": True, "dev_auth_subject": "owner-subject"}
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.get(
+            "/v1/conversations",
+            headers={**EDGE_HEADERS, "Authorization": "Bearer not.a.token"},
+        )
+
+    assert response.status_code == 401

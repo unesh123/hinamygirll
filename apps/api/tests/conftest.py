@@ -15,6 +15,12 @@ os.environ["HINAA_DATABASE_URL"] = f"sqlite+pysqlite:///{_TEST_STATE / 'test.db'
 os.environ["HINAA_LOCAL_WORKSPACE_DIR"] = str(_TEST_STATE / "workspace")
 os.environ["HINAA_ASSET_STORE_DIR"] = str(_TEST_STATE / "assets")
 os.environ["HINAA_VMC_PORT"] = "0"
+# The suite was written against dev auth. Pin it so a developer's local
+# .env.local (clerk mode, persistence on) cannot change what these tests mean.
+# Auth-specific tests opt back into clerk explicitly through their own Settings.
+os.environ["HINAA_AUTH_MODE"] = "dev"
+os.environ["HINAA_PERSISTENCE_ENABLED"] = "false"
+os.environ["HINAA_ALLOW_TUNNEL_DEV_AUTH"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient

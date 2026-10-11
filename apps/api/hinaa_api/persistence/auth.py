@@ -146,11 +146,12 @@ def resolve_auth(
         )
 
     if mode == "clerk":
-        # Allow direct local loopback requests from this machine when not routed through edge,
-        # or when allow_tunnel_dev_auth is enabled.
-        if not reached_through_edge(request) or getattr(settings, "allow_tunnel_dev_auth", False):
+        # Only a request that never left this machine may use the dev identity.
+        # An edge-routed request must present a verified Clerk token: a default
+        # owner subject here made every anonymous public request the owner.
+        if not reached_through_edge(request):
             dev_sub = (x_hinaa_dev_user or "").strip()
-            if not dev_sub and (allow_default_subject or getattr(settings, "allow_tunnel_dev_auth", False)):
+            if not dev_sub and allow_default_subject:
                 dev_sub = settings.dev_auth_subject.strip()
             if dev_sub:
                 subject = dev_sub
@@ -205,16 +206,6 @@ def resolve_auth(
         if not subject or len(subject) > 160:
             reason = str(getattr(state, "reason", None) or "no subject in token")
             logger.warning("Clerk rejected a session token: %s", reason)
-            if getattr(settings, "allow_tunnel_dev_auth", False):
-                dev_sub = (x_hinaa_dev_user or "").strip() or settings.dev_auth_subject.strip()
-                if dev_sub:
-                    subject = dev_sub
-                    if settings.hinaa_allowed_user_ids and dev_sub == "local-dev-user":
-                        allowed = [u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()]
-                        if allowed:
-                            subject = allowed[0]
-                    user = memory.ensure_user(subject)
-                    return AuthContext(user_id=user.id, auth_subject=subject, mode="dev-loopback")
             raise HinaaError(
                 "AUTH_REQUIRED",
                 "Sign in again to continue.",
