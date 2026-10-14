@@ -78,19 +78,20 @@ export function resolveVoiceRoute(
  * what live calls proved, so a brain its gateway rejects is skipped outright.
  */
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
+  "real",
+  "gemini-live",
+  "xkiro",
   "cx-gateway",
   "claude",
   "experiential",
   "codecraft",
   "pgsgrove",
-  "xkiro",
   "apmix",
   "agent-router",
   "seekai",
   "tokentable",
   "cavoti",
   "custom",
-  "real",
   "qwen",
   "openai",
   "groq",

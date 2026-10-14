@@ -9,11 +9,11 @@ services:
     autoDeploy: true
     envVars:
       - key: HINAA_PROVIDER_MODE
-        value: agent-router
-      - key: AGENT_ROUTER_BASE_URL
-        sync: false
-      - key: AGENT_ROUTER_API_KEY
-        sync: false
+        value: real
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_PLANNER_MODEL
+        value: gemini-3.5-flash
       - key: GEMINI_API_KEY
         sync: false
       - key: CODE_CRAFT_API_KEY

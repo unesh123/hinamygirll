@@ -3999,3 +3999,103 @@ body {
 
 .topbar-v6__mobile-brand { display:none; }
 @media(max-width:768px) { .topbar-v6__mobile-brand { display:block; font-size:13px; font-weight:750; letter-spacing:1px; flex-shrink:0; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   IRIS GENESIS 2.0 WAVEFORM STAGE DOCK
+   Floating glass audio status dock with dynamic reacting bars
+═══════════════════════════════════════════════════════════════ */
+.iris-waveform-stage {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 25;
+  pointer-events: none;
+  max-width: 90%;
+}
+.iris-waveform-dock {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(18, 14, 24, 0.78);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.iris-waveform-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.iris-waveform-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: irisPulse 1.8s ease-in-out infinite;
+}
+@keyframes irisPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.iris-waveform-status {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff2f6;
+  white-space: nowrap;
+}
+.iris-waveform-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+.iris-waveform-bar {
+  display: block;
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  transform-origin: center;
+  transition: transform 0.08s ease;
+}
+.iris-waveform-retry {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.iris-waveform-caption {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 240, 248, 0.92);
+  background: rgba(14, 10, 20, 0.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 4px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  max-width: 380px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: fadeIn 0.3s ease;
+}

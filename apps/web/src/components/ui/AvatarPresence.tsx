@@ -78,11 +78,11 @@ function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: A
   // On a compact portrait screen the companion view intentionally frames the
   // face and shoulders more closely. Desktop retains the wider conversational
   // composition, while explicit close-up/full camera choices remain untouched.
-  const portraitFov = compactViewport ? 25 : 31;
-  // Head/chest control composition. Bounds are used only to avoid clipping hair
-  // and accessories, never to pull the portrait target down toward a long skirt.
-  const portraitTop = Math.max(frame.maxY, frame.headY + torso * (compactViewport ? 0.34 : 0.44));
-  const portraitBottom = frame.chestY - torso * (compactViewport ? 0.16 : 0.38);
+  // Portrait framing creates an intimate upper-body/bust composition
+  // matching Iris Genesis 2.0 reference: head, shoulders, and chest centered.
+  const portraitFov = compactViewport ? 24 : 28;
+  const portraitTop = Math.max(frame.maxY, frame.headY + torso * (compactViewport ? 0.28 : 0.32));
+  const portraitBottom = frame.chestY - torso * (compactViewport ? 0.14 : 0.22);
   const distanceFor = (top: number, bottom: number, fov: number) => {
     const half = Math.max(0.22, (top - bottom) / 2) * 1.12;
     return Math.max(0.58, half / Math.tan(THREE.MathUtils.degToRad(fov / 2)));
@@ -1320,44 +1320,104 @@ function Model({
       const hips = hipsBoneRef.current;
       const hipsPos = hipsRestPosRef.current;
       const hipsQ = hipsRestQRef.current;
+
+      // Organic Contrapposto & Thoracic Respiration Idle Loop (Iris Genesis 2.0 motion profile)
+      // Natural human balance shifts weight subtly between hips on a slow ~14s period
+      const idleTime = t.current;
+      const idleWeightPhase = idleTime * 0.44;
+      const weightShift = Math.sin(idleWeightPhase); // [-1, 1] weight bias (left vs right leg)
+      const weightCos = Math.cos(idleWeightPhase);
+
+      // Pelvis / Hip dynamics:
+      // Weight bearing hip rolls upward (+0.046 rad ~ 2.65 deg) with slight yaw turn (+0.022 rad)
+      const contrappostoRoll = weightShift * 0.046;
+      const contrappostoYaw = weightCos * 0.022;
+      const breathRespiration = Math.sin(idleTime * 1.6); // ~15.2 breaths/minute
+      const breathChestRise = breathRespiration * 0.020;
+      const breathPelvisDip = breathRespiration * 0.0025 - Math.abs(weightShift) * 0.003;
+
       if (hips && hipsPos && hipsQ) {
-        hips.position.y = THREE.MathUtils.damp(hips.position.y, hipsPos.y, 8, dt);
-        hips.quaternion.slerp(hipsQ, Math.min(1, dt * 8));
+        // Shift center of mass subtly over the weight-bearing leg
+        const targetHipsX = (hipsPos.x || 0) + weightShift * 0.015;
+        const targetHipsY = (hipsPos.y || 0) + breathPelvisDip;
+        hips.position.x = THREE.MathUtils.damp(hips.position.x, targetHipsX, 3.5, dt);
+        hips.position.y = THREE.MathUtils.damp(hips.position.y, targetHipsY, 4.5, dt);
+
+        const targetHipsQ = scratch.target.copy(hipsQ).multiply(
+          scratch.rotation.setFromEuler(scratch.euler.set(0, contrappostoYaw, contrappostoRoll)),
+        );
+        hips.quaternion.slerp(targetHipsQ, Math.min(1, dt * 5));
       }
+
+      // Spine Counter-Rotation (the natural S-curve keeping head & shoulders aligned)
       const spine = spineBoneRef.current;
       const spineQ = spineRestQRef.current;
-      if (spine && spineQ) spine.quaternion.slerp(spineQ, Math.min(1, dt * 8));
+      if (spine && spineQ) {
+        const spineCounterRoll = -contrappostoRoll * 0.78;
+        const spineCounterYaw = -contrappostoYaw * 0.65;
+        const spineBreathPitch = breathRespiration * 0.010;
+        const targetSpineQ = scratch.target.copy(spineQ).multiply(
+          scratch.rotation.setFromEuler(scratch.euler.set(spineBreathPitch, spineCounterYaw, spineCounterRoll)),
+        );
+        spine.quaternion.slerp(targetSpineQ, Math.min(1, dt * 5));
+      }
 
-      // Natural respiration on chest (~17 breaths/min)
+      // Thoracic Respiration & Shoulders Balance on Chest
       const chest = chestBoneRef.current;
       const chestQ = chestRestQRef.current;
       if (chest && chestQ) {
-        const breathPitch = Math.sin(t.current * 1.75) * 0.012;
-        const breathRoll = Math.sin(t.current * 0.85) * 0.006;
+        const chestRoll = -contrappostoRoll * 0.32;
         const targetChestQ = scratch.target.copy(chestQ).multiply(
-          scratch.rotation.setFromEuler(scratch.euler.set(breathPitch, 0, breathRoll)),
+          scratch.rotation.setFromEuler(scratch.euler.set(breathChestRise, 0, chestRoll)),
         );
         chest.quaternion.slerp(targetChestQ, Math.min(1, dt * 6));
       }
 
-      const lul = leftUpperLegRef.current;
-      const lulQ = leftUpperLegRestQRef.current;
-      if (lul && lulQ) lul.quaternion.slerp(lulQ, Math.min(1, dt * 10));
-      const rul = rightUpperLegRef.current;
-      const rulQ = rightUpperLegRestQRef.current;
-      if (rul && rulQ) rul.quaternion.slerp(rulQ, Math.min(1, dt * 10));
-      const lll = leftLowerLegRef.current;
-      const lllQ = leftLowerLegRestQRef.current;
-      if (lll && lllQ) lll.quaternion.slerp(lllQ, Math.min(1, dt * 10));
-      const rll = rightLowerLegRef.current;
-      const rllQ = rightLowerLegRestQRef.current;
-      if (rll && rllQ) rll.quaternion.slerp(rllQ, Math.min(1, dt * 10));
+      // Relaxed Legs & Knee Micro-Flex (eliminates stiff wooden soldier pose)
+      // When weight shifts right, left leg relaxes with subtle inward angle and knee flex
+      const leftUpperLeg = leftUpperLegRef.current;
+      const leftUpperLegQ = leftUpperLegRestQRef.current;
+      const rightUpperLeg = rightUpperLegRef.current;
+      const rightUpperLegQ = rightUpperLegRestQRef.current;
+      const leftLowerLeg = leftLowerLegRef.current;
+      const leftLowerLegQ = leftLowerLegRestQRef.current;
+      const rightLowerLeg = rightLowerLegRef.current;
+      const rightLowerLegQ = rightLowerLegRestQRef.current;
+
+      const leftKneeFlex = Math.max(0, weightShift) * 0.055; // Left knee relaxes when weight is right
+      const rightKneeFlex = Math.max(0, -weightShift) * 0.055; // Right knee relaxes when weight is left
+
+      if (leftUpperLeg && leftUpperLegQ) {
+        const targetLulQ = scratch.target.copy(leftUpperLegQ).multiply(
+          scratch.rotation.setFromEuler(scratch.euler.set(leftKneeFlex * 0.5, 0, -contrappostoRoll * 0.5)),
+        );
+        leftUpperLeg.quaternion.slerp(targetLulQ, Math.min(1, dt * 6));
+      }
+      if (rightUpperLeg && rightUpperLegQ) {
+        const targetRulQ = scratch.target.copy(rightUpperLegQ).multiply(
+          scratch.rotation.setFromEuler(scratch.euler.set(rightKneeFlex * 0.5, 0, -contrappostoRoll * 0.5)),
+        );
+        rightUpperLeg.quaternion.slerp(targetRulQ, Math.min(1, dt * 6));
+      }
+      if (leftLowerLeg && leftLowerLegQ) {
+        const targetLllQ = scratch.target.copy(leftLowerLegQ).multiply(
+          scratch.rotation.setFromEuler(scratch.euler.set(leftKneeFlex, 0, 0)),
+        );
+        leftLowerLeg.quaternion.slerp(targetLllQ, Math.min(1, dt * 6));
+      }
+      if (rightLowerLeg && rightLowerLegQ) {
+        const targetRllQ = scratch.target.copy(rightLowerLegQ).multiply(
+          scratch.rotation.setFromEuler(scratch.euler.set(rightKneeFlex, 0, 0)),
+        );
+        rightLowerLeg.quaternion.slerp(targetRllQ, Math.min(1, dt * 6));
+      }
+
       const lf = leftFootRef.current;
       const lfq = leftFootRestQRef.current;
-      if (lf && lfq) lf.quaternion.slerp(lfq, Math.min(1, dt * 10));
+      if (lf && lfq) lf.quaternion.slerp(lfq, Math.min(1, dt * 8));
       const rf = rightFootRef.current;
       const rfq = rightFootRestQRef.current;
-      if (rf && rfq) rf.quaternion.slerp(rfq, Math.min(1, dt * 10));
+      if (rf && rfq) rf.quaternion.slerp(rfq, Math.min(1, dt * 8));
     }
 
     /* ── CALIBRATED HEAD-ONLY VMC & AUDIO-REACTIVE HEAD LIFE ──────── */
@@ -1486,9 +1546,11 @@ function Model({
           // sculpted by affect: arousal adds flutter, drowsiness droops.
           const cadence = isLeft ? Math.sin(t.current * 1.7) : Math.sin(t.current * 2.1);
           const flutter = Math.sin(t.current * (isLeft ? 5.3 : 6.1)) * affectiveProfile.arousal * 0.35;
-          rotX = bodyConvo * 0.08 * (0.8 + 0.3 * cadence + flutter) - bodyDroop;
+          const idleArmPitch = Math.sin(t.current * 0.8 + (isLeft ? 0 : 0.6)) * 0.014;
+          const idleArmRoll = Math.sin(t.current * 1.6) * 0.010;
+          rotX = bodyConvo * 0.08 * (0.8 + 0.3 * cadence + flutter) - bodyDroop + idleArmPitch;
           rotY = -side * bodyConvo * (isLeft ? 0.14 : 0.22) * (0.8 + 0.3 * cadence);
-          rotZ = -side * bodyConvo * (isLeft ? 0.06 : 0.10);
+          rotZ = -side * bodyConvo * (isLeft ? 0.06 : 0.10) + idleArmRoll;
         }
 
         if (wWeight > 0.001) {
@@ -1527,7 +1589,8 @@ function Model({
           rotZ = side * (convo * 0.30 + fidget);
         } else {
           const cadence = isLeft ? Math.sin(t.current * 1.7 + 0.5) : Math.sin(t.current * 2.1 + 0.4);
-          rotX = bodyConvo * 0.16 * (0.8 + 0.25 * cadence) - bodyDroop * 0.5;
+          const idleForearmPitch = Math.sin(t.current * 0.8 + (isLeft ? 0.4 : 1.0)) * 0.012;
+          rotX = bodyConvo * 0.16 * (0.8 + 0.25 * cadence) - bodyDroop * 0.5 + idleForearmPitch;
           rotZ = side * bodyConvo * (isLeft ? 0.28 : 0.42) * (0.85 + 0.25 * cadence) * (1 - affectiveProfile.drowsy * 0.4);
         }
 
@@ -1851,49 +1914,123 @@ interface Props {
 }
 
 
-/* ─── Live-voice veil: listening feedback + honest reconnect state ─── */
-function VoiceVeil({ live, onReconnect, overlayActive = false }: { live: FullscreenLiveStatus; onReconnect: () => void; overlayActive?: boolean }) {
+/* ─── Iris Genesis 2.0 Waveform Stage: live animated waveform & status ─── */
+function IrisWaveformStage({
+  state,
+  live,
+  jawEnergy,
+  speakingRef,
+  expressionText,
+  streamingText,
+  plan,
+  onReconnect,
+  overlayActive = false,
+}: {
+  state: CompanionState;
+  live: FullscreenLiveStatus;
+  jawEnergy?: React.MutableRefObject<number>;
+  speakingRef?: React.MutableRefObject<boolean>;
+  expressionText?: string;
+  streamingText?: string;
+  plan?: AssistantTurnPlan;
+  onReconnect: () => void;
+  overlayActive?: boolean;
+}) {
+  if (overlayActive) return null;
+
+  const isSpeaking = state === "speaking" || Boolean(speakingRef?.current);
+  const isThinking = state === "thinking";
+  const isListening = state === "listening" || (live.active && !live.paused);
   const status = live.status ?? "idle";
   const faulty = status === "reconnecting" || status === "error";
-  // The fullscreen overlay already carries this state and its own level meter,
-  // and the two are both bottom-centred, so the pill only stays for the states
-  // the overlay cannot act on.
-  const show = faulty || (live.active && !overlayActive);
-  const level = Math.max(0, Math.min(1, live.microphoneLevel));
-  const bars = [0.55, 0.85, 1, 0.8, 0.5];
-  const label = status === "reconnecting" ? "Reconnecting — Hinaa keeps listening soon"
-    : status === "error" ? "Voice link dropped"
-    : live.paused ? "Mic paused"
-    : "Listening";
+
+  const [energy, setEnergy] = useState(0);
+  useEffect(() => {
+    let animId = 0;
+    const loop = () => {
+      const jaw = jawEnergy?.current ?? 0;
+      const mic = live.microphoneLevel ?? 0;
+      const cur = isSpeaking ? Math.max(0.18, jaw) : isListening ? Math.max(0.12, mic) : isThinking ? 0.35 : 0.06;
+      setEnergy((prev) => prev * 0.72 + cur * 0.28);
+      animId = requestAnimationFrame(loop);
+    };
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [isSpeaking, isListening, isThinking, jawEnergy, live.microphoneLevel]);
+
+  const barMultipliers = [0.25, 0.45, 0.68, 0.9, 1.0, 0.95, 0.78, 0.55, 0.55, 0.78, 0.95, 1.0, 0.9, 0.68, 0.45, 0.25];
+
+  const badgeText = faulty
+    ? (status === "error" ? "Voice link dropped" : "Reconnecting…")
+    : isSpeaking
+    ? "Speaking"
+    : isThinking
+    ? "Thinking…"
+    : isListening
+    ? (live.paused ? "Mic paused" : "I'm listening")
+    : "Hina is ready";
+
+  const badgeColor = faulty
+    ? "rgba(239, 68, 68, 0.85)"
+    : isSpeaking
+    ? "rgba(244, 114, 182, 0.9)"
+    : isThinking
+    ? "rgba(192, 132, 252, 0.9)"
+    : isListening
+    ? "rgba(52, 211, 153, 0.9)"
+    : "rgba(255, 255, 255, 0.55)";
+
+  const subtitle = expressionText || streamingText || plan?.spokenText || "";
+
   return (
-    <AnimatePresence>
-      {show && (
-        <motion.div
-          className={`hinaa-voice-veil ${status === "error" ? "hinaa-voice-veil--error" : ""}`}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 6 }}
-          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-          aria-live="polite"
-        >
-          <span className="hinaa-voice-veil__dot" aria-hidden="true" />
-          <span className="hinaa-voice-veil__label">{label}</span>
-          <span className="hinaa-voice-veil__meter" aria-hidden="true">
-            {bars.map((m, i) => (
-              <i key={i} style={{ transform: `scaleY(${0.18 + (live.paused || status !== "listening" ? 0.12 : level * m) * 0.9})` }} />
-            ))}
-          </span>
-          {(status === "error" || status === "reconnecting") && (
-            <button type="button" className="hinaa-voice-veil__retry" onClick={onReconnect}>
-              {status === "error" ? "Reconnect now" : "Retry now"}
-            </button>
-          )}
-          {live.detail && (status === "error" || status === "reconnecting") && (
-            <small>{live.detail}</small>
-          )}
-        </motion.div>
+    <div className="iris-waveform-stage">
+      <div className="iris-waveform-dock">
+        <div className="iris-waveform-badge" style={{ borderColor: badgeColor }}>
+          <span
+            className="iris-waveform-dot"
+            style={{
+              backgroundColor: badgeColor,
+              boxShadow: `0 0 8px ${badgeColor}`,
+            }}
+          />
+          <span className="iris-waveform-status">{badgeText}</span>
+        </div>
+
+        <div className="iris-waveform-bars" aria-hidden="true">
+          {barMultipliers.map((m, i) => {
+            const h = Math.min(1, Math.max(0.14, energy * m * (isThinking ? (0.6 + 0.4 * Math.sin(Date.now() / 140 + i * 0.6)) : 1.25)));
+            return (
+              <span
+                key={i}
+                className="iris-waveform-bar"
+                style={{
+                  transform: `scaleY(${h})`,
+                  backgroundColor: isSpeaking
+                    ? "#f472b6"
+                    : isThinking
+                    ? "#c084fc"
+                    : isListening
+                    ? "#34d399"
+                    : "rgba(255, 255, 255, 0.3)",
+                }}
+              />
+            );
+          })}
+        </div>
+
+        {faulty && (
+          <button type="button" className="iris-waveform-retry" onClick={onReconnect}>
+            Retry
+          </button>
+        )}
+      </div>
+
+      {subtitle && isSpeaking && (
+        <div className="iris-waveform-caption">
+          "{subtitle.length > 95 ? subtitle.slice(0, 92) + "…" : subtitle}"
+        </div>
       )}
-    </AnimatePresence>
+    </div>
   );
 }
 
@@ -2097,8 +2234,14 @@ export function AvatarPresence({
         </div>
       )}
 
-      <VoiceVeil
+      <IrisWaveformStage
+        state={state}
         live={liveStatus ?? { active: false, paused: false, detail: "", microphoneLevel: 0 }}
+        jawEnergy={jaw}
+        speakingRef={spkRef}
+        expressionText={expressionText}
+        streamingText={streamingText}
+        plan={plan}
         onReconnect={onStartLive ?? (() => undefined)}
         overlayActive={isFullscreen}
       />

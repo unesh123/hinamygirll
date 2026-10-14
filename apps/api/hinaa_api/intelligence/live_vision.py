@@ -132,21 +132,26 @@ class LiveVisionService:
                 # Use asyncio run in executor for synchronous client call
                 import asyncio
                 loop = asyncio.get_running_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: client.models.generate_content(
-                        model="gemini-3.8-flash",
-                        contents=[part, prompt_text],
-                        config=types.GenerateContentConfig(
-                            temperature=0.3,
-                            max_output_tokens=1000,
-                        ),
-                    ),
-                )
+                def _call_gemini_vision():
+                    for vmodel in ["gemini-3.5-flash", "gemini-3.5-flash-lite"]:
+                        try:
+                            return client.models.generate_content(
+                                model=vmodel,
+                                contents=[part, prompt_text],
+                                config=types.GenerateContentConfig(
+                                    temperature=0.3,
+                                    max_output_tokens=1000,
+                                ),
+                            ), vmodel
+                        except Exception as m_err:
+                            logger.warning("Gemini vision model %s error: %s", vmodel, m_err)
+                    raise RuntimeError("All Gemini vision models failed")
+
+                response, used_model = await loop.run_in_executor(None, _call_gemini_vision)
                 text = response.text.strip() if response.text else "I see your screen clearly, babe! Everything looks ready."
                 return {
                     "ok": True,
-                    "provider": "gemini-3.8-flash",
+                    "provider": used_model,
                     "observation": text,
                     "query": user_query,
                     "timestamp": time.time(),
