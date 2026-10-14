@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import Mock
 import pytest
+import json
 
 spec = importlib.util.spec_from_file_location("live_runner", Path(__file__).resolve().parents[3] / "scripts/live_runner.py")
 runner = importlib.util.module_from_spec(spec)
@@ -44,3 +45,32 @@ def test_tunnel_discovery_uses_latest_address(tmp_path):
     log = tmp_path / "tunnel.log"
     log.write_text("https://old-name.trycloudflare.com\nhttps://new-name.trycloudflare.com")
     assert runner.tunnel_origin(log) == "https://new-name.trycloudflare.com"
+
+
+def test_desktop_probe_requires_private_token(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    assert runner.desktop_probe() is False
+
+
+def test_desktop_probe_sends_token_and_requires_ready_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    token = "x" * 48
+    token_path = tmp_path / ".runtime" / "desktop" / "bridge.token"
+    token_path.parent.mkdir(parents=True)
+    token_path.write_text(token)
+    seen = {}
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def read(self): return json.dumps({"status": "ready"}).encode()
+
+    def open_request(request, timeout):
+        seen["authorization"] = request.headers.get("Authorization")
+        seen["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(runner.urllib.request, "urlopen", open_request)
+    assert runner.desktop_probe() is True
+    assert seen == {"authorization": "Bearer " + token, "timeout": 2}

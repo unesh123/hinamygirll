@@ -7,27 +7,27 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/api/:path*"
+      "destination": "https://msie-ice-tribes-academic.trycloudflare.com/api/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/v1/:path*"
+      "destination": "https://msie-ice-tribes-academic.trycloudflare.com/v1/:path*"
     },
     {
       "source": "/health/:path*",
-      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/health/:path*"
+      "destination": "https://msie-ice-tribes-academic.trycloudflare.com/health/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/health"
+      "destination": "https://msie-ice-tribes-academic.trycloudflare.com/health"
     },
     {
       "source": "/healthz",
-      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/healthz"
+      "destination": "https://msie-ice-tribes-academic.trycloudflare.com/healthz"
     },
     {
       "source": "/readyz",
-      "destination": "https://computed-covering-guaranteed-satellite.trycloudflare.com/readyz"
+      "destination": "https://msie-ice-tribes-academic.trycloudflare.com/readyz"
     },
     {
       "source": "/((?!api/|v1/|health|healthz|readyz|models/|assets/|worklets/|animations/|test-assets/).*)",

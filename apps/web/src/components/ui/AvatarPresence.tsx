@@ -433,7 +433,7 @@ function Model({
   const stateEmotion = useMemo(() => emotionFor(state), [state]);
   const motionPose = useMemo(() => ({pitch:0,yaw:0,roll:0,arm:0,wrist:0}), []);
   const gestureEnergy = useRef(0);
-  const scratch = useMemo(() => ({gaze:new THREE.Vector3(), raw:new THREE.Quaternion(), neutral:new THREE.Quaternion(),
+  const scratch = useMemo(() => ({gaze:new THREE.Vector3(), headPos:new THREE.Vector3(), raw:new THREE.Quaternion(), neutral:new THREE.Quaternion(),
     identity:new THREE.Quaternion(), target:new THREE.Quaternion(), rotation:new THREE.Quaternion(), euler:new THREE.Euler()}), []);
 
   useEffect(() => {
@@ -921,9 +921,18 @@ function Model({
         // under noisy tracking rather than rendering a permanently blank face.
         const blL = Math.min(0.88, Math.max(0, face.eyeBlinkL));
         const blR = Math.min(0.88, Math.max(0, face.eyeBlinkR));
-        set(VRMExpressionPresetName.BlinkLeft,  blL);
-        set(VRMExpressionPresetName.BlinkRight, blR);
-        set(VRMExpressionPresetName.Blink, (blL + blR) / 2);
+        if (Math.abs(blL - blR) > 0.25) {
+          // Asymmetric tracking (wink): isolate left and right
+          set(VRMExpressionPresetName.Blink, 0);
+          set(VRMExpressionPresetName.BlinkLeft,  blL);
+          set(VRMExpressionPresetName.BlinkRight, blR);
+        } else {
+          // Clean bilateral closure: set master Blink ONLY to avoid 200% stacking
+          const avgBlink = (blL + blR) / 2;
+          set(VRMExpressionPresetName.Blink, avgBlink);
+          set(VRMExpressionPresetName.BlinkLeft, 0);
+          set(VRMExpressionPresetName.BlinkRight, 0);
+        }
         blinkLevel.current = (blL + blR) / 2;
       } else {
         // Natural auto-blink: variable amplitude (partial blinks are common),
@@ -976,17 +985,28 @@ function Model({
         // Playful / flirty subtle asymmetric micro-wink (rare charming anime moment)
         const isPlayful = rawIntent === "playful" || rawIntent === "flirty_warm";
         const winkL = isPlayful && Math.sin(t.current * 0.45) > 0.97 ? 0.65 : 0;
-        set(VRMExpressionPresetName.Blink, (bvL + bvR) / 2);
-        set(VRMExpressionPresetName.BlinkLeft, Math.max(bvL, winkL));
-        set(VRMExpressionPresetName.BlinkRight, bvR);
-        blinkLevel.current = (bvL + bvR) / 2;
+        const masterBlink = (bvL + bvR) / 2;
+        blinkLevel.current = masterBlink;
+
+        if (winkL > 0) {
+          // Single-eye wink: drive left and right distinctly
+          set(VRMExpressionPresetName.Blink, 0);
+          set(VRMExpressionPresetName.BlinkLeft, winkL);
+          set(VRMExpressionPresetName.BlinkRight, bvR);
+        } else {
+          // Bilateral blink: drive master Blink ONLY, zero out individual lid presets
+          set(VRMExpressionPresetName.Blink, masterBlink);
+          set(VRMExpressionPresetName.BlinkLeft, 0);
+          set(VRMExpressionPresetName.BlinkRight, 0);
+        }
       }
 
       /* ── LAYER 4: HIGH-LEVEL EMOTION ACTING & MICRO-EXPRESSIONS ────── */
+      const blinkDucking = Math.pow(Math.max(0, 1 - blinkLevel.current * 1.4), 2);
       if (face) {
         const capEmo = (v: number) => Math.min(0.85, Math.max(0, v));
         const directed = (preset: VRMExpressionPresetName) => directedEmotion[preset] ?? 0;
-        set(VRMExpressionPresetName.Happy,     capEmo(Math.max(face.mouthSmile, directed(VRMExpressionPresetName.Happy))));
+        set(VRMExpressionPresetName.Happy,     capEmo(Math.max(face.mouthSmile, directed(VRMExpressionPresetName.Happy))) * blinkDucking);
         set(VRMExpressionPresetName.Surprised, capEmo(Math.max((face.browUpL + face.browUpR) / 2, directed(VRMExpressionPresetName.Surprised))));
         set(VRMExpressionPresetName.Angry,     capEmo(Math.max(face.angry, (face.browDownL + face.browDownR) / 2, directed(VRMExpressionPresetName.Angry))));
         set(VRMExpressionPresetName.Sad,       capEmo(Math.max(face.sad, directed(VRMExpressionPresetName.Sad))));
@@ -1011,13 +1031,15 @@ function Model({
           let tgt = Math.max(tEmo[key] ?? 0, directedEmotion[key] ?? 0);
 
           if (key === VRMExpressionPresetName.Happy) {
-            // Keep radiant smile active during speech while easing slightly for vowel visemes
-            if (speaking) tgt = Math.max(0.35, tgt * 0.75);
-            tgt = Math.min(0.95, tgt + organicBreath);
+            // Keep gentle warm smile active while speaking without distorting the eyes
+            // Cap at 0.22 and duck during blinks so full-face Fcl_ALL_Joy never deforms the eyelids
+            if (speaking) tgt = Math.max(0.10, Math.min(0.20, tgt * 0.50));
+            else tgt = Math.min(0.18, tgt);
+            tgt = Math.min(0.22, (tgt + organicBreath * 0.3) * blinkDucking);
           } else if (key === VRMExpressionPresetName.Surprised) {
-            tgt = Math.min(0.92, tgt + articulation);
+            tgt = Math.min(0.55, tgt + articulation * 0.6);
           } else if (key === VRMExpressionPresetName.Relaxed) {
-            tgt = Math.min(0.60, tgt + organicBreath * 0.5);
+            tgt = Math.min(0.40, tgt + organicBreath * 0.5);
           }
 
           emo.current[key] = (emo.current[key] ?? 0) + (tgt - (emo.current[key] ?? 0)) * Math.min(1, realDt * 3.2);
@@ -1042,35 +1064,47 @@ function Model({
       let gazX = saccadeTarget.current.x + Math.sin(t.current * 0.18) * 0.02;
       let gazY = saccadeTarget.current.y + Math.sin(t.current * 0.14 + 1.2) * 0.015;
       if (activeIntent === "thinking" || affectiveProfile.scenarioArchetype === "intellectual_focused") {
-        gazX = -0.06 + Math.sin(t.current * 0.5) * 0.015;
-        gazY = 0.04 + Math.sin(t.current * 0.3) * 0.015;
+        gazX = -0.04 + Math.sin(t.current * 0.5) * 0.012;
+        gazY = 0.03 + Math.sin(t.current * 0.3) * 0.012;
       } else if (affectiveProfile.scenarioArchetype === "casual_bro") {
-        gazX = THREE.MathUtils.clamp(gazX, -0.04, 0.04);
-        gazY = THREE.MathUtils.clamp(gazY, -0.03, 0.03);
+        gazX = THREE.MathUtils.clamp(gazX, -0.03, 0.03);
+        gazY = THREE.MathUtils.clamp(gazY, -0.02, 0.02);
       } else if (activeIntent === "shy" || affectiveProfile.scenarioArchetype === "shy_flustered") {
         // Bashful: gaze drops and slips sideways, occasionally darting back.
         const dartBack = Math.sin(t.current * 0.35) > 0.75;
-        gazX = dartBack ? 0 : -0.055 + Math.sin(t.current * 0.4) * 0.012;
-        gazY = dartBack ? 0.01 : -0.045 + Math.sin(t.current * 0.3) * 0.008;
+        gazX = dartBack ? 0 : -0.035 + Math.sin(t.current * 0.4) * 0.008;
+        gazY = dartBack ? 0.01 : -0.025 + Math.sin(t.current * 0.3) * 0.006;
       } else if (affectiveProfile.drowsy > 0.45) {
         // Heavy lids, drifting downward gaze.
-        gazX = Math.sin(t.current * 0.22) * 0.02;
-        gazY = -0.035 + Math.sin(t.current * 0.16 + 0.5) * 0.012;
+        gazX = Math.sin(t.current * 0.22) * 0.015;
+        gazY = -0.02 + Math.sin(t.current * 0.16 + 0.5) * 0.008;
       } else if (activeIntent === "determined" || affectiveProfile.scenarioArchetype === "determined_focus") {
         // Determined: eyes locked forward, saccades suppressed.
         gazX *= 0.25;
         gazY *= 0.25;
       }
-      // Blink-linked gaze coordination: the eyes dip with the closing lids
-      // and recover as they reopen — the micro-motion that sells a blink as
-      // alive instead of a texture toggle.
-      gazY -= blinkLevel.current * 0.045;
-      gazX *= 1 - blinkLevel.current * 0.4;
+      // Blink-linked gaze coordination: the eyes dip slightly with the closing lids
+      gazY -= blinkLevel.current * 0.015;
+      gazX *= 1 - blinkLevel.current * 0.3;
       if (vrm.lookAt) {
         try {
           (vrm.lookAt as any).target = undefined;
+          const headNode = vrm.humanoid?.getNormalizedBoneNode("head" as any) ?? headBoneRef.current;
+          if (headNode) {
+            headNode.getWorldPosition(scratch.headPos);
+          } else {
+            scratch.headPos.set(0, 1.38, 0);
+          }
+          // The gaze target is positioned in front of her face at her exact eye height.
+          // gazX and gazY provide delicate, lifelike micro-fixations without ever forcing the eyeballs
+          // down into her feet or out of the eye sockets.
+          scratch.gaze.set(
+            scratch.headPos.x + THREE.MathUtils.clamp(gazX * 0.16, -0.035, 0.035),
+            scratch.headPos.y + THREE.MathUtils.clamp(gazY * 0.10, -0.025, 0.025),
+            scratch.headPos.z + 1.5,
+          );
           if ((vrm.lookAt as any).lookAt) {
-            (vrm.lookAt as any).lookAt(scratch.gaze.set(gazX, gazY, 1));
+            (vrm.lookAt as any).lookAt(scratch.gaze);
           }
         } catch {}
       }
@@ -1108,30 +1142,38 @@ function Model({
         isListening ? 0 : jawEnergy.current,
         isSpeakingNow,
       );
+      // When blinking, eye-curving and smile morphs must duck down completely so the blink closes cleanly without deformation!
+      const blinkDuck = Math.pow(Math.max(0, 1 - blinkLevel.current * 1.4), 2);
+
       for (const [targetName, targetWeight] of Object.entries(directTargets)) {
         const lift = (targetName === "Fcl_BRW_Surprised" || targetName === "Fcl_BRW_Joy")
           ? browLift.current * 0.5
           : 0;
-        // Fcl_EYE_Close is shared between two owners: the blink layer drives it
-        // through the blink presets (verified: the default model binds blink →
-        // morph Fcl_EYE_Close), and this layer eases it toward the drowsy-lid
-        // pose. A damped drowsy write of ~0 applied after vrm.update() stomped
-        // the blink mid-flight every frame — she read as never blinking. Damp
-        // the drowsy base only, then lay the live blink on top, instant and
-        // undamped, so the lid follows the blink envelope exactly.
+
+        let effectiveWeight = targetWeight;
+        if (targetName.startsWith("Fcl_EYE_Joy") || targetName === "Fcl_EYE_Fun") {
+          effectiveWeight = targetWeight * blinkDuck;
+          // Scale down bilateral and unilateral joy morphs so they don't stack above 0.28
+          if (targetName === "Fcl_EYE_Joy") {
+            effectiveWeight *= 0.5;
+          } else if (targetName === "Fcl_EYE_Joy_R" || targetName === "Fcl_EYE_Joy_L") {
+            effectiveWeight *= 0.5;
+          }
+        }
+
         if (targetName === "Fcl_EYE_Close") {
-          setDirectMorph(targetName, Math.min(0.9, targetWeight));
+          setDirectMorph(targetName, Math.min(0.9, effectiveWeight));
           const mesh = faceMeshRef.current;
           const idx = morphDictRef.current[targetName];
           if (mesh && mesh.morphTargetInfluences && idx !== undefined) {
-            const drowsyBase = curDirectMorphsRef.current[targetName] ?? 0;
+            const currentClose = mesh.morphTargetInfluences[idx] ?? 0;
             mesh.morphTargetInfluences[idx] = THREE.MathUtils.clamp(
-              Math.max(drowsyBase, blinkLevel.current), 0, 1,
+              Math.max(currentClose, effectiveWeight, blinkLevel.current), 0, 1,
             );
           }
           continue;
         }
-        setDirectMorph(targetName, Math.min(0.9, targetWeight + lift));
+        setDirectMorph(targetName, Math.min(0.9, effectiveWeight + lift));
       }
     }
 

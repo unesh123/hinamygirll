@@ -35,6 +35,19 @@ try {
     if ($res.status -eq 'ok' -or $res.service -eq 'hinaa-api') { $liveOk = $true }
 } catch {}
 
+# 5. Authenticated loopback desktop bridge check. The token is never printed.
+$desktopOk = $false
+$desktopTokenPath = Join-Path $hinaRoot '.runtime\desktop\bridge.token'
+if (Test-Path -LiteralPath $desktopTokenPath) {
+    try {
+        $desktopToken = (Get-Content -LiteralPath $desktopTokenPath -Raw).Trim()
+        if ($desktopToken.Length -ge 32) {
+            $desktopRes = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/health' -Headers @{ Authorization = "Bearer $desktopToken" } -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+            if ($desktopRes.status -eq 'ready') { $desktopOk = $true }
+        }
+    } catch {}
+}
+
 # Display Statuses
 if ($liveOk) {
     Write-Host '  [Online Site]    ' -NoNewline
@@ -62,6 +75,13 @@ if ($webOk) {
 } else {
     Write-Host '  [Local Frontend] ' -NoNewline
     Write-Host 'STOPPED' -ForegroundColor Red
+}
+
+Write-Host '  [Desktop Hands]  ' -NoNewline
+if ($desktopOk) {
+    Write-Host 'ACTIVE (paired loopback bridge)' -ForegroundColor Green
+} else {
+    Write-Host 'OFFLINE' -ForegroundColor Red
 }
 
 if ($state -and $state.tunnelOrigin) {

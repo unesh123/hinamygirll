@@ -28,6 +28,7 @@ $pidFiles = @(
     (Join-Path $hinaRuntime 'api.pid'),
     (Join-Path $hinaRuntime 'web.pid'),
     (Join-Path $hinaRuntime 'tunnel.pid'),
+    (Join-Path $hinaRuntime 'desktop.pid'),
     (Join-Path $legacyRuntime 'backend.pid'),
     (Join-Path $legacyRuntime 'frontend.pid')
 )
@@ -44,8 +45,8 @@ foreach ($pf in $pidFiles) {
 # 3. Kill any running cloudflared
 Get-Process -Name cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-# 4. Synchronously free ports 8000 and 5173
-$targetPorts = @(8000, 5173)
+# 4. Synchronously free ports owned by Hina's managed services
+$targetPorts = @(8000, 5173, 8765)
 foreach ($port in $targetPorts) {
     $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     foreach ($conn in $connections) {
@@ -59,7 +60,7 @@ foreach ($port in $targetPorts) {
 
 # 5. Wait up to 3 seconds until ports are completely free
 for ($i = 0; $i -lt 15; $i++) {
-    $stillListening = Get-NetTCPConnection -LocalPort 8000, 5173 -State Listen -ErrorAction SilentlyContinue
+    $stillListening = Get-NetTCPConnection -LocalPort 8000, 5173, 8765 -State Listen -ErrorAction SilentlyContinue
     if (-not $stillListening) { break }
     Start-Sleep -Milliseconds 200
 }
@@ -69,4 +70,4 @@ Remove-Item -LiteralPath (Join-Path $hinaRuntime 'stop-requested') -Force -Error
 Remove-Item -LiteralPath (Join-Path $hinaRuntime 'runner.pid') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $hinaRuntime 'runner.lock') -Force -ErrorAction SilentlyContinue
 
-Write-Host "Hina stopped cleanly. Ports 8000 and 5173 are free." -ForegroundColor Green
+Write-Host "Hina stopped cleanly. Ports 8000, 5173, and 8765 are free." -ForegroundColor Green

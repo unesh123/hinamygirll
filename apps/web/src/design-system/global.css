@@ -267,7 +267,9 @@ pre code {
 
 @media (max-width: 768px) {
   :root {
-    --hinaa-mobile-nav-clearance: calc(54px + env(safe-area-inset-bottom, 0px));
+    /* Keep the fixed tab bar and workspace composer on the same contract.
+       64px preserves a real touch target while still fitting short phones. */
+    --hinaa-mobile-nav-clearance: calc(64px + env(safe-area-inset-bottom, 0px));
   }
 }
 

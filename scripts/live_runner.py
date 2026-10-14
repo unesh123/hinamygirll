@@ -22,6 +22,7 @@ RUNTIME = ROOT / ".runtime" / "live"
 API = ROOT / "apps" / "api"
 WEB = ROOT / "apps" / "web"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+DESKTOP_PORT = 8765
 
 
 def probe(url: str, *, api: bool = False) -> bool:
@@ -43,6 +44,29 @@ def port_open(port: int) -> bool:
         with socket.create_connection(("127.0.0.1", port), timeout=1):
             return True
     except OSError:
+        return False
+
+
+def desktop_probe() -> bool:
+    """Prove the private desktop bridge is alive with its pairing token.
+
+    A bare open port is not enough: another process could own 8765, and an
+    unauthenticated response says nothing about Hina's actuator being usable.
+    The token stays local and is never written to runner state or logs.
+    """
+    token_path = ROOT / ".runtime" / "desktop" / "bridge.token"
+    try:
+        token = token_path.read_text(encoding="utf-8").strip()
+        if len(token) < 32:
+            return False
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{DESKTOP_PORT}/health",
+            headers={"Authorization": "Bearer " + token, "User-Agent": "HINAA-Live-Runner"},
+        )
+        with urllib.request.urlopen(request, timeout=2) as response:
+            data = json.load(response)
+            return response.status == 200 and data.get("status") == "ready"
+    except (OSError, ValueError):
         return False
 
 
@@ -117,6 +141,7 @@ class Runner:
         self.retry_at: dict[str, float] = {}
         self.origin: str | None = None
         self.published: str | None = None
+        self.desktop_healthy = False
         self.publish_retry = 0.0
         self.previous: dict = {}
         self.node = shutil.which("node")
@@ -207,6 +232,18 @@ class Runner:
                 self.stop("api")
                 self.retry_at["api"] = 0
 
+        # Keep the loopback-only interactive actuator beside the API. It uses a
+        # private bearer token and still sits behind the owner/session policy in
+        # the API, so starting it does not grant the public site blanket access.
+        self.desktop_healthy = desktop_probe()
+        self.ensure(
+            "desktop",
+            DESKTOP_PORT,
+            self.desktop_healthy,
+            [str(API / ".venv/Scripts/python.exe"), str(ROOT / "scripts/hinaa_desktop_daemon.py")],
+            ROOT,
+        )
+
         api_ok = probe("http://127.0.0.1:8000/health/live", api=True)
         api_env = {**os.environ, **self.public_env}
         if self.origin:
@@ -250,6 +287,7 @@ class Runner:
     def write_state(self, api_ok, web_ok, tunnel_ok, status, error):
         state = {"updatedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "runnerPid":os.getpid(),
                  "status":status, "apiHealthy":api_ok, "webHealthy":web_ok, "tunnelHealthy":tunnel_ok,
+                 "desktopHealthy":self.desktop_healthy,
                  "tunnelOrigin":self.origin, "publishedOrigin":self.published,
                  "siteUrl":"https://hinaa-workspace.vercel.app" if self.public else "http://127.0.0.1:5173",
                  "processes":{k:v.pid for k,v in self.children.items() if v.poll() is None}, "deployError":error}

@@ -69,6 +69,20 @@ for (const vp of VIEWPORTS) {
   const page = await browser.newPage({
     viewport: { width: vp.width, height: vp.height },
   });
+  // Local development auth is deliberately explicit. Add the test identity
+  // only to Hina API requests; a global extra header would trigger CORS
+  // preflights for third-party fonts and make an otherwise healthy page noisy.
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const isHinaApi =
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      (url.pathname.startsWith("/api/") || url.pathname.startsWith("/v1/"));
+    if (!isHinaApi) return route.continue();
+    await route.continue({
+      headers: { ...request.headers(), "X-HINAA-Dev-User": "mobile-layout-check" },
+    });
+  });
   const consoleErrors = [];
   page.on("console", (msg) => {
     if (msg.type() === "error") consoleErrors.push(msg.text());

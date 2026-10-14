@@ -42,7 +42,6 @@ export function MobileNavigation({
             flexDirection: "column",
             alignItems: "center",
             gap: 2,
-            padding: "var(--space-1-5) var(--space-3)",
             borderRadius: "var(--radius-md)",
             border: "none",
             background: active === item.id ? "var(--accent-pale)" : "transparent",
@@ -51,12 +50,14 @@ export function MobileNavigation({
             fontSize: "var(--text-xs)",
             fontWeight: active === item.id ? 600 : 500,
             fontFamily: "var(--font-body)",
-            minWidth: 56,
+            flex: "1 1 0",
+            minWidth: 0,
+            padding: "6px 2px",
             transition: "background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard)",
           }}
         >
           <span style={{ display: "flex" }}>{item.icon}</span>
-          <span>{item.label}</span>
+          <span style={{ whiteSpace: "nowrap", fontSize: "clamp(9px, 2.8vw, 11px)", lineHeight: 1.1 }}>{item.label}</span>
         </motion.button>
       ))}
 
@@ -70,7 +71,6 @@ export function MobileNavigation({
           flexDirection: "column",
           alignItems: "center",
           gap: 2,
-          padding: "var(--space-1-5) var(--space-3)",
           borderRadius: "var(--radius-md)",
           border: "none",
           background: "transparent",
@@ -79,11 +79,13 @@ export function MobileNavigation({
           fontSize: "var(--text-xs)",
           fontWeight: 500,
           fontFamily: "var(--font-body)",
-          minWidth: 56,
+          flex: "1 1 0",
+          minWidth: 0,
+          padding: "6px 2px",
         }}
       >
         <MoreHorizontal size={20} />
-        <span>More</span>
+        <span style={{ whiteSpace: "nowrap", fontSize: "clamp(9px, 2.8vw, 11px)", lineHeight: 1.1 }}>More</span>
       </motion.button>
 
       <style>{`
@@ -97,8 +99,9 @@ export function MobileNavigation({
           backdrop-filter: blur(24px) saturate(1.4);
           -webkit-backdrop-filter: blur(24px) saturate(1.4);
           border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-          padding: 6px 12px;
-          padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+          box-sizing: border-box;
+          height: var(--hinaa-mobile-nav-clearance, 64px);
+          padding: 4px 6px max(4px, env(safe-area-inset-bottom, 0px));
           z-index: 1000;
           justify-content: space-around;
           align-items: center;

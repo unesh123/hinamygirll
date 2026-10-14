@@ -399,6 +399,16 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             )
         )
 
+    if inp.skill_doctrine_block:
+        # Trusted policy, sitting with the other behavior layers. Stable sort
+        # keeps it just after professional_answer at the same priority band.
+        layers.append(PromptLayer(
+            name="skill_doctrine",
+            priority=8,
+            trusted=True,
+            text=inp.skill_doctrine_block,
+        ))
+
     if inp.rag_context_block:
         layers.append(
             PromptLayer(

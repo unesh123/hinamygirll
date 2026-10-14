@@ -679,19 +679,21 @@ export function computeDirectMorphTargets(
   } = profile;
 
   // 1. Smiling curved eyes (^ _ ^) - warm, genuine anime joy
-  const baseEyeJoy = Math.min(0.85, Math.max(0,
-    warmth * 0.38 +
-    (valence > 0 ? valence * 0.36 : 0) +
-    playfulness * 0.22 +
+  // Clamped to a delicate, cute range [0, 0.32] so eyelids curve warmly without pinching shut or deforming
+  const baseEyeJoy = Math.min(0.32, Math.max(0,
+    warmth * 0.22 +
+    (valence > 0 ? valence * 0.18 : 0) +
+    playfulness * 0.12 +
     microFlutter
   ));
-  const eyeJoyR = Math.min(0.85, Math.max(0, baseEyeJoy + eyeApertureVariance * 0.4 + (mouthAsymmetry > 0.05 ? 0.06 : 0)));
-  const eyeJoyL = Math.min(0.85, Math.max(0, baseEyeJoy - eyeApertureVariance * 0.4 + (mouthAsymmetry < -0.05 ? 0.06 : 0)));
+  // Unilateral asymmetry must be a subtle micro-offset (+- 0.025 max), not an entire second layer
+  const eyeJoyR = Math.min(0.34, Math.max(0, baseEyeJoy + eyeApertureVariance * 0.06 + (mouthAsymmetry > 0.05 ? 0.02 : 0)));
+  const eyeJoyL = Math.min(0.34, Math.max(0, baseEyeJoy - eyeApertureVariance * 0.06 + (mouthAsymmetry < -0.05 ? 0.02 : 0)));
 
   // 2. Wide sparkling anime eyes (O _ O)
   // CRITICAL: MUST ONLY activate on genuine high shock while speaking, NEVER for casual questions or idle!
-  const eyeSurprised = (isSpeaking && surprise > 0.55 && arousal > 0.65)
-    ? Math.min(0.68, (surprise - 0.55) * 1.5 + vocalStress * 0.4)
+  const eyeSurprised = (isSpeaking && surprise > 0.65 && arousal > 0.70)
+    ? Math.min(0.40, (surprise - 0.65) * 1.2 + vocalStress * 0.2)
     : 0;
 
   // 3. Eyebrows (Asymmetric living micro-acting)
@@ -763,16 +765,16 @@ export function computeDirectMorphTargets(
     pout * 0.22
   ));
 
-  // 8. Fun crescent eyes (Fcl_EYE_Fun) — the mischievous ⌣ ⌣ of playfulness
-  const eyeFun = Math.min(0.70, Math.max(0,
-    playfulness * 0.52 +
-    (isSpeaking ? warmth * 0.10 : warmth * 0.05) +
-    microFlutter * 0.6
+  // 8. Fun crescent eyes (Fcl_EYE_Fun) — gentle charming accent [0, 0.16]
+  const eyeFun = Math.min(0.16, Math.max(0,
+    playfulness * 0.18 +
+    (isSpeaking ? warmth * 0.05 : 0) +
+    microFlutter * 0.2
   ));
 
-  // 9. Heavy lids (Fcl_EYE_Close) — sleepy/cozy half-mast with a slow drift
-  const eyeClose = Math.min(0.55, Math.max(0,
-    drowsy * 0.58 + organicWave2 * 0.04 * drowsy
+  // 9. Heavy lids (Fcl_EYE_Close) — capped so it doesn't block blinks [0, 0.28]
+  const eyeClose = Math.min(0.28, Math.max(0,
+    drowsy * 0.28 + organicWave2 * 0.02 * drowsy
   ));
 
   // 10. Small calm mouth (Fcl_MTH_Small) — pursed, composed, thoughtful
