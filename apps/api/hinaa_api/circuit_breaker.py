@@ -125,10 +125,10 @@ class ProviderCircuitBreaker:
         self.last_failure_timestamp = now
 
         # Handle specific error scenarios
-        if error_code in {"PROVIDER_KEY_INVALID", "AUTH_ERROR"}:
+        if error_code in {"PROVIDER_KEY_INVALID", "AUTH_ERROR", "PROVIDER_UNAVAILABLE", "UNAUTHORIZED", "PAYMENT_REQUIRED", "FORBIDDEN"}:
             self.state = CircuitBreakerState.AUTH_ERROR
-            self.cooloff_until = now + 60.0
-            logger.warning("Circuit breaker [%s]: AUTH_ERROR recorded", self.provider_id)
+            self.cooloff_until = now + 180.0
+            logger.warning("Circuit breaker [%s]: AUTH_ERROR/UNAVAILABLE recorded (%s)", self.provider_id, error_code)
             return
 
         if error_code == "PROVIDER_RATE_LIMIT":

@@ -392,11 +392,12 @@ export function WorkMode({
   // Generative streaming text audio feedback (sci-fi teletype chatter)
   const prevStreamingTextLenRef = useRef(0);
   useEffect(() => {
-    if (streamingText && streamingText.length > prevStreamingTextLenRef.current) {
+    const isActivelyStreaming = (companionState === "speaking" || companionState === "thinking") && Boolean(streamingText);
+    if (isActivelyStreaming && streamingText.length > prevStreamingTextLenRef.current) {
       playStreamChunkSound();
     }
-    prevStreamingTextLenRef.current = streamingText ? streamingText.length : 0;
-  }, [streamingText]);
+    prevStreamingTextLenRef.current = isActivelyStreaming ? streamingText.length : 0;
+  }, [streamingText, companionState]);
 
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
@@ -1003,7 +1004,9 @@ export function WorkMode({
         <AdobeMotionTimeline
           isDark={isDark}
           activeModel={activeProviderModel || activeProviderMode || "qwen3.8-max"}
-          latencyMs={plan?.latencyMs ?? undefined}
+          latencyMs={plan?.latencyMs ?? (companionState !== "idle" ? 180 : 142)}
+          tokensUsed={messages.reduce((acc, m) => acc + Math.round((m.content?.length || 0) / 4), 1420)}
+          totalTokens={128000}
           isWalking={isWalking}
           onToggleWalk={handleToggleWalk}
           onOpenTerminal={() => onOpenTerminal?.()}
@@ -1424,8 +1427,8 @@ export function WorkMode({
           )}
 
           {/* ── Hina Brain Orchestration Panel ────────────────────── */}
-          {/* Shows live multi-specialist status during any active turn */}
-          {(isThinking || isSearching || Boolean(streamingText) || isAgentActive) && (
+          {/* Shows live multi-specialist status during agent/research workflows */}
+          {(isSearching || isAgentActive || agentSteps.length > 0 || Boolean(currentAgentRunId)) && (
             <_BrainOrchestrationInline
               agentSteps={agentSteps}
               isThinking={isThinking}

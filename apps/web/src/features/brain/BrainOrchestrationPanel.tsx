@@ -218,7 +218,8 @@ export const BrainOrchestrationPanel: React.FC<BrainOrchestrationPanelProps> = (
   // Derive active specialist and detailed status
   const activeSpecialist = brainState.specialists.find((s) => s.status === 'running');
   const completedCount = brainState.specialists.filter((s) => s.status === 'completed').length;
-  const totalCount = brainState.specialists.length;
+  const engagedCount = brainState.specialists.filter((s) => s.status !== 'idle').length;
+  const totalCount = engagedCount > 0 ? engagedCount : brainState.specialists.length;
 
   const elapsedSec = brainState.startedAt
     ? ((Date.now() - brainState.startedAt) / 1000).toFixed(1)

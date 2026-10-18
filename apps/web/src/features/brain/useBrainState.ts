@@ -77,6 +77,20 @@ export function useBrainState({
       }
     }
 
+    // Only engage multi-specialist orchestration when there is an actual agent run, research search, or agent step
+    const hasAgentActivity = Boolean(currentAgentRunId) || agentSteps.length > 0 || isSearching;
+
+    if (!hasAgentActivity) {
+      return {
+        runId: currentAgentRunId || 'direct-chat',
+        status: 'idle',
+        startedAt: 0,
+        specialists,
+        sourcesFound: 0,
+        totalTokens: 0,
+      };
+    }
+
     // Heuristics based on top-level state
     if (isThinking) {
       runStatus = 'planning';
@@ -112,7 +126,7 @@ export function useBrainState({
     return {
       runId: currentAgentRunId || 'local-run',
       status: runStatus,
-      startedAt: Date.now(), // rough estimate without history
+      startedAt: Date.now(),
       specialists,
       sourcesFound,
       totalTokens: 0,

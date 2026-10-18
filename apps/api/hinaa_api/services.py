@@ -508,8 +508,25 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
     cleaned = re.sub(r"\bHeyHey(?:'m|’m)\b", "Hey, I'm", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bHeyHey\b", "Hey", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(Hey(?:\s+babe)?),\s*hey[!,.]?", r"\1!", cleaned, flags=re.IGNORECASE)
-    # Normalize leftover whitespace
-    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    # Normalize leftover whitespace, preserving indentation inside code blocks (``` and ~~~)
+    fence_pattern = re.compile(r"(```[\w-]*|```|~~~[\w-]*|~~~)")
+    parts = fence_pattern.split(cleaned)
+    if len(parts) > 1:
+        cleaned_parts = []
+        in_fence = False
+        for part in parts:
+            if part.startswith("```") or part.startswith("~~~"):
+                in_fence = not in_fence
+                cleaned_parts.append(part)
+            elif in_fence:
+                # Inside code block: preserve exact indentation, tabs, blank lines
+                cleaned_parts.append(part)
+            else:
+                # Outside code block: collapse redundant horizontal spaces/tabs
+                cleaned_parts.append(re.sub(r"[ \t]+", " ", part))
+        cleaned = "".join(cleaned_parts)
+    else:
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
     return cleaned.strip(), had_laughter
 
@@ -772,12 +789,10 @@ def _trim_to_sentences(text: str, max_chars: int, max_sentences: int) -> str:
 def _trim_display_for_chat(text: str, max_chars: int = 700) -> str:
     """Casual questions get a casual answer. A model that turns "why did that
     happen?" into a headed, tabled lecture loses everything from the first
-    structural marker down, then the prose itself is sentence-trimmed. The
-    structure cut applies at any length: the repetition guard can collapse a
-    lecture under the character budget with its headers intact."""
+    structural marker down, then the prose itself is sentence-trimmed."""
     if "```" in text:
         return text
-    structure = re.search(r"\n\s*(?:#{1,6}\s|[-•*] |\|)", text)
+    structure = re.search(r"\n\s*(?:#{1,6}\s|\|)", text)
     if structure and structure.start() > 80:
         text = text[: structure.start()].rstrip()
     if len(text) <= max_chars:
@@ -785,11 +800,27 @@ def _trim_display_for_chat(text: str, max_chars: int = 700) -> str:
     return _trim_to_sentences(text, max_chars, max_sentences=6)
 
 
+def _is_voice_collision_complaint(user_text: str | None) -> bool:
+    """Detects explicit user complaints about voice barge-in or talking over.
+    In response to these complaints, defensive lectures on streaming concurrency
+    are simplified to direct prose apologies."""
+    if not user_text:
+        return False
+    lowered = user_text.lower()
+    return bool(
+        re.search(
+            r"\b(?:talking\s+(?:over\s+me|with\s+the\s+previous\s+message)|interrupting\s+me|talking\s+at\s+the\s+same\s+time)\b",
+            lowered,
+        )
+    )
+
+
 def _apply_response_quality_guard(
     plan: AssistantTurnPlan,
     is_live: bool = False,
     evidence_sources: Any = None,
     user_text: str | None = None,
+    response_mode: str | None = None,
 ) -> None:
     """Normalize a completed plan without changing meaning or tool requests."""
     clean_display, display_laughed = _clean_natural_speech_and_display(plan.displayText)
@@ -808,8 +839,20 @@ def _apply_response_quality_guard(
 
     if evidence_sources:
         try:
-            from hinaa_api.grounding.citations import CitationRenderer
-            renderer = CitationRenderer(evidence_sources)
+            from hinaa_api.grounding.citations import CitationRenderer, EvidenceSource
+            normalized_sources = []
+            for src in evidence_sources:
+                if isinstance(src, EvidenceSource):
+                    normalized_sources.append(src)
+                elif isinstance(src, dict):
+                    normalized_sources.append(
+                        EvidenceSource(
+                            source_id=str(src.get("id") or src.get("source_id") or "1"),
+                            title=str(src.get("title", "")),
+                            url=str(src.get("url", "")),
+                        )
+                    )
+            renderer = CitationRenderer(normalized_sources)
             rendered_display, _, _ = renderer.render(plan.displayText, append_sources=True)
             plan.displayText = rendered_display
         except Exception:
@@ -890,12 +933,14 @@ def _apply_response_quality_guard(
         from .intelligence.answer_depth import AnswerDepth, AnswerDepthController
 
         depth = AnswerDepthController.infer_depth(user_text)
-        chatty = depth in (AnswerDepth.QUICK, AnswerDepth.STANDARD)
+        is_quick = depth == AnswerDepth.QUICK
+        # Spoken text is the concise summary for voice: bounded to 450 chars for quick answers, 900 chars otherwise
         plan.spokenText = _trim_to_sentences(
-            plan.spokenText or "", 450 if chatty else 900, 3 if chatty else 6
+            plan.spokenText or "", 450 if is_quick else 900, 3 if is_quick else 6
         )
-        if chatty and not plan.toolRequests:
-            plan.displayText = _trim_display_for_chat(plan.displayText or "")
+        # Full structured output (markdown headers, tables, code fences, citations) is preserved
+        # canonically by default without destructive display trimming. Speech text is derived and bounded
+        # separately in spokenText.
 
 
 # Seconds of output silence before she acknowledges out loud. A hung primary
@@ -1827,6 +1872,8 @@ class ConversationService:
             return
         try:
             code = str(getattr(error, "code", "") or "")
+            if not code and isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+                code = "PROVIDER_TIMEOUT"
             detail = str(getattr(error, "message", "") or error or "")[:300]
             row_id = row_for_brain(brain_id)
             record_call(
@@ -1853,7 +1900,8 @@ class ConversationService:
                 if now - breaker.last_success_timestamp > 2.0:
                     breaker.record_success()
             elif now - breaker.last_failure_timestamp > 2.0:
-                breaker.record_failure(code or "PROVIDER_UNAVAILABLE", detail)
+                failure_code = code or ("PROVIDER_TIMEOUT" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else "PROVIDER_UNAVAILABLE")
+                breaker.record_failure(failure_code, detail)
         except Exception:  # health bookkeeping never fails a turn either
             logger.debug("Circuit breaker note refused", exc_info=True)
 
@@ -3196,7 +3244,7 @@ class ConversationService:
             note = "I could not reach the queue, so the running job may still finish."
             plan.displayText = self._blocked_reply(plan.displayText, note)
             plan.spokenText = self._blocked_reply(plan.spokenText, note)
-            _apply_response_quality_guard(plan, user_text=request.text)
+            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
             return
 
         added = [tool for tool in kept if tool.reason == "deterministic-intent"]
@@ -3204,7 +3252,7 @@ class ConversationService:
             confirmation = " ".join(self._action_confirmation(tool) for tool in added)
             plan.displayText = confirmation
             plan.spokenText = confirmation
-            _apply_response_quality_guard(plan, user_text=request.text)
+            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
             return
 
         if kept and denies_capability(plan.displayText or ""):
@@ -3219,7 +3267,7 @@ class ConversationService:
                     field,
                     f"{confirmation} {remaining}".strip() if remaining.strip() else confirmation,
                 )
-            _apply_response_quality_guard(plan, user_text=request.text)
+            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
             return
 
         if dropped or sanction.abort:
@@ -4926,7 +4974,7 @@ class ConversationService:
                     resolved_model = None
                 else:
                     raise error
-        _apply_response_quality_guard(result.value, evidence_sources=grounded_sources, user_text=request.text)
+        _apply_response_quality_guard(result.value, evidence_sources=grounded_sources, user_text=request.text, response_mode=getattr(request, "responseMode", None))
         result.value.requestedProvider = requested_provider
         result.value.requestedModel = requested_model
         result.value.resolvedProvider = resolved_provider
@@ -5759,7 +5807,7 @@ class ConversationService:
                                 ceiling_s=primary_live_timeout,
                                 idle_s=primary_idle_timeout,
                                 forward=emit_delta,
-                                first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
+                                first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
                             ) as (fallback_emit, _):
                                 if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                                     fallback_live_result = await fb_provider.create_live_plan(
@@ -5812,7 +5860,7 @@ class ConversationService:
                                     ceiling_s=primary_live_timeout,
                                     idle_s=primary_idle_timeout,
                                     forward=emit_delta,
-                                    first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
+                                    first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
                                 ) as (fallback_emit, _):
                                     if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                                         fallback_live_result = await fb_provider.create_live_plan(
@@ -5976,7 +6024,7 @@ class ConversationService:
             except Exception as rec_exc:
                 logger.warning("Simulated tool recovery failed: %r", rec_exc, exc_info=True)
 
-        _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources, user_text=request.text)
+        _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources, user_text=request.text, response_mode=getattr(request, "responseMode", None))
         result.value.requestedProvider = requested_provider
         result.value.requestedModel = requested_model
         result.value.resolvedProvider = resolved_provider
@@ -6442,6 +6490,13 @@ class ConversationService:
                 from .providers.display_stream_decoder import drop_inlined_page_source, drop_inlined_document_code
                 full_text = drop_inlined_document_code(drop_inlined_page_source(full_text))
             streamed_so_far = "".join(emitted)
+            is_watchdog_ack = bool(
+                streamed_so_far
+                and any(
+                    ack_phrase in streamed_so_far
+                    for ack_phrase in ("One sec, babe", "One sec, babe…", "One sec, babe...")
+                )
+            )
             if not streamed_so_far and full_text:
                 # Provider emitted no deltas at all during execution; yield full text once
                 yield _make_delta_event(full_text)
@@ -6457,14 +6512,16 @@ class ConversationService:
                         remainder = full_text[idx + len(s_stripped):]
                         if remainder:
                             yield _make_delta_event(remainder)
+                elif is_watchdog_ack:
+                    # Watchdog emitted a transient hold. Deliver the real model answer!
+                    yield _make_delta_event("\n\n" + full_text)
                 else:
-                    # Never re-emit text that was already streamed to the client
+                    # Never drop full_text if formatting diverged or commonprefix is empty
                     import os
                     common = os.path.commonprefix([full_text, streamed_so_far])
-                    if len(common) >= len(streamed_so_far):
-                        remainder = full_text[len(streamed_so_far):]
-                        if remainder:
-                            yield _make_delta_event(remainder)
+                    remainder = full_text[len(common):] if len(common) > 0 else full_text
+                    if remainder:
+                        yield _make_delta_event(remainder)
         finally:
             ack_watchdog.cancel()
             if not turn_task.done():
