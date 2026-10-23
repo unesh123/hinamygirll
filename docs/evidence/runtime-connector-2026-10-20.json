@@ -1,0 +1,7 @@
+{
+  "pid": 57884,
+  "startedUtc": "2026-10-19T18:42:12.5981503Z",
+  "command": "cloudflared.exe tunnel --no-autoupdate run --token-file <existing-local-token-file>",
+  "result": "BLOCKED: credential authenticated; connector registered four connections, but no ingress configuration or approved hostname was available. Diagnostic connector stopped.",
+  "stoppedUtc": "2026-10-19T18:42:32.0296682Z"
+}

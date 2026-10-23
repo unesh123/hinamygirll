@@ -92,6 +92,8 @@ scratch/
 cloudflared.exe
 .hina/sessions/
 .hina/lake/
+.hina/worktrees/
+**/.hina/worktrees/
 **/.hina/sessions/
 **/.hina/lake/
 apps/api/.hina/

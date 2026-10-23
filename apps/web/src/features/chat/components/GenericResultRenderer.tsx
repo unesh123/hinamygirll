@@ -8,6 +8,7 @@ import { downloadMarkdownPdf } from '@/features/documents/exportPdf';
 import { renderMarkdownHtml } from '@/lib/markdown';
 import type { WorkTreeNode } from './WorkTree';
 import { WebsiteFoundryPreview } from './WebsiteFoundryPreview';
+import { VerifiedDocument } from './VerifiedDocument';
 
 interface GenericResultRendererProps {
   toolName: string;
@@ -61,7 +62,8 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
   if (!result) return null;
 
   // Extract from envelope if present
-  const data = result.data !== undefined ? result.data : result;
+  const envelope = result.data !== undefined ? result.data : result;
+  const data = envelope?.toolId && envelope.data !== undefined ? envelope.data : envelope;
 
   // Render Requires Approval
   if (result.status === 'RequiresApproval' || data.status === 'RequiresApproval') {
@@ -486,7 +488,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
     const pythonSnippet = data.pythonSnippet;
 
     return (
-      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <VerifiedDocument data={data}><div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* ChatGPT Style Download Card */}
         <div style={{
           display: 'flex',
@@ -627,7 +629,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
             )}
           </div>
         )}
-      </div>
+      </div></VerifiedDocument>
     );
   }
 

@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="8" skipped="0" tests="32" time="38.822" timestamp="2026-10-20T00:32:43.931580+05:45" hostname="HAHAXYUMMY"><testcase classname="tests.test_brain_ledger_badge.TestUntestedIsNotHealthy" name="test_a_configured_brain_is_untested_until_a_call_answers" time="2.175" /><testcase classname="tests.test_brain_ledger_badge.TestUntestedIsNotHealthy" name="test_the_model_picker_reports_the_same_gap" time="0.461" /><testcase classname="tests.test_brain_ledger_badge.TestUntestedIsNotHealthy" name="test_in_process_brains_stay_reported_ready" time="2.153" /><testcase classname="tests.test_brain_ledger_badge.TestUntestedIsNotHealthy" name="test_a_row_no_brain_reports_to_is_not_pinned_untested" time="2.223" /><testcase classname="tests.test_brain_ledger_badge.TestUntestedIsNotHealthy" name="test_a_brain_without_a_credential_is_reported_not_configured" time="2.273" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsFromOutcomes" name="test_an_answered_call_earns_healthy" time="2.257" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsFromOutcomes" name="test_a_rejected_key_is_reported_as_unavailable_with_the_cause" time="2.243" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsFromOutcomes" name="test_a_throttled_call_reads_as_degraded_not_dead" time="2.172" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsFromOutcomes" name="test_one_brain_s_failure_does_not_colour_another" time="2.242" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsFromOutcomes" name="test_a_call_named_by_its_client_lights_the_badge_it_answers_to" time="2.211" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsFromOutcomes" name="test_a_refusal_is_not_reported_as_an_infrastructure_failure" time="0.004" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsFromOutcomes" name="test_the_in_process_brains_never_write_the_ledger" time="0.004" /><testcase classname="tests.test_brain_ledger_badge.TestEvidenceDecay" name="test_the_verdict_outlives_the_process_that_measured_it" time="2.215" /><testcase classname="tests.test_brain_ledger_badge.TestEvidenceDecay" name="test_a_replaced_credential_voids_the_old_verdict" time="2.216" /><testcase classname="tests.test_brain_ledger_badge.TestEvidenceDecay" name="test_stale_evidence_reports_as_untested_not_healthy" time="2.410" /><testcase classname="tests.test_brain_ledger_badge.TestVerdictsComeFromRealTurns" name="test_a_turn_the_gateway_rejected_is_the_badge" time="2.678"><failure message="AssertionError: assert 'degraded' == 'unavailable'&#10;  &#10;  - unavailable&#10;  + degraded">self = &lt;tests.test_brain_ledger_badge.TestVerdictsComeFromRealTurns object at 0x0000028E97BB1590&gt;
+stub = &lt;bound method StubFactory.start of StubFactory(servers=[&lt;http.server.ThreadingHTTPServer object at 0x0000028E9D5C70E0&gt;])&gt;
+
+    def test_a_turn_the_gateway_rejected_is_the_badge(self, stub) -&gt; None:
+        # This is the exact production failure: HTTP 403 with the environment
+        # still in place. Before the ledger the badge stayed green through it.
+        served = stub(status=403)
+    
+        events, row = self._turn(self._settings(served.url))
+    
+&gt;       assert row["state"] == "unavailable"
+E       AssertionError: assert 'degraded' == 'unavailable'
+E         
+E         - unavailable
+E         + degraded
+
+apps\api\tests\test_brain_ledger_badge.py:405: AssertionError</failure></testcase><testcase classname="tests.test_brain_ledger_badge.TestVerdictsComeFromRealTurns" name="test_a_turn_answered_by_the_gateway_is_reported_live" time="2.822" /><testcase classname="tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain" name="test_the_brain_that_answered_is_named_when_it_is_not_the_one_asked" time="0.434"><failure message="KeyError: 'mode'">self = &lt;tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain object at 0x0000028E97BB1810&gt;
+
+    def test_the_brain_that_answered_is_named_when_it_is_not_the_one_asked(self) -&gt; None:
+        settings = MULTI_BRAIN
+        record_call(
+            "claude",
+            ok=False,
+            code="PROVIDER_KEY_INVALID",
+            detail="Claude gateway rejected this credential (HTTP 403).",
+            fingerprint=_fingerprint(settings, "claude"),
+        )
+        record_call("agent-router-openai", ok=True, model="agnes-2.5-flash")
+    
+        health = self._health(settings)
+    
+&gt;       assert health["mode"] == "claude", "what the owner asked for is still a fact"
+               ^^^^^^^^^^^^^^
+E       KeyError: 'mode'
+
+apps\api\tests\test_brain_ledger_badge.py:446: KeyError</failure></testcase><testcase classname="tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain" name="test_ok_requires_the_configured_brain_to_have_answered" time="0.582"><failure message="KeyError: 'requestedServed'">self = &lt;tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain object at 0x0000028E97BB1950&gt;
+
+    def test_ok_requires_the_configured_brain_to_have_answered(self) -&gt; None:
+        settings = MULTI_BRAIN
+        record_call(
+            "claude",
+            ok=True,
+            model="claude-sonnet-4-6",
+            fingerprint=_fingerprint(settings, "claude"),
+        )
+    
+        health = self._health(settings)
+    
+        assert health["status"] == "ok"
+&gt;       assert health["requestedServed"] is True
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'requestedServed'
+
+apps\api\tests\test_brain_ledger_badge.py:468: KeyError</failure></testcase><testcase classname="tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain" name="test_with_no_live_answer_the_claim_is_not_made" time="0.344"><failure message="KeyError: 'answeredBy'">self = &lt;tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain object at 0x0000028E97BC48A0&gt;
+
+    def test_with_no_live_answer_the_claim_is_not_made(self) -&gt; None:
+        health = self._health(MULTI_BRAIN)
+    
+&gt;       assert health["answeredBy"] is None
+               ^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'answeredBy'
+
+apps\api\tests\test_brain_ledger_badge.py:476: KeyError</failure></testcase><testcase classname="tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain" name="test_a_missing_credential_is_reported_as_not_configured" time="0.357"><failure message="AssertionError: assert 'ok' == 'degraded'&#10;  &#10;  - degraded&#10;  + ok">self = &lt;tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain object at 0x0000028E97BC49D0&gt;
+
+    def test_a_missing_credential_is_reported_as_not_configured(self) -&gt; None:
+        # "untested" promises a call could have happened. With no key there is
+        # nothing to have measured, and the endpoint has to say that out loud.
+        health = self._health(brain_settings(HINAA_PROVIDER_MODE="claude"))
+    
+&gt;       assert health["status"] == "degraded"
+E       AssertionError: assert 'ok' == 'degraded'
+E         
+E         - degraded
+E         + ok
+
+apps\api\tests\test_brain_ledger_badge.py:485: AssertionError</failure></testcase><testcase classname="tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain" name="test_an_in_process_brain_needs_no_socket_to_be_believed" time="0.352"><failure message="KeyError: 'routing'">self = &lt;tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain object at 0x0000028E97A0A0F0&gt;
+
+    def test_an_in_process_brain_needs_no_socket_to_be_believed(self) -&gt; None:
+        health = self._health(brain_settings(HINAA_PROVIDER_MODE="mock"))
+    
+        assert health["status"] == "ok"
+&gt;       assert "in-process" in health["routing"]
+                               ^^^^^^^^^^^^^^^^^
+E       KeyError: 'routing'
+
+apps\api\tests\test_brain_ledger_badge.py:492: KeyError</failure></testcase><testcase classname="tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain" name="test_a_real_turn_is_what_changes_the_sentence" time="1.187"><failure message="KeyError: 'answeredBy'">self = &lt;tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain object at 0x0000028E9794E360&gt;
+stub = &lt;bound method StubFactory.start of StubFactory(servers=[&lt;http.server.ThreadingHTTPServer object at 0x0000028EA0504550&gt;])&gt;
+
+    def test_a_real_turn_is_what_changes_the_sentence(self, stub) -&gt; None:
+        # Written by the turn path and read back here, so neither half can be
+        # asserted in isolation from the other.
+        served = stub(completion="I love you. That is the whole sentence.")
+        settings = brain_settings(
+            HINAA_PROVIDER_MODE="cx-gateway",
+            CX_GATEWAY_API_KEY="test-cx-key",
+            CX_GATEWAY_BASE_URL=served.url,
+        )
+    
+        with TestClient(create_app(settings)) as client:
+            before = client.get("/health").json()
+            response = client.post(
+                "/v1/conversations/turns:stream",
+                json={
+                    "sessionId": "health-routing-e2e",
+                    "text": "Tell me you love me and finish your sentence.",
+                    "companionId": "hinaa",
+                    "language": "mixed",
+                    "providerMode": "cx-gateway",
+                },
+            )
+            assert response.status_code == 200
+            after = client.get("/health").json()
+    
+&gt;       assert before["answeredBy"] is None
+               ^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'answeredBy'
+
+apps\api\tests\test_brain_ledger_badge.py:519: KeyError</failure></testcase><testcase classname="tests.test_brain_ledger_badge.TestHealthNamesTheAnsweringBrain" name="test_a_turn_that_died_before_its_plan_still_names_a_brain" time="1.258" /><testcase classname="tests.test_circuit_breaker" name="test_circuit_breaker_lifecycle" time="0.004"><failure message="AssertionError: assert &lt;CircuitBreak... 'auth_error'&gt; == &lt;CircuitBreak...D: 'degraded'&gt;&#10;  &#10;  - degraded&#10;  + auth_error">def test_circuit_breaker_lifecycle():
+        cb = ProviderCircuitBreaker("test-provider", failure_threshold=3, base_cooldown_seconds=10.0)
+    
+        # 1. Starts in READY
+        assert cb.state == CircuitBreakerState.READY
+        can_exec, _, _ = cb.can_execute()
+        assert can_exec is True
+    
+        # 2. Record success
+        cb.record_success(latency_ms=120)
+        assert cb.state == CircuitBreakerState.READY
+        assert cb.last_latency_ms == 120
+    
+        # 3. Record rate limit (429)
+        cb.record_failure("PROVIDER_RATE_LIMIT", "Too many requests", retry_after=5.0)
+        assert cb.state == CircuitBreakerState.RATE_LIMITED
+        can_exec, reason, remaining = cb.can_execute()
+        assert can_exec is False
+        assert "rate_limited cooldown" in reason
+        assert remaining &gt; 0
+    
+        # 4. Simulate cooldown expiration -&gt; transitions to HALF_OPEN
+        cb.cooloff_until = monotonic() - 1.0
+        can_exec, _, _ = cb.can_execute()
+        assert can_exec is True
+        assert cb.state == CircuitBreakerState.HALF_OPEN
+    
+        # 5. Success in HALF_OPEN resets to READY
+        cb.record_success(latency_ms=90)
+        assert cb.state == CircuitBreakerState.READY
+    
+        # 6. Consecutive failures trip CIRCUIT_OPEN
+        cb.record_failure("PROVIDER_UNAVAILABLE", "Error 1")
+&gt;       assert cb.state == CircuitBreakerState.DEGRADED
+E       AssertionError: assert &lt;CircuitBreak... 'auth_error'&gt; == &lt;CircuitBreak...D: 'degraded'&gt;
+E         
+E         - degraded
+E         + auth_error
+
+apps\api\tests\test_circuit_breaker.py:56: AssertionError</failure></testcase><testcase classname="tests.test_circuit_breaker" name="test_3stage_health_unconfigured" time="0.005" /><testcase classname="tests.test_circuit_breaker" name="test_3stage_health_rate_limited_circuit_breaker" time="0.006" /><testcase classname="tests.test_safety_refusal" name="test_create_plan_never_falls_back_on_safety_refusal" time="0.033" /><testcase classname="tests.test_safety_refusal" name="test_create_live_plan_never_falls_back_on_safety_refusal" time="0.033" /><testcase classname="tests.test_safety_refusal" name="test_openai_safety_refusal_mapping" time="0.004" /><testcase classname="tests.test_safety_refusal" name="test_groq_safety_refusal_mapping" time="0.003" /><testcase classname="tests.test_safety_refusal" name="test_gemini_safety_refusal_mapping" time="0.003" /></testsuite></testsuites>

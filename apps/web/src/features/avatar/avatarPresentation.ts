@@ -22,6 +22,10 @@ const KNOWN_PRESENTATIONS: Record<string, AvatarPresentation> = {
   // its authored framing instead of falling back to the generic preset.
   "/models/hinaa-original.vrm": { rotationY: Math.PI, offsetY: -0.15, scale: 0.95, poseMode: "relaxed" },
   "/models/5798998195377315936 (1).vrm": { rotationY: Math.PI, offsetY: -0.15, scale: 0.95, poseMode: "relaxed" },
+  "/models/hinaa-perfectsync.vrm": { rotationY: Math.PI, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
+  "/models/hiro-perfectsync.vrm": { rotationY: Math.PI, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
+  "/models/model_7903.vrm": { rotationY: Math.PI, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
+  "/models/model_7441.vrm": { rotationY: Math.PI, offsetY: 0, scale: 1.0, poseMode: "relaxed" },
 };
 
 export function defaultAvatarPresentation(modelUrl: string): AvatarPresentation {

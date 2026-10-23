@@ -200,6 +200,29 @@ class SessionMemory:
             evicted_session_id, _ = self._sessions.popitem(last=False)
             self._user_memories.pop(evicted_session_id, None)
 
+    def compact_if_needed(self, session_id: str, threshold_ratio: float = 0.75) -> str | None:
+        """
+        Micro-compacts session dialogue turns when reaching threshold capacity,
+        preventing context window saturation and preserving continuous conversation continuity.
+        """
+        entries = self._sessions.get(session_id)
+        if not entries:
+            return None
+        if len(entries) >= int(self._turn_limit * threshold_ratio) and len(entries) >= 6:
+            older = list(entries)[:-4]
+            recent = list(entries)[-4:]
+            user_intents = [txt[:80] for r, txt in older if r == "user"]
+            summary = (
+                f"[Compacted Context]: Preserved {len(older)} past turns. "
+                f"Context themes: {'; '.join(user_intents[-3:]) if user_intents else 'General inquiry'}."
+            )
+            entries.clear()
+            entries.append(("user", f"[Summary of earlier context: {summary}]"))
+            entries.append(("assistant", "[Acknowledged earlier context; ready to proceed.]"))
+            entries.extend(recent)
+            return summary
+        return None
+
     def clear(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
         self._user_memories.pop(session_id, None)

@@ -354,7 +354,7 @@ async def _execute_openai_compatible_loop(
     final_result = f"Completed autonomous execution for '{goal}'."
     step = 0
 
-    async with httpx.AsyncClient(timeout=45.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
         while step < max_steps:
             step += 1
             payload = {

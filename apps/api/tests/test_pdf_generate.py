@@ -14,7 +14,10 @@ async def test_pdf_generator_preserves_user_content_without_canned_research(monk
     def fake_render(*, doc_id: str, title: str, author: str, category: str, sections: list[tuple[str, object]], verification_note: str = "", **_kwargs):
         captured.update(title=title, author=author, category=category, sections=sections, note=verification_note)
         output = tmp_path / f"{doc_id}.pdf"
-        output.write_bytes(b"%PDF-1.7 test")
+        from pypdf import PdfWriter
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        writer.write(output)
         return output, 1
 
     monkeypatch.setattr(pdf_generate, "_generate_reportlab_pdf", fake_render)
@@ -49,7 +52,11 @@ async def test_pdf_generator_topic_only_uses_live_research(monkeypatch, tmp_path
     def fake_render(*, doc_id: str, title: str, author: str, category: str, sections: list[tuple[str, object]], verification_note: str = "", **_kwargs):
         captured.update(title=title, author=author, sections=sections, note=verification_note)
         output = tmp_path / f"{doc_id}.pdf"
-        output.write_bytes(b"%PDF-1.7 research")
+        from pypdf import PdfWriter
+        writer = PdfWriter()
+        for _ in range(3):
+            writer.add_blank_page(width=612, height=792)
+        writer.write(output)
         return output, 3
 
     async def answered(topic: str) -> list[tuple[str, object]]:

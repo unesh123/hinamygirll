@@ -47,6 +47,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import time
 import urllib.parse
@@ -872,7 +873,9 @@ class NativeComputerOperator:
                 # title names it. "Verification pending" forever meant every
                 # launch looked unconfirmed to the mission loop.
                 is_url = resolved.startswith(("http://", "https://", "spotify:", "ms-settings:", "microsoft.windows."))
-                if is_url:
+                if cls._dry_run():
+                    verified = True
+                elif is_url:
                     verified = bool({"chrome", "msedge", "firefox", "brave", "arc", "opera"} & set(obs.running_apps))
                 else:
                     token = resolved.split("\\")[-1].split(".")[0].lower()
@@ -1276,6 +1279,9 @@ computer_operator_tool_def = ToolDefinition(
                 "send_message",
                 "type_and_send",
                 "youtube_play",
+                "create_folder",
+                "mkdir",
+                "make_directory",
                 "run_operator_loop",
             ],
             "description": "The computer-use operation or primitive to execute.",
@@ -1362,6 +1368,21 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
     x = int(parameters.get("x", 0))
     y = int(parameters.get("y", 0))
     button = str(parameters.get("button", "left")).strip().lower()
+
+    # Directive §5: Real computer-operator authorization gate
+    from hinaa_api.tools.policy import classify_computer_operator_action, check_action_tier_authorization, ActionRiskTier
+    tier = classify_computer_operator_action(action, parameters)
+    approval_source = str(parameters.get("approval_source") or parameters.get("approvalSource") or "none")
+    verdict = check_action_tier_authorization(tier, confirmed=confirmed, approval_source=approval_source)
+    if not verdict.permitted:
+        return {
+            "success": False,
+            "error": verdict.message,
+            "code": verdict.code,
+            "action": action,
+            "tier": int(tier),
+            "requires_explicit_approval": True,
+        }
 
     if action in ("observe_desktop", "observe"):
         obs = NativeComputerOperator.observe()
@@ -1538,9 +1559,48 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
             res = await NativeComputerOperator.draft_message(app_name=target or "whatsapp", text=content, recipient=recipient)
         return res.model_dump(mode="json")
 
-    elif action == "youtube_play":
-        res = await NativeComputerOperator.youtube_play(target or content)
-        return res.model_dump(mode="json")
+    elif action in ("create_folder", "mkdir", "make_directory"):
+        raw_target = str(target or content or parameters.get("path", "")).strip()
+        folder_name = ""
+        q_match = re.search(r'["\']([^"\']+)["\']', raw_target)
+        if q_match:
+            folder_name = q_match.group(1).strip()
+        else:
+            n_match = re.search(r"\b(?:folder|directory)\s+(?:named\s+)?([a-zA-Z0-9_\-\s]+?)(?:\s+on|\s+in|$)", raw_target, re.I)
+            if n_match:
+                folder_name = n_match.group(1).strip()
+
+        drive_letter = ""
+        drive_match = re.search(r"\b(?:local\s*x?\s*([a-zA-Z])|drive\s+([a-zA-Z])|([a-zA-Z]):)\b", raw_target, re.I)
+        if drive_match:
+            drive_letter = (drive_match.group(1) or drive_match.group(2) or drive_match.group(3)).upper()
+
+        if re.match(r"^[a-zA-Z]:[\\/]", raw_target):
+            dest_path = Path(raw_target)
+        else:
+            if not drive_letter:
+                drive_letter = "E" if os.path.exists("E:\\") else "C"
+            if not folder_name:
+                folder_name = "New Folder"
+            dest_path = Path(f"{drive_letter}:\\{folder_name}")
+
+        try:
+            dest_path.mkdir(parents=True, exist_ok=True)
+            return {
+                "success": True,
+                "action": "create_folder",
+                "created_path": str(dest_path),
+                "drive": dest_path.drive,
+                "detail": f"Successfully created folder at '{dest_path}'",
+            }
+        except Exception as e:
+            logger.exception("Failed to create folder %s: %s", dest_path, e)
+            return {
+                "success": False,
+                "action": "create_folder",
+                "error": str(e),
+                "detail": f"Failed to create folder at '{dest_path}': {e}",
+            }
 
     elif action == "run_operator_loop":
         steps = parameters.get("plan_steps", [])

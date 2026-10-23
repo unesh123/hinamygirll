@@ -1480,66 +1480,63 @@ class VoicePerformancePlanner:
     def plan_delivery(self, semantic_mode: str, companion_id: str = "hinaa") -> dict:
         mode = semantic_mode.lower() if semantic_mode.lower() in ALLOWED_SEMANTIC_MODES else "neutral"
         
-        # Base defaults. Lower stability = more emotional range; higher style =
-        # more expressive warmth; slightly slower pace reads tender and caring.
-        stability = 0.50
-        similarity = 0.80
-        style_intensity = 0.0
-        pace = 1.0
+        # Base defaults: crisp, bright creator pace and expressive warmth.
+        stability = 0.40
+        similarity = 0.78
+        style_intensity = 0.25
+        pace = 0.98
 
         if mode == "warm":
-            stability = 0.42
-            similarity = 0.82
-            style_intensity = 0.28
-            pace = 0.93
-        elif mode == "bright":
-            stability = 0.38
-            style_intensity = 0.28
-            pace = 1.0
-        elif mode == "calm":
-            stability = 0.60
-            similarity = 0.85
-            style_intensity = 0.12
-            pace = 0.90
-        elif mode == "thoughtful":
-            stability = 0.58
-            style_intensity = 0.10
-            pace = 0.90
-        elif mode == "professional":
-            stability = 0.68
-            similarity = 0.85
-            style_intensity = 0.06
-            pace = 1.0
-        elif mode == "playful":
-            stability = 0.33
-            style_intensity = 0.38
-            pace = 1.01
-        elif mode == "celebratory":
             stability = 0.36
-            style_intensity = 0.34
-            pace = 1.0
-        elif mode == "apologetic":
-            stability = 0.58
-            similarity = 0.85
-            style_intensity = 0.16
+            similarity = 0.80
+            style_intensity = 0.42
             pace = 0.92
+        elif mode == "bright":
+            stability = 0.32
+            style_intensity = 0.45
+            pace = 1.04
+        elif mode == "calm":
+            stability = 0.52
+            similarity = 0.82
+            style_intensity = 0.20
+            pace = 0.95
+        elif mode == "thoughtful":
+            stability = 0.48
+            style_intensity = 0.22
+            pace = 0.96
+        elif mode == "professional":
+            stability = 0.58
+            similarity = 0.82
+            style_intensity = 0.15
+            pace = 1.00
+        elif mode == "playful":
+            stability = 0.28
+            style_intensity = 0.50
+            pace = 1.05
+        elif mode == "celebratory":
+            stability = 0.30
+            style_intensity = 0.48
+            pace = 1.06
+        elif mode == "apologetic":
+            stability = 0.50
+            similarity = 0.82
+            style_intensity = 0.24
+            pace = 0.96
         elif mode == "encouraging":
-            stability = 0.42
-            style_intensity = 0.30
-            pace = 0.98
+            stability = 0.34
+            style_intensity = 0.44
+            pace = 1.00
 
         # Per-companion bias: Hinaa's affectionate persona speaks warmer and
-        # lighter — a little more expressive, a touch slower and softer. Hiro
-        # stays calmer and more grounded. Kept bounded so the semantic mode
-        # remains the dominant signal.
+        # lighter — high emotional range, sweet girlfriend warmth, and brisk creator pacing.
         if companion_id == "hiro":
             stability = min(1.0, stability + 0.06)
             style_intensity = max(0.0, style_intensity - 0.04)
-            pace = max(0.5, pace - 0.01)
+            pace = max(0.5, pace - 0.02)
         else:
             stability = max(0.0, stability - 0.05)
-            style_intensity = min(1.0, style_intensity + 0.10)
-            pace = max(0.5, pace - 0.02)
+            style_intensity = min(1.0, style_intensity + 0.12)
+            pace = min(1.5, pace + 0.02)
 
         return {
             "deliveryMode": mode,

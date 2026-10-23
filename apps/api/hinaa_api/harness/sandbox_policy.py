@@ -31,8 +31,8 @@ class PolicyRejection(Exception):
 
 # Patterns to redact in command outputs
 _OUTPUT_SECRET_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|access[_-]?token|authorization|secret|password)\s*[:=]\s*[^\s,;]+"),
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*"),
+    re.compile(r"(?i)(api[_-]?key|access[_-]?token|authorization|secret|password)\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+"),
     re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{82}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
@@ -41,7 +41,7 @@ _OUTPUT_SECRET_PATTERNS = [
 
 # Sensitive environment variable keys to strip from child processes
 _SENSITIVE_ENV_KEYS = re.compile(
-    r"(?i)(key|token|secret|password|auth|credential|jwt|private|cert|signature|conn_str)"
+    r"(?i)(key|token|secret|password|auth|credential|jwt|private|cert|signature|conn_str|(?:^|_)pat(?:$|_))"
 )
 
 

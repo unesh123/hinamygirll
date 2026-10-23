@@ -20,9 +20,9 @@ class VoiceTuning:
 # is just under 1.0 — brisk but breathe-able, with "soft" slower and "lively"
 # only slightly above neutral. Pitch and volume are unchanged.
 CALIBRATIONS: dict[str, VoiceTuning] = {
-    "natural": VoiceTuning(0.96, 0.0, 1.0),
-    "soft": VoiceTuning(0.88, -0.5, 0.9),
-    "lively": VoiceTuning(1.06, 0.8, 1.0),
+    "natural": VoiceTuning(1.00, 0.7, 1.0),
+    "soft": VoiceTuning(0.94, 0.3, 0.95),
+    "lively": VoiceTuning(1.05, 1.2, 1.0),
 }
 
 

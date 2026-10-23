@@ -3,11 +3,19 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from hinaa_api.circuit_breaker import reset_circuit_breakers
 from hinaa_api.config import Settings
 from hinaa_api.errors import HinaaError
 from hinaa_api.models import TurnRequest
 from hinaa_api.providers.openai_llm import OpenAILLMProvider
 from hinaa_api.services import ConversationService
+
+
+@pytest.fixture(autouse=True)
+def _reset_breakers():
+    reset_circuit_breakers()
+    yield
+    reset_circuit_breakers()
 
 
 @pytest.fixture

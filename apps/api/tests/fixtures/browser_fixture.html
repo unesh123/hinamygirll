@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>HINAA Deterministic Browser Test Fixture</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; background: #0f172a; color: #f8fafc; }
+    .card { background: #1e293b; padding: 1.5rem; border-radius: 8px; max-width: 600px; border: 1px solid #334155; }
+    input { width: 80%; padding: 0.5rem; border-radius: 4px; border: 1px solid #475569; background: #0f172a; color: #f8fafc; }
+    button { padding: 0.5rem 1rem; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #status-badge { margin-top: 1rem; padding: 0.5rem; background: #334155; border-radius: 4px; }
+    #extracted-data { display: none; margin-top: 1rem; border-top: 1px solid #475569; padding-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="fixture-heading">HINAA Browser Automation Verification</h1>
+    <p>Target for end-to-end DOM assertion, input typing, button click, and visual snapshot.</p>
+    
+    <div>
+      <input id="test-search-box" name="q" placeholder="Enter target search text..." />
+      <button id="test-submit-btn" onclick="executeTestSubmit()">Execute Task</button>
+    </div>
+
+    <div id="status-badge">Awaiting Interaction</div>
+    
+    <div id="extracted-data">
+      <span class="data-token" id="token-alpha">ARTIFACT-ALPHA-7782</span>
+      <span class="data-token" id="token-beta">VERIFIED-DOM-STATE</span>
+    </div>
+  </div>
+
+  <script>
+    function executeTestSubmit() {
+      const val = document.getElementById('test-search-box').value;
+      const badge = document.getElementById('status-badge');
+      badge.innerText = 'STATUS_SUBMITTED: ' + val;
+      badge.style.background = '#059669';
+      document.getElementById('extracted-data').style.display = 'block';
+    }
+  </script>
+</body>
+</html>

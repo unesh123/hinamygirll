@@ -1,0 +1,231 @@
+{
+  "metadata": {
+    "auditDate": "2026-10-20T12:00:00Z",
+    "auditor": "Agent Smith (DevSecOps and Architecture Auditor)",
+    "directive": "HINAA UI and Runtime Architecture Verification",
+    "statusVocabulary": [
+      "IMPLEMENTED",
+      "PARTIAL",
+      "STUB",
+      "DEAD CODE",
+      "NOT FOUND",
+      "NOT TESTED"
+    ]
+  },
+  "frontendStack": {
+    "react": "19.2.8",
+    "reactDom": "19.2.8",
+    "vite": "8.1.5",
+    "three": "0.185.1",
+    "reactThreeFiber": "9.7.0",
+    "pixivThreeVrm": "3.5.5",
+    "pixivThreeVrmAnimation": "3.5.5",
+    "framerMotion": "13.2.0"
+  },
+  "navigationAndModes": {
+    "claimedNavigationSections": 17,
+    "actualRenderedNavItems": 7,
+    "actualRenderedList": [
+      "chat",
+      "studio",
+      "dashboard",
+      "models",
+      "reports",
+      "vault",
+      "settings"
+    ],
+    "claimedWorkspaceModes": 4,
+    "actualWorkspaceModes": 6,
+    "actualWorkspaceModeList": [
+      "talk",
+      "work",
+      "operate",
+      "showroom",
+      "vault",
+      "models"
+    ],
+    "defaultWorkspaceMode": "work"
+  },
+  "components": [
+    {
+      "name": "AppShell",
+      "relativePath": "apps/web/src/design-system/layout/AppShell.tsx",
+      "exportedSymbol": "AppShell",
+      "callerOrRegistrationPath": "apps/web/src/App.tsx",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/design-system/layout/AppShell.test.tsx",
+      "runtimeEvidenceArtifact": "docs/evidence/ui_work_mode.png",
+      "limitations": "Desktop-centric CSS grid layout; mobile breakpoint relies on MobileNavigation fallback."
+    },
+    {
+      "name": "TopBarV6",
+      "relativePath": "apps/web/src/design-system/layout/TopBarV6.tsx",
+      "exportedSymbol": "TopBarV6",
+      "callerOrRegistrationPath": "apps/web/src/design-system/layout/AppShell.tsx",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/design-system/layout/TopBarV6.test.tsx",
+      "runtimeEvidenceArtifact": "docs/evidence/ui_work_mode.png",
+      "limitations": "Defines 6 WorkspaceModes but some mode switches only change viewport tabs rather than unmounting heavy 3D canvases."
+    },
+    {
+      "name": "NavigationRail",
+      "relativePath": "apps/web/src/design-system/layout/NavigationRail.tsx",
+      "exportedSymbol": "NavigationRail",
+      "callerOrRegistrationPath": "apps/web/src/design-system/layout/AppShell.tsx",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/design-system/layout/NavigationRail.test.tsx",
+      "runtimeEvidenceArtifact": "docs/evidence/ui_work_mode.png",
+      "limitations": "TypeScript type declares 17 sections, but UI renders only 7 physical navigation buttons with 10 mapped aliases."
+    },
+    {
+      "name": "DynamicIslandCompanion",
+      "relativePath": "apps/web/src/design-system/layout/DynamicIslandCompanion.tsx",
+      "exportedSymbol": "DynamicIslandCompanion",
+      "callerOrRegistrationPath": "apps/web/src/design-system/layout/AppShell.tsx",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/design-system/layout/DynamicIslandCompanion.test.tsx",
+      "runtimeEvidenceArtifact": "docs/evidence/ui_work_mode.png",
+      "limitations": "Heavy animation loops when expanded; depends on mock telemetry when real websocket audio is disconnected."
+    },
+    {
+      "name": "WorkMode",
+      "relativePath": "apps/web/src/design-system/modes/WorkMode.tsx",
+      "exportedSymbol": "WorkMode",
+      "callerOrRegistrationPath": "apps/web/src/App.tsx",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/design-system/modes/WorkMode.test.tsx",
+      "runtimeEvidenceArtifact": "docs/evidence/ui_work_mode.png",
+      "limitations": "Primary default view. Hides administrative dashboards (Durable Tasks, Approvals Queue, Capabilities Registry) which reside in OperateMode."
+    },
+    {
+      "name": "OperateMode",
+      "relativePath": "apps/web/src/design-system/modes/OperateMode.tsx",
+      "exportedSymbol": "OperateMode",
+      "callerOrRegistrationPath": "apps/web/src/App.tsx",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/design-system/modes/OperateMode.test.tsx",
+      "runtimeEvidenceArtifact": "docs/evidence/ui_operate_mode.png, docs/evidence/ui_capability_registry_83.png",
+      "limitations": "Renders 83 registered capabilities and approval queues. Requires user to click 'Dashboard' to view."
+    },
+    {
+      "name": "ShowroomMode",
+      "relativePath": "apps/web/src/design-system/modes/ShowroomMode.tsx",
+      "exportedSymbol": "ShowroomMode",
+      "callerOrRegistrationPath": "apps/web/src/App.tsx",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/design-system/modes/ShowroomMode.test.tsx",
+      "runtimeEvidenceArtifact": "docs/evidence/ui_showroom_mode.png",
+      "limitations": "Full-screen 3D runway studio. Relies on WebGL context; crashes in headless test runners unless VRMAvatar is mocked."
+    },
+    {
+      "name": "VRMAvatar",
+      "relativePath": "apps/web/src/features/avatar/VRMAvatar.tsx",
+      "exportedSymbol": "VRMAvatar",
+      "callerOrRegistrationPath": "apps/web/src/design-system/modes/ShowroomMode.tsx, apps/web/src/design-system/modes/CompanionDock.tsx",
+      "status": "PARTIAL",
+      "testNodeId": "apps/web/src/features/avatar/normalization.test.ts",
+      "runtimeEvidenceArtifact": "apps/web/public/models/model_6164.vrm",
+      "limitations": "Active default model (/models/model_6164.vrm) is VRM 0.x with only 14 standard blendshapes (5 visemes + 3 blinks + 5 emotions + Neutral). 52 PerfectSync ARKit blendshapes are NOT present on active model, only present on hinaa-perfectsync.vrm."
+    },
+    {
+      "name": "HinaaUIController",
+      "relativePath": "apps/web/src/features/ui-control/HinaaUIController.ts",
+      "exportedSymbol": "hinaaUIController",
+      "callerOrRegistrationPath": "apps/web/src/App.tsx, apps/web/src/features/companion/useCompanionController.ts",
+      "status": "PARTIAL",
+      "testNodeId": "NOT TESTED",
+      "runtimeEvidenceArtifact": "apps/web/src/features/ui-control/HinaaUIController.ts",
+      "limitations": "Dispatches actuation actions (switch_mode, toggle_drawer, etc.), but lacks sequence numbers, runId isolation, deduplication, and selector allowlisting, posing an injection risk if arbitrary text is passed."
+    },
+    {
+      "name": "AssistantTurnPlanContract",
+      "relativePath": "apps/web/src/contracts/assistantTurnPlan.ts",
+      "exportedSymbol": "assistantTurnPlanSchema, parseAssistantTurnPlan",
+      "callerOrRegistrationPath": "apps/web/src/design-system/modes/WorkMode.tsx, apps/web/src/features/companion/useCompanionController.ts",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/web/src/contracts/assistantTurnPlan.test.ts",
+      "runtimeEvidenceArtifact": "packages/contracts/schemas/assistant-turn-plan.schema.json",
+      "limitations": "displayText capped at 150,000 chars; spokenText capped at 8,000 chars. Salvage path recovers truncated inputs."
+    },
+    {
+      "name": "AssistantTurnPlanBackend",
+      "relativePath": "apps/api/hinaa_api/models.py",
+      "exportedSymbol": "AssistantTurnPlan",
+      "callerOrRegistrationPath": "apps/api/hinaa_api/main.py, apps/api/hinaa_api/services.py",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/api/tests/test_turn_codec.py",
+      "runtimeEvidenceArtifact": "apps/api/tests/test_turn_codec.py",
+      "limitations": "Strict extra='forbid' validation. Non-JSON conversational text converted via build_plan_from_text."
+    },
+    {
+      "name": "ToolRegistry",
+      "relativePath": "apps/api/hinaa_api/main.py",
+      "exportedSymbol": "ToolRegistry, list_tools, execute_tool",
+      "callerOrRegistrationPath": "apps/api/hinaa_api/main.py:3262",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/api/tests/test_tools_execution.py",
+      "runtimeEvidenceArtifact": "http://127.0.0.1:8000/api/v1/tools",
+      "limitations": "83 tools registered; 16 local-effect tools strictly constrained to loopback/local operator mode. Not all 83 tools are live-executed in production without third-party API credentials (e.g. Freepik, You.com)."
+    },
+    {
+      "name": "ToolPolicyEngine",
+      "relativePath": "apps/api/hinaa_api/tools/policy.py",
+      "exportedSymbol": "ActionRiskTier, classify_computer_operator_action, check_action_tier_authorization",
+      "callerOrRegistrationPath": "apps/api/hinaa_api/main.py:3287",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/api/tests/test_tool_policy.py",
+      "runtimeEvidenceArtifact": "apps/api/hinaa_api/tools/policy.py",
+      "limitations": "Tier 2, 3, 4 strictly require confirmed=True and approvalSource='user'. Remote tunnel requests are blocked from executing local effect tools."
+    },
+    {
+      "name": "SwarmOrchestrator",
+      "relativePath": "apps/api/hinaa_api/harness/swarm_orchestrator.py",
+      "exportedSymbol": "SwarmOrchestrator, SwarmGoal, ConsensusVerdict",
+      "callerOrRegistrationPath": "apps/api/hinaa_api/tools/swarm_tool.py",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/api/tests/test_swarm_orchestrator.py::test_swarm_unanimous_pass_lifecycle",
+      "runtimeEvidenceArtifact": "docs/evidence/runtime-validation-summary-2026-10-20.json",
+      "limitations": "Runs sequentially or parallel across 5 simulated persona roles in isolated Git worktrees. Requires local git CLI installed."
+    },
+    {
+      "name": "PTYSessionManager",
+      "relativePath": "apps/api/hinaa_api/tools/pty_session.py",
+      "exportedSymbol": "PTYSessionManager, get_pty_manager",
+      "callerOrRegistrationPath": "apps/api/hinaa_api/main.py",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/api/tests/test_pty_session.py::test_pty_session_run_basic_command",
+      "runtimeEvidenceArtifact": "apps/api/tests/test_pty_session.py",
+      "limitations": "Thread-based non-blocking pipes on Windows; emulated PTY rather than native Linux pty/forkpty."
+    },
+    {
+      "name": "VisionPTYBridge",
+      "relativePath": "NONE",
+      "exportedSymbol": "NONE",
+      "callerOrRegistrationPath": "NONE",
+      "status": "NOT FOUND",
+      "testNodeId": "NONE",
+      "runtimeEvidenceArtifact": "NONE",
+      "limitations": "Claimed in architectural narrative. Vision perception and PTY management exist as separate modules; no integrated VisionPTYBridge component exists in the repository."
+    },
+    {
+      "name": "MemoryManagerV2",
+      "relativePath": "apps/api/hinaa_api/memory_v2/manager.py",
+      "exportedSymbol": "MemoryManagerV2",
+      "callerOrRegistrationPath": "apps/api/hinaa_api/services.py",
+      "status": "IMPLEMENTED",
+      "testNodeId": "apps/api/tests/test_memory_v2.py",
+      "runtimeEvidenceArtifact": "apps/api/hinaa_api/memory_v2/manager.py",
+      "limitations": "In-memory partitions with SQLite persistence. Uses explicit rule-based supersession and temporal validity; no autonomous neurobiological sleep consolidation or unguided general truth resolution."
+    },
+    {
+      "name": "ProviderFallbackCascade",
+      "relativePath": "apps/api/hinaa_api/providers/agent_router.py",
+      "exportedSymbol": "AgentRouterOpenAIProvider",
+      "callerOrRegistrationPath": "apps/api/hinaa_api/services.py",
+      "status": "PARTIAL",
+      "testNodeId": "apps/api/tests/test_provider_cascade.py",
+      "runtimeEvidenceArtifact": "apps/api/hinaa_api/providers/agent_router.py",
+      "limitations": "Initial connection retries and status code mappings (429, 500, timeout) are implemented. Mid-stream failover cannot transparently resume without replaying context. '100% uptime' claim is revoked."
+    }
+  ]
+}

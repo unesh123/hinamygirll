@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 logger = logging.getLogger("hinaa.realtime")
 
 from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, field_validator
 
 from .config import Settings
 from .errors import HinaaError
@@ -53,6 +53,20 @@ class ClientHello(StrictModel):
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),
     ] = None
     authTicket: Annotated[str | None, Field(min_length=16, max_length=64)] = None
+
+    @field_validator("brainModel", "voiceEngine", mode="before")
+    @classmethod
+    def sanitize_client_hello_engines(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return None
+        v = v.strip()
+        if not v or v in ("—", "auto", "default", "none"):
+            return None
+        if not re.match(r"^[A-Za-z0-9._:/-]+$", v):
+            return None
+        return v
 
 
 class FrameDescriptor(StrictModel):

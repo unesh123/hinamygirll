@@ -48,8 +48,12 @@ class SessionStatus(str, Enum):
 
 class AgentRole(str, Enum):
     ROOT = "root"
+    ORCHESTRATOR = "orchestrator"
+    ARCHITECT = "architect"
     RESEARCHER = "researcher"
     CODER = "coder"
+    TESTER = "tester"
+    DEVSECOPS = "devsecops"
     CREATIVE = "creative"
     VERIFIER = "verifier"
     CRITIC = "critic"

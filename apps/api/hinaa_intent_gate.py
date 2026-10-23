@@ -410,11 +410,16 @@ def decide(
         # Any document mention or non-image deliverable is NEVER an image generation job.
         if (
             DOCUMENT_MENTION.search(requested_subject)
-            or re.search(r"\b(?:code|program|script|summary|essay|text|table|json|csv|website|landing\s+page|decision|reminder)\b", requested_subject, re.I)
+            or re.search(r"\b(?:code|program|script|summary|essay|text|table|json|csv|website|landing\s+page|decision|reminder|folders?|directories|directory|files?|drives?|disks?|repos?|repository|workspaces?|projects?)\b", requested_subject, re.I)
+            or re.search(r"\b(?:folder\s+named|named\s+[\"'].+?[\"']|on\s+(?:the\s+)?(?:local\s*)?[a-z]:?|drive|laptop|computer|desktop)\b", requested_subject, re.I)
         ):
             return Decision(Intent.CHAT)
 
-        # "Make a decision" and "create a reminder" are not image jobs.
+        # "Make a decision", "create a reminder", or "create a folder" are not image jobs.
+        is_fs_or_system = bool(re.search(r"\b(?:folders?|directory|directories|files?|drives?|disks?|repos?|repository|path)\b", requested_subject, re.I))
+        if is_fs_or_system:
+            return Decision(Intent.CHAT)
+
         if verb.casefold() in {"make", "create"} and not (
             IMAGE_WORDS.search(requested_subject)
             or any(alias in requested_subject.casefold() for alias in (*ENTITY_ALIASES.keys(), "hina", "hinaa", "naruto", "goku"))

@@ -65,7 +65,9 @@ class Settings(BaseSettings):
     gemini_allowed_models_raw: str = Field(
         (
             "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.8-flash,gemini-flash-latest,gemini-pro-latest,"
-            "gemini-3.1-pro-preview,gemini-3.6-flash,gemini-3-flash-preview,gemini-flash-lite-latest"
+            "gemini-3.1-pro-preview,gemini-3.6-flash,gemini-3-flash-preview,gemini-flash-lite-latest,"
+            "gemini-2.5-flash-lite,gemini-2.5-flash,gemini-2.5-pro,gemini-2.0-flash,gemini-2.0-flash-exp,"
+            "gemini-2.0-flash-lite,gemini-1.5-flash,gemini-1.5-pro,gemini-3.8-flash-high"
         ),
         alias="GEMINI_ALLOWED_MODELS",
     )
@@ -238,6 +240,16 @@ class Settings(BaseSettings):
         120.0,
         validation_alias=AliasChoices("OLLAMA_TIMEOUT_SECONDS", "HINAA_OLLAMA_TIMEOUT_SECONDS"),
     )
+    # Treg.to Agent Tool Gateway — unified proxy for 4,000+ catalog tools,
+    # anti-bot residential scraping, Seedance 2.5, social media reels, and cloud integrations.
+    treg_token: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("TREG_TOKEN", "HINAA_TREG_TOKEN", "TRIG_TOKEN"),
+    )
+    treg_base_url: str = Field(
+        "https://treg.to",
+        validation_alias=AliasChoices("TREG_BASE_URL", "HINAA_TREG_BASE_URL"),
+    )
     # OmniRoute is a *local* fallback gateway (diegosouzapw/omniroute in a
     # container on this machine). It is opt-in and it is never a primary brain:
     # the ladder reaches it only after every configured premium brain has failed.
@@ -399,6 +411,11 @@ class Settings(BaseSettings):
     explabs_allowed_models_raw: str = Field(
         "claude-opus-5.5,claude-opus-5,claude-sonnet-5,claude-fable-5",
         validation_alias=AliasChoices("EXPLABS_ALLOWED_MODELS", "EXPERIENTIAL_ALLOWED_MODELS"),
+    )
+    # Browserbase Cloud Browser Platform
+    browserbase_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("BROWSERBASE_API_KEY", "HINAA_BROWSERBASE_API_KEY"),
     )
     # Bright Data Scraping Browser & SERP API
     bright_data_browser_ws: SecretStr | None = Field(
@@ -869,8 +886,7 @@ class Settings(BaseSettings):
     def resolve_gemini_model(self, requested: str | None = None) -> str:
         model = (requested or "").strip() or self.gemini_model
         if model not in self.gemini_allowed_models:
-            allowed = ", ".join(self.gemini_allowed_models)
-            raise ValueError(f"Gemini model is not in GEMINI_ALLOWED_MODELS: {allowed}")
+            return self.gemini_model
         return model
 
     @property
@@ -1586,6 +1602,10 @@ class Settings(BaseSettings):
             allowed = ", ".join(self.explabs_allowed_models)
             raise ValueError(f"Experiential model is not in EXPLABS_ALLOWED_MODELS: {allowed}")
         return model
+
+    @property
+    def browserbase_configured(self) -> bool:
+        return bool(self.browserbase_api_key and self.browserbase_api_key.get_secret_value().strip())
 
     @property
     def bright_data_configured(self) -> bool:

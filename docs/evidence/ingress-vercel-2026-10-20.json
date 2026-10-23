@@ -1,0 +1,87 @@
+{
+  "id": "dpl_8hkavuLJHJMai4sdDJ1q7fy8HSyh",
+  "name": "hinaa-workspace",
+  "url": "hinaa-workspace-9lcioolxs-uneshs-projects.vercel.app",
+  "target": "production",
+  "readyState": "READY",
+  "createdAt": 1792264501785,
+  "duration": {
+    "startTime": 1792264502789,
+    "endTime": 1792264511106,
+    "endTimeCapped": 1792264511106,
+    "timeToReady": 2856,
+    "timeToContainerExit": 8317,
+    "timeToContainerExitCapped": 8317,
+    "timeForBilling": 60000,
+    "cpuTimeForBilling": 120000
+  },
+  "buildMachine": {
+    "cores": 2,
+    "memory": 8192,
+    "machine": "basic",
+    "selectionType": "fixed",
+    "selectionSource": "plan-default"
+  },
+  "aliases": [
+    "hinaa-workspace.vercel.app",
+    "hinaa-workspace-uneshs-projects.vercel.app"
+  ],
+  "builds": [
+    {
+      "id": "bld_nw86xs89y",
+      "deploymentId": "dpl_8hkavuLJHJMai4sdDJ1q7fy8HSyh",
+      "entrypoint": ".",
+      "readyState": "READY",
+      "readyStateAt": 1792264501634,
+      "createdAt": 1792264501634,
+      "createdIn": "sfo1",
+      "use": "@vercel/vc-build",
+      "config": {
+        "framework": "vite",
+        "installCommand": "pnpm install --no-frozen-lockfile",
+        "buildCommand": "pnpm --dir apps/web build",
+        "outputDirectory": "apps/web/dist",
+        "nodeVersion": "24.x",
+        "projectCreatedAt": 1789464119418,
+        "vercelConfig": {
+          "name": "hinaa-workspace",
+          "version": 2,
+          "rewrites": [
+            {
+              "source": "/api/:path*",
+              "destination": "https://leisure-inter-town-possess.trycloudflare.com/api/:path*"
+            },
+            {
+              "source": "/v1/:path*",
+              "destination": "https://leisure-inter-town-possess.trycloudflare.com/v1/:path*"
+            },
+            {
+              "source": "/health/:path*",
+              "destination": "https://leisure-inter-town-possess.trycloudflare.com/health/:path*"
+            },
+            {
+              "source": "/health",
+              "destination": "https://leisure-inter-town-possess.trycloudflare.com/health"
+            },
+            {
+              "source": "/healthz",
+              "destination": "https://leisure-inter-town-possess.trycloudflare.com/healthz"
+            },
+            {
+              "source": "/readyz",
+              "destination": "https://leisure-inter-town-possess.trycloudflare.com/readyz"
+            },
+            {
+              "source": "/((?!api/|v1/|health|healthz|readyz|models/|assets/|worklets/|animations/|test-assets/).*)",
+              "destination": "/index.html"
+            }
+          ]
+        }
+      },
+      "middleware": [],
+      "output": [],
+      "fingerprint": null
+    }
+  ],
+  "contextName": "uneshs-projects"
+}

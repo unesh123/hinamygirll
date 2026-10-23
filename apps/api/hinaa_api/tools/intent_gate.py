@@ -47,7 +47,11 @@ GATED_TOOLS = {
     "computer_operator",
     "ui_control",
     "coding_agent",
+    "clean_room_loop",
     "terminal_hands",
+    "html_anime_generate",
+    "mobile_run_task",
+    "customgpt_query",
 }
 
 # Gated calls whose every required parameter this module reads out of the owner's
@@ -58,6 +62,8 @@ SELF_SPECIFIED = {
     "image_generate": ("prompt",),
     "reminder.create": ("title", "at"),
     "design_website": ("brief",),
+    "html_anime_generate": ("logline",),
+    "mobile_run_task": ("task",),
     "youtube_playback_request": ("query",),
     "browser_execute_task": ("goal",),
     "browser_navigate": ("url",),
@@ -65,6 +71,8 @@ SELF_SPECIFIED = {
     "browser_press_key": ("key",),
     "computer_operator": ("action",),
     "terminal_hands": ("command",),
+    "customgpt_query": ("query",),
+    "browser_cloud_agent": ("task",),
 }
 
 
@@ -179,6 +187,14 @@ _WEBSITE = re.compile(
         (?: web\s*site | web\s*page | landing\s*page | home\s*page | portfolio\s*site |
             (?:a|an|the|my|one|full|complete|whole|simple|new)\s+site ) \b"""
 )
+_HTML_ANIME = re.compile(
+    r"""(?ix) \b (?: build | create | design | make | develop | generate | code | write | draw | animate ) \b [^.?!]* \b
+        (?: anime(?:\s+(?:scene|short|clip|film|animation))? | html[\s-]?anime | hyperframes ) \b"""
+)
+_MOBILE_TASK = re.compile(
+    r"""(?ix) \b (?: mobile | android | phone | emulator ) \b [^.?!]* \b (?: open | tap | click | check | install | test | control | run | type ) \b
+        | \b (?: open | tap | click | check | install | test | control | run ) \b [^.?!]* \b (?: on\s+(?:my\s+)?(?:mobile|phone|android|emulator) ) \b"""
+)
 _FABRIC_UPSCALE = re.compile(r"(?ix)\b(?:up[\s-]?scal\w*|make\s+it\s+(?:bigger|sharper|4k|8k))\b")
 _FABRIC_RELIGHT = re.compile(r"(?ix)\b(?:re-?light\w*)\b")
 
@@ -279,6 +295,12 @@ _CODE_FILE_PATH = re.compile(
     r"(?i)\b[\w\-]{1,60}(?:[/\\][\w\-]{1,60})*\.(?:py|ts|tsx|js|jsx|html|css|json|md|java|cs|cpp|c|go|rs|sql|sh|bat|ps1|toml|yaml|yml)\b"
 )
 
+_CLEAN_ROOM_ASK = re.compile(
+    r"""(?ix)
+    \b(?:reverse\s+engineer|reverse-engineer|clean\s+room|clean-room|rebuild\s+feature|reconstruct|rea\s+loop|oracle\s+rebuild)\b
+    """
+)
+
 _DESKTOP_GUI_ASK = re.compile(
     r"""(?ix)
     \b(?:
@@ -295,6 +317,14 @@ _DESKTOP_GUI_ASK = re.compile(
         desktop\s+daemon |
         daemon\s+status
     )\b
+    """
+)
+
+_FOLDER_FS_ASK = re.compile(
+    r"""(?ix)
+    \b(?:create|make|new|mkdir|build)\s+(?:a\s+)?(?:new\s+)?(?:folder|directory|dir)\b
+    | \b(?:folder\s+named|named\s+["'].+?["']\s+on\s+(?:the\s+)?(?:local\s*)?[a-z]:?|drive|laptop)\b
+    | \b(?:create|make)\s+(?:a\s+)?(?:new\s+)?folder\b
     """
 )
 
@@ -341,6 +371,8 @@ class ToolSanction:
     resolved: set[str] = field(default_factory=set)
     abort: bool = False
     explicit: bool = False
+    request_contract: dict[str, Any] | None = None
+    document_formats: set[str] = field(default_factory=set)
 
     def permits(self, tool_name: str) -> bool:
         return tool_name in self.allowed
@@ -586,6 +618,10 @@ def _slash_parameters(tool: str, args: str, now: datetime, verb: str = "") -> di
         return {"prompt": extract_image_subject(args) or args, "count": requested_count(args)}
     if tool == "design_website":
         return {"brief": args}
+    if tool == "html_anime_generate":
+        return {"logline": args}
+    if tool == "mobile_run_task":
+        return {"task": args}
     if tool == "reminder.create":
         when, at_phrase = _parse_when(args, now)
         title = _reminder_title(args, at_phrase)
@@ -610,10 +646,47 @@ def _slash_parameters(tool: str, args: str, now: datetime, verb: str = "") -> di
         elif verb == "daemon":
             return {"action": "daemon_status"}
         return {"action": "open_application", "target": args}
+    if tool == "customgpt_query":
+        return {"query": args}
     return {}
 
 
 def sanction_tools(
+    text: str,
+    *,
+    now: datetime | None = None,
+    known_subjects: Iterable[str] = (),
+) -> ToolSanction:
+    from .request_contract import interpret_request
+
+    contract = interpret_request(text)
+    # Keep established routing for other tool families; document/image authority
+    # is evaluated per clause so one negation cannot erase another work order.
+    special = bool(re.search(r'\b(?:pdf|docx|documents?|reports?|illustration|images?|pictures?)\b', text, re.I))
+    if not special or SLASH_COMMAND.match(text):
+        return _sanction_single(text, now=now, known_subjects=known_subjects)
+    combined = ToolSanction(request_contract=contract.model_dump())
+    for clause in contract.clauses:
+        if clause.mode == 'cancel':
+            combined.abort = True
+            combined.allowed.clear()
+            combined.parameters.clear()
+            return combined
+        if clause.mode != 'execute':
+            continue
+        result = _sanction_single(clause.text, now=now, known_subjects=known_subjects)
+        combined.document_formats.update(set(clause.deliverables) & {'pdf', 'docx', 'pptx'})
+        combined.allowed.update(result.allowed)
+        combined.parameters.update(result.parameters)
+        combined.resolved.update(result.resolved)
+        # A requested illustration is an authorized asset of the report.
+        if result.allowed & _DOCUMENT_FAMILY and re.search(r'\bwith\s+(?:an?\s+)?illustration\b', clause.text, re.I):
+            combined.allowed.add('image_generate')
+            combined.parameters['image_generate'] = {'prompt': clause.text, 'count': 1}
+    return combined
+
+
+def _sanction_single(
     text: str,
     *,
     now: datetime | None = None,
@@ -651,6 +724,11 @@ def sanction_tools(
             "website": "design_website",
             "webpage": "design_website",
             "landing": "design_website",
+            "anime": "html_anime_generate",
+            "htmlanime": "html_anime_generate",
+            "mobile": "mobile_run_task",
+            "android": "mobile_run_task",
+            "phone": "mobile_run_task",
             "remind": "reminder.create",
             "play": "youtube_playback_request",
             "music": "youtube_playback_request",
@@ -658,12 +736,19 @@ def sanction_tools(
             "browse": "browser_navigate",
             "browser": "browser_execute_task",
             "cloudbrowser": "browser_cloud_agent",
+            "browseruse": "browser_cloud_agent",
+            "browser_use": "browser_cloud_agent",
             "app": "computer_operator",
             "open": "computer_operator",
             "click": "computer_operator",
             "mouse": "computer_operator",
             "screenshot": "computer_operator",
             "daemon": "computer_operator",
+            "customgpt": "customgpt_query",
+            "custom_gpt": "customgpt_query",
+            "rag": "customgpt_query",
+            "kb": "customgpt_query",
+            "enterprise": "customgpt_query",
         }
         tool = mapping.get(verb)
         if tool in _DOCUMENT_FAMILY:
@@ -748,6 +833,16 @@ def sanction_tools(
             }
         return sanction
 
+    if _HTML_ANIME.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("html_anime_generate")
+        sanction.parameters["html_anime_generate"] = {"logline": raw}
+        return sanction
+
+    if _MOBILE_TASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("mobile_run_task")
+        sanction.parameters["mobile_run_task"] = {"task": raw}
+        return sanction
+
     if _CODE_WORK_ASK.search(lowered) and not ABORT.search(lowered):
         # "fix the bug in auth.py" / "create a snake game in snake.py" — the file
         # he named is the target, his sentence is the task, and the coding agent
@@ -761,6 +856,10 @@ def sanction_tools(
                 "task": raw,
                 "file_path": path_match.group(0).replace("\\", "/"),
             }
+        return sanction
+
+    if _CLEAN_ROOM_ASK.search(lowered) and not ABORT.search(lowered):
+        sanction.allowed.add("clean_room_loop")
         return sanction
 
     if _VARIANT_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -802,13 +901,22 @@ def sanction_tools(
         }
         return sanction
 
+    if _FOLDER_FS_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("computer_operator")
+        sanction.parameters["computer_operator"] = {
+            "action": "create_folder",
+            "target": raw,
+        }
+        return sanction
+
     pure_visual = bool(re.search(rf"(?ix) \b{VISUAL_VERBS} \b", lowered))
     named_subject = (
         bool(_VISUAL_LEAD.match(lowered))
         and not _TEXT_DELIVERABLE.search(lowered)
+        and not _FOLDER_FS_ASK.search(lowered)
         and _names_known_subject(lowered, known_subjects)
     )
-    if (has_image_noun and generate_verb) or pure_visual or named_subject:
+    if ((has_image_noun and generate_verb) or pure_visual or named_subject) and not _FOLDER_FS_ASK.search(lowered):
         if not META_FRAMING.search(lowered) and not _CAPABILITY_INQUIRY.search(lowered):
             subject = extract_image_subject(raw)
             if subject:
@@ -850,9 +958,14 @@ def sanction_tools(
         sanction.parameters["computer_operator"] = {"action": "youtube_play", "target": query}
         return sanction
 
-    if _WEB.search(lowered) and not META_FRAMING.search(lowered):
-        sanction.allowed.add("web_search")
-        sanction.parameters["web_search"] = {}
+    _CUSTOMGPT_ASK = re.compile(
+        r"(?i)\b(?:customgpt|custom\s*gpt|knowledge\s*base|enterprise\s*docs?|enterprise\s*knowledge|ask\s*(?:the\s*)?(?:customgpt|rag|knowledge\s*base)|query\s*(?:the\s*)?(?:customgpt|rag|kb))\b"
+    )
+    if (_CUSTOMGPT_ASK.search(lowered) or re.search(r"^(?:@customgpt|@rag|@kb)\b", lowered)) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("customgpt_query")
+        clean_q = re.sub(r"(?i)^(?:@customgpt|@rag|@kb)\s*", "", raw)
+        clean_q = re.sub(r"(?i)\b(?:ask|query|check|search|in|on|using|with)\s+(?:the\s+)?(?:customgpt|custom\s*gpt|rag|kb|knowledge\s*base)\b", "", clean_q).strip(" :?!,")
+        sanction.parameters["customgpt_query"] = {"query": clean_q or raw}
         return sanction
 
     if _BROWSER_TASK_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -884,6 +997,15 @@ def sanction_tools(
             clean_url = "https://" + clean_url
         sanction.parameters["browser_navigate"] = {"url": clean_url}
         sanction.parameters["browser_execute_task"] = {"goal": raw}
+        sanction.parameters["browser_cloud_agent"] = {
+            "task": raw,
+            "startUrl": clean_url if clean_url.startswith("http") else None,
+        }
+        return sanction
+
+    if _WEB.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("web_search")
+        sanction.parameters["web_search"] = {}
         return sanction
 
     if _UI_ASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -991,6 +1113,17 @@ def page_will_be_built(
     return all(authorized.get(key) for key in SELF_SPECIFIED["design_website"])
 
 
+def anime_will_be_built(
+    text: str,
+    *,
+    now: datetime | None = None,
+    known_subjects: Iterable[str] = (),
+) -> bool:
+    """True when his own words commit this turn to generating an HTML anime animation."""
+    sanction = sanction_tools(text, now=now, known_subjects=known_subjects)
+    return "html_anime_generate" in sanction.allowed
+
+
 def document_will_be_built(
     text: str,
     *,
@@ -1041,7 +1174,10 @@ def gate_tool_requests(
         if name not in sanction.allowed:
             dropped.append(name)
             continue
-        if name in _DOCUMENT_FAMILY and _any_kept(kept, _DOCUMENT_FAMILY):
+        def document_format(call):
+            return 'pdf' if call.toolName == 'pdf_generate' else (call.parameters.get('format') or ('pptx' if call.toolName == 'create_gamma_presentation' else 'docx'))
+
+        if name in _DOCUMENT_FAMILY and _any_kept(kept, _DOCUMENT_FAMILY) and (len(sanction.document_formats) <= 1 or any(document_format(call) == document_format(req) for call in kept if call.toolName in _DOCUMENT_FAMILY)):
             # Either builder answers the one ask. The action runs, so the extra
             # copy is skipped without telling him a request was refused.
             continue
@@ -1097,6 +1233,16 @@ def gate_tool_requests(
                 reason="deterministic-intent",
             )
         )
+
+    # Retain separately requested file formats rather than collapsing the whole
+    # document family to one output. Reuse grounded content, never invent a body.
+    document_calls = [call for call in kept if call.toolName in _DOCUMENT_FAMILY]
+    if document_calls and len(sanction.document_formats) > 1:
+        present = {document_format(call) for call in document_calls}
+        for fmt in sorted(sanction.document_formats - present):
+            parameters = dict(document_calls[0].parameters)
+            parameters['format'] = fmt
+            kept.append(ToolRequest(toolName='pdf_generate' if fmt == 'pdf' else 'document_generate', parameters=parameters, reason='requested-deliverable'))
 
     # Two different facts get conflated above: a call he never asked for, and a
     # planned copy the gate did not need because the same action already runs.

@@ -127,30 +127,44 @@ describe("research sources on a phone", () => {
 });
 
 describe("document download card", () => {
-  it("reports only the size the server actually measured", () => {
+  const downloadBytes = new TextEncoder().encode('%PDF-1.7 fixture');
+  let validation: Record<string, unknown>;
+  beforeEach(async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(downloadBytes));
+    validation = { validationStatus: 'validated', fileSizeBytes: downloadBytes.length,
+      sha256: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', downloadBytes)), b => b.toString(16).padStart(2, '0')).join('') };
+  });
+  it('accepts the actual HTTP tool execution envelope', async () => {
+    render(<GenericResultRenderer toolName="pdf_generate" result={{ status: 'success', data: {
+      toolId: 'pdf_generate', status: 'success', data: { ...validation, filename: 'study.pdf', title: 'Study plan', downloadUrl: '/api/v1/generated-docs/test' },
+    } }} />);
+    await waitFor(() => expect(screen.getByRole('link', { name: /download pdf/i })).toBeInTheDocument());
+  });
+  it("reports only the size the server actually measured", async () => {
     const { rerender } = render(
       <GenericResultRenderer
         toolName="pdf_generate"
-        result={{ title: "Field Report", filename: "report.pdf", downloadUrl: "/api/v1/generated-docs/D1", pageCount: 7, fileSizeKb: 248 }}
+        result={{ ...validation, title: "Field Report", filename: "report.pdf", downloadUrl: "/api/v1/generated-docs/D1", pageCount: 7, fileSizeKb: 248 }}
       />,
     );
-    expect(screen.getByText("248 KB")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("248 KB")).toBeInTheDocument());
 
     rerender(
       <GenericResultRenderer
         toolName="pdf_generate"
-        result={{ title: "Field Report", filename: "report.pdf", downloadUrl: "/api/v1/generated-docs/D1" }}
+        result={{ ...validation, title: "Field Report", filename: "report.pdf", downloadUrl: "/api/v1/generated-docs/D1" }}
       />,
     );
     expect(screen.queryByText(/KB$/)).not.toBeInTheDocument();
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
   });
 
-  it("states where the body came from without claiming an interpreter ran", () => {
+  it("states where the body came from without claiming an interpreter ran", async () => {
     render(
       <GenericResultRenderer
         toolName="pdf_generate"
         result={{
+          ...validation,
           title: "Field Report",
           filename: "report.pdf",
           downloadUrl: "/api/v1/generated-docs/D1",
@@ -160,7 +174,7 @@ describe("document download card", () => {
       />,
     );
 
-    expect(screen.getByText("Body: live research")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Body: live research")).toBeInTheDocument());
     expect(screen.queryByText(/code interpreter \(\d+ pages generated\)/i)).not.toBeInTheDocument();
     expect(screen.getByText(/no code interpreter ran/i)).toBeInTheDocument();
   });

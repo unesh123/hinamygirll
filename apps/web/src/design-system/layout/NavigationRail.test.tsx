@@ -9,7 +9,7 @@ function stubCapabilities(handler: (url: string) => Promise<Response>): void {
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes(CAPABILITIES_URL)) return handler(url);
+      if (url.includes("capabilities")) return handler(url);
       return Promise.resolve(
         new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } })
       );

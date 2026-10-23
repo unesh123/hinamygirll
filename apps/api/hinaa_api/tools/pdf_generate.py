@@ -1060,6 +1060,17 @@ async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> di
         explicit_cover = getattr(params, "include_cover", None)
     req_include_cover = explicit_cover if explicit_cover is not None else (len(sections) >= 3)
 
+    try:
+        return await _render_validated_pdf(params, doc_id, resolved_topic, title, sections, provenance, safe_name, req_theme, req_include_cover)
+    except Exception:
+        logger.exception('PDF worker or validation failed')
+        return {'status': 'error', 'code': 'DOCUMENT_VALIDATION_FAILED',
+                'error': 'PDF worker failed or its output could not be validated.'}
+
+
+async def _render_validated_pdf(params, doc_id, resolved_topic, title, sections, provenance, safe_name, req_theme, req_include_cover):
+    from hinaa_api.artifacts.document_validation import validate_pdf
+
     file_path, page_count = _generate_reportlab_pdf(
         doc_id=doc_id,
         title=title,
@@ -1071,7 +1082,9 @@ async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> di
         include_cover=req_include_cover,
     )
 
-    file_size_bytes = file_path.stat().st_size
+    validation = validate_pdf(file_path)
+    page_count = validation['pageCount']
+    file_size_bytes = validation['fileSizeBytes']
     file_size_kb = round(file_size_bytes / 1024, 1)
 
     python_snippet = f"""# HINAA generated document: {safe_name}
@@ -1084,6 +1097,8 @@ async def pdf_generate_handler(params: GeneratePDFParams | dict[str, Any]) -> di
 """
 
     result = {
+        **validation,
+        'artifactId': doc_id,
         "status": "success",
         "format": "pdf",
         "mimeType": "application/pdf",

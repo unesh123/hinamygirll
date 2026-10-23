@@ -79,12 +79,12 @@ def _configured_code_backends(settings: Settings) -> list[dict[str, str]]:
     return backends
 
 
-async def _llm_text(backends: list[dict[str, str]], system: str, user: str) -> tuple[str, str]:
+async def _llm_text(backends: list[dict[str, str]], system: str, user: str, timeout: float = 120.0) -> tuple[str, str]:
     """First configured backend that answers wins; returns (text, provider label)."""
     last_error = "no LLM gateway answered"
     for backend in backends:
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     backend["url"],
                     headers={

@@ -155,6 +155,9 @@ export function useActionEngine(input: string, onClearInput?: () => void) {
     (draftToCommit?: HinaActionDraft) => {
       const draft = draftToCommit || activeDraft;
       if (!draft) return false;
+      // Also reject legacy persisted/adopted media cards. Submit the original
+      // request through chat so server authorization retains all deliverables.
+      if (draft.intent === "pdf.doc" || draft.intent === "image.job") return false;
 
       const { summary, badge } = getSummaryForDraft(draft);
       const committedItem: HinaCommittedAction = {

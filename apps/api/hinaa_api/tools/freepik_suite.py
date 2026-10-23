@@ -431,8 +431,15 @@ async def search_freepik_stock(
     return results
 
 
-def assert_no_video_generation(requested_action: str) -> None:
-    """Strictly enforces project policy banning video generation across all layers."""
+def assert_no_video_generation(requested_action: str, policy: Any = None) -> None:
+    """Enforces video capability policy gate.
+    
+    If an explicit approved policy is provided (e.g. from VideoPolicyConfig) that authorizes
+    generative video under provider approval and cost caps, the request is permitted.
+    Otherwise, default unapproved requests are safely rejected with CAPABILITY_DISABLED (403).
+    """
+    if policy is not None and getattr(policy, "allow_generative_video", False):
+        return
     if any(k in requested_action.lower() for k in ("video", "animate", "text_to_video", "image_to_video")):
         raise HinaaError(
             "CAPABILITY_DISABLED",

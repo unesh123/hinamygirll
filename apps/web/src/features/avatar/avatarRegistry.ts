@@ -8,10 +8,7 @@ export interface AvatarDefinition {
 }
 
 export const DEFAULT_COMPANION_ID = "hinaa-original";
-// URL-safe filename. The original bundled asset is named
-// "5798998195377315936 (1).vrm"; its space and parentheses made the encoded
-// request fall through Vercel's SPA rewrite and return index.html instead of
-// the model — which is why the default 3D avatar failed to load in production.
+// URL-safe filename. The default Hinaa avatar uses the beloved original model.
 export const DEFAULT_AVATAR_FILE = "/models/hinaa-original.vrm";
 
 export const AVATAR_REGISTRY: AvatarDefinition[] = [
@@ -56,6 +53,20 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     name: "Hinaa Kimono (6164)",
     description: "Traditional festive Japanese kimono avatar",
     fileUrl: "/models/model_6164.vrm",
+    companionId: "hinaa",
+  },
+  {
+    id: "hinaa-cyber",
+    name: "Hinaa Cyber (7903)",
+    description: "Futuristic sci-fi companion model",
+    fileUrl: "/models/model_7903.vrm",
+    companionId: "hinaa",
+  },
+  {
+    id: "hinaa-idol",
+    name: "Hinaa Idol (7441)",
+    description: "Pop idol stage costume avatar",
+    fileUrl: "/models/model_7441.vrm",
     companionId: "hinaa",
   },
   {

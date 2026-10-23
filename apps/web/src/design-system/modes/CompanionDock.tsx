@@ -16,6 +16,7 @@ import { AvatarPresence, type PresenceMode } from "../../components/ui/AvatarPre
 import type { AvatarPresentation } from "../../features/avatar/avatarPresentation";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY } from "../../features/avatar/avatarRegistry";
+import { HinaFloatingOverlay } from "../../features/avatar/HinaFloatingOverlay";
 import type { CompanionId, CompanionState } from "../../features/companion/types";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 
@@ -79,6 +80,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [dismissedSubtitle, setDismissedSubtitle] = useState(false);
   const [localIsWalking, setLocalIsWalking] = useState(false);
+  const [showFloatingOverlay, setShowFloatingOverlay] = useState(false);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
 
   const isWalking = propIsWalking !== undefined ? propIsWalking : localIsWalking;
@@ -110,7 +112,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
   }, [streamingText, partialTranscript]);
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel || a.id === avatarModel);
-  const currentModelName = currentAvatarDef?.name || "Hinaa (Original)";
+  const currentModelName = currentAvatarDef?.name || "Hinaa Perfect Sync (52 Blendshapes)";
 
   if (dockMode === "hidden") {
     return null;
@@ -323,7 +325,10 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
             type="button"
             aria-label="Dock Left"
             title="Dock Left"
-            onClick={() => onChangeDockMode("left")}
+            onClick={() => {
+              onChangeDockMode("left");
+              setShowFloatingOverlay(false);
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -343,8 +348,11 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
           <button
             type="button"
             aria-label="Float Companion"
-            title="Float Companion"
-            onClick={() => onChangeDockMode("floating")}
+            title="Pop-out Floating Walking Overlay / Picture-in-Picture"
+            onClick={() => {
+              onChangeDockMode("floating");
+              setShowFloatingOverlay(true);
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -353,8 +361,8 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
               height: 26,
               borderRadius: 6,
               border: "none",
-              background: dockMode === "floating" ? "var(--accent-pale, rgba(236,72,153,0.15))" : "transparent",
-              color: dockMode === "floating" ? "var(--accent, #ec4899)" : "var(--text-tertiary)",
+              background: showFloatingOverlay ? "var(--accent-pale, rgba(236,72,153,0.15))" : "transparent",
+              color: showFloatingOverlay ? "var(--accent, #ec4899)" : "var(--text-tertiary)",
               cursor: "pointer",
               transition: "all 0.15s ease",
             }}
@@ -365,7 +373,10 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
             type="button"
             aria-label="Dock Right"
             title="Dock Right"
-            onClick={() => onChangeDockMode("right")}
+            onClick={() => {
+              onChangeDockMode("right");
+              setShowFloatingOverlay(false);
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -505,6 +516,18 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
           </motion.div>
         )}
       </div>
+
+      <HinaFloatingOverlay
+        isOpen={showFloatingOverlay}
+        onClose={() => setShowFloatingOverlay(false)}
+        companionName={companionName}
+        avatarModel={avatarModel}
+        isVoiceActive={isVoiceActive}
+        onToggleVoice={onToggleVoice}
+        isWalking={isWalking}
+        onToggleWalk={toggleWalking}
+        companionState={companionState}
+      />
     </aside>
   );
 });

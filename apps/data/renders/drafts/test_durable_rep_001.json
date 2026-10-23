@@ -1,0 +1,26 @@
+{
+  "report_id": "test_durable_rep_001",
+  "title": "Durable Test Report",
+  "expected_sections": [
+    "Architecture Overview",
+    "Security Threat Model",
+    "Implementation Verification"
+  ],
+  "completed_sections": {
+    "Architecture Overview": "Content for architecture.",
+    "Security Threat Model": "Content for threat model.",
+    "Implementation Verification": "Content for verification."
+  },
+  "created_at": "2026-10-20T03:30:01.634054+00:00",
+  "updated_at": "2026-10-20T03:30:01.659451+00:00",
+  "status": "validated",
+  "max_section_chars": 5000,
+  "assembled_path": "C:\\Users\\unesh\\OneDrive\\all my cloud stroge\\Desktop\\APPS\\HINAMYGIRL\\apps\\data\\renders\\test_durable_rep_001.md",
+  "validation_receipt": {
+    "validationStatus": "validated",
+    "validatedAt": "2026-10-20T03:30:01.659113+00:00",
+    "canonicalPath": "C:\\Users\\unesh\\OneDrive\\all my cloud stroge\\Desktop\\APPS\\HINAMYGIRL\\apps\\data\\renders\\test_durable_rep_001.md",
+    "sha256": "96263b048962af5a710af2982c95a286a1af2991b8a07366f61485121891adac",
+    "fileSizeBytes": 200
+  }
+}

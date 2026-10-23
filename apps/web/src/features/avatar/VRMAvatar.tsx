@@ -387,6 +387,72 @@ function VrmRig({
     return found;
   }, [vrm]);
 
+  // World-Space Auto-Calibrator: mathematically probes arm Z/X rotation
+  // to ensure shoulders and elbows ALWAYS swing downward to the waist in 3D world space.
+  const rigCalibration = useMemo(() => {
+    const signs = { leftArmDownZ: -1, rightArmDownZ: 1, leftArmForwardX: 1, rightArmForwardX: 1 };
+    const h = vrm.humanoid;
+    if (!h) return signs;
+    const lUpper = h.getNormalizedBoneNode(VRMHumanBoneName.LeftUpperArm);
+    const lLower = h.getNormalizedBoneNode(VRMHumanBoneName.LeftLowerArm);
+    const rUpper = h.getNormalizedBoneNode(VRMHumanBoneName.RightUpperArm);
+    const rLower = h.getNormalizedBoneNode(VRMHumanBoneName.RightLowerArm);
+    const lHand = h.getNormalizedBoneNode(VRMHumanBoneName.LeftHand);
+    const rHand = h.getNormalizedBoneNode(VRMHumanBoneName.RightHand);
+    if (!lUpper || !lLower || !rUpper || !rLower) return signs;
+
+    const posA = new THREE.Vector3();
+    const posB = new THREE.Vector3();
+
+    const origLZ = lUpper.rotation.z;
+    lUpper.rotation.set(0, 0, 0.5);
+    vrm.scene.updateMatrixWorld(true);
+    lLower.getWorldPosition(posA);
+
+    lUpper.rotation.set(0, 0, -0.5);
+    vrm.scene.updateMatrixWorld(true);
+    lLower.getWorldPosition(posB);
+    signs.leftArmDownZ = posA.y < posB.y ? 1 : -1;
+    lUpper.rotation.set(0, 0, origLZ);
+
+    const origRZ = rUpper.rotation.z;
+    rUpper.rotation.set(0, 0, 0.5);
+    vrm.scene.updateMatrixWorld(true);
+    rLower.getWorldPosition(posA);
+
+    rUpper.rotation.set(0, 0, -0.5);
+    vrm.scene.updateMatrixWorld(true);
+    rLower.getWorldPosition(posB);
+    signs.rightArmDownZ = posA.y < posB.y ? 1 : -1;
+    rUpper.rotation.set(0, 0, origRZ);
+
+    if (lHand && rHand) {
+      lUpper.rotation.set(0.4, 0, signs.leftArmDownZ * 1.2);
+      vrm.scene.updateMatrixWorld(true);
+      lHand.getWorldPosition(posA);
+
+      lUpper.rotation.set(-0.4, 0, signs.leftArmDownZ * 1.2);
+      vrm.scene.updateMatrixWorld(true);
+      lHand.getWorldPosition(posB);
+      signs.leftArmForwardX = posA.z > posB.z ? 1 : -1;
+
+      rUpper.rotation.set(0.4, 0, signs.rightArmDownZ * 1.2);
+      vrm.scene.updateMatrixWorld(true);
+      rHand.getWorldPosition(posA);
+
+      rUpper.rotation.set(-0.4, 0, signs.rightArmDownZ * 1.2);
+      vrm.scene.updateMatrixWorld(true);
+      rHand.getWorldPosition(posB);
+      signs.rightArmForwardX = posA.z > posB.z ? 1 : -1;
+
+      lUpper.rotation.set(0, 0, origLZ);
+      rUpper.rotation.set(0, 0, origRZ);
+    }
+
+    vrm.scene.updateMatrixWorld(true);
+    return signs;
+  }, [vrm]);
+
   if (typeof window !== "undefined") {
     (window as any).__HINAA_DEBUG_VRM = { vrm, metrics, camera };
   }
@@ -526,14 +592,18 @@ function VrmRig({
       else if (env > 0.45) { weights.ou = env * 0.85; }
       else if (env > 0.25) { weights.ih = env * 0.70; }
       else { weights.aa = Math.max(0.08, env * 0.5); }
-      // Radiant smile corners during speech
-      weights.happy = Math.max(weights.happy, 0.42);
+      // Subtle smiling mouth without squinting eyelids shut (>_<)
+      weights.happy = Math.min(weights.happy, 0.06);
+      weights.ee = Math.max(weights.ee, isSpeaking ? 0 : 0.14);
+      weights.aa = Math.max(weights.aa, isSpeaking ? 0 : 0.04);
     } else {
-      weights.aa = 0;
+      weights.aa = isSpeaking ? 0 : 0.04;
       weights.ih = 0;
       weights.ou = 0;
-      weights.ee = 0;
+      weights.ee = isSpeaking ? 0 : 0.14;
       weights.oh = 0;
+      // Keep happy very low (0.06) so VRoid eyelids DO NOT squint shut!
+      weights.happy = Math.min(weights.happy, 0.06);
     }
 
     const manager = vrm.expressionManager;
@@ -662,7 +732,7 @@ function VrmRig({
         VRMHumanBoneName.RightFoot,
       );
 
-      const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking");
+      const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking" || input.state === "working");
       const headTarget = gestureHeadTarget(input.gesture, time, input.intensity);
       // Listening: shoulders settle — idle sway nearly stops, head gives a
       // soft attentive tilt toward you instead of random wander.
@@ -894,38 +964,38 @@ function VrmRig({
       } else {
         // Natural resting companion pose: arms relaxed alongside torso, hands resting naturally
         if (leftArm) {
-          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.08, 6, delta);
+          leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, 0.08 * rigCalibration.leftArmForwardX, 6, delta);
           leftArm.rotation.y = THREE.MathUtils.damp(leftArm.rotation.y, 0, 6, delta);
-          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, (1.22 - idleSway) * armZSign, 6, delta);
+          leftArm.rotation.z = THREE.MathUtils.damp(leftArm.rotation.z, (1.28 - idleSway) * rigCalibration.leftArmDownZ, 6, delta);
         }
         if (rightArm) {
-          rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, 0.08, 6, delta);
+          rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, 0.08 * rigCalibration.rightArmForwardX, 6, delta);
           rightArm.rotation.y = THREE.MathUtils.damp(rightArm.rotation.y, 0, 6, delta);
-          rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, (-1.22 + idleSway) * armZSign, 6, delta);
+          rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, (1.28 - idleSway) * rigCalibration.rightArmDownZ, 6, delta);
         }
         if (leftLowerArm) {
-          leftLowerArm.rotation.x = THREE.MathUtils.damp(leftLowerArm.rotation.x, 0.15, 6, delta);
-          leftLowerArm.rotation.y = THREE.MathUtils.damp(leftLowerArm.rotation.y, 0.15 * -armZSign, 6, delta);
-          leftLowerArm.rotation.z = THREE.MathUtils.damp(leftLowerArm.rotation.z, 0.1 * armZSign, 6, delta);
+          leftLowerArm.rotation.x = THREE.MathUtils.damp(leftLowerArm.rotation.x, 0.22, 6, delta);
+          leftLowerArm.rotation.y = THREE.MathUtils.damp(leftLowerArm.rotation.y, 0.15 * rigCalibration.leftArmDownZ, 6, delta);
+          leftLowerArm.rotation.z = THREE.MathUtils.damp(leftLowerArm.rotation.z, -0.12 * rigCalibration.leftArmDownZ, 6, delta);
         }
         if (rightLowerArm) {
-          rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.15, 6, delta);
-          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, -0.15 * -armZSign, 6, delta);
-          rightLowerArm.rotation.z = THREE.MathUtils.damp(rightLowerArm.rotation.z, -0.1 * armZSign, 6, delta);
+          rightLowerArm.rotation.x = THREE.MathUtils.damp(rightLowerArm.rotation.x, 0.22, 6, delta);
+          rightLowerArm.rotation.y = THREE.MathUtils.damp(rightLowerArm.rotation.y, 0.15 * rigCalibration.rightArmDownZ, 6, delta);
+          rightLowerArm.rotation.z = THREE.MathUtils.damp(rightLowerArm.rotation.z, -0.12 * rigCalibration.rightArmDownZ, 6, delta);
         }
         if (leftHand) {
-          leftHand.rotation.x = THREE.MathUtils.damp(leftHand.rotation.x, 0, 6, delta);
-          leftHand.rotation.y = THREE.MathUtils.damp(leftHand.rotation.y, 0, 6, delta);
-          leftHand.rotation.z = THREE.MathUtils.damp(leftHand.rotation.z, 0, 6, delta);
+          leftHand.rotation.x = THREE.MathUtils.damp(leftHand.rotation.x, 0.04, 6, delta);
+          leftHand.rotation.y = THREE.MathUtils.damp(leftHand.rotation.y, 0.05 * rigCalibration.leftArmDownZ, 6, delta);
+          leftHand.rotation.z = THREE.MathUtils.damp(leftHand.rotation.z, -0.05 * rigCalibration.leftArmDownZ, 6, delta);
         }
         if (rightHand) {
-          rightHand.rotation.x = THREE.MathUtils.damp(rightHand.rotation.x, 0, 6, delta);
-          rightHand.rotation.y = THREE.MathUtils.damp(rightHand.rotation.y, 0, 6, delta);
-          rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, 0, 6, delta);
+          rightHand.rotation.x = THREE.MathUtils.damp(rightHand.rotation.x, 0.04, 6, delta);
+          rightHand.rotation.y = THREE.MathUtils.damp(rightHand.rotation.y, -0.05 * rigCalibration.rightArmDownZ, 6, delta);
+          rightHand.rotation.z = THREE.MathUtils.damp(rightHand.rotation.z, 0.05 * rigCalibration.rightArmDownZ, 6, delta);
         }
       }
 
-      // Anatomical finger kinematics for all 30 phalanges
+      // Anatomical finger kinematics for all 30 phalanges (anatomically verified flexion toward palm)
       for (const fName of ALL_FINGER_BONES) {
         const fNode = humanoid.getNormalizedBoneNode(fName)
           ?? (fName === VRMHumanBoneName.LeftThumbMetacarpal ? humanoid.getNormalizedBoneNode("leftThumbProximal" as any) : null)
@@ -935,35 +1005,76 @@ function VrmRig({
         if (!fNode) continue;
 
         const isLeft = fName.startsWith("left");
-        const sign = (isLeft ? 1 : -1) * (isVrm1 ? -1 : 1);
+        // In normalized VRM space:
+        // Left hand extends along +X. Rotating around Z with negative angle curls fingers toward the palm (-Y).
+        // Right hand extends along -X. Rotating around Z with positive angle curls fingers toward the palm (-Y).
+        const curlSign = isLeft ? -1 : 1;
         const isThumb = fName.includes("Thumb");
         const isIndex = fName.includes("Index");
         const isMiddle = fName.includes("Middle");
         const isRing = fName.includes("Ring");
         const isLittle = fName.includes("Little");
 
-        const isProximal = fName.endsWith("Proximal") || fName.endsWith("Metacarpal");
+        const isMetacarpal = fName.endsWith("Metacarpal");
+        const isProximal = fName.endsWith("Proximal");
         const isIntermediate = fName.endsWith("Intermediate");
+        const isDistal = fName.endsWith("Distal");
 
-        const jointMult = isProximal ? 0.38 : isIntermediate ? 0.42 : 0.20;
-        const baseCurl = isIndex ? 0.22 : isMiddle ? 0.28 : isRing ? 0.34 : isLittle ? 0.40 : 0.18;
+        // Natural joint flex distribution: intermediate (PIP) flexes most, proximal (knuckle) moderately, distal (DIP) gently
+        const jointMult = isProximal ? 0.32 : isIntermediate ? 0.48 : isDistal ? 0.20 : 0.15;
+        // Natural resting cascade: index is least curved, pinky curves most toward palm
+        let baseCurl = isIndex ? 0.20 : isMiddle ? 0.24 : isRing ? 0.28 : isLittle ? 0.32 : 0.18;
 
-        const openModifier = isSpeaking ? (isLeft ? 0.08 : 0.14) * Math.max(0, Math.sin(time * 2.0)) : 0;
-        const phase = isIndex ? 0.3 : isMiddle ? 0.7 : isRing ? 1.1 : isLittle ? 1.5 : 0.1;
-        const microFlutter = Math.sin(time * 2.1 + phase) * 0.022 + Math.sin(time * 0.8 + phase * 2) * 0.015;
+        // Dynamic gesture overrides
+        if (input.gesture === "point" && !isLeft) {
+          // Right hand pointing: index extended, other fingers curled softly
+          if (isIndex) {
+            baseCurl = 0.02;
+          } else if (!isThumb) {
+            baseCurl = 0.50;
+          }
+        } else if (input.gesture === "wave") {
+          // Open fanned fingers during wave
+          baseCurl = 0.10;
+        }
+
+        const openModifier = isSpeaking ? (isLeft ? 0.05 : 0.08) * Math.max(0, Math.sin(time * 2.2)) : 0;
+        const phase = isIndex ? 0.3 : isMiddle ? 0.7 : isRing ? 1.1 : isLittle ? 1.5 : 0.2;
+        const microFlutter = Math.sin(time * 2.1 + phase) * 0.012;
 
         if (isThumb) {
-          const thumbCurl = Math.max(0.05, Math.min(0.8, (baseCurl - openModifier * 0.5 + microFlutter) * jointMult));
-          fNode.rotation.x = THREE.MathUtils.damp(fNode.rotation.x, -thumbCurl * 0.6, 10, delta);
-          fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, -sign * thumbCurl * 0.8, 10, delta);
-          fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, sign * thumbCurl * 0.3, 10, delta);
+          // Natural thumb opposition & soft curvature (never invert or twist joints)
+          const thumbCurl = Math.max(0.04, Math.min(0.35, baseCurl * 0.7 - openModifier * 0.3 + microFlutter));
+          if (isMetacarpal) {
+            fNode.rotation.x = THREE.MathUtils.damp(fNode.rotation.x, 0.03, 10, delta);
+            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, curlSign * 0.10, 10, delta);
+            fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, curlSign * -0.06, 10, delta);
+          } else if (isProximal) {
+            fNode.rotation.x = THREE.MathUtils.damp(fNode.rotation.x, 0.02, 10, delta);
+            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, curlSign * 0.06, 10, delta);
+            fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, curlSign * -(thumbCurl * 0.8), 10, delta);
+          } else {
+            fNode.rotation.x = THREE.MathUtils.damp(fNode.rotation.x, 0, 10, delta);
+            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, 0, 10, delta);
+            fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, curlSign * -(thumbCurl * 0.5), 10, delta);
+          }
         } else {
-          const totalCurl = Math.max(0.04, Math.min(1.2, (baseCurl - openModifier + microFlutter) * jointMult));
-          fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, sign * totalCurl, 10, delta);
-          if (isIndex) {
-            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, sign * (0.04 + openModifier * 0.06), 10, delta);
-          } else if (isLittle) {
-            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, -sign * (0.05 + openModifier * 0.08), 10, delta);
+          // 4 Fingers: natural flexion toward palm
+          const totalCurl = Math.max(0.02, Math.min(0.65, (baseCurl - openModifier + microFlutter) * jointMult));
+          fNode.rotation.x = THREE.MathUtils.damp(fNode.rotation.x, 0, 10, delta);
+          fNode.rotation.z = THREE.MathUtils.damp(fNode.rotation.z, curlSign * totalCurl, 10, delta);
+
+          // Subtle anatomical splay (fanning outward)
+          if (isProximal) {
+            if (isIndex) {
+              fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, curlSign * -0.035, 10, delta);
+            } else if (isLittle) {
+              fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, curlSign * 0.035, 10, delta);
+            } else {
+              fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, 0, 10, delta);
+            }
+          } else {
+            fNode.rotation.y = THREE.MathUtils.damp(fNode.rotation.y, 0, 10, delta);
           }
         }
       }
@@ -979,16 +1090,16 @@ function VrmRig({
       }
 
       if (isWalking) {
-        // Natural human walking cadence ~3.6 rad/s
-        const walkSpeed = 3.6;
+        // High-speed energetic walking cadence ~5.4 rad/s (like Zev / high-speed companion gait)
+        const walkSpeed = input.state === "working" ? 4.8 : 5.4;
         walkPhaseRef.current = (walkPhaseRef.current + delta * walkSpeed) % (Math.PI * 2);
         const phase = walkPhaseRef.current;
         const walkStride = -Math.sin(phase);
 
-        // Roam laterally across floor / runway
-        const roamStep = 0.12 * walkDirectionRef.current * delta;
+        // Roam dynamically across floor / stage with agile swiftness
+        const roamStep = 0.32 * walkDirectionRef.current * delta;
         walkRoamXRef.current += roamStep;
-        const maxRoam = 0.28;
+        const maxRoam = 0.48;
         if (walkRoamXRef.current > maxRoam) {
           walkRoamXRef.current = maxRoam;
           walkDirectionRef.current = -1;
@@ -996,8 +1107,8 @@ function VrmRig({
           walkRoamXRef.current = -maxRoam;
           walkDirectionRef.current = 1;
         }
-        const targetYaw = walkDirectionRef.current > 0 ? 0.22 : -0.22;
-        walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, targetYaw, 5, delta);
+        const targetYaw = walkDirectionRef.current > 0 ? 0.28 : -0.28;
+        walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, targetYaw, 8, delta);
 
         // Pelvis / Hips dynamics (graceful runway lemniscate sway, vertical bob, forward pitch)
         const hipBob = Math.sin(phase * 2) * 0.022;
@@ -1228,7 +1339,7 @@ function VrmRig({
           const shadowX = avatarGroupRef.current ? avatarGroupRef.current.position.x : baseX + walkRoamXRef.current;
           const shadowZ = avatarGroupRef.current ? avatarGroupRef.current.position.z : baseZ;
           shadowMeshRef.current.position.set(shadowX, groundY + 0.003, shadowZ);
-          const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking");
+          const isWalking = Boolean(input.walkMode || input.gesture === "walk" || input.state === "walking" || input.state === "working");
           const strideBob = isWalking ? 1.0 + Math.abs(Math.sin(walkPhaseRef.current)) * 0.12 : 1.0;
           shadowMeshRef.current.scale.set(strideBob, strideBob, 1);
         }
@@ -1456,6 +1567,18 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
     props.walkMode,
   ]);
 
+  function CanvasContextTeardown() {
+    const { gl } = useThree();
+    useEffect(() => {
+      return () => {
+        try {
+          gl.dispose();
+        } catch {}
+      };
+    }, [gl]);
+    return null;
+  }
+
   return (
     <div
       className="vrm-stage"
@@ -1476,22 +1599,28 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
           <Canvas
             key={glContextLost ? "conservative" : "full"}
             className="vrm-canvas"
-            dpr={glContextLost || props.lowPerformance ? 1 : [1, Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 1.35)]}
+            dpr={1}
             gl={{
-              antialias: !glContextLost,
+              antialias: false,
               alpha: true,
-              powerPreference: glContextLost ? "low-power" : "high-performance",
+              powerPreference: "default",
               stencil: false,
               depth: true,
+            }}
+            onCreated={({ gl }) => {
+              gl.outputColorSpace = THREE.SRGBColorSpace;
+              gl.toneMapping = THREE.ACESFilmicToneMapping;
+              gl.toneMappingExposure = 0.95;
             }}
             camera={{
               position: [0, 1.45, 0.88],
               fov: (props.walkMode && !props.closeUp) ? 42 : ((props.closeUp ?? true) ? 32 : 38),
             }}
           >
-            <ambientLight intensity={0.75} />
-            <directionalLight position={[1.5, 2.5, 2]} intensity={1.1} />
-            <directionalLight position={[-2, 1, -1]} intensity={0.25} />
+            <CanvasContextTeardown />
+            <ambientLight color="#fff5fa" intensity={0.65} />
+            <directionalLight position={[0.8, 1.8, 1.5]} color="#fff8f5" intensity={1.05} />
+            <directionalLight position={[-1.2, 1.6, -1.2]} color="#d8b4fe" intensity={0.55} />
             <ContextLossGuard onLost={handleContextLost} />
             <ModelErrorBoundary key={modelUrl} onError={handleModelError}>
               <VrmModel

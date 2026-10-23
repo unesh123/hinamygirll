@@ -1770,6 +1770,7 @@ class ConversationService:
         self.memory = SessionMemory(settings.session_limit, settings.session_turn_limit)
         self.memory_service = memory_service
         self.task_service = task_service
+        self._session_factory = session_factory
         self.dialogue_state_service = kwargs.get("dialogue_state_service") or (getattr(memory_service, "dialogue_state_service", None) if memory_service else None)
         if self.dialogue_state_service is None and session_factory is not None:
             from hinaa_api.dialogue_state import DialogueStateService
@@ -1807,6 +1808,8 @@ class ConversationService:
             max_tokens=getattr(settings, "session_history_char_limit", 32_000) // 4,
             model_context_limit=getattr(settings, "llm_context_limit", 131_072),
         )
+        from .harness.compaction_worker import CompactionWorker
+        self.compaction_worker = CompactionWorker(token_pressure_threshold=0.75)
         # Ring buffer of recent manifests for the developer inspector (§37).
         from collections import deque
         self._context_manifests: deque[dict[str, Any]] = deque(maxlen=50)
@@ -2240,6 +2243,42 @@ class ConversationService:
         
         # Detect artifact follow-up questions (e.g., "where is the pdf file?")
         self._detect_artifact_lookup(plain_text, plan)
+
+        # Deterministic OS / Computer Operator Action Injection
+        if not any(t.toolName == "computer_operator" for t in plan.toolRequests):
+            from .tools.intent_gate import sanction_tools
+            sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
+            if sanction.allowed and "computer_operator" in sanction.allowed:
+                params = sanction.parameters.get("computer_operator", {})
+                if not params:
+                    params = {"action": "create_folder", "target": plain_text}
+                plan.toolRequests.append(ToolRequest(
+                    toolName="computer_operator",
+                    parameters=params,
+                    status="ready",
+                    reason="deterministic-intent",
+                ))
+
+        # Deterministic Autonomous Browser Task / Navigation Injection
+        if not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in plan.toolRequests):
+            from .tools.intent_gate import sanction_tools
+            sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
+            if sanction.allowed and "browser_execute_task" in sanction.allowed:
+                b_params = sanction.parameters.get("browser_execute_task", {"goal": plain_text})
+                plan.toolRequests.append(ToolRequest(
+                    toolName="browser_execute_task",
+                    parameters=b_params,
+                    status="ready",
+                    reason="deterministic-browser-intent",
+                ))
+            elif sanction.allowed and "browser_navigate" in sanction.allowed:
+                b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
+                plan.toolRequests.append(ToolRequest(
+                    toolName="browser_navigate",
+                    parameters=b_params,
+                    status="ready",
+                    reason="deterministic-browser-intent",
+                ))
 
         # Forward any turn attachments and image engine to image-related tool requests
         if turn_request:
@@ -3107,6 +3146,66 @@ class ConversationService:
                 toolName="web_search",
                 parameters={"query": prompt_str or text},
             ))
+
+    def _resolve_session_history(
+        self,
+        session_id: str | None,
+        conversation_id: str | None,
+        limit: int = 20,
+    ) -> list[tuple[str, str]]:
+        """Retrieve conversational history, falling back to persistent database when memory cache is cold.
+        This guarantees zero session amnesia across reconnects or tab reloads."""
+        if session_id:
+            try:
+                self.memory.compact_if_needed(session_id, threshold_ratio=0.75)
+            except Exception:
+                pass
+            cached = list(self.memory.context(session_id))
+            if cached:
+                return cached
+
+        cid = conversation_id or session_id
+        if not cid:
+            return []
+
+        factory = (
+            getattr(self, "_session_factory", None)
+            or (self.memory_service._factory if self.memory_service else None)
+            or getattr(self, "session_factory", None)
+        )
+        if factory:
+            try:
+                from sqlalchemy import select
+                from .persistence.orm import Message
+                with factory() as db_session:
+                    msgs = db_session.scalars(
+                        select(Message)
+                        .where(
+                            Message.conversation_id == cid,
+                            Message.deleted_at.is_(None),
+                        )
+                        .order_by(Message.created_at.desc())
+                        .limit(limit * 2)
+                    ).all()
+                    msgs.reverse()
+                    turns: list[tuple[str, str]] = []
+                    curr_user: str | None = None
+                    for m in msgs:
+                        if m.role == "user":
+                            curr_user = m.content
+                        elif m.role == "assistant" and curr_user is not None:
+                            turns.append((curr_user, m.content))
+                            curr_user = None
+
+                    if turns and session_id:
+                        mem_bucket = self.memory._sessions.setdefault(session_id, [])
+                        for u, a in turns:
+                            if (u, a) not in mem_bucket:
+                                mem_bucket.append((u, a))
+                    return turns
+            except Exception:
+                logger.debug("Failed to hydrate conversation history from db for %s", cid, exc_info=True)
+        return []
 
     def _turn_tool_whitelist(
         self,
@@ -4420,7 +4519,7 @@ class ConversationService:
         dialogue_state_block = ""
         live_search_block = ""
 
-        session_history = self.memory.context(request.sessionId) if request.sessionId else []
+        session_history = self._resolve_session_history(request.sessionId, request.conversationId)
 
         # Gate First: evaluate intent before running LLM or routing
         from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
@@ -4709,7 +4808,7 @@ class ConversationService:
                 pass
 
         durable_memory = self._capture_turn_facts(request, user_id)
-        history = self.memory.context(request.sessionId)
+        history = self._resolve_session_history(request.sessionId, request.conversationId)
         approved = self._approved_blocks(user_id)
         session_memories = _dedupe_session_facts(
             self.memory.learned_memories(request.sessionId), approved
@@ -4730,9 +4829,12 @@ class ConversationService:
         rag_context_block = ""
         if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
             try:
-                rag_context_block = self.rag_service.format_context_block(request.text, top_k=3)
+                rag_context_block = await self.rag_service.resolve_grounded_context(request.text, top_k=3)
             except Exception:
-                logger.debug("RAG context formatting failed in create_plan", exc_info=True)
+                try:
+                    rag_context_block = self.rag_service.format_context_block(request.text, top_k=3)
+                except Exception:
+                    logger.debug("RAG context formatting failed in create_plan", exc_info=True)
 
         from .prompts.skill_doctrine import doctrine_for_turn
         skill_doctrine_block = doctrine_for_turn(
@@ -4792,6 +4894,7 @@ class ConversationService:
         if not primary_bench_cooloff and self._primary_probing(request.providerMode):
             primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
+        fast_provider_id = None
 
         try:
             if primary_bench_cooloff:
@@ -5025,7 +5128,7 @@ class ConversationService:
             ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
                 prompt_to_use = gate_decision.arguments.get("prompt") or request.text
                 if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
-                    session_history = self.memory.context(request.sessionId) if request.sessionId else []
+                    session_history = self._resolve_session_history(request.sessionId, request.conversationId)
                     from hinaa_intent_gate import _check_image_proposal
                     is_img, pending_prompt = _check_image_proposal(session_history)
                     if pending_prompt and pending_prompt not in {"image", "it", "this"}:
@@ -5166,6 +5269,75 @@ class ConversationService:
                     result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
                     result.value.spokenText = f"Switching your workspace to {target_desc} now."
 
+            # Deterministic Computer Operator / OS Action Guarantee
+            if (
+                "computer_operator" in allowed_tools
+            ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                cop_params = sanction.parameters.get("computer_operator", {})
+                if not cop_params:
+                    cop_params = {"action": "create_folder", "target": request.text}
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="computer_operator",
+                        parameters=cop_params,
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+
+            if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")
+                cop_act = cop_req.parameters.get("action", "")
+                cop_tgt = cop_req.parameters.get("target", "")
+                cop_refusal_patterns = ("cannot create", "can't create", "don't have access to your", "as an ai", "unable to create", "cannot open app", "unable to open", "cannot control", "don't have permission")
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in cop_refusal_patterns):
+                    if cop_act == "create_folder":
+                        result.value.displayText = "I'm creating that folder on your computer for you right now! 📁✨"
+                        result.value.spokenText = "Creating that folder on your computer now!"
+                    elif cop_act in ("open_application", "open_app"):
+                        result.value.displayText = f"Opening {cop_tgt or 'application'} on your computer! 🚀"
+                        result.value.spokenText = f"Opening {cop_tgt or 'application'} for you now!"
+
+            # Deterministic Autonomous Browser Action Guarantee
+            if (
+                "browser_execute_task" in allowed_tools
+                or "browser_navigate" in allowed_tools
+            ) and not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                if "browser_execute_task" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_execute_task", {"goal": request.text})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_execute_task",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+                elif "browser_navigate" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_navigate",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+
+            if any(t.toolName in {"browser_execute_task", "browser_navigate"} for t in result.value.toolRequests):
+                browser_refusal_patterns = (
+                    "cannot browse", "can't browse", "don't have access to the web", "don't have internet",
+                    "as an ai", "unable to browse", "cannot open websites", "unable to navigate",
+                    "don't have a web browser", "cannot interact with websites"
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in browser_refusal_patterns):
+                    result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
+                    result.value.spokenText = "Launching autonomous browser agent now!"
+
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
             ]
@@ -5230,7 +5402,7 @@ class ConversationService:
         dialogue_state_block = ""
         live_search_block = ""
 
-        session_history = self.memory.context(request.sessionId) if request.sessionId else []
+        session_history = self._resolve_session_history(request.sessionId, request.conversationId)
 
         # Gate First: evaluate intent before running LLM or routing
         from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
@@ -5475,7 +5647,7 @@ class ConversationService:
 
         durable_memory = self._capture_turn_facts(request, user_id)
         timing = ProviderTiming()
-        history = self.memory.context(request.sessionId)
+        history = self._resolve_session_history(request.sessionId, request.conversationId)
         approved = self._approved_blocks(user_id)
         session_memories = _dedupe_session_facts(
             self.memory.learned_memories(request.sessionId), approved
@@ -5495,9 +5667,12 @@ class ConversationService:
         rag_context_block_rt = ""
         if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
             try:
-                rag_context_block_rt = self.rag_service.format_context_block(request.text, top_k=3)
+                rag_context_block_rt = await self.rag_service.resolve_grounded_context(request.text, top_k=3)
             except Exception:
-                logger.debug("Live RAG context formatting failed", exc_info=True)
+                try:
+                    rag_context_block_rt = self.rag_service.format_context_block(request.text, top_k=3)
+                except Exception:
+                    logger.debug("Live RAG context formatting failed", exc_info=True)
 
         # ``turns:stream`` carries typed chat as well as voice, so the tool-free
         # contract is keyed on the mode that is actually voice. A typed turn gets
@@ -6073,7 +6248,7 @@ class ConversationService:
             ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
                 prompt_to_use = gate_decision.arguments.get("prompt") or request.text
                 if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
-                    session_history = self.memory.context(request.sessionId) if request.sessionId else []
+                    session_history = self._resolve_session_history(request.sessionId, request.conversationId)
                     from hinaa_intent_gate import _check_image_proposal
                     is_img, pending_prompt = _check_image_proposal(session_history)
                     if pending_prompt and pending_prompt not in {"image", "it", "this"}:
@@ -6213,6 +6388,75 @@ class ConversationService:
                     target_desc = target_mode or target_drawer or target_window_mode or "requested view"
                     result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
                     result.value.spokenText = f"Switching your workspace to {target_desc} now."
+
+            # Deterministic Computer Operator / OS Action Guarantee
+            if (
+                "computer_operator" in live_allowed_tools
+            ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                cop_params = sanction.parameters.get("computer_operator", {})
+                if not cop_params:
+                    cop_params = {"action": "create_folder", "target": request.text}
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="computer_operator",
+                        parameters=cop_params,
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+
+            if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")
+                cop_act = cop_req.parameters.get("action", "")
+                cop_tgt = cop_req.parameters.get("target", "")
+                cop_refusal_patterns = ("cannot create", "can't create", "don't have access to your", "as an ai", "unable to create", "cannot open app", "unable to open", "cannot control", "don't have permission")
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in cop_refusal_patterns):
+                    if cop_act == "create_folder":
+                        result.value.displayText = "I'm creating that folder on your computer for you right now! 📁✨"
+                        result.value.spokenText = "Creating that folder on your computer now!"
+                    elif cop_act in ("open_application", "open_app"):
+                        result.value.displayText = f"Opening {cop_tgt or 'application'} on your computer! 🚀"
+                        result.value.spokenText = f"Opening {cop_tgt or 'application'} for you now!"
+
+            # Deterministic Autonomous Browser Action Guarantee
+            if (
+                "browser_execute_task" in live_allowed_tools
+                or "browser_navigate" in live_allowed_tools
+            ) and not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                if "browser_execute_task" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_execute_task", {"goal": request.text})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_execute_task",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+                elif "browser_navigate" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_navigate",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+
+            if any(t.toolName in {"browser_execute_task", "browser_navigate"} for t in result.value.toolRequests):
+                browser_refusal_patterns = (
+                    "cannot browse", "can't browse", "don't have access to the web", "don't have internet",
+                    "as an ai", "unable to browse", "cannot open websites", "unable to navigate",
+                    "don't have a web browser", "cannot interact with websites"
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in browser_refusal_patterns):
+                    result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
+                    result.value.spokenText = "Launching autonomous browser agent now!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools

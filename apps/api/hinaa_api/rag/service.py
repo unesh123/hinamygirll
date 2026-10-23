@@ -6,6 +6,7 @@ multi-criteria reranking (MMR), and automated prompt context compilation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -19,13 +20,15 @@ from .retrieval import HybridRetriever, RetrievalResult
 
 logger = logging.getLogger("hinaa.rag.service")
 
-# Common patterns indicating user is seeking knowledge from docs/code/specs
+# Common patterns indicating user is seeking knowledge from docs/code/specs/enterprise bases
 KNOWLEDGE_SEEKING_PATTERNS = [
     re.compile(r"\b(?:architecture|spec|specifications?|harness|sandbox|policy|security|threat model)\b", re.IGNORECASE),
     re.compile(r"\b(?:convention|code standards?|quality|invariants?|cve-2025|ghsa|mitigation)\b", re.IGNORECASE),
     re.compile(r"\b(?:repository|active-plan|decisions?|rag|retrieval|pipeline|how does .* work)\b", re.IGNORECASE),
     re.compile(r"\b(?:explain the structure|explain the codebase|what are the rules|system design)\b", re.IGNORECASE),
-    re.compile(r"^(?:@doc|@rag|@knowledge)\b", re.IGNORECASE),
+    re.compile(r"\b(?:customgpt|custom\s*gpt|knowledge\s*base|enterprise\s*docs?|documentation|manual|dataset)\b", re.IGNORECASE),
+    re.compile(r"\b(?:zero[- ]hallucination|anti[- ]hallucination|grounded\s*facts?|cite\s*source)\b", re.IGNORECASE),
+    re.compile(r"^(?:@doc|@rag|@knowledge|@customgpt|@kb)\b", re.IGNORECASE),
 ]
 
 
@@ -219,6 +222,74 @@ class RAGKnowledgeService:
             "- Ground facts in the snippets above when responding to architecture, code conventions, or security policy.",
             "- Attribute specific claims to the respective documentation source (e.g. .hina/architecture.md or [RAG-1]).",
             "- Do not hallucinate capabilities or configs that contradict the retrieved specs.",
+        ])
+
+        return "\n".join(lines)
+
+    async def resolve_grounded_context(self, query_text: str, top_k: int = 3) -> str:
+        """Asynchronously compiles multi-source grounded knowledge from repository RAG and CustomGPT enterprise agent.
+        
+        Follows the Zero-Hallucination Corrective RAG (CRAG) protocol:
+        - Evaluates local chunk confidence.
+        - Integrates enterprise CustomGPT knowledge base.
+        - Mandates [cite: ...] attribution and anti-fabrication gates.
+        """
+        results = self.query(query_text, top_k=top_k)
+        max_score = max((r.final_score for r in results), default=0.0)
+
+        customgpt_block = ""
+        has_customgpt_key = bool(
+            os.getenv("APP_CUSTOMGPT_AI_API_KEY")
+            or os.getenv("APP_COUSTOMGPT_AI_API_KEY")
+        )
+        is_customgpt_query = bool(
+            re.search(r"(?i)\b(?:customgpt|custom\s*gpt|enterprise|knowledge\s*base|demo\s*agent|specs?|documentation)\b", query_text)
+            or re.search(r"^(?:@customgpt|@rag|@kb)\b", query_text)
+            or max_score < 0.72
+        )
+
+        if has_customgpt_key and is_customgpt_query:
+            try:
+                from ..tools.customgpt import query_customgpt, CustomGPTQueryParams
+                clean_q = re.sub(r"^(?:@customgpt|@rag|@kb)\s*", "", query_text).strip()
+                cg_res = await asyncio.wait_for(
+                    query_customgpt(CustomGPTQueryParams(query=clean_q or query_text)),
+                    timeout=7.0,
+                )
+                if cg_res.get("status") == "success" and cg_res.get("answer"):
+                    p_name = cg_res.get("project_name", "Enterprise Base")
+                    cits = cg_res.get("citations", [])
+                    cit_str = f" [Citations: {', '.join(str(c) for c in cits[:3])}]" if cits else ""
+                    customgpt_block = (
+                        f"\n--- [CustomGPT Enterprise Knowledge ({p_name})]{cit_str} ---\n"
+                        f"{cg_res['answer'].strip()}\n"
+                    )
+            except Exception as exc:
+                logger.debug("CustomGPT enterprise retrieval failed or timed out: %s", exc)
+
+        if not results and not customgpt_block:
+            return ""
+
+        lines = [
+            f"RETRIEVED ENTERPRISE & REPOSITORY GROUNDING EVIDENCE ({len(results)} local chunks matched for {query_text!r}):",
+            "Use the grounded factual evidence below to formulate a strictly accurate response:",
+        ]
+
+        if customgpt_block:
+            lines.append(customgpt_block)
+
+        for idx, res in enumerate(results, 1):
+            chunk = res.result.chunk
+            source = chunk.metadata.source
+            section = f" > {chunk.metadata.section_path}" if chunk.metadata.section_path else ""
+            lines.append(f"\n--- [RAG-{idx}] Source: {source}{section} (Relevance: {res.final_score:.2f}) ---")
+            lines.append(chunk.text.strip())
+
+        lines.extend([
+            "\nZERO-HALLUCINATION & SOURCE ATTRIBUTION MANDATE:",
+            "- Ground all factual propositions in the retrieved repository documents or CustomGPT enterprise knowledge above.",
+            "- Attribute every factual claim with an inline citation tag: [cite: source_doc] or [cite: CustomGPT].",
+            "- If the retrieved evidence does not contain the answer, state clearly that it is not documented rather than guessing or fabricating.",
         ])
 
         return "\n".join(lines)

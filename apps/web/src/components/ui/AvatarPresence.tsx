@@ -41,7 +41,7 @@ import {
 } from "../../features/avatar/mouthTargets";
 import { rollBlinkShapeSpec } from "../../features/avatar/blinkShape";
 import { SpeechPlaybackContext, sampleSpeechPlayback } from "../../features/audio/speechPlaybackBridge";
-import { optimizeVrm } from "../../features/avatar/vrmOptimizer";
+import { optimizeVrm, DEFAULT_KEEP_EXPRESSIONS } from "../../features/avatar/vrmOptimizer";
 import { playFootstepSound } from "../../lib/uiSound";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 
@@ -243,6 +243,7 @@ const HINAA_RELAXED_POSE_OFFSETS: Record<PoseBoneName, THREE.Quaternion> = {
 };
 
 const MODEL_POSE_OFFSETS: Record<string, Record<PoseBoneName, THREE.Quaternion>> = {
+  "/models/hinaa-perfectsync.vrm": HINAA_RELAXED_POSE_OFFSETS,
   "/models/hinaa.vrm": HINAA_RELAXED_POSE_OFFSETS,
   // The default Hinaa rig (default model in App.tsx). It previously had no
   // entry, so resolvePoseOffsets fell through to the generic pose.
@@ -495,17 +496,17 @@ function Model({
       // context. Downscale to 1024, prune morphs to the expressions HINAA
       // drives (presets + viseme aliases), and re-enable per-mesh culling.
       try { VRMUtils.removeUnnecessaryVertices(v.scene); } catch {}
-      try { VRMUtils.removeUnnecessaryJoints(v.scene); } catch {}
+      try {
+        if (typeof (VRMUtils as any).combineSkeletons === "function") {
+          (VRMUtils as any).combineSkeletons(v.scene);
+        } else {
+          VRMUtils.removeUnnecessaryJoints(v.scene);
+        }
+      } catch {}
       try {
         optimizeVrm(v, {
           maxTextureSize: 1024,
-          keepExpressionNames: [
-            "happy", "angry", "sad", "relaxed", "surprised", "neutral",
-            "blink", "blinkLeft", "blinkRight",
-            "aa", "ih", "ou", "ee", "oh",
-            "a", "i", "u", "e", "o",
-            "joy", "sorrow", "fun", "blink_l", "blink_r",
-          ],
+          keepExpressionNames: DEFAULT_KEEP_EXPRESSIONS,
           // The anime acting layer drives these by name; a preset-only prune
           // deleted them all and froze her face at the six whole-face presets.
           keepMorphNames: DIRECT_MORPH_KEYS,
@@ -583,9 +584,11 @@ function Model({
         // by the literal name, so index those too for a case-insensitive match.
         try {
           for (const registered of (em as any).expressions ?? []) {
-            const literal: unknown = registered?.name;
+            const literal: unknown = registered?.expressionName ?? registered?.name;
             if (typeof literal !== "string" || !literal) continue;
             const bare = literal.replace(/^(VRMExpression_|VRM_v1_)/, "");
+            availRef.current.add(bare);
+            availRef.current.add(literal);
             for (const form of [literal, bare]) {
               const key = form.toLowerCase();
               if (!rigNamesRef.current.has(key)) rigNamesRef.current.set(key, form);
@@ -692,8 +695,9 @@ function Model({
 
       if (import.meta.env.DEV) {
         const bones = POSE_BONES.filter(b => !!normBonesRef.current[b]);
-        const exprs = [...availRef.current].slice(0, 12).join(", ");
-        console.log(`🎭 VRM ${isVrm0 ? "0.x" : "1.0"} | url=${url} | bones: ${bones.join(", ")} | expressions: ${exprs}`);
+        const totalExprCount = (em as any)?.expressions?.length ?? availRef.current.size;
+        const exprs = [...availRef.current].slice(0, 16).join(", ");
+        console.log(`🎭 VRM ${isVrm0 ? "0.x" : "1.0"} | url=${url} | total expressions: ${totalExprCount} (available: ${availRef.current.size}) | sample: ${exprs}`);
       }
 
       // The normalized Jaw bone is the lipsync safety net below; capture it
@@ -2137,6 +2141,18 @@ export function AvatarPresence({
   const vEvts  = visemeEvents   ?? _emptyRef as React.MutableRefObject<VisemeEvent[]>;
   const aStart = audioStartTimeRef ?? _startRef as React.MutableRefObject<number>;
 
+  function CanvasContextTeardown() {
+    const { gl } = useThree();
+    useEffect(() => {
+      return () => {
+        try {
+          gl.dispose();
+        } catch {}
+      };
+    }, [gl]);
+    return null;
+  }
+
   return (
     <div ref={playgroundRef} className={`avatar-playground${isFullscreen ? " avatar-playground--fullscreen" : ""}`} style={{ position:"relative", width:"100%", height:"100%", minHeight:200 }}>
       {/* Atmospheric glow */}
@@ -2147,20 +2163,18 @@ export function AvatarPresence({
           key={`${modelUrl}:${modelAttempt}`}
           fallback={<AvatarFallback state={state} />}
           style={{ position:"absolute", inset:0, zIndex:1 }}
-          // Above 1.5× device pixel ratio, the VRM’s animated face and lip-sync
-          // cost rises sharply with little visible benefit at this panel size.
-          // Let R3F temporarily reduce quality under load instead of stuttering.
           frameloop={renderVisible ? "always" : "demand"}
-          dpr={[1, window.innerWidth <= 768 ? 1 : Math.min(window.devicePixelRatio, 1.35)]}
-          performance={{ min: 0.62, debounce: 220 }}
-          gl={{ antialias:true, alpha:true, powerPreference:"high-performance" }}
+          dpr={1}
+          performance={{ min: 0.75, debounce: 150 }}
+          gl={{ antialias: false, alpha: true, powerPreference: "default", depth: true, stencil: false }}
           onCreated={({ gl }) => {
             gl.domElement.addEventListener("webglcontextlost", e => {
               e.preventDefault();
               setWebglFailed(true);
-            }, { once:true });
+            }, { once: true });
           }}
         >
+          <CanvasContextTeardown />
           <AdaptiveAvatarResolution />
           <Suspense fallback={null}>
             <Cam
@@ -2175,12 +2189,11 @@ export function AvatarPresence({
               liveStatus={liveStatus}
             />
 
-            {/* Cinematic lighting */}
-            <ambientLight intensity={0.9}  color="#fffef8" />
-            <directionalLight position={[1.5, 3, 2.5]} intensity={1.5} color="#fffcf0" castShadow={false} />
-            <spotLight position={[-2.5, 2.5, 2]} intensity={1.15} color="#ffd4df" angle={0.55} penumbra={0.7} />
-            <spotLight position={[ 2.5, 2.0,-1]} intensity={.82} color="#d8b8e4" angle={0.5}  penumbra={0.7} />
-            <pointLight position={[0, 1.6, 2.2]} intensity={0.55} color="#fff5e8" />
+            {/* Streamlined cinematic lighting */}
+            <ambientLight intensity={0.9} color="#fffef8" />
+            <directionalLight position={[1.5, 3, 2.5]} intensity={1.3} color="#fffcf0" castShadow={false} />
+            <pointLight position={[-1.5, 2.0, 1.8]} intensity={0.65} color="#ffd4df" />
+            <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.4]} />
 
               <Model
                 state={state}

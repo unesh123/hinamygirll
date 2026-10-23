@@ -52,11 +52,11 @@ def test_circuit_breaker_lifecycle():
     assert cb.state == CircuitBreakerState.READY
 
     # 6. Consecutive failures trip CIRCUIT_OPEN
-    cb.record_failure("PROVIDER_UNAVAILABLE", "Error 1")
+    cb.record_failure("SERVER_ERROR", "Error 1")
     assert cb.state == CircuitBreakerState.DEGRADED
-    cb.record_failure("PROVIDER_UNAVAILABLE", "Error 2")
+    cb.record_failure("SERVER_ERROR", "Error 2")
     assert cb.state == CircuitBreakerState.DEGRADED
-    cb.record_failure("PROVIDER_UNAVAILABLE", "Error 3")
+    cb.record_failure("SERVER_ERROR", "Error 3")
     assert cb.state == CircuitBreakerState.CIRCUIT_OPEN
     can_exec, reason, _ = cb.can_execute()
     assert can_exec is False

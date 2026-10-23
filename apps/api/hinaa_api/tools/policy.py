@@ -75,6 +75,67 @@ class Verdict:
     message: str = ""
 
 
+from enum import IntEnum
+
+
+class ActionRiskTier(IntEnum):
+    TIER_0_READ_ONLY = 0      # Read-only inspection
+    TIER_1_REVERSIBLE = 1     # Reversible workspace mutation
+    TIER_2_EXTERNAL = 2       # External navigation and downloads
+    TIER_3_PROCESS = 3        # Process execution and credential use
+    TIER_4_DESTRUCTIVE = 4    # Destructive, privileged, deletion, external publication
+
+
+def classify_computer_operator_action(action: str, parameters: dict[str, Any] | None = None) -> ActionRiskTier:
+    """Classify computer operator sub-actions into deterministic risk tiers."""
+    act = str(action or "").strip().lower()
+    if act in ("observe", "observe_desktop", "list_windows", "daemon_status", "screenshot", "system_info"):
+        return ActionRiskTier.TIER_0_READ_ONLY
+    if act in ("create_folder", "mkdir", "make_directory"):
+        return ActionRiskTier.TIER_1_REVERSIBLE
+    if act in ("chrome_control", "browser_navigate", "download"):
+        return ActionRiskTier.TIER_2_EXTERNAL
+    if act in ("open_app", "open_application", "terminal_hands", "powershell", "type_text", "press_hotkey", "click", "mouse_move", "drag"):
+        return ActionRiskTier.TIER_3_PROCESS
+    if act in ("send_message", "type_and_send", "delete_file", "kill_process", "publish", "deploy"):
+        return ActionRiskTier.TIER_4_DESTRUCTIVE
+    return ActionRiskTier.TIER_3_PROCESS
+
+
+def check_action_tier_authorization(
+    tier: ActionRiskTier,
+    confirmed: bool = False,
+    approval_source: str = "none",
+    host_header: str | None = None,
+) -> Verdict:
+    """
+    Directive §5 Authorization Matrix:
+    - Tier 0 & Tier 1: May execute under bounded policy (standing consent on loopback).
+    - Tier 2, 3, 4: Strictly requires explicit user approval (confirmed=True, approval_source='user').
+    """
+    if tier in (ActionRiskTier.TIER_0_READ_ONLY, ActionRiskTier.TIER_1_REVERSIBLE):
+        # Permitted under bounded policy
+        return Verdict(True)
+
+    # Tier 2, 3, 4 require explicit user authorization
+    is_user_approved = confirmed and approval_source == "user"
+    if not is_user_approved:
+        tier_names = {
+            ActionRiskTier.TIER_2_EXTERNAL: "Tier 2 (External Navigation / Downloads)",
+            ActionRiskTier.TIER_3_PROCESS: "Tier 3 (Process Execution / OS Input)",
+            ActionRiskTier.TIER_4_DESTRUCTIVE: "Tier 4 (Destructive / Privileged / External Send)",
+        }
+        tier_label = tier_names.get(tier, f"Tier {tier.value}")
+        return Verdict(
+            False,
+            "EXPLICIT_USER_APPROVAL_REQUIRED",
+            f"Action classified as {tier_label} requires explicit user approval. "
+            "Standing consent or inferred intent is denied.",
+        )
+
+    return Verdict(True)
+
+
 def is_loopback_host(host: str | None) -> bool:
     """True for a request aimed at the machine itself, not through the tunnel."""
     if not host:

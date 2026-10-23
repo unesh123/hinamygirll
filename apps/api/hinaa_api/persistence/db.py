@@ -32,6 +32,10 @@ def make_engine(database_url: str) -> Engine:
         def _sqlite_fk(dbapi_connection, _connection_record):  # type: ignore[no-untyped-def]
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            if database_path and database_path != ":memory:":
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=15000")
             cursor.close()
 
         return engine

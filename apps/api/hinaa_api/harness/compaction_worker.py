@@ -104,3 +104,37 @@ class CompactionWorker:
             session.context_window.token_usage_estimated,
         )
         return compaction
+
+    def compact_conversation_turns(
+        self,
+        turns: List[tuple[str, str]],
+        keep_recent_pairs: int = 2,
+    ) -> tuple[str, List[tuple[str, str]]]:
+        """
+        Non-destructive micro-compaction of raw turn tuples:
+        Compresses older dialog while maintaining the most recent roundtrips intact.
+        """
+        if len(turns) <= keep_recent_pairs * 2:
+            return "", turns
+
+        cutoff = len(turns) - (keep_recent_pairs * 2)
+        older = turns[:cutoff]
+        recent = turns[cutoff:]
+
+        intents: List[str] = []
+        for role, txt in older:
+            cleaned = txt.strip()
+            if role == "user" and cleaned:
+                intents.append(cleaned[:100])
+
+        summary = (
+            f"[Compacted Dialog Context: {len(older)} past turns summarized; "
+            f"key themes: {'; '.join(intents[-4:]) if intents else 'General conversation'}]"
+        )
+
+        compacted = [
+            ("user", f"[Prior Context Summary: {summary}]"),
+            ("assistant", "[Noted previous session state; continuing workflow.]"),
+            *recent,
+        ]
+        return summary, compacted

@@ -1,6 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { matchLocalActionIntent } from "./intentMatcher";
 
+describe("discussion is not execution", () => {
+  it.each([
+    "How can I improve PDF generation?",
+    "Explain how to generate a PDF document",
+    "Can you explain how to create a PDF?",
+    "Do not generate an image",
+    '"generate an image of a mountain"',
+  ])("keeps %s in chat", (text) => {
+    expect(matchLocalActionIntent(text)).toBeNull();
+  });
+});
+
 describe("HINA Action Engine — Fast Local Intent Matcher (< 80ms)", () => {
   it("matches 'split 2400 between 3' into a Split action card", () => {
     const draft = matchLocalActionIntent("split 2400 between 3");
@@ -129,20 +141,13 @@ describe("HINA Action Engine — Fast Local Intent Matcher (< 80ms)", () => {
     expect(draft).toBeNull();
   });
 
-  it("matches 'generate a red mug' into an Image job action", () => {
+  it("leaves 'generate a red mug' to backend authorization", () => {
     const draft = matchLocalActionIntent("generate a red mug");
-    expect(draft).not.toBeNull();
-    expect(draft?.intent).toBe("image.job");
-    const data = draft?.fields.data as any;
-    expect(data.prompt).toBe("A red mug");
-    expect(data.stage).toBe("generating");
+    expect(draft).toBeNull();
   });
 
-  it("matches 'generate image of a red mug' into an Image job action", () => {
+  it("leaves explicit image generation to backend authorization", () => {
     const draft = matchLocalActionIntent("generate image of a red mug");
-    expect(draft).not.toBeNull();
-    expect(draft?.intent).toBe("image.job");
-    const data = draft?.fields.data as any;
-    expect(data.prompt).toBe("A red mug");
+    expect(draft).toBeNull();
   });
 });

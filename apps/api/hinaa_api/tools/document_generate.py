@@ -165,10 +165,18 @@ async def document_generate_handler(params: GenerateDocumentParams) -> dict[str,
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(output_bytes)
+    from hinaa_api.artifacts.document_validation import validate_document
+    try:
+        validation = validate_document(file_path, fmt)
+    except Exception:
+        logger.exception('Document validation failed')
+        return {'status': 'error', 'code': 'DOCUMENT_VALIDATION_FAILED', 'error': 'Document output could not be validated.'}
     file_size_bytes = len(output_bytes)
     file_size_kb = round(file_size_bytes / 1024, 1)
 
     result = {
+        **validation,
+        'artifactId': doc_id,
         "status": "success",
         "format": fmt,
         "mimeType": mime_type,

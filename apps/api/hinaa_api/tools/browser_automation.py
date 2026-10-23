@@ -17,31 +17,63 @@ from hinaa_api.config import get_settings
 _playwright = None
 _browser: Optional[Browser] = None
 _page: Optional[Page] = None
+_current_session_id: Optional[str] = None
+_current_live_view_url: Optional[str] = None
+
+def get_current_browserbase_session() -> tuple[Optional[str], Optional[str]]:
+    """Return the active (session_id, live_view_url) if running on Browserbase."""
+    return _current_session_id, _current_live_view_url
 
 async def _get_page() -> Page:
-    global _playwright, _browser, _page
+    global _playwright, _browser, _page, _current_session_id, _current_live_view_url
     if _page is None or _page.is_closed():
         if _playwright is None:
             _playwright = await async_playwright().start()
         if _browser is None or not _browser.is_connected():
             settings = get_settings()
-            remote_ws = None
-            if settings.bright_data_browser_ws and settings.bright_data_browser_ws.get_secret_value():
-                remote_ws = settings.bright_data_browser_ws.get_secret_value().strip()
-            elif os.environ.get("BRIGHT_DATA_BROWSER_WS"):
-                remote_ws = os.environ.get("BRIGHT_DATA_BROWSER_WS").strip()
-            elif os.environ.get("BRD_BROWSER_WS"):
-                remote_ws = os.environ.get("BRD_BROWSER_WS").strip()
 
-            if remote_ws and "**********" not in remote_ws and (remote_ws.startswith("wss://") or remote_ws.startswith("ws://")):
-                logger.info("Connecting to Bright Data remote Scraping Browser via CDP endpoint...")
+            # 1. Primary Cloud Browser: Browserbase Platform
+            browserbase_key = (
+                settings.browserbase_api_key.get_secret_value().strip()
+                if hasattr(settings, "browserbase_api_key") and settings.browserbase_api_key and settings.browserbase_api_key.get_secret_value()
+                else os.environ.get("BROWSERBASE_API_KEY", "").strip()
+            )
+            if browserbase_key:
                 try:
-                    _browser = await _playwright.chromium.connect_over_cdp(remote_ws)
-                    logger.info("Successfully connected to Bright Data remote Scraping Browser.")
+                    from browserbase import Browserbase
+                    bb = Browserbase(api_key=browserbase_key)
+                    bb_session = bb.sessions.create()
+                    _current_session_id = bb_session.id
+                    _current_live_view_url = f"https://www.browserbase.com/sessions/{bb_session.id}"
+                    logger.info("Created Browserbase session: %s (Live View: %s)", _current_session_id, _current_live_view_url)
+                    _browser = await _playwright.chromium.connect_over_cdp(bb_session.connect_url)
+                    logger.info("Connected to Browserbase cloud browser over CDP.")
                 except Exception as e:
-                    logger.warning("Failed to connect to Bright Data remote browser (%s); falling back to local chromium.", e)
+                    logger.warning("Browserbase connection failed (%s); falling back...", e)
                     _browser = None
+                    _current_session_id = None
+                    _current_live_view_url = None
 
+            # 2. Secondary Cloud Browser: Bright Data Scraping Browser
+            if _browser is None or not _browser.is_connected():
+                remote_ws = None
+                if settings.bright_data_browser_ws and settings.bright_data_browser_ws.get_secret_value():
+                    remote_ws = settings.bright_data_browser_ws.get_secret_value().strip()
+                elif os.environ.get("BRIGHT_DATA_BROWSER_WS"):
+                    remote_ws = os.environ.get("BRIGHT_DATA_BROWSER_WS").strip()
+                elif os.environ.get("BRD_BROWSER_WS"):
+                    remote_ws = os.environ.get("BRD_BROWSER_WS").strip()
+
+                if remote_ws and "**********" not in remote_ws and (remote_ws.startswith("wss://") or remote_ws.startswith("ws://")):
+                    logger.info("Connecting to Bright Data remote Scraping Browser via CDP endpoint...")
+                    try:
+                        _browser = await _playwright.chromium.connect_over_cdp(remote_ws)
+                        logger.info("Successfully connected to Bright Data remote Scraping Browser.")
+                    except Exception as e:
+                        logger.warning("Failed to connect to Bright Data remote browser (%s); falling back to local chromium.", e)
+                        _browser = None
+
+            # 3. Local Chromium / Chrome Fallback
             if _browser is None or not _browser.is_connected():
                 executable = os.environ.get("HINAA_BROWSER_EXECUTABLE") or shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
                 if not executable:
@@ -59,11 +91,18 @@ async def _get_page() -> Page:
                 if executable:
                     launch_options["executable_path"] = executable
                 _browser = await _playwright.chromium.launch(**launch_options)
-        context = await _browser.new_context(
-            viewport={'width': 1280, 'height': 800},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        )
-        _page = await context.new_page()
+
+        if _browser.contexts:
+            context = _browser.contexts[0]
+        else:
+            context = await _browser.new_context(
+                viewport={'width': 1280, 'height': 800},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+        if context.pages:
+            _page = context.pages[0]
+        else:
+            _page = await context.new_page()
     return _page
 
 # -----------------
@@ -76,6 +115,8 @@ def clean_browser_url(raw: str) -> str:
     cleaned = raw.strip()
     if not cleaned:
         return "https://www.google.com"
+    if cleaned.startswith(("file://", "about:", "data:")):
+        return cleaned
     if " " in cleaned or "\n" in cleaned or "." not in cleaned:
         from urllib.parse import quote_plus
         return f"https://www.google.com/search?q={quote_plus(cleaned)}"

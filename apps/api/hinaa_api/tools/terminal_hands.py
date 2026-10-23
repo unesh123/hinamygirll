@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from hinaa_api.runtime_paths import project_root
 from hinaa_api.tools.registry import registry, ToolDefinition
+from hinaa_api.harness.sandbox_policy import SandboxPolicyEngine, SandboxSecurityViolation
 
 logger = logging.getLogger("hinaa.tools.terminal_hands")
 
@@ -264,10 +265,18 @@ async def execute_terminal_hands(params: TerminalExecuteParams | dict[str, Any])
                 "securityAudit": audit_result,
             }
 
-    # Reject invalid paths rather than silently running in another directory.
-    resolved_cwd = (PROJECT_ROOT / (params.cwd or ".")).resolve()
-    if not resolved_cwd.is_relative_to(PROJECT_ROOT) or not resolved_cwd.is_dir():
-        return {"status":"rejected", "command":cmd, "error":"Working directory must be an existing folder inside the Hina workspace."}
+    # Enforce strict path containment via SandboxPolicyEngine
+    try:
+        resolved_cwd = Path(SandboxPolicyEngine.validate_path_containment(
+            str(PROJECT_ROOT / (params.cwd or ".")),
+            [str(PROJECT_ROOT)],
+            operation_name="terminal.cwd",
+        ))
+    except SandboxSecurityViolation as sec_err:
+        return {"status": "rejected", "command": cmd, "error": str(sec_err)}
+
+    if not resolved_cwd.is_dir():
+        return {"status": "rejected", "command": cmd, "error": "Working directory must be an existing folder inside the Hina workspace."}
 
     active_runtime = "powershell" if os.name == "nt" else "linux-bash"
     sub_cmd = [_powershell_exe(), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", cmd] if os.name == "nt" else ["/bin/bash", "-c", cmd]
@@ -289,11 +298,17 @@ async def execute_terminal_hands(params: TerminalExecuteParams | dict[str, Any])
     proc_env["PATH"] = str(python_bin) + os.pathsep + proc_env.get("PATH", "")
     if params.env:
         proc_env.update(params.env)
+    # Strip sensitive credentials from child process environment
+    proc_env = SandboxPolicyEngine.strip_environment_secrets(proc_env)
     try:
         exit_code, stdout_bytes, stderr_bytes = await asyncio.to_thread(
             _run_command, sub_cmd, resolved_cwd, proc_env, params.timeout_seconds)
-        stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
-        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+        stdout_raw = stdout_bytes.decode("utf-8", errors="replace").strip()
+        stderr_raw = stderr_bytes.decode("utf-8", errors="replace").strip()
+
+        # Sanitize credentials and secrets from output
+        stdout_text = SandboxPolicyEngine.sanitize_output(stdout_raw)
+        stderr_text = SandboxPolicyEngine.sanitize_output(stderr_raw)
 
         # Truncate giant outputs if needed
         max_output_len = 10000

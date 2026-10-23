@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,13 @@ import pytest
 from hinaa_api.artifacts import inventory
 from hinaa_api.tools.browser import artifact_lookup
 
-PDF_BYTES = b"%PDF-1.4\n% test fixture\n%%EOF\n"
+from pypdf import PdfWriter
+
+_pdf_fixture = BytesIO()
+_pdf_writer = PdfWriter()
+_pdf_writer.add_blank_page(width=612, height=792)
+_pdf_writer.write(_pdf_fixture)
+PDF_BYTES = _pdf_fixture.getvalue()
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
 
 

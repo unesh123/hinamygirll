@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cyber Rooftop Duel — HINAA html-anime</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Noto+Serif+JP:wght@400;700&display=swap');
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #101628;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        font-family: 'Noto Serif JP', 'Cinzel', -apple-system, BlinkMacSystemFont, 'Segoe UI', serif;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        max-width: 100vw;
+        max-height: 100vh;
+        aspect-ratio: 1920 / 1080;
+        overflow: hidden;
+        background: #101628;
+        box-shadow: 0 20px 80px rgba(0,0,0,0.8);
+      }
+      .clip {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .world {
+        width: 100%;
+        height: 100%;
+        transform-origin: 50% 60%;
+      }
+      #dip {
+        position: absolute;
+        inset: 0;
+        background: #e23b4a;
+        z-index: 100;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .fig, .flare {
+        opacity: 0;
+      }
+      .line-text {
+        font-family: 'Noto Serif JP', -apple-system, BlinkMacSystemFont, serif;
+        font-size: 38px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        fill: #f0c36a;
+        filter: drop-shadow(0 2px 4px #101628);
+      }
+      .hud-title {
+        position: absolute;
+        top: 32px;
+        left: 40px;
+        color: #e7eefc;
+        font-family: 'Cinzel', -apple-system, BlinkMacSystemFont, serif;
+        font-size: 18px;
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        opacity: 0.65;
+        z-index: 50;
+      }
+      .hud-timer {
+        position: absolute;
+        bottom: 30px;
+        right: 40px;
+        color: #d5e2ff;
+        font-family: monospace;
+        font-size: 16px;
+        opacity: 0.5;
+        z-index: 50;
+      }
+    </style>
+    <script src="/vendor/gsap.min.js"></script>
+    <script>window.gsap || document.write('<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"><\/script>')</script>
+  </head>
+  <body>
+    <div id="root" data-composition-id="cyber_rooftop_duel" data-start="0" data-duration="8" data-width="1920" data-height="1080">
+      <div class="hud-title">Cyber Rooftop Duel · Indigo Moon</div>
+      <div id="hud-time" class="hud-timer">00:00 / 08:00</div>
+      <div id="dip"></div>
+
+      <!-- Shot 1: Establish -->
+      <div id="s1" class="clip" data-start="0" data-duration="2.4" data-track-index="1">
+        <svg class="world" viewBox="0 0 1920 1080">
+          <defs>
+            <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#101628" />
+              <stop offset="45%" stop-color="#1b2d6b" />
+              <stop offset="100%" stop-color="#101628" />
+            </linearGradient>
+          </defs>
+          <rect width="1920" height="1080" fill="url(#skyGrad)" />
+          
+          <!-- Rain Layer -->
+          <g id="rain" stroke="#e7eefc" stroke-width="2" opacity="0.4">
+            <path d="M120,40 l-18,90 M320,80 l-18,90 M520,30 l-18,90 M720,120 l-18,90 M920,40 l-18,90 M1120,90 l-18,90 M1320,30 l-18,90 M1520,110 l-18,90 M1720,50 l-18,90" />
+            <path d="M220,400 l-18,90 M420,480 l-18,90 M640,360 l-18,90 M880,520 l-18,90 M1100,420 l-18,90 M1340,500 l-18,90 M1580,380 l-18,90" opacity="0.6" />
+          </g>
+
+          <!-- Celestial Moon / Core Motif -->
+          <g transform="translate(1459 270)">
+            <circle r="120" fill="#e23b4a" opacity="0.25" />
+            <circle r="76" fill="#d5e2ff" />
+            <circle r="76" fill="none" stroke="#e23b4a" stroke-width="6" />
+          </g>
+
+          <!-- City Skyline Silhouettes -->
+          <path fill="#101628" d="M0,777 L0,561 L120,561 L140,453 L240,453 L260,561 L380,561 L480,410 L620,518 L780,518 L940,453 L1100,518 L1260,432 L1420,561 L1580,453 L1740,496 L1920,561 L1920,1080 L0,1080 Z" />
+          
+          <!-- City practical lights -->
+          <g fill="#f0c36a">
+            <rect x="230" y="518" width="14" height="20" />
+            <rect x="537" y="475" width="12" height="18" />
+            <rect x="1056" y="496" width="16" height="22" />
+            <rect x="1382" y="453" width="10" height="16" />
+            <rect x="1689" y="518" width="14" height="20" />
+          </g>
+
+          <!-- Foreground Rooftop -->
+          <path fill="#101628" d="M0,885 L672,810 L1248,788 L1920,885 L1920,1080 L0,1080 Z" />
+
+          <!-- Character Silhouette: Ready Pose (Fig A) -->
+          <g id="fig-s1-a" class="fig" transform="translate(864 799)" fill="#e7eefc">
+            <circle cx="6" cy="-210" r="32" />
+            <path d="M-8,-230 C-70,-220 -95,-170 -80,-115 L-24,-140 C-30,-180 -15,-220 5,-230 Z" fill="#16141c" />
+            <path d="M-38,-185 L-52,-8 L-14,14 L30,10 L44,-32 L14,-185 Z" fill="#101628" stroke="#e7eefc" stroke-width="4" />
+            <!-- Katana sheath -->
+            <path d="M10,-150 L52,-180 L60,-165 L22,-135 Z" fill="#f0c36a" />
+          </g>
+
+          <!-- Character Silhouette: Drawn Stance (Fig B) -->
+          <g id="fig-s1-b" class="fig" transform="translate(864 799)" fill="#e7eefc">
+            <circle cx="8" cy="-208" r="32" />
+            <path d="M-10,-228 C-85,-215 -115,-155 -95,-95 L-26,-130 C-35,-175 -20,-218 3,-228 Z" fill="#16141c" />
+            <path d="M-36,-183 L-58,0 L-12,16 L34,8 L42,-36 L16,-183 Z" fill="#101628" stroke="#e7eefc" stroke-width="4" />
+            <!-- Katana blade drawn -->
+            <path d="M12,-148 L110,-240 L118,-228 L24,-130 Z" fill="#f0c36a" />
+          </g>
+
+          <polygon id="flare" class="flare" fill="#f0c36a" points="1420,302 883,540 921,572 1459,324" />
+        </svg>
+      </div>
+
+      <!-- Shot 2: Sakuga Action -->
+      <div id="s2" class="clip" data-start="2.4" data-duration="3.6" data-track-index="1" style="display:none;">
+        <svg class="world" viewBox="0 0 1920 1080">
+          <rect width="1920" height="1080" fill="#101628" />
+          <!-- Sakuga Speed Lines -->
+          <g stroke="#e23b4a" stroke-width="3" opacity="0.6">
+            <line x1="0" y1="216" x2="1920" y2="270" stroke-dasharray="200, 150" />
+            <line x1="0" y1="486" x2="1920" y2="518" stroke-dasharray="350, 100" stroke-width="5" />
+            <line x1="0" y1="810" x2="1920" y2="756" stroke-dasharray="250, 180" />
+          </g>
+
+          <!-- Sakuga Smear Frame: Arc Strike -->
+          <g id="sakuga-smear" transform="translate(960 540)">
+            <path d="M-300,-150 Q0,-350 450,-80 Q250,50 -200,-50 Z" fill="#e23b4a" opacity="0.85" />
+            <path d="M-280,-140 Q0,-320 420,-70 Q240,40 -190,-40 Z" fill="#f0c36a" />
+          </g>
+
+          <!-- Sakuga Character Dynamic Arc -->
+          <g id="sakuga-char" transform="translate(806 594)">
+            <circle cx="0" cy="-60" r="48" fill="#f0c2ae" stroke="#e7eefc" stroke-width="5" />
+            <path d="M-40,-80 Q-70,-10 10,-20 Q-30,-70 -40,-80 Z" fill="#16141c" />
+            <path d="M-45,-20 L-60,140 L30,150 L50,80 L20,-20 Z" fill="#101628" stroke="#e7eefc" stroke-width="5" />
+            <!-- Focused eye -->
+            <circle cx="12" cy="-60" r="10" fill="#e7a04a" />
+            <circle cx="15" cy="-63" r="3" fill="#f6f3ee" />
+          </g>
+        </svg>
+      </div>
+
+      <!-- Shot 3: Button Close-up & Subtitle Line -->
+      <div id="s3" class="clip" data-start="6.0" data-duration="2.0" data-track-index="1" style="display:none;">
+        <svg class="world" viewBox="0 0 1920 1080">
+          <defs>
+            <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+              <stop offset="30%" stop-color="#1b2d6b" stop-opacity="0.3" />
+              <stop offset="100%" stop-color="#101628" stop-opacity="0.95" />
+            </radialGradient>
+          </defs>
+          <rect width="1920" height="1080" fill="#101628" />
+          <rect width="1920" height="1080" fill="url(#vignette)" />
+
+          <!-- Character Close Up -->
+          <g transform="translate(614 561)">
+            <!-- Face silhouette & Cel Skin -->
+            <path d="M-120,-260 Q-150,-100 -90,140 L40,160 Q120,40 140,-180 Q100,-280 -120,-260 Z" fill="#f0c2ae" stroke="#e7eefc" stroke-width="6" />
+            <!-- Hard Shadow Cel -->
+            <path d="M-100,-120 Q-60,20 -30,120 L40,160 Q90,60 110,-120 Z" fill="#101628" opacity="0.22" />
+            <!-- Eye -->
+            <g transform="translate(10, -50)">
+              <ellipse cx="0" cy="0" rx="36" ry="20" fill="#f6f3ee" stroke="#e7eefc" stroke-width="4" />
+              <circle cx="4" cy="0" r="15" fill="#e7a04a" />
+              <circle cx="4" cy="0" r="8" fill="#16141c" />
+              <circle cx="8" cy="-4" r="4" fill="#d5e2ff" />
+            </g>
+            <!-- Hair Mass -->
+            <path d="M-150,-280 Q-190,-60 -110,120 L-80,80 Q-140,-100 -70,-220 Q80,-290 170,-190 L180,-240 Q60,-340 -150,-280 Z" fill="#16141c" stroke="#e7eefc" stroke-width="6" />
+            <!-- Hair Sheen Band -->
+            <path d="M-90,-220 Q-20,-240 60,-200" stroke="#d5e2ff" stroke-width="8" stroke-linecap="round" fill="none" />
+          </g>
+
+          <!-- Subtitle Dialogue Line (Bottom Third, Letterbox clean) -->
+          <text x="960" y="950" text-anchor="middle" class="line-text">
+            The rain hid the sound of the blade.
+          </text>
+        </svg>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        const tl = gsap.timeline({ paused: true });
+        window.__timelines = window.__timelines || {};
+        window.__timelines["cyber_rooftop_duel"] = tl;
+
+        const dur = 8;
+        const s1Dur = 2.4;
+        const s2Start = 2.4;
+        const s2Dur = 3.6;
+        const s3Start = 6.0;
+        const s3Dur = 2.0;
+
+        // Initialize elements
+        tl.set("#s1", { display: "block" }, 0);
+        tl.set("#s2", { display: "none" }, 0);
+        tl.set("#s3", { display: "none" }, 0);
+        tl.set("#dip", { opacity: 0 }, 0);
+
+        // Shot 1 Timing (Twos & Deliberate Holds)
+        tl.set("#fig-s1-a", { opacity: 1 }, 0);
+        tl.set("#fig-s1-b", { opacity: 0 }, 0);
+        tl.set("#flare", { opacity: 0 }, 0);
+
+        // Drawing swap to drawn stance
+        tl.set("#fig-s1-a", { opacity: 0 }, 1.2);
+        tl.set("#fig-s1-b", { opacity: 1 }, 1.2);
+        tl.set("#flare", { opacity: 0.95 }, 1.2);
+        tl.to("#flare", { opacity: 0, duration: 0.45, ease: "power2.out" }, 1.25);
+
+        // Camera push on hold (100% -> 105%)
+        tl.to("#s1 .world", { scale: 1.05, duration: s1Dur, ease: "power1.inOut" }, 0);
+
+        // Color-dip transition 1: Cut to Sakuga
+        tl.to("#dip", { opacity: 1, duration: 0.22, ease: "power2.in" }, s2Start - 0.22);
+        tl.set("#s1", { display: "none" }, s2Start);
+        tl.set("#s2", { display: "block" }, s2Start);
+        tl.to("#dip", { opacity: 0, duration: 0.28, ease: "power2.out" }, s2Start);
+
+        // Shot 2 Sakuga Animation
+        tl.fromTo("#sakuga-smear", 
+          { scale: 0.4, x: -150, opacity: 0.2 }, 
+          { scale: 1.15, x: 50, opacity: 1, duration: 0.4, ease: "power4.out" }, 
+          s2Start + 0.1
+        );
+        tl.to("#sakuga-smear", { opacity: 0.7, scale: 1.0, duration: 1.2, ease: "power1.out" }, s2Start + 0.5);
+
+        // Color-dip transition 2: Cut to Button Close-up
+        tl.to("#dip", { opacity: 1, duration: 0.22, ease: "power2.in" }, s3Start - 0.22);
+        tl.set("#s2", { display: "none" }, s3Start);
+        tl.set("#s3", { display: "block" }, s3Start);
+        tl.to("#dip", { opacity: 0, duration: 0.32, ease: "power2.out" }, s3Start);
+
+        // Shot 3 Button Hold & Final Scene Fade
+        tl.to("#s3 .world", { scale: 1.04, duration: s3Dur, ease: "power1.out" }, s3Start);
+        tl.to("#s3 .line-text", { y: -12, opacity: 1, duration: 0.6, ease: "power2.out" }, s3Start + 0.2);
+        // Final 8-frame fade to ink
+        tl.to("#root", { opacity: 0, duration: 0.35, ease: "power1.in" }, dur - 0.35);
+
+        // Auto playback driver
+        let startTime = performance.now();
+        function frame() {
+          const elapsed = (performance.now() - startTime) / 1000;
+          const t = elapsed % dur;
+          tl.seek(t);
+
+          const hud = document.getElementById("hud-time");
+          if (hud) {
+            const curSec = Math.floor(t);
+            const curFrame = Math.floor((t % 1) * 24);
+            hud.textContent = String(curSec).padStart(2, "0") + ":" + String(curFrame).padStart(2, "0") + " / 08:00";
+          }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      })();
+    </script>
+  </body>
+</html>

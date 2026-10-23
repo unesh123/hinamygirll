@@ -23,6 +23,10 @@ class AnswerDepthController:
         cleaned = query.strip()
         lowered = cleaned.lower()
 
+        # Slash commands: explicit research/analysis directives
+        if cleaned.startswith(("/search", "/analyze", "/deep", "/research", "/plan", "/audit", "/spec")):
+            return AnswerDepth.DEEP
+
         # 1. Quick indicators: Greetings, thanks, simple math, or explicit brevity
         if re.search(r"^(?:hi|hey|hello|namaste|नमस्ते|thanks|thank\s+you|good\s+morning|good\s+evening)(?:\s+(?:hina|hinaa|there|babe|bot))?[!?,.]*$", lowered):
             return AnswerDepth.QUICK
@@ -41,11 +45,11 @@ class AnswerDepthController:
         if active_goal is not None:
             return AnswerDepth.DEEP
 
-        if re.search(r"\b(design\s+(?:the\s+)?(?:ideal\s+)?.*architecture|deep\s+dive|in-?depth|architecture|system\s+design|production\s+design|compare\s+(?:options|architectures)|trade-?offs|root\s+cause\s+analysis|step-by-step\s+implementation|comprehensive\s+guide|distributed\s+consensus)\b", lowered):
+        if re.search(r"\b(design\s+(?:the\s+)?(?:ideal\s+)?.*architecture|deep\s+dive|in-?depth|architecture|system\s+design|production\s+design|compare\s+(?:options|architectures)|trade-?offs|root\s+cause\s+analysis|step-by-step\s+implementation|comprehensive\s+guide|distributed\s+consensus|deep\s+reasoning|deep\s+research|research\s+mode|full\s+content|in\s+detail(?:ed)?(?:\s+form)?|high\s+level\s+advance|technical\s+dossier|status\s+report|infrastructure\s+health)\b", lowered):
             return AnswerDepth.DEEP
 
         # 4. Detailed indicators: How mechanisms work, multi-step explanations, pros & cons
-        if re.search(r"\b(how\s+does\s+.*\s+work|explain\s+how|break\s+down|pros\s+and\s+cons|compare|differences?\s+between|tutorial|guide|walkthrough|what\s+are\s+the\s+steps)\b", lowered):
+        if re.search(r"\b(how\s+does\s+.*\s+work|explain\s+how|break\s+down|pros\s+and\s+cons|compare|differences?\s+between|tutorial|guide|walkthrough|what\s+are\s+the\s+steps|what\s+are\s+the\s+major\s+gaps|why\s+are\s+you\s+so\s+much\s+behind|why\s+is\s+that|what\s+is\s+the\s+problem)\b", lowered):
             return AnswerDepth.DETAILED
 
         # 5. Default fallback: Standard

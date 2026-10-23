@@ -1,0 +1,53 @@
+{
+  "startedUtc": "2026-10-20T10:08:12.068408+00:00",
+  "finishedUtc": "2026-10-20T10:08:12.527773+00:00",
+  "command": "apps/api/.venv/Scripts/python.exe scripts/verify_restarted_runtime.py",
+  "mocked": false,
+  "generation": {
+    "url": "http://127.0.0.1:8000/api/v1/tools/execute",
+    "status": 200,
+    "contentType": "application/json"
+  },
+  "artifact": {
+    "validationStatus": "validated",
+    "validatedAt": "2026-10-20T10:08:12.429934+00:00",
+    "canonicalPath": "C:\\Users\\unesh\\OneDrive\\all my cloud stroge\\Desktop\\APPS\\HINAMYGIRL\\apps\\api\\hinaa_api\\data\\documents\\8042c026-0457-467f-bcf4-c3d08f70ebf8.pdf",
+    "sha256": "c710da2835f4ab2a281afcdb4bcd6311c3454e277afe52e1b0701abf67312ce5",
+    "fileSizeBytes": 8197,
+    "pageCount": 3,
+    "artifactId": "8042c026-0457-467f-bcf4-c3d08f70ebf8",
+    "status": "success",
+    "format": "pdf",
+    "mimeType": "application/pdf",
+    "provider": "local-reportlab",
+    "docId": "8042c026-0457-467f-bcf4-c3d08f70ebf8",
+    "title": "Restarted Runtime Study Plan",
+    "filename": "restarted_runtime_study_plan.pdf",
+    "downloadUrl": "/api/v1/generated-docs/8042c026-0457-467f-bcf4-c3d08f70ebf8",
+    "fileSizeKb": 8.0,
+    "theme": "crimson_gold",
+    "hasCoverPage": true,
+    "topic": "Restarted Runtime Study Plan",
+    "contentSource": "supplied-text",
+    "sectionCount": 9,
+    "summary": "Compiled 'Restarted Runtime Study Plan' into a 3-page executive PDF (8.0 KB, crimson_gold theme) from supplied text content.",
+    "pythonSnippet": "# HINAA generated document: restarted_runtime_study_plan.pdf\n# The downloadable PDF is the source of truth for this render.\n# Sections: 9 | Pages: 3 | Size: 8.0 KB\n# Theme: crimson_gold | Standalone Cover: True\n# Body source: supplied-text\n# Re-run generation through the /v1/tools/execute pdf_generate endpoint with\n# the same content to reproduce it; no unverified claims were added.\n"
+  },
+  "sidecarExists": true,
+  "validationBeforeRegistration": true,
+  "download": {
+    "url": "http://127.0.0.1:8000/api/v1/generated-docs/8042c026-0457-467f-bcf4-c3d08f70ebf8",
+    "status": 200,
+    "contentType": "application/pdf",
+    "bytes": 8197,
+    "sha256Matches": true
+  },
+  "corruptDownload": {
+    "status": 422,
+    "contentType": "application/json"
+  },
+  "missingDownload": {
+    "status": 404,
+    "contentType": "application/json"
+  }
+}

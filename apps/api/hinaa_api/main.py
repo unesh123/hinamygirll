@@ -1091,7 +1091,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health/live")
     @app.get("/api/health")
-    @app.get("/health")
     async def liveness() -> dict[str, str]:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
 
@@ -2515,22 +2514,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for status in statuses:
             if status.id not in _BRAIN_PROVIDER_IDS:
                 continue
-            # A brain in circuit breaker cooldown must report degraded, not healthy
-            from hinaa_api.circuit_breaker import peek_circuit_breaker
-            breaker = peek_circuit_breaker(status.id)
-            if breaker is not None and breaker.cooldown_remaining() > 0:
-                status.state = "degraded"
-                status.userMessage = (
-                    f"{status.id} is temporarily cooling down after a recent error ({breaker.cooldown_remaining():.0f}s remaining)."
-                )
-                continue
+            from hinaa_api.circuit_breaker import peek_circuit_breaker, CircuitBreakerState
             measured = newest_verdict(
                 aliases_for(status.id),
                 fingerprints=fingerprints_for(active_settings, status.id),
             )
+            breaker = peek_circuit_breaker(status.id)
             if measured is not None:
                 status.state = measured.state
                 status.userMessage = measured.message
+            elif breaker is not None and breaker.cooldown_remaining() > 0:
+                status.state = "unavailable" if breaker.state == CircuitBreakerState.AUTH_ERROR else "degraded"
+                status.userMessage = (
+                    f"{status.id} is temporarily cooling down after a recent error ({breaker.cooldown_remaining():.0f}s remaining)."
+                )
             elif status.state == "healthy" and status.id not in probe_measured:
                 status.state = "untested"
                 if "no live call" not in status.userMessage.lower():
@@ -3079,7 +3076,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if not resolved_path or not resolved_path.exists() or not resolved_path.is_file():
             raise HTTPException(status_code=404, detail="Document not found")
-
+        if resolved_path.suffix.lower() == '.pdf':
+            from .artifacts.document_validation import validate_pdf
+            try:
+                validate_pdf(resolved_path)
+            except Exception:
+                raise HTTPException(status_code=422, detail='Document failed format validation')
         media_type = "application/octet-stream"
         suffix = resolved_path.suffix.lower()
         if suffix == ".pdf":
@@ -3305,6 +3307,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "freepik_image_generate",
                 "magnific_upscale",
                 "freepik_stock_search",
+                "browser_cloud_agent",
                 "browser_execute_task",
                 "browser_navigate",
                 "browser_click",
@@ -3322,11 +3325,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "exa_agent_run",
                 "deep_research",
                 "coding_agent",
+                "clean_room_loop",
                 "code_repair",
                 "terminal_execute",
                 "file_read",
                 "directory_list",
+                "customgpt_query",
                 "codebase_search",
+                "subagent_fork",
             )
         )
         if tool_def.requires_confirmation and not (is_user_approved or is_safe_standing_consent):

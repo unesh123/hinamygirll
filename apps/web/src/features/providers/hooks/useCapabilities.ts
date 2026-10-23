@@ -55,6 +55,9 @@ export interface RuntimeCapabilities {
     agentRuntime: boolean;
     memory: boolean;
     speech: boolean;
+    knowledgeBase?: boolean;
+    htmlAnime?: boolean;
+    artemisMobile?: boolean;
   };
   integrations: {
     github: {
@@ -92,6 +95,9 @@ const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
     agentRuntime: false,
     memory: false,
     speech: false,
+    knowledgeBase: false,
+    htmlAnime: true,
+    artemisMobile: true,
   },
   integrations: {
     github: { configured: false, defaultRepo: null, served: false },
@@ -131,6 +137,7 @@ export function useCapabilities() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isFetchingRef = useRef(false);
+  const backoffRef = useRef(1500);
 
   const fetchCapabilities = useCallback(async () => {
     if (isFetchingRef.current) return;
@@ -140,16 +147,21 @@ export function useCapabilities() {
         ? String(import.meta.env.VITE_HINAA_API_BASE_URL).replace(/\/+$/, "")
         : "";
 
-      const candidateUrls = [
-        `${apiBase}/api/v1/capabilities`,
-        `${apiBase}/v1/capabilities`,
+      const rawCandidates = [
+        apiBase ? `${apiBase}/api/capabilities` : "",
+        apiBase ? `${apiBase}/capabilities` : "",
+        apiBase ? `${apiBase}/api/v1/capabilities` : "",
+        apiBase ? `${apiBase}/v1/capabilities` : "",
+        "/api/capabilities",
+        "/capabilities",
+        "/api/v1/capabilities",
+        "/v1/capabilities",
+        "http://127.0.0.1:8000/api/capabilities",
+        "http://127.0.0.1:8000/api/v1/capabilities",
+        "http://localhost:8000/api/capabilities",
+        "http://localhost:8000/api/v1/capabilities",
       ];
-
-      // If running on local or desktop, add localhost fallback
-      if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-        candidateUrls.push("http://127.0.0.1:8000/api/v1/capabilities");
-        candidateUrls.push("http://127.0.0.1:8000/v1/capabilities");
-      }
+      const candidateUrls = Array.from(new Set(rawCandidates.filter(Boolean)));
 
       let data: any = null;
       let lastErr: Error | null = null;
@@ -157,7 +169,7 @@ export function useCapabilities() {
       for (const targetUrl of candidateUrls) {
         try {
           const res = await fetch(targetUrl, {
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(4000),
             headers: {
               "bypass-tunnel-reminder": "true",
             },
@@ -176,6 +188,7 @@ export function useCapabilities() {
       if (data) {
         setCapabilities(normalizeCapabilities(data));
         setError(null);
+        backoffRef.current = 1500; // Reset backoff on success
       } else {
         throw lastErr || new Error("Failed to load capabilities from all candidates");
       }
@@ -186,6 +199,7 @@ export function useCapabilities() {
         runtime: { ...previous.runtime, backendConnected: false },
       }));
       setError(err?.message || "Failed to discover capabilities");
+      backoffRef.current = Math.min(backoffRef.current * 1.5, 12000); // Exponential backoff up to 12s
     } finally {
       setLoading(false);
       isFetchingRef.current = false;
@@ -196,11 +210,15 @@ export function useCapabilities() {
   useEffect(() => {
     fetchCapabilities();
 
-    // Auto-retry quickly (3.5s) if backend is disconnected, or poll periodically (45s) when healthy
-    const intervalMs = capabilities.runtime.backendConnected ? 45000 : 3500;
-    const timer = setInterval(() => {
-      fetchCapabilities();
-    }, intervalMs);
+    // Auto-retry with backoff if backend is disconnected, or poll periodically (45s) when healthy
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      const intervalMs = capabilities.runtime.backendConnected ? 45000 : backoffRef.current;
+      timer = setTimeout(() => {
+        fetchCapabilities().finally(scheduleNext);
+      }, intervalMs);
+    };
+    scheduleNext();
 
     const handleFocusOrOnline = () => {
       fetchCapabilities();
@@ -210,7 +228,7 @@ export function useCapabilities() {
     window.addEventListener("online", handleFocusOrOnline);
 
     return () => {
-      clearInterval(timer);
+      clearTimeout(timer);
       window.removeEventListener("focus", handleFocusOrOnline);
       window.removeEventListener("online", handleFocusOrOnline);
     };

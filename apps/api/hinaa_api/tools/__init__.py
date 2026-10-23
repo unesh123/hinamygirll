@@ -26,6 +26,17 @@ from . import computer_operator
 from . import ui_control
 from . import exa_tool
 from . import coding_agent_tool
+from . import treg_gateway
+from . import ugc_trend_extractor
+from . import html_anime
+from . import mobile_artemis
+from . import clean_room_loop
+from . import subagent_fork
+from . import swarm_tool
+from . import pty_session
+from . import vision_canvas
+from . import vision_pty_bridge
+from ..intelligence import sleep_consolidation
 
 __all__ = ["registry"]
 

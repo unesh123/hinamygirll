@@ -66,14 +66,24 @@ export const DEFAULT_KEEP_EXPRESSIONS: readonly string[] = [
   "o",
   "blink_l",
   "blink_r",
-  // Common mouth / ARKit blendshapes
-  "jawopen",
-  "mouthsmileleft",
-  "mouthsmileright",
-  "mouthfunnel",
-  "mouthpucker",
-  "eyeblinkleft",
-  "eyeblinkright",
+  // Full 52 Apple ARKit / PerfectSync blendshapes
+  "eyeblinkleft", "eyelookdownleft", "eyelookinleft", "eyelookoutleft", "eyelookupleft", "eyesquintleft", "eyewideleft",
+  "eyeblinkright", "eyelookdownright", "eyelookinright", "eyelookoutright", "eyelookupright", "eyesquintright", "eyewideright",
+  "jawforward", "jawleft", "jawright", "jawopen", "mouthclose", "mouthfunnel", "mouthpucker", "mouthleft", "mouthright",
+  "mouthsmileleft", "mouthsmileright", "mouthfrownleft", "mouthfrownright", "mouthdimpleleft", "mouthdimpleright",
+  "mouthstretchleft", "mouthstretchright", "mouthrolllower", "mouthrollupper", "mouthshruglower", "mouthshrugupper",
+  "mouthpressleft", "mouthpressright", "mouthlowerdownleft", "mouthlowerdownright", "mouthupperupleft", "mouthupperupright",
+  "cheekpuff", "cheeksquintleft", "cheeksquintright", "nosesneerleft", "nosesneerright", "tongueout",
+  "browdownleft", "browdownright", "browinnerup", "browouterupleft", "browouterupright",
+  // TitleCase variants as authored in VRM files
+  "EyeBlinkLeft", "EyeLookDownLeft", "EyeLookInLeft", "EyeLookOutLeft", "EyeLookUpLeft", "EyeSquintLeft", "EyeWideLeft",
+  "EyeBlinkRight", "EyeLookDownRight", "EyeLookInRight", "EyeLookOutRight", "EyeLookUpRight", "EyeSquintRight", "EyeWideRight",
+  "JawForward", "JawLeft", "JawRight", "JawOpen", "MouthClose", "MouthFunnel", "MouthPucker", "MouthLeft", "MouthRight",
+  "MouthSmileLeft", "MouthSmileRight", "MouthFrownLeft", "MouthFrownRight", "MouthDimpleLeft", "MouthDimpleRight",
+  "MouthStretchLeft", "MouthStretchRight", "MouthRollLower", "MouthRollUpper", "MouthShrugLower", "MouthShrugUpper",
+  "MouthPressLeft", "MouthPressRight", "MouthLowerDownLeft", "MouthLowerDownRight", "MouthUpperUpLeft", "MouthUpperUpRight",
+  "CheekPuff", "CheekSquintLeft", "CheekSquintRight", "NoseSneerLeft", "NoseSneerRight", "TongueOut",
+  "BrowDownLeft", "BrowDownRight", "BrowInnerUp", "BrowOuterUpLeft", "BrowOuterUpRight",
 ];
 
 type MorphAttribute =
@@ -180,6 +190,7 @@ export function downscaleVrmTextures(
         for (const key of Object.keys(slots)) {
           if (slots[key] === texture) {
             slots[key] = next;
+            material.needsUpdate = true;
             downscaled += 1;
           }
         }

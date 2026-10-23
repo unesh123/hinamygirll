@@ -1,0 +1,168 @@
+{
+  "collectedUtc": "2026-10-20T12:30:36.052359+00:00",
+  "deploymentId": "dpl_8hkavuLJHJMai4sdDJ1q7fy8HSyh",
+  "deploymentState": "READY",
+  "deployedRewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://leisure-inter-town-possess.trycloudflare.com/api/:path*"
+    },
+    {
+      "source": "/v1/:path*",
+      "destination": "https://leisure-inter-town-possess.trycloudflare.com/v1/:path*"
+    },
+    {
+      "source": "/health/:path*",
+      "destination": "https://leisure-inter-town-possess.trycloudflare.com/health/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://leisure-inter-town-possess.trycloudflare.com/health"
+    },
+    {
+      "source": "/healthz",
+      "destination": "https://leisure-inter-town-possess.trycloudflare.com/healthz"
+    },
+    {
+      "source": "/readyz",
+      "destination": "https://leisure-inter-town-possess.trycloudflare.com/readyz"
+    },
+    {
+      "source": "/((?!api/|v1/|health|healthz|readyz|models/|assets/|worklets/|animations/|test-assets/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "commands": {
+    "liveDocument": "apps/api/.venv/Scripts/python.exe scripts/verify_restarted_runtime.py",
+    "backend": "apps/api/.venv/Scripts/python.exe -m pytest apps/api/tests -o addopts= -q --junitxml=docs/evidence/runtime-backend-2026-10-20.xml",
+    "frontend": "pnpm --dir apps/web test",
+    "build": "pnpm --dir apps/web build",
+    "deploymentInspection": "node tools/deploy/node_modules/vercel/dist/index.js inspect https://hinaa-workspace.vercel.app --json"
+  },
+  "backendTests": {
+    "state": "COMPLETE",
+    "total": 1845,
+    "passed": 1845,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "todo": 0,
+    "failures": [],
+    "summary": "1845 passed, 1 warning in 229.75s (0:03:49)"
+  },
+  "frontendTestSummary": [
+    "Test Files  92 passed (92)",
+    "Tests  612 passed | 2 todo (614)",
+    "Duration  26.59s (transform 43.75s, setup 66.26s, import 115.07s, tests 50.87s, environment 242.80s)"
+  ],
+  "frontendBuildPassed": true,
+  "routes": [
+    {
+      "url": "http://127.0.0.1:8000/health/live",
+      "checkedUtc": "2026-10-20T12:30:36.052497+00:00",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/v1/capabilities",
+      "checkedUtc": "2026-10-20T12:30:36.150455+00:00",
+      "status": null,
+      "error": "unreachable"
+    },
+    {
+      "url": "https://hinaa-workspace.vercel.app/",
+      "checkedUtc": "2026-10-20T12:30:38.214094+00:00",
+      "status": 200,
+      "contentType": "text/html"
+    },
+    {
+      "url": "https://hinaa-workspace.vercel.app/health/live",
+      "checkedUtc": "2026-10-20T12:30:38.890706+00:00",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "url": "https://hinaa-workspace.vercel.app/api/v1/capabilities",
+      "checkedUtc": "2026-10-20T12:30:39.341864+00:00",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "url": "https://leisure-inter-town-possess.trycloudflare.com/health/live",
+      "checkedUtc": "2026-10-20T12:30:40.389684+00:00",
+      "status": null,
+      "error": "unreachable"
+    }
+  ],
+  "localRuntime": {
+    "startedUtc": "2026-10-20T10:08:12.068408+00:00",
+    "finishedUtc": "2026-10-20T10:08:12.527773+00:00",
+    "command": "apps/api/.venv/Scripts/python.exe scripts/verify_restarted_runtime.py",
+    "mocked": false,
+    "generation": {
+      "url": "http://127.0.0.1:8000/api/v1/tools/execute",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "artifact": {
+      "validationStatus": "validated",
+      "validatedAt": "2026-10-20T10:08:12.429934+00:00",
+      "canonicalPath": "C:\\Users\\unesh\\OneDrive\\all my cloud stroge\\Desktop\\APPS\\HINAMYGIRL\\apps\\api\\hinaa_api\\data\\documents\\8042c026-0457-467f-bcf4-c3d08f70ebf8.pdf",
+      "sha256": "c710da2835f4ab2a281afcdb4bcd6311c3454e277afe52e1b0701abf67312ce5",
+      "fileSizeBytes": 8197,
+      "pageCount": 3,
+      "artifactId": "8042c026-0457-467f-bcf4-c3d08f70ebf8",
+      "status": "success",
+      "format": "pdf",
+      "mimeType": "application/pdf",
+      "provider": "local-reportlab",
+      "docId": "8042c026-0457-467f-bcf4-c3d08f70ebf8",
+      "title": "Restarted Runtime Study Plan",
+      "filename": "restarted_runtime_study_plan.pdf",
+      "downloadUrl": "/api/v1/generated-docs/8042c026-0457-467f-bcf4-c3d08f70ebf8",
+      "fileSizeKb": 8.0,
+      "theme": "crimson_gold",
+      "hasCoverPage": true,
+      "topic": "Restarted Runtime Study Plan",
+      "contentSource": "supplied-text",
+      "sectionCount": 9,
+      "summary": "Compiled 'Restarted Runtime Study Plan' into a 3-page executive PDF (8.0 KB, crimson_gold theme) from supplied text content.",
+      "pythonSnippet": "# HINAA generated document: restarted_runtime_study_plan.pdf\n# The downloadable PDF is the source of truth for this render.\n# Sections: 9 | Pages: 3 | Size: 8.0 KB\n# Theme: crimson_gold | Standalone Cover: True\n# Body source: supplied-text\n# Re-run generation through the /v1/tools/execute pdf_generate endpoint with\n# the same content to reproduce it; no unverified claims were added.\n"
+    },
+    "sidecarExists": true,
+    "validationBeforeRegistration": true,
+    "download": {
+      "url": "http://127.0.0.1:8000/api/v1/generated-docs/8042c026-0457-467f-bcf4-c3d08f70ebf8",
+      "status": 200,
+      "contentType": "application/pdf",
+      "bytes": 8197,
+      "sha256Matches": true
+    },
+    "corruptDownload": {
+      "status": 422,
+      "contentType": "application/json"
+    },
+    "missingDownload": {
+      "status": 404,
+      "contentType": "application/json"
+    }
+  },
+  "connector": {
+    "pid": 57884,
+    "startedUtc": "2026-10-19T18:42:12.5981503Z",
+    "command": "cloudflared.exe tunnel --no-autoupdate run --token-file <existing-local-token-file>",
+    "result": "BLOCKED: credential authenticated; connector registered four connections, but no ingress configuration or approved hostname was available. Diagnostic connector stopped.",
+    "stoppedUtc": "2026-10-19T18:42:32.0296682Z"
+  },
+  "browser": {
+    "state": "BLOCKED",
+    "mocked": false,
+    "reason": "Public API ingress is unavailable; authenticated production document journey not attempted."
+  },
+  "publicDocumentExecution": "BLOCKED",
+  "publicDocumentDownload": "BLOCKED",
+  "blockers": [
+    "Existing named connector authenticates but has no ingress rules and no approved public hostname was configured.",
+    "Production rewrites still point to the dead ephemeral hostname. No configuration, DNS or deployment mutation performed."
+  ]
+}

@@ -19,6 +19,15 @@ export function matchLocalActionIntent(rawInput: string): HinaActionDraft | null
 
   const lower = text.toLowerCase();
 
+  // Media/document requests go through the server's clause contract and tool
+  // authorization. Local composer cards must not execute a competing route.
+  if (/\b(?:pdf|docx|document|report|slides|worksheet|image|picture|illustration|draw|generate|create)\b/i.test(text)) return null;
+
+  // Discussing a capability or quoting an example does not authorize an action.
+  if (/^(?:explain|describe|tell\s+me\s+about|how\b|why\b|what\b|if\b|suppose\b|imagine\b|(?:can|could)\s+you\s+(?:explain|describe|discuss|tell)\b|(?:do\s+not|don't|never|stop|cancel)\b|["“`>])/i.test(text)) {
+    return null;
+  }
+
   // EXCLUSIONS: Normal conversational questions should NEVER morph into action cards.
   // "Who is Mikasa?", "Explain relativity", "What is the meaning of life?", etc.
   if (
@@ -474,63 +483,6 @@ export function matchLocalActionIntent(rawInput: string): HinaActionDraft | null
     };
   }
 
-  // 11. PDF DOCUMENT GENERATOR: "make a pdf about...", "generate dna worksheet pdf"
-  if (/\b(?:pdf|worksheet|document|slides)\b/i.test(lower) && /(?:make|create|generate|export)\b/i.test(lower)) {
-    const fields: ActionFields = {
-      intent: "pdf.doc",
-      data: {
-        title: text.replace(/^(make|create|generate)\s+(a\s+)?(pdf\s+)?(about\s+)?/i, "") || "Document Generator",
-        outline: [
-          "1. Executive Summary & Purpose",
-          "2. Core Concepts & Definitions",
-          "3. Comprehensive Analysis",
-          "4. Practice Questions & Solutions",
-        ],
-        stage: "generating",
-      },
-    };
-
-    return {
-      id: `pdf-${Date.now()}`,
-      intent: "pdf.doc",
-      confidence: 0.92,
-      input: text,
-      fields,
-      status: "ready",
-      createdAt: Date.now(),
-    };
-  }
-
-  // 12. IMAGE GENERATION: "generate a red mug", "generate image of a red mug", "draw a cyberpunk city", "create image of..."
-  const imageMatch =
-    lower.match(/^(?:generate|create|make)\s+(?:an?\s+)?(?:image|picture|art|illustration|artwork|photo|rendering)\s+(?:of\s+)?(.+)$/i) ||
-    lower.match(/^draw\s+(?:an?\s+)?(?:image\s+of\s+)?(.+)$/i) ||
-    lower.match(/^(?:generate|create)\s+((?:a|an)\s+.+?\b(?:mug|cup|car|cat|dog|city|person|landscape|scene|portrait|room|house|sunset|flower|building|tree|robot|anime|hina|avatar)\b.*)$/i);
-
-  if (imageMatch) {
-    const rawPrompt = imageMatch[1].trim();
-    if (rawPrompt.length >= 2) {
-      const prompt = rawPrompt.charAt(0).toUpperCase() + rawPrompt.slice(1);
-      const fields: ActionFields = {
-        intent: "image.job",
-        data: {
-          prompt,
-          stage: "generating",
-          elapsedSeconds: 0,
-        },
-      };
-
-      return {
-        id: `image-${Date.now()}`,
-        intent: "image.job",
-        confidence: 0.96,
-        input: text,
-        fields,
-        status: "ready",
-        createdAt: Date.now(),
-      };
-    }
-  }
-
+  // Document and image execution belongs exclusively to backend authorization.
   return null;
 }

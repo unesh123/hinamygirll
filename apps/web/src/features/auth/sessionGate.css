@@ -30,3 +30,5 @@
 
 .hina-session__presence:after { content:""; position:absolute; inset:60% 0 0; background:linear-gradient(transparent,#1a122cdc); pointer-events:none; }
 .hina-session__switch { border:0; padding:12px; color:#dfbddb; background:transparent; font:650 11px var(--font-body); cursor:pointer; width:100%; }
+.hina-session__admin-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:44px; margin-top:8px; border:1px solid #efb9d244; border-radius:13px; background:#ffffff0d; color:#fcebf7; font:650 12px var(--font-body); cursor:pointer; transition:all .2s; }
+.hina-session__admin-btn:hover { background:#ffffff1a; border-color:#f5c7d9; color:#ffffff; transform:translateY(-1px); }

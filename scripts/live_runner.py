@@ -21,6 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / ".runtime" / "live"
 API = ROOT / "apps" / "api"
 WEB = ROOT / "apps" / "web"
+site_packages = API / ".venv" / "Lib" / "site-packages"
+if site_packages.exists() and str(site_packages) not in sys.path:
+    sys.path.insert(0, str(site_packages))
+if str(API) not in sys.path:
+    sys.path.insert(0, str(API))
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 DESKTOP_PORT = 8765
 
@@ -45,6 +50,52 @@ def port_open(port: int) -> bool:
             return True
     except OSError:
         return False
+
+
+def is_pid_alive(pid: int | None) -> bool:
+    """Verify if a process ID is actually running on the OS."""
+    if not pid or pid <= 0:
+        return False
+    try:
+        if os.name == "nt":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            SYNCHRONIZE = 0x00100000
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, pid)
+            if not handle:
+                return False
+            exit_code = ctypes.c_ulong()
+            success = kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            kernel32.CloseHandle(handle)
+            return bool(success and exit_code.value == 259)  # 259 is STILL_ACTIVE
+        else:
+            os.kill(pid, 0)
+            return True
+    except Exception:
+        return False
+
+
+def clean_stale_runner_state(runtime_dir: Path) -> None:
+    """Purge stale PIDs and dead runner status from runner-state.json."""
+    state_file = runtime_dir / "runner-state.json"
+    if not state_file.exists():
+        return
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        runner_pid = state.get("runnerPid")
+        # If the runner PID is dead or missing, clean stale process references
+        if not runner_pid or not is_pid_alive(runner_pid):
+            state["runnerPid"] = None
+            state["status"] = "offline"
+            state["processes"] = {}
+            state["apiHealthy"] = port_open(8000)
+            state["webHealthy"] = port_open(5173)
+            state["tunnelHealthy"] = False
+            state["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception as exc:
+        print(f"Warning: could not clean stale runner state: {exc}", flush=True)
 
 
 def desktop_probe() -> bool:
@@ -108,7 +159,7 @@ def public_environment() -> dict[str, str]:
     web_config = {**dotenv_values(WEB / ".env.local"), **os.environ}
     owner_path = RUNTIME / "owner-id.txt"
     owner = owner_path.read_text().strip() if owner_path.exists() else ""
-    if not re.fullmatch(r"user_[A-Za-z0-9]+", owner):
+    if not re.fullmatch(r"user_[A-Za-z0-9]+(?:,\s*user_[A-Za-z0-9]+)*", owner):
         raise RuntimeError("A verified owner ID is required in .runtime/live/owner-id.txt.")
     if not api_config.get("CLERK_SECRET_KEY") or not web_config.get("VITE_CLERK_PUBLISHABLE_KEY"):
         raise RuntimeError("Configure existing Clerk keys before starting the private live site.")
@@ -217,13 +268,28 @@ class Runner:
             if "api" not in self.children and port_open(8000):
                 raise RuntimeError("Stop the existing local API before starting the private public runner.")
             tunnel = self.children.get("tunnel")
-            if (tunnel is None or tunnel.poll() is not None) and time.monotonic() >= self.retry_at.get("tunnel", 0):
+            tunnel_alive = tunnel is not None and tunnel.poll() is None and is_pid_alive(tunnel.pid)
+            if not tunnel_alive and time.monotonic() >= self.retry_at.get("tunnel", 0):
                 self.origin = None
                 # Only the runner's own output is reset for a new tunnel.
                 for suffix in ("out", "err"):
                     (RUNTIME / f"tunnel.{suffix}.log").write_text("")
-                self.start("tunnel", [str(ROOT / "cloudflared.exe"), "tunnel", "--url", "http://127.0.0.1:8000",
-                                      "--no-autoupdate", "--protocol", "http2"], ROOT)
+                tunnel_token = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN")
+                token_path = RUNTIME / "tunnel.token"
+                if not tunnel_token and token_path.exists():
+                    tunnel_token = token_path.read_text(encoding="utf-8").strip()
+                configured_origin = os.environ.get("CLOUDFLARE_TUNNEL_ORIGIN") or os.environ.get("HINAA_PUBLIC_API_ORIGIN")
+                origin_path = RUNTIME / "tunnel.origin"
+                if not configured_origin and origin_path.exists():
+                    configured_origin = origin_path.read_text(encoding="utf-8").strip()
+
+                if tunnel_token:
+                    self.start("tunnel", [str(ROOT / "cloudflared.exe"), "tunnel", "run", "--token", tunnel_token], ROOT)
+                    if configured_origin:
+                        self.origin = configured_origin
+                else:
+                    self.start("tunnel", [str(ROOT / "cloudflared.exe"), "tunnel", "--url", "http://127.0.0.1:8000",
+                                          "--no-autoupdate", "--protocol", "http2"], ROOT)
             candidate = tunnel_origin(RUNTIME / "tunnel.err.log") or tunnel_origin(RUNTIME / "tunnel.out.log")
             if candidate and candidate != self.origin:
                 self.origin = candidate
@@ -246,6 +312,7 @@ class Runner:
 
         api_ok = probe("http://127.0.0.1:8000/health/live", api=True)
         api_env = {**os.environ, **self.public_env}
+        api_env["PYTHONPATH"] = str(API) + (os.pathsep + api_env["PYTHONPATH"] if "PYTHONPATH" in api_env else "")
         if self.origin:
             api_env["HINAA_REALTIME_PUBLIC_ORIGIN"] = self.origin
         self.ensure("api", 8000, api_ok, [str(API / ".venv/Scripts/python.exe"), "-m", "uvicorn",
@@ -285,16 +352,41 @@ class Runner:
         self.write_state(api_ok, web_ok, tunnel_ok, "online" if public_ok else "starting" if self.public else "local", deploy_error)
 
     def write_state(self, api_ok, web_ok, tunnel_ok, status, error):
-        state = {"updatedAt":time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "runnerPid":os.getpid(),
-                 "status":status, "apiHealthy":api_ok, "webHealthy":web_ok, "tunnelHealthy":tunnel_ok,
-                 "desktopHealthy":self.desktop_healthy,
-                 "tunnelOrigin":self.origin, "publishedOrigin":self.published,
-                 "siteUrl":"https://hinaa-workspace.vercel.app" if self.public else "http://127.0.0.1:5173",
-                 "processes":{k:v.pid for k,v in self.children.items() if v.poll() is None}, "deployError":error}
-        temporary = RUNTIME / "runner-state.tmp"
-        temporary.write_text(json.dumps(state, indent=2))
-        temporary.replace(RUNTIME / "runner-state.json")
-        self.previous = state
+        tunnel_token = bool(os.environ.get("CLOUDFLARE_TUNNEL_TOKEN") or (RUNTIME / "tunnel.token").exists())
+        active_processes = {k: v.pid for k, v in self.children.items() if v.poll() is None and is_pid_alive(v.pid)}
+        state = {
+            "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "runnerPid": os.getpid(),
+            "status": status,
+            "apiHealthy": api_ok,
+            "webHealthy": web_ok,
+            "tunnelHealthy": tunnel_ok,
+            "desktopHealthy": self.desktop_healthy,
+            "namedTunnel": tunnel_token,
+            "heartbeatExpirySec": 10,
+            "tunnelOrigin": self.origin,
+            "publishedOrigin": self.published,
+            "siteUrl": "https://hinaa-workspace.vercel.app" if self.public else "http://127.0.0.1:5173",
+            "processes": active_processes,
+            "deployError": error,
+        }
+        target = RUNTIME / "runner-state.json"
+        content = json.dumps(state, indent=2)
+        # Resilient atomic write with retries and direct write fallback on Windows
+        for attempt in range(5):
+            try:
+                temporary = RUNTIME / f"runner-state.{os.getpid()}.tmp"
+                temporary.write_text(content, encoding="utf-8")
+                temporary.replace(target)
+                self.previous = state
+                return
+            except OSError:
+                time.sleep(0.05 * (attempt + 1))
+        try:
+            target.write_text(content, encoding="utf-8")
+            self.previous = state
+        except Exception as e:
+            print(f"Warning: could not write runner-state: {e}", flush=True)
 
 
 def main():
@@ -304,6 +396,7 @@ def main():
     parser.add_argument("--deploy", action="store_true", help="Recover public routing using prebuilt assets")
     args = parser.parse_args()
     RUNTIME.mkdir(parents=True, exist_ok=True)
+    clean_stale_runner_state(RUNTIME)
     sanitize_path()
     # Exclusive OS file lock prevents two runners from fighting over ports.
     with (RUNTIME / "runner.lock").open("a+b") as lock:
@@ -321,15 +414,19 @@ def main():
                 try:
                     runner.tick()
                 except Exception as exc:
-                    print(f"Runner check failed: {type(exc).__name__}", flush=True)
+                    print(f"Runner check failed: {type(exc).__name__}: {exc}", flush=True)
                     runner.publish_retry = time.monotonic() + 60
-                    runner.write_state(False, False, False, "error", str(exc))
-                time.sleep(10)
+                    try:
+                        runner.write_state(False, False, False, "error", str(exc))
+                    except Exception as err:
+                        print(f"Failed to record error state: {err}", flush=True)
+                time.sleep(3)
         finally:
             for name in list(runner.children):
                 runner.stop(name)
             (RUNTIME / "stop-requested").unlink(missing_ok=True)
             (RUNTIME / "runner.pid").unlink(missing_ok=True)
+            clean_stale_runner_state(RUNTIME)
 
 
 if __name__ == "__main__":

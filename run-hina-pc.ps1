@@ -11,7 +11,7 @@ $conn = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
 if (-not $conn) {
     Write-Host "[1/3] Starting HINA Cognitive Python Backend on http://127.0.0.1:8000..." -ForegroundColor Yellow
     $env:PYTHONPATH = "apps/api"
-    Start-Process -FilePath "apps\api\.venv\Scripts\python.exe" -ArgumentList "-m uvicorn hinaa_api.main:app --host 127.0.0.1 --port 8000" -WindowStyle Hidden
+    Start-Process -FilePath "apps\api\.venv\Scripts\python.exe" -ArgumentList "-m uvicorn hinaa_api.main:app --app-dir apps/api --host 127.0.0.1 --port 8000" -WindowStyle Hidden
     Start-Sleep -Seconds 3
 } else {
     Write-Host "[1/3] HINA Backend is active on http://127.0.0.1:8000" -ForegroundColor Green

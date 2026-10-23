@@ -33,7 +33,7 @@ $cloudflared = Join-Path $rootDir 'cloudflared.exe'
 $tunnelLog = Join-Path $logDir 'tunnel.log'
 $tunnelErr = Join-Path $logDir 'tunnel.err.log'
 Start-Process -FilePath $cloudflared `
-    -ArgumentList 'tunnel', '--url', 'http://127.0.0.1:8000', '--no-autoupdate' `
+    -ArgumentList 'tunnel', '--url', 'http://127.0.0.1:8000', '--no-autoupdate', '--protocol', 'http2' `
     -WorkingDirectory $rootDir `
     -RedirectStandardOutput $tunnelLog -RedirectStandardError $tunnelErr `
     -WindowStyle Hidden

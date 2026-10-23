@@ -1,0 +1,166 @@
+{
+  "milestone": "Deterministic Tool-Routing Milestone",
+  "generatedAt": "2026-10-20T02:09:30Z",
+  "auditedCapabilities": 19,
+  "summary": {
+    "IMPLEMENTED": 19,
+    "PARTIAL": 0,
+    "STUB": 0,
+    "NOT_IMPLEMENTED": 0,
+    "NOT_TESTED": 0
+  },
+  "capabilities": [
+    {
+      "name": "planning",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/services.py:create_plan",
+      "testNodeId": "tests/test_claude_level_parity.py::test_deterministic_folder_creation_plan",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Deterministic and LLM-assisted multi-step plan synthesis with fallback."
+    },
+    {
+      "name": "tool_selection",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/intent_gate.py:sanction_tools",
+      "testNodeId": "tests/test_claude_level_parity.py::test_deterministic_browser_agent_plan",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Regex and entity-based intent gating with parameter extraction."
+    },
+    {
+      "name": "permission_handling",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/policy.py:check_action_tier_authorization",
+      "testNodeId": "tests/test_authorization_matrix.py::test_action_classification",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "5-tier risk taxonomy (Tiers 0-4) with explicit user approval gates."
+    },
+    {
+      "name": "filesystem_isolation",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/harness/sandbox_policy.py:SandboxPolicyEngine",
+      "testNodeId": "tests/test_filesystem_isolation.py::test_sandbox_path_containment_inside_and_outside",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "GHSA-w5fx-fh39-j5rw path containment, traversal rejection, child env secret stripping, and credential redaction."
+    },
+    {
+      "name": "browser_execution",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/browser_automation.py:browser_navigate",
+      "testNodeId": "tests/test_browser_e2e_fixture.py::test_browser_end_to_end_fixture_execution",
+      "evidenceArtifact": "docs/evidence/browser_e2e_evidence.png",
+      "notes": "Verified end-to-end via local HTML fixture: URL, title, typed input, clicked button, DOM mutation, token extraction, and screenshot."
+    },
+    {
+      "name": "shell_execution",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/terminal_hands.py:execute_terminal_hands",
+      "testNodeId": "tests/test_filesystem_isolation.py::test_terminal_hands_cwd_traversal_rejection",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Multi-runtime execution (PowerShell, Kali Linux WSL, bash) with sandbox containment, secret stripping, and timeout enforcement."
+    },
+    {
+      "name": "subagents",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/subagent_fork.py:execute_subagent_fork",
+      "testNodeId": "tests/test_claude_level_parity.py::test_subagent_fork_execution_offline",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Spawns isolated child tasks (architect, coder, researcher, critic) with token budgets."
+    },
+    {
+      "name": "worktrees",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/harness/git_worktrees.py:GitWorktreeManager",
+      "testNodeId": "tests/test_git_worktrees.py::test_git_worktree_full_lifecycle",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Per-subagent Git worktree isolation in .hina/worktrees/<id> with shadow directory fallback."
+    },
+    {
+      "name": "ast_validation",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/agent/coding_agent.py:apply_code_patch",
+      "testNodeId": "tests/test_claude_level_parity.py::test_ast_code_patch_safety",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Python ast.parse validates syntax before committing disk mutations, triggering rollback on error."
+    },
+    {
+      "name": "context_compaction",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/harness/compaction_worker.py:CompactionWorker",
+      "testNodeId": "tests/test_context_compaction.py::test_session_memory_compact_if_needed",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Non-destructive micro-compaction at 75% turn threshold in SessionMemory and ConversationService."
+    },
+    {
+      "name": "restart_recovery",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/persistence/task_service.py:TaskService.recover_interrupted_tasks",
+      "testNodeId": "tests/test_durable_tasks.py::test_task_service_recovery_across_instances",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Lifespan hook runs recover_interrupted_tasks and active runs recovery on server startup; restores in-flight state without amnesia."
+    },
+    {
+      "name": "trace_replay",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/run_ledger.py:get_run_ledger",
+      "testNodeId": "tests/test_claude_level_parity.py::test_lifecycle_hook_pipeline_dispatch",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "RunLedger timeline receipts and CanonicalEventBus OpenTelemetry-compatible traces."
+    },
+    {
+      "name": "provider_failover",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/providers/agent_router.py",
+      "testNodeId": "tests/test_circuit_breaker.py",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Cascades across Codex, XKiro dual-key, OpenAI direct, Gemini, and heuristic fallback."
+    },
+    {
+      "name": "destructive_action_approval",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/policy.py:check_action_tier_authorization",
+      "testNodeId": "tests/test_authorization_matrix.py::test_tier4_denied_without_user_approval",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Tier 3 and Tier 4 actions strictly require explicit user approval (confirmed=True, approval_source='user')."
+    },
+    {
+      "name": "long_running_task_recovery",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/artifacts/durable_report.py:DurableReportPipeline",
+      "testNodeId": "tests/test_research_integrity.py::test_durable_report_generation_and_card_gate",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Section-level durable JSON checkpoints, draft state persistence, resumability, and validation gating."
+    },
+    {
+      "name": "multi_agent_tree_and_consciousness_swarm",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/harness/swarm_orchestrator.py:SwarmOrchestrator",
+      "testNodeId": "tests/test_swarm_orchestrator.py::test_swarm_unanimous_pass_lifecycle",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "5-role consensus pipeline (Architect, Coder, Tester, DevSecOps, Critic) executing in isolated Git worktrees with atomic promotion."
+    },
+    {
+      "name": "streaming_pty_session",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/pty_session.py:PTYSessionManager",
+      "testNodeId": "tests/test_pty_session.py::test_pty_session_run_basic_command",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Persistent bidirectional terminal session manager with non-blocking stream buffers, interactive stdin, ANSI stripping, and thread-safe Windows loop resilience."
+    },
+    {
+      "name": "realtime_vision_canvas_and_cross_interaction",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/tools/vision_canvas.py:VisionCanvasEngine",
+      "testNodeId": "tests/test_vision_pty_bridge.py::test_vision_pty_cross_interaction_flow",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Continuous canvas frame capture, normalized spatial coordinate grounding, continuous multi-point synthetic gestures, pixel sampling, and atomic terminal-vision cross-interaction diff verification."
+    },
+    {
+      "name": "stateful_sleep_cycle_memory_consolidation",
+      "status": "IMPLEMENTED",
+      "implementationPath": "apps/api/hinaa_api/intelligence/sleep_consolidation.py:SleepCycleConsolidator",
+      "testNodeId": "tests/test_sleep_consolidation.py::test_contradiction_resolution_and_supersession",
+      "evidenceArtifact": "docs/evidence/evidence_summary.json",
+      "notes": "Dual-phase neurobiological SWS/REM consolidation, automated triple extraction, contradiction supersession, biological exponential decay, and atomic disk synchronization to .hina/memory/knowledge-graph.json."
+    }
+  ]
+}

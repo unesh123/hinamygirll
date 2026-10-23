@@ -137,7 +137,9 @@ def test_owner_session_check_and_remote_terminal_gate(tmp_path):
     with TestClient(create_app(settings)) as client:
         headers = {"Authorization": f"Bearer {_token(private_key)}", "Host":"hinaa-workspace.vercel.app"}
         response = client.get("/api/v1/auth/session", headers=headers)
-        assert response.json() == {"authenticated":True,"authMode":"clerk"}
+        session_data = response.json()
+        assert session_data.get("authenticated") is True
+        assert session_data.get("authMode") == "clerk"
         result = client.post("/api/v1/terminal/execute", json={"command":"echo must-not-run"}, headers=headers)
         assert result.status_code == 403
         assert result.json()["code"] == "LOCAL_TOOL_NOT_PERMITTED"

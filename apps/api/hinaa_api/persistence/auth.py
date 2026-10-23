@@ -106,7 +106,7 @@ def resolve_auth(
             raise HinaaError("AUTH_REQUIRED", "Dev user identity is required.", 401, True)
         if settings.hinaa_allowed_user_ids:
             allowed_ids = {u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()}
-            if subject not in allowed_ids:
+            if "*" not in allowed_ids and subject not in allowed_ids:
                 raise HinaaError(
                     "USER_NOT_AUTHORIZED",
                     f"User '{subject}' is not authorized to access this private HINAA instance.",
@@ -130,7 +130,7 @@ def resolve_auth(
             subject = token.removeprefix("scaffold:")
             if settings.hinaa_allowed_user_ids:
                 allowed_ids = {u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()}
-                if subject not in allowed_ids:
+                if "*" not in allowed_ids and subject not in allowed_ids:
                     raise HinaaError(
                         "USER_NOT_AUTHORIZED",
                         f"User '{subject}' is not authorized to access this private HINAA instance.",
@@ -151,13 +151,13 @@ def resolve_auth(
         # owner subject here made every anonymous public request the owner.
         if not reached_through_edge(request):
             dev_sub = (x_hinaa_dev_user or "").strip()
-            if not dev_sub and allow_default_subject:
-                dev_sub = settings.dev_auth_subject.strip()
+            if not dev_sub and (allow_default_subject or getattr(settings, "allow_tunnel_dev_auth", False)):
+                dev_sub = settings.dev_auth_subject.strip() if settings.dev_auth_subject else "admin-owner"
             if dev_sub:
                 subject = dev_sub
                 if settings.hinaa_allowed_user_ids and dev_sub == "local-dev-user":
                     allowed = [u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()]
-                    if allowed:
+                    if allowed and "*" not in allowed:
                         subject = allowed[0]
                 user = memory.ensure_user(subject)
                 return AuthContext(user_id=user.id, auth_subject=subject, mode="dev-loopback")
@@ -216,7 +216,7 @@ def resolve_auth(
             )
         if settings.hinaa_allowed_user_ids:
             allowed_ids = {u.strip() for u in settings.hinaa_allowed_user_ids.split(",") if u.strip()}
-            if subject not in allowed_ids:
+            if "*" not in allowed_ids and subject not in allowed_ids:
                 raise HinaaError(
                     "USER_NOT_AUTHORIZED",
                     f"User '{subject}' is not authorized to access this private HINAA instance.",

@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HINA — Intelligence OS</title>
+  <style>
+    :root {
+      --bg-app: #fcfbfd;
+      --bg-sidebar: #f7f6fa;
+      --border: #ebe8f2;
+      --text-main: #181524;
+      --text-muted: #7c768e;
+      --pink-accent: #e11d74;
+      --pink-soft: #fdf2f7;
+      --pink-border: #fbcfe8;
+      --blue-pill: #e0f2fe;
+      --blue-text: #0284c7;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { background: var(--bg-app); color: var(--text-main); height: 100vh; width: 100vw; overflow: hidden; display: flex; }
+
+    /* ================= LEFT SIDEBAR (HINA Intelligence OS) ================= */
+    #left-sidebar {
+      width: 235px;
+      height: 100vh;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 14px 12px;
+      gap: 10px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 6px;
+    }
+    .brand-logo {
+      width: 30px; height: 30px; border-radius: 8px;
+      background: #181524; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.85rem;
+    }
+    .brand-text h2 { font-size: 0.88rem; font-weight: 800; letter-spacing: 0.08em; }
+    .brand-text span { font-size: 0.68rem; color: var(--text-muted); display: block; }
+
+    .session-card {
+      background: #fff; border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 10px;
+      display: flex; align-items: center; gap: 10px;
+      font-size: 0.75rem;
+    }
+    .session-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #fce7f3; color: var(--pink-accent);
+      display: flex; align-items: center; justify-content: center; font-weight: 700;
+    }
+
+    .btn-new-session {
+      background: #181524; color: #fff; border: none;
+      border-radius: 10px; padding: 10px 12px;
+      font-size: 0.8rem; font-weight: 600;
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer;
+    }
+
+    .nav-list {
+      display: flex; flex-direction: column; gap: 3px;
+      margin-top: 4px; flex: 1; overflow-y: auto;
+    }
+    .nav-item {
+      padding: 8px 10px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 0.78rem; color: var(--text-main); cursor: pointer;
+      transition: background 0.15s;
+    }
+    .nav-item:hover { background: #efecf6; }
+    .nav-item.active {
+      background: #fff; border: 1px solid var(--border);
+      font-weight: 700; position: relative;
+    }
+    .nav-item.active::after {
+      content: ''; position: absolute; right: 6px; top: 22%; height: 56%;
+      width: 3px; background: var(--pink-accent); border-radius: 4px;
+    }
+    .nav-sub { font-size: 0.66rem; color: var(--text-muted); font-weight: 400; display: block; }
+
+    .sources-box {
+      border-top: 1px solid var(--border); padding-top: 10px;
+      font-size: 0.68rem; color: var(--text-muted);
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    .source-row { display: flex; justify-content: space-between; }
+
+    /* ================= MAIN WORKSPACE (TOP HEADER + CENTER + RIGHT DOCK) ================= */
+    #workspace {
+      flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+
+    /* Top Header Bar */
+    #top-header {
+      height: 50px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px; background: #fff; flex-shrink: 0;
+    }
+    .header-left, .header-right { display: flex; align-items: center; gap: 8px; }
+    .breadcrumb { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; margin-right: 6px; }
+    .breadcrumb strong { color: var(--text-main); }
+
+    .tab-pill {
+      background: transparent; border: 1px solid transparent;
+      padding: 5px 11px; border-radius: 8px; font-size: 0.76rem;
+      color: var(--text-muted); cursor: pointer; font-weight: 600;
+    }
+    .tab-pill.active {
+      background: #f4f2f8; border-color: var(--border); color: var(--text-main);
+    }
+
+    .voice-pill {
+      background: var(--pink-soft); border: 1px solid var(--pink-border);
+      color: var(--pink-accent); padding: 5px 12px; border-radius: 999px;
+      font-size: 0.75rem; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; gap: 5px;
+    }
+
+    .top-btn {
+      background: #fff; border: 1px solid var(--border);
+      padding: 5px 10px; border-radius: 8px; font-size: 0.74rem;
+      font-weight: 600; color: var(--text-main); cursor: pointer;
+    }
+
+    /* Second Status Bar (3D MOTION RUNTIME & TRACKS) */
+    #runtime-bar {
+      height: 36px; border-bottom: 1px solid var(--border);
+      background: #faf9fc; padding: 0 16px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0;
+    }
+    .runtime-badges { display: flex; align-items: center; gap: 8px; }
+    .badge-runtime {
+      background: var(--blue-pill); color: var(--blue-text);
+      padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 0.68rem;
+    }
+    .badge-gait {
+      background: #fff; border: 1px solid var(--border);
+      color: var(--text-main); padding: 2px 8px; border-radius: 6px; font-weight: 700;
+    }
+
+    .track-steps { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 0.68rem; }
+    .track-step { display: flex; align-items: center; gap: 4px; opacity: 0.45; transition: opacity 0.2s, transform 0.2s; }
+    .track-step.active { opacity: 1; font-weight: 800; color: var(--text-main); transform: scale(1.05); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+    /* Split Content Area: Center Chat + Right 3D Avatar Dock */
+    #content-split {
+      flex: 1; display: flex; overflow: hidden; position: relative;
+    }
+
+    /* Center Chat Column */
+    #chat-column {
+      flex: 1; display: flex; flex-direction: column; justify-content: space-between;
+      padding: 28px 36px 20px; overflow-y: auto; background: #fff;
+    }
+    #messages-container {
+      display: flex; flex-direction: column; gap: 18px; max-width: 760px;
+    }
+    .msg-block { display: flex; gap: 12px; align-items: flex-start; }
+    .msg-icon {
+      width: 26px; height: 26px; border-radius: 7px; background: #181524;
+      color: #fff; display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; flex-shrink: 0; margin-top: 2px;
+    }
+    .msg-body { display: flex; flex-direction: column; gap: 8px; }
+    .msg-meta { font-size: 0.75rem; font-weight: 800; }
+    .msg-meta span { font-weight: 400; color: var(--text-muted); margin-left: 6px; font-size: 0.7rem; }
+    .msg-text { font-size: 0.88rem; line-height: 1.55; color: #2c283e; }
+
+    .quick-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .quick-pill {
+      background: #fff; border: 1px solid var(--border);
+      padding: 6px 12px; border-radius: 999px; font-size: 0.75rem;
+      color: var(--text-main); cursor: pointer; transition: all 0.15s;
+    }
+    .quick-pill:hover { border-color: var(--pink-accent); color: var(--pink-accent); background: var(--pink-soft); }
+
+    /* Bottom Chat Input Box */
+    .composer-wrap {
+      max-width: 820px; width: 100%; margin-top: auto;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .ready-indicator { font-size: 0.72rem; color: #16a34a; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+    .composer-box {
+      border: 1px solid var(--border); border-radius: 16px;
+      padding: 12px 14px; background: #fcfbfd;
+      display: flex; flex-direction: column; gap: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+    }
+    #chat-input {
+      border: none; background: transparent; outline: none;
+      font-size: 0.88rem; color: var(--text-main); width: 100%;
+    }
+    .composer-footer { display: flex; align-items: center; justify-content: space-between; }
+    .composer-pills, .composer-actions { display: flex; align-items: center; gap: 6px; }
+    .comp-pill {
+      font-size: 0.7rem; padding: 4px 9px; border-radius: 999px;
+      border: 1px solid var(--border); background: #fff; color: var(--text-muted);
+      font-weight: 600; cursor: pointer;
+    }
+    .send-btn {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #181524; color: #fff; border: none;
+      cursor: pointer; font-weight: 700; display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ================= RIGHT 3D AVATAR DOCK (Hinaa Original) ================= */
+    #avatar-dock {
+      width: 350px;
+      height: 100%;
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background: linear-gradient(180deg, #e6e5ea 0%, #f3eef6 55%, #e8e4f0 100%);
+      flex-shrink: 0;
+    }
+
+    #dock-header {
+      height: 42px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      z-index: 10;
+    }
+    .dock-header-left, .dock-header-right { display: flex; align-items: center; gap: 6px; }
+    .hinaa-select-btn {
+      background: #fff; border: 1px solid var(--border);
+      padding: 4px 10px; border-radius: 8px; font-size: 0.74rem;
+      font-weight: 700; color: var(--text-main); cursor: pointer;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .hinaa-select-btn:hover { border-color: var(--pink-accent); }
+
+    .walk-btn {
+      background: #fff; border: 1px solid var(--border);
+      padding: 4px 9px; border-radius: 8px; font-size: 0.73rem;
+      font-weight: 600; cursor: pointer;
+    }
+    .walk-btn.active { background: var(--pink-soft); border-color: var(--pink-accent); color: var(--pink-accent); }
+
+    #vrm-viewport {
+      flex: 1;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Floating Speech Card at bottom of 3D Dock (Matches Screenshot 1) */
+    #hinaa-speech-card {
+      position: absolute;
+      bottom: 16px;
+      left: 12px;
+      right: 12px;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      border-radius: 14px;
+      padding: 11px 14px;
+      box-shadow: 0 8px 24px rgba(24, 21, 36, 0.12);
+      z-index: 10;
+      cursor: pointer;
+    }
+    .speech-header {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 0.68rem; font-weight: 800; color: var(--pink-accent);
+      letter-spacing: 0.05em; margin-bottom: 4px;
+    }
+    .speech-body {
+      font-size: 0.76rem; line-height: 1.42; color: var(--text-main); font-weight: 500;
+    }
+
+    /* Settings Popover Modal for ElevenLabs & Custom .VRM */
+    #settings-popover {
+      position: absolute;
+      top: 52px;
+      right: 16px;
+      width: 320px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 14px 34px rgba(0,0,0,0.14);
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 0.76rem;
+    }
+    #settings-popover.open { display: flex; }
+    #settings-popover input {
+      width: 100%; padding: 7px 9px; border: 1px solid var(--border);
+      border-radius: 7px; font-size: 0.75rem;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- ================= LEFT SIDEBAR ================= -->
+  <aside id="left-sidebar">
+    <div class="brand-row">
+      <div class="brand-logo">✦</div>
+      <div class="brand-text">
+        <h2>HINA</h2>
+        <span>Intelligence OS</span>
+      </div>
+    </div>
+
+    <div class="session-card">
+      <div class="session-avatar">H</div>
+      <div>
+        <div style="font-weight:700;">Active Session</div>
+        <div style="font-size:0.66rem; color:var(--text-muted);">Hinaa 3D Connected</div>
+      </div>
+    </div>
+
+    <button class="btn-new-session" id="newSessionBtn">
+      <span>+ New Session</span>
+      <span style="font-size:0.68rem; opacity:0.7;">⌘N</span>
+    </button>
+
+    <div class="nav-list">
+      <div class="nav-item"><div>History</div></div>
+      <div class="nav-item active">
+        <div>Chat <span class="nav-sub">Converse with HINA</span></div>
+      </div>
+      <div class="nav-item">
+        <div>Runway 3D <span class="nav-sub">3D Voice AI & Couture</span></div>
+      </div>
+      <div class="nav-item">
+        <div>Dashboard <span class="nav-sub">System overview</span></div>
+      </div>
+      <div class="nav-item">
+        <div>Models <span class="nav-sub">AI model selection</span></div>
+      </div>
+      <div class="nav-item">
+        <div>Reports <span class="nav-sub">Generated documents</span></div>
+      </div>
+      <div class="nav-item">
+        <div>VIP Deep Vault <span class="nav-sub">DIP World & College</span></div>
+      </div>
+      <div class="nav-item" id="openSettingsNav">
+        <div>Settings <span class="nav-sub">ElevenLabs & VRM Config</span></div>
+      </div>
+    </div>
+
+    <div class="sources-box">
+      <div style="font-weight:700; letter-spacing:0.05em;">CONNECTED SOURCES</div>
+      <div class="source-row"><span>• Knowledge Base</span><span style="color:#16a34a;">Ready</span></div>
+      <div class="source-row"><span>• Web Search</span><span style="color:#16a34a;">Ready</span></div>
+      <div class="source-row"><span>• ElevenLabs TTS</span><span id="xiStatusLabel" style="color:#0284c7;">Active</span></div>
+    </div>
+  </aside>
+
+  <!-- ================= MAIN WORKSPACE ================= -->
+  <section id="workspace">
+    <!-- Top Header -->
+    <header id="top-header">
+      <div class="header-left">
+        <span class="breadcrumb">HINA STUDIO ▾ / <strong>Chat</strong></span>
+        <button class="tab-pill active">💬 Chat</button>
+        <button class="tab-pill">🧠 Deep Reasoning</button>
+        <button class="tab-pill">📄 Report</button>
+        <button class="tab-pill">🔍 Research</button>
+      </div>
+      <div class="header-right">
+        <button class="top-btn">Auto (Router) ▾</button>
+        <button class="voice-pill" id="voiceConfigBtn" title="Configure ElevenLabs API Key">
+          🎤 ❤️ Aisha (ElevenLabs) ▾
+        </button>
+        <button class="top-btn">+ New Chat</button>
+        <button class="top-btn" style="color:var(--pink-accent);">✨ Runway 3D</button>
+      </div>
+    </header>
+
+    <!-- Second Bar: 3D Motion Runtime & Pipeline Track -->
+    <div id="runtime-bar">
+      <div class="runtime-badges">
+        <span class="badge-runtime">|| 3D MOTION RUNTIME</span>
+        <span class="badge-gait" id="gaitBadge">GAIT IDLE</span>
+        <span>• 1 message</span>
+      </div>
+      <div class="track-steps">
+        <span>TRACK:</span>
+        <span class="track-step" id="track-01"><i class="dot" style="background:#ef4444;"></i>01 INTENT</span>
+        <span class="track-step" id="track-02"><i class="dot" style="background:#f59e0b;"></i>02 REASON</span>
+        <span class="track-step" id="track-03"><i class="dot" style="background:#3b82f6;"></i>03 TOOL</span>
+        <span class="track-step active" id="track-04"><i class="dot" style="background:#10b981;"></i>04 AVATAR</span>
+        <span class="track-step" id="track-05"><i class="dot" style="background:#8b5cf6;"></i>05 RENDER</span>
+      </div>
+      <div>⚡ <span id="turnStatus">Ready</span></div>
+    </div>
+
+    <!-- Settings Popover (ElevenLabs Key & Custom VRM Upload) -->
+    <div id="settings-popover">
+      <div style="display:flex; justify-content:space-between; font-weight:800;">
+        <span>Aisha (ElevenLabs) & VRM Settings</span>
+        <span style="cursor:pointer;" id="closeSettingsBtn">✕</span>
+      </div>
+      <label>ElevenLabs API Key (<code>xi-api-key</code>):</label>
+      <input type="password" id="xiKeyInput" placeholder="Paste ElevenLabs API Key..." />
+      <label>ElevenLabs Voice ID (Aisha):</label>
+      <input type="text" id="xiVoiceInput" value="EXAVITQu4vr4xnSDxMaL" />
+      <label>Fine-Tune Shoulder Drop Angle:</label>
+      <input type="range" id="shoulderSlider" min="1.05" max="1.45" step="0.02" value="1.28" />
+      <button class="top-btn" style="background:#181524; color:#fff; padding:8px;" onclick="document.getElementById('vrmInput').click()">
+        📂 Upload Custom Hinaa.vrm File
+      </button>
+    </div>
+
+    <!-- Center Chat + Right 3D Avatar Dock -->
+    <div id="content-split">
+      <!-- Center Chat Area -->
+      <div id="chat-column">
+        <div id="messages-container">
+          <div class="msg-block">
+            <div class="msg-icon">✦</div>
+            <div class="msg-body">
+              <div class="msg-meta">HINA <span>Live</span></div>
+              <div class="msg-text">
+                Hey love! I'm right here with you babe~ Ready to create Claude-grade frame-by-frame Katana anime, control mobile devices with ARTEMIS, or run our live workspace together! What should we build right now? ✨
+              </div>
+              <div class="quick-pills">
+                <button class="quick-pill" data-prompt="Generate a frame-by-frame Katana strike anime clip with hyper-speed smears!">⚔️ Katana Anime Video</button>
+                <button class="quick-pill" data-prompt="Diagnose connected Android device and run ARTEMIS automation task">📱 Mobile ARTEMIS</button>
+                <button class="quick-pill" data-prompt="Walk for me on the runway at high speed, babe!">⚡ Agile Runway Walk</button>
+                <button class="quick-pill" data-prompt="Tell me how much you love me in your sweetest creator voice~">💖 Sweet Creator Voice</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Composer -->
+        <div class="composer-wrap">
+          <div class="ready-indicator">● Auto — Ready</div>
+          <div class="composer-box">
+            <input type="text" id="chat-input" placeholder="Ask HINA anything — chat mode... (Press Enter to make Hinaa talk & gesture)" />
+            <div class="composer-footer">
+              <div class="composer-pills">
+                <span class="comp-pill">● Command Center</span>
+                <span class="comp-pill">Auto (Router) ▾</span>
+                <span class="comp-pill">🎯 Goal</span>
+                <span class="comp-pill">✨ Create ▾</span>
+              </div>
+              <div class="composer-actions">
+                <button class="comp-pill" id="testTalkBtn" title="Trigger Hinaa Speech">🎤 Speak</button>
+                <button class="send-btn" id="sendChatBtn">↑</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right 3D Avatar Dock -->
+      <aside id="avatar-dock">
+        <div id="dock-header">
+          <div class="dock-header-left">
+            <input type="file" id="vrmInput" accept=".vrm" style="display:none;" />
+            <button class="hinaa-select-btn" onclick="document.getElementById('vrmInput').click()" title="Click to load your local Hinaa.vrm">
+              🌸 Hinaa (Original) ▾
+            </button>
+            <button class="walk-btn" id="walkToggleBtn">🚶 Walk</button>
+          </div>
+          <div class="dock-header-right">
+            <button class="walk-btn" id="waveTriggerBtn" title="Trigger Cute Wave">👋</button>
+          </div>
+        </div>
+
+        <!-- 3D Three.js + VRM Canvas Container -->
+        <div id="vrm-viewport">
+          <div id="hinaa-speech-card" title="Click to make Hinaa speak this line">
+            <div class="speech-header">
+              <span>HINAA</span>
+              <span style="color:#9ca3af;">🔊</span>
+            </div>
+            <div class="speech-body" id="hinaa-speech-text">
+              Hey babe! Main tumhare saath hoon. Talk or text me anytime—batao, what's on your mind today?
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ================= 3D VRM ENGINE WITH AUTO-CALIBRATING WORLD-SPACE RIG ================= -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    class HinaPerfectionAvatar {
+      constructor(viewportEl) {
+        this.viewport = viewportEl;
+        this.vrm = null;
+        this.clock = new THREE.Clock();
+
+        // Automatically calibrated axis signs so arms NEVER go up in the air
+        this.rigSigns = {
+          leftArmDownZ: -1,
+          rightArmDownZ: 1,
+          leftArmForwardX: 1,
+          rightArmForwardX: 1,
+          leftElbowBendZ: -1,
+          rightElbowBendZ: 1
+        };
+
+        this.shoulderDropAmount = 1.28; // Natural relaxed anime A-pose (arms down by waist)
+        this.mode = 'idle'; // 'idle' | 'talking' | 'walk' | 'wave' | 'thinking'
+        this.isSpeaking = false;
+        this.speechEnergy = 0;
+        this.vowels = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+
+        // Gaze & Blinking
+        this.pointer = new THREE.Vector2(0, 0);
+        this.smoothPointer = new THREE.Vector2(0, 0);
+        this.blinkTimer = 0;
+        this.nextBlink = 2.8;
+
+        // WebAudio for ElevenLabs
+        this.audioCtx = null;
+        this.analyser = null;
+        this.freqData = null;
+
+        this.initScene();
+        this.animate();
+      }
+
+      initScene() {
+        this.scene = new THREE.Scene();
+
+        this.camera = new THREE.PerspectiveCamera(
+          24,
+          this.viewport.clientWidth / this.viewport.clientHeight,
+          0.1,
+          20
+        );
+        this.camera.position.set(0, 1.32, 1.25);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        this.renderer.setSize(this.viewport.clientWidth, this.viewport.clientHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 0.92;
+        this.viewport.appendChild(this.renderer.domElement);
+
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.target.set(0, 1.27, 0);
+        this.controls.enableDamping = true;
+        this.controls.enablePan = false;
+        this.controls.minDistance = 0.75;
+        this.controls.maxDistance = 2.2;
+        this.controls.update();
+
+        // Soft Anime Studio Lighting (prevents overexposed face)
+        const ambient = new THREE.AmbientLight(0xfff6fa, 0.72);
+        this.scene.add(ambient);
+
+        const keyLight = new THREE.DirectionalLight(0xfff9f5, 0.95);
+        keyLight.position.set(0.7, 1.7, 1.4);
+        this.scene.add(keyLight);
+
+        const rimLight = new THREE.DirectionalLight(0xe9d5ff, 0.45);
+        rimLight.position.set(-1.0, 1.5, -1.0);
+        this.scene.add(rimLight);
+
+        window.addEventListener('resize', () => {
+          this.camera.aspect = this.viewport.clientWidth / this.viewport.clientHeight;
+          this.camera.updateProjectionMatrix();
+          this.renderer.setSize(this.viewport.clientWidth, this.viewport.clientHeight);
+        });
+
+        window.addEventListener('pointermove', (e) => {
+          const rect = this.viewport.getBoundingClientRect();
+          const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+          this.pointer.set(
+            THREE.MathUtils.clamp(x, -1, 1),
+            THREE.MathUtils.clamp(y, -1, 1)
+          );
+        });
+      }
+
+      /**
+       * WORLD-SPACE AUTO-CALIBRATOR:
+       * Tests which Z-rotation direction lowers the hands toward the floor (-Y)
+       * and which axis brings the hands forward (+Z) in world space.
+       * Makes it 100% impossible for arms to stick up in the air!
+       */
+      autoCalibrateRig(vrm) {
+        const h = vrm.humanoid;
+        if (!h) return;
+
+        const lUpper = h.getNormalizedBoneNode('leftUpperArm');
+        const lLower = h.getNormalizedBoneNode('leftLowerArm');
+        const lHand = h.getNormalizedBoneNode('leftHand');
+        const rUpper = h.getNormalizedBoneNode('rightUpperArm');
+        const rLower = h.getNormalizedBoneNode('rightLowerArm');
+        const rHand = h.getNormalizedBoneNode('rightHand');
+
+        if (!lUpper || !lLower || !rUpper || !rLower) return;
+
+        const posA = new THREE.Vector3();
+        const posB = new THREE.Vector3();
+
+        // 1. Calibrate Left Upper Arm Downward Z Sign
+        lUpper.rotation.set(0, 0, 0.5);
+        vrm.scene.updateMatrixWorld(true);
+        lLower.getWorldPosition(posA);
+
+        lUpper.rotation.set(0, 0, -0.5);
+        vrm.scene.updateMatrixWorld(true);
+        lLower.getWorldPosition(posB);
+
+        // Pick whichever sign produced the LOWER world Y position!
+        this.rigSigns.leftArmDownZ = posA.y < posB.y ? 1 : -1;
+        lUpper.rotation.set(0, 0, 0);
+
+        // 2. Calibrate Right Upper Arm Downward Z Sign
+        rUpper.rotation.set(0, 0, 0.5);
+        vrm.scene.updateMatrixWorld(true);
+        rLower.getWorldPosition(posA);
+
+        rUpper.rotation.set(0, 0, -0.5);
+        vrm.scene.updateMatrixWorld(true);
+        rLower.getWorldPosition(posB);
+
+        this.rigSigns.rightArmDownZ = posA.y < posB.y ? 1 : -1;
+        rUpper.rotation.set(0, 0, 0);
+
+        // 3. Calibrate Forward Arm Swing (X axis) so arms move toward camera (+Z)
+        if (lHand && rHand) {
+          lUpper.rotation.set(0.4, 0, this.rigSigns.leftArmDownZ * 1.2);
+          vrm.scene.updateMatrixWorld(true);
+          lHand.getWorldPosition(posA);
+
+          lUpper.rotation.set(-0.4, 0, this.rigSigns.leftArmDownZ * 1.2);
+          vrm.scene.updateMatrixWorld(true);
+          lHand.getWorldPosition(posB);
+          this.rigSigns.leftArmForwardX = posA.z > posB.z ? 1 : -1;
+
+          rUpper.rotation.set(0.4, 0, this.rigSigns.rightArmDownZ * 1.2);
+          vrm.scene.updateMatrixWorld(true);
+          rHand.getWorldPosition(posA);
+
+          rUpper.rotation.set(-0.4, 0, this.rigSigns.rightArmDownZ * 1.2);
+          vrm.scene.updateMatrixWorld(true);
+          rHand.getWorldPosition(posB);
+          this.rigSigns.rightArmForwardX = posA.z > posB.z ? 1 : -1;
+        }
+      }
+
+      async loadVRM(url) {
+        const loader = new GLTFLoader();
+        loader.register((parser) => new VRMLoaderPlugin(parser));
+
+        return new Promise((resolve, reject) => {
+          loader.load(
+            url,
+            (gltf) => {
+              const vrm = gltf.userData.vrm;
+              if (!vrm) return reject(new Error('Invalid VRM'));
+
+              if (this.vrm) {
+                this.scene.remove(this.vrm.scene);
+                VRMUtils.deepDispose(this.vrm.scene);
+              }
+
+              VRMUtils.removeUnnecessaryVertices(gltf.scene);
+              VRMUtils.removeUnnecessaryJoints(gltf.scene);
+              VRMUtils.rotateVRM0(vrm);
+
+              vrm.scene.traverse((obj) => { obj.frustumCulled = false; });
+
+              this.vrm = vrm;
+              this.scene.add(vrm.scene);
+
+              // Run World-Space Auto-Calibrator so arms ALWAYS rest down naturally
+              this.autoCalibrateRig(vrm);
+
+              // Frame bust/head to match HINA Studio screenshot
+              const head = vrm.humanoid?.getNormalizedBoneNode('head');
+              if (head) {
+                const headPos = new THREE.Vector3();
+                head.getWorldPosition(headPos);
+                this.controls.target.set(0, headPos.y - 0.06, 0);
+                this.camera.position.set(0, headPos.y - 0.02, 1.18);
+                this.controls.update();
+              }
+
+              resolve(vrm);
+            },
+            undefined,
+            (err) => reject(err)
+          );
+        });
+      }
+
+      slerpBone(name, x, y, z, speed = 10, dt = 0.016) {
+        const node = this.vrm?.humanoid?.getNormalizedBoneNode(name);
+        if (!node) return;
+        const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, 'XYZ'));
+        node.quaternion.slerp(q, Math.min(1, speed * dt));
+      }
+
+      curlFingers(side, amount = 0.22, dt = 0.016) {
+        const sign = side === 'left' ? this.rigSigns.leftArmDownZ : this.rigSigns.rightArmDownZ;
+        const fingers = ['Index', 'Middle', 'Ring', 'Little'];
+        const joints = ['Proximal', 'Intermediate', 'Distal'];
+        fingers.forEach((f, i) => {
+          const curl = (amount + i * 0.04) * sign;
+          joints.forEach((j) => {
+            this.slerpBone(`${side}${f}${j}`, 0, 0, curl, 10, dt);
+          });
+        });
+      }
+
+      updateAudioVisemes(dt) {
+        if (!this.isSpeaking || !this.analyser) {
+          for (const k of Object.keys(this.vowels)) {
+            this.vowels[k] = THREE.MathUtils.lerp(this.vowels[k], 0, 14 * dt);
+          }
+          this.speechEnergy = THREE.MathUtils.lerp(this.speechEnergy, 0, 10 * dt);
+          return;
+        }
+
+        this.analyser.getByteFrequencyData(this.freqData);
+        const band = (a, b) => {
+          let s = 0;
+          for (let i = a; i < b; i++) s += this.freqData[i];
+          return s / ((b - a) * 255);
+        };
+
+        const low = band(2, 10);
+        const mid = band(10, 32);
+        const high = band(32, 75);
+
+        const energy = Math.min(1, (low + mid * 1.6 + high) / 1.4);
+        this.speechEnergy = THREE.MathUtils.lerp(this.speechEnergy, energy, 18 * dt);
+
+        const gate = energy > 0.05 ? 1 : 0;
+        this.vowels.aa = THREE.MathUtils.lerp(this.vowels.aa, Math.min(0.95, mid * 2.1) * gate, 22 * dt);
+        this.vowels.oh = THREE.MathUtils.lerp(this.vowels.oh, Math.min(0.75, low * 1.6) * gate, 18 * dt);
+        this.vowels.ee = THREE.MathUtils.lerp(this.vowels.ee, Math.min(0.65, high * 1.8) * gate, 18 * dt);
+        this.vowels.ih = THREE.MathUtils.lerp(this.vowels.ih, Math.min(0.50, high * 1.5) * gate, 18 * dt);
+        this.vowels.ou = THREE.MathUtils.lerp(this.vowels.ou, Math.min(0.50, low * 1.3) * gate, 18 * dt);
+      }
+
+      updateExpressions(dt) {
+        const exp = this.vrm?.expressionManager;
+        if (!exp) return;
+
+        // 1. Natural Blinking (Eyes stay WIDE OPEN between blinks!)
+        this.blinkTimer += dt;
+        let blink = 0;
+        if (this.blinkTimer >= this.nextBlink) {
+          const phase = this.blinkTimer - this.nextBlink;
+          if (phase < 0.16) {
+            blink = Math.sin((phase / 0.16) * Math.PI);
+          } else {
+            this.blinkTimer = 0;
+            this.nextBlink = 2.6 + Math.random() * 3.5;
+          }
+        }
+        exp.setValue('blink', Math.max(0, Math.min(1, blink)));
+
+        // 2. Keep 'happy' very low (0.06) so VRoid eyelids DO NOT squint shut!
+        exp.setValue('happy', 0.06);
+        exp.setValue('relaxed', 0.12);
+
+        // 3. Lip-sync vowels (plus subtle resting smile when silent)
+        const idleSmileEE = this.isSpeaking ? 0 : 0.14;
+        const idleSmileAA = this.isSpeaking ? 0 : 0.04;
+        exp.setValue('aa', Math.max(idleSmileAA, this.vowels.aa));
+        exp.setValue('ee', Math.max(idleSmileEE, this.vowels.ee));
+        exp.setValue('ih', this.vowels.ih);
+        exp.setValue('ou', this.vowels.ou);
+        exp.setValue('oh', this.vowels.oh);
+      }
+
+      updatePose(t, dt) {
+        if (!this.vrm?.humanoid) return;
+
+        const s = this.rigSigns;
+        const drop = this.shoulderDropAmount;
+        const breath = Math.sin(t * 2.0);
+        const sway = Math.sin(t * 0.85);
+
+        // Smooth eye & head cursor tracking
+        this.smoothPointer.lerp(this.pointer, 5 * dt);
+        const gx = this.smoothPointer.x;
+        const gy = this.smoothPointer.y;
+
+        this.slerpBone('leftEye', gy * 0.06, gx * 0.10, 0, 16, dt);
+        this.slerpBone('rightEye', gy * 0.06, gx * 0.10, 0, 16, dt);
+
+        // Head & Neck (Rhythmic nods while speaking)
+        const talkNod = this.isSpeaking ? Math.sin(t * 7.2) * this.speechEnergy * 0.07 : 0;
+        const headTilt = Math.sin(t * 0.75) * 0.045;
+        this.slerpBone('neck', -gy * 0.06 + talkNod * 0.4, gx * 0.10, headTilt * 0.4, 8, dt);
+        this.slerpBone('head', -gy * 0.12 + talkNod, gx * 0.18, headTilt, 10, dt);
+
+        // Spine & Breathing
+        this.slerpBone('hips', 0, sway * 0.025, sway * 0.015, 6, dt);
+        this.slerpBone('spine', breath * 0.02, -sway * 0.02, 0, 8, dt);
+        this.slerpBone('chest', breath * 0.03, sway * 0.02, 0, 8, dt);
+
+        // Determine active body state
+        const activeState = this.isSpeaking ? 'talking' : this.mode;
+
+        if (activeState === 'idle') {
+          // ARMS GUARANTEED DOWN BY HER WAIST (Matches Screenshot 1)
+          this.slerpBone('leftUpperArm', s.leftArmForwardX * 0.08, 0, s.leftArmDownZ * (drop - breath * 0.015), 9, dt);
+          this.slerpBone('rightUpperArm', s.rightArmForwardX * 0.08, 0, s.rightArmDownZ * (drop - breath * 0.015), 9, dt);
+          this.slerpBone('leftLowerArm', s.leftArmForwardX * 0.22, 0, s.leftArmDownZ * -0.12, 9, dt);
+          this.slerpBone('rightLowerArm', s.rightArmForwardX * 0.22, 0, s.rightArmDownZ * -0.12, 9, dt);
+          this.slerpBone('leftHand', 0, 0, s.leftArmDownZ * -0.08, 10, dt);
+          this.slerpBone('rightHand', 0, 0, s.rightArmDownZ * -0.08, 10, dt);
+          this.curlFingers('left', 0.24, dt);
+          this.curlFingers('right', 0.24, dt);
+
+        } else if (activeState === 'talking') {
+          // Expressive hand gestures near chest/waist while speaking
+          const e = Math.max(0.35, this.speechEnergy * 1.3);
+          const lGesture = Math.sin(t * 5.0) * 0.16 * e;
+          const rGesture = Math.cos(t * 4.4) * 0.16 * e;
+
+          this.slerpBone('leftUpperArm', s.leftArmForwardX * (0.28 + lGesture * 0.5), 0, s.leftArmDownZ * (drop - 0.18), 9, dt);
+          this.slerpBone('rightUpperArm', s.rightArmForwardX * (0.28 + rGesture * 0.5), 0, s.rightArmDownZ * (drop - 0.18), 9, dt);
+          this.slerpBone('leftLowerArm', s.leftArmForwardX * (0.75 + lGesture), 0, s.leftArmDownZ * -0.25, 11, dt);
+          this.slerpBone('rightLowerArm', s.rightArmForwardX * (0.75 + rGesture), 0, s.rightArmDownZ * -0.25, 11, dt);
+          this.slerpBone('leftHand', 0, lGesture * 0.6, 0, 12, dt);
+          this.slerpBone('rightHand', 0, -rGesture * 0.6, 0, 12, dt);
+          this.curlFingers('left', 0.16 + Math.sin(t * 6) * 0.06, dt);
+          this.curlFingers('right', 0.16 + Math.cos(t * 6) * 0.06, dt);
+
+        } else if (activeState === 'walk') {
+          // High-Speed Agile Runway Walk (5.4 rad/s - Zev & Claude motion grade)
+          const stride = Math.sin(t * 5.4);
+          const hipBob = Math.sin(t * 10.8) * 0.024;
+          const hipRoll = -stride * 0.085;
+          const hipYaw = stride * 0.095;
+
+          // Hips & Spine Dynamics
+          this.slerpBone('hips', 0.03, hipYaw, hipRoll, 12, dt);
+          if (this.vrm?.humanoid?.getNormalizedBoneNode('hips')) {
+            this.vrm.humanoid.getNormalizedBoneNode('hips').position.y = -hipBob;
+          }
+          this.slerpBone('spine', breath * 0.02, -hipYaw * 0.7, -hipRoll * 0.65, 12, dt);
+          this.slerpBone('chest', breath * 0.03, -hipYaw * 0.4, 0, 12, dt);
+
+          // Upper Legs (Thigh counter-stride)
+          this.slerpBone('leftUpperLeg', -stride * 0.46, 0, -0.04, 14, dt);
+          this.slerpBone('rightUpperLeg', stride * 0.46, 0, 0.04, 14, dt);
+
+          // Lower Legs (Swing knee flexion)
+          const leftKnee = Math.max(0, stride) * 1.15;
+          const rightKnee = Math.max(0, -stride) * 1.15;
+          this.slerpBone('leftLowerLeg', leftKnee, 0, 0, 14, dt);
+          this.slerpBone('rightLowerLeg', rightKnee, 0, 0, 14, dt);
+
+          // 3-Phase Foot Roll
+          const leftFootPitch = stride > 0 ? -Math.pow(stride, 1.3) * 0.25 : Math.pow(-stride, 1.2) * 0.34;
+          const rightFootPitch = -stride > 0 ? -Math.pow(-stride, 1.3) * 0.25 : Math.pow(stride, 1.2) * 0.34;
+          this.slerpBone('leftFoot', leftFootPitch, 0, 0, 14, dt);
+          this.slerpBone('rightFoot', rightFootPitch, 0, 0, 14, dt);
+
+          // Arms Counter-Swing with Natural Lag
+          this.slerpBone('leftUpperArm', s.leftArmForwardX * (stride * 0.42), 0, s.leftArmDownZ * (drop - 0.12), 12, dt);
+          this.slerpBone('rightUpperArm', s.rightArmForwardX * (-stride * 0.42), 0, s.rightArmDownZ * (drop - 0.12), 12, dt);
+          const elbowLag = Math.sin(t * 5.4 - 0.35);
+          this.slerpBone('leftLowerArm', s.leftArmForwardX * (0.35 + Math.max(0, elbowLag) * 0.3), 0, 0, 12, dt);
+          this.slerpBone('rightLowerArm', s.rightArmForwardX * (0.35 + Math.max(0, -elbowLag) * 0.3), 0, 0, 12, dt);
+
+        } else if (activeState === 'wave') {
+          // Cute chest-level hand wave (never goes over her head)
+          const wave = Math.sin(t * 8.5) * 0.22;
+          this.slerpBone('leftUpperArm', s.leftArmForwardX * 0.08, 0, s.leftArmDownZ * drop, 9, dt);
+          this.slerpBone('rightUpperArm', s.rightArmForwardX * 0.45, 0, s.rightArmDownZ * (drop - 0.45), 9, dt);
+          this.slerpBone('rightLowerArm', s.rightArmForwardX * 1.15, 0, s.rightArmDownZ * (-0.35 + wave), 12, dt);
+          this.slerpBone('rightHand', 0, 0, wave * 0.8, 14, dt);
+          this.curlFingers('right', 0.06, dt);
+        }
+      }
+
+      async speak(text, apiKey, voiceId = 'EXAVITQu4vr4xnSDxMaL') {
+        document.getElementById('hinaa-speech-text').textContent = text;
+        setTrackActive('04');
+        document.getElementById('gaitBadge').textContent = 'GAIT TALKING';
+
+        if (!apiKey || apiKey.trim() === '') {
+          this.fallbackSpeak(text);
+          return;
+        }
+
+        try {
+          const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
+            method: 'POST',
+            headers: {
+              'Accept': 'audio/mpeg',
+              'xi-api-key': apiKey.trim(),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              text,
+              model_id: 'eleven_multilingual_v2',
+              voice_settings: { stability: 0.35, similarity_boost: 0.85, style: 0.48 }
+            })
+          });
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const buf = await res.arrayBuffer();
+
+          if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
+
+          const audioBuffer = await this.audioCtx.decodeAudioData(buf);
+          const source = this.audioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+
+          this.analyser = this.audioCtx.createAnalyser();
+          this.analyser.fftSize = 512;
+          this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
+
+          source.connect(this.analyser);
+          this.analyser.connect(this.audioCtx.destination);
+
+          this.isSpeaking = true;
+          source.onended = () => {
+            this.isSpeaking = false;
+            document.getElementById('gaitBadge').textContent = 'GAIT IDLE';
+            setTrackActive('05');
+          };
+          source.start(0);
+        } catch (e) {
+          console.warn('ElevenLabs stream fallback:', e);
+          this.fallbackSpeak(text);
+        }
+      }
+
+      fallbackSpeak(text) {
+        this.isSpeaking = true;
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          u.pitch = 1.38;
+          u.rate = 1.12;
+          u.onend = () => {
+            this.isSpeaking = false;
+            document.getElementById('gaitBadge').textContent = 'GAIT IDLE';
+          };
+          window.speechSynthesis.speak(u);
+        }
+
+        let idx = 0;
+        const chars = text.toLowerCase().split('');
+        const timer = setInterval(() => {
+          if (!this.isSpeaking || idx >= chars.length) {
+            clearInterval(timer);
+            this.isSpeaking = false;
+            document.getElementById('gaitBadge').textContent = 'GAIT IDLE';
+            return;
+          }
+          const c = chars[idx++];
+          this.speechEnergy = /[aeiou]/.test(c) ? 0.72 : 0.32;
+          this.vowels.aa = c === 'a' ? 0.82 : 0.08;
+          this.vowels.ih = (c === 'i' || c === 'y') ? 0.68 : 0.04;
+          this.vowels.ou = (c === 'u' || c === 'w') ? 0.68 : 0.04;
+          this.vowels.ee = c === 'e' ? 0.72 : 0.12;
+          this.vowels.oh = c === 'o' ? 0.76 : 0.04;
+        }, 60);
+      }
+
+      animate() {
+        requestAnimationFrame(() => this.animate());
+        const dt = Math.min(this.clock.getDelta(), 0.05);
+        const t = this.clock.getElapsedTime();
+
+        if (this.vrm) {
+          if (this.analyser && this.isSpeaking) {
+            this.updateAudioVisemes(dt);
+          } else if (!this.isSpeaking) {
+            this.updateAudioVisemes(dt);
+          }
+          this.updateExpressions(dt);
+          this.updatePose(t, dt);
+          this.vrm.update(dt);
+        }
+
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    // ================= BOOTSTRAP HINA WORKSPACE =================
+    const viewportEl = document.getElementById('vrm-viewport');
+    const hina = new HinaPerfectionAvatar(viewportEl);
+
+    // 1. Try loading your local /models/hinaa.vrm first; fallback to sample VRM
+    const LOCAL_VRM_PATH = '/models/hinaa.vrm';
+    const FALLBACK_VRM = 'https://cdn.jsdelivr.net/gh/pixiv/three-vrm@dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm';
+
+    hina.loadVRM(LOCAL_VRM_PATH).catch(() => {
+      hina.loadVRM(FALLBACK_VRM);
+    });
+
+    // 2. Upload or Drag-and-Drop any .vrm file
+    document.getElementById('vrmInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) hina.loadVRM(URL.createObjectURL(file));
+    });
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.vrm')) {
+        hina.loadVRM(URL.createObjectURL(file));
+      }
+    });
+
+    // 3. Pipeline Track Highlighter
+    function setTrackActive(stepNum) {
+      ['01', '02', '03', '04', '05'].forEach((n) => {
+        document.getElementById(`track-${n}`).classList.toggle('active', n === stepNum);
+      });
+    }
+
+    // 4. Send Chat Message -> Run Pipeline Tracks -> Hinaa Replies & Speaks
+    function handleChatSubmit(userText) {
+      if (!userText.trim()) return;
+      const container = document.getElementById('messages-container');
+
+      // Append User Message
+      const userMsg = document.createElement('div');
+      userMsg.className = 'msg-block';
+      userMsg.innerHTML = `
+        <div class="msg-icon" style="background:#e11d74;">U</div>
+        <div class="msg-body">
+          <div class="msg-meta">YOU <span>Just now</span></div>
+          <div class="msg-text">${userText}</div>
+        </div>
+      `;
+      container.appendChild(userMsg);
+
+      // Step through HINA Pipeline Tracks (01 INTENT -> 02 REASON -> 04 AVATAR)
+      setTrackActive('01');
+      document.getElementById('turnStatus').textContent = 'Reasoning...';
+
+      setTimeout(() => setTrackActive('02'), 250);
+      setTimeout(() => {
+        const reply = `Hey sweetheart! I'm right here with you babe~ "${userText}" sounds so exciting! Let's make it look completely gorgeous and perfect, okay? ✨`;
+        const hinaMsg = document.createElement('div');
+        hinaMsg.className = 'msg-block';
+        hinaMsg.innerHTML = `
+          <div class="msg-icon">✦</div>
+          <div class="msg-body">
+            <div class="msg-meta">HINA <span>Just now</span></div>
+            <div class="msg-text">${reply}</div>
+          </div>
+        `;
+        container.appendChild(hinaMsg);
+        document.getElementById('chat-column').scrollTop = document.getElementById('chat-column').scrollHeight;
+        document.getElementById('turnStatus').textContent = 'Speaking';
+
+        const apiKey = document.getElementById('xiKeyInput').value;
+        const voiceId = document.getElementById('xiVoiceInput').value;
+        hina.speak(reply, apiKey, voiceId);
+      }, 600);
+    }
+
+    document.getElementById('sendChatBtn').addEventListener('click', () => {
+      const input = document.getElementById('chat-input');
+      handleChatSubmit(input.value);
+      input.value = '';
+    });
+
+    document.getElementById('chat-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        handleChatSubmit(e.target.value);
+        e.target.value = '';
+      }
+    });
+
+    document.querySelectorAll('.quick-pill').forEach((btn) => {
+      btn.addEventListener('click', () => handleChatSubmit(btn.dataset.prompt));
+    });
+
+    // Click Hinaa's speech card or Speak button to test voice + hand gestures immediately
+    const triggerDefaultLine = () => {
+      const text = document.getElementById('hinaa-speech-text').textContent.trim();
+      const apiKey = document.getElementById('xiKeyInput').value;
+      const voiceId = document.getElementById('xiVoiceInput').value;
+      hina.speak(text, apiKey, voiceId);
+    };
+    document.getElementById('hinaa-speech-card').addEventListener('click', triggerDefaultLine);
+    document.getElementById('testTalkBtn').addEventListener('click', triggerDefaultLine);
+
+    // Walk & Wave toggles in the Right Dock Header
+    const walkBtn = document.getElementById('walkToggleBtn');
+    walkBtn.addEventListener('click', () => {
+      hina.mode = hina.mode === 'walk' ? 'idle' : 'walk';
+      walkBtn.classList.toggle('active', hina.mode === 'walk');
+      document.getElementById('gaitBadge').textContent = hina.mode === 'walk' ? 'GAIT WALK' : 'GAIT IDLE';
+    });
+
+    document.getElementById('waveTriggerBtn').addEventListener('click', () => {
+      hina.mode = 'wave';
+      document.getElementById('gaitBadge').textContent = 'GAIT WAVE';
+      setTimeout(() => {
+        hina.mode = 'idle';
+        document.getElementById('gaitBadge').textContent = 'GAIT IDLE';
+      }, 2800);
+    });
+
+    // Settings popover toggle
+    const popover = document.getElementById('settings-popover');
+    document.getElementById('voiceConfigBtn').addEventListener('click', () => popover.classList.toggle('open'));
+    document.getElementById('openSettingsNav').addEventListener('click', () => popover.classList.add('open'));
+    document.getElementById('closeSettingsBtn').addEventListener('click', () => popover.classList.remove('open'));
+
+    document.getElementById('shoulderSlider').addEventListener('input', (e) => {
+      hina.shoulderDropAmount = parseFloat(e.target.value);
+    });
+  </script>
+</body>
+</html>

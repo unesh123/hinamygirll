@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal, Any, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, AliasChoices, field_validator
@@ -274,6 +275,20 @@ class TurnRequest(BaseModel):
     def validate_provider_mode(cls, v: Any) -> str:
         return normalize_provider_mode(v)
 
+    @field_validator("brainModel", "imageEngine", "voiceEngine", mode="before")
+    @classmethod
+    def sanitize_turn_engine_fields(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return None
+        v = v.strip()
+        if not v or v in ("—", "auto", "default", "none"):
+            return None
+        if not re.match(r"^[A-Za-z0-9._:/-]+$", v):
+            return None
+        return v
+
 
 class SpeechRequest(StrictModel):
     language: Language = "mixed"
@@ -290,6 +305,20 @@ class SpeechRequest(StrictModel):
     @classmethod
     def validate_provider_mode(cls, v: Any) -> str:
         return normalize_provider_mode(v)
+
+    @field_validator("voiceEngine", mode="before")
+    @classmethod
+    def sanitize_speech_voice_engine(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return None
+        v = v.strip()
+        if not v or v in ("—", "auto", "default", "none"):
+            return None
+        if not re.match(r"^[A-Za-z0-9._:/-]+$", v):
+            return None
+        return v
 
 
 class TranscriptResponse(StrictModel):
@@ -340,6 +369,20 @@ class TextHumanizerRequest(StrictModel):
     @classmethod
     def validate_provider_mode(cls, v: Any) -> str:
         return normalize_provider_mode(v)
+
+    @field_validator("brainModel", mode="before")
+    @classmethod
+    def sanitize_humanizer_brain_model(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return None
+        v = v.strip()
+        if not v or v in ("—", "auto", "default", "none"):
+            return None
+        if not re.match(r"^[A-Za-z0-9._:/-]+$", v):
+            return None
+        return v
 
 
 class ReviewMetrics(StrictModel):
