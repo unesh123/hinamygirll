@@ -1561,6 +1561,14 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
 
     elif action in ("create_folder", "mkdir", "make_directory"):
         raw_target = str(target or content or parameters.get("path", "")).strip()
+        # Path validation guard: Reject conversational text or invalid paths
+        if len(raw_target) > 200 or "\n" in raw_target or "[N]" in raw_target or "persona" in raw_target.lower():
+            return {
+                "success": False,
+                "action": "create_folder",
+                "error": "INVALID_PATH",
+                "detail": "Provided path contains conversational text or exceeds valid path length.",
+            }
         folder_name = ""
         q_match = re.search(r'["\']([^"\']+)["\']', raw_target)
         if q_match:

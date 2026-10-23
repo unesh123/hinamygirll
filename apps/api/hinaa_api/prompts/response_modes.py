@@ -81,8 +81,9 @@ def response_mode_layer(mode: ResponseMode) -> str:
             "DEEP REASONING & TECHNICAL MODE: Deliver rigorous, frontier-grade cognitive reasoning and first-principles technical analysis. "
             "Break down the actual meaning, internal mechanics, protocol specifications, state transitions, and root logic of the problem. "
             "Provide step-by-step reasoning chains, complete and production-grade code implementations, mathematical formulations where appropriate, "
-            "architectural trade-offs, and failure mode analysis. Do not truncate or summarize prematurely: walk through the underlying engineering "
-            "logic with mastery and clarity."
+            "architectural trade-offs, and failure mode analysis. Do not truncate or summarize prematurely, but stay focused and structured without rambling. "
+            "BREVITY & CLARITY GUARD: Never write endless redundant essays or recite internal architectural docs unless babe explicitly asked for a full report (/report). "
+            "Answer directly with sharp precision, high-density insights, and actionable next steps."
         ),
         "research": (
             "Write a research dossier: TL;DR, Key findings (each with an inline source link), "
