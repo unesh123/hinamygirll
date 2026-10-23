@@ -5737,6 +5737,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {"ok": True}
 
+    @app.post("/api/v1/brain/run")
+    async def brain_run_stream(request: Request):
+        """Stream brain orchestration events as Server-Sent Events."""
+        from .brain.coordinator import HinaBrainCoordinator, BrainRunEvent
+        import json
+
+        body = await request.json()
+        user_text = str(body.get("user_text", "")).strip()
+        session_id = body.get("session_id")
+        turn_id = body.get("turn_id", str(uuid4()))
+        conversation_history = body.get("conversation_history", [])
+        available_tools = body.get("available_tools", [])
+
+        if not user_text:
+            return JSONResponse({"error": "user_text is required"}, status_code=400)
+
+        # Build a minimal tool_executor that tries to call registered tools
+        from .tools.registry import registry as tool_registry
+        from .tools import load_all_tools
+        load_all_tools()
+
+        async def tool_executor(tool_name: str, params: dict):
+            handler = tool_registry._handlers.get(tool_name)
+            if not handler:
+                return {"error": f"Tool {tool_name} not found"}
+            try:
+                return await handler(params)
+            except Exception as e:
+                return {"error": str(e)}
+
+        coordinator = HinaBrainCoordinator(
+            tool_executor=tool_executor,
+            max_parallel_specialists=3,
+            specialist_timeout=45.0,
+        )
+
+        async def event_generator():
+            try:
+                async for event in coordinator.run_stream(
+                    turn_id=turn_id,
+                    user_text=user_text,
+                    session_id=session_id,
+                    conversation_history=conversation_history,
+                    available_tools=available_tools,
+                ):
+                    data = json.dumps({
+                        "event_type": event.event_type,
+                        "run_id": event.run_id,
+                        "specialist": event.specialist,
+                        "step_id": event.step_id,
+                        "payload": event.payload,
+                        "timestamp": event.timestamp,
+                    })
+                    yield f"data: {data}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'event_type': 'brain.run.failed', 'payload': {'error': str(e)}})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     return app
 
 

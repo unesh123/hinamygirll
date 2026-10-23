@@ -233,6 +233,8 @@ image_generate_def = ToolDefinition(
     required_parameters=["prompt"],
     requires_confirmation=False,
     cancellable=True,
+    is_long_running=True,
+    is_concurrency_safe=False,
     voice_aliases=["draw", "generate an image", "create a picture", "make an image"],
 )
 

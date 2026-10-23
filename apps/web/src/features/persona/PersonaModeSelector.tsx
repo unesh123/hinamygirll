@@ -18,7 +18,8 @@ export type PersonaMode =
   | 'deep'
   | 'sage'
   | 'playful'
-  | 'professional';
+  | 'professional'
+  | 'ultra';
 
 interface PersonaConfig {
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
@@ -93,6 +94,15 @@ const PERSONA_CONFIG: Record<PersonaMode, PersonaConfig> = {
     bg: 'rgba(148,163,184,0.12)',
     glow: 'rgba(148,163,184,0.3)',
     description: 'Executive precision',
+  },
+  ultra: {
+    icon: Zap,
+    label: 'Ultra',
+    emoji: '⚡',
+    color: '#e879f9',
+    bg: 'rgba(232,121,249,0.12)',
+    glow: 'rgba(232,121,249,0.4)',
+    description: 'Max power, zero filter',
   },
 };
 

@@ -1,4 +1,4 @@
-from typing import Any, Callable, Awaitable
+﻿from typing import Any, Callable, Awaitable
 from pydantic import BaseModel, Field
 
 class ToolParameter(BaseModel):
@@ -18,6 +18,12 @@ class ToolDefinition(BaseModel):
     risk_level: str = "medium"  # low, medium, high
     cancellable: bool = True
     voice_aliases: list[str] = []
+    # Claude Code-style execution metadata
+    is_read_only: bool = False          # tool never mutates state (safe to parallelize)
+    is_concurrency_safe: bool = True    # can run in parallel with other tools
+    is_destructive: bool = False        # tool modifies/deletes persistent data
+    is_long_running: bool = False       # tool may take >30s
+    max_retries: int = 1                # how many times to retry on transient failure
 
 class ToolRegistry:
     def __init__(self):
@@ -53,7 +59,17 @@ class ToolRegistry:
                 for p in (t.parameters or {}).keys()
             ]
             params_str = ", ".join(param_names) if param_names else "none"
-            prompt += f"- {t.name}({params_str}): {t.description}\n"
+            flags = []
+            if t.is_read_only:
+                flags.append("read-only")
+            if not t.is_concurrency_safe:
+                flags.append("serial-only")
+            if t.is_destructive:
+                flags.append("DESTRUCTIVE")
+            if t.is_long_running:
+                flags.append("long-running")
+            flag_str = f" [{', '.join(flags)}]" if flags else ""
+            prompt += f"- {t.name}({params_str}){flag_str}: {t.description}\n"
         return prompt
 
 registry = ToolRegistry()

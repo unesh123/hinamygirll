@@ -38,5 +38,18 @@ from . import vision_canvas
 from . import vision_pty_bridge
 from ..intelligence import sleep_consolidation
 
-__all__ = ["registry"]
+def load_all_tools():
+    """Import all tool modules to ensure they register with the registry."""
+    import importlib
+    import pkgutil
+    import hinaa_api.tools as _pkg
+    for _info in pkgutil.iter_modules(_pkg.__path__):
+        if _info.name not in ('registry', '__init__', 'action_guard', 'intent_gate', 'policy', 'request_contract', 'newbie_prompt_planner'):
+            try:
+                importlib.import_module(f'hinaa_api.tools.{_info.name}')
+            except Exception:
+                pass
+
+
+__all__ = ["registry", "load_all_tools"]
 
