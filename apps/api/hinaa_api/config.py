@@ -732,7 +732,7 @@ class Settings(BaseSettings):
     hinaa_allowed_user_ids: str | None = Field(None, alias="HINAA_ALLOWED_USER_IDS")
     cx_gateway_quota_url: str | None = Field(None, alias="CX_GATEWAY_QUOTA_URL")
     cx_gateway_quota_key: SecretStr | None = Field(None, alias="CX_GATEWAY_QUOTA_KEY")
-    persistence_enabled: bool = Field(False, alias="HINAA_PERSISTENCE_ENABLED")
+    persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
     reminder_scheduler_enabled: bool = Field(True, alias="HINAA_REMINDER_SCHEDULER_ENABLED")
     reminder_tick_seconds: float = Field(20.0, gt=0, le=600, alias="HINAA_REMINDER_TICK_SECONDS")
     # Catch-up after downtime is a feature; announcing yesterday's appointment

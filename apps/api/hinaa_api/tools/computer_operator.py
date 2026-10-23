@@ -1562,13 +1562,20 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
     elif action in ("create_folder", "mkdir", "make_directory"):
         raw_target = str(target or content or parameters.get("path", "")).strip()
         # Path validation guard: Reject conversational text or invalid paths
-        if len(raw_target) > 200 or "\n" in raw_target or "[N]" in raw_target or "persona" in raw_target.lower():
+        if (
+            not raw_target
+            or len(raw_target) > 150
+            or "\n" in raw_target
+            or "[N]" in raw_target
+            or any(w in raw_target.lower() for w in ("fuck", "persona", "babe", " meri jaan", "can you", "please create", "i want"))
+        ):
             return {
                 "success": False,
                 "action": "create_folder",
                 "error": "INVALID_PATH",
                 "detail": "Provided path contains conversational text or exceeds valid path length.",
             }
+
         folder_name = ""
         q_match = re.search(r'["\']([^"\']+)["\']', raw_target)
         if q_match:
@@ -1578,12 +1585,17 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
             if n_match:
                 folder_name = n_match.group(1).strip()
 
+        # Sanitize folder_name against illegal Windows filename characters
+        if folder_name:
+            folder_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', folder_name).strip('. ')
+
         drive_letter = ""
         drive_match = re.search(r"\b(?:local\s*x?\s*([a-zA-Z])|drive\s+([a-zA-Z])|([a-zA-Z]):)\b", raw_target, re.I)
         if drive_match:
             drive_letter = (drive_match.group(1) or drive_match.group(2) or drive_match.group(3)).upper()
 
-        if re.match(r"^[a-zA-Z]:[\\/]", raw_target):
+        # Validate direct path format strictly: must start with drive, cannot contain illegal chars
+        if re.match(r'^[a-zA-Z]:[\\/][^<>:"|?*\n\r]*$', raw_target) and not any(c in raw_target[3:] for c in ('?', '*', '"', '<', '>', '|', ':')):
             dest_path = Path(raw_target)
         else:
             if not drive_letter:
@@ -1602,7 +1614,7 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
                 "detail": f"Successfully created folder at '{dest_path}'",
             }
         except Exception as e:
-            logger.exception("Failed to create folder %s: %s", dest_path, e)
+            logger.warning("Failed to create folder %s: %s", dest_path, e)
             return {
                 "success": False,
                 "action": "create_folder",

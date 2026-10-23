@@ -596,7 +596,7 @@ class ContextCompiler:
                 if _gate_words and item_words
                 else 0.0
             )
-            if lexical >= _RELEVANCE_FLOOR or item.recency >= _HOT_RECENCY_FLOOR:
+            if item.source_type in ("recent_turn", "message") or lexical >= _RELEVANCE_FLOOR or item.recency >= _HOT_RECENCY_FLOOR:
                 kept_optional.append(item)
             else:
                 item.exclusion_reason = "Cold/no-relevant content — below §36 gate"

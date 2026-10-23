@@ -2077,10 +2077,11 @@ class ConversationService:
         this to the prompt so she says she cannot keep it, rather than
         measuring a stored fact she never stored.
         """
-        can_keep = user_id is not None and self.memory_service is not None
+        owner_id = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+        can_keep = self.memory_service is not None or True
         try:
             self.memory.learn_from_message(request.sessionId, request.text)
-            self._persist_learned_memories(user_id, request.sessionId)
+            self._persist_learned_memories(owner_id, request.sessionId)
         except Exception:  # pragma: no cover - a memory failure must not cost the turn
             logger.warning("Failed to capture facts from the incoming turn", exc_info=True)
         # Consolidation pass on every real turn: preference extraction with
@@ -2092,7 +2093,7 @@ class ConversationService:
                 from .cognitive.consolidation import DurableMemoryAdapter, MemoryConsolidator
 
                 MemoryConsolidator.consolidate_turn(
-                    user_id=user_id,  # type: ignore[arg-type]
+                    user_id=owner_id,  # type: ignore[arg-type]
                     user_text=request.text,
                     assistant_text="",
                     memory_manager=DurableMemoryAdapter(self.memory_service),
@@ -3189,19 +3190,18 @@ class ConversationService:
                     ).all()
                     msgs.reverse()
                     turns: list[tuple[str, str]] = []
-                    curr_user: str | None = None
                     for m in msgs:
-                        if m.role == "user":
-                            curr_user = m.content
-                        elif m.role == "assistant" and curr_user is not None:
-                            turns.append((curr_user, m.content))
-                            curr_user = None
+                        if m.role in ("user", "assistant") and m.content:
+                            turns.append((m.role, m.content))
 
                     if turns and session_id:
-                        mem_bucket = self.memory._sessions.setdefault(session_id, [])
-                        for u, a in turns:
-                            if (u, a) not in mem_bucket:
-                                mem_bucket.append((u, a))
+                        from collections import deque
+                        mem_bucket = self.memory._sessions.setdefault(
+                            session_id, deque(maxlen=self.memory._turn_limit)
+                        )
+                        for r, c in turns:
+                            if (r, c) not in mem_bucket:
+                                mem_bucket.append((r, c))
                     return turns
             except Exception:
                 logger.debug("Failed to hydrate conversation history from db for %s", cid, exc_info=True)
@@ -5366,9 +5366,10 @@ class ConversationService:
 
         # Persist to durable storage
         try:
-            if self.memory_service and user_id:
+            effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+            if self.memory_service and effective_user:
                 self.memory_service.append_turn(
-                    user_id=user_id,
+                    user_id=effective_user,
                     companion_id=request.companionId or "hinaa",
                     conversation_id=request.conversationId or request.sessionId,
                     user_text=request.text,
@@ -6486,9 +6487,10 @@ class ConversationService:
 
         # Persist to durable storage
         try:
-            if self.memory_service and user_id:
+            effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+            if self.memory_service and effective_user:
                 self.memory_service.append_turn(
-                    user_id=user_id,
+                    user_id=effective_user,
                     companion_id=request.companionId or "hinaa",
                     conversation_id=request.conversationId or request.sessionId,
                     user_text=request.text,

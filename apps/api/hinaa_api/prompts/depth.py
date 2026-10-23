@@ -39,10 +39,33 @@ _BREVITY_ASK = re.compile(
     r"\b(one[- ]?lin(?:e|er)|in (?:a|one) (?:single )?(?:sentence|word|line)|"
     r"in short|in brief|briefly|short answer|quick answer|tl;?dr|"
     r"keep (?:it|this) (?:short|brief|simple)|short and (?:sweet|simple)|"
-    r"summari[sz]e\b[^.?!]{0,20}\b(?:sentence|line|words))\b|"
+    r"summari[sz]e\b[^.?!]{0,20}\b(?:sentence|line|words)|"
+    r"\d+\s+words?|under\s+\d+\s+words?|in\s+\d+\s+words?|few\s+words|"
+    r"no\s+essay|stop\s+explaining|don'?t\s+explain|short\s+reply|just\s+answer|concise|direct\s+answer)\b|"
     r"(संक्षेप|संक्षिप्त)",
     re.IGNORECASE,
 )
+
+
+def extract_word_limit(text: str) -> int | None:
+    """Extract an explicit word count ceiling requested by the user, if present."""
+    if not text:
+        return None
+    m = re.search(
+        r"\b(?:in|under|max|maximum|within|only|at\s+most|less\s+than)\s+(\d+)\s+words?\b|"
+        r"\b(\d+)\s+words?\s*(?:only|max|maximum|or\s+less)?\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        val = m.group(1) or m.group(2)
+        try:
+            num = int(val)
+            if 1 <= num <= 500:
+                return num
+        except ValueError:
+            pass
+    return None
 # A report carries a 4,900-word contract, so only an explicit deliverable ask
 # earns it. Bare nouns that routinely appear inside ordinary questions ("what is
 # the current status of your memory?") must not inflate the answer into a
@@ -141,10 +164,11 @@ def infer_response_depth(
         return "safety_redirect"
     if _SUPPORTIVE.search(text):
         return "supportive"
-    # An explicit brevity ask beats even a selected deep mode: he consented to
-    # the mode's length in general, then asked for this answer short.
+    # An explicit word limit or brevity ask beats all expansion contracts
+    if extract_word_limit(text) is not None:
+        return "minimal"
     if _BREVITY_ASK.search(text):
-        return "conversational"
+        return "minimal"
     # A bare acknowledgment contains no request to expand on, so it stays short
     # even while a deep mode is selected.
     if not _CLARIFY.match(text) and response_mode and response_mode != "conversation":
@@ -175,7 +199,14 @@ def infer_response_depth(
     return "conversational"
 
 
-def depth_guidance(depth: ResponseDepth, mode: InteractionMode) -> str:
+def depth_guidance(depth: ResponseDepth, mode: InteractionMode, user_text: str = "") -> str:
+    word_limit = extract_word_limit(user_text) if user_text else None
+    if word_limit:
+        return (
+            f"STRICT WORD LIMIT: You MUST output at most {word_limit} words total. "
+            f"Provide ONLY the direct factual answer. Do NOT apologize, do NOT echo the prompt, "
+            f"do NOT add greetings, polite filler, or meta-commentary."
+        )
     if mode == "realtime":
         conversational_desc = (
             "Respond like a devoted, warm partner. Lead with the answer in your first sentence so "
