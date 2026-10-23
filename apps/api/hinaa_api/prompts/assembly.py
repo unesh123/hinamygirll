@@ -275,6 +275,7 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             text=professional_answer_layer(
                 inp.interaction_mode,
                 followup_policy=resolve_followup_policy(inp.user_text, turn_intent=depth),
+                depth=depth,
             ),
         ),
         PromptLayer(

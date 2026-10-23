@@ -270,6 +270,7 @@ class TurnRequest(BaseModel):
     attachment_ids: list[str] = Field(default_factory=list, validation_alias=AliasChoices("attachment_ids", "attachmentIds"))
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     reference_images: list[str] = Field(default_factory=list, validation_alias=AliasChoices("reference_images", "referenceImages"))
+    history: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("providerMode", mode="before")
     @classmethod

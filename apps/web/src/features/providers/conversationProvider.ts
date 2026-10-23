@@ -54,6 +54,8 @@ export interface ConversationRequest {
   attachment_ids?: string[];
   reference_images?: string[];
   attachments?: import("../companion/types").MessageAttachment[];
+  persona_mode?: string;
+  history?: Array<{ role: string; content: string }>;
 }
 
 export interface ConversationProvider {

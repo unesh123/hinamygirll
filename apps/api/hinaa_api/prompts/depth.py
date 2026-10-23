@@ -116,8 +116,7 @@ _MODE_DEPTH: dict[str, ResponseDepth] = {
 # depths with a genuine long-form deliverable carry one; a contract on
 # `minimal` or `supportive` would inflate a two-line reply into an essay.
 _DEPTH_WORDS: dict[ResponseDepth, tuple[int, int]] = {
-    "explanatory": (1_000, 2_000),
-    "report": (4_900, 5_000),
+    "report": (1_500, 2_500),
 }
 
 
@@ -229,14 +228,9 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode, user_text: str =
         "minimal": "Respond with a brief acknowledgment plus at most one useful next step.",
         "conversational": conversational_desc,
         "explanatory": (
-            f"Lead with the direct answer in the first sentence, then give the full picture in your own words: "
-            f"{_DEPTH_WORDS['explanatory'][0]:,}-{_DEPTH_WORDS['explanatory'][1]:,} words of structured Markdown with "
-            f"### headings is the normal size for a real question, "
-            "because he asked to be explained to, not summarised. Cover every part of the question, give the "
-            "concrete details that make it actionable, and finish with what he can do next. Do not pad, but do "
-            "not stop early and do not hand back an outline with one line under each heading. "
-            "MANDATORY LAST LINE: If he asked for a strategic topic or deep brief, finish the answer by asking him, in one short sentence, whether you "
-            "should write this up as a full documented report. For everyday chat, direct tasks, or casual turns, finish naturally without forced formulas."
+            "Lead with the direct answer in the first sentence, then give the full picture in your own words with "
+            "clear structured Markdown and headings. Cover every part of the question, provide concrete actionable details, "
+            "and finish naturally without forced formulas."
         ),
         "procedural": "Give clear ordered steps with complete code or commands. Be thorough and actionable.",
         "report": (

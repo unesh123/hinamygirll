@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 def professional_answer_layer(
     mode: str,
     followup_policy: FollowUpPolicy | str | None = None,
+    depth: str = "",
 ) -> str:
     from .followup import FollowUpPolicy, render_followup_instructions
 
@@ -22,6 +23,12 @@ def professional_answer_layer(
         )
     )
     followup_rules = render_followup_instructions(policy)
+
+    if depth in ("minimal", "conversational", "clarification"):
+        return f"""CONVERSATIONAL QUALITY:
+- Answer what babe asked directly with natural warmth and high signal.
+- Avoid academic headers, unnecessary tables, or robotic formulas unless explicitly requested.
+{followup_rules}"""
 
     if mode == "realtime":
         return f"""STREAMING OUTPUT & KNOWLEDGE QUALITY CONTRACT (CPS PILLARS & EXPERT COGNITION):

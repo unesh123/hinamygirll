@@ -604,7 +604,12 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           turnMode !== "mock" || options?.forceBackend || !isMockAllowed
             ? new BackendConversationProvider(turnMode === "mock" ? "claude" : turnMode)
             : provider.current;
-            
+
+        const historyPayload = messages
+          .filter(m => (m.sender === "user" || m.sender === "assistant") && typeof m.text === "string" && m.text.trim().length > 0)
+          .slice(-30)
+          .map(m => ({ role: m.sender, content: m.text }));
+
         for await (const event of selectedProvider.streamTurn({
           text,
           companionId,
@@ -620,6 +625,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           reference_images: options?.reference_images,
           attachments: options?.attachments,
           persona_mode: options?.persona_mode,
+          history: historyPayload,
         })) {
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {
