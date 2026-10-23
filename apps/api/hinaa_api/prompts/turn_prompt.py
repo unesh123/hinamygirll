@@ -59,6 +59,7 @@ def build_turn_prompt(
         history_preselected=history_preselected,
         allowed_tools=allowed_tools,
         skill_doctrine_block=skill_doctrine_block,
+        persona_mode=request.persona_mode,
     )
     return assemble_prompt(inp)
 

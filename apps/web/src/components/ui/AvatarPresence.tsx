@@ -1190,7 +1190,7 @@ function Model({
     let armSwing = 0;
     let walkStride = 0;
     if (wWeight > 0.001) {
-      walkPhaseRef.current = (walkPhaseRef.current + realDt * 3.6) % (Math.PI * 2);
+      walkPhaseRef.current = (walkPhaseRef.current + realDt * 2.2) % (Math.PI * 2);
       const phase = walkPhaseRef.current;
       walkStride = -Math.sin(phase) * wWeight;
       armSwing = walkStride * 0.40;
@@ -1215,8 +1215,8 @@ function Model({
 
       // Pelvis / Hips dynamics (graceful runway lemniscate sway, vertical bob, forward pitch)
       const hipBob = Math.abs(Math.sin(phase)) * 0.018 * wWeight;
-      const hipRoll = -Math.sin(phase) * 0.075 * wWeight;
-      const hipYaw = Math.sin(phase) * 0.085 * wWeight;
+      const hipRoll = -Math.sin(phase) * 0.068 * wWeight;
+      const hipYaw = Math.sin(phase) * 0.055 * wWeight;
       const hipPitch = 0.025 * wWeight;
 
       const hips = hipsBoneRef.current;
@@ -1240,6 +1240,16 @@ function Model({
         spine.quaternion.slerp(targetSpineQ, Math.min(1, dt * 14));
       }
 
+      // Chest counter-rolls against hips for natural thoracic rotation during walk
+      const chest = chestBoneRef.current;
+      const chestQ = chestRestQRef.current;
+      if (chest && chestQ && wWeight > 0.01) {
+        const targetChestQ = scratch.target.copy(chestQ).multiply(
+          scratch.rotation.setFromEuler(scratch.euler.set(0, -hipYaw * 0.55, -hipRoll * 0.45)),
+        );
+        chest.quaternion.slerp(targetChestQ, Math.min(1, dt * 12));
+      }
+
       // Upper legs (Stride swing: negative X tilts thigh forward, positive X tilts thigh backward)
       const lul = leftUpperLegRef.current;
       const lulQ = leftUpperLegRestQRef.current;
@@ -1261,8 +1271,9 @@ function Model({
       // Lower legs (High recovery swing flexion with smooth power curve to eliminate zero-crossing knee snap)
       const leftStrideFlex = Math.max(0, walkStride);
       const rightStrideFlex = Math.max(0, -walkStride);
-      const leftKnee = Math.pow(leftStrideFlex, 1.35) * 1.05 * wWeight;
-      const rightKnee = Math.pow(rightStrideFlex, 1.35) * 1.05 * wWeight;
+      const STANCE_FLEX = 0.032;
+      const leftKnee = Math.pow(leftStrideFlex, 1.35) * 1.05 * wWeight + STANCE_FLEX * wWeight;
+      const rightKnee = Math.pow(rightStrideFlex, 1.35) * 1.05 * wWeight + STANCE_FLEX * wWeight;
       const lll = leftLowerLegRef.current;
       const lllQ = leftLowerLegRestQRef.current;
       if (lll && lllQ) {
@@ -1280,7 +1291,7 @@ function Model({
         rll.quaternion.slerp(targetRllQ, Math.min(1, dt * 16));
       }
 
-      // 3-Phase Anatomical Foot Roll (heel strike dorsiflexion -> flat plant -> toe push-off)
+      // 3-Phase Anatomical Foot Roll (heel strike dorsiflexion -> flat plant -> toe push-off + medial-lateral stance roll)
       const leftFootPitch = walkStride > 0
         ? -Math.pow(walkStride, 1.3) * 0.22 * wWeight
         : Math.pow(-walkStride, 1.2) * 0.32 * wWeight;
@@ -1289,11 +1300,15 @@ function Model({
         ? -Math.pow(-walkStride, 1.3) * 0.22 * wWeight
         : Math.pow(walkStride, 1.2) * 0.32 * wWeight;
 
+      // Ankle medial-lateral stabilization roll during stance phase
+      const leftFootRoll = walkStride < 0 ? Math.sin(phase) * 0.024 * wWeight : 0;
+      const rightFootRoll = walkStride > 0 ? -Math.sin(phase) * 0.024 * wWeight : 0;
+
       const lf = leftFootRef.current;
       const lfq = leftFootRestQRef.current;
       if (lf && lfq) {
         const targetLfQ = scratch.target.copy(lfq).multiply(
-          scratch.rotation.setFromEuler(scratch.euler.set(leftFootPitch, 0, 0)),
+          scratch.rotation.setFromEuler(scratch.euler.set(leftFootPitch, 0, leftFootRoll)),
         );
         lf.quaternion.slerp(targetLfQ, Math.min(1, dt * 16));
       }
@@ -1301,7 +1316,7 @@ function Model({
       const rfq = rightFootRestQRef.current;
       if (rf && rfq) {
         const targetRfQ = scratch.target.copy(rfq).multiply(
-          scratch.rotation.setFromEuler(scratch.euler.set(rightFootPitch, 0, 0)),
+          scratch.rotation.setFromEuler(scratch.euler.set(rightFootPitch, 0, rightFootRoll)),
         );
         rf.quaternion.slerp(targetRfQ, Math.min(1, dt * 16));
       }
@@ -1460,9 +1475,10 @@ function Model({
       const thinkingPitch = (affectiveProfile.thoughtfulness > 0.5 || activeIntent === "thinking") ? 0.045 : 0;
       const laughingPitch = (activeIntent === "laughing") ? -0.05 + Math.sin(t.current * 7.2) * 0.03 : 0;
       const walkGazeStabilizeYaw = -walkTurnYawRef.current * wWeight;
+      const walkHeadBobPitch = Math.sin(walkPhaseRef.current * 2) * 0.006 * wWeight;
       const swayTarget = scratch.target.copy(headRest).multiply(
         scratch.rotation.setFromEuler(scratch.euler.set(
-          motionPose.pitch + speechNod + thinkingPitch + laughingPitch + idlePitch,
+          motionPose.pitch + speechNod + thinkingPitch + laughingPitch + idlePitch + walkHeadBobPitch,
           motionPose.yaw + walkGazeStabilizeYaw + idleYaw,
           motionPose.roll + affectiveTilt + idleRoll
         )),
@@ -1558,8 +1574,13 @@ function Model({
         }
 
         if (wWeight > 0.001) {
-          const walkArmSwing = (isLeft ? walkStride : -walkStride) * 0.38;
-          rotY = THREE.MathUtils.lerp(rotY, walkArmSwing, wWeight * 0.88);
+          // Walk arm swing (antiphase — left arm forward when right leg forward)
+          const leftArmWalkPitch = walkStride * 0.38; // left arm swings opposite to left leg
+          const rightArmWalkPitch = -walkStride * 0.38; // right arm opposite
+          const armShoulderRoll = Math.sin(walkPhaseRef.current) * 0.028 * wWeight;
+          const walkArmPitch = isLeft ? leftArmWalkPitch : rightArmWalkPitch;
+          rotY = THREE.MathUtils.lerp(rotY, walkArmPitch, wWeight * 0.88);
+          rotZ += isLeft ? armShoulderRoll : -armShoulderRoll;
         }
       } else if (boneName.includes("LowerArm")) {
         if (activeIntent === "thinking" && !isLeft) {
@@ -1730,7 +1751,7 @@ function Model({
      * slows it into long, heavy draws, sorrow adds weight. */
     const chestBone = chestBoneRef.current;
     const chestRest = chestRestQRef.current;
-    if (chestBone && chestRest) {
+    if (chestBone && chestRest && wWeight <= 0.01) {
       const breathRate = 1.5 + affectiveProfile.arousal * 0.9 - affectiveProfile.drowsy * 0.7;
       const depth = (speakingRef.current ? 0.030 : 0.024)
         * (1 + affectiveProfile.arousal * 0.4 + Math.max(0, -affectiveProfile.valence) * 0.15);
@@ -1791,6 +1812,7 @@ function Cam({
   const initialized = useRef(false);
   const camClock = useRef(0);
   const speechDampRef = useRef(0);
+  const walkOrbitRef = useRef(0);
 
   // Detect emotional warmth or cute emphasis for intimate cinematic framing
   const dialogueSample = `${expressionText || ""} ${plan?.spokenText || ""} ${plan?.displayText?.slice(0, 120) || ""}`;
@@ -1800,6 +1822,9 @@ function Cam({
     const persCam = camera as THREE.PerspectiveCamera;
     const realDt = Math.min(dt, 0.1);
     camClock.current += realDt;
+    if (isWalking) {
+      walkOrbitRef.current += realDt * 0.08; // slow 0.08 Hz walk showcase orbit
+    }
 
     const isListening = state === "listening" || (liveStatus?.active && liveStatus?.status === "listening");
     const isSpeakingNow = !isListening && Boolean((speakingRef && speakingRef.current) || state === "speaking");
@@ -1826,8 +1851,9 @@ function Cam({
     const floatY = Math.cos(camClock.current * 0.54) * 0.0055 + Math.sin(camClock.current * 1.18) * 0.0022;
     const floatZ = Math.sin(camClock.current * 0.41) * 0.0035;
 
-    // 2. Subtle multi-angle cinematic orbit pan (±2.5° azimuth shift while speaking)
-    const orbitAngle = Math.sin(camClock.current * 0.22) * 0.042 * speechFactor;
+    // 2. Subtle multi-angle cinematic orbit pan (±2.5° azimuth shift while speaking, + walk showcase orbit)
+    const walkOrbit = isWalking ? Math.sin(walkOrbitRef.current * Math.PI * 2) * 0.35 : 0;
+    const orbitAngle = Math.sin(camClock.current * 0.22) * 0.042 * speechFactor + walkOrbit;
 
     // Relative displacement from target
     const tx = curTarget.current.x;

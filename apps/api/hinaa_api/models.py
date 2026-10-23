@@ -249,6 +249,7 @@ class TurnRequest(BaseModel):
     language: Language = "mixed"
     providerMode: ProviderMode = "mock"
     responseMode: ResponseMode | None = None
+    persona_mode: str | None = None  # companion | roast | unfiltered | deep | sage | playful | professional
     brainModel: Annotated[
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),

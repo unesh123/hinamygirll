@@ -20,6 +20,7 @@ import type { ResponseMode } from "./features/providers/conversationProvider";
 
 import { ModelsMode } from "./design-system/modes/ModelsMode";
 import { WorkMode } from "./design-system/modes/WorkMode";
+import { PersonaModeSelector, type PersonaMode } from "./features/persona";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
 import type { AttachmentRole } from "./design-system/chat/ComposerV6";
 import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
@@ -517,6 +518,14 @@ export default function App() {
       : executiveMode === "deep-reasoning" ? "technical"
       : "conversation";
 
+  const [personaMode, setPersonaMode] = useState<PersonaMode>(() => {
+    try { return (localStorage.getItem("hinaa-persona-mode") as PersonaMode) || "companion"; } catch { return "companion"; }
+  });
+  const changePersonaMode = (mode: PersonaMode) => {
+    setPersonaMode(mode);
+    try { localStorage.setItem("hinaa-persona-mode", mode); } catch {}
+  };
+
   const [navSection, setNavSection] = useState<NavSection>("chat");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [operateTab, setOperateTab] = useState<OperateTab>("tasks");
@@ -948,6 +957,7 @@ export default function App() {
         attachments: imageData ? [{ kind: "image", role: attachmentRole ?? "inspection", url: imageData }] : undefined,
         reference_images: imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
         responseMode: requestResponseMode,
+        persona_mode: personaMode,
         voiceEngine: effectiveEngine,
         onSentenceChunk: phrase => {
           if (playback.muted) return;
@@ -1332,6 +1342,8 @@ export default function App() {
               isAutoRouter={settings.provider.preferredMode === "auto"}
               executiveMode={executiveMode}
               onExecutiveModeChange={changeExecutiveMode}
+              personaMode={personaMode}
+              onPersonaModeChange={changePersonaMode}
               onNewChat={handleNewChat}
               islandProps={{
                 isDark,

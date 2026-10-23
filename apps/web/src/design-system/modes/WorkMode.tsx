@@ -141,6 +141,7 @@ import type { PresenceMode } from "../../components/ui/AvatarPresence";
 import type { ExecutiveMode } from "../layout/TopBarV6";
 import { AdobeMotionTimeline } from "./AdobeMotionTimeline";
 import { playStreamChunkSound } from "../../lib/uiSound";
+import { PersonaModeSelector, type PersonaMode } from "../../features/persona";
 
 function getProviderDisplayName(mode?: string): string {
   if (!mode) return "Provider";
@@ -186,6 +187,8 @@ interface WorkModeProps {
   powerUps: PowerUp[];
   onPowerUpToggle: (id: PowerUpId) => void;
   onCommand?: (action: string) => void;
+  personaMode?: PersonaMode;
+  onPersonaModeChange?: (mode: PersonaMode) => void;
   onResolveTool: (messageId: string, request: any, approved: boolean) => Promise<void>;
   autoRunTools: boolean;
   agentSteps: Array<{
@@ -280,6 +283,8 @@ export function WorkMode({
   powerUps,
   onPowerUpToggle,
   onCommand,
+  personaMode = "companion",
+  onPersonaModeChange,
   attachedImage,
   onImageAttach,
   isWalking: isWalkingProp,
@@ -1426,7 +1431,14 @@ export function WorkMode({
             />
           )}
 
-          {/* ── Hina Brain Orchestration Panel ────────────────────── */}
+          {/* Persona Mode Selector */}
+          {onPersonaModeChange && (
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 0 4px 0" }}>
+              <PersonaModeSelector value={personaMode} onChange={onPersonaModeChange} compact />
+            </div>
+          )}
+
+          {/* Hina Brain Orchestration Panel */}
           {/* Shows live multi-specialist status during agent/research workflows */}
           {(isSearching || isAgentActive || agentSteps.length > 0 || Boolean(currentAgentRunId)) && (
             <_BrainOrchestrationInline

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from .companions import companion_identity_layer
+from .persona_modes import get_persona_layer, persona_length_hint
 from .context import (
     build_history_block,
     build_memory_block,
@@ -250,6 +251,12 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             priority=3,
             trusted=True,
             text=companion_identity_layer(inp.companion_id),
+        ),
+        PromptLayer(
+            name="persona_mode",
+            priority=4,
+            trusted=True,
+            text=get_persona_layer(getattr(inp, "persona_mode", None)),
         ),
         PromptLayer(
             name="language",

@@ -78,6 +78,7 @@ class PromptInput(StrictModel):
     # signed-in owner, or on an instance with no store, has nowhere to write.
     durable_memory: bool = True
     visible_actions: list[str] = Field(default_factory=list)
+    persona_mode: str | None = None  # companion | roast | unfiltered | deep | sage | playful | professional
     attachments: tuple[Any, ...] = ()
     # P0: live dialogue state block — injected as highest-priority context
     dialogue_state_block: str = ""

@@ -164,6 +164,7 @@ export interface SendTextOptions {
   imageEngine?: string;
   voiceEngine?: string;
   onSentenceChunk?: (sentence: string, isFirst: boolean) => void;
+  persona_mode?: string;
 }
 
 export interface CompanionController {
@@ -618,6 +619,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           attachment_ids: options?.attachment_ids,
           reference_images: options?.reference_images,
           attachments: options?.attachments,
+          persona_mode: options?.persona_mode,
         })) {
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {

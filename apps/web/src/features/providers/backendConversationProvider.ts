@@ -92,6 +92,9 @@ export class BackendConversationProvider implements ConversationProvider {
     if (request.responseMode) {
       payload.responseMode = request.responseMode;
     }
+    if (request.persona_mode) {
+      payload.persona_mode = request.persona_mode;
+    }
     if (request.imageUrl) {
       payload.imageUrl = request.imageUrl;
     }
