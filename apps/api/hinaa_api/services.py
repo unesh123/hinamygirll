@@ -3278,6 +3278,21 @@ class ConversationService:
         if COMPUTER_PATTERN.search(text):
             allowed_set.update(["computer_operator", "app_launch", "system_info"])
 
+        # Autonomous Coding, Shell Execution, File Mutation & Agentic Workbench Pattern
+        CODING_AUTONOMY_PATTERN = re.compile(
+            r"(?i)\b(?:code|coding|build|fix|debug|refactor|test|terminal|powershell|bash|cmd|shell|script|python|git|commit|push|clean[- ]room|subagent|fork|patch|edit\s+file|write\s+file|read\s+file|create\s+file)\b"
+        )
+        if CODING_AUTONOMY_PATTERN.search(text):
+            allowed_set.update([
+                "coding_agent",
+                "clean_room_loop",
+                "terminal_hands",
+                "subagent_fork",
+                "file_read",
+                "file_write",
+                "system_info",
+            ])
+
         if allowed_set:
             return tuple(sorted(allowed_set))
         # If user gave an affirmative confirmation and recent turns discussed generating an image
