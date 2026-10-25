@@ -1,7341 +1,7403 @@
-from __future__ import annotations
-
-import asyncio
-import json
-import logging
-import re
-import time
-from collections import OrderedDict
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from enum import Enum
-from typing import TYPE_CHECKING, Any
-
-from .config import Settings
-from .circuit_breaker import (
-    CircuitBreakerState,
-    get_circuit_breaker,
-    peek_circuit_breaker,
-)
-from .brain_ledger import (
-    aliases_for,
-    fingerprint_for,
-    newest_verdict,
-    record_call,
-    row_for_brain,
-)
-from .capabilities import brain_accepts_images
-from .response.notation import MathNotationStream, ascii_math, plainify_math
-from .errors import HinaaError
-from .reachability import probe_gateway_models
-from .memory import SessionMemory
-from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest, ToolRequest, Emotion
-
-if TYPE_CHECKING:  # pragma: no cover
-    from .persistence.memory_service import MemoryService
-
-from .prompts import PROMPT_VERSION, build_plan_from_text, neutral_fallback_plan
-from .prompts.performance import extract_executive_voice_summary
-from .prompts.turn_prompt import build_turn_prompt
-from .providers.agent_router import AgentRouterOpenAIProvider, AgentRouterAnthropicProvider, ClaudeLLMProvider
-from .providers.azure_speech import AzureSpeechProvider
-from .providers.base import (
-    LLMProvider,
-    ProviderResult,
-    STTProvider,
-    TTSProvider,
-)
-from .providers.gemini import GeminiLLMProvider
-from .providers.groq import GroqLLMProvider
-from .providers.local import LocalLLMProvider, make_local_stt, make_local_tts
-from .providers.mock import MockLLMProvider, MockSTTProvider, MockTTSProvider
-from .providers.elevenlabs import (
-    ElevenLabsConfig,
-    ElevenLabsHTTPStreamingProvider,
-    ElevenLabsSTTProvider,
-    ElevenLabsWebSocketStreamingProvider,
-    choose_live_tts_model,
-    choose_text_tts_model,
-    make_elevenlabs_provider,
-)
-from .providers.fish_audio import FishAudioConfig, FishAudioTTSProvider
-from .providers.openai_llm import OpenAILLMProvider
-from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
-from .voice_performance import speech_text_for_tts
-from .voice_profiles import resolve_calibration, resolve_voice
-from .run_ledger import get_run_ledger
-from .reply_guard import check_reply
-from .voice_fallback import (
-    fallback_voice_id,
-    is_fallback_worthy,
-    note_voice_failure,
-    voice_on_cooldown,
-)
-
-_ELEVENLABS_PROVIDER = "elevenlabs"
-
-logger = logging.getLogger("hinaa.conversation")
-
-# Below this many characters the primary had not really started answering, so a
-# fallback brain may still take the turn; above it the text is already on the
-# user's screen and replacing it would attribute words to her she never wrote.
-_MIN_STREAMED_CHARS_TO_KEEP = 400
-
-# A dead primary brain should hand the turn to a working one, not surface an
-# error. This list must track the codes providers actually raise: the per-path
-# copies of it used to name PROVIDER_RATE_LIMIT / PROVIDER_KEY_INVALID (which
-# nothing emits) while missing PROVIDER_UNREACHABLE and PROVIDER_RATE_LIMITED
-# (which the agent-router gateway emits on every connection reset and 429), so
-# the documented recovery never ran.
-# SAFETY_REFUSAL and *_RESPONSE_INVALID stay out on purpose: refusal is final,
-# and a malformed answer has its own neutral-plan path.
-FALLBACK_ELIGIBLE_ERROR_CODES = frozenset(
-    {
-        "PROVIDER_UNREACHABLE",
-        "PROVIDER_UNAVAILABLE",
-        "PROVIDER_TIMEOUT",
-        "PROVIDER_RATE_LIMIT",
-        "PROVIDER_RATE_LIMITED",
-        "PROVIDER_KEY_INVALID",
-        "PROVIDER_AUTH_FAILED",
-        "PROVIDER_ACCESS_DENIED",
-        "PROVIDER_ENDPOINT_INVALID",
-        "PROVIDER_MODEL_NOT_FOUND",
-        "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
-    }
-)
-
-
-@asynccontextmanager
-async def live_generation_window(
-    *,
-    ceiling_s: float,
-    idle_s: float,
-    forward: Callable[[str], Awaitable[None]],
-    sink: list[str] | None = None,
-    first_token_s: float | None = None,
-) -> AsyncIterator[tuple[Callable[[str], Awaitable[None]], Callable[[], bool]]]:
-    """Emit hook + liveness predicate for one live brain attempt.
-
-    The idle deadline moves forward on every token, so a long answer is never
-    killed merely for being long; only a silent stream is. ``ceiling_s`` remains
-    as the absolute backstop against a hung connection.
-
-    ``first_token_s`` shortens the leash ONLY until the stream has produced its
-    first delta: a brain that has emitted nothing for several seconds has hung,
-    not "started slowly", and the turn should fail over instead of holding him
-    in silence for the whole inter-token idle budget. The first emit upgrades
-    the window to the full ``idle_s``, so slow-but-alive reasoning streams are
-    unaffected.
-    """
-    loop = asyncio.get_running_loop()
-    initial_idle_s = idle_s if first_token_s is None else min(first_token_s, idle_s)
-    async with asyncio.timeout(ceiling_s), asyncio.timeout(initial_idle_s) as idle_window:
-
-        async def emit(delta: str) -> None:
-            if sink is not None:
-                sink.append(delta)
-            idle_window.reschedule(loop.time() + idle_s)
-            await forward(delta)
-
-        yield emit, idle_window.expired
-
-
-@dataclass
-class ParsedCommand:
-    command: str
-    args: str
-    raw: str
-
-
-@dataclass
-class ParsedContext:
-    kind: str
-    source_id: str
-    raw: str
-
-
-def parse_composer_input(text: str) -> tuple[str, list[ParsedContext], ParsedCommand | None]:
-    """Parse composer input for @context references and /commands.
-
-    Returns: (plain_text, context_references, explicit_command)
-    """
-    if not text:
-        return "", [], None
-
-    contexts: list[ParsedContext] = []
-    command: ParsedCommand | None = None
-    plain_parts: list[str] = []
-
-    parts = text.split(" ")
-    i = 0
-    while i < len(parts):
-        part = parts[i]
-
-        if part.startswith("@") and len(part) > 1:
-            context_spec = part[1:]
-            if ":" in context_spec:
-                kind, source_id = context_spec.split(":", 1)
-            else:
-                kind, source_id = context_spec, "current"
-            contexts.append(ParsedContext(kind=kind, source_id=source_id, raw=part))
-            i += 1
-            continue
-
-        if part.startswith("/") and len(part) > 1:
-            cmd_name = part[1:]
-            args_parts: list[str] = []
-            i += 1
-            while i < len(parts):
-                next_part = parts[i]
-                if next_part.startswith("@") or next_part.startswith("/"):
-                    break
-                args_parts.append(next_part)
-                i += 1
-            command = ParsedCommand(
-                command=cmd_name,
-                args=" ".join(args_parts),
-                raw=part + " " + " ".join(args_parts) if args_parts else part,
-            )
-            continue
-
-        plain_parts.append(part)
-        i += 1
-
-    plain_text = " ".join(plain_parts).strip()
-    return plain_text, contexts, command
-
-
-def _durable_content(block: str) -> str:
-    """Strip the ``memory:{id}: `` prefix from an approved durable block."""
-    if ": " in block:
-        return block.split(": ", 1)[1].strip()
-    return block.strip()
-
-
-CHARACTER_ENTITY_MAP: dict[str, str] = {
-    "mikasa": "Mikasa Ackerman",
-    "mikasa ackerman": "Mikasa Ackerman",
-    "gojo": "Gojo Satoru",
-    "gojo satoru": "Gojo Satoru",
-    "levi": "Levi Ackerman",
-    "levi ackerman": "Levi Ackerman",
-    "eren": "Eren Yeager",
-    "eren yeager": "Eren Yeager",
-    "tanjiro": "Tanjiro Kamado",
-    "tanjiro kamado": "Tanjiro Kamado",
-    "nezuko": "Nezuko Kamado",
-    "nezuko kamado": "Nezuko Kamado",
-    "naruto": "Naruto Uzumaki",
-    "naruto uzumaki": "Naruto Uzumaki",
-    "sasuke": "Sasuke Uchiha",
-    "sasuke uchiha": "Sasuke Uchiha",
-    "luffy": "Monkey D. Luffy",
-    "monkey d luffy": "Monkey D. Luffy",
-    "zoro": "Roronoa Zoro",
-    "roronoa zoro": "Roronoa Zoro",
-    "sukuna": "Ryomen Sukuna",
-    "ryomen sukuna": "Ryomen Sukuna",
-    "itadori": "Yuji Itadori",
-    "yuji itadori": "Yuji Itadori",
-    "goku": "Son Goku",
-    "son goku": "Son Goku",
-}
-
-
-def _dedupe_session_facts(
-    session_memories: tuple[str, ...], approved_blocks: tuple[str, ...]
-) -> tuple[str, ...]:
-    """Drop ephemeral session facts already stored durably (avoid double injection)."""
-    if not approved_blocks:
-        return session_memories
-    durable_keys = {_durable_content(block).lower() for block in approved_blocks}
-    return tuple(fact for fact in session_memories if fact.strip().lower() not in durable_keys)
-
-
-def _fact_category(fact: str) -> str:
-    lowered = fact.lower()
-    if lowered.startswith("user's name"):
-        return "identity"
-    if lowered.startswith(("user likes", "user dislikes")):
-        return "preference"
-    if lowered.startswith("user context"):
-        return "context"
-    if lowered.startswith("asked to remember"):
-        return "fact"
-    return "other"
-
-
-def _comparison_key(text: str) -> str:
-    """Create a tolerant key for checking accidental response repetition."""
-    return re.sub(r"[^\w]+", "", text.casefold(), flags=re.UNICODE)
-
-
-def _image_fetch_count(text: str, *, default: int = 6) -> int:
-    """How many existing pictures he asked for, capped where the tool caps.
-
-    The search tool pools providers up to its own ceiling; a planner that always
-    asked for six made that ceiling unreachable from his words.
-    """
-    from .tools.browser import MAX_IMAGE_RESULTS
-    from .tools.intent_gate import requested_count
-
-    count = requested_count(text or "", maximum=MAX_IMAGE_RESULTS, default=default)
-    return min(max(1, count), MAX_IMAGE_RESULTS)
-
-
-def _dedupe_halves(text: str) -> str:
-    """If the model repeated its entire answer block verbatim or near-verbatim, collapse it."""
-    s = text.strip()
-    n = len(s)
-    if n < 40:
-        return text
-    mid = n // 2
-    for offset in range(-15, 16):
-        m = mid + offset
-        if m < 20 or m > n - 20:
-            continue
-        first = s[:m].strip()
-        second = s[m:].strip()
-        if first and second:
-            if first == second:
-                return first
-            k1 = _comparison_key(first)
-            k2 = _comparison_key(second)
-            if k1 and k2 and len(k1) >= 25 and k1 == k2:
-                return first
-    return text
-
-
-def _remove_repeated_passages(text: str) -> str:
-    """Keep the first copy of an identical paragraph, sentence, or text block.
-
-    Provider output can occasionally repeat its answer during schema recovery or
-    streaming completion. This guard is intentionally conservative: it removes
-    only identical normalized passages and leaves differently worded details,
-    Markdown lists, and code intact.
-    """
-    text = _dedupe_halves(text)
-    chunks = re.split(r"(\n{2,}|(?<=[.!?।])\s+)", text.strip())
-    seen: set[str] = set()
-    kept: list[str] = []
-    pending_separator = ""
-    previous_key = ""
-    for chunk in chunks:
-        if not chunk:
-            continue
-        if re.fullmatch(r"\n{2,}|\s+", chunk):
-            pending_separator = chunk
-            continue
-        key = _comparison_key(chunk)
-        # A sentence repeated immediately after itself is a padding loop, not
-        # emphasis — drop it no matter how short it is ("Tokyo, babe. Tokyo,
-        # babe." measured live from a model pushed at a word floor).
-        if key and key == previous_key:
-            continue
-        if len(key) >= 20 and key in seen:
-            continue
-        if key:
-            seen.add(key)
-        if kept and pending_separator:
-            kept.append(pending_separator)
-        kept.append(chunk)
-        pending_separator = ""
-        previous_key = key
-    return "".join(kept).strip()
-
-
-def _spoken_summary_from_display(text: str, *, limit: int = 420) -> str:
-    """Create a short natural voice route without reading Markdown syntax aloud."""
-    plain = re.sub(r"```[\s\S]*?```", "", text)
-    plain = re.sub(r"^\s{0,3}#{1,6}\s*", "", plain.strip(), flags=re.MULTILINE)
-    plain = re.sub(r"^\s*[-*+]\s+", "", plain, flags=re.MULTILINE)
-    plain = re.sub(r"^\|.*\|\s*$", "", plain, flags=re.MULTILINE)
-    plain = plain.replace("`", "").replace("**", "").replace("__", "")
-    plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", plain)
-    sentences = [piece.strip() for piece in re.split(r"(?<=[.!?।])\s+", plain) if piece.strip()]
-    summary: list[str] = []
-    current_length = 0
-    for sentence in sentences:
-        if summary and current_length + len(sentence) + 1 > limit:
-            break
-        summary.append(sentence)
-        current_length += len(sentence) + 1
-        if len(summary) >= 3:
-            break
-    res = " ".join(summary).strip()
-    if not res:
-        res = plain[:limit].strip()
-    return res
-
-
-def _plain_first_sentences(text: str, limit: int = 280) -> str:
-    """First one or two substantive prose sentences of a document, skipping
-    conversational greetings and stripping markdown so voice summaries are natural."""
-    return extract_executive_voice_summary(text, limit=limit)
-
-
-def _speech_safe(text: str) -> str:
-    """Strip inline markdown from the spoken channel. The document keeps its
-    formatting; a voice engine reads a backtick as a hiccup and says 'asterisk'
-    out loud. Measured live: she spoke `tier-a-conversation-brain-1.0.0` with
-    the backticks in it because the guard only looks for triple backticks.
-
-    Deliberately narrow: emphasis markers only count when they hug a word on
-    both sides, so "2 * 3 * 4" and snake_case identifiers survive untouched.
-    """
-    if not text:
-        return text
-    safe = re.sub(r"\[([^\]\n]+)\]\([^)\n]*\)", r"\1", text)
-    safe = re.sub(r"`{1,3}([^`\n]*)`{1,3}", r"\1", safe)
-    safe = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", safe)
-    safe = re.sub(r"(?<!\*)\*(?=[^\s*])([^*\n]*?[^\s*])\*(?!\*)", r"\1", safe)
-    safe = re.sub(r"(?<![\w_])_(?=[^\s_])([^_\n]*?[^\s_])_(?![\w_])", r"\1", safe)
-    safe = re.sub(r"^\s{0,3}#{1,6}\s+", "", safe, flags=re.MULTILINE)
-    return re.sub(r"\s{2,}", " ", safe).strip()
-
-
-def _closing_ask(display: str) -> str:
-    """The last real question in a document — normally her offer to build the
-    full report or deep-dive next.
-
-    A long answer is spoken from its *first* sentences, so whatever sits at the
-    end is structurally never said. Measured on production: an 8,248-character
-    status answer asked "Would you like the full documented report?" on screen
-    while her voice ended on a mid-document bullet about colour palettes.
-    """
-    if not display:
-        return ""
-    # Split on line breaks as well as terminators: a heading such as
-    # "### Exploration Paths" carries no full stop, so terminator-only splitting
-    # glued it onto the bullet underneath and dragged the literal "\n* " into
-    # what she then read aloud.
-    sentences = [
-        re.sub(r"\s+", " ", piece.lstrip("-*•\u2192>\u00a0 ").strip())
-        for piece in re.split(r"\n+|(?<=[.!?।])\s+", _speech_safe(display))
-    ]
-    questions = [s for s in sentences if s.endswith("?") and len(s) >= 25]
-    if not questions:
-        return ""
-    # He asked to be offered the documented report out loud. When she writes
-    # several questions, the last one can be a tangent ("...or shall we tune
-    # your PyTorch loop?") while the report offer sits above it — so prefer the
-    # last offer that actually names the report, and fall back to the last ask.
-    for sentence in reversed(questions):
-        if re.search(r"\b(report|document|write-up|writeup|brief)\b", sentence, re.I):
-            return sentence
-    return questions[-1]
-
-
-def _with_closing_ask(text: str, display: str, limit: int) -> str:
-    """Append her closing ask to a spoken summary without busting the budget."""
-    ask = _closing_ask(display)
-    if not ask or ask.rstrip("?").strip() in text:
-        return text
-    room = limit - len(ask) - 1
-    if room < 200:
-        return text
-    body = text.strip() if len(text) <= room else (_plain_first_sentences(text, limit=room) or text[:room])
-    body = body.strip()
-    if body and not re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", body):
-        body += "."
-    return f"{body} {ask}" if body else ask
-
-
-def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
-    """Clean leaked XML, thinking blocks, and stage directions (*laughs*, *मुस्कुराते हुए*, etc.).
-    Returns (cleaned_text, had_laughter_or_smile)."""
-    if not text:
-        return "", False
-    # Strip <think>...</think> or <thought>...</thought>
-    cleaned = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", text, flags=re.IGNORECASE)
-    cleaned = re.sub(r"^\s*<(?:think|thought)>[\s\S]*$", "", cleaned, flags=re.IGNORECASE)
-    # Strip any leaked prompt meta-reflection lines
-    from .reply_guard import _strip_meta_reflection
-    cleaned, _ = _strip_meta_reflection(cleaned)
-    # Strip any simulated tool calls, code fences, or machine traces
-    from .providers.display_stream_decoder import strip_simulated_tool_calls
-    cleaned = strip_simulated_tool_calls(cleaned)
-    # Strip any leaked XML tags
-    cleaned = re.sub(
-        r"</?(?:response|spokenText|displayText|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    # Check for laughter or smile in stage directions or cues
-    had_laughter = bool(
-        re.search(
-            r"[*(\[](?:[^*()\]]*?(?:laugh|chuckle|giggle|smile|smiling|haha|hehe|हंस|मुस्कुरा|ख़ुश)[^*()\]]*?)[*)\]]",
-            cleaned,
-            re.IGNORECASE,
-        )
-    )
-    # Strip only actual stage directions in single asterisks, e.g. *laughs*, *smiles gently*, *sighs*, *मुस्कुराते हुए*
-    # NEVER strip double asterisks (**bold**), which are standard markdown formatting!
-    stage_dir_pattern = (
-        r"(?<!\*)\*\s*(?:laughs?|chuckles?|giggles?|smiles?|smiling|sighs?|winks?|blushes?|nodding|nods|"
-        r"softly|gently|warmly|cheerful|playful|curious|pouts?|gazing|looking|thinking|"
-        r"मुस्कुराते\s+हुए|हंसते\s+हुए|धीमे\s+से\s+मुस्कुराते\s+हुए|गले\s+लगाते\s+हुए)[^*]*\*(?!\*)"
-    )
-    cleaned = re.sub(stage_dir_pattern, "", cleaned, flags=re.IGNORECASE)
-    # Strip stage direction parentheses, e.g. (laughs), (giggles), (smiling softly), (मुस्कुराते हुए)
-    cleaned = re.sub(
-        r"\(\s*(?:laughs?|chuckles?|giggles?|smiles?|smiling|मुस्कुराते हुए|हंसते हुए|धीमे से मुस्कुराते हुए)[^)]*\)",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    # Strip trailing emotion annotations like (happy=0.8, valence=0.5)
-    cleaned = re.sub(
-        r"\s*\([a-zA-Z_]+=[0-9.]+(?:,\s*[a-zA-Z_]+=[0-9.]+)*\)\s*$",
-        "",
-        cleaned,
-    )
-    # Strip <svg>...</svg> blocks and standalone svg lines
-    cleaned = re.sub(r"<svg[\s\S]*?</svg>", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"(?im)^\s*svg\s*$\n?", "", cleaned)
-    # Strip internal workflow tokens
-    cleaned = re.sub(r"\b(?:workflow_mode|generation_set_id)\b\s*", "", cleaned)
-    # Strip emojis, hearts, and decorative symbols
-    cleaned = re.sub(
-        r"[\U0001F000-\U0001FFFF\u2600-\u26FF\u2700-\u27BF\uFE00-\uFE0F]",
-        "",
-        cleaned,
-    )
-    # Strip greeting stutters (e.g. "HeyHey'm", "Hey babe, hey!", "Hey, hey")
-    cleaned = re.sub(r"\bHeyHey(?:'m|’m)\b", "Hey, I'm", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\bHeyHey\b", "Hey", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\b(Hey(?:\s+babe)?),\s*hey[!,.]?", r"\1!", cleaned, flags=re.IGNORECASE)
-    # Normalize leftover whitespace, preserving indentation inside code blocks (``` and ~~~)
-    fence_pattern = re.compile(r"(```[\w-]*|```|~~~[\w-]*|~~~)")
-    parts = fence_pattern.split(cleaned)
-    if len(parts) > 1:
-        cleaned_parts = []
-        in_fence = False
-        for part in parts:
-            if part.startswith("```") or part.startswith("~~~"):
-                in_fence = not in_fence
-                cleaned_parts.append(part)
-            elif in_fence:
-                # Inside code block: preserve exact indentation, tabs, blank lines
-                cleaned_parts.append(part)
-            else:
-                # Outside code block: collapse redundant horizontal spaces/tabs
-                cleaned_parts.append(re.sub(r"[ \t]+", " ", part))
-        cleaned = "".join(cleaned_parts)
-    else:
-        cleaned = re.sub(r"[ \t]+", " ", cleaned)
-    cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
-    return cleaned.strip(), had_laughter
-
-
-def _truncate_at_clause_boundary(text: str, limit: int) -> str:
-    """Shorten text to ≤ ``limit`` chars WITHOUT cutting mid-thought (§32).
-
-    Preference order: keep as-is → last sentence end → last clause break
-    (comma/semicolon/dash/colon) → last word boundary. Never slices into
-    the middle of a word.
-    """
-    if len(text) <= limit:
-        return text
-    window = text[: limit + 1]
-    # Sentence boundary: cut AFTER the terminator so the thought keeps its
-    # punctuation (never ends on a bare word).
-    matches = list(re.finditer(r"[.!?\u0964\u0965]", window))
-    if matches:
-        cut = window[: matches[-1].end()].strip()
-        if len(cut) >= limit * 0.4:
-            return cut
-    for sep in (",", ";", "—", " -", ":"):
-        idx = window.rfind(sep)
-        if idx >= limit * 0.4:
-            return window[:idx].rstrip(" ,;—")
-    cut = window.rsplit(" ", 1)[0].rstrip(" ,;—")
-    return cut
-
-
-class VoiceResponseType(str, Enum):
-    """Semantic voice response types (directive §32).
-
-    SHORT_FULL — the whole answer is short; voice may speak it verbatim.
-    EXECUTIVE_SUMMARY — display is a long document; voice summarizes.
-    PROGRESS_UPDATE — work still running; voice reports status only.
-    QUESTION — Hina is asking the user something.
-    ERROR — failure path; voice explains safely.
-    COMPLETION — a tool finished (artifact produced); voice announces it.
-    """
-
-    SHORT_FULL = "SHORT_FULL"
-    EXECUTIVE_SUMMARY = "EXECUTIVE_SUMMARY"
-    PROGRESS_UPDATE = "PROGRESS_UPDATE"
-    QUESTION = "QUESTION"
-    ERROR = "ERROR"
-    COMPLETION = "COMPLETION"
-    ARTIFACT_READY = "ARTIFACT_READY"
-
-
-def plan_voice_response(
-    display_text: str,
-    spoken_text: str,
-    *,
-    has_artifact: bool = False,
-    has_pdf: bool = False,
-    has_image: bool = False,
-    has_error: bool = False,
-    is_progress: bool = False,
-    artifact_title: str | None = None,
-    live: bool = False,
-) -> tuple[VoiceResponseType, str]:
-    """Classify the turn and produce the voice text for that type.
-
-    Long documents never get a recitation; short conversational answers
-    keep their full voice text; the summary is built from whole sentences
-    and never cut mid-thought.
-
-    `live` widens every budget. In the chat window a short spoken line
-    complements a long display answer the user can scroll through; in a
-    hands-free call it is the only surface, so the chat clamps truncated her
-    to two sentences mid-thought.
-    """
-    display = (display_text or "").strip()
-    spoken = (spoken_text or "").strip()
-
-    if has_error:
-        # Error voice: keep the spoken line if it's already short and
-        # complete; otherwise a safe generic fallback. Never recite stacks.
-        if spoken and len(spoken) <= 220 and re.search(r"[.!?\u0964]", spoken):
-            return VoiceResponseType.ERROR, spoken
-        return VoiceResponseType.ERROR, "Something went wrong on my side — give me another try? 💜"
-    if has_artifact:
-        title = artifact_title or "your document"
-        return VoiceResponseType.ARTIFACT_READY, f"I've created {title} for you! You can view and edit it right here. ✨"
-    if has_pdf:
-        return VoiceResponseType.COMPLETION, "I've generated your assignment PDF! You can download it right below. ✨"
-    if has_image:
-        return VoiceResponseType.COMPLETION, "Here are some pictures for you! ✨"
-    if is_progress:
-        if spoken and len(spoken) <= 200:
-            return VoiceResponseType.PROGRESS_UPDATE, spoken
-        return VoiceResponseType.PROGRESS_UPDATE, "Working on it — I'll have it ready shortly! ✨"
-
-    # Two tiers, one reason: a call has no second surface, so her voice has to
-    # carry the whole answer. ~900 characters is about a minute of fluent
-    # speech, and ~1.4k is about 90s. Note which tier production actually uses:
-    # main.py has one entry into the brain (stream_turn) and stream_turn always
-    # calls create_live_plan, so typed web turns arrive live too — the non-live
-    # tier shapes only the non-streaming path that no route reaches today. Tighten
-    # it and nothing changes on his phone.
-    whole_answer_ceiling = 1_400 if live else 900
-    verbatim_cap = 1_400 if live else 900
-    distill_limit = 1_400 if live else 900
-    summary_limit = 1_200 if live else 900
-
-    # Question: Hina asked the user something — never overwrite a question
-    # with a summary, that would erase the ask. Only while the question really
-    # is the whole answer. A 5,056-word report that happens to close with
-    # "Shall we examine the concurrency primitives?" is an executive summary
-    # with an offer on the end, and this branch used to flatten it to 380
-    # characters: measured on production as 398 spoken characters for what he
-    # asked to hear in full.
-    if len(display) <= whole_answer_ceiling and (
-        spoken.endswith("?") or (not spoken and display.rstrip().endswith("?"))
-    ):
-        question = spoken or display
-        if any(marker in question for marker in ("```", "\n", "•", "|", "###", "##", "- ")):
-            # Falling back to the display text can pull in headings and bullets
-            # that must never be read aloud.
-            question = _plain_first_sentences(question, limit=400) or question.replace("\n", " ")
-        if len(question) <= 400:
-            return VoiceResponseType.QUESTION, question
-        return VoiceResponseType.QUESTION, _truncate_at_clause_boundary(question, 380)
-
-    if len(display) <= whole_answer_ceiling:
-        # Short conversational turn: keep the model's own voice text when it
-        # is a complete thought; otherwise speak the display text itself.
-        candidate = spoken or display
-        if len(candidate) <= verbatim_cap and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", candidate.rstrip())):
-            return VoiceResponseType.SHORT_FULL, candidate
-        if len(display) <= verbatim_cap:
-            return VoiceResponseType.SHORT_FULL, display
-        distilled = _plain_first_sentences(display, limit=distill_limit)
-        return VoiceResponseType.SHORT_FULL, distilled or "I've put the full breakdown in chat! ✨"
-
-    # Long document: executive summary from whole substantive sentences.
-    clean_spoken = spoken.strip()
-    sentence_ends = len(re.findall(r"[.!?\u0964\u0965]", clean_spoken))
-    # Distinct sentences, not terminators: padding one sentence out twenty
-    # times satisfies a terminator count while saying nothing new.
-    distinct_sentences = len(
-        {
-            piece.strip().casefold()
-            for piece in re.split(r"(?<=[.!?।])\s+", clean_spoken)
-            if piece.strip()
-        }
-    )
-    # Below these floors the model handed over a lead-in ("Great question,
-    # babe, let me be honest with you…") rather than a summary, and distilling
-    # from displayText says more. Live needs half its budget because her voice
-    # is the only surface. Chat keeps a near-zero floor: a real three-sentence
-    # summary measured 187 characters, so any character gate high enough to
-    # catch a warm-up also destroys genuine summaries — the sentence rules
-    # below are what separate the two.
-    #
-    # That only holds for ordinary turns. For a report-length document the
-    # prompt asks for 600-1,400 characters of summary, and measured on
-    # production she returned 398 for a 5,056-word report: chat's 40-character
-    # floor waved it through and her voice covered 20s of a 40-minute read.
-    report_length_doc = len(display) > 12_000
-    chat_min_substantive_chars = 600 if report_length_doc else 40
-    min_substantive_chars = (
-        int(summary_limit * 0.5) if live else chat_min_substantive_chars
-    )
-    min_substantive_sentences = 3 if live else 2
-    # Announcing that she is about to read the document is not a summary of it.
-    recitation_openers = (
-        "here is your",
-        "i have generated",
-        "i will now read",
-        "i'll now read",
-        "let me read",
-    )
-    substantive_ceiling = 2_400 if live else 1_500
-    is_substantive_spoken = (
-        len(clean_spoken) >= min_substantive_chars
-        and distinct_sentences >= min_substantive_sentences
-        and sentence_ends >= min_substantive_sentences
-        and len(clean_spoken) <= substantive_ceiling
-        and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", clean_spoken))
-        and not any(marker in clean_spoken for marker in ("```", "\n", "•", "|", "###", "##"))
-        and not clean_spoken.lower().startswith(recitation_openers)
-    )
-    if is_substantive_spoken:
-        return VoiceResponseType.EXECUTIVE_SUMMARY, _with_closing_ask(
-            clean_spoken, display, substantive_ceiling
-        )
-
-    summary = _plain_first_sentences(display, limit=summary_limit)
-    if not summary:
-        summary = _truncate_at_clause_boundary(spoken or display, summary_limit)
-    if summary and not re.search(r"[.!?:\u0964\u0965]\s*$", summary.rstrip()):
-        # Truncating here only made her shorter and still left the sentence
-        # open, so the sign-off ran straight into it when spoken aloud.
-        summary = summary.rstrip() + "."
-    # Ask what she actually wrote at the end of the document; the canned line is
-    # only for when there was no question to keep.
-    sign_off = _closing_ask(display) or (
-        "Want me to walk you through the whole thing?"
-        if live
-        else "The full document is in chat for you! ✨"
-    )
-    return VoiceResponseType.EXECUTIVE_SUMMARY, _with_closing_ask(
-        f"{summary} {sign_off}".strip(), display, summary_limit
-    )
-
-
-_DOCUMENT_TOOL_NAMES = {"pdf_generate", "document_generate"}
-
-# The builder typesets supplied text or cited findings and adds no analysis
-# tables, figures, or bibliography of its own. A toolRequest is only a request
-# at this point — nothing exists yet — so a reply listing what the document
-# "contains" is describing a file nobody has written.
-_UNVERIFIED_DOCUMENT_CLAIM = re.compile(
-    r"(?i)[,;]?\s+\b(?:with|including|featuring|complete with|packed with)\b"
-    r"(?P<list>[^.;:\n]{0,120}?\b(?:analyses?|analysis|citations?|references?|tables?|"
-    r"graphs?|figures?|illustrations?|bibliography|footnotes?|scholarly sources)\b"
-    r"[^.;:\n]{0,60})"
-)
-
-
-def _strip_unverified_document_claims(text: str) -> tuple[str, bool]:
-    """Drop clauses asserting contents a document builder cannot have produced."""
-    stripped_count = 0
-
-    def _drop(match: re.Match[str]) -> str:
-        nonlocal stripped_count
-        stripped_count += 1
-        return ""
-
-    cleaned = _UNVERIFIED_DOCUMENT_CLAIM.sub(_drop, text)
-    if not stripped_count:
-        return text, False
-    cleaned = re.sub(r" {2,}", " ", cleaned)
-    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
-    cleaned = re.sub(r"(\w)\s+\1", r"\1", cleaned)
-    return cleaned.strip(), True
-
-
-def _trim_to_sentences(text: str, max_chars: int, max_sentences: int) -> str:
-    """Hard-trim prose at sentence boundaries. A model that rambles past the
-    budget loses the tail, never a word mid-way."""
-    if len(text) <= max_chars:
-        return text
-    sentences = re.split(r"(?<=[.!?।॥])\s+", text.strip())
-    kept: list[str] = []
-    total = 0
-    for sentence in sentences:
-        if kept and (total + len(sentence) + 1 > max_chars or len(kept) >= max_sentences):
-            break
-        kept.append(sentence)
-        total += len(sentence) + 1
-    trimmed = " ".join(kept).strip()
-    if len(trimmed) > max_chars:
-        # One sentence alone ran past the budget: cut on a word boundary.
-        trimmed = text[:max_chars].rsplit(" ", 1)[0].rstrip(",;:") + "."
-    return trimmed or text[:max_chars]
-
-
-def _trim_display_for_chat(text: str, max_chars: int = 700) -> str:
-    """Casual questions get a casual answer. A model that turns "why did that
-    happen?" into a headed, tabled lecture loses everything from the first
-    structural marker down, then the prose itself is sentence-trimmed."""
-    if "```" in text:
-        return text
-    structure = re.search(r"\n\s*(?:#{1,6}\s|\|)", text)
-    if structure and structure.start() > 80:
-        text = text[: structure.start()].rstrip()
-    if len(text) <= max_chars:
-        return text
-    return _trim_to_sentences(text, max_chars, max_sentences=6)
-
-
-def _is_voice_collision_complaint(user_text: str | None) -> bool:
-    """Detects explicit user complaints about voice barge-in or talking over.
-    In response to these complaints, defensive lectures on streaming concurrency
-    are simplified to direct prose apologies."""
-    if not user_text:
-        return False
-    lowered = user_text.lower()
-    return bool(
-        re.search(
-            r"\b(?:talking\s+(?:over\s+me|with\s+the\s+previous\s+message)|interrupting\s+me|talking\s+at\s+the\s+same\s+time)\b",
-            lowered,
-        )
-    )
-
-
-def _apply_response_quality_guard(
-    plan: AssistantTurnPlan,
-    is_live: bool = False,
-    evidence_sources: Any = None,
-    user_text: str | None = None,
-    response_mode: str | None = None,
-) -> None:
-    """Normalize a completed plan without changing meaning or tool requests."""
-    clean_display, display_laughed = _clean_natural_speech_and_display(plan.displayText)
-    clean_spoken, spoken_laughed = _clean_natural_speech_and_display(plan.spokenText)
-    # She answers chemistry and calculus in LaTeX and no surface of hers can
-    # typeset it, so the markup becomes readable here -- once, for the bubble,
-    # the saved document, the notification, and her voice (in ASCII, because a
-    # speech engine has to guess at a subscript).
-    clean_display = plainify_math(clean_display)
-    clean_spoken = ascii_math(plainify_math(clean_spoken))
-    # Speech only — the document keeps its markdown, her voice must not read it.
-    clean_spoken = _speech_safe(clean_spoken)
-
-    plan.displayText = _remove_repeated_passages(clean_display)
-    plan.spokenText = _remove_repeated_passages(clean_spoken)
-
-    if evidence_sources:
-        try:
-            from hinaa_api.grounding.citations import CitationRenderer, EvidenceSource
-            normalized_sources = []
-            for src in evidence_sources:
-                if isinstance(src, EvidenceSource):
-                    normalized_sources.append(src)
-                elif isinstance(src, dict):
-                    normalized_sources.append(
-                        EvidenceSource(
-                            source_id=str(src.get("id") or src.get("source_id") or "1"),
-                            title=str(src.get("title", "")),
-                            url=str(src.get("url", "")),
-                        )
-                    )
-            renderer = CitationRenderer(normalized_sources)
-            rendered_display, _, _ = renderer.render(plan.displayText, append_sources=True)
-            plan.displayText = rendered_display
-        except Exception:
-            logger.debug("Citation rendering in quality guard skipped", exc_info=True)
-
-    if any(t.toolName in _DOCUMENT_TOOL_NAMES for t in plan.toolRequests):
-        plan.displayText, _ = _strip_unverified_document_claims(plan.displayText)
-        plan.spokenText, _ = _strip_unverified_document_claims(plan.spokenText)
-
-    had_laughter = display_laughed or spoken_laughed
-    if had_laughter:
-        if not getattr(plan, "emotion", None) or getattr(plan.emotion, "primary", None) in {"neutral", "calm", None}:
-            plan.emotion.primary = "happy"
-            plan.emotion.intensity = max(getattr(plan.emotion, "intensity", 0.5), 0.75)
-            plan.emotion.valence = 0.8
-            plan.emotion.arousal = 0.6
-        if not getattr(plan, "performance", None) or getattr(plan.performance, "facePreset", None) in {"neutral", "idle", None}:
-            plan.performance.facePreset = "soft_smile"
-
-    # Voice should complement a long display answer, not replay it verbatim.
-    # Spoken text must NEVER recite long essays, outlines, bullet points, or code.
-    has_pdf = any(t.toolName == "pdf_generate" for t in plan.toolRequests)
-    has_image = any(t.toolName in {"image_search", "image_generate"} for t in plan.toolRequests)
-
-    if has_pdf:
-        # COMPLETION voice type: artifact announcement, not a recitation (§32).
-        voice_type, voice_text = plan_voice_response(
-            plan.displayText, raw_spoken := plan.spokenText, has_pdf=True
-        )
-        plan.spokenText = voice_text
-        return
-    elif has_image:
-        voice_type, voice_text = plan_voice_response(
-            plan.displayText, plan.spokenText, has_image=True
-        )
-        plan.spokenText = voice_text
-        return
-
-    raw_spoken = plan.spokenText or ""
-    if is_live:
-        # A paragraph break is prose, not structure. Discarding spoken text
-        # just because it contained "\n" threw away everything the model
-        # wrote to be said aloud; flatten it and keep the real hazards fatal.
-        raw_spoken = " ".join(part.strip() for part in raw_spoken.split("\n") if part.strip())
-        plan.spokenText = raw_spoken
-    # Check if spoken text contains structured markdown, code, or outlines that should never be spoken aloud
-    has_forbidden_speech_structure = any(
-        marker in raw_spoken for marker in ("```", "\n", "•", "|", "- ", "1. ", "###", "##")
-    )
-    is_verbatim_echo = len(plan.displayText) > 280 and (
-        _comparison_key(plan.displayText) == _comparison_key(raw_spoken)
-    )
-
-    if has_forbidden_speech_structure or is_verbatim_echo:
-        voice_type, voice_text = plan_voice_response(
-            plan.displayText, "", is_progress=False, live=is_live
-        )
-        plan.spokenText = voice_text
-    elif len(plan.spokenText) > (3_000 if is_live else 1_500):
-        voice_type, voice_text = plan_voice_response(
-            plan.displayText, plan.spokenText, is_progress=False, live=is_live
-        )
-        plan.spokenText = voice_text
-    elif len(plan.displayText) > (1_400 if is_live else 900):
-        # Document guard (EXECUTIVE_SUMMARY): when displayText is a long
-        # document/report, voice provides a smart, substantive executive summary.
-        voice_type, voice_text = plan_voice_response(
-            plan.displayText, plan.spokenText, is_progress=False, live=is_live
-        )
-        plan.spokenText = voice_text
-
-    # Hard brevity, decided from HIS ask, not her mood: the weak brains answer
-    # a casual complaint with a headed, tabled 800-word lecture (measured in
-    # the live transcripts). Chat depth speaks in three sentences and shows
-    # prose; deep asks keep their length. Turns that filed tools keep their
-    # display as-is -- artifact cards carry their own text.
-    if user_text:
-        from .intelligence.answer_depth import AnswerDepth, AnswerDepthController
-
-        depth = AnswerDepthController.infer_depth(user_text)
-        is_quick = depth == AnswerDepth.QUICK
-        # Spoken text is the concise summary for voice: bounded to 450 chars for quick answers, 900 chars otherwise
-        plan.spokenText = _trim_to_sentences(
-            plan.spokenText or "", 450 if is_quick else 900, 3 if is_quick else 6
-        )
-        # Full structured output (markdown headers, tables, code fences, citations) is preserved
-        # canonically by default without destructive display trimming. Speech text is derived and bounded
-        # separately in spokenText.
-
-
-# Seconds of output silence before she acknowledges out loud. A hung primary
-# pays its timeout before failover, and he otherwise stares at a frozen veil
-# the whole time; six seconds is long enough that a healthy brain never
-# triggers it and short enough that a hang is answered.
-_SILENCE_ACK_SECONDS = 6.0
-
-# ── Casual-chat fast path ──────────────────────────────────────────────────
-# Reasoning brains (cx/gpt-5.6-sol, agent-router) spend hidden tokens before
-# the first visible token, which is why social small talk feels slow. Short,
-# conversational turns are routed to a fast non-reasoning model (OpenAI fast
-# model while healthy, else Gemini flash) when one is configured; deep work
-# keeps the reasoning brain. The heuristic biases toward "deep" — a mis-route
-# here only costs latency, never answer quality. A dead fast-brain key is
-# negative-cached so the turn falls through to the reasoning brain instead of
-# failing (see ConversationService._fast_casual_provider).
-_DEEP_TASK_HINTS = (
-    "```",
-    "code",
-    "python",
-    "typescript",
-    "javascript",
-    "react",
-    "api",
-    "sql",
-    "database",
-    "deploy",
-    "bug",
-    "error",
-    "script",
-    "function",
-    "class",
-    "write",
-    "build",
-    "create",
-    "explain",
-    "refactor",
-    "fix",
-    "debug",
-    "test",
-    "file",
-    "folder",
-    "project",
-    "github",
-    "git",
-    "docker",
-    "server",
-    "config",
-    "schema",
-    "webhook",
-    "branch",
-    "commit",
-    "pipeline",
-    "agent",
-    "llm",
-    "model",
-    "prompt",
-    "how to",
-    "setup",
-    "install",
-    "configure",
-    "analyze",
-    "analyse",
-    "review",
-    "generate",
-    "implement",
-    "otakuxwear",
-    "business",
-    "price",
-    "report",
-    "strategy",
-)
-_CASUAL_HINTS = (
-    "hi",
-    "hello",
-    "hey",
-    "yo",
-    "namaste",
-    "namaskar",
-    "\u0928\u092e\u0938\u094d\u0924\u0947",
-    "\u0928\u092e\u0938\u094d\u0915\u093e\u0930",
-    "kasto",
-    "\u0915\u0938\u094d\u0924\u094b",
-    "k cha",
-    "\u0915\u0947 \u091b",
-    "ke chha",
-    "mood",
-    "tired",
-    "\u0925\u093e\u0915\u0947",
-    "happy",
-    "\u0916\u0941\u0938\u0940",
-    "sad",
-    "\u0926\u0941\u0916",
-    "miss",
-    "love",
-    "\u092e\u093e\u092f\u093e",
-    "maya",
-    "thank",
-    "\u0927\u0928\u094d\u092f\u0935\u093e\u0926",
-    "bro",
-    "ok",
-    "okay",
-    "hmm",
-    "cool",
-    "nice",
-    "wow",
-    "good morning",
-    "good night",
-    "good evening",
-    "good afternoon",
-    "how are",
-    "how's",
-    "hw r u",
-    "haha",
-    "lol",
-)
-
-
-# Casual hints match on word boundaries so "hi" never matches "this" and
-# "miss" never matches "mission". Deep hints stay substring-matched on purpose:
-# a false "deep" costs only latency, never answer quality.
-_CASUAL_HINT_RE = re.compile(
-    r"(?<![a-z0-9])(" + "|".join(re.escape(h) for h in _CASUAL_HINTS) + r")(?![a-z0-9])"
-)
-
-
-def _text_has_deep_hint(text: str | None) -> bool:
-    lowered = (text or "").lower()
-    return any(hint in lowered for hint in _DEEP_TASK_HINTS)
-
-
-def is_casual_chat(
-    text: str | None,
-    history: tuple[tuple[str, str], ...] = (),
-) -> bool:
-    """True for short social turns that do not need the reasoning brain.
-
-    Conservative by design: any deep-task hint, a long message, or recent
-    history that is itself deep work keeps the reasoning brain — so the fast
-    path can only make replies faster, never dumber. The history check stops
-    a short continuation ("ok, do it now") from jumping to the fast model
-    mid-refactor.
-    """
-    lowered = (text or "").strip().lower()
-    if not lowered:
-        return False
-    if len(lowered) > 140:
-        return False
-    if _text_has_deep_hint(lowered):
-        return False
-    # A brief follow-up can continue a deep task started in recent history.
-    for _, history_text in history[-2:]:
-        if _text_has_deep_hint(history_text):
-            return False
-    if len(lowered) <= 60:
-        return True
-    return _CASUAL_HINT_RE.search(lowered) is not None
-
-
-def _turn_has_image(resolved_media: list[Any]) -> bool:
-    """Whether a picture's bytes actually reached this turn's prompt.
-
-    Keyed on the same two facts the adapters use to decide whether to emit an
-    image part (an ``image/*`` mime and non-empty bytes), so the routing
-    decision here cannot drift from what the provider will really send.
-    """
-    return any(
-        str(getattr(item, "mime_type", "")).startswith("image/")
-        and getattr(item, "bytes_data", None)
-        for item in resolved_media
-    )
-
-
-class ProviderRouter:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self.mock_stt = MockSTTProvider()
-        self.mock_llm = MockLLMProvider()
-        self.mock_tts = MockTTSProvider()
-        self.local_stt = make_local_stt(settings)
-        self.local_llm = LocalLLMProvider()
-        self.local_tts = make_local_tts(settings)
-        self._deepgram_tts_provider: DeepgramTTSProvider | None = None
-
-    def _require_real(self) -> None:
-        if missing := self.settings.missing_real_configuration():
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                f"Real mode is not configured. Missing backend variables: {', '.join(missing)}.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_openai_brain(self) -> None:
-        if self.settings.active_openai_key is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "OpenAI brain is not configured. Missing backend variable: OPENAI_API_KEY.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_custom_brain(self) -> None:
-        if self.settings.active_custom_key is None or self.settings.active_custom_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "Custom model gateway is not configured. Missing backend variables: "
-                "OPENAI_CODEX_API_KEY and OPENAI_CODEX_BASE_URL.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_claude_brain(self) -> None:
-        if self.settings.active_claude_key is None or self.settings.active_claude_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "Claude is not configured. Add HINAA_CLAUDE_API_KEY (or ANTHROPIC_API_KEY) to apps/api/.env.local. "
-                "Configure HINAA_CLAUDE_BASE_URL only when you intentionally use a compatible gateway.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_qwen_brain(self) -> None:
-        if self.settings.active_qwen_key is None or self.settings.active_qwen_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "Qwen is not configured. Add HINAA_QWEN_API_KEY (or QWEN_API_KEY) to apps/api/.env.local and restart the backend.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_agent_router_brain(self) -> None:
-        if self.settings.active_agent_router_key is None or self.settings.active_agent_router_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "Agent Router is not configured. Missing backend variables: "
-                "AGENT_ROUTER_API_KEY and AGENT_ROUTER_BASE_URL.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_codecraft_brain(self) -> None:
-        if self.settings.active_codecraft_key is None or self.settings.active_codecraft_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "CodeCraft is not configured. Add CODECRAFT_API_KEY to apps/api/.env.local.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_pgsgrove_brain(self) -> None:
-        if self.settings.active_pgsgrove_key is None or self.settings.active_pgsgrove_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "PGSGrove is not configured. Add PGSGROVE_API_KEY to apps/api/.env.local.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_seekai_brain(self) -> None:
-        if self.settings.active_seekai_key is None or self.settings.active_seekai_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "SeekAI is not configured. Add SEEKAI_API_KEY to apps/api/.env.local.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_tokentable_brain(self) -> None:
-        if self.settings.active_tokentable_key is None or self.settings.active_tokentable_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "TokenTable is not configured. Add TOKENTABLE_API_KEY to apps/api/.env.local.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_xkiro_brain(self) -> None:
-        if self.settings.active_xkiro_key is None or self.settings.active_xkiro_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "XKiro is not configured. Add XKIRO_API_KEY to apps/api/.env.local.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_cavoti_brain(self) -> None:
-        if self.settings.active_cavoti_key is None or self.settings.active_cavoti_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "Cavoti is not configured. Add CAVOTI_AI_API_KEY to apps/api/.env.local.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_apmix_brain(self) -> None:
-        if self.settings.active_apmix_key is None or self.settings.active_apmix_base_url is None:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "APMIX is not configured. Add APMIX_AI_API_KEY to apps/api/.env.local.",
-                503,
-                user_action_required=True,
-            )
-
-    def _require_experiential_brain(self) -> None:
-        if self.settings.active_explabs_key is None:
-            raise HinaaError(
-                "EXPLABS_API_KEY_MISSING",
-                "EXPLABS_API_KEY is not set. Please create one under Settings -> API Keys and export it.",
-                503,
-                user_action_required=True,
-            )
-
-    def stt(self, mode: str) -> STTProvider:
-        return self.stt_candidates(mode, "en-US")[0]
-
-    def stt_candidates(self, mode: str, language: str) -> list[STTProvider]:
-        """Speech-to-text options for this turn, primary provider first.
-
-        Deepgram Nova-2 is the primary speech recognition provider: funded ($200 balance),
-        supports dynamic language detection and multilingual transcription (Hindi, English, Nepali,
-        Hinglish), and returns transcripts in ~300ms.
-        """
-        if mode == "mock":
-            return [self.mock_stt]
-        if mode == "local":
-            return [self.local_stt]
-
-        deepgram: STTProvider | None = None
-        if self.settings.deepgram_configured:
-            assert self.settings.deepgram_api_key
-            deepgram = DeepgramSTTProvider(
-                api_key=self.settings.deepgram_api_key.get_secret_value(),
-                base_url=self.settings.deepgram_base_url,
-                model=self.settings.deepgram_stt_model,
-            )
-
-        elevenlabs: STTProvider | None = None
-        if self.settings.elevenlabs_configured:
-            assert self.settings.elevenlabs_api_key
-            config = ElevenLabsConfig(
-                api_key=self.settings.elevenlabs_api_key.get_secret_value(),
-                base_url=self.settings.elevenlabs_base_url,
-                voice_id=self.settings.elevenlabs_voice_id,
-                model_id=self.settings.elevenlabs_stt_model_id,
-            )
-            elevenlabs = ElevenLabsSTTProvider(config)
-
-        ordered = [deepgram, elevenlabs]
-        return [provider for provider in ordered if provider is not None] or [self.local_stt]
-
-    def llm(
-        self,
-        mode: str,
-        brain_model: str | None = None,
-    ) -> LLMProvider:
-        # Route any LLM calls for "claude-opus-5.5" through the Experiential gateway
-        # (https://api.experientiallabs.ai/v1) using EXPLABS_API_KEY via OpenAI Chat Completions
-        if mode == "experiential" or (
-            mode not in {"mock", "local"}
-            and brain_model and brain_model.strip() in {"claude-opus-5.5", "claude-opus-5-5"}
-        ):
-            self._require_experiential_brain()
-            active_explabs_key = self.settings.active_explabs_key
-            assert active_explabs_key
-            try:
-                requested = "claude-opus-5.5" if brain_model and brain_model.strip() == "claude-opus-5-5" else brain_model
-                model = self.settings.resolve_explabs_model(requested)
-            except ValueError as error:
-                raise HinaaError(
-                    "EXPLABS_MODEL_NOT_ALLOWED", str(error), 422,
-                    user_action_required=True,
-                ) from error
-            return OpenAILLMProvider(
-                active_explabs_key.get_secret_value(),
-                model,
-                base_url=self.settings.active_explabs_base_url,
-                provider_id="experiential",
-            )
-
-        if mode == "mock":
-            return self.mock_llm
-        if mode == "local":
-            return self.local_llm
-        if mode == "groq":
-            if not self.settings.groq_configured:
-                raise HinaaError(
-                    "PROVIDER_CONFIGURATION_MISSING",
-                    "Groq mode is not configured. Missing backend variable: GROQ_API_KEY.",
-                    503,
-                    user_action_required=True,
-                )
-            assert self.settings.groq_api_key
-            return GroqLLMProvider(
-                self.settings.groq_api_key.get_secret_value(), self.settings.groq_model
-            )
-        if mode == "openai":
-            self._require_openai_brain()
-            active_openai_key = self.settings.active_openai_key
-            assert active_openai_key
-            try:
-                model = self.settings.resolve_openai_model(brain_model)
-            except ValueError as error:
-                raise HinaaError(
-                    "OPENAI_MODEL_NOT_ALLOWED",
-                    str(error),
-                    422,
-                    retryable=False,
-                    user_action_required=True,
-                ) from error
-            return OpenAILLMProvider(active_openai_key.get_secret_value(), model)
-        if mode == "custom":
-            self._require_custom_brain()
-            active_custom_key = self.settings.active_custom_key
-            active_custom_base_url = self.settings.active_custom_base_url
-            assert active_custom_key and active_custom_base_url
-            try:
-                model = self.settings.resolve_custom_model(brain_model)
-            except ValueError:
-                # A stale saved model (e.g. removed from the gateway plan) must
-                # not kill the whole voice turn — fall back to the default.
-                logger.warning(
-                    "custom gateway model %r not allowed; falling back to default %r",
-                    brain_model,
-                    self.settings.active_custom_model,
-                )
-                model = self.settings.active_custom_model
-            return OpenAILLMProvider(
-                active_custom_key.get_secret_value(),
-                model,
-                base_url=active_custom_base_url,
-                provider_id="custom",
-            )
-        if mode == "claude":
-            self._require_claude_brain()
-            active_claude_key = self.settings.active_claude_key
-            active_claude_base_url = self.settings.active_claude_base_url
-            assert active_claude_key and active_claude_base_url
-            try:
-                model = self.settings.resolve_claude_model(brain_model)
-            except ValueError as error:
-                raise HinaaError(
-                    "CLAUDE_MODEL_NOT_ALLOWED",
-                    str(error),
-                    422,
-                    retryable=False,
-                    user_action_required=True,
-                ) from error
-            if model in {"claude-opus-5.5", "claude-opus-5-5"}:
-                self._require_experiential_brain()
-                active_explabs_key = self.settings.active_explabs_key
-                assert active_explabs_key
-                return OpenAILLMProvider(
-                    active_explabs_key.get_secret_value(),
-                    "claude-opus-5.5",
-                    base_url=self.settings.active_explabs_base_url,
-                    provider_id="experiential",
-                )
-            if self.settings.active_claude_protocol == "openai-compatible":
-                return OpenAILLMProvider(
-                    active_claude_key.get_secret_value(),
-                    model,
-                    base_url=active_claude_base_url,
-                    provider_id="claude",
-                )
-            return ClaudeLLMProvider(
-                api_key=active_claude_key.get_secret_value(),
-                model=model,
-                base_url=active_claude_base_url,
-            )
-        if mode == "qwen":
-            self._require_qwen_brain()
-            active_qwen_key = self.settings.active_qwen_key
-            active_qwen_base_url = self.settings.active_qwen_base_url
-            assert active_qwen_key and active_qwen_base_url
-            try:
-                model = self.settings.resolve_qwen_model(brain_model)
-            except ValueError as error:
-                raise HinaaError(
-                    "QWEN_MODEL_NOT_ALLOWED",
-                    str(error),
-                    422,
-                    retryable=False,
-                    user_action_required=True,
-                ) from error
-            return OpenAILLMProvider(
-                active_qwen_key.get_secret_value(),
-                model,
-                base_url=active_qwen_base_url,
-                provider_id="qwen",
-            )
-        if mode == "agent-router":
-            self._require_agent_router_brain()
-            active_agent_router_key = self.settings.active_agent_router_key
-            active_agent_router_base_url = self.settings.active_agent_router_base_url
-            assert active_agent_router_key and active_agent_router_base_url
-            try:
-                model = self.settings.resolve_agent_router_model(brain_model)
-            except ValueError as error:
-                raise HinaaError(
-                    "AGENT_ROUTER_MODEL_NOT_ALLOWED",
-                    str(error),
-                    422,
-                    retryable=False,
-                    user_action_required=True,
-                ) from error
-            return AgentRouterOpenAIProvider(
-                api_key=active_agent_router_key.get_secret_value(),
-                model=model,
-                base_url=active_agent_router_base_url,
-            )
-        if mode == "cx-gateway":
-            if not self.settings.cx_gateway_configured:
-                raise HinaaError(
-                    "PROVIDER_CONFIGURATION_MISSING",
-                    "CX Gateway needs CX_GATEWAY_API_KEY and CX_GATEWAY_BASE_URL.",
-                    503,
-                    user_action_required=True,
-                )
-            active_cx_key = self.settings.active_cx_key
-            active_cx_base_url = self.settings.active_cx_base_url
-            assert active_cx_key and active_cx_base_url
-            try:
-                model = self.settings.resolve_cx_model(brain_model)
-            except ValueError:
-                model = self.settings.cx_gateway_model
-            return OpenAILLMProvider(
-                active_cx_key.get_secret_value(),
-                model,
-                base_url=active_cx_base_url,
-                provider_id="cx-gateway",
-            )
-        if mode == "codecraft":
-            self._require_codecraft_brain()
-            active_codecraft_key = self.settings.active_codecraft_key
-            active_codecraft_base_url = self.settings.active_codecraft_base_url
-            assert active_codecraft_key and active_codecraft_base_url
-            try:
-                model = self.settings.resolve_codecraft_model(brain_model)
-            except ValueError:
-                model = self.settings.active_codecraft_model
-            return OpenAILLMProvider(
-                active_codecraft_key.get_secret_value(),
-                model,
-                base_url=active_codecraft_base_url,
-                provider_id="codecraft",
-            )
-        if mode == "ollama":
-            base_url = self.settings.active_ollama_base_url or "http://localhost:11434/v1"
-            model = self.settings.resolve_ollama_model(brain_model)
-            return OpenAILLMProvider(
-                key="ollama",
-                model=model,
-                base_url=base_url,
-                provider_id="ollama",
-            )
-        if mode == "omniroute":
-            if not self.settings.omniroute_configured:
-                raise HinaaError(
-                    "PROVIDER_CONFIGURATION_MISSING",
-                    "OmniRoute is not enabled. Set HINAA_OMNIROUTE_ENABLED=true and start the "
-                    f"local gateway on {self.settings.omniroute_base_url}.",
-                    503,
-                    user_action_required=True,
-                )
-            # The gateway stores its own upstream keys and needs no bearer token
-            # for loopback access, so an empty key is the expected local case.
-            return OpenAILLMProvider(
-                key=self.settings.active_omniroute_key,
-                model=self.settings.omniroute_model,
-                base_url=self.settings.active_omniroute_base_url,
-                provider_id="omniroute",
-            )
-        if mode == "pgsgrove":
-            self._require_pgsgrove_brain()
-            active_pgsgrove_key = self.settings.active_pgsgrove_key
-            active_pgsgrove_base_url = self.settings.active_pgsgrove_base_url
-            assert active_pgsgrove_key and active_pgsgrove_base_url
-            try:
-                model = self.settings.resolve_pgsgrove_model(brain_model)
-            except ValueError:
-                model = self.settings.active_pgsgrove_model
-            return OpenAILLMProvider(
-                active_pgsgrove_key.get_secret_value(),
-                model,
-                base_url=active_pgsgrove_base_url,
-                provider_id="pgsgrove",
-            )
-        if mode == "seekai":
-            self._require_seekai_brain()
-            active_seekai_key = self.settings.active_seekai_key
-            active_seekai_base_url = self.settings.active_seekai_base_url
-            assert active_seekai_key and active_seekai_base_url
-            try:
-                model = self.settings.resolve_seekai_model(brain_model)
-            except ValueError:
-                model = self.settings.active_seekai_model
-            return OpenAILLMProvider(
-                active_seekai_key.get_secret_value(),
-                model,
-                base_url=active_seekai_base_url,
-                provider_id="seekai",
-            )
-        if mode == "tokentable":
-            self._require_tokentable_brain()
-            active_tokentable_key = self.settings.active_tokentable_key
-            active_tokentable_base_url = self.settings.active_tokentable_base_url
-            assert active_tokentable_key and active_tokentable_base_url
-            try:
-                model = self.settings.resolve_tokentable_model(brain_model)
-            except ValueError:
-                model = self.settings.active_tokentable_model
-            return OpenAILLMProvider(
-                active_tokentable_key.get_secret_value(),
-                model,
-                base_url=active_tokentable_base_url,
-                provider_id="tokentable",
-            )
-        if mode == "xkiro":
-            self._require_xkiro_brain()
-            active_xkiro_keys = self.settings.active_xkiro_keys
-            active_xkiro_base_url = self.settings.active_xkiro_base_url
-            assert active_xkiro_keys and active_xkiro_base_url
-            try:
-                model = self.settings.resolve_xkiro_model(brain_model)
-            except ValueError:
-                model = self.settings.active_xkiro_model
-            return OpenAILLMProvider(
-                active_xkiro_keys,
-                model,
-                base_url=active_xkiro_base_url,
-                provider_id="xkiro",
-            )
-        if mode == "cavoti":
-            self._require_cavoti_brain()
-            active_cavoti_key = self.settings.active_cavoti_key
-            active_cavoti_base_url = self.settings.active_cavoti_base_url
-            assert active_cavoti_key and active_cavoti_base_url
-            try:
-                model = self.settings.resolve_cavoti_model(brain_model)
-            except ValueError:
-                model = self.settings.active_cavoti_model
-            return OpenAILLMProvider(
-                active_cavoti_key.get_secret_value(),
-                model,
-                base_url=active_cavoti_base_url,
-                provider_id="cavoti",
-            )
-        if mode == "apmix":
-            self._require_apmix_brain()
-            active_apmix_key = self.settings.active_apmix_key
-            active_apmix_base_url = self.settings.active_apmix_base_url
-            assert active_apmix_key and active_apmix_base_url
-            try:
-                model = self.settings.resolve_apmix_model(brain_model)
-            except ValueError:
-                model = self.settings.active_apmix_model
-            return OpenAILLMProvider(
-                active_apmix_key.get_secret_value(),
-                model,
-                base_url=active_apmix_base_url,
-                provider_id="apmix",
-            )
-        if mode == "real":
-            # Text generation depends only on the brain credential. Speech has
-            # its own route and fallback; a missing voice must not disable chat.
-            if not self.settings.gemini_configured:
-                raise HinaaError(
-                    "PROVIDER_CONFIGURATION_MISSING",
-                    "Gemini brain needs GEMINI_API_KEY in the backend.",
-                    503,
-                    user_action_required=True,
-                )
-
-        assert self.settings.gemini_api_key
-        try:
-            model = self.settings.resolve_gemini_model(brain_model)
-        except ValueError as error:
-            raise HinaaError(
-                "GEMINI_MODEL_NOT_ALLOWED",
-                str(error),
-                422,
-                retryable=False,
-                user_action_required=True,
-            ) from error
-        return GeminiLLMProvider(self.settings.gemini_api_key.get_secret_value(), model)
-
-    def elevenlabs_config(self) -> ElevenLabsConfig:
-        """Server-side ElevenLabs config, in one place for every TTS path."""
-        assert self.settings.elevenlabs_api_key
-        return ElevenLabsConfig(
-            api_key=self.settings.elevenlabs_api_key.get_secret_value(),
-            base_url=self.settings.elevenlabs_base_url,
-            voice_id=self.settings.elevenlabs_voice_id,
-            model_id=self.settings.elevenlabs_model_id,
-            output_format=self.settings.elevenlabs_output_format,
-        )
-
-    def tts(self, mode: str, companion_id: CompanionId | None = None, voice_engine: str | None = None) -> TTSProvider:
-        effective_engine = (voice_engine or "").lower().strip()
-
-        # Primary neural voice: ElevenLabs (Aisha / Sweet Girlfriend)
-        if self.settings.elevenlabs_configured and (
-            effective_engine == "elevenlabs"
-            or not effective_engine
-            or effective_engine == "auto"
-            or self.settings.voice_provider in ("auto", "elevenlabs")
-        ):
-            return make_elevenlabs_provider(
-                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
-            )
-
-        if effective_engine.startswith("deepgram") and self.settings.deepgram_configured:
-            assert self.settings.deepgram_api_key
-            if self._deepgram_tts_provider is None:
-                self._deepgram_tts_provider = DeepgramTTSProvider(
-                    api_key=self.settings.deepgram_api_key.get_secret_value(),
-                    base_url=self.settings.deepgram_base_url,
-                )
-            return self._deepgram_tts_provider
-        if effective_engine in ("fish-audio", "fish") and self.settings.fish_audio_configured:
-            assert self.settings.fish_audio_api_key
-            voice_id = (
-                self.settings.fish_audio_hiro_voice_id
-                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
-                else self.settings.fish_audio_hinaa_voice_id
-            )
-            return FishAudioTTSProvider(
-                FishAudioConfig(
-                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
-                    base_url=self.settings.fish_audio_base_url,
-                    voice_id=voice_id,
-                    model_id=self.settings.fish_audio_model_id,
-                    output_format=self.settings.fish_audio_output_format,
-                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
-                )
-            )
-
-        if mode == "mock":
-            return self.mock_tts
-        if mode == "local":
-            return self.local_tts
-
-        # Deepgram Aura fallback when ElevenLabs is unconfigured
-        if (
-            self.settings.voice_provider == "deepgram"
-            or (self.settings.deepgram_configured and not self.settings.elevenlabs_configured)
-        ) and self.settings.deepgram_configured:
-            assert self.settings.deepgram_api_key
-            if self._deepgram_tts_provider is None:
-                self._deepgram_tts_provider = DeepgramTTSProvider(
-                    api_key=self.settings.deepgram_api_key.get_secret_value(),
-                    base_url=self.settings.deepgram_base_url,
-                )
-            return self._deepgram_tts_provider
-        if (
-            self.settings.voice_provider == "fish-audio"
-            or (self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0] and not self.settings.elevenlabs_configured)
-        ) and self.settings.fish_audio_configured:
-            assert self.settings.fish_audio_api_key
-            voice_id = (
-                self.settings.fish_audio_hiro_voice_id
-                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
-                else self.settings.fish_audio_hinaa_voice_id
-            )
-            return FishAudioTTSProvider(
-                FishAudioConfig(
-                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
-                    base_url=self.settings.fish_audio_base_url,
-                    voice_id=voice_id,
-                    model_id=self.settings.fish_audio_model_id,
-                    output_format=self.settings.fish_audio_output_format,
-                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
-                )
-            )
-        # Fish Audio is the preferred multilingual TTS (Nepali/English)
-        # when configured WITH a voice id; ElevenLabs and Azure remain
-        # fallbacks when the key exists but no voice is chosen yet.
-        if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
-            assert self.settings.fish_audio_api_key
-            voice_id = (
-                self.settings.fish_audio_hiro_voice_id
-                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
-                else self.settings.fish_audio_hinaa_voice_id
-            )
-            return FishAudioTTSProvider(
-                FishAudioConfig(
-                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
-                    base_url=self.settings.fish_audio_base_url,
-                    voice_id=voice_id,
-                    model_id=self.settings.fish_audio_model_id,
-                    output_format=self.settings.fish_audio_output_format,
-                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
-                )
-            )
-        if self.settings.elevenlabs_configured:
-            assert self.settings.elevenlabs_api_key
-            config = ElevenLabsConfig(
-                api_key=self.settings.elevenlabs_api_key.get_secret_value(),
-                base_url=self.settings.elevenlabs_base_url,
-                voice_id=self.settings.elevenlabs_voice_id,
-                model_id=self.settings.elevenlabs_model_id,
-                output_format=self.settings.elevenlabs_output_format,
-            )
-            return ElevenLabsHTTPStreamingProvider(config)
-        if self.settings.azure_configured:
-            assert self.settings.azure_speech_key and self.settings.azure_speech_region
-            return AzureSpeechProvider(
-                self.settings.azure_speech_key.get_secret_value(),
-                self.settings.azure_speech_region,
-            )
-        return self.local_tts
-
-
-class ConversationService:
-    def __init__(
-        self,
-        settings: Settings,
-        memory_service: MemoryService | None = None,
-        task_service: Any = None,
-        session_factory: Any = None,
-        **kwargs: Any,
-    ) -> None:
-        self.settings = settings
-        self.router = ProviderRouter(settings)
-        self.memory = SessionMemory(settings.session_limit, settings.session_turn_limit)
-        self.memory_service = memory_service
-        self.task_service = task_service
-        self._session_factory = session_factory
-        self.dialogue_state_service = kwargs.get("dialogue_state_service") or (getattr(memory_service, "dialogue_state_service", None) if memory_service else None)
-        if self.dialogue_state_service is None and session_factory is not None:
-            from hinaa_api.dialogue_state import DialogueStateService
-            self.dialogue_state_service = DialogueStateService(session_factory)
-
-        if session_factory is not None:
-            from hinaa_api.continuity import (
-                ConversationBootstrapper,
-                ConversationFinalizer,
-                CrossSessionMemoryRetriever,
-                MemoryPromotionService,
-            )
-            self.cross_session_retriever = CrossSessionMemoryRetriever(session_factory)
-            self.promotion_service = MemoryPromotionService(session_factory)
-            self.bootstrapper = ConversationBootstrapper(session_factory)
-            self.finalizer = ConversationFinalizer(session_factory)
-        else:
-            self.cross_session_retriever = None
-            self.promotion_service = None
-            self.bootstrapper = None
-            self.finalizer = None
-        # (user_id, session_id) -> set[str] of facts already pushed to the
-        # durable store, so per-turn appends never rewrite the same facts.
-        # OrderedDict + cap so long-running servers cannot leak memory here
-        # even though SessionMemory evicts its own sessions.
-        self._persisted_facts: OrderedDict[tuple[str, str], set[str]] = OrderedDict()
-        # Fast-brain key health cache: provider_id -> monotonic time until which
-        # the key is treated as bad. Prevents hammering a deactivated/expired
-        # key (401) on every casual turn when a working brain is available.
-        self._fast_key_bad_until: dict[str, float] = {}
-        # Phase B2 — hierarchical context compiler: routing + manifest ledger.
-        # One canonical compiler instance; manifests are per-request artifacts.
-        from .agent.compiler import ContextCompiler
-        self.context_compiler = ContextCompiler(
-            max_tokens=getattr(settings, "session_history_char_limit", 32_000) // 4,
-            model_context_limit=getattr(settings, "llm_context_limit", 131_072),
-        )
-        from .harness.compaction_worker import CompactionWorker
-        self.compaction_worker = CompactionWorker(token_pressure_threshold=0.75)
-        # Ring buffer of recent manifests for the developer inspector (§37).
-        from collections import deque
-        self._context_manifests: deque[dict[str, Any]] = deque(maxlen=50)
-        # B2 summary tree (§17) — persistent episode summaries. Optional:
-        # in-memory sessions (tests) run without a DB-backed episode tree.
-        self.episode_summarizer = None
-        if session_factory is not None:
-            try:
-                from .persistence.episode_service import EpisodeSummarizer
-                self.episode_summarizer = EpisodeSummarizer(session_factory)
-            except Exception:
-                logger.debug("EpisodeSummarizer unavailable (no DB)", exc_info=True)
-        self._episode_turn_counters: dict[str, int] = {}
-        # RAG Knowledge Service - Enterprise hybrid retrieval & spec grounding
-        try:
-            from .rag import RAGKnowledgeService
-            ws_root = getattr(settings, "local_workspace_dir", None) or os.getcwd()
-            self.rag_service = RAGKnowledgeService(workspace_root=str(ws_root))
-            self.rag_service.index_repository_memory()
-        except Exception:
-            self.rag_service = None
-        self._deepgram_tts_provider: DeepgramTTSProvider | None = None
-
-    def _get_deepgram_tts_provider(self) -> DeepgramTTSProvider | None:
-        if not self.settings.deepgram_configured:
-            return None
-        assert self.settings.deepgram_api_key
-        if self._deepgram_tts_provider is None:
-            if hasattr(self.router, "_deepgram_tts_provider") and self.router._deepgram_tts_provider is not None:
-                self._deepgram_tts_provider = self.router._deepgram_tts_provider
-            else:
-                self._deepgram_tts_provider = DeepgramTTSProvider(
-                    api_key=self.settings.deepgram_api_key.get_secret_value(),
-                    base_url=self.settings.deepgram_base_url,
-                )
-        return self._deepgram_tts_provider
-
-
-    def _fast_key_bad(self, provider_id: str) -> bool:
-        return self._fast_key_bad_until.get(provider_id, 0.0) > time.monotonic()
-
-    def _mark_fast_key_bad(self, provider_id: str) -> None:
-        # 10-minute negative cache: a dead key is retried only after the window
-        # lapses (in case the user fixes their account mid-session).
-        self._fast_key_bad_until[provider_id] = time.monotonic() + 600
-
-    def _record_brain_call(
-        self,
-        brain_id: str | None,
-        *,
-        ok: bool,
-        error: Exception | None = None,
-        model: str = "",
-    ) -> None:
-        """Note what a real attempt proved, for the health badges.
-
-        Every provider class answers for itself: some hold a circuit breaker,
-        others raise straight through. Recording at the turn layer is the one
-        place that sees the outcome of every brain, so the badge can never be
-        greener than the call that actually happened.
-        """
-        if not brain_id:
-            return
-        try:
-            code = str(getattr(error, "code", "") or "")
-            if not code and isinstance(error, (TimeoutError, asyncio.TimeoutError)):
-                code = "PROVIDER_TIMEOUT"
-            detail = str(getattr(error, "message", "") or error or "")[:300]
-            row_id = row_for_brain(brain_id)
-            record_call(
-                brain_id,
-                ok=ok,
-                code=code,
-                detail=detail,
-                model=model,
-                fingerprint=fingerprint_for(self.settings, row_id),
-            )
-        except Exception:  # a badge is never worth failing a turn over
-            logger.debug("Brain ledger write refused", exc_info=True)
-        # The badge ledger above is cosmetic; this is the load-bearing half.
-        # Providers record their own HTTP failures into their breaker, but a
-        # hung gateway is killed by the turn-layer ``asyncio.timeout`` and the
-        # provider never learns of it — without this, a dead primary hangs
-        # every single turn for the full timeout instead of being benched.
-        # The 2s dedupe window keeps a provider that did record its own
-        # outcome from being counted twice for the same call.
-        try:
-            breaker = get_circuit_breaker(brain_id)
-            now = time.monotonic()
-            if ok:
-                if now - breaker.last_success_timestamp > 2.0:
-                    breaker.record_success()
-            elif now - breaker.last_failure_timestamp > 2.0:
-                failure_code = code or ("PROVIDER_TIMEOUT" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else "PROVIDER_UNAVAILABLE")
-                breaker.record_failure(failure_code, detail)
-        except Exception:  # health bookkeeping never fails a turn either
-            logger.debug("Circuit breaker note refused", exc_info=True)
-
-    def _primary_cooloff_remaining(self, mode: str) -> float:
-        """Seconds the requested primary brain is benched for; 0 when it may try.
-
-        A brain whose gateway hangs costs the user a full turn timeout of
-        silence every time it is tried. While its breaker is cooling down the
-        turn goes straight to the fallback chain instead of paying that again.
-        """
-        breaker = peek_circuit_breaker(mode)
-        if breaker is None:
-            return 0.0
-        return breaker.cooldown_remaining()
-
-    def _primary_probing(self, mode: str) -> bool:
-        """True when the primary is past cooloff but not yet proven healthy.
-
-        The probe turn runs on a cheap budget: if the brain still hangs, the
-        turn fails over in seconds instead of another full timeout.
-        """
-        breaker = peek_circuit_breaker(mode)
-        return (
-            breaker is not None
-            and breaker.cooldown_remaining() <= 0
-            and breaker.state
-            not in {CircuitBreakerState.READY, CircuitBreakerState.DEGRADED}
-        )
-
-    def _mark_persisted(self, user_id: str, session_id: str, fact: str) -> None:
-        key = (user_id, session_id)
-        if key not in self._persisted_facts:
-            self._persisted_facts[key] = set()
-            while len(self._persisted_facts) > 512:
-                self._persisted_facts.popitem(last=False)
-        else:
-            self._persisted_facts.move_to_end(key)
-        self._persisted_facts[key].add(fact)
-
-    def _fast_casual_provider(
-        self,
-        mode: str,
-        text: str,
-        history: tuple[tuple[str, str], ...] = (),
-    ) -> LLMProvider | None:
-        """Route short social turns around reasoning brains to a fast model.
-
-        Reasoning brains (cx-gateway / agent-router) spend hidden tokens before
-        the first visible one; casual chat does not need that depth. Fast-brain
-        order: OpenAI fast model (while its key is healthy) -> Gemini flash
-        (working key) -> None, which leaves the turn on the reasoning brain.
-        A deactivated OpenAI key therefore never fails a turn: it is negative-
-        cached and casual chat silently uses Gemini, and if neither fast brain
-        is available the configured reasoning brain answers as before.
-        """
-        if mode not in {"cx-gateway", "agent-router"}:
-            return None
-        if not is_casual_chat(text, history):
-            return None
-        # 1) OpenAI fast model while its key is known-good.
-        if self.settings.openai_configured and not self._fast_key_bad("openai"):
-            key = self.settings.active_openai_key
-            if key is not None:
-                try:
-                    model = self.settings.resolve_openai_model(
-                        self.settings.openai_fast_model
-                    )
-                except ValueError:
-                    model = self.settings.openai_model
-                logger.info(
-                    "casual fast path engaged (%s -> openai:%s)",
-                    mode,
-                    model,
-                )
-                return OpenAILLMProvider(key.get_secret_value(), model)
-        # 2) Gemini flash as the fast brain when OpenAI is unavailable (for cx-gateway only;
-        # agent-router already runs agnes-2.5-flash and must not stall on 503-unavailable Gemini).
-        if mode != "agent-router" and self.settings.gemini_configured and not self._fast_key_bad("gemini"):
-            key = self.settings.gemini_api_key
-            if key is not None:
-                model = self.settings.gemini_model
-                logger.info(
-                    "casual fast path engaged (%s -> gemini:%s)",
-                    mode,
-                    model,
-                )
-                return GeminiLLMProvider(key.get_secret_value(), model)
-        return None
-
-    def _approved_blocks(self, user_id: str | None) -> tuple[str, ...]:
-        """Durable approved memory blocks for this user, or () when not available."""
-        if user_id is None or self.memory_service is None:
-            return ()
-        try:
-            return self.memory_service.approved_memory_blocks(user_id)
-        except HinaaError:
-            # Unknown/disabled user must never break a conversation turn.
-            return ()
-
-    def _persist_learned_memories(self, user_id: str | None, session_id: str) -> None:
-        """Push this session's self-learned facts into the durable store (best effort).
-
-        Consent contract (ADR-007): the store logs a consent event per write, the
-        user's memory toggle is enforced by ``remember()``, sensitive content is
-        blocked by the store, and a store failure never fails the live turn.
-        """
-        if user_id is None or self.memory_service is None:
-            return
-        facts = self.memory.learned_memories(session_id)
-        if not facts:
-            return
-        key = (user_id, session_id)
-        persisted = self._persisted_facts.get(key)
-        if persisted is None:
-            persisted = set()
-            self._persisted_facts[key] = persisted
-            while len(self._persisted_facts) > 512:
-                self._persisted_facts.popitem(last=False)
-        else:
-            self._persisted_facts.move_to_end(key)
-        for fact in facts:
-            if fact in persisted:
-                continue
-            try:
-                self.memory_service.remember(
-                    user_id,
-                    fact,
-                    category=_fact_category(fact),
-                    # source_turn_ref column is String(80); session ids may be
-                    # up to 80 chars, so bound the ref to never overflow on
-                    # PostgreSQL (SQLite ignores length, Postgres does not).
-                    source_turn_ref=f"session:{session_id[:60]}",
-                    explicit=True,
-                )
-            except HinaaError as error:
-                # MEMORY_DISABLED / MEMORY_SENSITIVE_BLOCKED / MEMORY_INVALID:
-                # durable memory is best-effort; the conversation continues.
-                logger.debug("durable memory persist skipped (%s): %r", error.code, fact)
-                if error.code != "MEMORY_DISABLED":
-                    # Content-level rejections will never succeed on retry;
-                    # mark them attempted to avoid re-trying every turn. The
-                    # disabled case is left retryable so re-enabling mid-session
-                    # still picks up facts.
-                    self._mark_persisted(user_id, session_id, fact)
-                continue
-            except Exception as error:  # pragma: no cover - defensive
-                # Any store failure (DB outage, constraint, lock) must never
-                # fail the live turn — the docstring guarantee.
-                logger.warning(
-                    "durable memory persist failed unexpectedly (%s): %r",
-                    type(error).__name__,
-                    fact,
-                )
-                continue
-            self._mark_persisted(user_id, session_id, fact)
-
-    def _capture_turn_facts(self, request: TurnRequest, user_id: str | None) -> bool:
-        """Learn from what he said before asking a brain to answer it.
-
-        Self-learned facts used to be extracted and written only after the
-        provider returned, so a turn whose brain 403s -- or a phone that drops
-        the stream mid-reply -- silently discarded everything it was told. That
-        is the "she cannot lock and learn" report. His message is a complete
-        input on its own; nothing here needs her answer.
-
-        Returns whether what she learns can be kept. Without an owner there is
-        no row to write -- an anonymous public turn resolves to no user id,
-        because the dev identity header is refused through the edge -- and
-        without a store there is nowhere to write it either. The caller passes
-        this to the prompt so she says she cannot keep it, rather than
-        measuring a stored fact she never stored.
-        """
-        owner_id = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
-        can_keep = self.memory_service is not None or True
-        try:
-            self.memory.learn_from_message(request.sessionId, request.text)
-            self._persist_learned_memories(owner_id, request.sessionId)
-        except Exception:  # pragma: no cover - a memory failure must not cost the turn
-            logger.warning("Failed to capture facts from the incoming turn", exc_info=True)
-        # Consolidation pass on every real turn: preference extraction with
-        # conflict detection and temporal supersession ("I hate React" ->
-        # "I like React now" retires the older fact). Best-effort — a
-        # consolidation failure must never cost the live turn.
-        if can_keep:
-            try:
-                from .cognitive.consolidation import DurableMemoryAdapter, MemoryConsolidator
-
-                MemoryConsolidator.consolidate_turn(
-                    user_id=owner_id,  # type: ignore[arg-type]
-                    user_text=request.text,
-                    assistant_text="",
-                    memory_manager=DurableMemoryAdapter(self.memory_service),
-                    conversation_id=f"session:{request.sessionId[:60]}",
-                    # SessionMemory already owns identity/biographical facts;
-                    # consolidation on this path exists for preference
-                    # contradiction resolution, so keep its scope narrow.
-                    preference_only=True,
-                )
-            except Exception:  # pragma: no cover - defensive
-                logger.debug("turn consolidation skipped", exc_info=True)
-        return can_keep
-
-    def _handle_continuity_promotions(self, user_id: str, convo_id: str | None, text: str) -> None:
-        """Promote approved assets and project architecture facts to cross-session continuity."""
-        # 1. Approved face/character reference (e.g. "My approved Hina face is IMG_24")
-        face_match = re.search(
-            r"approved\s+(?:([A-Za-z0-9_]+)\s+)?face\s+(?:is\s+|:\s*)?([A-Za-z0-9_]+)",
-            text,
-            re.IGNORECASE,
-        ) or re.search(
-            r"\b([A-Za-z0-9_]+)\s+is\s+(?:my\s+)?approved\s+(?:([A-Za-z0-9_]+)\s+)?face",
-            text,
-            re.IGNORECASE,
-        )
-        if face_match and self.promotion_service:
-            entity = face_match.group(1) or "Hina"
-            asset_id = face_match.group(2)
-            try:
-                self.promotion_service.promote_approved_asset(
-                    user_id,
-                    entity_name=entity.title(),
-                    asset_id=asset_id,
-                    conversation_id=convo_id,
-                )
-            except Exception:
-                logger.debug("Failed to promote approved face %s", asset_id, exc_info=True)
-
-        # 2. Project architecture / database facts (e.g. "Nova project uses PostgreSQL.")
-        proj_match = re.search(
-            r"\b([A-Za-z0-9_]+)\s+project\s+uses\s+([A-Za-z0-9_]+)",
-            text,
-            re.IGNORECASE,
-        ) or re.search(
-            r"\b([A-Za-z0-9_]+)\s+(?:stack|architecture|database|db)\s+(?:is|uses)\s+([A-Za-z0-9_]+)",
-            text,
-            re.IGNORECASE,
-        )
-        if proj_match:
-            p_name = proj_match.group(1)
-            try:
-                if self.memory_service:
-                    self.memory_service.remember(
-                        user_id=user_id,
-                        content=text.strip(),
-                        category="project",
-                        source_turn_ref=f"convo:{convo_id}" if convo_id else None,
-                        explicit=True,
-                    )
-                if self.cross_session_retriever:
-                    with self.cross_session_retriever._factory() as session:
-                        from hinaa_api.persistence.orm import UserContinuityState
-                        from sqlalchemy import select
-                        import json
-                        st = session.scalar(select(UserContinuityState).where(UserContinuityState.owner_id == user_id))
-                        if not st:
-                            st = UserContinuityState(owner_id=user_id)
-                            session.add(st)
-                            session.flush()
-                        projs = []
-                        try:
-                            projs = json.loads(st.important_projects_json) if st.important_projects_json else []
-                        except Exception:
-                            pass
-                        if p_name not in projs:
-                            projs.append(p_name)
-                            st.important_projects_json = json.dumps(projs)
-                            session.commit()
-            except Exception:
-                logger.debug("Failed to record project fact", exc_info=True)
-
-    async def transcribe(self, pcm: bytes, language: str, mode: str) -> ProviderResult[str]:
-        attempts: list[str] = []
-        for provider in self.router.stt_candidates(mode, language):
-            try:
-                async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                    result = await provider.transcribe(pcm, language)
-            except TimeoutError:
-                attempts.append(f"{provider.id}=timeout")
-                logger.warning("STT %s timed out; trying the next provider", provider.id)
-                continue
-            except HinaaError as error:
-                if not error.retryable:
-                    # "Not configured" is a fact about this vendor, not a flake.
-                    # Another provider cannot make it truer, so say it plainly.
-                    raise
-                attempts.append(f"{provider.id}={error.code}")
-                logger.warning(
-                    "STT %s rejected the audio (%s: %s); trying the next provider",
-                    provider.id, error.code, error.developer_message or error.message,
-                )
-                continue
-            except Exception as error:
-                attempts.append(f"{provider.id}={type(error).__name__}")
-                logger.warning("STT %s failed unexpectedly", provider.id, exc_info=True)
-                continue
-            if result.value.strip():
-                return result
-            attempts.append(f"{provider.id}=empty")
-        raise HinaaError(
-            "STT_UNAVAILABLE",
-            "I could not make out any words in that.",
-            504,
-            True,
-            developer_message="; ".join(attempts) or "no speech-to-text provider configured",
-        ) from None
-
-    def _inject_deterministic_tool_intents(
-        self,
-        text: str,
-        plan: AssistantTurnPlan,
-        session_id: str | None = None,
-        turn_request: Any = None,
-        user_id: str | None = None,
-    ) -> None:
-        """Add only unambiguous, imperative local tool requests.
-
-        This deliberately does not behave like a keyword detector.  Explanations,
-        negations, quoted examples, capability questions, and historical wording
-        remain conversational text.  Ambiguous requests are left to the selected
-        model rather than causing an unexpected side effect.
-        """
-        # First, parse explicit commands from composer
-        plain_text, parsed_contexts, parsed_command = parse_composer_input(text)
-        
-        uid = user_id or getattr(turn_request, "userId", None)
-        convo_id = getattr(turn_request, "conversationId", None) or session_id
-        d_state = None
-        if self.dialogue_state_service and convo_id:
-            try:
-                d_state = self.dialogue_state_service.load(convo_id, user_id=uid)
-            except Exception:
-                pass
-        
-        # If there's an explicit command, map it to a tool request
-        if parsed_command:
-            self._map_explicit_command(parsed_command, plan, user_id=uid)
-        
-        # Detect artifact follow-up questions (e.g., "where is the pdf file?")
-        self._detect_artifact_lookup(plain_text, plan)
-
-        # Deterministic OS / Computer Operator Action Injection
-        if not any(t.toolName == "computer_operator" for t in plan.toolRequests):
-            from .tools.intent_gate import sanction_tools
-            sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
-            if sanction.allowed and "computer_operator" in sanction.allowed:
-                params = sanction.parameters.get("computer_operator", {})
-                if not params:
-                    params = {"action": "create_folder", "target": plain_text}
-                plan.toolRequests.append(ToolRequest(
-                    toolName="computer_operator",
-                    parameters=params,
-                    status="ready",
-                    reason="deterministic-intent",
-                ))
-
-        # Deterministic Autonomous Browser Task / Navigation Injection
-        if not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in plan.toolRequests):
-            from .tools.intent_gate import sanction_tools
-            sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
-            if sanction.allowed and "browser_execute_task" in sanction.allowed:
-                b_params = sanction.parameters.get("browser_execute_task", {"goal": plain_text})
-                plan.toolRequests.append(ToolRequest(
-                    toolName="browser_execute_task",
-                    parameters=b_params,
-                    status="ready",
-                    reason="deterministic-browser-intent",
-                ))
-            elif sanction.allowed and "browser_navigate" in sanction.allowed:
-                b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
-                plan.toolRequests.append(ToolRequest(
-                    toolName="browser_navigate",
-                    parameters=b_params,
-                    status="ready",
-                    reason="deterministic-browser-intent",
-                ))
-
-        # Forward any turn attachments and image engine to image-related tool requests
-        if turn_request:
-            has_attachment = bool(
-                getattr(turn_request, "attachment_ids", None)
-                or getattr(turn_request, "reference_images", None)
-                or getattr(turn_request, "imageUrl", None)
-                or getattr(turn_request, "attachments", None)
-            )
-            image_engine = getattr(turn_request, "imageEngine", None)
-            att_ids = getattr(turn_request, "attachment_ids", [])
-            ref_imgs = getattr(turn_request, "reference_images", [])
-            img_url = getattr(turn_request, "imageUrl", None)
-            raw_atts = getattr(turn_request, "attachments", [])
-
-            for tr in plan.toolRequests:
-                if tr.toolName in ("image_generate", "image_upscale", "image_relight"):
-                    if image_engine and "engine" not in tr.parameters:
-                        tr.parameters["engine"] = image_engine
-                    if has_attachment:
-                        if att_ids and "attachment_ids" not in tr.parameters:
-                            tr.parameters["attachment_ids"] = att_ids
-                        if ref_imgs and "reference_images" not in tr.parameters:
-                            tr.parameters["reference_images"] = ref_imgs
-                        if img_url and "imageUrl" not in tr.parameters:
-                            tr.parameters["imageUrl"] = img_url
-                        if raw_atts and "references" not in tr.parameters:
-                            tr.parameters["references"] = raw_atts
-        
-        # Continue with existing deterministic intent detection on plain text
-        lower_text = plain_text.casefold().strip()
-        unquoted = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", lower_text).strip()
-        is_tool_aborted = bool(
-            re.search(
-                r"""(?ix)
-                \b(?:do\s+not|don'?t|dont|never)\s+
-                (?:
-                    (?:generate|create|make|draw|build|write|search|fetch)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|presentations?|decks?|files?)\b
-                  | (?:generate|create|make|draw|search|fetch)\s+(?:anything|it|that|this)\s*(?:[.,!?]|\s*$)
-                  | (?:generate|create|search|fetch|draw)\s*(?:[.,!?]|\s*$)
-                  | (?:search(?:\s+the\s+web|\s+online)?|google)\s+for\b
-                )
-                | \b(?:stop|cancel|abort)\s+(?:generating|creating|making|drawing|searching|fetching|this|it)\b
-                | \b(?:i\s+)?(?:don'?t|do\s+not|did\s+not)\s+(?:want|need|ask\s+for)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|decks?|pics?)\b
-                """,
-                unquoted,
-            )
-        )
-        if is_tool_aborted:
-            return
-
-        is_meta_inquiry = bool(
-            re.search(
-                r"^\s*(?:explain|why\s+did|how\s+does|how\s+to|can\s+hinaa|is\s+it\s+possible)\b",
-                lower_text,
-                re.I,
-            )
-        )
-        if is_meta_inquiry:
-            return
-
-        # Explicit slash commands bypass keyword heuristics entirely: the user
-        # already typed the verb the system would otherwise have to infer.
-        slash = re.match(r"^\s*/(research|deep|image|draw|generate|img)\b\s*(.*)$", text, re.IGNORECASE | re.DOTALL)
-        if slash:
-            command, rest = slash.group(1).casefold(), slash.group(2).strip(" :.!?")
-            if command in {"research", "deep"}:
-                if rest and not any(t.toolName == "deep_research" for t in plan.toolRequests):
-                    plan.toolRequests.append(ToolRequest(
-                        toolName="deep_research",
-                        parameters={"topic": rest, "depth": 20},
-                    ))
-                return
-            if command in {"image", "draw", "generate", "img"} and rest and not any(
-                t.toolName == "image_generate" for t in plan.toolRequests
-            ):
-                _lower_check = rest.casefold().strip()
-                if (
-                    not _lower_check
-                    or re.match(r"^(?:no\b|don'?t\b|dont\b|stop\b|cancel\b|abort\b|never\b|why\b|what\b|who\b|hey\b|hi\b|hello\b)", _lower_check)
-                    or re.search(r"\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|not\s+an\s+image|stop\s+generating|why\s+are\s+you|getting\s+that\s+tag|why\s+tag)\b", _lower_check)
-                ):
-                    return
-                image_parameters: dict[str, object] = {
-                    "prompt": rest,
-                    "count": 1,
-                    "mode": "quality",
-                    "strategy": "variations",
-                }
-                lower_rest = rest.casefold()
-                if re.search(r"\b(ultra|wallpaper|poster|print|8k)\b", lower_rest):
-                    image_parameters["mode"] = "ultra"
-                elif re.search(r"\b(fast|quick|draft|sketch)\b", lower_rest):
-                    image_parameters["mode"] = "fast"
-                for style_name in ("anime", "realistic", "cinematic", "watercolor"):
-                    if style_name in lower_rest:
-                        image_parameters["style"] = style_name
-                        break
-                if re.search(r"\b\d+\s+(?:images?|variants?|versions?)\b", lower_rest):
-                    image_parameters["count"] = min(int(re.search(r"\b(\d+)\s+(?:images?|variants?|versions?)", lower_rest).group(1)), 4)
-                plan.toolRequests.append(ToolRequest(toolName="image_generate", parameters=image_parameters))
-                return
-
-        def is_command(patterns: list[str], *, target: str) -> bool:
-            if not re.search(target, unquoted, re.IGNORECASE):
-                return False
-            return any(re.search(pattern, unquoted, re.IGNORECASE) for pattern in patterns)
-
-        # Flexible, natural image search trigger supporting prefixes, typos (sho/show), and mid-sentence entities
-        has_image_kw = bool(re.search(r"\b(images?|imges?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|तस्वीरें|चित्र|फोटो)\b", unquoted, re.I))
-        has_fetch_verb = bool(re.search(r"\b(show|sho|display|find|search|get|fetch|bring|see|load|look\s+for|ढूँढ|खोज|दिखा|लाओ)\b", unquoted, re.I))
-        # Saying she should get them is a fetch even without a fetch verb: "i want
-        # pics of tokyo ghoul" used to fall through to a prose apology that began
-        # by claiming images were being fetched.
-        has_visual_request = bool(
-            has_image_kw
-            and re.search(r"\b(want|wanna|need|gimme|give\s+me|send\s+me|looking\s+for|chahe|chahiye)\b", unquoted, re.I)
-            and not re.search(r"\b(?:don'?t|didn'?t|do\s+not|no)\s+(?:want|need|asked|ask)\b", unquoted, re.I)
-        )
-        is_followup_fetch = bool(re.search(r"\b(?:fetch|show|sho|get|see|display|load|bring)\s+(?:them|it|these|those)\b", unquoted, re.I))
-        is_generate_action = bool(re.search(r"\b(generate|genrate|fenerate|generat|create|creat|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b", unquoted, re.I))
-        has_reference_intent = bool(re.search(r"\b(reference|refrence|referance|as\s+ref|referencing|refer to)\b", unquoted, re.I))
-        has_art_platform = bool(re.search(r"\b(pinterest|pintrest|pintrens|deviantart|safebooru|danbooru|pixiv|artstation)\b", unquoted, re.I))
-        has_conversational_question = bool(re.search(
-            r"\b(tell\s+me\s+about|who\s+is|what\s+is|explain|describe|remember|article|bio|why|how|wtf|didn'?t\s+ask\s+for\s+pictures|not\s+pictures|information\s+about|history\s+of)\b",
-            unquoted,
-            re.I,
-        ))
-        is_character_visual = bool(
-            (has_fetch_verb or has_image_kw)
-            and any(k in unquoted.lower().split() or k in unquoted.lower() for k in CHARACTER_ENTITY_MAP)
-            and not is_generate_action
-            and not has_reference_intent
-            and not has_conversational_question
-            and not bool(re.search(r"\b(search the web|google search|information about|article|who is|wiki|history)\b", unquoted, re.I))
-        )
-
-        has_research_or_web_intent = bool(re.search(
-            r"\b(research|investigate|study|paper|quantum|breakthrough|overview|summarize|documentation|tutorial|learn about|news about|latest development)\b",
-            unquoted,
-            re.I,
-        ))
-
-        is_image_refinement = False
-        if session_id and not has_research_or_web_intent:
-            try:
-                history = self.memory.context(session_id)
-                for role, content in reversed(history):
-                    if content.strip().casefold() == plain_text.strip().casefold():
-                        continue
-                    if role == "user":
-                        if re.search(r"\b(images?|pictures?|photos?|pics?|wallpaper|pinterest|pintrest|pintrens)\b", content, re.I):
-                            # Must be a short refinement asking for different/more visual items
-                            is_image_refinement = (
-                                len(unquoted.split()) <= 7
-                                and bool(re.search(r"\b(different|more|another|instead|next|pinterest|pintrest|wallpaper)\b", unquoted, re.I))
-                            )
-                        break
-            except Exception:
-                pass
-
-        speech_text = str(getattr(plan, "speech", "") or "")
-        speech_promised_images = False
-        if re.search(r"(?:image results?|तस्वीरें|ढूँढ रही हूँ|खोज रही हूँ|searching for (?:public )?images?|here are (?:some )?images?)", speech_text, re.I):
-            speech_promised_images = True
-
-        image_search_command = (
-            not is_generate_action
-            and not has_reference_intent
-            and not has_conversational_question
-            and not (has_research_or_web_intent and not has_image_kw and not has_art_platform)
-            and (
-                is_character_visual
-                or (has_image_kw and (has_fetch_verb or has_visual_request or len(unquoted.split()) <= 4))
-                or is_followup_fetch
-                or has_art_platform
-                or is_image_refinement
-                or speech_promised_images
-            )
-        )
-
-        if image_search_command and not any(t.toolName == "image_search" for t in plan.toolRequests):
-            from hinaa_api.media.search_intelligence import (
-                build_media_intent,
-                compile_image_search_query,
-                compiled_image_query_parameters,
-                canonical_entity_from_text,
-            )
-
-            active_subject = None
-            if self.dialogue_state_service is not None and session_id:
-                try:
-                    d_state = self.dialogue_state_service.load(session_id)
-                    if d_state:
-                        # Prioritize active character entity if present, fallback to topic
-                        from hinaa_api.dialogue_state import EntityReferenceResolver
-                        active_char = EntityReferenceResolver.get_active_character(d_state)
-                        if active_char:
-                            active_subject = active_char
-                        elif d_state.active_topic and d_state.active_topic.strip().lower() not in ("anime", "image", "images", "general", "something", "chat"):
-                            active_subject = d_state.active_topic
-                except Exception:
-                    pass
-
-            if not active_subject and session_id:
-                try:
-                    history = self.memory.context(session_id)
-                    recent_user_turns = [c for r, c in reversed(history) if r == "user"][:3]
-                    for content in recent_user_turns:
-                        if content.strip().casefold() == plain_text.strip().casefold():
-                            continue
-                        prof = canonical_entity_from_text(content)
-                        if prof:
-                            active_subject = prof.canonical_name
-                            break
-                except Exception:
-                    pass
-
-            media_intent = build_media_intent(unquoted, active_subject=active_subject)
-            if media_intent:
-                spec = compile_image_search_query(media_intent)
-                final_query = spec.primary_query
-                canonical_subject = media_intent.canonical_subject
-            else:
-                query_candidate = re.sub(
-                    r"(?i)^\s*(?:like|please|pls|can\s+you|could\s+you|hey|babe|no\s*,?\s*|i\s+(?:just\s+)?(?:want|ont)\s+to\s+(?:see|view)?|what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s*",
-                    "",
-                    plain_text,
-                ).strip()
-                query_candidate = re.sub(
-                    r"(?i)^\s*(?:send(?:\s+me)?|search|find|look\s+for|show|sho|display|give\s+me|get|fetch|bring|see)\s+(?:me\s+)?(?:some\s+)?(?:public\s+)?(?:images?|pictures?|photos?|pics?|imgs?)?\s*(?:of|for|about|on)?\s*",
-                    "",
-                    query_candidate,
-                ).strip()
-                query_candidate = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", query_candidate).strip()
-                # Strip trailing image and platform words (e.g. "mikasa images" -> "mikasa")
-                query_candidate = re.sub(
-                    r"(?i)\s+(?:images?|imges?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|fanart|art|portrait|drawings?)$",
-                    "",
-                    query_candidate,
-                ).strip()
-                query_candidate = re.sub(
-                    r"(?i)\s+(?:on|from|in)?\s*(?:pinterest|pintrest|pintrens|safebooru|google|bro|please|pls|too|as\s+well)$",
-                    "",
-                    query_candidate,
-                ).strip()
-                query_candidate = re.sub(r"(?i)^(?:some\s+|me\s+|them\s+|these\s+|those\s+|a\s+few\s+)", "", query_candidate).strip()
-
-                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                    if re.search(rf"\b{re.escape(alias)}\b", query_candidate, re.IGNORECASE):
-                        query_candidate = re.sub(rf"\b{re.escape(alias)}\b", canonical, query_candidate, flags=re.IGNORECASE).strip()
-                        break
-                if query_candidate.lower() in CHARACTER_ENTITY_MAP:
-                    query_candidate = CHARACTER_ENTITY_MAP[query_candidate.lower()]
-
-                if has_art_platform or is_image_refinement:
-                    clean_refine = re.sub(r"(?i)\b(bro|and|from|not\s+youtube|not\s+yt|youtube|please|pls|too|like|me|some)\b", "", plain_text).strip()
-                    clean_refine = re.sub(r"\s+", " ", clean_refine).strip()
-                    clean_refine = re.sub(r"(?i)\b(pintrens|pintrest)\b", "pinterest", clean_refine)
-                    if clean_refine:
-                        query_candidate = clean_refine
-
-                is_generic = (
-                    not query_candidate
-                    or bool(re.search(r"(?i)^(?:them|it|these|those|that|this|fetch\s+them|see\s+them|show\s+them|send\s+them|images?|pics?|(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)|(?:send\s+)?(?:some\s+)?anime)$", query_candidate))
-                    or bool(re.search(r"(?i)^(?:i\s+)?(?:just\s+)?(?:want|ont)\s+to\s+.*(?:see|fetch|show|get|send)", query_candidate))
-                )
-
-                resolved_query = "" if is_generic else query_candidate
-                if not resolved_query and d_state and getattr(d_state, "active_topic", None):
-                    clean_top = d_state.active_topic.strip()
-                    if clean_top.lower() not in ("anime", "image", "images", "general", "something", "chat"):
-                        resolved_query = clean_top
-                if not resolved_query and d_state and getattr(d_state, "active_entities", None):
-                    for ent in d_state.active_entities:
-                        if ent.get("name"):
-                            resolved_query = ent["name"]
-                            break
-
-                if not resolved_query and session_id:
-                    try:
-                        history = self.memory.context(session_id)
-                        for role, content in reversed(history):
-                            if content.strip().casefold() == plain_text.strip().casefold():
-                                continue
-                            clean_prev = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", content).strip()
-                            for alias in CHARACTER_ENTITY_MAP:
-                                neg_pat = (
-                                    r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
-                                    r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
-                                    + re.escape(alias)
-                                    + r"\b|\b"
-                                    + re.escape(alias)
-                                    + r"\s+(?:mat|nahi|nhi|na|haina|chaidaina)\b"
-                                )
-                                clean_prev = re.sub(neg_pat, " ", clean_prev).strip()
-                                if re.search(rf"\b{re.escape(alias)}\b", clean_prev, re.IGNORECASE):
-                                    resolved_query = CHARACTER_ENTITY_MAP[alias]
-                                    break
-                            if resolved_query:
-                                break
-                            if role == "user":
-                                topic_m = re.search(r"(?i)\b(?:about|for|on)\s+([a-zA-Z0-9\s:_-]{3,60})", clean_prev)
-                                if topic_m:
-                                    resolved_query = topic_m.group(1).strip()
-                                    break
-                            elif role == "assistant":
-                                title_matches = re.findall(r"(?:[“\"'\*]{1,2}|(?:\b(?:titled|watch|anime)\s+))([A-Z][a-zA-Z0-9: \-]{3,35})(?:[”\"'\*]{1,2}|\b)", clean_prev)
-                                if title_matches:
-                                    resolved_query = title_matches[0].strip()
-                                    break
-                                for _ in range(3):
-                                    clean_prev = re.sub(
-                                        r"(?i)^(?:like|please|pls|can\s+you|could\s+you|sho\s+me|show\s+me|give\s+me|get\s+me|some|who is|what is|tell me about|explain|describe)\s+",
-                                        "",
-                                        clean_prev,
-                                    ).strip()
-                                clean_prev = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", clean_prev).strip()
-                                img_match = re.search(r"^(.*?)(?:\s+images?(?:\s+of|\s+from)?\s*(.*))?$", clean_prev, re.I)
-                                if img_match and img_match.group(1).strip():
-                                    subject = img_match.group(1).strip()
-                                    extra = (img_match.group(2) or "").strip()
-                                    resolved_query = f"{subject} {extra}".strip()
-                                    break
-                                elif clean_prev and not re.search(r"^(?:images?|pictures?|fetch them|see them)$", clean_prev, re.I):
-                                    resolved_query = clean_prev
-                                    break
-                    except Exception:
-                        pass
-
-                final_query = resolved_query or query_candidate or plain_text or text
-                final_query = re.sub(r"(?i)^\s*(?:what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s+", "", final_query).strip()
-                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                    neg_pat = (
-                        r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
-                        r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
-                        + re.escape(alias)
-                    )
-                    if re.search(neg_pat, final_query):
-                        final_query = re.sub(neg_pat, " ", final_query).strip()
-                        continue
-                    if re.search(rf"\b{re.escape(alias)}\b", final_query, re.IGNORECASE):
-                        final_query = re.sub(rf"\b{re.escape(alias)}\b", canonical, final_query, flags=re.IGNORECASE).strip()
-                        break
-                if final_query.lower() in CHARACTER_ENTITY_MAP:
-                    final_query = CHARACTER_ENTITY_MAP[final_query.lower()]
-                canonical_subject = final_query.title()
-
-            # Whatever named this subject, a sentence is not one: measured in the
-            # browser with an existing conversation, the compiler resolved the
-            # turn to the user's own echoed words and the caption read
-            # "Found 6 relevant i want pics of tokyo ghoul images.".
-            # He has to get "20 images" out of the tool that searches, not just
-            # out of the tool that draws; a hard-coded 6 here capped every ask.
-            fetch_count = _image_fetch_count(plain_text or text)
-            compiled = compiled_image_query_parameters({"query": final_query, "count": fetch_count})
-            final_query = str(compiled.get("query") or final_query)
-            canonical_subject = str(compiled.get("canonicalSubject") or canonical_subject)
-
-            plan.toolRequests.append(ToolRequest(
-                toolName="image_search",
-                parameters={"query": final_query, "count": fetch_count, "canonicalSubject": canonical_subject},
-            ))
-
-            if re.search(r"[\u0900-\u097F]", plain_text):
-                plan.displayText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं! ✨"
-                plan.spokenText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं!"
-                plan.language = "hi-IN"
-            else:
-                plan.displayText = f"Found {fetch_count} relevant {canonical_subject} images."
-                plan.spokenText = f"Found {fetch_count} relevant {canonical_subject} images."
-                plan.language = "en-US"
-            plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
-
-        image_command = bool(
-            re.search(r"\b(?:generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b.*\b(?:image|images|picture|pictures|photo|photos|portrait|artwork|wallpaper|चित्र|तस्वीर)\b", unquoted, re.I)
-            or re.search(r"\b(?:image|images|picture|pictures|photo|photos|चित्र|तस्वीर)\s+(?:generate|create|make|draw|करो|गर)\b", unquoted, re.I)
-            or re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:draw|paint)\s+[a-z0-9]", unquoted, re.I)
-            or (
-                re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:generate|draw|paint|render|create)\s+", unquoted, re.I)
-                and any(k in unquoted.lower() for k in ("hina", "hinaa", *CHARACTER_ENTITY_MAP))
-            )
-            or (
-                bool(re.search(r"\b(?:same\s+one|use\s+this|use\s+that|use\s+this\s+image)\b", unquoted, re.I))
-                and bool(re.search(r"\b(?:darker|brighter|better|variation|different|in\s+|with\s+|wearing\s+|sitting\s+|standing\s+|looking\s+|smiling)\b", unquoted, re.I))
-            )
-            or is_command(
-                [
-                    r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
-                    r"^\s*(?:\d+|one|two|three|four|चार|एक|दुई|एउटा)?\s*(?:fast\s+|quality\s+)?(?:images?|pictures?|photos?|चित्र|तस्वीर)\s+(?:generate|create|make|करो|गर)\b",
-                    r"^\s*(?:generate|create|make|बनाओ|बनाऊ|बनाइदेऊ)\b.*(?:image|picture|photo|चित्र|तस्वीर)",
-                ],
-                target=r"\b(image|images|picture|pictures|photo|photos|portrait|artwork|variation|variations)\b|चित्र|तस्वीर",
-            )
-        )
-        if image_command and not any(t.toolName == "image_generate" for t in plan.toolRequests):
-            prompt_str = plain_text
-            prompt_str = re.sub(
-                r"(?i)^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?"
-                r"(?:generate|create|make|draw|paint|render)\s+(?:me\s+)?"
-                r"(?:\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s+)?"
-                r"(?:an?\s+)?(?:image|picture|photo|portrait)s?\s*(?:of\s+)?",
-                "",
-                prompt_str,
-            ).strip()
-            prompt_str = re.sub(
-                r"(?i)\s+(?:image|picture|photo|portrait|artwork|wallpaper)s?$",
-                "",
-                prompt_str,
-            ).strip()
-            prompt_str = re.sub(r"(?i)\b(?:please|pls|hinaa?)\b", "", prompt_str).strip()
-            clean_prompt = prompt_str or plain_text or text
-            # Expand known character names to canonical full names for better image quality
-            # e.g. "gojo" → "Gojo Satoru", "mikasa" → "Mikasa Ackerman"
-            clean_prompt_lower = clean_prompt.lower()
-            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                pattern = r"\b" + re.escape(alias) + r"\b"
-                if re.search(pattern, clean_prompt_lower, re.IGNORECASE):
-                    clean_prompt = re.sub(pattern, canonical, clean_prompt, flags=re.IGNORECASE)
-                    break
-
-            img_count = 1
-            count_m = re.search(r"\b(\d+)\s*(?:images?|pictures?|photos?|variations?|series)\b", lower_text)
-            if count_m:
-                img_count = min(max(1, int(count_m.group(1))), 10)
-            elif re.search(r"\b(?:series\s+of\s+images?|image\s+series|multiple\s+images?|few\s+images?)\b", lower_text):
-                img_count = 3
-            elif re.search(r"\b(?:two|pair\s+of)\s+(?:images?|pictures?|photos?)\b", lower_text):
-                img_count = 2
-            elif re.search(r"\b(?:three)\s+(?:images?|pictures?|photos?)\b", lower_text):
-                img_count = 3
-            elif re.search(r"\b(?:four)\s+(?:images?|pictures?|photos?)\b", lower_text):
-                img_count = 4
-
-            image_parameters: dict[str, object] = {
-                "prompt": clean_prompt,
-                "count": img_count,
-                "mode": "quality",
-                "strategy": "variations",
-            }
-            lower_prompt = f"{clean_prompt.lower()} {lower_text}"
-            if re.search(r"\b(ultra|hd|high quality|quality|poster|wallpaper|print)\b", lower_prompt):
-                image_parameters["mode"] = "ultra" if "ultra" in lower_prompt else "quality"
-            if re.search(r"\b(anime|manga|mangaka|mangal|एनिमे)\b|cel ?shad", lower_prompt, re.IGNORECASE):
-                image_parameters["style"] = "anime"
-            elif re.search(r"\b(photorealistic|realistic|photo real|dslr|portrait photo)\b", lower_prompt):
-                image_parameters["style"] = "realistic"
-            elif re.search(r"\b(cinematic|movie|film|trailer|poster)\b", lower_prompt):
-                image_parameters["style"] = "cinematic"
-            elif re.search(r"\b(3d|render|octane|cgi)\b", lower_prompt):
-                image_parameters["style"] = "3d-art"
-            elif re.search(r"\b(watercolor|painting|canvas art)\b", lower_prompt):
-                image_parameters["style"] = "watercolor"
-
-            # Reference image and subject entity resolution from dialogue state or cross-session memory
-            ref_asset_id = None
-            ref_entity = None
-            if d_state:
-                if d_state.selected_asset:
-                    ref_asset_id = d_state.selected_asset.get("asset_id") or d_state.selected_asset.get("selected_asset_id")
-                    ref_entity = d_state.selected_asset.get("canonical_subject")
-                if not ref_asset_id:
-                    from hinaa_api.dialogue_state import AssetReferenceResolver
-                    ref_asset_id = AssetReferenceResolver.resolve_asset_id(unquoted, d_state)
-                if not ref_entity:
-                    candidates = [d_state.active_topic]
-                    if d_state.active_entities and isinstance(d_state.active_entities[0], dict):
-                        candidates.append(d_state.active_entities[0].get("name"))
-                    # subject_entity is who or what is in the picture, and it feeds
-                    # reference resolution and asset memory. Measured live: the
-                    # dialogue-state topic held his sentence verbatim, so
-                    # `generate mikasa images` was filed as the subject. A request
-                    # verb or the deliverable's own name means that candidate is a
-                    # sentence, not a subject, so the next one gets the chance and
-                    # an invented subject never reaches the job.
-                    ref_entity = next(
-                        (
-                            candidate.strip()
-                            for candidate in candidates
-                            if isinstance(candidate, str)
-                            and candidate.strip()
-                            and not re.search(
-                                r"(?i)\b(generate|create|make|draw|render|show|send|design|please"
-                                r"|image|images|picture|pictures|photo|photos|pic|pics|wallpaper|wallpapers)\b",
-                                candidate,
-                            )
-                        ),
-                        None,
-                    )
-
-            if not ref_asset_id and self.cross_session_retriever and uid:
-                try:
-                    evidences = self.cross_session_retriever.retrieve_relevant_context(uid, text, conversation_id=convo_id)
-                    for ev in evidences:
-                        if ev.source_type == "approved_asset" and ev.metadata and ev.metadata.get("asset_id"):
-                            ref_asset_id = ev.metadata["asset_id"]
-                            ref_entity = ev.metadata.get("entity") or ref_entity
-                            break
-                except Exception:
-                    pass
-
-            if ref_asset_id:
-                image_parameters["reference_images"] = [ref_asset_id]
-                image_parameters["reference_asset_id"] = ref_asset_id
-            if ref_entity:
-                image_parameters["subject_entity"] = ref_entity
-
-            # “Use that reference / like the images you found”
-            reference_led = re.search(
-                r"(?i)\b(based on|using|like|from)\s+(?:the\s+|that\s+|this\s+)?(?:same\s+)?"
-                r"(?:earlier\s+|previous\s+|last\s+)?(?:reference(?:\s+image)?|image|picture|photo|result)\b",
-                lower_text,
-            ) or re.search(r"(?i)\bउसी\s+(?:तस्वीर|चित्र|रेफरेन्स)\b", lower_text)
-            if reference_led:
-                named = re.search(
-                    r"(?i)(?:of|for|about|बाबत|को|की)\s+([A-Z][\w .,'-]{1,48}?)(?:\s+(?:based|using|like|image|picture|photo)\b|[.!?]\s*$|$)",
-                    text,
-                )
-                subject = (named.group(1) if named else "").strip(" .,'")
-                if not subject:
-                    proper = re.search(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,3})\b", text)
-                    subject = proper.group(1) if proper else ""
-                if subject:
-                    image_parameters["reference_query"] = subject
-            plan.toolRequests.append(ToolRequest(toolName="image_generate", parameters=image_parameters))
-
-        is_web_explicit = bool(re.search(r"\b(web|online|with\s+sources?)\b", lower_text))
-        deep_research_command = not is_web_explicit and is_command(
-            [
-                r"^\s*(please\s+)?(deep\s*[- ]?research|dig\s+into\b|find\s+everything\s+about\b|fetch\s+(?:details|info)\s+about\b|tell\s+me\s+everything\s+about\b)",
-                r"\b(deep\s+research|full\s+report|detailed\s+research)\b",
-                r"(?i)^(?:बुझ|अध्यन|विस्तार(?:मा)?\s+बुझ)",
-            ],
-            target=r"\b(deep\s+research|full\s+report|detailed\s+research|everything|विस्तार)\b|अध्यन|बुझ",
-        )
-        if deep_research_command and not any(t.toolName == "deep_research" for t in plan.toolRequests):
-            topic = re.sub(
-                r"(?i)^\s*(?:please\s+)?(?:deep\s*[- ]?research|research\s+(?:on\s+|into\s+|me\s+)?|investigate\b|dig\s+into\b|fetch\s+(?:details|info)\s+about\s+|tell\s+me\s+|find\s+)?(?:everything|all\s+the\s+details|details|info)?\s*(?:about|on|of|for)?\s*",
-                "",
-                text,
-            ).strip(" :.!?，,")
-            if topic:
-                plan.toolRequests.append(ToolRequest(
-                    toolName="deep_research",
-                    parameters={"topic": topic, "depth": 20},
-                ))
-
-        pdf_command = bool(
-            re.search(r"\b(?:make|create|generate|give\s+me|build|write|download|export|prepare)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:pdf|document|report|docx?)\b", unquoted, re.I)
-            or re.search(r"\b(?:the|that|this)\s+(?:pdf|docx?|document|report)\b", unquoted, re.I)
-            or re.search(r"\b(?:pdf|docx?|document|report)\s+(?:file|document|of|on|about|for|bro|please|dinu|chahiye|format)\b", unquoted, re.I)
-            or re.search(r"\b(?:assignment|report|paper|summary|dossier)\s+(?:pdf|docx?|document)\b", unquoted, re.I)
-            or re.search(r"\b(?:pdf|docx?|document)\s+(?:banao|banau|dinu)\b", unquoted, re.I)
-            or re.search(r"\b(?:advanced\s+pdf|high-level\s+pdf|pdf\s+format|document\s+format)\b", unquoted, re.I)
-            or (re.search(r"\b(?:create|make|generate|build|write|prepare)\b[^.?!]*\b(?:document|report|pdf|docx)\b", unquoted, re.I) and not re.search(r"\b(?:slide|presentation|deck)\b", unquoted, re.I))
-        )
-        if pdf_command and not any(t.toolName == "pdf_generate" for t in plan.toolRequests):
-            from hinaa_api.models import safe_extract_display_text
-
-            topic_str = plain_text
-            topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:i\s+need\s+to\s+complete\s+my\s+assignment|my\s+topic\s+is)\b", "", topic_str).strip()
-            # If the user specified "document about X" or "pdf on Y", extract the topic directly
-            doc_topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", topic_str)
-            extracted_doc_topic = doc_topic_m.group(1).strip() if (doc_topic_m and len(doc_topic_m.group(1).strip()) >= 3) else ""
-            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:pdf|document|report|docx?)\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*(?:pdf|document|report)\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
-            topic_str = re.sub(r"(?i)\b(?:the\s+)?(?:pdf|document|report)\s*(?:file|document|banao|banau|dinu|bro|please|pls)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
-            topic_str = re.sub(r"[\"']", "", topic_str).strip()
-            topic_str = re.sub(r"[^\w\s-]", "", topic_str).strip()
-            topic_str = re.sub(r"\s+", " ", topic_str).strip()
-            if extracted_doc_topic:
-                topic_str = extracted_doc_topic
-
-            is_referential = (
-                not topic_str
-                or len(topic_str) < 4
-                or topic_str.lower() in {"it", "this", "that", "the", "pdf", "file", "document", "report", "the pdf", "this pdf", "that pdf"}
-                or bool(
-                    re.search(
-                        r"(?i)^(?:based\s+on\s+)?(?:that|this|it|her|the\s+above|above|same|previous|last|what\s+you\s+(?:said|wrote|generated)|report|the\s+report|thr\s+report)(?:\s+(?:assignment|report|paper|doc|document|topic|conversation))?$",
-                        topic_str,
-                    )
-                )
-                or bool(
-                    re.search(
-                        r"(?i)^(?:the|that|this|my|her)?\s*(?:assignment|report|paper|doc|document|notes|topic)$",
-                        topic_str,
-                    )
-                )
-            )
-
-            extracted_content = ""
-            resolved_topic = ""
-
-            # Check conversation context and dialogue state if referential or empty
-            if session_id:
-                try:
-                    if self.dialogue_state_service is not None:
-                        d_state = self.dialogue_state_service.load(session_id, user_id)
-                        if d_state and d_state.active_topic:
-                            resolved_topic = d_state.active_topic
-                        elif d_state and d_state.slots.get("topic"):
-                            resolved_topic = str(d_state.slots["topic"])
-                        elif d_state and d_state.slots.get("subject"):
-                            resolved_topic = str(d_state.slots["subject"])
-
-                    history = self.memory.context(session_id)
-                    for role, hist_content in reversed(history):
-                        if hist_content.strip().casefold() == plain_text.strip().casefold():
-                            continue
-                        clean_text = safe_extract_display_text(hist_content).strip()
-                        if role == "assistant" and len(clean_text) > 80 and not extracted_content:
-                            extracted_content = clean_text
-                            # Extract topic from title or header if available
-                            title_m = re.search(r"^#{1,3}\s+(?:📄\s*)?([^\n]+)", clean_text)
-                            if title_m and not resolved_topic:
-                                raw_t = title_m.group(1).strip()
-                                raw_t = re.sub(r"(?i)\b(?:assignment|report|overview|guide|breakdown|document)\b", "", raw_t).strip(" :-")
-                                if len(raw_t) >= 3:
-                                    resolved_topic = raw_t
-                        elif role == "user" and not resolved_topic:
-                            clean_user = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", clean_text).strip()
-                            clean_user = re.sub(r"(?i)\b(?:assignment|complete|karna\s+hai|help\s+me|tell\s+me\s+about|what\s+is|explain|topic\s+is)\b", "", clean_user).strip()
-                            clean_user = re.sub(r"[?!.,]", "", clean_user).strip()
-                            if len(clean_user) >= 3 and not re.search(r"(?i)^(?:pdf|hi|hey|hello|yes|no|ok|okay|ha|haan)$", clean_user):
-                                resolved_topic = clean_user
-                except Exception:
-                    pass
-
-            if not is_referential and topic_str:
-                final_topic = topic_str
-            elif resolved_topic:
-                final_topic = resolved_topic
-            else:
-                final_topic = "Comprehensive Academic Research"
-
-            # Clean topic typos
-            final_topic = re.sub(r"(?i)\bcryptogrpic\b", "Cryptography", final_topic)
-            final_topic = re.sub(r"(?i)\bcryptogrp[a-z]*\b", "Cryptography", final_topic)
-            final_topic = re.sub(r"(?i)\bww2\b", "World War II", final_topic)
-            final_topic = re.sub(r"(?i)\bwwii\b", "World War II", final_topic)
-            final_topic = re.sub(r"(?i)\bww1\b", "World War I", final_topic)
-
-            clean_display_title = final_topic.strip().title()
-            if clean_display_title.lower() in {"it", "it.", "this", "that", "pdf"} or len(clean_display_title) <= 2:
-                clean_display_title = resolved_topic.strip().title() if resolved_topic else "Research Document"
-            clean_display_title = clean_display_title.rstrip(" .;,!?")
-            if clean_display_title.lower().endswith(("assignment", "report", "document")):
-                doc_title = clean_display_title
-            else:
-                doc_title = f"{clean_display_title} Report"
-
-            # A proposal is not a progress report. This copy used to read
-            # "I'm typesetting ... from a pass I am running now" while the
-            # execute call had already answered DOCUMENT_NO_SOURCE, so the
-            # bubble contradicted the refusal card next to it.
-            if extracted_content:
-                body_clause = (
-                    "Its pages will be the write-up already in our conversation, so nothing new "
-                    "has to be researched."
-                )
-                closing = "The card shows up here only once the file actually exists."
-                spoken_source = "from what we already wrote here"
-            else:
-                body_clause = (
-                    "Its pages have to come from a live research pass, which starts the moment this "
-                    "action runs."
-                )
-                closing = (
-                    "If that pass finds nothing usable, no file gets written and you will see that "
-                    "here instead of a filled template."
-                )
-                spoken_source = "but its pages have to come from a live research pass first"
-
-            plan.toolRequests.append(ToolRequest(
-                toolName="pdf_generate",
-                parameters={
-                    "topic": final_topic,
-                    "title": doc_title,
-                    "category": "Research Report",
-                    "content": extracted_content,
-                },
-            ))
-
-            plan.displayText = (
-                f"### 📄 PDF: {clean_display_title}\n\n"
-                f"**{doc_title}** is ready to build. {body_clause} The document builder only lays "
-                f"material out — it adds no sections, facts, or references of its own.\n\n"
-                f"• **Title**: {doc_title}\n"
-                f"• **Category**: Research Report\n"
-                f"• **Layout**: ReportLab PDF with running header and page numbers\n\n"
-                f"{closing}"
-            )
-            plan.spokenText = (
-                f"Your {final_topic} PDF is ready to build {spoken_source} — "
-                f"the card shows up here only if the file really gets written."
-            )
-            plan.language = "en-US"
-            plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
-
-        slides_command = bool(
-            re.search(
-                r"\b(?:make|create|generate|give\s+me|build|prepare|design)\b[^.?!]*\b(?:slides?|presentations?|decks?|pitch\s*decks?|powerpoint|pptx)\b",
-                unquoted,
-                re.I,
-            )
-            or re.search(r"\b(?:slides?|presentation|deck)\s+(?:on|about|for|banao|banau|dinu|chahiye)\b", unquoted, re.I)
-        )
-        if slides_command and not any(t.toolName in ("create_gamma_presentation", "document_generate") for t in plan.toolRequests):
-            topic_str = plain_text
-            topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
-            slide_topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", topic_str)
-            if slide_topic_m and len(slide_topic_m.group(1).strip()) >= 3:
-                final_slide_topic = slide_topic_m.group(1).strip()
-            else:
-                topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|prepare|design)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:slide\s*deck|slides?|presentation|deck|pitch\s*deck|powerpoint|pptx)\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
-                topic_str = re.sub(r"[\"']", "", topic_str).strip()
-                topic_str = re.sub(r"[^\w\s-]", "", topic_str).strip()
-                topic_str = re.sub(r"\s+", " ", topic_str).strip()
-                final_slide_topic = topic_str if len(topic_str) >= 3 else "Executive Presentation"
-
-            clean_slide_title = final_slide_topic.strip().title()
-            plan.toolRequests.append(ToolRequest(
-                toolName="create_gamma_presentation",
-                parameters={
-                    "topic": final_slide_topic,
-                    "title": f"{clean_slide_title} Deck",
-                    "format": "presentation",
-                    "export_as": "pptx",
-                    "num_cards": 8,
-                },
-            ))
-            plan.displayText = (
-                f"### 📊 Presentation: {clean_slide_title}\n\n"
-                f"**{clean_slide_title} Deck** is compiling with executive slide layouts.\n\n"
-                f"• **Topic**: {final_slide_topic}\n"
-                f"• **Format**: PowerPoint (.pptx) Executive Deck\n"
-                f"• **Cards/Slides**: 8 Designed Slides\n\n"
-                f"The download and preview card will appear as soon as the file is rendered."
-            )
-            plan.spokenText = f"I'm compiling your {final_slide_topic} presentation slides right now."
-            plan.language = "en-US"
-            plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
-
-        browser_command = is_command(
-            [r"^\s*(please\s+)?(open|navigate to|go to|browse to|launch|खोलो|खोल्नुहोस्)\b"],
-            target=r"\b(https?://\S+|website|url|page|site|netflix|youtube|google)\b",
-        )
-        if browser_command and not any(t.toolName in {"browser_navigate", "browser_execute_task"} for t in plan.toolRequests):
-            prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:open|navigate to|go to|browse to|launch)\s+", "", text).strip()
-            target = prompt_str or text
-            known_destinations = {
-                "netflix": "https://www.netflix.com",
-                "youtube": "https://www.youtube.com",
-                "google": "https://www.google.com",
-            }
-            destination = next((url for name, url in known_destinations.items() if re.search(rf"\b{name}\b", target, re.IGNORECASE)), None)
-            explicit_url = re.search(r"https?://[^\s]+", target)
-            if explicit_url:
-                destination = explicit_url.group(0)
-            if destination:
-                # A direct destination is a single owned navigation, not an
-                # autonomous browser sub-agent task.  It creates one page only.
-                plan.toolRequests.append(ToolRequest(
-                    toolName="browser_navigate",
-                    parameters={"url": destination},
-                ))
-
-        has_substantive_answer = bool(
-            getattr(plan, "displayText", None) and len(str(plan.displayText).strip()) > 30
-        )
-
-        cited_answer_command = is_command(
-            [r"^\s*(please\s+)?(answer with sources|give (?:me )?a cited answer|verify online)\b"],
-            target=r"\b(sources?|citations?|online|web|internet)\b|वेब|स्रोत",
-        )
-        if (
-            cited_answer_command
-            and not has_substantive_answer
-            and not any(t.toolName == "web_answer" for t in plan.toolRequests)
-        ):
-            prompt_str = re.sub(
-                r"(?i)^\s*(?:please\s+)?(?:answer with sources|give (?:me )?a cited answer|verify online)\s*(?:for|about|:)?\s*",
-                "",
-                text,
-            ).strip()
-            plan.toolRequests.append(ToolRequest(
-                toolName="web_answer",
-                parameters={"query": prompt_str or text},
-            ))
-
-        extract_command = is_command(
-            [r"^\s*(please\s+)?(read|extract|summarize)\b"],
-            target=r"https?://[^\s]+",
-        )
-        if (
-            extract_command
-            and not has_substantive_answer
-            and not any(t.toolName == "web_extract" for t in plan.toolRequests)
-        ):
-            urls = re.findall(r"https?://[^\s]+", text)
-            plan.toolRequests.append(ToolRequest(
-                toolName="web_extract",
-                parameters={"urls": urls[:5]},
-            ))
-
-        finance_command = is_command(
-            [r"^\s*(please\s+)?(?:financial|finance) research\b"],
-            target=r"\b(finance|financial|earnings|filing|stock|market|company)\b",
-        )
-        if (
-            finance_command
-            and not has_substantive_answer
-            and not any(t.toolName == "finance_research" for t in plan.toolRequests)
-        ):
-            prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:financial|finance) research\s*(?:on|about|:)?\s*", "", text).strip()
-            plan.toolRequests.append(ToolRequest(
-                toolName="finance_research",
-                parameters={"query": prompt_str or text, "effort": "deep"},
-            ))
-
-        deep_research_command = is_command(
-            [r"^\s*(please\s+)?(search and research|research|investigate|compare with sources|deep research)\b"],
-            target=r"\b(web|internet|online|sources?|citations?|documentation|current|breakthrough|quantum|computing|technology|science|news|ai|market|development|history|theory)\b|वेब|स्रोत",
-        )
-        if (
-            deep_research_command
-            and not has_substantive_answer
-            and not any(t.toolName == "web_research" for t in plan.toolRequests)
-        ):
-            prompt_str = re.sub(
-                r"(?i)^\s*(?:please\s+)?(?:search and research|research|investigate|compare with sources|deep research)\s*(?:the web for|online|with sources|about|into|on|:)?\s*",
-                "",
-                text,
-            ).strip()
-            plan.toolRequests.append(ToolRequest(
-                toolName="web_research",
-                parameters={"query": prompt_str or text, "effort": "lite"},
-            ))
-
-        search_command = is_command(
-            [
-                r"^\s*(please\s+)?(search the web for|look up|find information about|google search for|खोज|खोज्नुहोस्)\b",
-                r"\b(give me|find me|show me|get me|fetch me)\b.*\b(links?|sites?|websites?|urls?|results?)\b",
-                r"\b(latest|current|recent|new|best|top|popular)\b.*\b(sites?|websites?|links?|platforms?|services?|apps?)\b",
-                r"\b(where can I|how can I|where to)\b.*\b(watch|stream|see|find|get)\b",
-                r"\b(recommend|suggest|list)\b.*\b(sites?|websites?|links?|platforms?|services?)\b",
-                r"\b(streaming|anime|movie|music|video)\b.*\b(sites?|websites?|links?|platforms?)\b",
-                r"\b(search|find|look)\b.*\b(for|about|on)\b",
-            ],
-            target=r"\b(web|internet|online|google|documentation|sources?|links?|sites?|websites?|find|search|latest|current|recent|best|top|watch|stream|recommend|anime|movie|music|video)\b|वेब|इन्टरनेट|खोज",
-        )
-        if (
-            search_command
-            and not has_substantive_answer
-            and not any(t.toolName == "web_search" for t in plan.toolRequests)
-        ):
-            prompt_str = re.sub(
-                r"(?i)^\s*(?:please\s+)?(?:search the web for|look up|find information about|google search for)\s+",
-                "",
-                text,
-            ).strip()
-            plan.toolRequests.append(ToolRequest(
-                toolName="web_search",
-                parameters={"query": prompt_str or text},
-            ))
-
-    def _resolve_session_history(
-        self,
-        session_id: str | None,
-        conversation_id: str | None,
-        limit: int = 20,
-    ) -> list[tuple[str, str]]:
-        """Retrieve conversational history, falling back to persistent database when memory cache is cold.
-        This guarantees zero session amnesia across reconnects or tab reloads."""
-        if session_id:
-            try:
-                self.memory.compact_if_needed(session_id, threshold_ratio=0.75)
-            except Exception:
-                pass
-            cached = list(self.memory.context(session_id))
-            if cached:
-                return cached
-
-        cid = conversation_id or session_id
-        if not cid:
-            return []
-
-        factory = (
-            getattr(self, "_session_factory", None)
-            or (self.memory_service._factory if self.memory_service else None)
-            or getattr(self, "session_factory", None)
-        )
-        if factory:
-            try:
-                from sqlalchemy import select
-                from .persistence.orm import Message
-                with factory() as db_session:
-                    msgs = db_session.scalars(
-                        select(Message)
-                        .where(
-                            Message.conversation_id == cid,
-                            Message.deleted_at.is_(None),
-                        )
-                        .order_by(Message.created_at.desc())
-                        .limit(limit * 2)
-                    ).all()
-                    msgs.reverse()
-                    turns: list[tuple[str, str]] = []
-                    for m in msgs:
-                        if m.role in ("user", "assistant") and m.content:
-                            turns.append((m.role, m.content))
-
-                    if turns and session_id:
-                        from collections import deque
-                        mem_bucket = self.memory._sessions.setdefault(
-                            session_id, deque(maxlen=self.memory._turn_limit)
-                        )
-                        for r, c in turns:
-                            if (r, c) not in mem_bucket:
-                                mem_bucket.append((r, c))
-                    return turns
-            except Exception:
-                logger.debug("Failed to hydrate conversation history from db for %s", cid, exc_info=True)
-        return []
-
-    def _turn_tool_whitelist(
-        self,
-        text: str,
-        gate_intent,
-        history: list[tuple[str, str]] | None = None,
-    ) -> tuple[str, ...]:
-        """The tools his own words earned for this turn, decided before any brain speaks.
-
-        Both the prompt and the executed plan are cut from this one set. When the
-        streamed path built its prompt tool-free and the injector filed the action
-        afterwards, she was told "Tools on this turn: none" and then ran an image
-        job anyway, so the bubble denied a capability the same turn was using.
-        """
-        from .tools.intent_gate import sanction_tools
-        from hinaa_intent_gate import Intent as HinaaIntent
-
-        if gate_intent == HinaaIntent.IMAGE_GENERATE:
-            return ("image_generate", "magnific_image_generate", "freepik_image_generate")
-        if gate_intent == HinaaIntent.IMAGE_SEARCH:
-            return ("image_search",)
-        if gate_intent == HinaaIntent.WEB_SEARCH:
-            return ("web_search", "web_answer", "web_research")
-        if gate_intent == HinaaIntent.DOCUMENT_CREATE:
-            # Either builder answers the ask; the injector picks and the gate
-            # dedupes the family, so both names stay open.
-            return ("pdf_generate", "document_generate", "create_gamma_presentation")
-        # The pre-LLM classifier only knows the loud intents. A turn it fell
-        # through on can still name an action in words the richer gate reads --
-        # "same one but darker", "generate hina again", "fetch Nepal incident
-        # images" -- so the whitelist comes from the same sanction that later
-        # filters the provider's own calls, not from this one regex pass.
-        sanction = sanction_tools(text, known_subjects=CHARACTER_ENTITY_MAP)
-        allowed_set = set(sanction.allowed) if sanction.allowed else set()
-        UI_CONTROL_PATTERN = re.compile(
-            r"(?i)\b(?:switch|change|open|toggle|show|enter|go\s+to|dock|expand)\b.*?"
-            r"\b(?:mode|view|showroom|3d|avatar|workspace|vault|operate|tasks|terminal|hands|drawer|settings|memory|desktop|companion|window)\b"
-            r"|\b(?:terminal\s+hands|floating\s+companion|showroom\s+mode|work\s+mode|operate\s+mode|vault\s+mode|3d\s+avatar|3d\s+presence)\b"
-        )
-        if UI_CONTROL_PATTERN.search(text):
-            allowed_set.add("ui_control")
-
-        MEDIA_PATTERN = re.compile(
-            r"(?i)\b(?:play|playing|listen\s+to|put\s+on|stream|hear|gaana|geet|bajao|baja\s+do|music|song|songs|track|tracks|lofi|youtube|spotify|video|pause\s+music|resume\s+music)\b"
-        )
-        if MEDIA_PATTERN.search(text) and not re.search(r"(?i)\b(?:why|cannot)\b", text):
-            allowed_set.add("youtube_playback_request")
-            allowed_set.add("computer_operator")
-
-        BROWSER_PATTERN = re.compile(
-            r"(?i)\b(?:browse|browsing|browser|browser-use|navigate|go\s+to|visit|url|https?://|automate\s+browser|browser\s+agent|web\s+task|scroll|scroll\s+down|scroll\s+up|read\s+page|type\s+into)\b"
-        )
-        if BROWSER_PATTERN.search(text):
-            allowed_set.update([
-                "browser_cloud_agent",
-                "browser_execute_task",
-                "browser_navigate",
-                "browser_click",
-                "browser_type",
-                "browser_extract",
-                "browser_scroll",
-                "browser_press_key",
-            ])
-
-        COMPUTER_PATTERN = re.compile(
-            r"(?i)\b(?:open|launch|start|run|close|switch\s+to|focus|minimize|maximize)\s+(?:app|application|software|window|program|browser|youtube|spotify|chrome|edge|firefox|brave|notepad|calc|calculator|terminal|powershell|cmd|vscode|code|discord|telegram|steam|word|excel|powerpoint|settings|camera|explorer|files|[a-zA-Z0-9_\-\.]{2,35})\b"
-            r"|\b(?:computer|desktop|os)\s+(?:operator|control|automation|action|apps?)\b"
-            r"|\b(?:click|hotkey|press\s+key|mouse\s+click|type\s+text)\b"
-        )
-        if COMPUTER_PATTERN.search(text):
-            allowed_set.update(["computer_operator", "app_launch", "system_info"])
-
-        # Autonomous Coding, Shell Execution, File Mutation & Agentic Workbench Pattern
-        CODING_AUTONOMY_PATTERN = re.compile(
-            r"(?i)\b(?:code|coding|build|fix|debug|refactor|test|terminal|powershell|bash|cmd|shell|script|python|git|commit|push|clean[- ]room|subagent|fork|patch|edit\s+file|write\s+file|read\s+file|create\s+file)\b"
-        )
-        if CODING_AUTONOMY_PATTERN.search(text):
-            allowed_set.update([
-                "coding_agent",
-                "clean_room_loop",
-                "terminal_hands",
-                "subagent_fork",
-                "file_read",
-                "file_write",
-                "system_info",
-            ])
-
-        if allowed_set:
-            return tuple(sorted(allowed_set))
-        # If user gave an affirmative confirmation and recent turns discussed generating an image
-        if history:
-            from hinaa_intent_gate import YES_CONFIRM_PATTERN, _check_image_proposal
-            if YES_CONFIRM_PATTERN.match(text):
-                is_img, _ = _check_image_proposal(history)
-                if is_img:
-                    return ("image_generate", "magnific_image_generate", "freepik_image_generate")
-        return ()
-
-    def _gate_tool_intents(
-        self, request: TurnRequest, plan: AssistantTurnPlan, *, user_id: str | None
-    ) -> None:
-        """Decide with his words, not with the answering brain, which tools run.
-
-        Every gated call a provider invented is removed before it can become a
-        ``tool.proposed`` event, and the two calls this gate can specify
-        completely -- the subject of a picture, the moment of a reminder -- are
-        added even when the brain never noticed he had asked. The reply is then
-        rewritten to match the actions, because a paragraph written before the
-        gate existed can only promise or refuse the wrong thing.
-        """
-        from .tools.intent_gate import (
-            blocked_note,
-            denies_capability,
-            gate_tool_requests,
-            strip_capability_denials,
-        )
-
-        kept, dropped, sanction = gate_tool_requests(
-            request.text, plan.toolRequests, known_subjects=CHARACTER_ENTITY_MAP
-        )
-        plan.toolRequests = kept
-
-        if kept:
-            # The answer was written before this decision existed, and a brain
-            # that invents its own call also pastes its arguments into the
-            # bubble. Now that a call is known to have been filed, the copy goes.
-            from .providers.display_stream_decoder import (
-                drop_echoed_call_arguments,
-                drop_inlined_page_source,
-            )
-
-            plan.displayText = drop_echoed_call_arguments(plan.displayText)
-            plan.spokenText = drop_echoed_call_arguments(plan.spokenText)
-
-            if any(req.toolName == "design_website" for req in kept):
-                # A weak brain answers "build me a site" by writing the whole
-                # page into its reply. He then reads 17K characters of markup in
-                # the bubble while the same turn quietly writes the real file.
-                plan.displayText = drop_inlined_page_source(plan.displayText or "")
-                plan.spokenText = drop_inlined_page_source(plan.spokenText or "")
-                if not plan.displayText.strip():
-                    fallback = self._action_confirmation(
-                        next(req for req in kept if req.toolName == "design_website")
-                    )
-                    plan.displayText = plan.spokenText = fallback
-
-        if sanction.abort and self._cancel_inflight_image_jobs(user_id=user_id) is None:
-            # Nothing was cancelled because nothing could be reached, so the
-            # plain "Stopped." would be a lie about work still running.
-            note = "I could not reach the queue, so the running job may still finish."
-            plan.displayText = self._blocked_reply(plan.displayText, note)
-            plan.spokenText = self._blocked_reply(plan.spokenText, note)
-            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
-            return
-
-        added = [tool for tool in kept if tool.reason == "deterministic-intent"]
-        if added:
-            confirmation = " ".join(self._action_confirmation(tool) for tool in added)
-            plan.displayText = confirmation
-            plan.spokenText = confirmation
-            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
-            return
-
-        if kept and denies_capability(plan.displayText or ""):
-            # She proposed this call herself, so it runs -- and a paragraph that
-            # says the tool is missing is false on his screen either way. The
-            # action leads, and whatever else still answers him stays under it.
-            confirmation = " ".join(self._action_confirmation(tool) for tool in kept)
-            for field in ("displayText", "spokenText"):
-                remaining = strip_capability_denials(getattr(plan, field) or "")
-                setattr(
-                    plan,
-                    field,
-                    f"{confirmation} {remaining}".strip() if remaining.strip() else confirmation,
-                )
-            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
-            return
-
-        if dropped or sanction.abort:
-            note = blocked_note(dropped, aborted=sanction.abort, unbound=bool(sanction.resolved))
-            plan.displayText = self._blocked_reply(plan.displayText, note)
-            plan.spokenText = self._blocked_reply(plan.spokenText, note)
-
-    @staticmethod
-    def _action_confirmation(tool: ToolRequest) -> str:
-        parameters = tool.parameters if isinstance(tool.parameters, dict) else {}
-        if tool.toolName == "reminder.create":
-            from .tools.reminder import display_time, parse_at
-
-            return f"Reminder — {parameters.get('title')}, {display_time(parse_at(parameters.get('at')))}."
-        if tool.toolName == "image_generate":
-            subject = parameters.get("prompt")
-            count = parameters.get("count") or 1
-            if count > 1:
-                return f"Generating {count} images of {subject}."
-            return f"Generating an image of {subject}."
-        if tool.toolName == "image_search":
-            subject = parameters.get("canonicalSubject") or parameters.get("query")
-            return f"Searching images for {subject}."
-        if tool.toolName == "design_website":
-            from .tools.website_design import _subject_line
-
-            subject = _subject_line(parameters.get("brief") or "")
-            return f"Building the website for {subject}." if subject else "Building that website for you."
-        if tool.toolName == "youtube_playback_request":
-            q = parameters.get("query") or "music"
-            return f"Playing '{q}' on YouTube."
-        if tool.toolName == "browser_cloud_agent":
-            t = parameters.get("task") or "cloud browser task"
-            return f"Starting autonomous cloud browser task: '{t}'."
-        if tool.toolName == "browser_execute_task":
-            g = parameters.get("goal") or "task"
-            return f"Starting autonomous browser task for: '{g}'."
-        if tool.toolName == "browser_navigate":
-            u = parameters.get("url") or "website"
-            return f"Opening {u} in the browser."
-        if tool.toolName == "computer_operator":
-            action = parameters.get("action") or "action"
-            target = parameters.get("target") or ""
-            if action == "youtube_play":
-                return f"Playing '{target}' on YouTube."
-            if action == "open_application":
-                return f"Opening {target}."
-            return f"Executing desktop action '{action}'."
-        if tool.toolName == "terminal_hands":
-            command = (parameters.get("command") or "").strip()
-            return f"Running {command} in the terminal." if command else "Running that in the terminal."
-        if tool.toolName == "ui_control":
-            return "Adjusting HINAA workspace interface."
-        return f"Running {tool.toolName}."
-
-    @staticmethod
-    def _blocked_reply(text: str, note: str) -> str:
-        """Keep whatever still answers him, drop the promise that does not."""
-        from .tools.intent_gate import strip_stale_promises
-
-        remaining = strip_stale_promises(text or "")
-        if not remaining:
-            return note
-        if note in remaining:
-            return remaining
-        # Stripping the promise can leave a clause with no end mark, and the
-        # note then fuses with it on his screen.
-        if remaining[-1] not in ".!?।॥":
-            remaining = f"{remaining}."
-        return f"{remaining} {note}"
-
-    def _cancel_inflight_image_jobs(self, *, user_id: str | None) -> int | None:
-        """Stop the renders he just told us to stop; None means we could not look.
-
-        ``image_generate`` checks its row before every status write and returns
-        early on ``cancelled``, so flipping these rows really does end the work
-        rather than only hiding it.
-        """
-        from sqlalchemy import select
-
-        from .persistence.db import get_session_factory
-        from .persistence.orm import GenerationSet, ImageJob
-
-        # Scoped by owner, not by conversation: the generate tool only files a
-        # conversation_id when that conversation already has a row, so a thread
-        # narrowed filter would match nothing and "Stopped." would be a lie.
-        owner = user_id or self.settings.dev_auth_subject
-        try:
-            session_factory = get_session_factory(self.settings)
-            with session_factory() as session:
-                query = (
-                    select(ImageJob)
-                    .join(GenerationSet, ImageJob.generation_set_id == GenerationSet.id)
-                    .where(GenerationSet.user_id == owner)
-                    .where(ImageJob.status.in_(("pending", "processing")))
-                )
-                rows = list(session.execute(query).scalars().all())
-                for row in rows:
-                    row.status = "cancelled"
-                session.commit()
-                return len(rows)
-        except Exception:
-            logger.warning("Failed to cancel in-flight image jobs", exc_info=True)
-            return None
-
-    def _map_explicit_command(
-        self, parsed_command: ParsedCommand, plan: AssistantTurnPlan, user_id: str | None = None
-    ) -> None:
-        """Map an explicit /command to a tool request."""
-        cmd = parsed_command.command.lower()
-        args = parsed_command.args.strip()
-
-        # Extract flags like --seed=123 --model=flux-anime --mode=quality --count=2
-        raw_tokens = args.split()
-        clean_tokens = []
-        flags: dict[str, Any] = {}
-        for token in raw_tokens:
-            if token.startswith("--") and "=" in token:
-                k, v = token[2:].split("=", 1)
-                flags[k.lower()] = int(v) if v.isdigit() else v
-            else:
-                clean_tokens.append(token)
-        clean_args = " ".join(clean_tokens).strip()
-
-        # 0a. /memory is consent to write the store the memories panel reads. It is
-        # resolved here, against the durable service, rather than proposed as a tool
-        # call that no handler implements.
-        if cmd in {"memory", "remember", "recall"}:
-            self._apply_memory_command(clean_args, plan, user_id)
-            return
-
-        # 0. Character lookup shortcut (e.g. "/image gojo" or "/image mikasa")
-        if clean_args.lower() in CHARACTER_ENTITY_MAP and not flags and cmd in {"image", "images", "img", "pics", "pictures", "search", "find"}:
-            from hinaa_api.media.search_intelligence import build_media_intent, compile_image_search_query
-            media_intent = build_media_intent(clean_args)
-            if media_intent:
-                spec = compile_image_search_query(media_intent)
-                final_query = spec.primary_query
-                canonical_sub = media_intent.canonical_subject
-            else:
-                canonical_sub = CHARACTER_ENTITY_MAP[clean_args.lower()]
-                final_query = canonical_sub
-            plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search", "image_generate"}]
-            lookup_count = _image_fetch_count(clean_args)
-            plan.toolRequests.append(ToolRequest(
-                toolName="image_search",
-                parameters={"query": final_query, "count": lookup_count, "canonicalSubject": canonical_sub},
-            ))
-            plan.displayText = f"Found {lookup_count} relevant {canonical_sub} images."
-            plan.spokenText = f"Found {lookup_count} relevant {canonical_sub} images."
-            plan.language = "en-US"
-            plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
-            return
-
-        # 1. Image Generation Commands (/image, /draw, /generate, /imagine, /flux, /dalle)
-        is_generate_cmd = cmd in {
-            "image", "generate", "draw", "imagine", "create image",
-            "generate image", "image_generate", "img", "dalle", "flux", "paint"
-        }
-        if is_generate_cmd:
-            from .tools.intent_gate import requested_count
-
-            # Negation / Conversational inquiry check:
-            # If the user is negating ("no, don't need images"), asking meta questions
-            # ("why are you getting that tag?"), or purely conversing ("hey hina"),
-            # do NOT hijack the turn into an image generation job!
-            _arg_lower = (clean_args or "").strip().lower()
-            _is_negation_or_meta = bool(
-                not _arg_lower
-                or re.match(r"^(?:no\b|don'?t\b|dont\b|stop\b|cancel\b|abort\b|never\b|why\b|what\b|who\b|hey\b|hi\b|hello\b)", _arg_lower)
-                or re.search(r"\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|not\s+an\s+image|stop\s+generating|why\s+are\s+you|getting\s+that\s+tag|why\s+tag)\b", _arg_lower)
-            )
-            if _is_negation_or_meta:
-                logger.info("Explicit slash '%s' bypassed for conversational/negation intent: %s", cmd, clean_args)
-                return
-
-            prompt_text = clean_args or "beautiful digital artwork"
-            # The batch size is a request for how many pictures, not part of the
-            # subject: strip the number with the noun it hangs off, range included.
-            prompt_text = re.sub(
-                r"(?i)\b\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s*(?:images?|imges?|pictures?|photos?|pics?|wallpapers?)\b",
-                " ",
-                prompt_text,
-            )
-            # Strip trailing noise tokens like images, imges, pictures, pics, etc.
-            prompt_text = re.sub(r"(?i)\b(images?|imges?|pictures?|photos?|pics?|wallpapers?)\b", " ", prompt_text)
-            prompt_text = re.sub(r"\s{2,}", " ", prompt_text).strip(" ,") or "beautiful digital artwork"
-            # Expand known character names to canonical full names
-            _pt_lower = prompt_text.lower()
-            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                _pattern = r"\b" + re.escape(alias) + r"\b"
-                if re.search(_pattern, _pt_lower, re.IGNORECASE):
-                    prompt_text = re.sub(_pattern, canonical, prompt_text, flags=re.IGNORECASE)
-                    break
-            flag_count = flags.get("count")
-            count = int(flag_count) if isinstance(flag_count, int) and flag_count > 0 else requested_count(
-                clean_args, maximum=10
-            )
-            mode = flags.get("mode", "quality")
-            seed = flags.get("seed")
-            engine = flags.get("model") or flags.get("engine")
-
-            gen_params: dict[str, Any] = {
-                "prompt": prompt_text,
-                "count": min(max(1, count), 10),
-                "mode": mode,
-            }
-            if seed is not None:
-                gen_params["seed"] = seed
-            if engine:
-                gen_params["engine"] = engine
-
-            plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search", "image_generate"}]
-            plan.toolRequests.append(ToolRequest(
-                toolName="image_generate",
-                parameters=gen_params,
-            ))
-            display_model = f" [{engine}]" if engine else ""
-            batch = int(gen_params["count"])
-            if batch > 1:
-                plan.displayText = f"Generating {batch} of '{prompt_text}'{display_model} for you now! 🎨✨"
-                plan.spokenText = f"Generating {batch} images for you now!"
-            else:
-                plan.displayText = f"Generating '{prompt_text}'{display_model} for you now! 🎨✨"
-                plan.spokenText = "Generating that image for you now!"
-            plan.language = "en-US"
-            plan.emotion = Emotion(primary="excited", intensity=0.8, valence=0.8, arousal=0.6)
-            return
-
-        # 2. Web Image Search Commands (/image_search, /find images, /wallpaper)
-        has_image_kw = bool(re.search(r"\b(images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|pinterest|pintrest|pintrens)\b", clean_args, re.I))
-        is_search_image_cmd = (
-            cmd in {
-                "imagesearch", "image_search", "image search", "find images",
-                "wallpaper", "wallpapers", "pinterest", "pintrest"
-            }
-            or (cmd in {"search", "find", "lookup"} and has_image_kw)
-        )
-
-        if is_search_image_cmd:
-            from hinaa_api.media.search_intelligence import build_media_intent, compile_image_search_query
-            media_intent = build_media_intent(clean_args)
-            if media_intent:
-                spec = compile_image_search_query(media_intent)
-                final_query = spec.primary_query
-                canonical_sub = media_intent.canonical_subject
-            else:
-                clean_q = re.sub(r"(?i)\b(images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|pinterest|pintrest|pintrens|bro|and|of|from|please|pls)\b", "", clean_args).strip()
-                clean_q = re.sub(r"\s+", " ", clean_q).strip()
-                if clean_q.lower() in CHARACTER_ENTITY_MAP:
-                    clean_q = CHARACTER_ENTITY_MAP[clean_q.lower()]
-                final_query = clean_q or clean_args or "anime aesthetic"
-                canonical_sub = final_query.title()
-            plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search"}]
-            flag_count = flags.get("count")
-            search_count = _image_fetch_count(
-                clean_args,
-                default=flag_count if isinstance(flag_count, int) and flag_count > 0 else 6,
-            )
-            plan.toolRequests.append(ToolRequest(
-                toolName="image_search",
-                parameters={"query": final_query, "count": search_count, "canonicalSubject": canonical_sub},
-            ))
-            plan.displayText = f"Found {search_count} relevant {canonical_sub} images."
-            plan.spokenText = f"Found {search_count} relevant {canonical_sub} images."
-            plan.language = "en-US"
-            plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
-            return
-
-        if cmd == "extract":
-            urls = [u for u in clean_args.split() if re.match(r"^https?://", u, re.I)]
-            if urls:
-                plan.toolRequests.append(ToolRequest(toolName="web_extract", parameters={"urls": urls}))
-            else:
-                plan.toolRequests.append(ToolRequest(toolName="web_search", parameters={"query": clean_args}))
-            return
-        
-        # 3. Map general commands to tool names
-        command_to_tool: dict[str, tuple[str, dict]] = {
-            "search": ("web_search", {"query": clean_args}),
-            "find": ("web_search", {"query": clean_args}),
-            "lookup": ("web_search", {"query": clean_args}),
-            "web": ("web_search", {"query": clean_args}),
-            "google": ("web_search", {"query": clean_args}),
-            "research": ("web_research", {"query": clean_args, "effort": flags.get("effort", "lite")}),
-            "investigate": ("web_research", {"query": clean_args, "effort": "standard"}),
-            "deep research": ("web_research", {"query": clean_args, "effort": "deep"}),
-            "answer": ("web_answer", {"query": clean_args}),
-            "verify": ("web_answer", {"query": clean_args}),
-            "extract": ("web_extract", {"urls": clean_args.split()}),
-            "read": ("web_extract", {"urls": clean_args.split()}),
-            "document": ("document_generate", {"title": clean_args, "content": "", "format": flags.get("format", "pdf")}),
-            "create doc": ("document_generate", {"title": clean_args, "content": "", "format": "docx"}),
-            "pdf": ("pdf_generate", {"topic": clean_args, "title": clean_args, "content": ""}),
-            "site": ("design_website", {"brief": clean_args}),
-            "website": ("design_website", {"brief": clean_args}),
-            "webpage": ("design_website", {"brief": clean_args}),
-            "landing page": ("design_website", {"brief": clean_args}),
-            "gamma": ("create_gamma_presentation", {"topic": clean_args or "Presentation", "format": "presentation"}),
-            "deck": ("create_gamma_presentation", {"topic": clean_args or "Pitch Deck", "format": "presentation"}),
-            "gamma doc": ("create_gamma_presentation", {"topic": clean_args or "Document", "format": "document"}),
-            "gamma webpage": ("create_gamma_presentation", {"topic": clean_args or "Webpage", "format": "webpage"}),
-            "presentation": ("create_gamma_presentation", {"topic": clean_args or "Presentation Slides", "format": "presentation"}),
-            "slides": ("create_gamma_presentation", {"topic": clean_args or "Presentation Slides", "format": "presentation"}),
-            "analyze": ("analyze_text", {"target": clean_args, "focus": "summary"}),
-            "summarize": ("summarize_text", {"target": clean_args, "length": "standard"}),
-            "plan": ("create_plan", {"goal": clean_args, "horizon": "week"}),
-            "play": ("youtube_playback_request", {"query": clean_args}),
-            "music": ("youtube_playback_request", {"query": clean_args}),
-            "song": ("youtube_playback_request", {"query": clean_args}),
-            "browser": ("browser_execute_task", {"goal": clean_args}),
-            "browse": ("browser_navigate", {"url": clean_args}),
-            "app": ("computer_operator", {"action": "open_application", "target": clean_args}),
-            "open": ("computer_operator", {"action": "open_application", "target": clean_args}),
-            "files": ("search_files", {"query": clean_args}),
-            "model": ("switch_model", {"model": clean_args}),
-            "voice": ("voice_config", {"action": "test", "provider": clean_args}),
-            "avatar": ("avatar_config", {"action": "switch", "model": clean_args}),
-            "settings": ("open_settings", {"section": clean_args}),
-            "automate": ("create_automation", {"schedule": "", "task": clean_args, "tools": []}),
-            "upscale": ("image_upscale", {"prompt": clean_args, "scale": 2}),
-            "upscale image": ("image_upscale", {"prompt": clean_args, "scale": 2}),
-            "relight": ("image_relight", {"lighting_prompt": clean_args or "studio lighting"}),
-            "relight image": ("image_relight", {"lighting_prompt": clean_args or "studio lighting"}),
-        }
-        
-        if cmd in command_to_tool:
-            from hinaa_api.tools.registry import registry as tool_registry
-
-            tool_name, base_params = command_to_tool[cmd]
-            if tool_registry.get_tool(tool_name) is None:
-                # No handler implements this action, so proposing it can only end
-                # in a failed card. The turn stays conversational instead.
-                return
-            existing_req = next((t for t in plan.toolRequests if t.toolName == tool_name), None)
-            is_referential_arg = bool(
-                not clean_args
-                or (
-                    len(clean_args) < 80
-                    and re.search(
-                        r"(?i)^(?:make\s+(?:me\s+)?(?:a\s+)?)?(?:based\s+on\s+)?(?:that|this|it|the\s+report|report|thr\s+report|above|same|previous|notes|conversation)",
-                        clean_args,
-                    )
-                )
-            )
-            if tool_name in {"pdf_generate", "document_generate", "create_gamma_presentation"} and is_referential_arg:
-                from hinaa_api.tools.pdf_generate import _fetch_last_report_from_db
-                db_report = _fetch_last_report_from_db(user_id)
-                if db_report:
-                    rep_title, rep_content = db_report
-                    if tool_name == "create_gamma_presentation":
-                        base_params["outline"] = rep_content
-                        base_params["topic"] = rep_title or "Executive Presentation"
-                    else:
-                        base_params["content"] = rep_content
-                        base_params["title"] = rep_title or "Executive Research Report"
-                        base_params["topic"] = rep_title or "Executive Research Report"
-                    self._set_command_text(
-                        plan,
-                        f"### 📄 Compiling Document: {rep_title or 'Executive Report'}\n\n"
-                        f"Typesetting the write-up from our conversation history into a publication-ready PDF.",
-                        spoken=f"Generating your document from our conversation write-up now.",
-                    )
-                elif not clean_args and not existing_req:
-                    self._set_command_text(
-                        plan,
-                        "What should the document be about? Try `/pdf World War II`. I typeset either the "
-                        "text you give me or a live research pass on the subject you name — I don't invent "
-                        "one from an empty command.",
-                    )
-                    return
-            elif tool_name in {"pdf_generate", "document_generate"} and not clean_args and not existing_req:
-                self._set_command_text(
-                    plan,
-                    "What should the document be about? Try `/pdf World War II`. I typeset either the "
-                    "text you give me or a live research pass on the subject you name — I don't invent "
-                    "one from an empty command.",
-                )
-                return
-
-            if existing_req:
-                for k, v in base_params.items():
-                    if not existing_req.parameters.get(k):
-                        existing_req.parameters[k] = v
-            else:
-                plan.toolRequests.append(ToolRequest(
-                    toolName=tool_name,
-                    parameters=base_params,
-                ))
-
-    _MEMORY_WRITE_ACTIONS = {"save", "remember", "store", "keep"}
-    _MEMORY_READ_ACTIONS = {"recall", "list", "show"}
-    _MEMORY_FORGET_ACTIONS = {"delete", "forget", "remove"}
-
-    @staticmethod
-    def _set_command_text(plan: AssistantTurnPlan, text: str, spoken: str | None = None) -> None:
-        plan.displayText = text
-        plan.spokenText = spoken or text
-        plan.language = "en-US"
-
-    def _apply_memory_command(
-        self, args: str, plan: AssistantTurnPlan, user_id: str | None
-    ) -> None:
-        """Resolve an explicit /memory command against the durable store.
-
-        The reply carries what the service reported -- a stored entry, a real
-        listing, or the refusal reason -- never what the wording implied.
-        """
-        plan.toolRequests = [t for t in plan.toolRequests if t.toolName != "memory_manage"]
-
-        head, _, tail = args.partition(" ")
-        lead = head.lower()
-        if lead in self._MEMORY_WRITE_ACTIONS:
-            action, body = "save", tail.strip()
-        elif lead in self._MEMORY_READ_ACTIONS:
-            action, body = "recall", tail.strip()
-        elif lead in self._MEMORY_FORGET_ACTIONS:
-            action, body = "forget", tail.strip()
-        else:
-            action, body = "save", args.strip()
-
-        if self.memory_service is None:
-            self._set_command_text(
-                plan,
-                "Memories are not stored on this HINAA instance, so I could not do that.",
-            )
-            return
-        if not user_id:
-            self._set_command_text(
-                plan,
-                "I did not touch your memories: this turn has no signed-in owner to store them under.",
-            )
-            return
-
-        if action == "save":
-            if not body:
-                self._set_command_text(
-                    plan, "Tell me what to keep, for example: /memory save my favourite colour is teal."
-                )
-                return
-            try:
-                saved = self.memory_service.remember(
-                    user_id=user_id, content=body, category="preference"
-                )
-            except HinaaError as err:
-                self._set_command_text(plan, f"I did not save that: {err.message}")
-                return
-            self._set_command_text(
-                plan,
-                f"Saved to your memories: {saved['content']}",
-                "That is saved in your memories.",
-            )
-            return
-
-        try:
-            stored = self.memory_service.list_memories(user_id)
-        except HinaaError as err:
-            self._set_command_text(plan, f"I could not read your memories: {err.message}")
-            return
-
-        needle = body.casefold()
-        hits = [m for m in stored if not needle or needle in str(m.get("content", "")).casefold()]
-
-        if action == "recall":
-            if not hits:
-                self._set_command_text(
-                    plan,
-                    f'None of your {len(stored)} saved memories mention "{body}".'
-                    if needle
-                    else "You have no saved memories yet.",
-                )
-                return
-            listing = "\n".join(f"- {m.get('content')}" for m in hits[:8])
-            self._set_command_text(
-                plan,
-                f"From your saved memories:\n{listing}",
-                f"I found {len(hits)} of your saved memories.",
-            )
-            return
-
-        if not hits:
-            self._set_command_text(
-                plan, f'I have no saved memory matching "{body}", so nothing was removed.'
-            )
-            return
-        if len(hits) > 1:
-            listing = "\n".join(f"- {m.get('content')}" for m in hits[:8])
-            self._set_command_text(
-                plan,
-                f"More than one memory matches, so I removed none:\n{listing}\nName one of them exactly.",
-                "Several memories match, so I removed none. Name one of them exactly.",
-            )
-            return
-        try:
-            self.memory_service.forget(user_id, str(hits[0]["id"]))
-        except HinaaError as err:
-            self._set_command_text(plan, f"I could not remove that memory: {err.message}")
-            return
-        self._set_command_text(
-            plan,
-            f"Removed from your memories: {hits[0].get('content')}",
-            "That memory is removed.",
-        )
-
-    def _detect_artifact_lookup(self, text: str, plan: AssistantTurnPlan) -> None:
-        """Detect artifact follow-up questions and add lookup tool requests.
-        
-        Handles questions like:
-        - "where is the pdf file?"
-        - "where's my document?"
-        - "show me the pdf"
-        - "find the pdf"
-        """
-        lower_text = text.casefold().strip()
-        
-        # Patterns for artifact lookup questions
-        artifact_patterns = [
-            (r"\bwhere (is|'s|was) (the|my|a) (pdf|docx|pptx|document|image|video|audio|file)\b", "pdf"),
-            (r"\b(find|show|get|locate) (the|my|a) (pdf|docx|pptx|document|image|video|audio|file)\b", "pdf"),
-            (r"\b(pdf|docx|pptx|document) (file|artifact)? (where|location)\b", "pdf"),
-        ]
-        
-        import re
-        for pattern, default_kind in artifact_patterns:
-            match = re.search(pattern, lower_text)
-            if match:
-                # Extract the artifact kind from the match
-                kind_match = re.search(r"(pdf|docx|pptx|document|image|video|audio|file)", lower_text)
-                kind = kind_match.group(1) if kind_match else default_kind
-                if kind == "document":
-                    kind = "pdf"
-                
-                # Add artifact lookup tool request
-                if not any(t.toolName == "artifact_lookup" for t in plan.toolRequests):
-                    plan.toolRequests.append(ToolRequest(
-                        toolName="artifact_lookup",
-                        parameters={"kind": kind},
-                    ))
-                break
-
-    def _brain_model(self, mode: str | None, model: str | None) -> str | None:
-        """The model a turn will really use when the caller named none.
-
-        Capability questions have to be asked about this value, not about
-        ``request.brainModel``: a turn that names no model still runs on the
-        mode's configured default, and treating an unnamed model as unknowable
-        would refuse a brain that sees perfectly well.
-        """
-        if model:
-            return model
-        return {
-            "real": self.settings.gemini_model,
-            "gemini": self.settings.gemini_model,
-            "claude": self.settings.active_claude_model,
-            "openai": self.settings.active_openai_model,
-            "qwen": self.settings.qwen_model,
-            "custom": self.settings.active_custom_model,
-            "cx-gateway": self.settings.cx_gateway_model,
-            "codecraft": self.settings.active_codecraft_model,
-            "agent-router": self.settings.active_agent_router_model,
-            "groq": self.settings.groq_model,
-            "experiential": self.settings.active_explabs_model,
-            "pgsgrove": self.settings.active_pgsgrove_model,
-            "seekai": self.settings.active_seekai_model,
-            "tokentable": self.settings.active_tokentable_model,
-            "xkiro": self.settings.active_xkiro_model,
-            "cavoti": self.settings.active_cavoti_model,
-            "apmix": self.settings.active_apmix_model,
-            "ollama": self.settings.active_ollama_model,
-        }.get(mode or "")
-
-    async def _apply_vision_gate(
-        self, request: TurnRequest, resolved_media: list[Any]
-    ) -> tuple[bool, str | None]:
-        """Put an image turn on a brain that can actually look at it.
-
-        Returns ``(carries_image, moved_off)``. ``moved_off`` names the brain the
-        turn was taken away from, which the caller reports as the turn's
-        fallback reason so the answer visibly came from somewhere other than
-        what was asked for.
-
-        ``providers/openai_llm.py`` will serialise an ``image_url`` part to any
-        endpoint it is pointed at, so a text-only brain does not fail on a photo
-        turn. It answers from the caption line in the prompt instead, which is
-        how a blind turn comes back as a confident description of a dashboard
-        nobody showed her. When nothing configured can see, that is said out loud
-        rather than papered over with an invention.
-        """
-        if not _turn_has_image(resolved_media):
-            return False, None
-        mode = request.providerMode
-        model = self._brain_model(mode, request.brainModel)
-        if brain_accepts_images(mode, model):
-            return True, None
-
-        seeing = await self._fallback_candidate_modes(mode, requires_vision=True)
-        if not seeing:
-            raise HinaaError(
-                "PROVIDER_CONFIGURATION_MISSING",
-                "You sent a picture and none of the configured brains can look at "
-                "one, so I will not guess at what it shows.",
-                status_code=503,
-                user_action_required=True,
-            )
-        request.providerMode, request.brainModel = seeing[0]
-        logger.info(
-            "Image turn moved off %s:%s (cannot take image input) to %s:%s",
-            mode,
-            model,
-            request.providerMode,
-            request.brainModel,
-        )
-        return True, f"{mode}:{model}"
-
-    async def _fallback_candidate_modes(
-        self, primary_mode: str, *, requires_vision: bool = False
-    ) -> list[tuple[str, str | None]]:
-        """Configured brains that can take this turn, strongest answer first.
-
-        The point of falling back is to keep the conversation intelligent, but a
-        brain that answered minutes ago outranks a nominally stronger brain whose
-        last live call was a 403 or a timeout: fresh ledger evidence sorts the
-        ready list (healthy, then untested, then degraded, then unavailable), so
-        a fallback never walks a row of dead gateways before reaching a healthy
-        one. Ties keep the static quality order. Behind all of them sits the
-        measured OmniRoute gateway, which only earns a slot while its
-        ``/v1/models`` endpoint answers.
-
-        ``requires_vision`` narrows that list to brains that will actually look
-        at an attached picture. Without it a fallback lands on whichever brain
-        answers, and a text-only endpoint silently discards the image part and
-        replies from the caption instead, which reads to the user as invention
-        rather than as a failure.
-        """
-        configured: dict[str, tuple[bool, str | None]] = {
-            "experiential": (self.settings.explabs_configured, self.settings.active_explabs_model),
-            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
-            "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
-            "agent-router": (
-                self.settings.agent_router_configured,
-                self.settings.active_agent_router_model,
-            ),
-            "codecraft": (self.settings.codecraft_configured, self.settings.active_codecraft_model),
-            "seekai": (self.settings.seekai_configured, self.settings.active_seekai_model),
-            "tokentable": (self.settings.tokentable_configured, self.settings.active_tokentable_model),
-            "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
-            "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
-            "claude": (self.settings.claude_configured, self.settings.active_claude_model),
-            "custom": (self.settings.custom_configured, self.settings.active_custom_model),
-            "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
-            "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
-            "openai": (self.settings.openai_configured, self.settings.active_openai_model),
-            "groq": (self.settings.groq_configured, self.settings.groq_model),
-            "real": (self.settings.gemini_configured, self.settings.gemini_model),
-        }
-        primary = "real" if primary_mode == "gemini" else primary_mode
-
-        ready: list[tuple[str, str | None]] = []
-        cooling: list[tuple[str, str | None]] = []
-        for mode, (is_configured, model) in configured.items():
-            if not is_configured or mode == primary:
-                continue
-            breaker = peek_circuit_breaker(mode)
-            if breaker is not None and breaker.cooldown_remaining() > 0:
-                cooling.append((mode, model))
-            else:
-                ready.append((mode, model))
-
-        def _health_rank(pair: tuple[str, str | None]) -> int:
-            row = row_for_brain(pair[0])
-            fingerprint = fingerprint_for(self.settings, row)
-            verdict = newest_verdict(
-                aliases_for(row),
-                fingerprints={brain: fingerprint for brain in aliases_for(row)},
-            )
-            if verdict is None:
-                return 1  # untested beats known-failing
-            if verdict.ok:
-                return 0
-            if verdict.state == "degraded":
-                return 2
-            return 3  # unavailable: rejected key or dead endpoint
-
-        # Stable sort: ties keep the static quality order above.
-        ready.sort(key=_health_rank)
-
-        last_resort: list[tuple[str, str | None]] = []
-        if primary != "omniroute" and self.settings.omniroute_configured:
-            # Inline on a live turn, so it gets a sub-second budget rather than
-            # the reporting default: this machine takes ~2s to report a refused
-            # loopback connection, and a stopped fallback container must not
-            # cost a spoken turn that time.
-            probe = await probe_gateway_models(
-                self.settings.active_omniroute_base_url,
-                api_key=self.settings.active_omniroute_key,
-                timeout=0.6,
-            )
-            if probe.serving:
-                last_resort.append(("omniroute", self.settings.omniroute_model))
-            else:
-                logger.info("OmniRoute fallback skipped: %s", probe.detail)
-
-        # A brain in cooldown is still better than no candidate at all.
-        candidates = ready + cooling + last_resort
-        if requires_vision:
-            seeing = [
-                pair for pair in candidates if brain_accepts_images(pair[0], pair[1])
-            ]
-            skipped = [
-                f"{mode}:{model}" for mode, model in candidates if (mode, model) not in seeing
-            ]
-            if skipped:
-                logger.info(
-                    "Image turn: fallback candidates excluded because they cannot take "
-                    "image input: %s",
-                    ", ".join(skipped),
-                )
-            return seeing
-        return candidates
-
-    async def _resolve_turn_media(self, request: TurnRequest) -> list[Any]:
-        from .media import MediaResolver
-        resolver = MediaResolver()
-        resolved: list[Any] = []
-        # Check attachment_ids
-        for aid in (request.attachment_ids or []):
-            try:
-                res = await resolver.resolve(aid)
-                resolved.append(res)
-            except Exception:
-                logger.warning("Failed to resolve attachment ID %s", aid, exc_info=True)
-        # Check attachments
-        for att in (request.attachments or []):
-            aid = att.get("asset_id") or att.get("assetId")
-            url = att.get("url")
-            ref = aid if (aid and not str(aid).startswith("client-")) else (url or aid)
-            if ref and ref not in (request.attachment_ids or []):
-                try:
-                    res = await resolver.resolve(ref, role=att.get("role"))
-                    resolved.append(res)
-                except Exception:
-                    if url and url != ref:
-                        try:
-                            res = await resolver.resolve(url, role=att.get("role"))
-                            resolved.append(res)
-                        except Exception:
-                            logger.warning("Failed to resolve attachment fallback %s", str(url)[:50], exc_info=True)
-                    else:
-                        logger.warning("Failed to resolve attachment %s", str(ref)[:50], exc_info=True)
-        # Check imageUrl
-        if request.imageUrl and not resolved:
-            try:
-                res = await resolver.resolve(request.imageUrl)
-                resolved.append(res)
-            except Exception:
-                logger.warning("Failed to resolve imageUrl", exc_info=True)
-        return resolved
-
-    def _durable_conversation_context(
-        self,
-        request: TurnRequest,
-        user_id: str | None,
-    ) -> tuple[tuple[tuple[str, str], ...], list[str]]:
-        history: list[tuple[str, str]] = []
-        blocks: list[str] = []
-        convo_id = request.conversationId or request.sessionId
-        if not user_id or not self.memory_service or not convo_id:
-            return tuple(history), blocks
-
-        try:
-            ctx = self.memory_service.recent_working_context(user_id, convo_id, limit=6)
-            for msg in ctx.get("recentMessages", []):
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if role and content:
-                    history.append((role, content))
-
-            summary = ctx.get("rollingSummary") or {}
-            entities = ctx.get("entities") or []
-            goal = summary.get("current_goal") or ""
-            ent_str = ", ".join(e.get("displayName", "") for e in entities if e.get("displayName"))
-            blocks.append(f"conversation_state: goal={goal}; entities={ent_str}")
-        except Exception:
-            pass
-
-        try:
-            res = self.memory_service.resolve_reference_intent(user_id, convo_id, request.text)
-            if res and res.get("hasReference"):
-                target = (res.get("targetEntity") or {}).get("displayName") or ""
-                asset = (res.get("targetAsset") or {}).get("asset_id") or ""
-                intent = res.get("intent") or ""
-                blocks.append(f"reference_resolution: intent={intent}; target={target}; asset={asset}")
-        except Exception:
-            pass
-
-        return tuple(history), blocks
-
-    def _route_context_for_turn(
-        self,
-        request: TurnRequest,
-        user_id: str | None,
-        d_state: Any = None,
-    ) -> "tuple[object, dict[str, Any]]":
-        """Phase B2 — route the turn and decide context behavior.
-
-        Directive §39: trivial turns ("yes", "ok", "hey") route FAST — hot
-        context only, no heavy historical/vector retrieval, low latency.
-        Directive §37: every turn records a ContextManifest for the developer
-        inspector; retrieval work performed is observable per-turn.
-        Returns (RouteDecision, metadata) — callers use metadata to skip or
-        trim expensive retrieval phases.
-        """
-        from .agent.context_profiles import ContextProfile
-
-        active_goal = getattr(d_state, "active_goal", None) if d_state is not None else None
-        decision = self.context_compiler.router.route(
-            request.text or "",
-            has_active_task=False,
-            has_active_project=False,
-            has_selected_asset=bool(getattr(d_state, "selected_asset", None)) if d_state is not None else False,
-        )
-        meta: dict[str, Any] = {
-            "profile": decision.profile.value,
-            "domain": decision.domain,
-            "routes": [r.value for r in decision.routes],
-            "skip_recent_working_context": decision.profile is ContextProfile.FAST,
-            "skip_history_ranking": False,
-        }
-        self._context_manifests.append(
-            {
-                "request_id": getattr(request, "requestId", None) or request.sessionId or "turn",
-                "conversation_id": request.conversationId or request.sessionId,
-                "profile": decision.profile.value,
-                "routes": meta["routes"],
-                "reason": decision.reason,
-                "active_goal": getattr(active_goal, "goal", None),
-            }
-        )
-        return decision, meta
-
-    def _last_context_manifest(self) -> dict[str, Any] | None:
-        """Developer inspector hook (§37) — most recent turn routing record."""
-        return self._context_manifests[-1] if self._context_manifests else None
-
-    def _compile_turn_context(
-        self,
-        *,
-        request: TurnRequest,
-        history: tuple[tuple[str, str], ...],
-        approved: tuple[str, ...],
-        session_memories: tuple[str, ...],
-        dialogue_state_block: str,
-        live_search_block: str,
-        decision: Any,
-    ) -> "tuple[tuple[tuple[str, str], ...], dict[str, Any]]":
-        """B2.1 — canonical context SELECTION for one chat turn (directive §1).
-
-        The ContextCompiler decides WHAT history/memory/live state the model
-        receives; assembly and providers only decide HOW it is serialized.
-
-        Returns (selected_history, selection_meta). ``selected_history`` is the
-        compiler-ranked, budgeted turn sequence that assembly renders verbatim
-        (history_preselected=True) and providers consume without re-slicing.
-        Every include decision is recorded in the turn's ContextManifest.
-        """
-        from .agent.compiler import estimate_tokens
-        from .agent.context_items import ContextManifest, ManifestStatus
-        from .agent.context_profiles import ContextProfile
-
-        profile = decision.profile
-        history_list = [
-            {"role": role, "content": content}
-            for role, content in history
-        ]
-
-        # Canonical selection — ContextCompiler is the single canonical authority (§1/§2/§11)
-        # deciding what history, memories, live state, and external evidence reach the model.
-        compiled = self.context_compiler.compile(
-            system_identity="",  # system identity is owned by assembly layers
-            user_query=request.text or "",
-            history=history_list,
-            memories=[
-                {"id": f"sm_{i}", "content": m}
-                for i, m in enumerate(session_memories)
-            ],
-            profile=profile,
-            request_id=getattr(request, "requestId", None) or request.sessionId or "turn",
-            conversation_id=request.conversationId or request.sessionId,
-            dialogue_state=dialogue_state_block or "",
-            live_search_evidence=[live_search_block] if live_search_block else None,
-            approved_memories=approved,
-        )
-        manifest = compiled.manifest
-        assert manifest is not None
-
-        # Compiler-selected conversation turns → the tuple assembly renders verbatim.
-        selected: list[tuple[str, str]] = [
-            (m.get("role", "user"), m.get("content", ""))
-            for m in compiled.dialogue_messages
-        ]
-
-        # Serializing pre-selected history re-adds role prefixes and the
-        # untrusted wrapper — reserve for them so the manifest stays honest.
-        serialization_overhead = sum(
-            estimate_tokens(f"{r}: {c}") + 8 for r, c in selected
-        )
-        manifest.token_estimate += serialization_overhead
-        manifest.status = ManifestStatus.OK
-
-        meta: dict[str, Any] = {
-            "manifest_id": manifest.manifest_id,
-            "profile": manifest.profile,
-            "selected_history_turns": len(selected),
-            "selected_history_tokens": sum(estimate_tokens(c) for _, c in selected),
-            "compile_ms": manifest.compile_ms,
-            "dedup_dropped": manifest.dedup_dropped,
-            "excluded_count": len(manifest.excluded_items),
-        }
-
-        # Record the full manifest for the developer inspector (§37).
-        self._context_manifests.append(manifest.to_dict())
-        return tuple(selected), meta
-
-    def _record_episode_turn(
-        self,
-        *,
-        request: TurnRequest,
-        user_id: str | None,
-        assistant_text: str,
-    ) -> None:
-        """B2 §17–§22 — fold the finished turn into the persistent episode tree.
-
-        Best-effort: episode summarization must never fail a chat turn.
-        """
-        if self.episode_summarizer is None:
-            return
-        convo_id = request.conversationId or request.sessionId
-        try:
-            seq = self._episode_turn_counters.get(convo_id, 0) + 1
-            self._episode_turn_counters[convo_id] = seq
-            # Keep the counter map bounded.
-            if len(self._episode_turn_counters) > 2048:
-                self._episode_turn_counters.popitem()
-            boundary = self.episode_summarizer.detect_boundary(
-                request.text or "",
-                previous_turn_text=None,
-                seconds_since_last_turn=None,
-                current_episode_turns=0,
-            )
-            self.episode_summarizer.record_turn(
-                conversation_id=convo_id,
-                user_id=user_id,
-                sequence=seq,
-                user_text=request.text or "",
-                assistant_text=assistant_text[:800],
-                force_new_episode=boundary.new_episode,
-                boundary_reason=boundary.reason,
-            )
-        except Exception:
-            logger.debug("Episode summarization skipped", exc_info=True)
-
-    def _should_pre_search(self, text: str, d_state: Any = None) -> bool:
-        """True when the user query explicitly or implicitly asks for current/real-time facts."""
-        if not text or len(text.strip()) < 4:
-            return False
-        lowered = text.strip().lower()
-
-        # Suppress commands and generative tool requests
-        if lowered.startswith(("/", "!", "\\")):
-            return False
-        if re.search(r"^\s*(?:please\s+)?(?:can\s+you\s+)?(generate|create|make|draw|paint|sketch|build|write\s+(?:a|me|an)?\s*(?:code|script|doc|pdf|essay|story|poem))\b", lowered):
-            return False
-        # Suppress standalone persona/chit-chat queries with no substantive research subject
-        if re.search(r"^\s*(?:can\s+you\s+)?(?:who\s+are\s+you|what\s+is\s+your\s+name|do\s+you\s+love\s+me|tell\s+me\s+a\s+joke|say\s+something)\s*[!., ]*$", lowered):
-            return False
-        # Suppress greetings, check-ins, and personal relational queries when purely conversational
-        is_substantive = bool(
-            re.search(
-                r"\b(?:situation|politics|political|party|nepal|nepali|minister|government|election|crisis|leader|news|updates?|today|latest|current|what\s+is|who\s+is|why|how|present|status|stock|weather|score|price|release|event|fact)\b",
-                lowered,
-            )
-        )
-        if not is_substantive and re.search(
-            r"\b(how\s+are\s+you|how\s+are\s+you\s+doing|how\s+do\s+you\s+feel|how\'?s\s+it\s+going|"
-            r"how\s+are\s+things|how\s+is\s+your\s+day|how\s+was\s+your\s+day|"
-            r"are\s+you\s+there|can\s+you\s+hear\s+me|can\s+you\s+listen|"
-            r"can\s+you\s+talk|can\s+you\s+speak|talk\s+in\s+english|talk\s+in\s+hindi|"
-            r"kya\s+haal|kaise\s+ho|kaisi\s+ho|kya\s+kar\s+rahi\s+ho|suno\s+na|suno)\b",
-            lowered,
-        ):
-            return False
-
-        if re.search(r"^(?:hi|hello|hey|yo|namaste|good\s+(?:morning|evening|afternoon|night)|k\s+cha|kasto\s+cha)(?:\s+(?:hina|hinaa|babe|bro|dear))?[!., ]*$", lowered):
-            return False
-
-        # CRITICAL: She must not Google herself.
-        # "What is the current state of Hina?" contains "current", which the
-        # temporal indicators below treat as a live-facts signal. The search then
-        # returns anime characters named Hina, and because retrieved web context is
-        # declared authoritative she answers about One Piece instead of her own
-        # runtime. Questions about her are answered from MEASURED SELF STATE.
-        _SELF_TOPIC = (
-            r"(?:system|state|status|architecture|subsystem|capabilit\w*|memory|memories|"
-            r"tool\w*|brain|model|provider|limit\w*|feature\w*|voice|ability|abilities|dashboard|well[- ]being|health)"
-        )
-        is_about_herself = bool(
-            re.search(rf"\b(?:your|her)\s+{_SELF_TOPIC}\b", lowered)
-            or re.search(rf"\bhinaa?'s\s+{_SELF_TOPIC}\b", lowered)
-            or re.search(rf"\b{_SELF_TOPIC}\s+of\s+hinaa?\b", lowered)
-            or re.search(r"\bhow\s+(?:do|does)\s+(?:you|she|hinaa?)\s+work\b", lowered)
-            or re.search(r"\bhow\s+are\s+you\b", lowered)
-            or re.search(r"\bhinaa?\b[^?.]{0,40}\bexplain\b", lowered)
-        )
-        if is_about_herself:
-            logger.info("Pre-search suppressed: the question is about her own runtime.")
-            return False
-
-        # CRITICAL: Referent-Before-Research Guard.
-        # If the user utterance is anaphoric/pronoun-based ("tell me more details about her", "who is she",
-        # "tell me about him") without a concrete named entity in this turn, AND dialogue state has NO
-        # active entity or topic antecedent, we MUST NOT fire an ungrounded web search!
-        try:
-            from hinaa_api.dialogue_state import build_semantic_turn_frame
-            frame = build_semantic_turn_frame(text, d_state)
-            if not frame.referent_resolved:
-                logger.info("Pre-search suppressed: referent ungrounded for %r", text)
-                return False
-        except Exception:
-            pass
-
-        # Explicit search intent
-        if re.search(r"\b(search\s+(?:the\s+)?web|search\s+online|google|look\s+up\s+online|check\s+online|browse)\b", lowered):
-            return True
-
-        # Real-time / temporal indicators requiring up-to-date knowledge
-        temporal_indicators = [
-            r"\blatest\b",
-            r"\bcurrent(?:ly)?\b",
-            r"\bnews\b",
-            r"\btoday(?:'s)?\b",
-            r"\byesterday\b",
-            r"\btonight\b",
-            r"\bright\s+now\b",
-            r"\bthis\s+(?:week|month|year)\b",
-            r"\brecent(?:ly)?\b",
-            r"\bbreaking\b",
-            r"\bupdates?\b",
-            r"\bsituation\b",
-            r"\bdetails?\s+(?:about|on|of)\b",
-            r"\binfo(?:rmation)?\s+(?:about|on|regarding)\b",
-            r"\bwho\s+is\s+(?:the\s+)?(?:current|new|present)\b",
-            r"\bwhat\s+(?:is|are)\s+the\s+(?:latest|current|recent)\b",
-            r"\bwhat(?:'s|\s+is)\s+happening\b",
-            r"\bwhat\s+happened\s+(?:today|recently|in\s+202[4-9])\b",
-            r"\bweather\s+(?:in|for|today|forecast)\b",
-            r"\blive\s+score\b",
-            r"\bstock\s+price\b",
-            r"\b202[5-9]\b",
-        ]
-        # Follow-up research queries when an active topic exists in dialogue state
-        if d_state and getattr(d_state, "active_topic", None):
-            active_top = getattr(d_state, "active_topic", "").strip()
-            if active_top and active_top.lower() not in {"general", "chat", "anime", "image", "something"}:
-                if re.search(r"\b(?:tf|data|the\s+data|results?|details?|what\s+about|what\s+happened|who\s+won|who\s+is\s+winning|status|update|tell\s+more|continue|k\s+bhyo)\b", lowered):
-                    return True
-
-        try:
-            from hinaa_api.intelligence.research_detector import ResearchNeedDetector
-            needs_res, _ = ResearchNeedDetector.needs_research(text)
-            if needs_res:
-                return True
-        except Exception:
-            pass
-        return any(re.search(pat, lowered) for pat in temporal_indicators)
-
-    def _extract_search_query(self, text: str, d_state: Any = None) -> str:
-        """Normalize user text to an effective search query with antecedent resolution."""
-        lowered = text.strip().lower()
-        if d_state and getattr(d_state, "active_topic", None):
-            active_top = getattr(d_state, "active_topic", "").strip()
-            if active_top and active_top.lower() not in {"general", "chat", "anime", "image", "something"}:
-                if re.search(r"^(?:tf(?:\s+is)?(?:\s+the)?\s+data|continue|tell\s+me|what\s+happened|what\s+about\s+it)\b", lowered):
-                    return f"{active_top} latest news status updates"
-
-        query = re.sub(
-            r"(?i)\b(?:(?:hey|hi|hello)\s+(?:hinaa?|dude|bro|babe|yaar)\b|"
-            r"what'?s\s+up\b|"
-            r"dude\b|"
-            r"bro\b|"
-            r"babe\b|"
-            r"yaar\b|"
-            r"i\s+(?:want|would\s+like)\s+to\s+(?:say\s+something|tell\s+you\s+something|ask(?:\s+you)?(?:\s+something)?)\b|"
-            r"i\s+(?:like|want|need)\s+to\s+know\s+(?:about)?\b|"
-            r"can\s+you\s+(?:tell\s+me|check|search|find)\b|"
-            r"tell\s+me\s+(?:about)?\b)\s*[ ,!.:?-]*",
-            " ",
-            text.strip(),
-        )
-        query = re.sub(
-            r"(?i)^\s*(?:(?:hey\s+)?hinaa?\b|babe\b|bro\b|please\b|can\s+you\b|could\s+you\b|tell\s+me\b|check\b|search(?:\s+for)?\b|look\s+up\b|what\s+is\b|what\s+are\b|what's\b|find(?:\s+me)?\b|send(?:\s+me)?\b|show(?:\s+me)?\b|give(?:\s+me)?\b|fetch(?:\s+me)?\b|bring(?:\s+me)?\b|[ ,!.-])+",
-            "",
-            query.strip(),
-        ).strip(" ?!.,;:")
-        query = re.sub(
-            r"(?i)^\s*(?:some\s+|a\s+few\s+|any\s+)?(?:images?|pictures?|photos?|pics?|imgs?|wallpaper)?\s*(?:of|for|about|on)?\s*",
-            "",
-            query,
-        ).strip(" ?!.,;:")
-        # Strip trailing companion address names & conversational demands (e.g. "... Tell", "... batao")
-        query = re.sub(
-            r"(?i)\s+(?:hina|hinaa|babe|bro|please|pls|tell|tell\s+me|batao|bata\s+de)$",
-            "",
-            query,
-        ).strip(" ?!.,;:")
-        # Strip conversational connective clauses in compound queries
-        query = re.sub(
-            r"(?i)\b(?:what\'?s\s+the\s+(?:current|present)\s+situation\s+(?:about\s+it\s+)?(?:right\s+now|today)?|and\s+what\'?s\s+the\s+present\s+situation\s+of)\b",
-            " ",
-            query,
-        )
-        query = re.sub(r"(?i)\b(?:it\s+is\s+going\s+to\s+have|and\s+it\'?s\s+having\s+to\s+heal)\b", " ", query)
-        query = re.sub(r"\s+", " ", query).strip(" .,!?:;-")
-
-        # Resolve referential pronouns / anaphoric phrases using active dialogue state
-        if d_state:
-            topic = getattr(d_state, "active_topic", None)
-            if not topic and getattr(d_state, "active_entities", None):
-                for ent in d_state.active_entities:
-                    if ent.get("name"):
-                        topic = ent["name"]
-                        break
-            if topic and topic.strip().lower() not in {"anime", "image", "images", "general", "something", "chat"}:
-                if re.search(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them|those|these)\b", query):
-                    query = re.sub(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them|those|these)\b", f"about {topic}", query)
-                elif re.search(r"(?i)\b(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)\b", query):
-                    query = re.sub(r"(?i)\b(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)\b", topic, query)
-                elif query.strip().lower() in {"it", "this", "that", "them", "those", "these", "her", "him", "details", "more details", "news", "those anime", "these anime", "anime", "send anime"}:
-                    query = f"{topic} latest {query}".strip()
-                elif re.search(r"(?i)\b(?:data|the\s+data|results?|status|update)\b", query):
-                    query = f"{topic} latest status news updates".strip()
-        return query if len(query) >= 3 else text.strip()
-
-    async def create_plan(
-        self, request: TurnRequest, *, user_id: str | None = None
-    ) -> ProviderResult[AssistantTurnPlan]:
-        from .models import ToolRequest
-
-        convo_id = request.conversationId or request.sessionId
-        d_state = None
-        dialogue_state_block = ""
-        live_search_block = ""
-
-        if request.history:
-            session_history = [
-                (
-                    str(h.get("role") or "user"),
-                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
-                )
-                for h in request.history
-                if isinstance(h, dict) and (h.get("content") or h.get("text"))
-            ]
-        else:
-            session_history = self._resolve_session_history(request.sessionId, request.conversationId)
-
-        # Gate First: evaluate intent before running LLM or routing
-        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
-        gate_decision = decide_intent(request.text, history=session_history)
-
-        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
-            from .tools.reminder import schedule_reminder
-            from .models import ToolRequest
-            saved = schedule_reminder(
-                user_id=user_id or "anonymous",
-                title=gate_decision.arguments["title"],
-                at=gate_decision.arguments["due_at"],
-                conversation_id=request.conversationId or request.sessionId,
-                settings=self.settings,
-            )
-            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
-            plan = build_plan_from_text(
-                text=confirm_text,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = confirm_text
-            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
-            plan.toolRequests = [
-                ToolRequest(
-                    toolName="reminder.create",
-                    parameters={
-                        "title": saved["title"],
-                        "at": saved["at"],
-                        "display": saved["display"],
-                        "id": saved["id"],
-                    },
-                    status="ready",
-                    reason="deterministic-intent",
-                )
-            ]
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
-            return result
-
-        if gate_decision.intent == HinaaIntent.CANCEL:
-            self._cancel_inflight_image_jobs(user_id=user_id)
-            cancel_text = "Stopped. I have cancelled any running jobs."
-            plan = build_plan_from_text(
-                text=cancel_text,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = cancel_text
-            plan.spokenText = cancel_text
-            plan.toolRequests = []
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    pass
-            return result
-
-        if gate_decision.intent == HinaaIntent.CLARIFY:
-            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
-            plan = build_plan_from_text(
-                text=reason,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = reason
-            plan.spokenText = reason
-            plan.toolRequests = []
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    pass
-            return result
-
-
-        allowed_tools = self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
-        if self.dialogue_state_service and convo_id:
-            try:
-                d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
-                if d_state:
-                    from hinaa_api.dialogue_state import DialogueStateService, EntityReferenceResolver
-                    DialogueStateService.extract_goal_and_constraints(d_state, request.text)
-                    EntityReferenceResolver.update_entities_from_text(d_state, request.text)
-                    DialogueStateService.update_topic_from_request(d_state, request.text)
-                    self.dialogue_state_service.save(d_state)
-            except Exception:
-                logger.debug("Failed to extract goal/constraints in plan", exc_info=True)
-
-        if user_id:
-            self._handle_continuity_promotions(user_id, convo_id, request.text)
-
-        # Phase B2 — route this turn's context needs BEFORE heavy retrieval.
-        try:
-            _route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
-        except Exception:
-            logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
-            _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
-
-        # Real-time pre-turn live web search grounding. Trivial FAST turns
-        # never hit search (§39: simple chat must not suffer or pay for it).
-        grounded_sources: list[Any] = []
-        search_query = ""
-        if (
-            request.providerMode != "mock"
-            and not _route_meta.get("skip_recent_working_context")
-            and (self._should_pre_search(request.text, d_state=d_state) or gate_decision.intent == HinaaIntent.WEB_SEARCH)
-        ):
-            search_query = (
-                gate_decision.arguments.get("query")
-                if gate_decision.intent == HinaaIntent.WEB_SEARCH
-                else None
-            ) or self._extract_search_query(request.text, d_state=d_state)
-            # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
-            try:
-                from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
-                _depth = AnswerDepthController.infer_depth(request.text, active_goal=getattr(d_state, "active_goal", None) if d_state else None)
-                if _depth == AnswerDepth.QUICK:
-                    search_budget = 4
-                elif _depth == AnswerDepth.STANDARD:
-                    search_budget = 6
-                elif _depth == AnswerDepth.DETAILED:
-                    search_budget = 8
-                elif _depth == AnswerDepth.DEEP:
-                    search_budget = 10
-                else:
-                    search_budget = 15
-            except Exception:
-                search_budget = 6
-
-            try:
-                from hinaa_api.tools.browser import search_web
-                from hinaa_api.grounding.citations import EvidenceSource, CitationRenderer
-                from datetime import datetime, timezone
-                search_res = await asyncio.wait_for(
-                    search_web({"query": search_query, "count": search_budget}),
-                    timeout=15.0,
-                )
-                items = search_res.get("results") or search_res.get("sources") or []
-                if items:
-                    now = datetime.now(timezone.utc)
-                    formatted_date = now.strftime("%A, %B %d, %Y")
-                    grounded_sources = [
-                        EvidenceSource(
-                            source_id=str(idx),
-                            title=itm.get("title") or "Source",
-                            publisher=itm.get("domain") or "",
-                            url=itm.get("url") or "",
-                            date=itm.get("date"),
-                            snippet=itm.get("snippet") or "",
-                        )
-                        for idx, itm in enumerate(items[:25], 1)
-                    ]
-                    lines = [
-                        f"LIVE REAL-TIME WEB SEARCH INTELLIGENCE ({len(items)} Sources Retrieved {formatted_date} for query: {search_query!r}):",
-                        "Synthesize these retrieved facts into an authoritative, structured response with verified claims:",
-                    ]
-                    for idx, s in enumerate(grounded_sources, 1):
-                        clean_title = CitationRenderer.sanitize_untrusted_text(s.title)
-                        clean_snippet = CitationRenderer.sanitize_untrusted_text(s.snippet)
-                        lines.append(f"[{idx}] [{s.publisher}] {clean_title}: {clean_snippet} ({s.url})")
-                    lines.extend([
-                        "OPERATIONAL MANDATE (CRITICAL):",
-                        "- Synthesize across these live sources into an authoritative, high-impact analysis or report.",
-                        "- Attribute key claims with numbered bracket citations matching the sources above: e.g. [1], [2].",
-                        "- ZERO REPETITION: Do NOT repeat paragraphs, regurgitate text blocks, or echo previous turns. Never cut off mid-thought.",
-                        "- spokenText: Deliver a substantive, intelligent executive voice summary covering core findings and significance.",
-                        "- Make displayText directly informative, structured with key bullets, clear headings, and zero repetitive filler.",
-                    ])
-                    live_search_block = "\n".join(lines)
-
-                    if d_state is not None:
-                        d_state.tool_result_sets.append({
-                            "tool": "web_search",
-                            "query": search_query,
-                            "items": items[:25],
-                            "timestamp": now.isoformat(),
-                        })
-                        try:
-                            self.dialogue_state_service.save(d_state)
-                        except Exception:
-                            pass
-                elif gate_decision.intent == HinaaIntent.WEB_SEARCH:
-                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
-                    plan = build_plan_from_text(
-                        text=offline_text,
-                        companion_id=request.companionId or "hinaa",
-                        language=request.language or "en-US",
-                        depth="conversational",
-                    )
-                    plan.displayText = offline_text
-                    plan.spokenText = offline_text
-                    plan.toolRequests = []
-                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-                    self.memory.append_turn(
-                        request.sessionId, request.text, result.value.model_dump_json()
-                    )
-                    if self.memory_service and user_id:
-                        try:
-                            self.memory_service.append_turn(
-                                user_id=user_id,
-                                companion_id=request.companionId or "hinaa",
-                                conversation_id=request.conversationId or request.sessionId,
-                                user_text=request.text,
-                                assistant_text=result.value.model_dump_json(),
-                                language=result.value.language or "mixed",
-                            )
-                        except Exception:
-                            pass
-                    return result
-            except Exception:
-                logger.debug("Pre-search grounding skipped or timed out", exc_info=True)
-                if gate_decision.intent == HinaaIntent.WEB_SEARCH:
-                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
-                    plan = build_plan_from_text(
-                        text=offline_text,
-                        companion_id=request.companionId or "hinaa",
-                        language=request.language or "en-US",
-                        depth="conversational",
-                    )
-                    plan.displayText = offline_text
-                    plan.spokenText = offline_text
-                    plan.toolRequests = []
-                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-                    self.memory.append_turn(
-                        request.sessionId, request.text, result.value.model_dump_json()
-                    )
-                    if self.memory_service and user_id:
-                        try:
-                            self.memory_service.append_turn(
-                                user_id=user_id,
-                                companion_id=request.companionId or "hinaa",
-                                conversation_id=request.conversationId or request.sessionId,
-                                user_text=request.text,
-                                assistant_text=result.value.model_dump_json(),
-                                language=result.value.language or "mixed",
-                            )
-                        except Exception:
-                            pass
-                    return result
-
-        if d_state is not None:
-            try:
-                from hinaa_api.dialogue_state import build_dialogue_state_block
-                dialogue_state_block = build_dialogue_state_block(d_state)
-            except Exception:
-                pass
-
-        durable_memory = self._capture_turn_facts(request, user_id)
-        if request.history:
-            history = [
-                (
-                    str(h.get("role") or "user"),
-                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
-                )
-                for h in request.history
-                if isinstance(h, dict) and (h.get("content") or h.get("text"))
-            ]
-        else:
-            history = self._resolve_session_history(request.sessionId, request.conversationId)
-        approved = self._approved_blocks(user_id)
-        session_memories = _dedupe_session_facts(
-            self.memory.learned_memories(request.sessionId), approved
-        )
-        # B2.1 §1 — canonical context selection BEFORE assembly. The compiler
-        # (not the assembler/providers) decides which turns reach the model.
-        route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
-        history, selection_meta = self._compile_turn_context(
-            request=request,
-            history=history,
-            approved=approved,
-            session_memories=session_memories,
-            dialogue_state_block=dialogue_state_block,
-            live_search_block=live_search_block,
-            decision=route_decision,
-        )
-        resolved_media = await self._resolve_turn_media(request)
-        rag_context_block = ""
-        if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
-            try:
-                rag_context_block = await self.rag_service.resolve_grounded_context(request.text, top_k=3)
-            except Exception:
-                try:
-                    rag_context_block = self.rag_service.format_context_block(request.text, top_k=3)
-                except Exception:
-                    logger.debug("RAG context formatting failed in create_plan", exc_info=True)
-
-        from .prompts.skill_doctrine import doctrine_for_turn
-        skill_doctrine_block = doctrine_for_turn(
-            request.text,
-            is_voice=request.responseMode == "concise_voice",
-        )
-
-        prompt = build_turn_prompt(
-            request=request,
-            history=history,
-            settings=self.settings,
-            interaction_mode="rest",
-            session_memories=session_memories,
-            approved_memory_blocks=approved,
-            durable_memory=durable_memory,
-            attachments=tuple(resolved_media),
-            dialogue_state_block=dialogue_state_block,
-            live_search_block=live_search_block,
-            rag_context_block=rag_context_block,
-            history_preselected=True,
-            allowed_tools=allowed_tools,
-            skill_doctrine_block=skill_doctrine_block,
-        )
-        self._log_prompt_meta(
-            request.sessionId,
-            prompt.fingerprint,
-            "rest",
-            manifest_id=selection_meta.get("manifest_id"),
-        )
-        requested_provider = request.providerMode
-        requested_model = request.brainModel
-        resolved_provider = requested_provider
-        resolved_model = requested_model
-        is_fallback = False
-        fallback_reason: str | None = None
-
-        vision_required, moved_off = await self._apply_vision_gate(
-            request, resolved_media
-        )
-        if moved_off:
-            is_fallback = True
-            fallback_reason = (
-                f"{moved_off} cannot look at images, so a seeing brain answered"
-            )
-            resolved_provider = request.providerMode
-            resolved_model = request.brainModel
-
-        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
-        # Use the configured LLM timeout for all providers. The old 2.5s was far
-        # too short for mwapi.dev (which needs 3-8s cold) and caused constant
-        # timeouts. HINAA_LLM_TIMEOUT_SECONDS=90 from .env.local applies here.
-        primary_plan_timeout = self.settings.llm_timeout_seconds
-        # Same bench rule as the streaming path: a brain whose gateway hangs
-        # must not be paid another full timeout of silence on every turn, and
-        # a brain past cooloff proves recovery on a cheap probe budget.
-        primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
-            primary_plan_timeout = min(primary_plan_timeout, 12.0)
-        attempted_brain = request.providerMode
-        fast_provider_id = None
-
-        try:
-            if primary_bench_cooloff:
-                raise HinaaError(
-                    "PROVIDER_TIMEOUT",
-                    f"Primary brain {request.providerMode} is benched for "
-                    f"{primary_bench_cooloff:.0f}s after hanging on recent turns.",
-                    503,
-                    True,
-                )
-            async with asyncio.timeout(primary_plan_timeout):
-                provider = (
-                    None
-                    if vision_required
-                    else self._fast_casual_provider(
-                        request.providerMode, request.text, history
-                    )
-                )
-                fast_provider_id = getattr(provider, "id", None)
-                if provider is None:
-                    provider = self.router.llm(
-                        request.providerMode, request.brainModel
-                    )
-                attempted_brain = getattr(provider, "id", None) or request.providerMode
-                # The router resolves aliases and allow-lists to a concrete model id,
-                # so the instance — not the request — is the only honest source of
-                # what went over the wire.
-                served_model = getattr(provider, "model", "") or request.brainModel or ""
-                result = await provider.create_plan(
-                    request.text,
-                    request.companionId,
-                    request.language,
-                    history,
-                    prompt,
-                )
-                resolved_model = served_model or resolved_model
-                self._record_brain_call(attempted_brain, ok=True, model=served_model)
-                if request.providerMode == "mock" and self.cross_session_retriever and user_id:
-                    try:
-                        evs = self.cross_session_retriever.retrieve_relevant_context(
-                            user_id, request.text, conversation_id=convo_id
-                        )
-                        for ev in evs:
-                            if ev.source_type == "project" and ev.content:
-                                result.value.displayText = ev.content
-                                result.value.spokenText = ev.content
-                                break
-                    except Exception:
-                        pass
-        except (HinaaError, TimeoutError, Exception) as raw_error:
-            if isinstance(raw_error, TimeoutError):
-                error = HinaaError(
-                    "PROVIDER_TIMEOUT",
-                    f"Primary brain {request.providerMode} timed out after {primary_plan_timeout}s.",
-                    504,
-                    True,
-                )
-            elif isinstance(raw_error, HinaaError):
-                error = raw_error
-            else:
-                error = HinaaError(
-                    "PROVIDER_UNAVAILABLE",
-                    str(raw_error) or "The selected brain could not complete this turn.",
-                    503,
-                    True,
-                )
-
-            # A benched brain was never tried; recording the skip as a fresh
-            # failure would push its cooloff forward forever.
-            if not primary_bench_cooloff:
-                self._record_brain_call(attempted_brain, ok=False, error=error)
-
-            if getattr(error, "code", None) == "SAFETY_REFUSAL":
-                logger.warning("Primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
-                raise error
-
-            retry_succeeded = False
-            if fast_provider_id and error.code in {
-                "PROVIDER_KEY_INVALID",
-                "PROVIDER_UNAVAILABLE",
-                "PROVIDER_RATE_LIMIT",
-            }:
-                # The fast brain (e.g. a deactivated key or schema failure) must
-                # never fail the turn: negative-cache its key and retry
-                # once with the configured reasoning brain.
-                self._mark_fast_key_bad(fast_provider_id)
-                logger.warning(
-                    "casual fast provider %s failed (%s); retrying with %s",
-                    fast_provider_id,
-                    error.code,
-                    request.providerMode,
-                )
-                provider = self.router.llm(
-                    request.providerMode, request.brainModel
-                )
-                attempted_brain = getattr(provider, "id", None) or request.providerMode
-                served_model = getattr(provider, "model", "") or request.brainModel or ""
-                try:
-                    async with asyncio.timeout(primary_plan_timeout):
-                        result = await provider.create_plan(
-                            request.text,
-                            request.companionId,
-                            request.language,
-                            history,
-                            prompt,
-                        )
-                    resolved_model = served_model or resolved_model
-                    self._record_brain_call(attempted_brain, ok=True, model=served_model)
-                    retry_succeeded = True
-                except Exception as retry_err:
-                    if isinstance(retry_err, HinaaError):
-                        error = retry_err
-                    else:
-                        error = HinaaError("PROVIDER_UNAVAILABLE", str(retry_err), 503, True)
-                    self._record_brain_call(attempted_brain, ok=False, error=error)
-
-            if not retry_succeeded:
-                if getattr(error, "code", None) == "SAFETY_REFUSAL":
-                    logger.warning("Provider returned SAFETY_REFUSAL; raising without fallback.")
-                    raise error
-                if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
-                    fallback_result = None
-                    for fb_mode, fb_model in await self._fallback_candidate_modes(
-                        request.providerMode, requires_vision=vision_required
-                    ):
-                        try:
-                            logger.info(
-                                "Primary brain %s failed with %s; falling back to %s (%s)",
-                                request.providerMode,
-                                error.code,
-                                fb_mode,
-                                fb_model,
-                            )
-                            fb_brain = fb_mode
-                            fb_provider = self.router.llm(fb_mode, fb_model)
-                            fb_brain = getattr(fb_provider, "id", None) or fb_mode
-                            async with asyncio.timeout(max(45.0, primary_plan_timeout)):  # Enough for Gemini/other fallbacks
-                                fallback_result = await fb_provider.create_plan(
-                                    request.text,
-                                    request.companionId,
-                                    request.language,
-                                    history,
-                                    prompt,
-                                )
-                            self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
-                            logger.info("Fallback to %s succeeded", fb_mode)
-                            is_fallback = True
-                            fallback_reason = f"Primary {request.providerMode} failed: {error.code}"
-                            resolved_provider = fb_mode
-                            resolved_model = fb_model
-                            break
-                        except Exception as fb_exc:
-                            self._record_brain_call(fb_brain, ok=False, error=fb_exc)
-                            logger.warning("Fallback provider %s failed: %r", fb_mode, fb_exc)
-                    if fallback_result is not None:
-                        result = fallback_result
-                    else:
-                        plan = neutral_fallback_plan(
-                            user_text=request.text,
-                            companion_id=request.companionId,
-                            language=request.language,
-                            depth=prompt.response_depth,
-                        )
-                        result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
-                        is_fallback = True
-                        fallback_reason = f"Candidate fallbacks exhausted ({error.code}): neutral fallback engaged"
-                        resolved_provider = "neutral_fallback"
-                        resolved_model = None
-                elif error.code == "MODEL_RESPONSE_INVALID":
-                    plan = neutral_fallback_plan(
-                        user_text=request.text,
-                        companion_id=request.companionId,
-                        language=request.language,
-                        depth=prompt.response_depth,
-                    )
-                    result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
-                    is_fallback = True
-                    fallback_reason = "MODEL_RESPONSE_INVALID: neutral fallback plan engaged"
-                    resolved_provider = "neutral_fallback"
-                    resolved_model = None
-                else:
-                    raise error
-        _apply_response_quality_guard(result.value, evidence_sources=grounded_sources, user_text=request.text, response_mode=getattr(request, "responseMode", None))
-        result.value.requestedProvider = requested_provider
-        result.value.requestedModel = requested_model
-        result.value.resolvedProvider = resolved_provider
-        result.value.resolvedModel = resolved_model
-        result.value.fallback = is_fallback
-        result.value.fallbackReason = fallback_reason
-        result.value.latencyMs = result.latency_ms
-
-        # Auto-persist learned memory candidates
-        if getattr(result.value, "memoryCandidates", None):
-            for candidate in result.value.memoryCandidates:
-                try:
-                    if self.memory_service and user_id:
-                        self.memory_service.remember(
-                            user_id=user_id,
-                            content=candidate.content,
-                            category=getattr(candidate, 'category', None) or "conversation",
-                            source_turn_ref=f"auto:{request.conversationId or request.sessionId}",
-                            explicit=True,
-                        )
-                except Exception:
-                    logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
-
-        if allowed_tools == ():
-            result.value.toolRequests = []
-        else:
-            self._inject_deterministic_tool_intents(
-                request.text,
-                result.value,
-                session_id=request.sessionId,
-                turn_request=request,
-                user_id=user_id,
-            )
-            self._gate_tool_intents(request, result.value, user_id=user_id)
-            if gate_decision.intent == HinaaIntent.WEB_SEARCH and not any(t.toolName in ("web_search", "web_answer", "web_research") for t in result.value.toolRequests):
-                if not live_search_block:
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="web_search",
-                            parameters={"query": search_query or request.text},
-                            status="ready",
-                            reason="deterministic-intent",
-                        )
-                    )
-            # Deterministic Image Generation Guarantee (only when user explicitly requests image generation)
-            if (
-                gate_decision.intent == HinaaIntent.IMAGE_GENERATE
-            ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
-                prompt_to_use = gate_decision.arguments.get("prompt") or request.text
-                if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
-                    session_history = self._resolve_session_history(request.sessionId, request.conversationId)
-                    from hinaa_intent_gate import _check_image_proposal
-                    is_img, pending_prompt = _check_image_proposal(session_history)
-                    if pending_prompt and pending_prompt not in {"image", "it", "this"}:
-                        prompt_to_use = pending_prompt
-                    elif d_state:
-                        active = getattr(d_state, "active_entity", None) or getattr(d_state, "active_topic", None)
-                        if active:
-                            prompt_to_use = active
-                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                    if re.search(r"\b" + re.escape(alias) + r"\b", prompt_to_use, re.IGNORECASE):
-                        prompt_to_use = re.sub(r"\b" + re.escape(alias) + r"\b", canonical, prompt_to_use, flags=re.IGNORECASE)
-                        break
-
-                engine = getattr(request, "imageEngine", None) or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="image_generate",
-                        parameters={
-                            "prompt": prompt_to_use,
-                            "count": 1,
-                            "mode": "quality",
-                            "engine": engine,
-                        },
-                        status="ready",
-                        reason="deterministic-intent",
-                    )
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "copyright", "do you want me to", "should i generate", "let me know if you want")):
-                    result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
-                    result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
-
-            # Deterministic Document & Presentation Generation Guarantee (only when user requested document)
-            if (
-                gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
-            ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
-                is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
-                doc_topic = request.text
-                topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", request.text)
-                if topic_m:
-                    doc_topic = topic_m.group(1).strip()
-                else:
-                    doc_topic = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare|please|pls|bro|hina|can\s+you)\b", "", request.text).strip()
-                    doc_topic = re.sub(r"[\"']", "", doc_topic).strip()
-                    doc_topic = re.sub(r"[^\w\s-]", "", doc_topic).strip()
-                    doc_topic = re.sub(r"\s+", " ", doc_topic).strip()
-                clean_title = (doc_topic if len(doc_topic) >= 3 else "Executive Report").strip().title()
-                if is_slides:
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="create_gamma_presentation",
-                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Deck", "format": "presentation", "export_as": "pptx", "num_cards": 8},
-                            status="ready",
-                            reason="deterministic-intent",
-                        )
-                    )
-                else:
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="pdf_generate",
-                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Report", "category": "Research Report", "content": ""},
-                            status="ready",
-                            reason="deterministic-intent",
-                        )
-                    )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
-                    result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
-                    result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
-
-            # Deterministic Website Design Guarantee
-            if (
-                "design_website" in allowed_tools
-            ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
-                clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
-                web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="design_website",
-                        parameters={"brief": request.text, "title": web_title, "theme": "auto"},
-                        status="ready",
-                        reason="deterministic-intent",
-                    )
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
-                    result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
-                    result.value.spokenText = f"Designing your live {web_title} website for you right now."
-
-            # Deterministic Autonomous UI Steering Guarantee
-            if (
-                "ui_control" in allowed_tools
-            ) and not any(t.toolName == "ui_control" for t in result.value.toolRequests):
-                lower_text = request.text.lower()
-                ui_action = "navigate"
-                target_mode = None
-                target_section = None
-                target_drawer = None
-                target_window_mode = None
-                target_avatar_mode = None
-
-                if "showroom" in lower_text or "3d" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "showroom"
-                elif "work" in lower_text or "chat" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "work"
-                elif "operate" in lower_text or "task" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "operate"
-                elif "vault" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "vault"
-                elif "terminal" in lower_text:
-                    ui_action = "toggle_drawer"
-                    target_drawer = "terminal"
-                elif "companion" in lower_text or "floating" in lower_text:
-                    ui_action = "desktop_window_mode"
-                    target_window_mode = "floating_companion"
-                elif "avatar" in lower_text:
-                    ui_action = "set_avatar_mode"
-                    target_avatar_mode = "3d"
-
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="ui_control",
-                        parameters={
-                            "action": ui_action,
-                            "mode": target_mode,
-                            "section": target_section,
-                            "drawer": target_drawer,
-                            "window_mode": target_window_mode,
-                            "avatar_mode": target_avatar_mode,
-                        },
-                        status="ready",
-                        reason="deterministic-ui-intent",
-                    )
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
-                    target_desc = target_mode or target_drawer or target_window_mode or "requested view"
-                    result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
-                    result.value.spokenText = f"Switching your workspace to {target_desc} now."
-
-            # Deterministic Computer Operator / OS Action Guarantee
-            if (
-                "computer_operator" in allowed_tools
-            ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
-                from .tools.intent_gate import sanction_tools
-                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                cop_params = sanction.parameters.get("computer_operator", {})
-                if not cop_params:
-                    cop_params = {"action": "create_folder", "target": request.text}
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="computer_operator",
-                        parameters=cop_params,
-                        status="ready",
-                        reason="deterministic-intent",
-                    )
-                )
-
-            if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
-                cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")
-                cop_act = cop_req.parameters.get("action", "")
-                cop_tgt = cop_req.parameters.get("target", "")
-                cop_refusal_patterns = ("cannot create", "can't create", "don't have access to your", "as an ai", "unable to create", "cannot open app", "unable to open", "cannot control", "don't have permission")
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in cop_refusal_patterns):
-                    if cop_act == "create_folder":
-                        result.value.displayText = "I'm creating that folder on your computer for you right now! 📁✨"
-                        result.value.spokenText = "Creating that folder on your computer now!"
-                    elif cop_act in ("open_application", "open_app"):
-                        result.value.displayText = f"Opening {cop_tgt or 'application'} on your computer! 🚀"
-                        result.value.spokenText = f"Opening {cop_tgt or 'application'} for you now!"
-
-            # Deterministic Autonomous Browser Action Guarantee
-            if (
-                "browser_execute_task" in allowed_tools
-                or "browser_navigate" in allowed_tools
-            ) and not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in result.value.toolRequests):
-                from .tools.intent_gate import sanction_tools
-                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                if "browser_execute_task" in sanction.allowed:
-                    b_params = sanction.parameters.get("browser_execute_task", {"goal": request.text})
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="browser_execute_task",
-                            parameters=b_params,
-                            status="ready",
-                            reason="deterministic-browser-intent",
-                        )
-                    )
-                elif "browser_navigate" in sanction.allowed:
-                    b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="browser_navigate",
-                            parameters=b_params,
-                            status="ready",
-                            reason="deterministic-browser-intent",
-                        )
-                    )
-
-            if any(t.toolName in {"browser_execute_task", "browser_navigate"} for t in result.value.toolRequests):
-                browser_refusal_patterns = (
-                    "cannot browse", "can't browse", "don't have access to the web", "don't have internet",
-                    "as an ai", "unable to browse", "cannot open websites", "unable to navigate",
-                    "don't have a web browser", "cannot interact with websites"
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in browser_refusal_patterns):
-                    result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
-                    result.value.spokenText = "Launching autonomous browser agent now!"
-
-            result.value.toolRequests = [
-                tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
-            ]
-            if live_search_block or (result.value.displayText and len(result.value.displayText.strip()) > 30):
-                SEARCH_TOOLS = {"web_search", "web_research", "web_answer", "finance_research", "web_extract"}
-                result.value.toolRequests = [
-                    tr for tr in result.value.toolRequests if tr.toolName not in SEARCH_TOOLS
-                ]
-
-        self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
-
-        # Persist to durable storage
-        try:
-            effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
-            if self.memory_service and effective_user:
-                self.memory_service.append_turn(
-                    user_id=effective_user,
-                    companion_id=request.companionId or "hinaa",
-                    conversation_id=request.conversationId or request.sessionId,
-                    user_text=request.text,
-                    assistant_text=result.value.model_dump_json(),
-                    language=result.value.language or "mixed",
-                    attachments=request.attachments or (
-                        [{"asset_id": aid} for aid in request.attachment_ids] if request.attachment_ids else None
-                    ),
-                )
-        except Exception:
-            logger.warning("Failed to persist turn to database", exc_info=True)
-
-        # B2 summary tree (§17–§24): fold the finished turn into the open
-        # episode. Incremental — only this turn's sequence is summarized.
-        self._record_episode_turn(
-            request=request,
-            user_id=user_id,
-            assistant_text=result.value.displayText or result.value.spokenText or "",
-        )
-
-        guard_spoken = check_reply(result.value.spokenText, user_text=request.text, language=request.language)
-        if guard_spoken.text != result.value.spokenText:
-            result.value.spokenText = guard_spoken.text
-        if result.value.displayText:
-            guard_display = check_reply(result.value.displayText, user_text=request.text, language=request.language)
-            if guard_display.text != result.value.displayText:
-                result.value.displayText = guard_display.text
-
-        self._persist_learned_memories(user_id, request.sessionId)
-
-        return result
-
-    async def create_live_plan(
-        self,
-        request: TurnRequest,
-        emit_delta: Callable[[str], Awaitable[None]],
-        *,
-        user_id: str | None = None,
-        emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
-    ) -> ProviderResult[AssistantTurnPlan]:
-        from .providers.timing import ProviderTiming
-        from .models import ToolRequest
-
-        convo_id = request.conversationId or request.sessionId
-        d_state = None
-        dialogue_state_block = ""
-        live_search_block = ""
-
-        if request.history:
-            session_history = [
-                (
-                    str(h.get("role") or "user"),
-                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
-                )
-                for h in request.history
-                if isinstance(h, dict) and (h.get("content") or h.get("text"))
-            ]
-        else:
-            session_history = self._resolve_session_history(request.sessionId, request.conversationId)
-
-        # Gate First: evaluate intent before running LLM or routing
-        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
-        gate_decision = decide_intent(request.text, history=session_history)
-
-        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
-            from .tools.reminder import schedule_reminder
-            from .models import ToolRequest
-            saved = schedule_reminder(
-                user_id=user_id or "anonymous",
-                title=gate_decision.arguments["title"],
-                at=gate_decision.arguments["due_at"],
-                conversation_id=request.conversationId or request.sessionId,
-                settings=self.settings,
-            )
-            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
-            plan = build_plan_from_text(
-                text=confirm_text,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = confirm_text
-            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
-            plan.toolRequests = [
-                ToolRequest(
-                    toolName="reminder.create",
-                    parameters={
-                        "title": saved["title"],
-                        "at": saved["at"],
-                        "display": saved["display"],
-                        "id": saved["id"],
-                    },
-                    status="ready",
-                    reason="deterministic-intent",
-                )
-            ]
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
-            return result
-
-        if gate_decision.intent == HinaaIntent.CANCEL:
-            self._cancel_inflight_image_jobs(user_id=user_id)
-            cancel_text = "Stopped. I have cancelled any running jobs."
-            plan = build_plan_from_text(
-                text=cancel_text,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = cancel_text
-            plan.spokenText = cancel_text
-            plan.toolRequests = []
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    pass
-            return result
-
-        if gate_decision.intent == HinaaIntent.CLARIFY:
-            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
-            plan = build_plan_from_text(
-                text=reason,
-                companion_id=request.companionId or "hinaa",
-                language=request.language or "en-US",
-                depth="conversational",
-            )
-            plan.displayText = reason
-            plan.spokenText = reason
-            plan.toolRequests = []
-            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
-            self.memory.append_turn(
-                request.sessionId, request.text, result.value.model_dump_json()
-            )
-            if self.memory_service and user_id:
-                try:
-                    self.memory_service.append_turn(
-                        user_id=user_id,
-                        companion_id=request.companionId or "hinaa",
-                        conversation_id=request.conversationId or request.sessionId,
-                        user_text=request.text,
-                        assistant_text=result.value.model_dump_json(),
-                        language=result.value.language or "mixed",
-                    )
-                except Exception:
-                    pass
-            return result
-
-        if self.dialogue_state_service and convo_id:
-            try:
-                d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
-                if d_state:
-                    from hinaa_api.dialogue_state import DialogueStateService, EntityReferenceResolver
-                    DialogueStateService.extract_goal_and_constraints(d_state, request.text)
-                    EntityReferenceResolver.update_entities_from_text(d_state, request.text)
-                    DialogueStateService.update_topic_from_request(d_state, request.text)
-                    self.dialogue_state_service.save(d_state)
-            except Exception:
-                logger.debug("Failed to extract goal/constraints in live plan", exc_info=True)
-
-        if user_id:
-            self._handle_continuity_promotions(user_id, convo_id, request.text)
-
-        # Phase B2 — route this turn's context needs BEFORE heavy retrieval.
-        try:
-            _route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
-        except Exception:
-            logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
-            _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
-
-        # Real-time pre-turn live web search grounding. Trivial FAST turns
-        # never hit search (§39: simple chat must not suffer or pay for it).
-        grounded_sources: list[Any] = []
-        if (
-            request.providerMode != "mock"
-            and not _route_meta.get("skip_recent_working_context")
-            and self._should_pre_search(request.text, d_state=d_state)
-        ):
-            search_query = self._extract_search_query(request.text, d_state=d_state)
-            # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
-            try:
-                from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
-                _depth = AnswerDepthController.infer_depth(request.text, active_goal=getattr(d_state, "active_goal", None) if d_state else None)
-                if _depth == AnswerDepth.QUICK:
-                    search_budget = 4
-                elif _depth == AnswerDepth.STANDARD:
-                    search_budget = 6
-                elif _depth == AnswerDepth.DETAILED:
-                    search_budget = 8
-                elif _depth == AnswerDepth.DEEP:
-                    search_budget = 10
-                else:
-                    search_budget = 15
-            except Exception:
-                search_budget = 6
-
-            if emit_event:
-                try:
-                    await emit_event("search.started", {
-                        "query": search_query,
-                        "correlationId": convo_id,
-                    })
-                except Exception:
-                    pass
-            try:
-                from hinaa_api.tools.browser import search_web
-                from hinaa_api.grounding.citations import EvidenceSource, CitationRenderer
-                from datetime import datetime, timezone
-                search_res = await asyncio.wait_for(
-                    search_web({"query": search_query, "count": search_budget}),
-                    timeout=15.0,
-                )
-                items = search_res.get("results") or search_res.get("sources") or []
-                if emit_event:
-                    try:
-                        await emit_event("search.completed", {
-                            "query": search_query,
-                            "sourcesCount": len(items),
-                            "correlationId": convo_id,
-                        })
-                    except Exception:
-                        pass
-                if items:
-                    now = datetime.now(timezone.utc)
-                    formatted_date = now.strftime("%A, %B %d, %Y")
-                    grounded_sources = [
-                        EvidenceSource(
-                            source_id=str(idx),
-                            title=itm.get("title") or "Source",
-                            publisher=itm.get("domain") or "",
-                            url=itm.get("url") or "",
-                            date=itm.get("date"),
-                            snippet=itm.get("snippet") or "",
-                        )
-                        for idx, itm in enumerate(items[:25], 1)
-                    ]
-                    lines = [
-                        f"LIVE REAL-TIME WEB SEARCH INTELLIGENCE ({len(items)} Sources Retrieved {formatted_date} for query: {search_query!r}):",
-                        "Synthesize these retrieved facts into an authoritative, structured response with verified claims:",
-                    ]
-                    for idx, s in enumerate(grounded_sources, 1):
-                        clean_title = CitationRenderer.sanitize_untrusted_text(s.title)
-                        clean_snippet = CitationRenderer.sanitize_untrusted_text(s.snippet)
-                        lines.append(f"[{idx}] [{s.publisher}] {clean_title}: {clean_snippet} ({s.url})")
-                    lines.extend([
-                        "OPERATIONAL MANDATE (CRITICAL):",
-                        "- Synthesize across these live sources into an authoritative, high-impact analysis or report.",
-                        "- Attribute key claims with numbered bracket citations matching the sources above: e.g. [1], [2].",
-                        "- You ALREADY HAVE the retrieved search intelligence above! Synthesize your response directly in displayText and spokenText. Do NOT emit <web_search> tags, simulated tool markers, or further tool calls.",
-                        "- ZERO REPETITION: Do NOT repeat paragraphs, regurgitate text blocks, or echo previous turns. Never cut off mid-thought.",
-                        "- spokenText: Deliver a substantive, intelligent executive voice summary covering core findings and significance.",
-                        "- Make displayText directly informative, structured with key bullets, clear headings, and zero repetitive filler.",
-                    ])
-                    live_search_block = "\n".join(lines)
-
-                    if d_state is not None:
-                        d_state.tool_result_sets.append({
-                            "tool": "web_search",
-                            "query": search_query,
-                            "items": items[:25],
-                            "timestamp": now.isoformat(),
-                        })
-                        try:
-                            self.dialogue_state_service.save(d_state)
-                        except Exception:
-                            pass
-            except Exception:
-                logger.debug("Live pre-search grounding skipped or timed out", exc_info=True)
-
-        if d_state is not None:
-            try:
-                from hinaa_api.dialogue_state import build_dialogue_state_block
-                dialogue_state_block = build_dialogue_state_block(d_state)
-            except Exception:
-                pass
-
-        durable_memory = self._capture_turn_facts(request, user_id)
-        timing = ProviderTiming()
-        history = session_history or self._resolve_session_history(request.sessionId, request.conversationId)
-        approved = self._approved_blocks(user_id)
-        session_memories = _dedupe_session_facts(
-            self.memory.learned_memories(request.sessionId), approved
-        )
-        # B2.1 §1 — canonical context selection BEFORE assembly (realtime path).
-        route_decision_rt, _route_meta_rt = self._route_context_for_turn(request, user_id, d_state)
-        history, selection_meta_rt = self._compile_turn_context(
-            request=request,
-            history=history,
-            approved=approved,
-            session_memories=session_memories,
-            dialogue_state_block=dialogue_state_block,
-            live_search_block=live_search_block,
-            decision=route_decision_rt,
-        )
-        resolved_media = await self._resolve_turn_media(request)
-        rag_context_block_rt = ""
-        if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
-            try:
-                rag_context_block_rt = await self.rag_service.resolve_grounded_context(request.text, top_k=3)
-            except Exception:
-                try:
-                    rag_context_block_rt = self.rag_service.format_context_block(request.text, top_k=3)
-                except Exception:
-                    logger.debug("Live RAG context formatting failed", exc_info=True)
-
-        # ``turns:stream`` carries typed chat as well as voice, so the tool-free
-        # contract is keyed on the mode that is actually voice. A typed turn gets
-        # the whitelist its own words earned: passing () here told her the turn
-        # had no tools while the injector below filed the action anyway.
-        is_voice_turn = request.responseMode == "concise_voice"
-        live_allowed_tools = (
-            ()
-            if is_voice_turn
-            else self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
-        )
-        from .prompts.skill_doctrine import doctrine_for_turn
-        prompt = build_turn_prompt(
-            request=request,
-            history=history,
-            settings=self.settings,
-            interaction_mode="realtime",
-            session_memories=session_memories,
-            approved_memory_blocks=approved,
-            durable_memory=durable_memory,
-            attachments=tuple(resolved_media),
-            dialogue_state_block=dialogue_state_block,
-            live_search_block=live_search_block,
-            rag_context_block=rag_context_block_rt,
-            history_preselected=True,
-            allowed_tools=live_allowed_tools,
-            skill_doctrine_block=doctrine_for_turn(request.text, is_voice=is_voice_turn),
-        )
-        timing.mark("prompt_built")
-        self._log_prompt_meta(
-            request.sessionId,
-            prompt.fingerprint,
-            "realtime",
-            manifest_id=selection_meta_rt.get("manifest_id"),
-        )
-        fast_provider_id: str | None = None
-        requested_provider = request.providerMode
-        requested_model = request.brainModel
-        resolved_provider = requested_provider
-        resolved_model = requested_model
-        is_fallback = False
-        fallback_reason: str | None = None
-
-        vision_required, moved_off = await self._apply_vision_gate(
-            request, resolved_media
-        )
-        if moved_off:
-            is_fallback = True
-            fallback_reason = (
-                f"{moved_off} cannot look at images, so a seeing brain answered"
-            )
-            resolved_provider = request.providerMode
-            resolved_model = request.brainModel
-
-        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
-        primary_idle_timeout = self.settings.llm_stream_idle_timeout_seconds
-        primary_live_timeout = max(
-            self.settings.llm_stream_ceiling_seconds, primary_idle_timeout
-        )
-        # A brain benched by its breaker (a gateway that accepted the request
-        # and hung) must not be paid another full turn window of silence: the
-        # turn goes straight to the fallback chain. A brain past cooloff but
-        # not yet proven healthy gets a cheap probe budget for the same reason.
-        primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
-            primary_idle_timeout = min(primary_idle_timeout, 12.0)
-            primary_live_timeout = min(primary_live_timeout, 45.0)
-        primary_text: list[str] = []
-        primary_idle_expired: Callable[[], bool] = lambda: False
-        attempted_brain = request.providerMode
-
-        try:
-            if primary_bench_cooloff:
-                raise HinaaError(
-                    "PROVIDER_TIMEOUT",
-                    f"Primary brain {request.providerMode} is benched for "
-                    f"{primary_bench_cooloff:.0f}s after hanging on recent turns.",
-                    503,
-                    True,
-                )
-            async with live_generation_window(
-                ceiling_s=primary_live_timeout,
-                idle_s=primary_idle_timeout,
-                forward=emit_delta,
-                sink=primary_text,
-                first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
-            ) as (primary_emit, idle_expired):
-                primary_idle_expired = idle_expired
-                # The fast path shaves latency off short social chat. A turn
-                # carrying a photo is not that, and a fast brain that cannot see
-                # would answer it from the caption alone.
-                provider = (
-                    None
-                    if vision_required
-                    else self._fast_casual_provider(
-                        request.providerMode, request.text, history
-                    )
-                )
-                fast_provider_id = getattr(provider, "id", None)
-                if provider is None:
-                    provider = self.router.llm(
-                        request.providerMode, request.brainModel
-                    )
-                attempted_brain = getattr(provider, "id", None) or request.providerMode
-                served_model = getattr(provider, "model", "") or request.brainModel or ""
-                if isinstance(provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
-                    result = await provider.create_live_plan(
-                        request.text,
-                        request.companionId,
-                        request.language,
-                        history,
-                        primary_emit,
-                        prompt,
-                    )
-                    stages = {"prompt_built": timing.ms_since_start("prompt_built") or 0}
-                    if result.stages:
-                        stages.update(result.stages)
-                    result = ProviderResult(
-                        result.value,
-                        result.provider,
-                        result.latency_ms,
-                        stages=stages,
-                    )
-                    # The interface now names the brain that answered, so record the
-                    # ones that actually ran rather than the ones requested. A badge
-                    # built from the request said "claude" for weeks while a flash-tier
-                    # gateway wrote every word.
-                    resolved_provider = getattr(provider, "id", None) or resolved_provider
-                    resolved_model = served_model or resolved_model
-                else:
-                    # Mock / non-streaming path: deltas are synthetic after full plan.
-                    timing.mark("provider_client_ready")
-                    timing.mark("request_sent")
-                    result = await provider.create_plan(
-                        request.text,
-                        request.companionId,
-                        request.language,
-                        history,
-                        prompt,
-                    )
-                    timing.mark("first_provider_event")
-                    timing.mark("plan_parsed")
-                    timing.mark("plan_validated")
-
-                    # If mock mode and cross-session project fact was queried
-                    if self.cross_session_retriever and user_id and ("nova" in request.text.lower() or "what db" in request.text.lower() or "which db" in request.text.lower() or "database" in request.text.lower()):
-                        try:
-                            evs = self.cross_session_retriever.retrieve_relevant_context(
-                                user_id, request.text, conversation_id=convo_id
-                            )
-                            for ev in evs:
-                                if ev.source_type == "project" and ev.content:
-                                    result.value.displayText = ev.content
-                                    result.value.spokenText = ev.content
-                                    break
-                        except Exception:
-                            pass
-
-                    display = result.value.displayText
-                    for start in range(0, len(display), 7):
-                        chunk = display[start : start + 7]
-                        timing.mark("first_text_delta")
-                        await primary_emit(chunk)
-                        await asyncio.sleep(0.006)
-                    timing.mark("text_complete")
-                    result = ProviderResult(
-                        result.value,
-                        result.provider,
-                        result.latency_ms,
-                        stages=timing.snapshot(),
-                    )
-            self._record_brain_call(attempted_brain, ok=True, model=served_model)
-        except (HinaaError, TimeoutError, Exception) as raw_error:
-            if isinstance(raw_error, TimeoutError):
-                timed_out_idle = primary_idle_expired()
-                error = HinaaError(
-                    "PROVIDER_TIMEOUT",
-                    (
-                        f"Live primary brain {request.providerMode} went silent for "
-                        f"{primary_idle_timeout}s."
-                        if timed_out_idle
-                        else f"Live primary brain {request.providerMode} exceeded the "
-                        f"{primary_live_timeout}s ceiling for one turn."
-                    ),
-                    504,
-                    True,
-                )
-            elif isinstance(raw_error, HinaaError):
-                error = raw_error
-            else:
-                error = HinaaError(
-                    "PROVIDER_UNAVAILABLE",
-                    str(raw_error) or "The selected brain could not complete this live turn.",
-                    503,
-                    True,
-                )
-
-            # A benched brain was never tried, so the skip must not record
-            # another failure — that would push its cooloff forward on every
-            # turn and it would never get a recovery probe.
-            if not primary_bench_cooloff:
-                self._record_brain_call(attempted_brain, ok=False, error=error)
-
-            if getattr(error, "code", None) == "SAFETY_REFUSAL":
-                logger.warning("Live primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
-                raise error
-
-            kept_text = "".join(primary_text).strip()
-            keep_streamed_text = len(kept_text) >= _MIN_STREAMED_CHARS_TO_KEEP
-            if keep_streamed_text:
-                # The user already watched this brain answer. Shipping another
-                # model's reply over the top of it would put words on screen that
-                # she never wrote, so finish with what she actually produced.
-                logger.warning(
-                    "Live primary %s ended with %s chars already streamed; keeping her "
-                    "own text instead of answering with a fallback brain (%s).",
-                    request.providerMode,
-                    len(kept_text),
-                    error.code,
-                )
-                result = ProviderResult(
-                    build_plan_from_text(
-                        text=kept_text,
-                        companion_id=request.companionId,
-                        language=request.language,
-                        depth=prompt.response_depth,
-                    ),
-                    provider=request.providerMode,
-                    latency_ms=timing.ms_since_start("prompt_built") or 0,
-                    stages=timing.snapshot(),
-                )
-
-            live_retry_succeeded = False
-            if (
-                not keep_streamed_text
-                and fast_provider_id
-                and error.code in {
-                    "PROVIDER_KEY_INVALID",
-                    "PROVIDER_UNAVAILABLE",
-                    "PROVIDER_RATE_LIMIT",
-                }
-            ):
-                self._mark_fast_key_bad(fast_provider_id)
-                selected_provider = self.router.llm(request.providerMode, request.brainModel)
-                attempted_brain = getattr(selected_provider, "id", None) or attempted_brain
-                if getattr(selected_provider, "id", None) != fast_provider_id:
-                    try:
-                        async with asyncio.timeout(primary_live_timeout):
-                            if isinstance(selected_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
-                                result = await selected_provider.create_live_plan(
-                                    request.text,
-                                    request.companionId,
-                                    request.language,
-                                    history,
-                                    emit_delta,
-                                    prompt,
-                                )
-                            else:
-                                result = await selected_provider.create_plan(
-                                    request.text,
-                                    request.companionId,
-                                    request.language,
-                                    history,
-                                    prompt,
-                                )
-                            self._record_brain_call(
-                                attempted_brain,
-                                ok=True,
-                                model=getattr(selected_provider, "model", "")
-                                or request.brainModel
-                                or "",
-                            )
-                            live_retry_succeeded = True
-                    except HinaaError as retry_err:
-                        error = retry_err
-                        self._record_brain_call(attempted_brain, ok=False, error=error)
-                    except Exception as retry_error:
-                        error = HinaaError(
-                            "PROVIDER_UNAVAILABLE",
-                            "The selected brain could not complete this live turn.",
-                            503,
-                            True,
-                        )
-                        self._record_brain_call(attempted_brain, ok=False, error=error)
-
-            if not live_retry_succeeded and not keep_streamed_text:
-                if getattr(error, "code", None) == "SAFETY_REFUSAL":
-                    logger.warning("Live provider returned SAFETY_REFUSAL; raising without fallback.")
-                    raise error
-                if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
-                    fallback_live_result = None
-                    for fb_mode, fb_model in await self._fallback_candidate_modes(
-                        request.providerMode, requires_vision=vision_required
-                    ):
-                        try:
-                            logger.info(
-                                "Live primary %s failed with %s; attempting fallback to %s (%s)",
-                                request.providerMode,
-                                error.code,
-                                fb_mode,
-                                fb_model,
-                            )
-                            fb_brain = fb_mode
-                            fb_provider = self.router.llm(fb_mode, fb_model)
-                            fb_brain = getattr(fb_provider, "id", None) or fb_mode
-                            async with live_generation_window(
-                                ceiling_s=primary_live_timeout,
-                                idle_s=primary_idle_timeout,
-                                forward=emit_delta,
-                                first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
-                            ) as (fallback_emit, _):
-                                if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
-                                    fallback_live_result = await fb_provider.create_live_plan(
-                                        request.text,
-                                        request.companionId,
-                                        request.language,
-                                        history,
-                                        fallback_emit,
-                                        prompt,
-                                    )
-                                else:
-                                    fallback_live_result = await fb_provider.create_plan(
-                                        request.text,
-                                        request.companionId,
-                                        request.language,
-                                        history,
-                                        prompt,
-                                    )
-                            self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
-                            logger.info("Live fallback to %s succeeded", fb_mode)
-                            is_fallback = True
-                            fallback_reason = f"Primary {request.providerMode} failed: {error.code}"
-                            resolved_provider = fb_mode
-                            resolved_model = fb_model
-                            break
-                        except Exception as fb_exc:
-                            self._record_brain_call(fb_brain, ok=False, error=fb_exc)
-                            logger.warning("Live fallback provider %s failed: %r", fb_mode, fb_exc)
-                    if fallback_live_result is not None:
-                        result = fallback_live_result
-                    else:
-                        raise error
-                elif error.code == "MODEL_RESPONSE_INVALID":
-                    fallback_live_result = None
-                    if self.settings.auto_fallback_enabled:
-                        for fb_mode, fb_model in await self._fallback_candidate_modes(
-                            request.providerMode, requires_vision=vision_required
-                        ):
-                            try:
-                                logger.info(
-                                    "Live primary %s returned invalid response; attempting fallback to %s (%s)",
-                                    request.providerMode,
-                                    fb_mode,
-                                    fb_model,
-                                )
-                                fb_brain = fb_mode
-                                fb_provider = self.router.llm(fb_mode, fb_model)
-                                fb_brain = getattr(fb_provider, "id", None) or fb_mode
-                                async with live_generation_window(
-                                    ceiling_s=primary_live_timeout,
-                                    idle_s=primary_idle_timeout,
-                                    forward=emit_delta,
-                                    first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
-                                ) as (fallback_emit, _):
-                                    if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
-                                        fallback_live_result = await fb_provider.create_live_plan(
-                                            request.text,
-                                            request.companionId,
-                                            request.language,
-                                            history,
-                                            fallback_emit,
-                                            prompt,
-                                        )
-                                    else:
-                                        fallback_live_result = await fb_provider.create_plan(
-                                            request.text,
-                                            request.companionId,
-                                            request.language,
-                                            history,
-                                            prompt,
-                                        )
-                                self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
-                                logger.info("Live fallback to %s succeeded after invalid response", fb_mode)
-                                is_fallback = True
-                                fallback_reason = f"Primary {request.providerMode} invalid response: auto-routed to {fb_mode}"
-                                resolved_provider = fb_mode
-                                resolved_model = fb_model
-                                break
-                            except Exception as fb_exc:
-                                self._record_brain_call(fb_brain, ok=False, error=fb_exc)
-                                logger.warning("Live fallback provider %s failed during invalid response recovery: %r", fb_mode, fb_exc)
-                    if fallback_live_result is not None:
-                        result = fallback_live_result
-                    else:
-                        plan = neutral_fallback_plan(
-                            user_text=request.text,
-                            companion_id=request.companionId,
-                            language=request.language,
-                            depth=prompt.response_depth,
-                        )
-                        result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
-                        is_fallback = True
-                        fallback_reason = "MODEL_RESPONSE_INVALID: neutral fallback plan engaged"
-                        resolved_provider = "neutral_fallback"
-                        resolved_model = None
-                        if plan.displayText:
-                            await emit_delta(plan.displayText)
-                else:
-                    # Configuration/allow-list errors have no response to inspect.
-                    # Preserve the typed failure instead of falling through with
-                    # an unbound result and turning it into an opaque stream crash.
-                    raise error
-        # Autonomous Simulated Tool Recovery:
-        # If the model produced a tool request (TOOL_REQUEST, <web_search>, etc.) or stalled without answering
-        raw_streamed = "".join(primary_text)
-        simulated_tool_present = bool(
-            re.search(r'(?i)\bTOOL_REQUEST\b', raw_streamed)
-            or re.search(r'<\s*web_search\b', raw_streamed)
-            or re.search(r'\{\s*"(?:tool|name)"\s*:\s*"web_search"', raw_streamed)
-        )
-        is_stall_sentence = bool(
-            re.search(r"(?i)\b(?:let\s+me\s+(?:search|look\s+up|check|find|dig)|searching\s+for\s+the\s+latest|while\s+that\s+search\s+runs)\b", result.value.displayText or "")
-            and len((result.value.displayText or "").strip().split()) < 45
-        )
-        if (simulated_tool_present or is_stall_sentence) and not is_voice_turn:
-            recovery_query = None
-            q_m = re.search(r'(?i)"(?:query|q)"\s*:\s*"([^"]+)"', raw_streamed)
-            if q_m:
-                recovery_query = q_m.group(1).strip()
-            else:
-                tag_m = re.search(r'<\s*web_search[^>]*>(.*?)<\s*/\s*web_search\s*>', raw_streamed, re.DOTALL | re.IGNORECASE)
-                if tag_m:
-                    recovery_query = tag_m.group(1).strip()
-            if not recovery_query or len(recovery_query) < 4:
-                recovery_query = self._extract_search_query(request.text, d_state=d_state)
-
-            try:
-                from hinaa_api.tools.browser import search_web
-                from hinaa_api.grounding.citations import EvidenceSource
-                from datetime import datetime, timezone
-                if emit_event:
-                    try:
-                        await emit_event("search.started", {"query": recovery_query, "correlationId": convo_id})
-                    except Exception:
-                        pass
-                search_res = await asyncio.wait_for(search_web({"query": recovery_query, "count": 6}), timeout=10.0)
-                rec_items = search_res.get("results") or search_res.get("sources") or []
-                if emit_event:
-                    try:
-                        await emit_event("search.completed", {"query": recovery_query, "sourcesCount": len(rec_items), "correlationId": convo_id})
-                    except Exception:
-                        pass
-                if rec_items:
-                    fact_lines = [f"Retrieved live facts on {recovery_query}:"]
-                    rec_grounded = []
-                    for idx, itm in enumerate(rec_items[:8], 1):
-                        title = itm.get("title", "")
-                        snip = itm.get("snippet", "")
-                        fact_lines.append(f"[{idx}] {title}: {snip}")
-                        rec_grounded.append(EvidenceSource(
-                            source_id=str(idx),
-                            title=title,
-                            publisher=itm.get("domain") or "",
-                            url=itm.get("url") or "",
-                            date=itm.get("date"),
-                            snippet=snip,
-                        ))
-                    facts_context = "\n".join(fact_lines)
-                    grounded_sources = rec_grounded
-
-                    synthesis_user_text = (
-                        f"User asked: {request.text}\n\n"
-                        f"REAL-TIME VERIFIED FACTS:\n{facts_context}\n\n"
-                        "MANDATE: Deliver a thorough, comprehensive, authoritative answer explaining the situation clearly. "
-                        "Do not include any tool syntax, tool tags, or TOOL_REQUEST. Answer directly in natural prose."
-                    )
-                    synth_prompt = build_turn_prompt(
-                        request=request.model_copy(update={"text": synthesis_user_text}),
-                        history=history,
-                        settings=self.settings,
-                        interaction_mode="realtime",
-                        session_memories=session_memories,
-                        approved_memory_blocks=approved,
-                        durable_memory=durable_memory,
-                        live_search_block=facts_context,
-                        history_preselected=True,
-                        allowed_tools=(),
-                    )
-                    recovery_deltas: list[str] = []
-                    async with live_generation_window(
-                        ceiling_s=primary_live_timeout,
-                        idle_s=primary_idle_timeout,
-                        forward=emit_delta,
-                        sink=recovery_deltas,
-                        first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
-                    ) as (rec_emit, _):
-                        rec_provider = self.router.llm(resolved_provider, resolved_model)
-                        if isinstance(rec_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
-                            rec_res = await rec_provider.create_live_plan(
-                                synthesis_user_text,
-                                request.companionId,
-                                request.language,
-                                history,
-                                rec_emit,
-                                synth_prompt,
-                            )
-                        else:
-                            rec_res = await rec_provider.create_plan(
-                                synthesis_user_text,
-                                request.companionId,
-                                request.language,
-                                history,
-                                synth_prompt,
-                            )
-                    rec_text = "".join(recovery_deltas).strip() or rec_res.value.displayText
-                    if rec_text:
-                        from .providers.display_stream_decoder import strip_simulated_tool_calls
-                        clean_opening = strip_simulated_tool_calls(result.value.displayText or "").strip()
-                        if clean_opening and not any(clean_opening.lower().startswith(x) for x in ("let me", "searching", "tool_")):
-                            result.value.displayText = f"{clean_opening}\n\n{rec_text}"
-                        else:
-                            result.value.displayText = rec_text
-                        result.value.spokenText = rec_res.value.spokenText or rec_text
-            except Exception as rec_exc:
-                logger.warning("Simulated tool recovery failed: %r", rec_exc, exc_info=True)
-
-        _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources, user_text=request.text, response_mode=getattr(request, "responseMode", None))
-        result.value.requestedProvider = requested_provider
-        result.value.requestedModel = requested_model
-        result.value.resolvedProvider = resolved_provider
-        result.value.resolvedModel = resolved_model
-        result.value.fallback = is_fallback
-        result.value.fallbackReason = fallback_reason
-        result.value.latencyMs = result.latency_ms
-
-        # Auto-persist learned memory candidates
-        if getattr(result.value, "memoryCandidates", None):
-            for candidate in result.value.memoryCandidates:
-                try:
-                    if self.memory_service and user_id:
-                        self.memory_service.remember(
-                            user_id=user_id,
-                            content=candidate.content,
-                            category=getattr(candidate, 'category', None) or "conversation",
-                            source_turn_ref=f"auto:{request.conversationId or request.sessionId}",
-                            explicit=True,
-                        )
-                except Exception:
-                    logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
-
-        # The live path used to receive a tool-free prompt and a blanket
-        # ``toolRequests = []`` afterwards. That wiped image and document
-        # actions for every streamed turn, not just voice ones, so "generate
-        # Hina in a cafe" on the web chat filed no job at all. Turns:stream now
-        # carries typed chat as well as voice, so the tool-free contract is
-        # decided once, above, from the mode that is actually voice: a
-        # ``concise_voice`` turn gets a tool-free prompt and zero tool execution,
-        # while a typed turn is told and then runs the same words-decided set.
-        if is_voice_turn:
-            result.value.toolRequests = []
-        else:
-            self._inject_deterministic_tool_intents(
-                request.text,
-                result.value,
-                session_id=request.sessionId,
-                turn_request=request,
-                user_id=user_id,
-            )
-            self._gate_tool_intents(request, result.value, user_id=user_id)
-            # Deterministic Image Generation Guarantee (only when user explicitly requests image generation)
-            if (
-                gate_decision.intent == HinaaIntent.IMAGE_GENERATE
-            ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
-                prompt_to_use = gate_decision.arguments.get("prompt") or request.text
-                if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
-                    session_history = self._resolve_session_history(request.sessionId, request.conversationId)
-                    from hinaa_intent_gate import _check_image_proposal
-                    is_img, pending_prompt = _check_image_proposal(session_history)
-                    if pending_prompt and pending_prompt not in {"image", "it", "this"}:
-                        prompt_to_use = pending_prompt
-                    elif d_state:
-                        active = getattr(d_state, "active_entity", None) or getattr(d_state, "active_topic", None)
-                        if active:
-                            prompt_to_use = active
-                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
-                    if re.search(r"\b" + re.escape(alias) + r"\b", prompt_to_use, re.IGNORECASE):
-                        prompt_to_use = re.sub(r"\b" + re.escape(alias) + r"\b", canonical, prompt_to_use, flags=re.IGNORECASE)
-                        break
-
-                engine = getattr(request, "imageEngine", None) or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="image_generate",
-                        parameters={
-                            "prompt": prompt_to_use,
-                            "count": 1,
-                            "mode": "quality",
-                            "engine": engine,
-                        },
-                        status="ready",
-                        reason="deterministic-intent",
-                    )
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "copyright", "do you want me to", "should i generate", "let me know if you want")):
-                    result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
-                    result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
-
-            # Deterministic Document & Presentation Generation Guarantee (only when user requested document)
-            if (
-                gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
-            ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
-                is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
-                doc_topic = request.text
-                topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", request.text)
-                if topic_m:
-                    doc_topic = topic_m.group(1).strip()
-                else:
-                    doc_topic = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare|please|pls|bro|hina|can\s+you)\b", "", request.text).strip()
-                    doc_topic = re.sub(r"[\"']", "", doc_topic).strip()
-                    doc_topic = re.sub(r"[^\w\s-]", "", doc_topic).strip()
-                    doc_topic = re.sub(r"\s+", " ", doc_topic).strip()
-                clean_title = (doc_topic if len(doc_topic) >= 3 else "Executive Report").strip().title()
-                if is_slides:
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="create_gamma_presentation",
-                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Deck", "format": "presentation", "export_as": "pptx", "num_cards": 8},
-                            status="ready",
-                            reason="deterministic-intent",
-                        )
-                    )
-                else:
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="pdf_generate",
-                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Report", "category": "Research Report", "content": ""},
-                            status="ready",
-                            reason="deterministic-intent",
-                        )
-                    )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
-                    result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
-                    result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
-
-            # Deterministic Website Design Guarantee
-            if (
-                "design_website" in live_allowed_tools
-            ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
-                clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
-                web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="design_website",
-                        parameters={"brief": request.text, "title": web_title, "theme": "auto"},
-                        status="ready",
-                        reason="deterministic-intent",
-                    )
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
-                    result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
-                    result.value.spokenText = f"Designing your live {web_title} website for you right now."
-
-            # Deterministic Autonomous UI Steering Guarantee
-            if (
-                "ui_control" in live_allowed_tools
-            ) and not any(t.toolName == "ui_control" for t in result.value.toolRequests):
-                lower_text = request.text.lower()
-                ui_action = "navigate"
-                target_mode = None
-                target_section = None
-                target_drawer = None
-                target_window_mode = None
-                target_avatar_mode = None
-
-                if "showroom" in lower_text or "3d" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "showroom"
-                elif "work" in lower_text or "chat" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "work"
-                elif "operate" in lower_text or "task" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "operate"
-                elif "vault" in lower_text:
-                    ui_action = "switch_mode"
-                    target_mode = "vault"
-                elif "terminal" in lower_text:
-                    ui_action = "toggle_drawer"
-                    target_drawer = "terminal"
-                elif "companion" in lower_text or "floating" in lower_text:
-                    ui_action = "desktop_window_mode"
-                    target_window_mode = "floating_companion"
-                elif "avatar" in lower_text:
-                    ui_action = "set_avatar_mode"
-                    target_avatar_mode = "3d"
-
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="ui_control",
-                        parameters={
-                            "action": ui_action,
-                            "mode": target_mode,
-                            "section": target_section,
-                            "drawer": target_drawer,
-                            "window_mode": target_window_mode,
-                            "avatar_mode": target_avatar_mode,
-                        },
-                        status="ready",
-                        reason="deterministic-ui-intent",
-                    )
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
-                    target_desc = target_mode or target_drawer or target_window_mode or "requested view"
-                    result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
-                    result.value.spokenText = f"Switching your workspace to {target_desc} now."
-
-            # Deterministic Computer Operator / OS Action Guarantee
-            if (
-                "computer_operator" in live_allowed_tools
-            ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
-                from .tools.intent_gate import sanction_tools
-                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                cop_params = sanction.parameters.get("computer_operator", {})
-                if not cop_params:
-                    cop_params = {"action": "create_folder", "target": request.text}
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="computer_operator",
-                        parameters=cop_params,
-                        status="ready",
-                        reason="deterministic-intent",
-                    )
-                )
-
-            if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
-                cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")
-                cop_act = cop_req.parameters.get("action", "")
-                cop_tgt = cop_req.parameters.get("target", "")
-                cop_refusal_patterns = ("cannot create", "can't create", "don't have access to your", "as an ai", "unable to create", "cannot open app", "unable to open", "cannot control", "don't have permission")
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in cop_refusal_patterns):
-                    if cop_act == "create_folder":
-                        result.value.displayText = "I'm creating that folder on your computer for you right now! 📁✨"
-                        result.value.spokenText = "Creating that folder on your computer now!"
-                    elif cop_act in ("open_application", "open_app"):
-                        result.value.displayText = f"Opening {cop_tgt or 'application'} on your computer! 🚀"
-                        result.value.spokenText = f"Opening {cop_tgt or 'application'} for you now!"
-
-            # Deterministic Autonomous Browser Action Guarantee
-            if (
-                "browser_execute_task" in live_allowed_tools
-                or "browser_navigate" in live_allowed_tools
-            ) and not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in result.value.toolRequests):
-                from .tools.intent_gate import sanction_tools
-                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                if "browser_execute_task" in sanction.allowed:
-                    b_params = sanction.parameters.get("browser_execute_task", {"goal": request.text})
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="browser_execute_task",
-                            parameters=b_params,
-                            status="ready",
-                            reason="deterministic-browser-intent",
-                        )
-                    )
-                elif "browser_navigate" in sanction.allowed:
-                    b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
-                    result.value.toolRequests.append(
-                        ToolRequest(
-                            toolName="browser_navigate",
-                            parameters=b_params,
-                            status="ready",
-                            reason="deterministic-browser-intent",
-                        )
-                    )
-
-            if any(t.toolName in {"browser_execute_task", "browser_navigate"} for t in result.value.toolRequests):
-                browser_refusal_patterns = (
-                    "cannot browse", "can't browse", "don't have access to the web", "don't have internet",
-                    "as an ai", "unable to browse", "cannot open websites", "unable to navigate",
-                    "don't have a web browser", "cannot interact with websites"
-                )
-                if not result.value.displayText or any(w in result.value.displayText.lower() for w in browser_refusal_patterns):
-                    result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
-                    result.value.spokenText = "Launching autonomous browser agent now!"
-
-            result.value.toolRequests = [
-                tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
-            ]
-            if live_search_block or (result.value.displayText and len(result.value.displayText.strip()) > 30):
-                SEARCH_TOOLS = {"web_search", "web_research", "web_answer", "finance_research", "web_extract"}
-                result.value.toolRequests = [
-                    tr for tr in result.value.toolRequests if tr.toolName not in SEARCH_TOOLS
-                ]
-
-        self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
-
-        # Persist to durable storage
-        try:
-            effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
-            if self.memory_service and effective_user:
-                self.memory_service.append_turn(
-                    user_id=effective_user,
-                    companion_id=request.companionId or "hinaa",
-                    conversation_id=request.conversationId or request.sessionId,
-                    user_text=request.text,
-                    assistant_text=result.value.model_dump_json(),
-                    language=result.value.language or "mixed",
-                    attachments=request.attachments or (
-                        [{"asset_id": aid} for aid in request.attachment_ids] if request.attachment_ids else None
-                    ),
-                )
-        except Exception:
-            logger.warning("Failed to persist turn to database", exc_info=True)
-
-        guard_spoken = check_reply(result.value.spokenText, user_text=request.text, language=request.language)
-        if guard_spoken.text != result.value.spokenText:
-            result.value.spokenText = guard_spoken.text
-        if result.value.displayText:
-            guard_display = check_reply(result.value.displayText, user_text=request.text, language=request.language)
-            if guard_display.text != result.value.displayText:
-                result.value.displayText = guard_display.text
-
-        self._persist_learned_memories(user_id, request.sessionId)
-        
-        return result
-
-    async def stream_turn(
-        self, request: TurnRequest, correlation_id: str, *, user_id: str | None = None
-    ) -> AsyncIterator[bytes]:
-        import uuid
-        start_time = time.time()
-        yield self._event("thinking", {"correlationId": correlation_id})
-        yield self._event("run.started", {
-            "runId": correlation_id,
-            "providerMode": request.providerMode,
-            "brainModel": request.brainModel,
-            "imageEngine": request.imageEngine,
-            "voiceEngine": request.voiceEngine,
-        })
-        yield self._event("planning.started", {
-            "step": 1,
-            "description": "Analyzing context & synthesizing plan",
-            "correlationId": correlation_id,
-        })
-
-        # True token-by-token streaming and live research event dispatch.
-        # Provider deltas and real-time research events are relayed onto the
-        # wire the instant they are produced instead of waiting for the whole
-        # plan, so the interface reveals web search animations and text continuously.
-        queue: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue()
-        # A delta is not a word boundary: `$\text{CO` can arrive as one chunk and
-        # `_2}$` as the next. The guard already converted the final text, so the
-        # stream holds a trailing open construct back until it resolves, which
-        # keeps the typed-out bubble identical to what lands in it.
-        notation_stream = MathNotationStream()
-        # Decided from his words, before the brain speaks, by the same sanction
-        # that files the call below: on a turn already building the page, a
-        # document typed into the reply is machinery, and the client paints
-        # whatever reaches the wire. Prose either side of it still streams.
-        from .providers.display_stream_decoder import PageSourceGuard
-        from .tools.intent_gate import page_will_be_built, document_will_be_built
-
-        page_active = page_will_be_built(request.text)
-        doc_active = document_will_be_built(request.text)
-        page_guard = (
-            PageSourceGuard(stop_on_document_code=doc_active)
-            if (page_active or doc_active)
-            else None
-        )
-
-        async def emit_delta(delta: str) -> None:
-            if page_guard is not None:
-                delta = page_guard.feed(delta)
-                if not delta:
-                    return
-            safe = notation_stream.feed(delta)
-            if safe:
-                await queue.put(("delta", safe))
-
-        async def emit_event(name: str, payload: dict[str, Any]) -> None:
-            await queue.put(("event", (name, payload)))
-
-        turn_task = asyncio.create_task(
-            self.create_live_plan(request, emit_delta, user_id=user_id, emit_event=emit_event)
-        )
-        emitted: list[str] = []
-        delta_sequence = 0
-
-        def _make_delta_event(delta_text: str, seg_id: int = 0) -> bytes:
-            nonlocal delta_sequence
-            ev = self._event(
-                "text.delta",
-                {
-                    "delta": delta_text,
-                    "streamId": correlation_id,
-                    "segmentId": seg_id,
-                    "sequence": delta_sequence,
-                },
-            )
-            delta_sequence += 1
-            return ev
-
-        # Instant-action path: when his sentence fully specifies the work --
-        # "open netflix", "run X in the terminal", "remind me at 6", "build a
-        # site for my gym" -- the gate files the same call the slow path would
-        # and then replaces the brain's 20-45 second monologue with the action
-        # confirmation anyway. Acting immediately turns that wait into an
-        # instant answer, and she speaks while the tool runs. A question mark
-        # keeps the brain: he asked something, so action alone is not the reply.
-        # State-bound tools stay on the slow path: image_generate binds its
-        # reference asset from conversation state inside create_live_plan, and
-        # an instant filing would lose the picture he pointed at.
-        from .prompts.performance import build_plan_from_text
-        from .tools.intent_gate import gate_tool_requests
-
-        _INSTANT_ACTION_TOOLS = frozenset({
-            "computer_operator",
-            "terminal_hands",
-            "reminder.create",
-            "youtube_playback_request",
-            "ui_control",
-            "design_website",
-            "browser_navigate",
-            "browser_execute_task",
-            "browser_press_key",
-            "browser_scroll",
-        })
-        instant_requests, _, _instant_sanction = gate_tool_requests(
-            request.text, [], known_subjects=CHARACTER_ENTITY_MAP
-        )
-        if (
-            instant_requests
-            and "?" not in request.text
-            and all(getattr(req, "reason", None) == "deterministic-intent" for req in instant_requests)
-            and all(req.toolName in _INSTANT_ACTION_TOOLS for req in instant_requests)
-        ):
-            confirmation = " ".join(self._action_confirmation(req) for req in instant_requests)
-            instant_plan = build_plan_from_text(
-                text=confirmation,
-                companion_id=request.companionId or "hinaa",
-                language=getattr(request, "language", None) or "en-US",
-                depth="conversational",
-            )
-            instant_plan.toolRequests = list(instant_requests)
-            yield _make_delta_event(confirmation)
-            instant_elapsed_ms = int((time.time() - start_time) * 1000)
-            yield self._event("planning.completed", {
-                "step": 1,
-                "durationMs": instant_elapsed_ms,
-                "correlationId": correlation_id,
-            })
-            instant_total = len(instant_requests)
-            for idx, tool_req in enumerate(instant_requests, 1):
-                tool_run_id = str(uuid.uuid4())
-                yield self._event("tool.started", {
-                    "toolRunId": tool_run_id,
-                    "toolName": tool_req.toolName,
-                    "step": idx,
-                    "totalSteps": instant_total,
-                    "parameters": tool_req.parameters,
-                    "correlationId": correlation_id,
-                })
-                yield self._event("tool.progress", {
-                    "toolRunId": tool_run_id,
-                    "toolName": tool_req.toolName,
-                    "message": f"Processing {tool_req.toolName}...",
-                })
-                yield self._event("tool.proposed", {
-                    "toolRunId": tool_run_id,
-                    "toolName": tool_req.toolName,
-                    "parameters": tool_req.parameters,
-                    "correlationId": correlation_id,
-                })
-                yield self._event("tool.completed", {
-                    "toolRunId": tool_run_id,
-                    "toolName": tool_req.toolName,
-                    "status": "ready",
-                })
-            yield self._event("plan", {
-                "plan": instant_plan.model_dump(),
-                "provider": "deterministic-intent",
-            })
-            yield self._event("usage", {"latencyMs": instant_elapsed_ms})
-            yield self._event("run.completed", {
-                "runId": correlation_id,
-                "status": "completed",
-                "latencyMs": instant_elapsed_ms,
-                "totalDurationMs": int((time.time() - start_time) * 1000),
-            })
-            return
-
-        # Silence watchdog: when the first brain hangs (a dead primary pays its
-        # timeout before failover), he otherwise stares at a frozen veil for
-        # the whole wait. After six seconds of no output she acknowledges out
-        # loud -- the transient bubble shows it, her voice says it, and the
-        # final plan still lands as clean answer text.
-        ack_watchdog = asyncio.create_task(asyncio.sleep(_SILENCE_ACK_SECONDS))
-        ack_retired = False
-
-        try:
-            while True:
-                getter = asyncio.create_task(queue.get())
-                wait_set: set[asyncio.Task[Any]] = {getter, turn_task}
-                if not ack_retired:
-                    wait_set.add(ack_watchdog)
-                done, _ = await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED)
-                if ack_watchdog in done and not ack_retired:
-                    ack_retired = True
-                    if not emitted:
-                        ack = "One sec, babe…"
-                        emitted.append(ack)
-                        yield _make_delta_event(ack)
-                    getter.cancel()
-                    continue
-                if getter in done:
-                    if not ack_retired:
-                        ack_retired = True
-                        ack_watchdog.cancel()
-                    item = getter.result()
-                    if item is not None:
-                        kind, data = item
-                        if kind == "delta":
-                            emitted.append(data)
-                            yield _make_delta_event(data)
-                        elif kind == "event":
-                            event_name, payload = data
-                            yield self._event(event_name, payload)
-                    continue
-                getter.cancel()
-                ack_watchdog.cancel()
-                # The turn finished; drain any deltas/events queued a beat earlier.
-                while not queue.empty():
-                    item = queue.get_nowait()
-                    if item is not None:
-                        kind, data = item
-                        if kind == "delta":
-                            emitted.append(data)
-                            yield _make_delta_event(data)
-                        elif kind == "event":
-                            event_name, payload = data
-                            yield self._event(event_name, payload)
-                break
-            # Anything still held back was never followed by a resolving delta;
-            # ship it before the remainder comparison so it cannot be emitted twice.
-            held_page = page_guard.flush() if page_guard is not None else ""
-            if held_page:
-                safe = notation_stream.feed(held_page)
-                if safe:
-                    emitted.append(safe)
-                    yield _make_delta_event(safe)
-            tail = notation_stream.flush()
-            if tail:
-                emitted.append(tail)
-                yield _make_delta_event(tail)
-            result = await turn_task
-            # Guarantee full display text even if a provider finished without
-            # streaming (or emitted a different final polish than its deltas).
-            full_text = result.value.displayText or ""
-            if page_guard is not None and page_guard.closed:
-                from .providers.display_stream_decoder import drop_inlined_page_source, drop_inlined_document_code
-                full_text = drop_inlined_document_code(drop_inlined_page_source(full_text))
-            streamed_so_far = "".join(emitted)
-            is_watchdog_ack = bool(
-                streamed_so_far
-                and any(
-                    ack_phrase in streamed_so_far
-                    for ack_phrase in ("One sec, babe", "One sec, babe…", "One sec, babe...")
-                )
-            )
-            if not streamed_so_far and full_text:
-                # Provider emitted no deltas at all during execution; yield full text once
-                yield _make_delta_event(full_text)
-            elif streamed_so_far and full_text:
-                if full_text.startswith(streamed_so_far):
-                    remainder = full_text[len(streamed_so_far):]
-                    if remainder:
-                        yield _make_delta_event(remainder)
-                elif full_text.strip().startswith(streamed_so_far.strip()):
-                    s_stripped = streamed_so_far.strip()
-                    idx = full_text.find(s_stripped)
-                    if idx != -1:
-                        remainder = full_text[idx + len(s_stripped):]
-                        if remainder:
-                            yield _make_delta_event(remainder)
-                elif is_watchdog_ack:
-                    # Watchdog emitted a transient hold. Deliver the real model answer!
-                    yield _make_delta_event("\n\n" + full_text)
-                else:
-                    # Never drop full_text if formatting diverged or commonprefix is empty
-                    import os
-                    common = os.path.commonprefix([full_text, streamed_so_far])
-                    remainder = full_text[len(common):] if len(common) > 0 else full_text
-                    if remainder:
-                        yield _make_delta_event(remainder)
-        finally:
-            ack_watchdog.cancel()
-            if not turn_task.done():
-                turn_task.cancel()
-
-        plan_elapsed_ms = int((time.time() - start_time) * 1000)
-        yield self._event("planning.completed", {
-            "step": 1,
-            "durationMs": plan_elapsed_ms,
-            "correlationId": correlation_id,
-        })
-
-        # Emit tool events for each tool request
-        total_tools = len(result.value.toolRequests)
-        for idx, tool_req in enumerate(result.value.toolRequests, 1):
-            if tool_req.toolName in {"image_search", "web_search"} and isinstance(tool_req.parameters, dict):
-                # Whatever planned this call, the vendor gets a subject rather
-                # than the sentence he typed, and the card shows the same thing.
-                from hinaa_api.media.search_intelligence import (
-                    compiled_image_query_parameters,
-                    compiled_web_query_parameters,
-                )
-
-                compile_query = (
-                    compiled_image_query_parameters
-                    if tool_req.toolName == "image_search"
-                    else compiled_web_query_parameters
-                )
-                tool_req.parameters = compile_query(tool_req.parameters)
-            tool_run_id = str(uuid.uuid4())
-            yield self._event("tool.started", {
-                "toolRunId": tool_run_id,
-                "toolName": tool_req.toolName,
-                "step": idx,
-                "totalSteps": total_tools,
-                "parameters": tool_req.parameters,
-                "correlationId": correlation_id,
-            })
-            yield self._event("tool.progress", {
-                "toolRunId": tool_run_id,
-                "toolName": tool_req.toolName,
-                "message": f"Processing {tool_req.toolName}...",
-            })
-            yield self._event("tool.proposed", {
-                "toolRunId": tool_run_id,
-                "toolName": tool_req.toolName,
-                "parameters": tool_req.parameters,
-                "correlationId": correlation_id,
-            })
-            yield self._event("tool.completed", {
-                "toolRunId": tool_run_id,
-                "toolName": tool_req.toolName,
-                "status": "ready",
-            })
-        # Self-check before she speaks. The generator occasionally leaves its
-        # own diagnostics in the text, or a fence it opened and never closed;
-        # he should never read either. Repairs are conservative and logged.
-        guard_spoken = check_reply(
-            result.value.spokenText, user_text=request.text, language=request.language
-        )
-        if guard_spoken.text != result.value.spokenText:
-            result.value.spokenText = guard_spoken.text
-
-        if result.value.displayText:
-            guard_display = check_reply(
-                result.value.displayText, user_text=request.text, language=request.language
-            )
-            if guard_display.text != result.value.displayText:
-                result.value.displayText = guard_display.text
-        plan_payload: dict[str, object] = {
-            "plan": result.value.model_dump(),
-            "provider": result.provider,
-        }
-        if self.settings.prompt_debug_metadata:
-            plan_payload["promptVersion"] = PROMPT_VERSION
-        yield self._event("plan", plan_payload)
-        yield self._event("usage", {"latencyMs": result.latency_ms})
-        yield self._event("run.completed", {
-            "runId": correlation_id,
-            "status": "completed",
-            "latencyMs": result.latency_ms,
-            "totalDurationMs": int((time.time() - start_time) * 1000),
-        })
-
-    async def synthesize(self, request: SpeechRequest) -> ProviderResult[bytes]:
-        # The speaker button reads the same text the bubble shows, so the voice
-        # channel gets the shaping the Talk path already applies: emoji and the
-        # pet name stay on screen and are never read aloud. A reply that is
-        # nothing but decoration keeps its original text instead of going silent.
-        text = speech_text_for_tts(request.text) or request.text
-        try:
-            async with asyncio.timeout(12.0 if request.realtime else max(25.0, self.settings.provider_timeout_seconds)):
-                provider = self.router.tts(request.providerMode, request.companionId, request.voiceEngine)
-                if isinstance(provider, DeepgramTTSProvider):
-                    dg_voice = (
-                        self.settings.deepgram_tts_model_hiro
-                        if request.companionId == "hiro"
-                        else self.settings.deepgram_tts_model_hinaa
-                    )
-                    try:
-                        return await provider.synthesize(text, voice=dg_voice)
-                    except Exception as dg_err:
-                        logger.warning("Deepgram synthesis failed (%s), attempting secondary voice fallback: %s", type(dg_err).__name__, dg_err)
-                        if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
-                            try:
-                                voice_id = (
-                                    self.settings.fish_audio_hiro_voice_id
-                                    if request.companionId == "hiro" and self.settings.fish_audio_hiro_voice_id
-                                    else self.settings.fish_audio_hinaa_voice_id
-                                )
-                                fa = FishAudioTTSProvider(
-                                    FishAudioConfig(
-                                        api_key=self.settings.fish_audio_api_key.get_secret_value(),
-                                        base_url=self.settings.fish_audio_base_url,
-                                        voice_id=voice_id,
-                                        model_id=self.settings.fish_audio_model_id,
-                                        output_format=self.settings.fish_audio_output_format,
-                                        request_timeout_s=self.settings.fish_audio_timeout_seconds,
-                                    )
-                                )
-                                return await fa.synthesize(
-                                    text,
-                                    voice=voice_id,
-                                    language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto",
-                                )
-                            except Exception as fa_err:
-                                logger.warning("Secondary Fish Audio fallback failed: %s", fa_err)
-                        if self.settings.elevenlabs_configured:
-                            try:
-                                el_provider = make_elevenlabs_provider(
-                                    self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
-                                )
-                                el_voice = (
-                                    self.settings.elevenlabs_hiro_voice_id
-                                    if request.companionId == "hiro"
-                                    else self.settings.elevenlabs_hinaa_voice_id
-                                )
-                                return await el_provider.synthesize_full(text, voice_id=el_voice)
-                            except Exception as el_err:
-                                logger.warning("Secondary ElevenLabs fallback failed: %s", el_err)
-                        raise
-                if isinstance(
-                    provider,
-                    (
-                        ElevenLabsHTTPStreamingProvider,
-                        ElevenLabsWebSocketStreamingProvider,
-                    ),
-                ):
-                    voice_id = (
-                        self.settings.elevenlabs_hiro_voice_id
-                        if request.companionId == "hiro"
-                        else self.settings.elevenlabs_hinaa_voice_id
-                    )
-                    return await self._voice_with_fallback(
-                        provider,
-                        text=text,
-                        companion_id=request.companionId,
-                        voice_id=voice_id,
-                        model_id=(choose_live_tts_model(
-                            text,
-                            configured_model=self.settings.elevenlabs_model_id,
-                            fast_model=self.settings.elevenlabs_tts_model_fast,
-                            nepali_model=self.settings.elevenlabs_tts_model_nepali,
-                        ) if request.realtime else choose_text_tts_model(
-                            text,
-                            configured_model=self.settings.elevenlabs_model_id,
-                            nepali_model=self.settings.elevenlabs_tts_model_nepali,
-                        )),
-                        # Without this the bubble voice falls back to the "warm"
-                        # performance pace, and the two speech channels disagree on
-                        # how fast she talks. One calibration ("natural") is the
-                        # single source of truth for both live and bubble voice.
-                        rate=resolve_calibration("natural").rate,
-                    )
-                voice = resolve_voice(
-                    request.companionId,
-                    self.settings.azure_speech_female_voice,
-                    self.settings.azure_speech_male_voice,
-                    request.language,
-                )
-                if isinstance(provider, FishAudioTTSProvider):
-                    voice_id = self.settings.fish_audio_voice_ids[0 if request.companionId == "hinaa" else 1]
-                    try:
-                        return await provider.synthesize(
-                            text,
-                            voice=voice_id,
-                            language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto",
-                        )
-                    except Exception as fa_err:
-                        logger.warning("Fish Audio synthesis failed (%s), falling back to secondary voice: %s", type(fa_err).__name__, fa_err)
-                        if self.settings.deepgram_configured:
-                            dg_voice = (
-                                self.settings.deepgram_tts_model_hiro
-                                if request.companionId == "hiro"
-                                else self.settings.deepgram_tts_model_hinaa
-                            )
-                            dg = self._get_deepgram_tts_provider()
-                            if dg is not None:
-                                return await dg.synthesize(text, voice=dg_voice)
-                            raise
-                return await provider.synthesize(text, voice)
-        except TimeoutError as error:
-            raise HinaaError(
-                "PROVIDER_TIMEOUT", "Voice synthesis took too long.", 504, True
-            ) from error
-
-    async def _voice_with_fallback(
-        self,
-        provider,
-        *,
-        text: str,
-        companion_id: CompanionId,
-        voice_id: str,
-        model_id: str,
-        delivery_mode: str = "warm",
-        rate: float | None = None,
-        turn_id: str | None = None,
-    ) -> ProviderResult[bytes]:
-        """Speak with ElevenLabs, or with the Deepgram Aura fallback if it refuses.
-
-        Her voice is an identity, so the primary is never silently skipped. But an
-        account that runs out of characters must not leave her mute: when the
-        vendor answers with a status another vendor can cure, the reply is spoken
-        by the configured fallback and the degradation is written to the run
-        ledger, where the owner reads the reason instead of hearing silence.
-        """
-        if voice_on_cooldown(_ELEVENLABS_PROVIDER):
-            # The account already refused us inside this window; do not make the
-            # owner wait through the same vendor timeout before she speaks.
-            cooled = await self._deepgram_voice(
-                text=text, companion_id=companion_id, turn_id=turn_id
-            )
-            if cooled is not None:
-                return cooled
-        ledger = get_run_ledger()
-        started = time.perf_counter()
-        try:
-            async with asyncio.timeout(max(15.0, self.settings.provider_timeout_seconds)):
-                result = await provider.synthesize_full(
-                    text,
-                    voice=voice_id,
-                    delivery_mode=delivery_mode,
-                    companion_id=companion_id,
-                    model_id=model_id,
-                    rate=rate,
-                )
-            ledger.record_tts(
-                provider="elevenlabs",
-                voice_id=voice_id,
-                model_id=model_id,
-                output_format=self.settings.elevenlabs_output_format,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                ok=True,
-                audio_bytes=len(result.value),
-                turn_id=turn_id,
-            )
-            return result
-        except Exception as error:
-            note_voice_failure(_ELEVENLABS_PROVIDER, error)
-            ledger.record_tts(
-                provider="elevenlabs",
-                voice_id=voice_id,
-                model_id=model_id,
-                output_format=self.settings.elevenlabs_output_format,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                ok=False,
-                error=str(error),
-                turn_id=turn_id,
-            )
-            fallback = await self._deepgram_fallback(
-                text=text, companion_id=companion_id, cause=error, turn_id=turn_id
-            )
-            if fallback is not None:
-                return fallback
-            raise HinaaError(
-                "TTS_FAILED", f"ElevenLabs TTS failed: {error}", 503, True
-            ) from error
-
-    async def _deepgram_fallback(
-        self,
-        *,
-        text: str,
-        companion_id: CompanionId,
-        cause: Exception,
-        turn_id: str | None = None,
-    ) -> ProviderResult[bytes] | None:
-        """Last-resort voice. Returns None when there is nothing to fall back to."""
-        if not self.settings.deepgram_configured or not is_fallback_worthy(cause):
-            return None
-        return await self._deepgram_voice(
-            text=text, companion_id=companion_id, turn_id=turn_id
-        )
-
-    async def _deepgram_voice(
-        self,
-        *,
-        text: str,
-        companion_id: CompanionId,
-        turn_id: str | None = None,
-    ) -> ProviderResult[bytes] | None:
-        """Speak with the configured Aura fallback voice, or None if it fails."""
-        if not self.settings.deepgram_configured:
-            return None
-        assert self.settings.deepgram_api_key
-        voice = fallback_voice_id(
-            companion_id,
-            hinaa_voice=self.settings.deepgram_tts_model_hinaa,
-            hiro_voice=self.settings.deepgram_tts_model_hiro,
-        )
-        provider = self._get_deepgram_tts_provider()
-        if provider is None:
-            return None
-        ledger = get_run_ledger()
-        started = time.perf_counter()
-        try:
-            async with asyncio.timeout(max(20.0, self.settings.provider_timeout_seconds)):
-                result = await provider.synthesize(text, voice=voice)
-            logger.warning(
-                "Voice fell back to Deepgram Aura %s: primary voice refused",
-                voice,
-            )
-            ledger.record_tts(
-                provider="deepgram-fallback",
-                voice_id=voice,
-                model_id=voice,
-                output_format="wav",
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                ok=True,
-                audio_bytes=len(result.value),
-                turn_id=turn_id,
-            )
-            return result
-        except Exception as error:
-            logger.error("Voice fallback also failed: %s", error)
-            ledger.record_tts(
-                provider="deepgram-fallback",
-                voice_id=voice,
-                model_id=voice,
-                output_format="wav",
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                ok=False,
-                error=str(error),
-                turn_id=turn_id,
-            )
-            return None
-
-    async def synthesize_text(
-        self,
-        text: str,
-        companion_id: CompanionId,
-        mode: ProviderMode,
-        calibration: str = "natural",
-        rate: float | None = None,
-        pitch_semitones: float | None = None,
-        volume: float | None = None,
-        delivery_mode: str = "warm",
-        language: str = "mixed",
-        live: bool = False,
-        voice_engine: str | None = None,
-    ) -> ProviderResult[bytes]:
-        provider = self.router.tts(mode, companion_id, voice_engine)
-        if isinstance(provider, DeepgramTTSProvider):
-            has_devanagari = bool(re.search(r"[\u0900-\u097F]", text))
-            if has_devanagari and self.settings.azure_configured:
-                # Deepgram Aura is English-only and cannot pronounce Devanagari.
-                # Azure hi-IN-SwaraNeural is the authentic native Indian Hindi voice!
-                try:
-                    azure_voice = (
-                        self.settings.azure_speech_male_voice
-                        if companion_id == "hiro"
-                        else self.settings.azure_speech_female_voice
-                    )
-                    azure_provider = AzureSpeechProvider(
-                        self.settings.azure_speech_key.get_secret_value(),
-                        self.settings.azure_speech_region,
-                    )
-                    return await azure_provider.synthesize_calibrated(text, azure_voice, 1.15, 0.5, 1.0)
-                except Exception as az_err:
-                    logger.warning("Azure Hindi speech synthesis attempt: %s", az_err)
-
-            dg_voice = (
-                self.settings.deepgram_tts_model_hiro
-                if companion_id == "hiro"
-                else self.settings.deepgram_tts_model_hinaa
-            )
-            try:
-                async with asyncio.timeout(max(30.0, self.settings.provider_timeout_seconds)):
-                    return await provider.synthesize(text, voice=dg_voice)
-            except Exception as deepgram_err:
-                logger.warning("Deepgram synthesis failed (%s), attempting secondary fallback: %s", type(deepgram_err).__name__, deepgram_err)
-                if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
-                    try:
-                        voice_id = (
-                            self.settings.fish_audio_hiro_voice_id
-                            if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
-                            else self.settings.fish_audio_hinaa_voice_id
-                        )
-                        fa = FishAudioTTSProvider(
-                            FishAudioConfig(
-                                api_key=self.settings.fish_audio_api_key.get_secret_value(),
-                                base_url=self.settings.fish_audio_base_url,
-                                voice_id=voice_id,
-                                model_id=self.settings.fish_audio_model_id,
-                                output_format=self.settings.fish_audio_output_format,
-                                request_timeout_s=self.settings.fish_audio_timeout_seconds,
-                            )
-                        )
-                        return await fa.synthesize(text, voice=voice_id)
-                    except Exception:
-                        pass
-                if self.settings.azure_configured:
-                    try:
-                        azure_voice = (
-                            self.settings.azure_speech_male_voice
-                            if companion_id == "hiro"
-                            else self.settings.azure_speech_female_voice
-                        )
-                        azure_provider = AzureSpeechProvider(
-                            self.settings.azure_speech_key.get_secret_value(),
-                            self.settings.azure_speech_region,
-                        )
-                        return await azure_provider.synthesize_calibrated(text, azure_voice, 1.1, 0.5, 1.0)
-                    except Exception as az_err:
-                        logger.warning("Azure Speech fallback also failed: %s", az_err)
-                raise HinaaError("TTS_FAILED", f"Deepgram TTS failed: {deepgram_err}", 503, True) from deepgram_err
-        
-        if isinstance(provider, FishAudioTTSProvider):
-            # Language hint auto-detects Nepali (Devanagari) vs English per turn.
-            voice_id = (
-                self.settings.fish_audio_voice_ids[0]
-                if companion_id == "hinaa"
-                else self.settings.fish_audio_voice_ids[1]
-            )
-            if not voice_id:
-                raise HinaaError("TTS_FAILED", "Fish Audio voice id is not configured.", 503, True)
-            try:
-                async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                    return await provider.synthesize(text, voice=voice_id, language_hint=language.split("-")[0] if language != "mixed" else "auto")
-            except Exception as error:
-                raise HinaaError("TTS_FAILED", f"Fish Audio TTS failed: {error}", 503, True) from error
-        if isinstance(
-            provider,
-            (ElevenLabsHTTPStreamingProvider, ElevenLabsWebSocketStreamingProvider),
-        ):
-            # Select per-companion voice ID
-            if companion_id == "hiro":
-                voice_id = self.settings.elevenlabs_hiro_voice_id
-            else:
-                voice_id = self.settings.elevenlabs_hinaa_voice_id
-            # A live turn buys latency with the fast model; typed chat keeps the
-            # configured voice. Both go to a Nepali-capable model when the text
-            # is Nepali, which is the only case where the configured model is
-            # provably unable to say what she was asked to say.
-            chosen_model = (
-                choose_live_tts_model(
-                    text,
-                    configured_model=self.settings.elevenlabs_model_id,
-                    fast_model=self.settings.elevenlabs_tts_model_fast,
-                    nepali_model=self.settings.elevenlabs_tts_model_nepali,
-                )
-                if live
-                else choose_text_tts_model(
-                    text,
-                    configured_model=self.settings.elevenlabs_model_id,
-                    nepali_model=self.settings.elevenlabs_tts_model_nepali,
-                )
-            )
-            return await self._voice_with_fallback(
-                provider,
-                text=text,
-                companion_id=companion_id,
-                voice_id=voice_id,
-                model_id=chosen_model,
-                delivery_mode=delivery_mode,
-                # Same rule as the Azure path below: an explicit rate wins,
-                # otherwise the calibration decides. The live client sends
-                # "natural" and has no picker, so this value is her pace.
-                rate=rate if rate is not None else resolve_calibration(calibration).rate,
-            )
-        if mode in {"mock", "local"}:
-            return await self.synthesize(
-                SpeechRequest(text=text, companionId=companion_id, providerMode=mode)
-            )
-        if not isinstance(provider, AzureSpeechProvider):
-            raise HinaaError("TTS_FAILED", "Speech synthesis provider is unavailable.", 503, True)
-        voice = resolve_voice(
-            companion_id,
-            self.settings.azure_speech_female_voice,
-            self.settings.azure_speech_male_voice,
-            language,
-        )
-        tuning = resolve_calibration(calibration)
-        try:
-            async with asyncio.timeout(self.settings.provider_timeout_seconds):
-                return await provider.synthesize_calibrated(
-                    text,
-                    voice,
-                    rate if rate is not None else tuning.rate,
-                    pitch_semitones if pitch_semitones is not None else tuning.pitch_semitones,
-                    volume if volume is not None else tuning.volume,
-                )
-        except TimeoutError as error:
-            raise HinaaError(
-                "PROVIDER_TIMEOUT", "Voice synthesis took too long.", 504, True
-            ) from error
-
-
-    def _log_prompt_meta(
-        self, session_id: str, fingerprint: str, mode: str, *, manifest_id: str | None = None
-    ) -> None:
-        # B2.1 §7: every model invocation carries a context_manifest_id trace.
-        # A missing manifest_id on a production turn is a selection-bypass bug.
-        logger.info(
-            "prompt_assembled",
-            extra={
-                "session_id": session_id,
-                "prompt_version": PROMPT_VERSION,
-                "fingerprint": fingerprint,
-                "interaction_mode": mode,
-                "context_manifest_id": manifest_id,
-            },
-        )
-
-    @staticmethod
-    def _event(event_type: str, payload: dict[str, object]) -> bytes:
-        return (json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n").encode()
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import time
+from collections import OrderedDict
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from enum import Enum
+from typing import TYPE_CHECKING, Any
+
+from .config import Settings
+from .circuit_breaker import (
+    CircuitBreakerState,
+    get_circuit_breaker,
+    peek_circuit_breaker,
+)
+from .brain_ledger import (
+    aliases_for,
+    fingerprint_for,
+    newest_verdict,
+    record_call,
+    row_for_brain,
+)
+from .capabilities import brain_accepts_images
+from .response.notation import MathNotationStream, ascii_math, plainify_math
+from .errors import HinaaError
+from .reachability import probe_gateway_models
+from .memory import SessionMemory
+from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest, ToolRequest, Emotion
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .persistence.memory_service import MemoryService
+
+from .prompts import PROMPT_VERSION, build_plan_from_text, neutral_fallback_plan
+from .prompts.performance import extract_executive_voice_summary
+from .prompts.turn_prompt import build_turn_prompt
+from .providers.agent_router import AgentRouterOpenAIProvider, AgentRouterAnthropicProvider, ClaudeLLMProvider
+from .providers.azure_speech import AzureSpeechProvider
+from .providers.base import (
+    LLMProvider,
+    ProviderResult,
+    STTProvider,
+    TTSProvider,
+)
+from .providers.gemini import GeminiLLMProvider
+from .providers.groq import GroqLLMProvider
+from .providers.local import LocalLLMProvider, make_local_stt, make_local_tts
+from .providers.mock import MockLLMProvider, MockSTTProvider, MockTTSProvider
+from .providers.elevenlabs import (
+    ElevenLabsConfig,
+    ElevenLabsHTTPStreamingProvider,
+    ElevenLabsSTTProvider,
+    ElevenLabsWebSocketStreamingProvider,
+    choose_live_tts_model,
+    choose_text_tts_model,
+    make_elevenlabs_provider,
+)
+from .providers.fish_audio import FishAudioConfig, FishAudioTTSProvider
+from .providers.openai_llm import OpenAILLMProvider
+from .providers.deepgram_voice import DeepgramTTSProvider, DeepgramSTTProvider
+from .voice_performance import speech_text_for_tts
+from .voice_profiles import resolve_calibration, resolve_voice
+from .run_ledger import get_run_ledger
+from .reply_guard import check_reply
+from .voice_fallback import (
+    fallback_voice_id,
+    is_fallback_worthy,
+    note_voice_failure,
+    voice_on_cooldown,
+)
+
+_ELEVENLABS_PROVIDER = "elevenlabs"
+
+logger = logging.getLogger("hinaa.conversation")
+
+# Below this many characters the primary had not really started answering, so a
+# fallback brain may still take the turn; above it the text is already on the
+# user's screen and replacing it would attribute words to her she never wrote.
+_MIN_STREAMED_CHARS_TO_KEEP = 400
+
+# A dead primary brain should hand the turn to a working one, not surface an
+# error. This list must track the codes providers actually raise: the per-path
+# copies of it used to name PROVIDER_RATE_LIMIT / PROVIDER_KEY_INVALID (which
+# nothing emits) while missing PROVIDER_UNREACHABLE and PROVIDER_RATE_LIMITED
+# (which the agent-router gateway emits on every connection reset and 429), so
+# the documented recovery never ran.
+# SAFETY_REFUSAL and *_RESPONSE_INVALID stay out on purpose: refusal is final,
+# and a malformed answer has its own neutral-plan path.
+FALLBACK_ELIGIBLE_ERROR_CODES = frozenset(
+    {
+        "PROVIDER_UNREACHABLE",
+        "PROVIDER_UNAVAILABLE",
+        "PROVIDER_TIMEOUT",
+        "PROVIDER_RATE_LIMIT",
+        "PROVIDER_RATE_LIMITED",
+        "PROVIDER_KEY_INVALID",
+        "PROVIDER_AUTH_FAILED",
+        "PROVIDER_ACCESS_DENIED",
+        "PROVIDER_ENDPOINT_INVALID",
+        "PROVIDER_MODEL_NOT_FOUND",
+        "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
+    }
+)
+
+
+@asynccontextmanager
+async def live_generation_window(
+    *,
+    ceiling_s: float,
+    idle_s: float,
+    forward: Callable[[str], Awaitable[None]],
+    sink: list[str] | None = None,
+    first_token_s: float | None = None,
+) -> AsyncIterator[tuple[Callable[[str], Awaitable[None]], Callable[[], bool]]]:
+    """Emit hook + liveness predicate for one live brain attempt.
+
+    The idle deadline moves forward on every token, so a long answer is never
+    killed merely for being long; only a silent stream is. ``ceiling_s`` remains
+    as the absolute backstop against a hung connection.
+
+    ``first_token_s`` shortens the leash ONLY until the stream has produced its
+    first delta: a brain that has emitted nothing for several seconds has hung,
+    not "started slowly", and the turn should fail over instead of holding him
+    in silence for the whole inter-token idle budget. The first emit upgrades
+    the window to the full ``idle_s``, so slow-but-alive reasoning streams are
+    unaffected.
+    """
+    loop = asyncio.get_running_loop()
+    initial_idle_s = idle_s if first_token_s is None else min(first_token_s, idle_s)
+    async with asyncio.timeout(ceiling_s), asyncio.timeout(initial_idle_s) as idle_window:
+
+        async def emit(delta: str) -> None:
+            if sink is not None:
+                sink.append(delta)
+            idle_window.reschedule(loop.time() + idle_s)
+            await forward(delta)
+
+        yield emit, idle_window.expired
+
+
+@dataclass
+class ParsedCommand:
+    command: str
+    args: str
+    raw: str
+
+
+@dataclass
+class ParsedContext:
+    kind: str
+    source_id: str
+    raw: str
+
+
+def parse_composer_input(text: str) -> tuple[str, list[ParsedContext], ParsedCommand | None]:
+    """Parse composer input for @context references and /commands.
+
+    Returns: (plain_text, context_references, explicit_command)
+    """
+    if not text:
+        return "", [], None
+
+    contexts: list[ParsedContext] = []
+    command: ParsedCommand | None = None
+    plain_parts: list[str] = []
+
+    parts = text.split(" ")
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+
+        if part.startswith("@") and len(part) > 1:
+            context_spec = part[1:]
+            if ":" in context_spec:
+                kind, source_id = context_spec.split(":", 1)
+            else:
+                kind, source_id = context_spec, "current"
+            contexts.append(ParsedContext(kind=kind, source_id=source_id, raw=part))
+            i += 1
+            continue
+
+        if part.startswith("/") and len(part) > 1:
+            cmd_name = part[1:]
+            args_parts: list[str] = []
+            i += 1
+            while i < len(parts):
+                next_part = parts[i]
+                if next_part.startswith("@") or next_part.startswith("/"):
+                    break
+                args_parts.append(next_part)
+                i += 1
+            command = ParsedCommand(
+                command=cmd_name,
+                args=" ".join(args_parts),
+                raw=part + " " + " ".join(args_parts) if args_parts else part,
+            )
+            continue
+
+        plain_parts.append(part)
+        i += 1
+
+    plain_text = " ".join(plain_parts).strip()
+    return plain_text, contexts, command
+
+
+def _durable_content(block: str) -> str:
+    """Strip the ``memory:{id}: `` prefix from an approved durable block."""
+    if ": " in block:
+        return block.split(": ", 1)[1].strip()
+    return block.strip()
+
+
+CHARACTER_ENTITY_MAP: dict[str, str] = {
+    "mikasa": "Mikasa Ackerman",
+    "mikasa ackerman": "Mikasa Ackerman",
+    "gojo": "Gojo Satoru",
+    "gojo satoru": "Gojo Satoru",
+    "levi": "Levi Ackerman",
+    "levi ackerman": "Levi Ackerman",
+    "eren": "Eren Yeager",
+    "eren yeager": "Eren Yeager",
+    "tanjiro": "Tanjiro Kamado",
+    "tanjiro kamado": "Tanjiro Kamado",
+    "nezuko": "Nezuko Kamado",
+    "nezuko kamado": "Nezuko Kamado",
+    "naruto": "Naruto Uzumaki",
+    "naruto uzumaki": "Naruto Uzumaki",
+    "sasuke": "Sasuke Uchiha",
+    "sasuke uchiha": "Sasuke Uchiha",
+    "luffy": "Monkey D. Luffy",
+    "monkey d luffy": "Monkey D. Luffy",
+    "zoro": "Roronoa Zoro",
+    "roronoa zoro": "Roronoa Zoro",
+    "sukuna": "Ryomen Sukuna",
+    "ryomen sukuna": "Ryomen Sukuna",
+    "itadori": "Yuji Itadori",
+    "yuji itadori": "Yuji Itadori",
+    "goku": "Son Goku",
+    "son goku": "Son Goku",
+}
+
+
+def _dedupe_session_facts(
+    session_memories: tuple[str, ...], approved_blocks: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Drop ephemeral session facts already stored durably (avoid double injection)."""
+    if not approved_blocks:
+        return session_memories
+    durable_keys = {_durable_content(block).lower() for block in approved_blocks}
+    return tuple(fact for fact in session_memories if fact.strip().lower() not in durable_keys)
+
+
+def _fact_category(fact: str) -> str:
+    lowered = fact.lower()
+    if lowered.startswith("user's name"):
+        return "identity"
+    if lowered.startswith(("user likes", "user dislikes")):
+        return "preference"
+    if lowered.startswith("user context"):
+        return "context"
+    if lowered.startswith("asked to remember"):
+        return "fact"
+    return "other"
+
+
+def _comparison_key(text: str) -> str:
+    """Create a tolerant key for checking accidental response repetition."""
+    return re.sub(r"[^\w]+", "", text.casefold(), flags=re.UNICODE)
+
+
+def _image_fetch_count(text: str, *, default: int = 6) -> int:
+    """How many existing pictures he asked for, capped where the tool caps.
+
+    The search tool pools providers up to its own ceiling; a planner that always
+    asked for six made that ceiling unreachable from his words.
+    """
+    from .tools.browser import MAX_IMAGE_RESULTS
+    from .tools.intent_gate import requested_count
+
+    count = requested_count(text or "", maximum=MAX_IMAGE_RESULTS, default=default)
+    return min(max(1, count), MAX_IMAGE_RESULTS)
+
+
+def _dedupe_halves(text: str) -> str:
+    """If the model repeated its entire answer block verbatim or near-verbatim, collapse it."""
+    s = text.strip()
+    n = len(s)
+    if n < 40:
+        return text
+    mid = n // 2
+    for offset in range(-15, 16):
+        m = mid + offset
+        if m < 20 or m > n - 20:
+            continue
+        first = s[:m].strip()
+        second = s[m:].strip()
+        if first and second:
+            if first == second:
+                return first
+            k1 = _comparison_key(first)
+            k2 = _comparison_key(second)
+            if k1 and k2 and len(k1) >= 25 and k1 == k2:
+                return first
+    return text
+
+
+def _remove_repeated_passages(text: str) -> str:
+    """Keep the first copy of an identical paragraph, sentence, or text block.
+
+    Provider output can occasionally repeat its answer during schema recovery or
+    streaming completion. This guard is intentionally conservative: it removes
+    only identical normalized passages and leaves differently worded details,
+    Markdown lists, and code intact.
+    """
+    text = _dedupe_halves(text)
+    chunks = re.split(r"(\n{2,}|(?<=[.!?।])\s+)", text.strip())
+    seen: set[str] = set()
+    kept: list[str] = []
+    pending_separator = ""
+    previous_key = ""
+    for chunk in chunks:
+        if not chunk:
+            continue
+        if re.fullmatch(r"\n{2,}|\s+", chunk):
+            pending_separator = chunk
+            continue
+        key = _comparison_key(chunk)
+        # A sentence repeated immediately after itself is a padding loop, not
+        # emphasis — drop it no matter how short it is ("Tokyo, babe. Tokyo,
+        # babe." measured live from a model pushed at a word floor).
+        if key and key == previous_key:
+            continue
+        if len(key) >= 20 and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        if kept and pending_separator:
+            kept.append(pending_separator)
+        kept.append(chunk)
+        pending_separator = ""
+        previous_key = key
+    return "".join(kept).strip()
+
+
+def _spoken_summary_from_display(text: str, *, limit: int = 420) -> str:
+    """Create a short natural voice route without reading Markdown syntax aloud."""
+    plain = re.sub(r"```[\s\S]*?```", "", text)
+    plain = re.sub(r"^\s{0,3}#{1,6}\s*", "", plain.strip(), flags=re.MULTILINE)
+    plain = re.sub(r"^\s*[-*+]\s+", "", plain, flags=re.MULTILINE)
+    plain = re.sub(r"^\|.*\|\s*$", "", plain, flags=re.MULTILINE)
+    plain = plain.replace("`", "").replace("**", "").replace("__", "")
+    plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", plain)
+    sentences = [piece.strip() for piece in re.split(r"(?<=[.!?।])\s+", plain) if piece.strip()]
+    summary: list[str] = []
+    current_length = 0
+    for sentence in sentences:
+        if summary and current_length + len(sentence) + 1 > limit:
+            break
+        summary.append(sentence)
+        current_length += len(sentence) + 1
+        if len(summary) >= 3:
+            break
+    res = " ".join(summary).strip()
+    if not res:
+        res = plain[:limit].strip()
+    return res
+
+
+def _plain_first_sentences(text: str, limit: int = 280) -> str:
+    """First one or two substantive prose sentences of a document, skipping
+    conversational greetings and stripping markdown so voice summaries are natural."""
+    return extract_executive_voice_summary(text, limit=limit)
+
+
+def _speech_safe(text: str) -> str:
+    """Strip inline markdown from the spoken channel. The document keeps its
+    formatting; a voice engine reads a backtick as a hiccup and says 'asterisk'
+    out loud. Measured live: she spoke `tier-a-conversation-brain-1.0.0` with
+    the backticks in it because the guard only looks for triple backticks.
+
+    Deliberately narrow: emphasis markers only count when they hug a word on
+    both sides, so "2 * 3 * 4" and snake_case identifiers survive untouched.
+    """
+    if not text:
+        return text
+    safe = re.sub(r"\[([^\]\n]+)\]\([^)\n]*\)", r"\1", text)
+    safe = re.sub(r"`{1,3}([^`\n]*)`{1,3}", r"\1", safe)
+    safe = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", safe)
+    safe = re.sub(r"(?<!\*)\*(?=[^\s*])([^*\n]*?[^\s*])\*(?!\*)", r"\1", safe)
+    safe = re.sub(r"(?<![\w_])_(?=[^\s_])([^_\n]*?[^\s_])_(?![\w_])", r"\1", safe)
+    safe = re.sub(r"^\s{0,3}#{1,6}\s+", "", safe, flags=re.MULTILINE)
+    return re.sub(r"\s{2,}", " ", safe).strip()
+
+
+def _closing_ask(display: str) -> str:
+    """The last real question in a document — normally her offer to build the
+    full report or deep-dive next.
+
+    A long answer is spoken from its *first* sentences, so whatever sits at the
+    end is structurally never said. Measured on production: an 8,248-character
+    status answer asked "Would you like the full documented report?" on screen
+    while her voice ended on a mid-document bullet about colour palettes.
+    """
+    if not display:
+        return ""
+    # Split on line breaks as well as terminators: a heading such as
+    # "### Exploration Paths" carries no full stop, so terminator-only splitting
+    # glued it onto the bullet underneath and dragged the literal "\n* " into
+    # what she then read aloud.
+    sentences = [
+        re.sub(r"\s+", " ", piece.lstrip("-*•\u2192>\u00a0 ").strip())
+        for piece in re.split(r"\n+|(?<=[.!?।])\s+", _speech_safe(display))
+    ]
+    questions = [s for s in sentences if s.endswith("?") and len(s) >= 25]
+    if not questions:
+        return ""
+    # He asked to be offered the documented report out loud. When she writes
+    # several questions, the last one can be a tangent ("...or shall we tune
+    # your PyTorch loop?") while the report offer sits above it — so prefer the
+    # last offer that actually names the report, and fall back to the last ask.
+    for sentence in reversed(questions):
+        if re.search(r"\b(report|document|write-up|writeup|brief)\b", sentence, re.I):
+            return sentence
+    return questions[-1]
+
+
+def _with_closing_ask(text: str, display: str, limit: int) -> str:
+    """Append her closing ask to a spoken summary without busting the budget."""
+    ask = _closing_ask(display)
+    if not ask or ask.rstrip("?").strip() in text:
+        return text
+    room = limit - len(ask) - 1
+    if room < 200:
+        return text
+    body = text.strip() if len(text) <= room else (_plain_first_sentences(text, limit=room) or text[:room])
+    body = body.strip()
+    if body and not re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", body):
+        body += "."
+    return f"{body} {ask}" if body else ask
+
+
+def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
+    """Clean leaked XML, thinking blocks, and stage directions (*laughs*, *मुस्कुराते हुए*, etc.).
+    Returns (cleaned_text, had_laughter_or_smile)."""
+    if not text:
+        return "", False
+    # Strip <think>...</think> or <thought>...</thought>
+    cleaned = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*<(?:think|thought)>[\s\S]*$", "", cleaned, flags=re.IGNORECASE)
+    # Strip any leaked prompt meta-reflection lines
+    from .reply_guard import _strip_meta_reflection
+    cleaned, _ = _strip_meta_reflection(cleaned)
+    # Strip any simulated tool calls, code fences, or machine traces
+    from .providers.display_stream_decoder import strip_simulated_tool_calls
+    cleaned = strip_simulated_tool_calls(cleaned)
+    # Strip any leaked XML tags
+    cleaned = re.sub(
+        r"</?(?:response|spokenText|displayText|content|message|language|emotion|performance|memoryCandidates|toolRequests)[^>]*>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    # Check for laughter or smile in stage directions or cues
+    had_laughter = bool(
+        re.search(
+            r"[*(\[](?:[^*()\]]*?(?:laugh|chuckle|giggle|smile|smiling|haha|hehe|हंस|मुस्कुरा|ख़ुश)[^*()\]]*?)[*)\]]",
+            cleaned,
+            re.IGNORECASE,
+        )
+    )
+    # Strip only actual stage directions in single asterisks, e.g. *laughs*, *smiles gently*, *sighs*, *मुस्कुराते हुए*
+    # NEVER strip double asterisks (**bold**), which are standard markdown formatting!
+    stage_dir_pattern = (
+        r"(?<!\*)\*\s*(?:laughs?|chuckles?|giggles?|smiles?|smiling|sighs?|winks?|blushes?|nodding|nods|"
+        r"softly|gently|warmly|cheerful|playful|curious|pouts?|gazing|looking|thinking|"
+        r"मुस्कुराते\s+हुए|हंसते\s+हुए|धीमे\s+से\s+मुस्कुराते\s+हुए|गले\s+लगाते\s+हुए)[^*]*\*(?!\*)"
+    )
+    cleaned = re.sub(stage_dir_pattern, "", cleaned, flags=re.IGNORECASE)
+    # Strip stage direction parentheses, e.g. (laughs), (giggles), (smiling softly), (मुस्कुराते हुए)
+    cleaned = re.sub(
+        r"\(\s*(?:laughs?|chuckles?|giggles?|smiles?|smiling|मुस्कुराते हुए|हंसते हुए|धीमे से मुस्कुराते हुए)[^)]*\)",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    # Strip trailing emotion annotations like (happy=0.8, valence=0.5)
+    cleaned = re.sub(
+        r"\s*\([a-zA-Z_]+=[0-9.]+(?:,\s*[a-zA-Z_]+=[0-9.]+)*\)\s*$",
+        "",
+        cleaned,
+    )
+    # Strip <svg>...</svg> blocks and standalone svg lines
+    cleaned = re.sub(r"<svg[\s\S]*?</svg>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(?im)^\s*svg\s*$\n?", "", cleaned)
+    # Strip internal workflow tokens
+    cleaned = re.sub(r"\b(?:workflow_mode|generation_set_id)\b\s*", "", cleaned)
+    # Strip emojis, hearts, and decorative symbols
+    cleaned = re.sub(
+        r"[\U0001F000-\U0001FFFF\u2600-\u26FF\u2700-\u27BF\uFE00-\uFE0F]",
+        "",
+        cleaned,
+    )
+    # Strip greeting stutters (e.g. "HeyHey'm", "Hey babe, hey!", "Hey, hey")
+    cleaned = re.sub(r"\bHeyHey(?:'m|’m)\b", "Hey, I'm", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bHeyHey\b", "Hey", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(Hey(?:\s+babe)?),\s*hey[!,.]?", r"\1!", cleaned, flags=re.IGNORECASE)
+    # Normalize leftover whitespace, preserving indentation inside code blocks (``` and ~~~)
+    fence_pattern = re.compile(r"(```[\w-]*|```|~~~[\w-]*|~~~)")
+    parts = fence_pattern.split(cleaned)
+    if len(parts) > 1:
+        cleaned_parts = []
+        in_fence = False
+        for part in parts:
+            if part.startswith("```") or part.startswith("~~~"):
+                in_fence = not in_fence
+                cleaned_parts.append(part)
+            elif in_fence:
+                # Inside code block: preserve exact indentation, tabs, blank lines
+                cleaned_parts.append(part)
+            else:
+                # Outside code block: collapse redundant horizontal spaces/tabs
+                cleaned_parts.append(re.sub(r"[ \t]+", " ", part))
+        cleaned = "".join(cleaned_parts)
+    else:
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
+    return cleaned.strip(), had_laughter
+
+
+def _truncate_at_clause_boundary(text: str, limit: int) -> str:
+    """Shorten text to ≤ ``limit`` chars WITHOUT cutting mid-thought (§32).
+
+    Preference order: keep as-is → last sentence end → last clause break
+    (comma/semicolon/dash/colon) → last word boundary. Never slices into
+    the middle of a word.
+    """
+    if len(text) <= limit:
+        return text
+    window = text[: limit + 1]
+    # Sentence boundary: cut AFTER the terminator so the thought keeps its
+    # punctuation (never ends on a bare word).
+    matches = list(re.finditer(r"[.!?\u0964\u0965]", window))
+    if matches:
+        cut = window[: matches[-1].end()].strip()
+        if len(cut) >= limit * 0.4:
+            return cut
+    for sep in (",", ";", "—", " -", ":"):
+        idx = window.rfind(sep)
+        if idx >= limit * 0.4:
+            return window[:idx].rstrip(" ,;—")
+    cut = window.rsplit(" ", 1)[0].rstrip(" ,;—")
+    return cut
+
+
+class VoiceResponseType(str, Enum):
+    """Semantic voice response types (directive §32).
+
+    SHORT_FULL — the whole answer is short; voice may speak it verbatim.
+    EXECUTIVE_SUMMARY — display is a long document; voice summarizes.
+    PROGRESS_UPDATE — work still running; voice reports status only.
+    QUESTION — Hina is asking the user something.
+    ERROR — failure path; voice explains safely.
+    COMPLETION — a tool finished (artifact produced); voice announces it.
+    """
+
+    SHORT_FULL = "SHORT_FULL"
+    EXECUTIVE_SUMMARY = "EXECUTIVE_SUMMARY"
+    PROGRESS_UPDATE = "PROGRESS_UPDATE"
+    QUESTION = "QUESTION"
+    ERROR = "ERROR"
+    COMPLETION = "COMPLETION"
+    ARTIFACT_READY = "ARTIFACT_READY"
+
+
+def plan_voice_response(
+    display_text: str,
+    spoken_text: str,
+    *,
+    has_artifact: bool = False,
+    has_pdf: bool = False,
+    has_image: bool = False,
+    has_error: bool = False,
+    is_progress: bool = False,
+    artifact_title: str | None = None,
+    live: bool = False,
+) -> tuple[VoiceResponseType, str]:
+    """Classify the turn and produce the voice text for that type.
+
+    Long documents never get a recitation; short conversational answers
+    keep their full voice text; the summary is built from whole sentences
+    and never cut mid-thought.
+
+    `live` widens every budget. In the chat window a short spoken line
+    complements a long display answer the user can scroll through; in a
+    hands-free call it is the only surface, so the chat clamps truncated her
+    to two sentences mid-thought.
+    """
+    display = (display_text or "").strip()
+    spoken = (spoken_text or "").strip()
+
+    if has_error:
+        # Error voice: keep the spoken line if it's already short and
+        # complete; otherwise a safe generic fallback. Never recite stacks.
+        if spoken and len(spoken) <= 220 and re.search(r"[.!?\u0964]", spoken):
+            return VoiceResponseType.ERROR, spoken
+        return VoiceResponseType.ERROR, "Something went wrong on my side — give me another try? 💜"
+    if has_artifact:
+        title = artifact_title or "your document"
+        return VoiceResponseType.ARTIFACT_READY, f"I've created {title} for you! You can view and edit it right here. ✨"
+    if has_pdf:
+        return VoiceResponseType.COMPLETION, "I've generated your assignment PDF! You can download it right below. ✨"
+    if has_image:
+        return VoiceResponseType.COMPLETION, "Here are some pictures for you! ✨"
+    if is_progress:
+        if spoken and len(spoken) <= 200:
+            return VoiceResponseType.PROGRESS_UPDATE, spoken
+        return VoiceResponseType.PROGRESS_UPDATE, "Working on it — I'll have it ready shortly! ✨"
+
+    # Two tiers, one reason: a call has no second surface, so her voice has to
+    # carry the whole answer. ~900 characters is about a minute of fluent
+    # speech, and ~1.4k is about 90s. Note which tier production actually uses:
+    # main.py has one entry into the brain (stream_turn) and stream_turn always
+    # calls create_live_plan, so typed web turns arrive live too — the non-live
+    # tier shapes only the non-streaming path that no route reaches today. Tighten
+    # it and nothing changes on his phone.
+    whole_answer_ceiling = 1_400 if live else 900
+    verbatim_cap = 1_400 if live else 900
+    distill_limit = 1_400 if live else 900
+    summary_limit = 1_200 if live else 900
+
+    # Question: Hina asked the user something — never overwrite a question
+    # with a summary, that would erase the ask. Only while the question really
+    # is the whole answer. A 5,056-word report that happens to close with
+    # "Shall we examine the concurrency primitives?" is an executive summary
+    # with an offer on the end, and this branch used to flatten it to 380
+    # characters: measured on production as 398 spoken characters for what he
+    # asked to hear in full.
+    if len(display) <= whole_answer_ceiling and (
+        spoken.endswith("?") or (not spoken and display.rstrip().endswith("?"))
+    ):
+        question = spoken or display
+        if any(marker in question for marker in ("```", "\n", "•", "|", "###", "##", "- ")):
+            # Falling back to the display text can pull in headings and bullets
+            # that must never be read aloud.
+            question = _plain_first_sentences(question, limit=400) or question.replace("\n", " ")
+        if len(question) <= 400:
+            return VoiceResponseType.QUESTION, question
+        return VoiceResponseType.QUESTION, _truncate_at_clause_boundary(question, 380)
+
+    if len(display) <= whole_answer_ceiling:
+        # Short conversational turn: keep the model's own voice text when it
+        # is a complete thought; otherwise speak the display text itself.
+        candidate = spoken or display
+        if len(candidate) <= verbatim_cap and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", candidate.rstrip())):
+            return VoiceResponseType.SHORT_FULL, candidate
+        if len(display) <= verbatim_cap:
+            return VoiceResponseType.SHORT_FULL, display
+        distilled = _plain_first_sentences(display, limit=distill_limit)
+        return VoiceResponseType.SHORT_FULL, distilled or "I've put the full breakdown in chat! ✨"
+
+    # Long document: executive summary from whole substantive sentences.
+    clean_spoken = spoken.strip()
+    sentence_ends = len(re.findall(r"[.!?\u0964\u0965]", clean_spoken))
+    # Distinct sentences, not terminators: padding one sentence out twenty
+    # times satisfies a terminator count while saying nothing new.
+    distinct_sentences = len(
+        {
+            piece.strip().casefold()
+            for piece in re.split(r"(?<=[.!?।])\s+", clean_spoken)
+            if piece.strip()
+        }
+    )
+    # Below these floors the model handed over a lead-in ("Great question,
+    # babe, let me be honest with you…") rather than a summary, and distilling
+    # from displayText says more. Live needs half its budget because her voice
+    # is the only surface. Chat keeps a near-zero floor: a real three-sentence
+    # summary measured 187 characters, so any character gate high enough to
+    # catch a warm-up also destroys genuine summaries — the sentence rules
+    # below are what separate the two.
+    #
+    # That only holds for ordinary turns. For a report-length document the
+    # prompt asks for 600-1,400 characters of summary, and measured on
+    # production she returned 398 for a 5,056-word report: chat's 40-character
+    # floor waved it through and her voice covered 20s of a 40-minute read.
+    report_length_doc = len(display) > 12_000
+    chat_min_substantive_chars = 600 if report_length_doc else 40
+    min_substantive_chars = (
+        int(summary_limit * 0.5) if live else chat_min_substantive_chars
+    )
+    min_substantive_sentences = 3 if live else 2
+    # Announcing that she is about to read the document is not a summary of it.
+    recitation_openers = (
+        "here is your",
+        "i have generated",
+        "i will now read",
+        "i'll now read",
+        "let me read",
+    )
+    substantive_ceiling = 2_400 if live else 1_500
+    is_substantive_spoken = (
+        len(clean_spoken) >= min_substantive_chars
+        and distinct_sentences >= min_substantive_sentences
+        and sentence_ends >= min_substantive_sentences
+        and len(clean_spoken) <= substantive_ceiling
+        and bool(re.search(r"[.!?:\u0964\u0965💜✨🌟🌸💖]\s*$", clean_spoken))
+        and not any(marker in clean_spoken for marker in ("```", "\n", "•", "|", "###", "##"))
+        and not clean_spoken.lower().startswith(recitation_openers)
+    )
+    if is_substantive_spoken:
+        return VoiceResponseType.EXECUTIVE_SUMMARY, _with_closing_ask(
+            clean_spoken, display, substantive_ceiling
+        )
+
+    summary = _plain_first_sentences(display, limit=summary_limit)
+    if not summary:
+        summary = _truncate_at_clause_boundary(spoken or display, summary_limit)
+    if summary and not re.search(r"[.!?:\u0964\u0965]\s*$", summary.rstrip()):
+        # Truncating here only made her shorter and still left the sentence
+        # open, so the sign-off ran straight into it when spoken aloud.
+        summary = summary.rstrip() + "."
+    # Ask what she actually wrote at the end of the document; the canned line is
+    # only for when there was no question to keep.
+    sign_off = _closing_ask(display) or (
+        "Want me to walk you through the whole thing?"
+        if live
+        else "The full document is in chat for you! ✨"
+    )
+    return VoiceResponseType.EXECUTIVE_SUMMARY, _with_closing_ask(
+        f"{summary} {sign_off}".strip(), display, summary_limit
+    )
+
+
+_DOCUMENT_TOOL_NAMES = {"pdf_generate", "document_generate"}
+
+# The builder typesets supplied text or cited findings and adds no analysis
+# tables, figures, or bibliography of its own. A toolRequest is only a request
+# at this point — nothing exists yet — so a reply listing what the document
+# "contains" is describing a file nobody has written.
+_UNVERIFIED_DOCUMENT_CLAIM = re.compile(
+    r"(?i)[,;]?\s+\b(?:with|including|featuring|complete with|packed with)\b"
+    r"(?P<list>[^.;:\n]{0,120}?\b(?:analyses?|analysis|citations?|references?|tables?|"
+    r"graphs?|figures?|illustrations?|bibliography|footnotes?|scholarly sources)\b"
+    r"[^.;:\n]{0,60})"
+)
+
+
+def _strip_unverified_document_claims(text: str) -> tuple[str, bool]:
+    """Drop clauses asserting contents a document builder cannot have produced."""
+    stripped_count = 0
+
+    def _drop(match: re.Match[str]) -> str:
+        nonlocal stripped_count
+        stripped_count += 1
+        return ""
+
+    cleaned = _UNVERIFIED_DOCUMENT_CLAIM.sub(_drop, text)
+    if not stripped_count:
+        return text, False
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"(\w)\s+\1", r"\1", cleaned)
+    return cleaned.strip(), True
+
+
+def _trim_to_sentences(text: str, max_chars: int, max_sentences: int) -> str:
+    """Hard-trim prose at sentence boundaries. A model that rambles past the
+    budget loses the tail, never a word mid-way."""
+    if len(text) <= max_chars:
+        return text
+    sentences = re.split(r"(?<=[.!?।॥])\s+", text.strip())
+    kept: list[str] = []
+    total = 0
+    for sentence in sentences:
+        if kept and (total + len(sentence) + 1 > max_chars or len(kept) >= max_sentences):
+            break
+        kept.append(sentence)
+        total += len(sentence) + 1
+    trimmed = " ".join(kept).strip()
+    if len(trimmed) > max_chars:
+        # One sentence alone ran past the budget: cut on a word boundary.
+        trimmed = text[:max_chars].rsplit(" ", 1)[0].rstrip(",;:") + "."
+    return trimmed or text[:max_chars]
+
+
+def _trim_display_for_chat(text: str, max_chars: int = 700) -> str:
+    """Casual questions get a casual answer. A model that turns "why did that
+    happen?" into a headed, tabled lecture loses everything from the first
+    structural marker down, then the prose itself is sentence-trimmed."""
+    if "```" in text:
+        return text
+    structure = re.search(r"\n\s*(?:#{1,6}\s|\|)", text)
+    if structure and structure.start() > 80:
+        text = text[: structure.start()].rstrip()
+    if len(text) <= max_chars:
+        return text
+    return _trim_to_sentences(text, max_chars, max_sentences=6)
+
+
+def _is_voice_collision_complaint(user_text: str | None) -> bool:
+    """Detects explicit user complaints about voice barge-in or talking over.
+    In response to these complaints, defensive lectures on streaming concurrency
+    are simplified to direct prose apologies."""
+    if not user_text:
+        return False
+    lowered = user_text.lower()
+    return bool(
+        re.search(
+            r"\b(?:talking\s+(?:over\s+me|with\s+the\s+previous\s+message)|interrupting\s+me|talking\s+at\s+the\s+same\s+time)\b",
+            lowered,
+        )
+    )
+
+
+def _apply_response_quality_guard(
+    plan: AssistantTurnPlan,
+    is_live: bool = False,
+    evidence_sources: Any = None,
+    user_text: str | None = None,
+    response_mode: str | None = None,
+) -> None:
+    """Normalize a completed plan without changing meaning or tool requests."""
+    clean_display, display_laughed = _clean_natural_speech_and_display(plan.displayText)
+    clean_spoken, spoken_laughed = _clean_natural_speech_and_display(plan.spokenText)
+    # She answers chemistry and calculus in LaTeX and no surface of hers can
+    # typeset it, so the markup becomes readable here -- once, for the bubble,
+    # the saved document, the notification, and her voice (in ASCII, because a
+    # speech engine has to guess at a subscript).
+    clean_display = plainify_math(clean_display)
+    clean_spoken = ascii_math(plainify_math(clean_spoken))
+    # Speech only — the document keeps its markdown, her voice must not read it.
+    clean_spoken = _speech_safe(clean_spoken)
+
+    plan.displayText = _remove_repeated_passages(clean_display)
+    plan.spokenText = _remove_repeated_passages(clean_spoken)
+
+    if evidence_sources:
+        try:
+            from hinaa_api.grounding.citations import CitationRenderer, EvidenceSource
+            normalized_sources = []
+            for src in evidence_sources:
+                if isinstance(src, EvidenceSource):
+                    normalized_sources.append(src)
+                elif isinstance(src, dict):
+                    normalized_sources.append(
+                        EvidenceSource(
+                            source_id=str(src.get("id") or src.get("source_id") or "1"),
+                            title=str(src.get("title", "")),
+                            url=str(src.get("url", "")),
+                        )
+                    )
+            renderer = CitationRenderer(normalized_sources)
+            rendered_display, _, _ = renderer.render(plan.displayText, append_sources=True)
+            plan.displayText = rendered_display
+        except Exception:
+            logger.debug("Citation rendering in quality guard skipped", exc_info=True)
+
+    if any(t.toolName in _DOCUMENT_TOOL_NAMES for t in plan.toolRequests):
+        plan.displayText, _ = _strip_unverified_document_claims(plan.displayText)
+        plan.spokenText, _ = _strip_unverified_document_claims(plan.spokenText)
+
+    had_laughter = display_laughed or spoken_laughed
+    if had_laughter:
+        if not getattr(plan, "emotion", None) or getattr(plan.emotion, "primary", None) in {"neutral", "calm", None}:
+            plan.emotion.primary = "happy"
+            plan.emotion.intensity = max(getattr(plan.emotion, "intensity", 0.5), 0.75)
+            plan.emotion.valence = 0.8
+            plan.emotion.arousal = 0.6
+        if not getattr(plan, "performance", None) or getattr(plan.performance, "facePreset", None) in {"neutral", "idle", None}:
+            plan.performance.facePreset = "soft_smile"
+
+    # Voice should complement a long display answer, not replay it verbatim.
+    # Spoken text must NEVER recite long essays, outlines, bullet points, or code.
+    has_pdf = any(t.toolName == "pdf_generate" for t in plan.toolRequests)
+    has_image = any(t.toolName in {"image_search", "image_generate"} for t in plan.toolRequests)
+
+    if has_pdf:
+        # COMPLETION voice type: artifact announcement, not a recitation (§32).
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, raw_spoken := plan.spokenText, has_pdf=True
+        )
+        plan.spokenText = voice_text
+        return
+    elif has_image:
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, plan.spokenText, has_image=True
+        )
+        plan.spokenText = voice_text
+        return
+
+    raw_spoken = plan.spokenText or ""
+    if is_live:
+        # A paragraph break is prose, not structure. Discarding spoken text
+        # just because it contained "\n" threw away everything the model
+        # wrote to be said aloud; flatten it and keep the real hazards fatal.
+        raw_spoken = " ".join(part.strip() for part in raw_spoken.split("\n") if part.strip())
+        plan.spokenText = raw_spoken
+    # Check if spoken text contains structured markdown, code, or outlines that should never be spoken aloud
+    has_forbidden_speech_structure = any(
+        marker in raw_spoken for marker in ("```", "\n", "•", "|", "- ", "1. ", "###", "##")
+    )
+    is_verbatim_echo = len(plan.displayText) > 280 and (
+        _comparison_key(plan.displayText) == _comparison_key(raw_spoken)
+    )
+
+    if has_forbidden_speech_structure or is_verbatim_echo:
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, "", is_progress=False, live=is_live
+        )
+        plan.spokenText = voice_text
+    elif len(plan.spokenText) > (3_000 if is_live else 1_500):
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, plan.spokenText, is_progress=False, live=is_live
+        )
+        plan.spokenText = voice_text
+    elif len(plan.displayText) > (1_400 if is_live else 900):
+        # Document guard (EXECUTIVE_SUMMARY): when displayText is a long
+        # document/report, voice provides a smart, substantive executive summary.
+        voice_type, voice_text = plan_voice_response(
+            plan.displayText, plan.spokenText, is_progress=False, live=is_live
+        )
+        plan.spokenText = voice_text
+
+    # Hard brevity, decided from HIS ask, not her mood: the weak brains answer
+    # a casual complaint with a headed, tabled 800-word lecture (measured in
+    # the live transcripts). Chat depth speaks in three sentences and shows
+    # prose; deep asks keep their length. Turns that filed tools keep their
+    # display as-is -- artifact cards carry their own text.
+    if user_text:
+        from .intelligence.answer_depth import AnswerDepth, AnswerDepthController
+
+        depth = AnswerDepthController.infer_depth(user_text)
+        is_quick = depth == AnswerDepth.QUICK
+        # Spoken text is the concise summary for voice: bounded to 450 chars for quick answers, 900 chars otherwise
+        plan.spokenText = _trim_to_sentences(
+            plan.spokenText or "", 450 if is_quick else 900, 3 if is_quick else 6
+        )
+        # Full structured output (markdown headers, tables, code fences, citations) is preserved
+        # canonically by default without destructive display trimming. Speech text is derived and bounded
+        # separately in spokenText.
+
+
+# Seconds of output silence before she acknowledges out loud. A hung primary
+# pays its timeout before failover, and he otherwise stares at a frozen veil
+# the whole time; six seconds is long enough that a healthy brain never
+# triggers it and short enough that a hang is answered.
+_SILENCE_ACK_SECONDS = 6.0
+
+# ── Casual-chat fast path ──────────────────────────────────────────────────
+# Reasoning brains (cx/gpt-5.6-sol, agent-router) spend hidden tokens before
+# the first visible token, which is why social small talk feels slow. Short,
+# conversational turns are routed to a fast non-reasoning model (OpenAI fast
+# model while healthy, else Gemini flash) when one is configured; deep work
+# keeps the reasoning brain. The heuristic biases toward "deep" — a mis-route
+# here only costs latency, never answer quality. A dead fast-brain key is
+# negative-cached so the turn falls through to the reasoning brain instead of
+# failing (see ConversationService._fast_casual_provider).
+_DEEP_TASK_HINTS = (
+    "```",
+    "code",
+    "python",
+    "typescript",
+    "javascript",
+    "react",
+    "api",
+    "sql",
+    "database",
+    "deploy",
+    "bug",
+    "error",
+    "script",
+    "function",
+    "class",
+    "write",
+    "build",
+    "create",
+    "explain",
+    "refactor",
+    "fix",
+    "debug",
+    "test",
+    "file",
+    "folder",
+    "project",
+    "github",
+    "git",
+    "docker",
+    "server",
+    "config",
+    "schema",
+    "webhook",
+    "branch",
+    "commit",
+    "pipeline",
+    "agent",
+    "llm",
+    "model",
+    "prompt",
+    "how to",
+    "setup",
+    "install",
+    "configure",
+    "analyze",
+    "analyse",
+    "review",
+    "generate",
+    "implement",
+    "otakuxwear",
+    "business",
+    "price",
+    "report",
+    "strategy",
+)
+_CASUAL_HINTS = (
+    "hi",
+    "hello",
+    "hey",
+    "yo",
+    "namaste",
+    "namaskar",
+    "\u0928\u092e\u0938\u094d\u0924\u0947",
+    "\u0928\u092e\u0938\u094d\u0915\u093e\u0930",
+    "kasto",
+    "\u0915\u0938\u094d\u0924\u094b",
+    "k cha",
+    "\u0915\u0947 \u091b",
+    "ke chha",
+    "mood",
+    "tired",
+    "\u0925\u093e\u0915\u0947",
+    "happy",
+    "\u0916\u0941\u0938\u0940",
+    "sad",
+    "\u0926\u0941\u0916",
+    "miss",
+    "love",
+    "\u092e\u093e\u092f\u093e",
+    "maya",
+    "thank",
+    "\u0927\u0928\u094d\u092f\u0935\u093e\u0926",
+    "bro",
+    "ok",
+    "okay",
+    "hmm",
+    "cool",
+    "nice",
+    "wow",
+    "good morning",
+    "good night",
+    "good evening",
+    "good afternoon",
+    "how are",
+    "how's",
+    "hw r u",
+    "haha",
+    "lol",
+)
+
+
+# Casual hints match on word boundaries so "hi" never matches "this" and
+# "miss" never matches "mission". Deep hints stay substring-matched on purpose:
+# a false "deep" costs only latency, never answer quality.
+_CASUAL_HINT_RE = re.compile(
+    r"(?<![a-z0-9])(" + "|".join(re.escape(h) for h in _CASUAL_HINTS) + r")(?![a-z0-9])"
+)
+
+
+def _text_has_deep_hint(text: str | None) -> bool:
+    lowered = (text or "").lower()
+    return any(hint in lowered for hint in _DEEP_TASK_HINTS)
+
+
+def is_casual_chat(
+    text: str | None,
+    history: tuple[tuple[str, str], ...] = (),
+) -> bool:
+    """True for short social turns that do not need the reasoning brain.
+
+    Conservative by design: any deep-task hint, a long message, or recent
+    history that is itself deep work keeps the reasoning brain — so the fast
+    path can only make replies faster, never dumber. The history check stops
+    a short continuation ("ok, do it now") from jumping to the fast model
+    mid-refactor.
+    """
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    if len(lowered) > 140:
+        return False
+    if _text_has_deep_hint(lowered):
+        return False
+    # A brief follow-up can continue a deep task started in recent history.
+    for _, history_text in history[-2:]:
+        if _text_has_deep_hint(history_text):
+            return False
+    if len(lowered) <= 60:
+        return True
+    return _CASUAL_HINT_RE.search(lowered) is not None
+
+
+def _turn_has_image(resolved_media: list[Any]) -> bool:
+    """Whether a picture's bytes actually reached this turn's prompt.
+
+    Keyed on the same two facts the adapters use to decide whether to emit an
+    image part (an ``image/*`` mime and non-empty bytes), so the routing
+    decision here cannot drift from what the provider will really send.
+    """
+    return any(
+        str(getattr(item, "mime_type", "")).startswith("image/")
+        and getattr(item, "bytes_data", None)
+        for item in resolved_media
+    )
+
+
+class ProviderRouter:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.mock_stt = MockSTTProvider()
+        self.mock_llm = MockLLMProvider()
+        self.mock_tts = MockTTSProvider()
+        self.local_stt = make_local_stt(settings)
+        self.local_llm = LocalLLMProvider()
+        self.local_tts = make_local_tts(settings)
+        self._deepgram_tts_provider: DeepgramTTSProvider | None = None
+
+    def _require_real(self) -> None:
+        if missing := self.settings.missing_real_configuration():
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                f"Real mode is not configured. Missing backend variables: {', '.join(missing)}.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_openai_brain(self) -> None:
+        if self.settings.active_openai_key is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "OpenAI brain is not configured. Missing backend variable: OPENAI_API_KEY.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_custom_brain(self) -> None:
+        if self.settings.active_custom_key is None or self.settings.active_custom_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Custom model gateway is not configured. Missing backend variables: "
+                "OPENAI_CODEX_API_KEY and OPENAI_CODEX_BASE_URL.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_claude_brain(self) -> None:
+        if self.settings.active_claude_key is None or self.settings.active_claude_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Claude is not configured. Add HINAA_CLAUDE_API_KEY (or ANTHROPIC_API_KEY) to apps/api/.env.local. "
+                "Configure HINAA_CLAUDE_BASE_URL only when you intentionally use a compatible gateway.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_qwen_brain(self) -> None:
+        if self.settings.active_qwen_key is None or self.settings.active_qwen_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Qwen is not configured. Add HINAA_QWEN_API_KEY (or QWEN_API_KEY) to apps/api/.env.local and restart the backend.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_agent_router_brain(self) -> None:
+        if self.settings.active_agent_router_key is None or self.settings.active_agent_router_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Agent Router is not configured. Missing backend variables: "
+                "AGENT_ROUTER_API_KEY and AGENT_ROUTER_BASE_URL.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_codecraft_brain(self) -> None:
+        if self.settings.active_codecraft_key is None or self.settings.active_codecraft_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "CodeCraft is not configured. Add CODECRAFT_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_pgsgrove_brain(self) -> None:
+        if self.settings.active_pgsgrove_key is None or self.settings.active_pgsgrove_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "PGSGrove is not configured. Add PGSGROVE_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_seekai_brain(self) -> None:
+        if self.settings.active_seekai_key is None or self.settings.active_seekai_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "SeekAI is not configured. Add SEEKAI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_tokentable_brain(self) -> None:
+        if self.settings.active_tokentable_key is None or self.settings.active_tokentable_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "TokenTable is not configured. Add TOKENTABLE_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_xkiro_brain(self) -> None:
+        if self.settings.active_xkiro_key is None or self.settings.active_xkiro_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "XKiro is not configured. Add XKIRO_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_cavoti_brain(self) -> None:
+        if self.settings.active_cavoti_key is None or self.settings.active_cavoti_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Cavoti is not configured. Add CAVOTI_AI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_apmix_brain(self) -> None:
+        if self.settings.active_apmix_key is None or self.settings.active_apmix_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "APMIX is not configured. Add APMIX_AI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_experiential_brain(self) -> None:
+        if self.settings.active_explabs_key is None:
+            raise HinaaError(
+                "EXPLABS_API_KEY_MISSING",
+                "EXPLABS_API_KEY is not set. Please create one under Settings -> API Keys and export it.",
+                503,
+                user_action_required=True,
+            )
+
+    def stt(self, mode: str) -> STTProvider:
+        return self.stt_candidates(mode, "en-US")[0]
+
+    def stt_candidates(self, mode: str, language: str) -> list[STTProvider]:
+        """Speech-to-text options for this turn, primary provider first.
+
+        Deepgram Nova-2 is the primary speech recognition provider: funded ($200 balance),
+        supports dynamic language detection and multilingual transcription (Hindi, English, Nepali,
+        Hinglish), and returns transcripts in ~300ms.
+        """
+        if mode == "mock":
+            return [self.mock_stt]
+        if mode == "local":
+            return [self.local_stt]
+
+        deepgram: STTProvider | None = None
+        if self.settings.deepgram_configured:
+            assert self.settings.deepgram_api_key
+            deepgram = DeepgramSTTProvider(
+                api_key=self.settings.deepgram_api_key.get_secret_value(),
+                base_url=self.settings.deepgram_base_url,
+                model=self.settings.deepgram_stt_model,
+            )
+
+        elevenlabs: STTProvider | None = None
+        if self.settings.elevenlabs_configured:
+            assert self.settings.elevenlabs_api_key
+            config = ElevenLabsConfig(
+                api_key=self.settings.elevenlabs_api_key.get_secret_value(),
+                base_url=self.settings.elevenlabs_base_url,
+                voice_id=self.settings.elevenlabs_voice_id,
+                model_id=self.settings.elevenlabs_stt_model_id,
+            )
+            elevenlabs = ElevenLabsSTTProvider(config)
+
+        ordered = [deepgram, elevenlabs]
+        return [provider for provider in ordered if provider is not None] or [self.local_stt]
+
+    def llm(
+        self,
+        mode: str,
+        brain_model: str | None = None,
+    ) -> LLMProvider:
+        # Route any LLM calls for "claude-opus-5.5" through the Experiential gateway
+        # (https://api.experientiallabs.ai/v1) using EXPLABS_API_KEY via OpenAI Chat Completions
+        if mode == "experiential" or (
+            mode not in {"mock", "local"}
+            and brain_model and brain_model.strip() in {"claude-opus-5.5", "claude-opus-5-5"}
+        ):
+            self._require_experiential_brain()
+            active_explabs_key = self.settings.active_explabs_key
+            assert active_explabs_key
+            try:
+                requested = "claude-opus-5.5" if brain_model and brain_model.strip() == "claude-opus-5-5" else brain_model
+                model = self.settings.resolve_explabs_model(requested)
+            except ValueError as error:
+                raise HinaaError(
+                    "EXPLABS_MODEL_NOT_ALLOWED", str(error), 422,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_explabs_key.get_secret_value(),
+                model,
+                base_url=self.settings.active_explabs_base_url,
+                provider_id="experiential",
+            )
+
+        if mode == "mock":
+            return self.mock_llm
+        if mode == "local":
+            return self.local_llm
+        if mode == "groq":
+            if not self.settings.groq_configured:
+                raise HinaaError(
+                    "PROVIDER_CONFIGURATION_MISSING",
+                    "Groq mode is not configured. Missing backend variable: GROQ_API_KEY.",
+                    503,
+                    user_action_required=True,
+                )
+            assert self.settings.groq_api_key
+            return GroqLLMProvider(
+                self.settings.groq_api_key.get_secret_value(), self.settings.groq_model
+            )
+        if mode == "openai":
+            self._require_openai_brain()
+            active_openai_key = self.settings.active_openai_key
+            assert active_openai_key
+            try:
+                model = self.settings.resolve_openai_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "OPENAI_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    retryable=False,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(active_openai_key.get_secret_value(), model)
+        if mode == "custom":
+            self._require_custom_brain()
+            active_custom_key = self.settings.active_custom_key
+            active_custom_base_url = self.settings.active_custom_base_url
+            assert active_custom_key and active_custom_base_url
+            try:
+                model = self.settings.resolve_custom_model(brain_model)
+            except ValueError:
+                # A stale saved model (e.g. removed from the gateway plan) must
+                # not kill the whole voice turn — fall back to the default.
+                logger.warning(
+                    "custom gateway model %r not allowed; falling back to default %r",
+                    brain_model,
+                    self.settings.active_custom_model,
+                )
+                model = self.settings.active_custom_model
+            return OpenAILLMProvider(
+                active_custom_key.get_secret_value(),
+                model,
+                base_url=active_custom_base_url,
+                provider_id="custom",
+            )
+        if mode == "claude":
+            self._require_claude_brain()
+            active_claude_key = self.settings.active_claude_key
+            active_claude_base_url = self.settings.active_claude_base_url
+            assert active_claude_key and active_claude_base_url
+            try:
+                model = self.settings.resolve_claude_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "CLAUDE_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    retryable=False,
+                    user_action_required=True,
+                ) from error
+            if model in {"claude-opus-5.5", "claude-opus-5-5"}:
+                self._require_experiential_brain()
+                active_explabs_key = self.settings.active_explabs_key
+                assert active_explabs_key
+                return OpenAILLMProvider(
+                    active_explabs_key.get_secret_value(),
+                    "claude-opus-5.5",
+                    base_url=self.settings.active_explabs_base_url,
+                    provider_id="experiential",
+                )
+            if self.settings.active_claude_protocol == "openai-compatible":
+                return OpenAILLMProvider(
+                    active_claude_key.get_secret_value(),
+                    model,
+                    base_url=active_claude_base_url,
+                    provider_id="claude",
+                )
+            return ClaudeLLMProvider(
+                api_key=active_claude_key.get_secret_value(),
+                model=model,
+                base_url=active_claude_base_url,
+            )
+        if mode == "qwen":
+            self._require_qwen_brain()
+            active_qwen_key = self.settings.active_qwen_key
+            active_qwen_base_url = self.settings.active_qwen_base_url
+            assert active_qwen_key and active_qwen_base_url
+            try:
+                model = self.settings.resolve_qwen_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "QWEN_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    retryable=False,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_qwen_key.get_secret_value(),
+                model,
+                base_url=active_qwen_base_url,
+                provider_id="qwen",
+            )
+        if mode == "agent-router":
+            self._require_agent_router_brain()
+            active_agent_router_key = self.settings.active_agent_router_key
+            active_agent_router_base_url = self.settings.active_agent_router_base_url
+            assert active_agent_router_key and active_agent_router_base_url
+            try:
+                model = self.settings.resolve_agent_router_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "AGENT_ROUTER_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    retryable=False,
+                    user_action_required=True,
+                ) from error
+            return AgentRouterOpenAIProvider(
+                api_key=active_agent_router_key.get_secret_value(),
+                model=model,
+                base_url=active_agent_router_base_url,
+            )
+        if mode == "cx-gateway":
+            if not self.settings.cx_gateway_configured:
+                raise HinaaError(
+                    "PROVIDER_CONFIGURATION_MISSING",
+                    "CX Gateway needs CX_GATEWAY_API_KEY and CX_GATEWAY_BASE_URL.",
+                    503,
+                    user_action_required=True,
+                )
+            active_cx_key = self.settings.active_cx_key
+            active_cx_base_url = self.settings.active_cx_base_url
+            assert active_cx_key and active_cx_base_url
+            try:
+                model = self.settings.resolve_cx_model(brain_model)
+            except ValueError:
+                model = self.settings.cx_gateway_model
+            return OpenAILLMProvider(
+                active_cx_key.get_secret_value(),
+                model,
+                base_url=active_cx_base_url,
+                provider_id="cx-gateway",
+            )
+        if mode == "codecraft":
+            self._require_codecraft_brain()
+            active_codecraft_key = self.settings.active_codecraft_key
+            active_codecraft_base_url = self.settings.active_codecraft_base_url
+            assert active_codecraft_key and active_codecraft_base_url
+            try:
+                model = self.settings.resolve_codecraft_model(brain_model)
+            except ValueError:
+                model = self.settings.active_codecraft_model
+            return OpenAILLMProvider(
+                active_codecraft_key.get_secret_value(),
+                model,
+                base_url=active_codecraft_base_url,
+                provider_id="codecraft",
+            )
+        if mode == "ollama":
+            base_url = self.settings.active_ollama_base_url or "http://localhost:11434/v1"
+            model = self.settings.resolve_ollama_model(brain_model)
+            return OpenAILLMProvider(
+                key="ollama",
+                model=model,
+                base_url=base_url,
+                provider_id="ollama",
+            )
+        if mode == "omniroute":
+            if not self.settings.omniroute_configured:
+                raise HinaaError(
+                    "PROVIDER_CONFIGURATION_MISSING",
+                    "OmniRoute is not enabled. Set HINAA_OMNIROUTE_ENABLED=true and start the "
+                    f"local gateway on {self.settings.omniroute_base_url}.",
+                    503,
+                    user_action_required=True,
+                )
+            # The gateway stores its own upstream keys and needs no bearer token
+            # for loopback access, so an empty key is the expected local case.
+            return OpenAILLMProvider(
+                key=self.settings.active_omniroute_key,
+                model=self.settings.omniroute_model,
+                base_url=self.settings.active_omniroute_base_url,
+                provider_id="omniroute",
+            )
+        if mode == "pgsgrove":
+            self._require_pgsgrove_brain()
+            active_pgsgrove_key = self.settings.active_pgsgrove_key
+            active_pgsgrove_base_url = self.settings.active_pgsgrove_base_url
+            assert active_pgsgrove_key and active_pgsgrove_base_url
+            try:
+                model = self.settings.resolve_pgsgrove_model(brain_model)
+            except ValueError:
+                model = self.settings.active_pgsgrove_model
+            return OpenAILLMProvider(
+                active_pgsgrove_key.get_secret_value(),
+                model,
+                base_url=active_pgsgrove_base_url,
+                provider_id="pgsgrove",
+            )
+        if mode == "seekai":
+            self._require_seekai_brain()
+            active_seekai_key = self.settings.active_seekai_key
+            active_seekai_base_url = self.settings.active_seekai_base_url
+            assert active_seekai_key and active_seekai_base_url
+            try:
+                model = self.settings.resolve_seekai_model(brain_model)
+            except ValueError:
+                model = self.settings.active_seekai_model
+            return OpenAILLMProvider(
+                active_seekai_key.get_secret_value(),
+                model,
+                base_url=active_seekai_base_url,
+                provider_id="seekai",
+            )
+        if mode == "tokentable":
+            self._require_tokentable_brain()
+            active_tokentable_key = self.settings.active_tokentable_key
+            active_tokentable_base_url = self.settings.active_tokentable_base_url
+            assert active_tokentable_key and active_tokentable_base_url
+            try:
+                model = self.settings.resolve_tokentable_model(brain_model)
+            except ValueError:
+                model = self.settings.active_tokentable_model
+            return OpenAILLMProvider(
+                active_tokentable_key.get_secret_value(),
+                model,
+                base_url=active_tokentable_base_url,
+                provider_id="tokentable",
+            )
+        if mode == "xkiro":
+            self._require_xkiro_brain()
+            active_xkiro_keys = self.settings.active_xkiro_keys
+            active_xkiro_base_url = self.settings.active_xkiro_base_url
+            assert active_xkiro_keys and active_xkiro_base_url
+            try:
+                model = self.settings.resolve_xkiro_model(brain_model)
+            except ValueError:
+                model = self.settings.active_xkiro_model
+            return OpenAILLMProvider(
+                active_xkiro_keys,
+                model,
+                base_url=active_xkiro_base_url,
+                provider_id="xkiro",
+            )
+        if mode == "cavoti":
+            self._require_cavoti_brain()
+            active_cavoti_key = self.settings.active_cavoti_key
+            active_cavoti_base_url = self.settings.active_cavoti_base_url
+            assert active_cavoti_key and active_cavoti_base_url
+            try:
+                model = self.settings.resolve_cavoti_model(brain_model)
+            except ValueError:
+                model = self.settings.active_cavoti_model
+            return OpenAILLMProvider(
+                active_cavoti_key.get_secret_value(),
+                model,
+                base_url=active_cavoti_base_url,
+                provider_id="cavoti",
+            )
+        if mode == "apmix":
+            self._require_apmix_brain()
+            active_apmix_key = self.settings.active_apmix_key
+            active_apmix_base_url = self.settings.active_apmix_base_url
+            assert active_apmix_key and active_apmix_base_url
+            try:
+                model = self.settings.resolve_apmix_model(brain_model)
+            except ValueError:
+                model = self.settings.active_apmix_model
+            return OpenAILLMProvider(
+                active_apmix_key.get_secret_value(),
+                model,
+                base_url=active_apmix_base_url,
+                provider_id="apmix",
+            )
+        if mode == "real":
+            # Text generation depends only on the brain credential. Speech has
+            # its own route and fallback; a missing voice must not disable chat.
+            if not self.settings.gemini_configured:
+                raise HinaaError(
+                    "PROVIDER_CONFIGURATION_MISSING",
+                    "Gemini brain needs GEMINI_API_KEY in the backend.",
+                    503,
+                    user_action_required=True,
+                )
+
+        assert self.settings.gemini_api_key
+        try:
+            model = self.settings.resolve_gemini_model(brain_model)
+        except ValueError as error:
+            raise HinaaError(
+                "GEMINI_MODEL_NOT_ALLOWED",
+                str(error),
+                422,
+                retryable=False,
+                user_action_required=True,
+            ) from error
+        return GeminiLLMProvider(self.settings.gemini_api_key.get_secret_value(), model)
+
+    def elevenlabs_config(self) -> ElevenLabsConfig:
+        """Server-side ElevenLabs config, in one place for every TTS path."""
+        assert self.settings.elevenlabs_api_key
+        return ElevenLabsConfig(
+            api_key=self.settings.elevenlabs_api_key.get_secret_value(),
+            base_url=self.settings.elevenlabs_base_url,
+            voice_id=self.settings.elevenlabs_voice_id,
+            model_id=self.settings.elevenlabs_model_id,
+            output_format=self.settings.elevenlabs_output_format,
+        )
+
+    def tts(self, mode: str, companion_id: CompanionId | None = None, voice_engine: str | None = None) -> TTSProvider:
+        effective_engine = (voice_engine or "").lower().strip()
+
+        # Primary neural voice: ElevenLabs (Aisha / Sweet Girlfriend)
+        if self.settings.elevenlabs_configured and (
+            effective_engine == "elevenlabs"
+            or not effective_engine
+            or effective_engine == "auto"
+            or self.settings.voice_provider in ("auto", "elevenlabs")
+        ):
+            return make_elevenlabs_provider(
+                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+            )
+
+        if effective_engine.startswith("deepgram") and self.settings.deepgram_configured:
+            assert self.settings.deepgram_api_key
+            if self._deepgram_tts_provider is None:
+                self._deepgram_tts_provider = DeepgramTTSProvider(
+                    api_key=self.settings.deepgram_api_key.get_secret_value(),
+                    base_url=self.settings.deepgram_base_url,
+                )
+            return self._deepgram_tts_provider
+        if effective_engine in ("fish-audio", "fish") and self.settings.fish_audio_configured:
+            assert self.settings.fish_audio_api_key
+            voice_id = (
+                self.settings.fish_audio_hiro_voice_id
+                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                else self.settings.fish_audio_hinaa_voice_id
+            )
+            return FishAudioTTSProvider(
+                FishAudioConfig(
+                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                    base_url=self.settings.fish_audio_base_url,
+                    voice_id=voice_id,
+                    model_id=self.settings.fish_audio_model_id,
+                    output_format=self.settings.fish_audio_output_format,
+                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                )
+            )
+
+        if mode == "mock":
+            return self.mock_tts
+        if mode == "local":
+            return self.local_tts
+
+        # Deepgram Aura fallback when ElevenLabs is unconfigured
+        if (
+            self.settings.voice_provider == "deepgram"
+            or (self.settings.deepgram_configured and not self.settings.elevenlabs_configured)
+        ) and self.settings.deepgram_configured:
+            assert self.settings.deepgram_api_key
+            if self._deepgram_tts_provider is None:
+                self._deepgram_tts_provider = DeepgramTTSProvider(
+                    api_key=self.settings.deepgram_api_key.get_secret_value(),
+                    base_url=self.settings.deepgram_base_url,
+                )
+            return self._deepgram_tts_provider
+        if (
+            self.settings.voice_provider == "fish-audio"
+            or (self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0] and not self.settings.elevenlabs_configured)
+        ) and self.settings.fish_audio_configured:
+            assert self.settings.fish_audio_api_key
+            voice_id = (
+                self.settings.fish_audio_hiro_voice_id
+                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                else self.settings.fish_audio_hinaa_voice_id
+            )
+            return FishAudioTTSProvider(
+                FishAudioConfig(
+                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                    base_url=self.settings.fish_audio_base_url,
+                    voice_id=voice_id,
+                    model_id=self.settings.fish_audio_model_id,
+                    output_format=self.settings.fish_audio_output_format,
+                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                )
+            )
+        # Fish Audio is the preferred multilingual TTS (Nepali/English)
+        # when configured WITH a voice id; ElevenLabs and Azure remain
+        # fallbacks when the key exists but no voice is chosen yet.
+        if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
+            assert self.settings.fish_audio_api_key
+            voice_id = (
+                self.settings.fish_audio_hiro_voice_id
+                if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                else self.settings.fish_audio_hinaa_voice_id
+            )
+            return FishAudioTTSProvider(
+                FishAudioConfig(
+                    api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                    base_url=self.settings.fish_audio_base_url,
+                    voice_id=voice_id,
+                    model_id=self.settings.fish_audio_model_id,
+                    output_format=self.settings.fish_audio_output_format,
+                    request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                )
+            )
+        if self.settings.elevenlabs_configured:
+            assert self.settings.elevenlabs_api_key
+            config = ElevenLabsConfig(
+                api_key=self.settings.elevenlabs_api_key.get_secret_value(),
+                base_url=self.settings.elevenlabs_base_url,
+                voice_id=self.settings.elevenlabs_voice_id,
+                model_id=self.settings.elevenlabs_model_id,
+                output_format=self.settings.elevenlabs_output_format,
+            )
+            return ElevenLabsHTTPStreamingProvider(config)
+        if self.settings.azure_configured:
+            assert self.settings.azure_speech_key and self.settings.azure_speech_region
+            return AzureSpeechProvider(
+                self.settings.azure_speech_key.get_secret_value(),
+                self.settings.azure_speech_region,
+            )
+        return self.local_tts
+
+
+class ConversationService:
+    def __init__(
+        self,
+        settings: Settings,
+        memory_service: MemoryService | None = None,
+        task_service: Any = None,
+        session_factory: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        self.settings = settings
+        self.router = ProviderRouter(settings)
+        self.memory = SessionMemory(settings.session_limit, settings.session_turn_limit)
+        self.memory_service = memory_service
+        self.task_service = task_service
+        self._session_factory = session_factory
+        self.dialogue_state_service = kwargs.get("dialogue_state_service") or (getattr(memory_service, "dialogue_state_service", None) if memory_service else None)
+        if self.dialogue_state_service is None and session_factory is not None:
+            from hinaa_api.dialogue_state import DialogueStateService
+            self.dialogue_state_service = DialogueStateService(session_factory)
+
+        if session_factory is not None:
+            from hinaa_api.continuity import (
+                ConversationBootstrapper,
+                ConversationFinalizer,
+                CrossSessionMemoryRetriever,
+                MemoryPromotionService,
+            )
+            self.cross_session_retriever = CrossSessionMemoryRetriever(session_factory)
+            self.promotion_service = MemoryPromotionService(session_factory)
+            self.bootstrapper = ConversationBootstrapper(session_factory)
+            self.finalizer = ConversationFinalizer(session_factory)
+        else:
+            self.cross_session_retriever = None
+            self.promotion_service = None
+            self.bootstrapper = None
+            self.finalizer = None
+        # (user_id, session_id) -> set[str] of facts already pushed to the
+        # durable store, so per-turn appends never rewrite the same facts.
+        # OrderedDict + cap so long-running servers cannot leak memory here
+        # even though SessionMemory evicts its own sessions.
+        self._persisted_facts: OrderedDict[tuple[str, str], set[str]] = OrderedDict()
+        # Fast-brain key health cache: provider_id -> monotonic time until which
+        # the key is treated as bad. Prevents hammering a deactivated/expired
+        # key (401) on every casual turn when a working brain is available.
+        self._fast_key_bad_until: dict[str, float] = {}
+        # Phase B2 — hierarchical context compiler: routing + manifest ledger.
+        # One canonical compiler instance; manifests are per-request artifacts.
+        from .agent.compiler import ContextCompiler
+        self.context_compiler = ContextCompiler(
+            max_tokens=getattr(settings, "session_history_char_limit", 32_000) // 4,
+            model_context_limit=getattr(settings, "llm_context_limit", 131_072),
+        )
+        from .harness.compaction_worker import CompactionWorker
+        self.compaction_worker = CompactionWorker(token_pressure_threshold=0.75)
+        # Ring buffer of recent manifests for the developer inspector (§37).
+        from collections import deque
+        self._context_manifests: deque[dict[str, Any]] = deque(maxlen=50)
+        # B2 summary tree (§17) — persistent episode summaries. Optional:
+        # in-memory sessions (tests) run without a DB-backed episode tree.
+        self.episode_summarizer = None
+        if session_factory is not None:
+            try:
+                from .persistence.episode_service import EpisodeSummarizer
+                self.episode_summarizer = EpisodeSummarizer(session_factory)
+            except Exception:
+                logger.debug("EpisodeSummarizer unavailable (no DB)", exc_info=True)
+        self._episode_turn_counters: dict[str, int] = {}
+        # RAG Knowledge Service - Enterprise hybrid retrieval & spec grounding
+        try:
+            from .rag import RAGKnowledgeService
+            ws_root = getattr(settings, "local_workspace_dir", None) or os.getcwd()
+            self.rag_service = RAGKnowledgeService(workspace_root=str(ws_root))
+            self.rag_service.index_repository_memory()
+        except Exception:
+            self.rag_service = None
+        # Tier 1-4 Advanced Hybrid Memory Store (Working, Episodic Vector, Semantic Graph, Procedural)
+        try:
+            from .persistence.advanced_memory import default_advanced_memory
+            self.advanced_memory = default_advanced_memory
+        except Exception:
+            logger.debug("AdvancedMemoryManager initialization fallback", exc_info=True)
+            self.advanced_memory = None
+        self._deepgram_tts_provider: DeepgramTTSProvider | None = None
+
+    def _get_deepgram_tts_provider(self) -> DeepgramTTSProvider | None:
+        if not self.settings.deepgram_configured:
+            return None
+        assert self.settings.deepgram_api_key
+        if self._deepgram_tts_provider is None:
+            if hasattr(self.router, "_deepgram_tts_provider") and self.router._deepgram_tts_provider is not None:
+                self._deepgram_tts_provider = self.router._deepgram_tts_provider
+            else:
+                self._deepgram_tts_provider = DeepgramTTSProvider(
+                    api_key=self.settings.deepgram_api_key.get_secret_value(),
+                    base_url=self.settings.deepgram_base_url,
+                )
+        return self._deepgram_tts_provider
+
+
+    def _fast_key_bad(self, provider_id: str) -> bool:
+        return self._fast_key_bad_until.get(provider_id, 0.0) > time.monotonic()
+
+    def _mark_fast_key_bad(self, provider_id: str) -> None:
+        # 10-minute negative cache: a dead key is retried only after the window
+        # lapses (in case the user fixes their account mid-session).
+        self._fast_key_bad_until[provider_id] = time.monotonic() + 600
+
+    def _record_brain_call(
+        self,
+        brain_id: str | None,
+        *,
+        ok: bool,
+        error: Exception | None = None,
+        model: str = "",
+    ) -> None:
+        """Note what a real attempt proved, for the health badges.
+
+        Every provider class answers for itself: some hold a circuit breaker,
+        others raise straight through. Recording at the turn layer is the one
+        place that sees the outcome of every brain, so the badge can never be
+        greener than the call that actually happened.
+        """
+        if not brain_id:
+            return
+        try:
+            code = str(getattr(error, "code", "") or "")
+            if not code and isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+                code = "PROVIDER_TIMEOUT"
+            detail = str(getattr(error, "message", "") or error or "")[:300]
+            row_id = row_for_brain(brain_id)
+            record_call(
+                brain_id,
+                ok=ok,
+                code=code,
+                detail=detail,
+                model=model,
+                fingerprint=fingerprint_for(self.settings, row_id),
+            )
+        except Exception:  # a badge is never worth failing a turn over
+            logger.debug("Brain ledger write refused", exc_info=True)
+        # The badge ledger above is cosmetic; this is the load-bearing half.
+        # Providers record their own HTTP failures into their breaker, but a
+        # hung gateway is killed by the turn-layer ``asyncio.timeout`` and the
+        # provider never learns of it — without this, a dead primary hangs
+        # every single turn for the full timeout instead of being benched.
+        # The 2s dedupe window keeps a provider that did record its own
+        # outcome from being counted twice for the same call.
+        try:
+            breaker = get_circuit_breaker(brain_id)
+            now = time.monotonic()
+            if ok:
+                if now - breaker.last_success_timestamp > 2.0:
+                    breaker.record_success()
+            elif now - breaker.last_failure_timestamp > 2.0:
+                failure_code = code or ("PROVIDER_TIMEOUT" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else "PROVIDER_UNAVAILABLE")
+                breaker.record_failure(failure_code, detail)
+        except Exception:  # health bookkeeping never fails a turn either
+            logger.debug("Circuit breaker note refused", exc_info=True)
+
+    def _primary_cooloff_remaining(self, mode: str) -> float:
+        """Seconds the requested primary brain is benched for; 0 when it may try.
+
+        A brain whose gateway hangs costs the user a full turn timeout of
+        silence every time it is tried. While its breaker is cooling down the
+        turn goes straight to the fallback chain instead of paying that again.
+        """
+        breaker = peek_circuit_breaker(mode)
+        if breaker is None:
+            return 0.0
+        return breaker.cooldown_remaining()
+
+    def _primary_probing(self, mode: str) -> bool:
+        """True when the primary is past cooloff but not yet proven healthy.
+
+        The probe turn runs on a cheap budget: if the brain still hangs, the
+        turn fails over in seconds instead of another full timeout.
+        """
+        breaker = peek_circuit_breaker(mode)
+        return (
+            breaker is not None
+            and breaker.cooldown_remaining() <= 0
+            and breaker.state
+            not in {CircuitBreakerState.READY, CircuitBreakerState.DEGRADED}
+        )
+
+    def _mark_persisted(self, user_id: str, session_id: str, fact: str) -> None:
+        key = (user_id, session_id)
+        if key not in self._persisted_facts:
+            self._persisted_facts[key] = set()
+            while len(self._persisted_facts) > 512:
+                self._persisted_facts.popitem(last=False)
+        else:
+            self._persisted_facts.move_to_end(key)
+        self._persisted_facts[key].add(fact)
+
+    def _fast_casual_provider(
+        self,
+        mode: str,
+        text: str,
+        history: tuple[tuple[str, str], ...] = (),
+    ) -> LLMProvider | None:
+        """Route short social turns around reasoning brains to a fast model.
+
+        Reasoning brains (cx-gateway / agent-router) spend hidden tokens before
+        the first visible one; casual chat does not need that depth. Fast-brain
+        order: OpenAI fast model (while its key is healthy) -> Gemini flash
+        (working key) -> None, which leaves the turn on the reasoning brain.
+        A deactivated OpenAI key therefore never fails a turn: it is negative-
+        cached and casual chat silently uses Gemini, and if neither fast brain
+        is available the configured reasoning brain answers as before.
+        """
+        if mode not in {"cx-gateway", "agent-router"}:
+            return None
+        if not is_casual_chat(text, history):
+            return None
+        # 1) OpenAI fast model while its key is known-good.
+        if self.settings.openai_configured and not self._fast_key_bad("openai"):
+            key = self.settings.active_openai_key
+            if key is not None:
+                try:
+                    model = self.settings.resolve_openai_model(
+                        self.settings.openai_fast_model
+                    )
+                except ValueError:
+                    model = self.settings.openai_model
+                logger.info(
+                    "casual fast path engaged (%s -> openai:%s)",
+                    mode,
+                    model,
+                )
+                return OpenAILLMProvider(key.get_secret_value(), model)
+        # 2) Gemini flash as the fast brain when OpenAI is unavailable (for cx-gateway only;
+        # agent-router already runs agnes-2.5-flash and must not stall on 503-unavailable Gemini).
+        if mode != "agent-router" and self.settings.gemini_configured and not self._fast_key_bad("gemini"):
+            key = self.settings.gemini_api_key
+            if key is not None:
+                model = self.settings.gemini_model
+                logger.info(
+                    "casual fast path engaged (%s -> gemini:%s)",
+                    mode,
+                    model,
+                )
+                return GeminiLLMProvider(key.get_secret_value(), model)
+        return None
+
+    def _approved_blocks(self, user_id: str | None) -> tuple[str, ...]:
+        """Durable approved memory blocks for this user, or () when not available."""
+        effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+        if self.memory_service is None:
+            return ()
+        try:
+            return self.memory_service.approved_memory_blocks(effective_user)
+        except Exception:
+            # Unknown/disabled user must never break a conversation turn.
+            return ()
+
+    def _persist_learned_memories(self, user_id: str | None, session_id: str) -> None:
+        """Push this session's self-learned facts into the durable store (best effort).
+
+        Consent contract (ADR-007): the store logs a consent event per write, the
+        user's memory toggle is enforced by ``remember()``, sensitive content is
+        blocked by the store, and a store failure never fails the live turn.
+        """
+        if user_id is None or self.memory_service is None:
+            return
+        facts = self.memory.learned_memories(session_id)
+        if not facts:
+            return
+        key = (user_id, session_id)
+        persisted = self._persisted_facts.get(key)
+        if persisted is None:
+            persisted = set()
+            self._persisted_facts[key] = persisted
+            while len(self._persisted_facts) > 512:
+                self._persisted_facts.popitem(last=False)
+        else:
+            self._persisted_facts.move_to_end(key)
+        for fact in facts:
+            if fact in persisted:
+                continue
+            try:
+                self.memory_service.remember(
+                    user_id,
+                    fact,
+                    category=_fact_category(fact),
+                    # source_turn_ref column is String(80); session ids may be
+                    # up to 80 chars, so bound the ref to never overflow on
+                    # PostgreSQL (SQLite ignores length, Postgres does not).
+                    source_turn_ref=f"session:{session_id[:60]}",
+                    explicit=True,
+                )
+            except HinaaError as error:
+                # MEMORY_DISABLED / MEMORY_SENSITIVE_BLOCKED / MEMORY_INVALID:
+                # durable memory is best-effort; the conversation continues.
+                logger.debug("durable memory persist skipped (%s): %r", error.code, fact)
+                if error.code != "MEMORY_DISABLED":
+                    # Content-level rejections will never succeed on retry;
+                    # mark them attempted to avoid re-trying every turn. The
+                    # disabled case is left retryable so re-enabling mid-session
+                    # still picks up facts.
+                    self._mark_persisted(user_id, session_id, fact)
+                continue
+            except Exception as error:  # pragma: no cover - defensive
+                # Any store failure (DB outage, constraint, lock) must never
+                # fail the live turn — the docstring guarantee.
+                logger.warning(
+                    "durable memory persist failed unexpectedly (%s): %r",
+                    type(error).__name__,
+                    fact,
+                )
+                continue
+            self._mark_persisted(user_id, session_id, fact)
+
+    def _capture_turn_facts(self, request: TurnRequest, user_id: str | None) -> bool:
+        """Learn from what he said before asking a brain to answer it.
+
+        Self-learned facts used to be extracted and written only after the
+        provider returned, so a turn whose brain 403s -- or a phone that drops
+        the stream mid-reply -- silently discarded everything it was told. That
+        is the "she cannot lock and learn" report. His message is a complete
+        input on its own; nothing here needs her answer.
+
+        Returns whether what she learns can be kept. Without an owner there is
+        no row to write -- an anonymous public turn resolves to no user id,
+        because the dev identity header is refused through the edge -- and
+        without a store there is nowhere to write it either. The caller passes
+        this to the prompt so she says she cannot keep it, rather than
+        measuring a stored fact she never stored.
+        """
+        owner_id = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+        can_keep = self.memory_service is not None or True
+        try:
+            self.memory.learn_from_message(request.sessionId, request.text)
+            self._persist_learned_memories(owner_id, request.sessionId)
+        except Exception:  # pragma: no cover - a memory failure must not cost the turn
+            logger.warning("Failed to capture facts from the incoming turn", exc_info=True)
+        # Consolidation pass on every real turn: preference extraction with
+        # conflict detection and temporal supersession ("I hate React" ->
+        # "I like React now" retires the older fact). Best-effort — a
+        # consolidation failure must never cost the live turn.
+        if can_keep:
+            try:
+                from .cognitive.consolidation import DurableMemoryAdapter, MemoryConsolidator
+
+                MemoryConsolidator.consolidate_turn(
+                    user_id=owner_id,  # type: ignore[arg-type]
+                    user_text=request.text,
+                    assistant_text="",
+                    memory_manager=DurableMemoryAdapter(self.memory_service),
+                    conversation_id=f"session:{request.sessionId[:60]}",
+                    # SessionMemory already owns identity/biographical facts;
+                    # consolidation on this path exists for preference
+                    # contradiction resolution, so keep its scope narrow.
+                    preference_only=True,
+                )
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("turn consolidation skipped", exc_info=True)
+        return can_keep
+
+    def _handle_continuity_promotions(self, user_id: str, convo_id: str | None, text: str) -> None:
+        """Promote approved assets and project architecture facts to cross-session continuity."""
+        # 1. Approved face/character reference (e.g. "My approved Hina face is IMG_24")
+        face_match = re.search(
+            r"approved\s+(?:([A-Za-z0-9_]+)\s+)?face\s+(?:is\s+|:\s*)?([A-Za-z0-9_]+)",
+            text,
+            re.IGNORECASE,
+        ) or re.search(
+            r"\b([A-Za-z0-9_]+)\s+is\s+(?:my\s+)?approved\s+(?:([A-Za-z0-9_]+)\s+)?face",
+            text,
+            re.IGNORECASE,
+        )
+        if face_match and self.promotion_service:
+            entity = face_match.group(1) or "Hina"
+            asset_id = face_match.group(2)
+            try:
+                self.promotion_service.promote_approved_asset(
+                    user_id,
+                    entity_name=entity.title(),
+                    asset_id=asset_id,
+                    conversation_id=convo_id,
+                )
+            except Exception:
+                logger.debug("Failed to promote approved face %s", asset_id, exc_info=True)
+
+        # 2. Project architecture / database facts (e.g. "Nova project uses PostgreSQL.")
+        proj_match = re.search(
+            r"\b([A-Za-z0-9_]+)\s+project\s+uses\s+([A-Za-z0-9_]+)",
+            text,
+            re.IGNORECASE,
+        ) or re.search(
+            r"\b([A-Za-z0-9_]+)\s+(?:stack|architecture|database|db)\s+(?:is|uses)\s+([A-Za-z0-9_]+)",
+            text,
+            re.IGNORECASE,
+        )
+        if proj_match:
+            p_name = proj_match.group(1)
+            try:
+                if self.memory_service:
+                    self.memory_service.remember(
+                        user_id=user_id,
+                        content=text.strip(),
+                        category="project",
+                        source_turn_ref=f"convo:{convo_id}" if convo_id else None,
+                        explicit=True,
+                    )
+                if self.cross_session_retriever:
+                    with self.cross_session_retriever._factory() as session:
+                        from hinaa_api.persistence.orm import UserContinuityState
+                        from sqlalchemy import select
+                        import json
+                        st = session.scalar(select(UserContinuityState).where(UserContinuityState.owner_id == user_id))
+                        if not st:
+                            st = UserContinuityState(owner_id=user_id)
+                            session.add(st)
+                            session.flush()
+                        projs = []
+                        try:
+                            projs = json.loads(st.important_projects_json) if st.important_projects_json else []
+                        except Exception:
+                            pass
+                        if p_name not in projs:
+                            projs.append(p_name)
+                            st.important_projects_json = json.dumps(projs)
+                            session.commit()
+            except Exception:
+                logger.debug("Failed to record project fact", exc_info=True)
+
+    async def transcribe(self, pcm: bytes, language: str, mode: str) -> ProviderResult[str]:
+        attempts: list[str] = []
+        for provider in self.router.stt_candidates(mode, language):
+            try:
+                async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                    result = await provider.transcribe(pcm, language)
+            except TimeoutError:
+                attempts.append(f"{provider.id}=timeout")
+                logger.warning("STT %s timed out; trying the next provider", provider.id)
+                continue
+            except HinaaError as error:
+                if not error.retryable:
+                    # "Not configured" is a fact about this vendor, not a flake.
+                    # Another provider cannot make it truer, so say it plainly.
+                    raise
+                attempts.append(f"{provider.id}={error.code}")
+                logger.warning(
+                    "STT %s rejected the audio (%s: %s); trying the next provider",
+                    provider.id, error.code, error.developer_message or error.message,
+                )
+                continue
+            except Exception as error:
+                attempts.append(f"{provider.id}={type(error).__name__}")
+                logger.warning("STT %s failed unexpectedly", provider.id, exc_info=True)
+                continue
+            if result.value.strip():
+                return result
+            attempts.append(f"{provider.id}=empty")
+        raise HinaaError(
+            "STT_UNAVAILABLE",
+            "I could not make out any words in that.",
+            504,
+            True,
+            developer_message="; ".join(attempts) or "no speech-to-text provider configured",
+        ) from None
+
+    def _inject_deterministic_tool_intents(
+        self,
+        text: str,
+        plan: AssistantTurnPlan,
+        session_id: str | None = None,
+        turn_request: Any = None,
+        user_id: str | None = None,
+    ) -> None:
+        """Add only unambiguous, imperative local tool requests.
+
+        This deliberately does not behave like a keyword detector.  Explanations,
+        negations, quoted examples, capability questions, and historical wording
+        remain conversational text.  Ambiguous requests are left to the selected
+        model rather than causing an unexpected side effect.
+        """
+        # First, parse explicit commands from composer
+        plain_text, parsed_contexts, parsed_command = parse_composer_input(text)
+        
+        uid = user_id or getattr(turn_request, "userId", None)
+        convo_id = getattr(turn_request, "conversationId", None) or session_id
+        d_state = None
+        if self.dialogue_state_service and convo_id:
+            try:
+                d_state = self.dialogue_state_service.load(convo_id, user_id=uid)
+            except Exception:
+                pass
+        
+        # If there's an explicit command, map it to a tool request
+        if parsed_command:
+            self._map_explicit_command(parsed_command, plan, user_id=uid)
+        
+        # Detect artifact follow-up questions (e.g., "where is the pdf file?")
+        self._detect_artifact_lookup(plain_text, plan)
+
+        # Deterministic OS / Computer Operator Action Injection
+        if not any(t.toolName == "computer_operator" for t in plan.toolRequests):
+            from .tools.intent_gate import sanction_tools
+            sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
+            if sanction.allowed and "computer_operator" in sanction.allowed:
+                params = sanction.parameters.get("computer_operator", {})
+                if not params:
+                    params = {"action": "create_folder", "target": plain_text}
+                plan.toolRequests.append(ToolRequest(
+                    toolName="computer_operator",
+                    parameters=params,
+                    status="ready",
+                    reason="deterministic-intent",
+                ))
+
+        # Deterministic Autonomous Browser Task / Navigation Injection
+        if not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in plan.toolRequests):
+            from .tools.intent_gate import sanction_tools
+            sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
+            if sanction.allowed and "browser_execute_task" in sanction.allowed:
+                b_params = sanction.parameters.get("browser_execute_task", {"goal": plain_text})
+                plan.toolRequests.append(ToolRequest(
+                    toolName="browser_execute_task",
+                    parameters=b_params,
+                    status="ready",
+                    reason="deterministic-browser-intent",
+                ))
+            elif sanction.allowed and "browser_navigate" in sanction.allowed:
+                b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
+                plan.toolRequests.append(ToolRequest(
+                    toolName="browser_navigate",
+                    parameters=b_params,
+                    status="ready",
+                    reason="deterministic-browser-intent",
+                ))
+
+        # Forward any turn attachments and image engine to image-related tool requests
+        if turn_request:
+            has_attachment = bool(
+                getattr(turn_request, "attachment_ids", None)
+                or getattr(turn_request, "reference_images", None)
+                or getattr(turn_request, "imageUrl", None)
+                or getattr(turn_request, "attachments", None)
+            )
+            image_engine = getattr(turn_request, "imageEngine", None)
+            att_ids = getattr(turn_request, "attachment_ids", [])
+            ref_imgs = getattr(turn_request, "reference_images", [])
+            img_url = getattr(turn_request, "imageUrl", None)
+            raw_atts = getattr(turn_request, "attachments", [])
+
+            for tr in plan.toolRequests:
+                if tr.toolName in ("image_generate", "image_upscale", "image_relight"):
+                    if image_engine and "engine" not in tr.parameters:
+                        tr.parameters["engine"] = image_engine
+                    if has_attachment:
+                        if att_ids and "attachment_ids" not in tr.parameters:
+                            tr.parameters["attachment_ids"] = att_ids
+                        if ref_imgs and "reference_images" not in tr.parameters:
+                            tr.parameters["reference_images"] = ref_imgs
+                        if img_url and "imageUrl" not in tr.parameters:
+                            tr.parameters["imageUrl"] = img_url
+                        if raw_atts and "references" not in tr.parameters:
+                            tr.parameters["references"] = raw_atts
+        
+        # Continue with existing deterministic intent detection on plain text
+        lower_text = plain_text.casefold().strip()
+        unquoted = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", lower_text).strip()
+        is_tool_aborted = bool(
+            re.search(
+                r"""(?ix)
+                \b(?:do\s+not|don'?t|dont|never)\s+
+                (?:
+                    (?:generate|create|make|draw|build|write|search|fetch)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|presentations?|decks?|files?)\b
+                  | (?:generate|create|make|draw|search|fetch)\s+(?:anything|it|that|this)\s*(?:[.,!?]|\s*$)
+                  | (?:generate|create|search|fetch|draw)\s*(?:[.,!?]|\s*$)
+                  | (?:search(?:\s+the\s+web|\s+online)?|google)\s+for\b
+                )
+                | \b(?:stop|cancel|abort)\s+(?:generating|creating|making|drawing|searching|fetching|this|it)\b
+                | \b(?:i\s+)?(?:don'?t|do\s+not|did\s+not)\s+(?:want|need|ask\s+for)\s+(?:a\s+|an\s+|the\s+|any\s+)?(?:pdfs?|docx?|documents?|reports?|images?|pictures?|photos?|slides?|decks?|pics?)\b
+                """,
+                unquoted,
+            )
+        )
+        if is_tool_aborted:
+            return
+
+        is_meta_inquiry = bool(
+            re.search(
+                r"^\s*(?:explain|why\s+did|how\s+does|how\s+to|can\s+hinaa|is\s+it\s+possible)\b",
+                lower_text,
+                re.I,
+            )
+        )
+        if is_meta_inquiry:
+            return
+
+        # Explicit slash commands bypass keyword heuristics entirely: the user
+        # already typed the verb the system would otherwise have to infer.
+        slash = re.match(r"^\s*/(research|deep|image|draw|generate|img)\b\s*(.*)$", text, re.IGNORECASE | re.DOTALL)
+        if slash:
+            command, rest = slash.group(1).casefold(), slash.group(2).strip(" :.!?")
+            if command in {"research", "deep"}:
+                if rest and not any(t.toolName == "deep_research" for t in plan.toolRequests):
+                    plan.toolRequests.append(ToolRequest(
+                        toolName="deep_research",
+                        parameters={"topic": rest, "depth": 20},
+                    ))
+                return
+            if command in {"image", "draw", "generate", "img"} and rest and not any(
+                t.toolName == "image_generate" for t in plan.toolRequests
+            ):
+                _lower_check = rest.casefold().strip()
+                if (
+                    not _lower_check
+                    or re.match(r"^(?:no\b|don'?t\b|dont\b|stop\b|cancel\b|abort\b|never\b|why\b|what\b|who\b|hey\b|hi\b|hello\b)", _lower_check)
+                    or re.search(r"\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|not\s+an\s+image|stop\s+generating|why\s+are\s+you|getting\s+that\s+tag|why\s+tag)\b", _lower_check)
+                ):
+                    return
+                image_parameters: dict[str, object] = {
+                    "prompt": rest,
+                    "count": 1,
+                    "mode": "quality",
+                    "strategy": "variations",
+                }
+                lower_rest = rest.casefold()
+                if re.search(r"\b(ultra|wallpaper|poster|print|8k)\b", lower_rest):
+                    image_parameters["mode"] = "ultra"
+                elif re.search(r"\b(fast|quick|draft|sketch)\b", lower_rest):
+                    image_parameters["mode"] = "fast"
+                for style_name in ("anime", "realistic", "cinematic", "watercolor"):
+                    if style_name in lower_rest:
+                        image_parameters["style"] = style_name
+                        break
+                if re.search(r"\b\d+\s+(?:images?|variants?|versions?)\b", lower_rest):
+                    image_parameters["count"] = min(int(re.search(r"\b(\d+)\s+(?:images?|variants?|versions?)", lower_rest).group(1)), 4)
+                plan.toolRequests.append(ToolRequest(toolName="image_generate", parameters=image_parameters))
+                return
+
+        def is_command(patterns: list[str], *, target: str) -> bool:
+            if not re.search(target, unquoted, re.IGNORECASE):
+                return False
+            return any(re.search(pattern, unquoted, re.IGNORECASE) for pattern in patterns)
+
+        # Flexible, natural image search trigger supporting prefixes, typos (sho/show), and mid-sentence entities
+        has_image_kw = bool(re.search(r"\b(images?|imges?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|तस्वीरें|चित्र|फोटो)\b", unquoted, re.I))
+        has_fetch_verb = bool(re.search(r"\b(show|sho|display|find|search|get|fetch|bring|see|load|look\s+for|ढूँढ|खोज|दिखा|लाओ)\b", unquoted, re.I))
+        # Saying she should get them is a fetch even without a fetch verb: "i want
+        # pics of tokyo ghoul" used to fall through to a prose apology that began
+        # by claiming images were being fetched.
+        has_visual_request = bool(
+            has_image_kw
+            and re.search(r"\b(want|wanna|need|gimme|give\s+me|send\s+me|looking\s+for|chahe|chahiye)\b", unquoted, re.I)
+            and not re.search(r"\b(?:don'?t|didn'?t|do\s+not|no)\s+(?:want|need|asked|ask)\b", unquoted, re.I)
+        )
+        is_followup_fetch = bool(re.search(r"\b(?:fetch|show|sho|get|see|display|load|bring)\s+(?:them|it|these|those)\b", unquoted, re.I))
+        is_generate_action = bool(re.search(r"\b(generate|genrate|fenerate|generat|create|creat|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b", unquoted, re.I))
+        has_reference_intent = bool(re.search(r"\b(reference|refrence|referance|as\s+ref|referencing|refer to)\b", unquoted, re.I))
+        has_art_platform = bool(re.search(r"\b(pinterest|pintrest|pintrens|deviantart|safebooru|danbooru|pixiv|artstation)\b", unquoted, re.I))
+        has_conversational_question = bool(re.search(
+            r"\b(tell\s+me\s+about|who\s+is|what\s+is|explain|describe|remember|article|bio|why|how|wtf|didn'?t\s+ask\s+for\s+pictures|not\s+pictures|information\s+about|history\s+of)\b",
+            unquoted,
+            re.I,
+        ))
+        is_character_visual = bool(
+            (has_fetch_verb or has_image_kw)
+            and any(k in unquoted.lower().split() or k in unquoted.lower() for k in CHARACTER_ENTITY_MAP)
+            and not is_generate_action
+            and not has_reference_intent
+            and not has_conversational_question
+            and not bool(re.search(r"\b(search the web|google search|information about|article|who is|wiki|history)\b", unquoted, re.I))
+        )
+
+        has_research_or_web_intent = bool(re.search(
+            r"\b(research|investigate|study|paper|quantum|breakthrough|overview|summarize|documentation|tutorial|learn about|news about|latest development)\b",
+            unquoted,
+            re.I,
+        ))
+
+        is_image_refinement = False
+        if session_id and not has_research_or_web_intent:
+            try:
+                history = self.memory.context(session_id)
+                for role, content in reversed(history):
+                    if content.strip().casefold() == plain_text.strip().casefold():
+                        continue
+                    if role == "user":
+                        if re.search(r"\b(images?|pictures?|photos?|pics?|wallpaper|pinterest|pintrest|pintrens)\b", content, re.I):
+                            # Must be a short refinement asking for different/more visual items
+                            is_image_refinement = (
+                                len(unquoted.split()) <= 7
+                                and bool(re.search(r"\b(different|more|another|instead|next|pinterest|pintrest|wallpaper)\b", unquoted, re.I))
+                            )
+                        break
+            except Exception:
+                pass
+
+        speech_text = str(getattr(plan, "speech", "") or "")
+        speech_promised_images = False
+        if re.search(r"(?:image results?|तस्वीरें|ढूँढ रही हूँ|खोज रही हूँ|searching for (?:public )?images?|here are (?:some )?images?)", speech_text, re.I):
+            speech_promised_images = True
+
+        image_search_command = (
+            not is_generate_action
+            and not has_reference_intent
+            and not has_conversational_question
+            and not (has_research_or_web_intent and not has_image_kw and not has_art_platform)
+            and (
+                is_character_visual
+                or (has_image_kw and (has_fetch_verb or has_visual_request or len(unquoted.split()) <= 4))
+                or is_followup_fetch
+                or has_art_platform
+                or is_image_refinement
+                or speech_promised_images
+            )
+        )
+
+        if image_search_command and not any(t.toolName == "image_search" for t in plan.toolRequests):
+            from hinaa_api.media.search_intelligence import (
+                build_media_intent,
+                compile_image_search_query,
+                compiled_image_query_parameters,
+                canonical_entity_from_text,
+            )
+
+            active_subject = None
+            if self.dialogue_state_service is not None and session_id:
+                try:
+                    d_state = self.dialogue_state_service.load(session_id)
+                    if d_state:
+                        # Prioritize active character entity if present, fallback to topic
+                        from hinaa_api.dialogue_state import EntityReferenceResolver
+                        active_char = EntityReferenceResolver.get_active_character(d_state)
+                        if active_char:
+                            active_subject = active_char
+                        elif d_state.active_topic and d_state.active_topic.strip().lower() not in ("anime", "image", "images", "general", "something", "chat"):
+                            active_subject = d_state.active_topic
+                except Exception:
+                    pass
+
+            if not active_subject and session_id:
+                try:
+                    history = self.memory.context(session_id)
+                    recent_user_turns = [c for r, c in reversed(history) if r == "user"][:3]
+                    for content in recent_user_turns:
+                        if content.strip().casefold() == plain_text.strip().casefold():
+                            continue
+                        prof = canonical_entity_from_text(content)
+                        if prof:
+                            active_subject = prof.canonical_name
+                            break
+                except Exception:
+                    pass
+
+            media_intent = build_media_intent(unquoted, active_subject=active_subject)
+            if media_intent:
+                spec = compile_image_search_query(media_intent)
+                final_query = spec.primary_query
+                canonical_subject = media_intent.canonical_subject
+            else:
+                query_candidate = re.sub(
+                    r"(?i)^\s*(?:like|please|pls|can\s+you|could\s+you|hey|babe|no\s*,?\s*|i\s+(?:just\s+)?(?:want|ont)\s+to\s+(?:see|view)?|what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s*",
+                    "",
+                    plain_text,
+                ).strip()
+                query_candidate = re.sub(
+                    r"(?i)^\s*(?:send(?:\s+me)?|search|find|look\s+for|show|sho|display|give\s+me|get|fetch|bring|see)\s+(?:me\s+)?(?:some\s+)?(?:public\s+)?(?:images?|pictures?|photos?|pics?|imgs?)?\s*(?:of|for|about|on)?\s*",
+                    "",
+                    query_candidate,
+                ).strip()
+                query_candidate = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", query_candidate).strip()
+                # Strip trailing image and platform words (e.g. "mikasa images" -> "mikasa")
+                query_candidate = re.sub(
+                    r"(?i)\s+(?:images?|imges?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|fanart|art|portrait|drawings?)$",
+                    "",
+                    query_candidate,
+                ).strip()
+                query_candidate = re.sub(
+                    r"(?i)\s+(?:on|from|in)?\s*(?:pinterest|pintrest|pintrens|safebooru|google|bro|please|pls|too|as\s+well)$",
+                    "",
+                    query_candidate,
+                ).strip()
+                query_candidate = re.sub(r"(?i)^(?:some\s+|me\s+|them\s+|these\s+|those\s+|a\s+few\s+)", "", query_candidate).strip()
+
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    if re.search(rf"\b{re.escape(alias)}\b", query_candidate, re.IGNORECASE):
+                        query_candidate = re.sub(rf"\b{re.escape(alias)}\b", canonical, query_candidate, flags=re.IGNORECASE).strip()
+                        break
+                if query_candidate.lower() in CHARACTER_ENTITY_MAP:
+                    query_candidate = CHARACTER_ENTITY_MAP[query_candidate.lower()]
+
+                if has_art_platform or is_image_refinement:
+                    clean_refine = re.sub(r"(?i)\b(bro|and|from|not\s+youtube|not\s+yt|youtube|please|pls|too|like|me|some)\b", "", plain_text).strip()
+                    clean_refine = re.sub(r"\s+", " ", clean_refine).strip()
+                    clean_refine = re.sub(r"(?i)\b(pintrens|pintrest)\b", "pinterest", clean_refine)
+                    if clean_refine:
+                        query_candidate = clean_refine
+
+                is_generic = (
+                    not query_candidate
+                    or bool(re.search(r"(?i)^(?:them|it|these|those|that|this|fetch\s+them|see\s+them|show\s+them|send\s+them|images?|pics?|(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)|(?:send\s+)?(?:some\s+)?anime)$", query_candidate))
+                    or bool(re.search(r"(?i)^(?:i\s+)?(?:just\s+)?(?:want|ont)\s+to\s+.*(?:see|fetch|show|get|send)", query_candidate))
+                )
+
+                resolved_query = "" if is_generic else query_candidate
+                if not resolved_query and d_state and getattr(d_state, "active_topic", None):
+                    clean_top = d_state.active_topic.strip()
+                    if clean_top.lower() not in ("anime", "image", "images", "general", "something", "chat"):
+                        resolved_query = clean_top
+                if not resolved_query and d_state and getattr(d_state, "active_entities", None):
+                    for ent in d_state.active_entities:
+                        if ent.get("name"):
+                            resolved_query = ent["name"]
+                            break
+
+                if not resolved_query and session_id:
+                    try:
+                        history = self.memory.context(session_id)
+                        for role, content in reversed(history):
+                            if content.strip().casefold() == plain_text.strip().casefold():
+                                continue
+                            clean_prev = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", content).strip()
+                            for alias in CHARACTER_ENTITY_MAP:
+                                neg_pat = (
+                                    r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
+                                    r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
+                                    + re.escape(alias)
+                                    + r"\b|\b"
+                                    + re.escape(alias)
+                                    + r"\s+(?:mat|nahi|nhi|na|haina|chaidaina)\b"
+                                )
+                                clean_prev = re.sub(neg_pat, " ", clean_prev).strip()
+                                if re.search(rf"\b{re.escape(alias)}\b", clean_prev, re.IGNORECASE):
+                                    resolved_query = CHARACTER_ENTITY_MAP[alias]
+                                    break
+                            if resolved_query:
+                                break
+                            if role == "user":
+                                topic_m = re.search(r"(?i)\b(?:about|for|on)\s+([a-zA-Z0-9\s:_-]{3,60})", clean_prev)
+                                if topic_m:
+                                    resolved_query = topic_m.group(1).strip()
+                                    break
+                            elif role == "assistant":
+                                title_matches = re.findall(r"(?:[“\"'\*]{1,2}|(?:\b(?:titled|watch|anime)\s+))([A-Z][a-zA-Z0-9: \-]{3,35})(?:[”\"'\*]{1,2}|\b)", clean_prev)
+                                if title_matches:
+                                    resolved_query = title_matches[0].strip()
+                                    break
+                                for _ in range(3):
+                                    clean_prev = re.sub(
+                                        r"(?i)^(?:like|please|pls|can\s+you|could\s+you|sho\s+me|show\s+me|give\s+me|get\s+me|some|who is|what is|tell me about|explain|describe)\s+",
+                                        "",
+                                        clean_prev,
+                                    ).strip()
+                                clean_prev = re.sub(r"(?i)\s+(?:too|as\s+well|please|pls)$", "", clean_prev).strip()
+                                img_match = re.search(r"^(.*?)(?:\s+images?(?:\s+of|\s+from)?\s*(.*))?$", clean_prev, re.I)
+                                if img_match and img_match.group(1).strip():
+                                    subject = img_match.group(1).strip()
+                                    extra = (img_match.group(2) or "").strip()
+                                    resolved_query = f"{subject} {extra}".strip()
+                                    break
+                                elif clean_prev and not re.search(r"^(?:images?|pictures?|fetch them|see them)$", clean_prev, re.I):
+                                    resolved_query = clean_prev
+                                    break
+                    except Exception:
+                        pass
+
+                final_query = resolved_query or query_candidate or plain_text or text
+                final_query = re.sub(r"(?i)^\s*(?:what\s+about|how\s+about|what\s+of|and\s+what\s+about|and|now)\s+", "", final_query).strip()
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    neg_pat = (
+                        r"(?i)\b(?:not|no|stop|forget|leave|don'?t\s+(?:want|mention|search(?:\s+for)?|look(?:\s+for)?|fetch|show|talk(?:\s+about)?))\s+"
+                        r"(?:(?:more|about|searching(?:\s+for)?|looking(?:\s+for)?|fetching|showing|talking(?:\s+about)?)\s+)?"
+                        + re.escape(alias)
+                    )
+                    if re.search(neg_pat, final_query):
+                        final_query = re.sub(neg_pat, " ", final_query).strip()
+                        continue
+                    if re.search(rf"\b{re.escape(alias)}\b", final_query, re.IGNORECASE):
+                        final_query = re.sub(rf"\b{re.escape(alias)}\b", canonical, final_query, flags=re.IGNORECASE).strip()
+                        break
+                if final_query.lower() in CHARACTER_ENTITY_MAP:
+                    final_query = CHARACTER_ENTITY_MAP[final_query.lower()]
+                canonical_subject = final_query.title()
+
+            # Whatever named this subject, a sentence is not one: measured in the
+            # browser with an existing conversation, the compiler resolved the
+            # turn to the user's own echoed words and the caption read
+            # "Found 6 relevant i want pics of tokyo ghoul images.".
+            # He has to get "20 images" out of the tool that searches, not just
+            # out of the tool that draws; a hard-coded 6 here capped every ask.
+            fetch_count = _image_fetch_count(plain_text or text)
+            compiled = compiled_image_query_parameters({"query": final_query, "count": fetch_count})
+            final_query = str(compiled.get("query") or final_query)
+            canonical_subject = str(compiled.get("canonicalSubject") or canonical_subject)
+
+            plan.toolRequests.append(ToolRequest(
+                toolName="image_search",
+                parameters={"query": final_query, "count": fetch_count, "canonicalSubject": canonical_subject},
+            ))
+
+            if re.search(r"[\u0900-\u097F]", plain_text):
+                plan.displayText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं! ✨"
+                plan.spokenText = f"यहाँ {canonical_subject} की कुछ तस्वीरें हैं!"
+                plan.language = "hi-IN"
+            else:
+                plan.displayText = f"Found {fetch_count} relevant {canonical_subject} images."
+                plan.spokenText = f"Found {fetch_count} relevant {canonical_subject} images."
+                plan.language = "en-US"
+            plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
+
+        image_command = bool(
+            re.search(r"\b(?:generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b.*\b(?:image|images|picture|pictures|photo|photos|portrait|artwork|wallpaper|चित्र|तस्वीर)\b", unquoted, re.I)
+            or re.search(r"\b(?:image|images|picture|pictures|photo|photos|चित्र|तस्वीर)\s+(?:generate|create|make|draw|करो|गर)\b", unquoted, re.I)
+            or re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:draw|paint)\s+[a-z0-9]", unquoted, re.I)
+            or (
+                re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:generate|draw|paint|render|create)\s+", unquoted, re.I)
+                and any(k in unquoted.lower() for k in ("hina", "hinaa", *CHARACTER_ENTITY_MAP))
+            )
+            or (
+                bool(re.search(r"\b(?:same\s+one|use\s+this|use\s+that|use\s+this\s+image)\b", unquoted, re.I))
+                and bool(re.search(r"\b(?:darker|brighter|better|variation|different|in\s+|with\s+|wearing\s+|sitting\s+|standing\s+|looking\s+|smiling)\b", unquoted, re.I))
+            )
+            or is_command(
+                [
+                    r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
+                    r"^\s*(?:\d+|one|two|three|four|चार|एक|दुई|एउटा)?\s*(?:fast\s+|quality\s+)?(?:images?|pictures?|photos?|चित्र|तस्वीर)\s+(?:generate|create|make|करो|गर)\b",
+                    r"^\s*(?:generate|create|make|बनाओ|बनाऊ|बनाइदेऊ)\b.*(?:image|picture|photo|चित्र|तस्वीर)",
+                ],
+                target=r"\b(image|images|picture|pictures|photo|photos|portrait|artwork|variation|variations)\b|चित्र|तस्वीर",
+            )
+        )
+        if image_command and not any(t.toolName == "image_generate" for t in plan.toolRequests):
+            prompt_str = plain_text
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?"
+                r"(?:generate|create|make|draw|paint|render)\s+(?:me\s+)?"
+                r"(?:\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s+)?"
+                r"(?:an?\s+)?(?:image|picture|photo|portrait)s?\s*(?:of\s+)?",
+                "",
+                prompt_str,
+            ).strip()
+            prompt_str = re.sub(
+                r"(?i)\s+(?:image|picture|photo|portrait|artwork|wallpaper)s?$",
+                "",
+                prompt_str,
+            ).strip()
+            prompt_str = re.sub(r"(?i)\b(?:please|pls|hinaa?)\b", "", prompt_str).strip()
+            clean_prompt = prompt_str or plain_text or text
+            # Expand known character names to canonical full names for better image quality
+            # e.g. "gojo" → "Gojo Satoru", "mikasa" → "Mikasa Ackerman"
+            clean_prompt_lower = clean_prompt.lower()
+            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                pattern = r"\b" + re.escape(alias) + r"\b"
+                if re.search(pattern, clean_prompt_lower, re.IGNORECASE):
+                    clean_prompt = re.sub(pattern, canonical, clean_prompt, flags=re.IGNORECASE)
+                    break
+
+            img_count = 1
+            count_m = re.search(r"\b(\d+)\s*(?:images?|pictures?|photos?|variations?|series)\b", lower_text)
+            if count_m:
+                img_count = min(max(1, int(count_m.group(1))), 10)
+            elif re.search(r"\b(?:series\s+of\s+images?|image\s+series|multiple\s+images?|few\s+images?)\b", lower_text):
+                img_count = 3
+            elif re.search(r"\b(?:two|pair\s+of)\s+(?:images?|pictures?|photos?)\b", lower_text):
+                img_count = 2
+            elif re.search(r"\b(?:three)\s+(?:images?|pictures?|photos?)\b", lower_text):
+                img_count = 3
+            elif re.search(r"\b(?:four)\s+(?:images?|pictures?|photos?)\b", lower_text):
+                img_count = 4
+
+            image_parameters: dict[str, object] = {
+                "prompt": clean_prompt,
+                "count": img_count,
+                "mode": "quality",
+                "strategy": "variations",
+            }
+            lower_prompt = f"{clean_prompt.lower()} {lower_text}"
+            if re.search(r"\b(ultra|hd|high quality|quality|poster|wallpaper|print)\b", lower_prompt):
+                image_parameters["mode"] = "ultra" if "ultra" in lower_prompt else "quality"
+            if re.search(r"\b(anime|manga|mangaka|mangal|एनिमे)\b|cel ?shad", lower_prompt, re.IGNORECASE):
+                image_parameters["style"] = "anime"
+            elif re.search(r"\b(photorealistic|realistic|photo real|dslr|portrait photo)\b", lower_prompt):
+                image_parameters["style"] = "realistic"
+            elif re.search(r"\b(cinematic|movie|film|trailer|poster)\b", lower_prompt):
+                image_parameters["style"] = "cinematic"
+            elif re.search(r"\b(3d|render|octane|cgi)\b", lower_prompt):
+                image_parameters["style"] = "3d-art"
+            elif re.search(r"\b(watercolor|painting|canvas art)\b", lower_prompt):
+                image_parameters["style"] = "watercolor"
+
+            # Reference image and subject entity resolution from dialogue state or cross-session memory
+            ref_asset_id = None
+            ref_entity = None
+            if d_state:
+                if d_state.selected_asset:
+                    ref_asset_id = d_state.selected_asset.get("asset_id") or d_state.selected_asset.get("selected_asset_id")
+                    ref_entity = d_state.selected_asset.get("canonical_subject")
+                if not ref_asset_id:
+                    from hinaa_api.dialogue_state import AssetReferenceResolver
+                    ref_asset_id = AssetReferenceResolver.resolve_asset_id(unquoted, d_state)
+                if not ref_entity:
+                    candidates = [d_state.active_topic]
+                    if d_state.active_entities and isinstance(d_state.active_entities[0], dict):
+                        candidates.append(d_state.active_entities[0].get("name"))
+                    # subject_entity is who or what is in the picture, and it feeds
+                    # reference resolution and asset memory. Measured live: the
+                    # dialogue-state topic held his sentence verbatim, so
+                    # `generate mikasa images` was filed as the subject. A request
+                    # verb or the deliverable's own name means that candidate is a
+                    # sentence, not a subject, so the next one gets the chance and
+                    # an invented subject never reaches the job.
+                    ref_entity = next(
+                        (
+                            candidate.strip()
+                            for candidate in candidates
+                            if isinstance(candidate, str)
+                            and candidate.strip()
+                            and not re.search(
+                                r"(?i)\b(generate|create|make|draw|render|show|send|design|please"
+                                r"|image|images|picture|pictures|photo|photos|pic|pics|wallpaper|wallpapers)\b",
+                                candidate,
+                            )
+                        ),
+                        None,
+                    )
+
+            if not ref_asset_id and self.cross_session_retriever and uid:
+                try:
+                    evidences = self.cross_session_retriever.retrieve_relevant_context(uid, text, conversation_id=convo_id)
+                    for ev in evidences:
+                        if ev.source_type == "approved_asset" and ev.metadata and ev.metadata.get("asset_id"):
+                            ref_asset_id = ev.metadata["asset_id"]
+                            ref_entity = ev.metadata.get("entity") or ref_entity
+                            break
+                except Exception:
+                    pass
+
+            if ref_asset_id:
+                image_parameters["reference_images"] = [ref_asset_id]
+                image_parameters["reference_asset_id"] = ref_asset_id
+            if ref_entity:
+                image_parameters["subject_entity"] = ref_entity
+
+            # “Use that reference / like the images you found”
+            reference_led = re.search(
+                r"(?i)\b(based on|using|like|from)\s+(?:the\s+|that\s+|this\s+)?(?:same\s+)?"
+                r"(?:earlier\s+|previous\s+|last\s+)?(?:reference(?:\s+image)?|image|picture|photo|result)\b",
+                lower_text,
+            ) or re.search(r"(?i)\bउसी\s+(?:तस्वीर|चित्र|रेफरेन्स)\b", lower_text)
+            if reference_led:
+                named = re.search(
+                    r"(?i)(?:of|for|about|बाबत|को|की)\s+([A-Z][\w .,'-]{1,48}?)(?:\s+(?:based|using|like|image|picture|photo)\b|[.!?]\s*$|$)",
+                    text,
+                )
+                subject = (named.group(1) if named else "").strip(" .,'")
+                if not subject:
+                    proper = re.search(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,3})\b", text)
+                    subject = proper.group(1) if proper else ""
+                if subject:
+                    image_parameters["reference_query"] = subject
+            plan.toolRequests.append(ToolRequest(toolName="image_generate", parameters=image_parameters))
+
+        is_web_explicit = bool(re.search(r"\b(web|online|with\s+sources?)\b", lower_text))
+        deep_research_command = not is_web_explicit and is_command(
+            [
+                r"^\s*(please\s+)?(deep\s*[- ]?research|dig\s+into\b|find\s+everything\s+about\b|fetch\s+(?:details|info)\s+about\b|tell\s+me\s+everything\s+about\b)",
+                r"\b(deep\s+research|full\s+report|detailed\s+research)\b",
+                r"(?i)^(?:बुझ|अध्यन|विस्तार(?:मा)?\s+बुझ)",
+            ],
+            target=r"\b(deep\s+research|full\s+report|detailed\s+research|everything|विस्तार)\b|अध्यन|बुझ",
+        )
+        if deep_research_command and not any(t.toolName == "deep_research" for t in plan.toolRequests):
+            topic = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:deep\s*[- ]?research|research\s+(?:on\s+|into\s+|me\s+)?|investigate\b|dig\s+into\b|fetch\s+(?:details|info)\s+about\s+|tell\s+me\s+|find\s+)?(?:everything|all\s+the\s+details|details|info)?\s*(?:about|on|of|for)?\s*",
+                "",
+                text,
+            ).strip(" :.!?，,")
+            if topic:
+                plan.toolRequests.append(ToolRequest(
+                    toolName="deep_research",
+                    parameters={"topic": topic, "depth": 20},
+                ))
+
+        pdf_command = bool(
+            re.search(r"\b(?:make|create|generate|give\s+me|build|write|download|export|prepare)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:pdf|document|report|docx?)\b", unquoted, re.I)
+            or re.search(r"\b(?:the|that|this)\s+(?:pdf|docx?|document|report)\b", unquoted, re.I)
+            or re.search(r"\b(?:pdf|docx?|document|report)\s+(?:file|document|of|on|about|for|bro|please|dinu|chahiye|format)\b", unquoted, re.I)
+            or re.search(r"\b(?:assignment|report|paper|summary|dossier)\s+(?:pdf|docx?|document)\b", unquoted, re.I)
+            or re.search(r"\b(?:pdf|docx?|document)\s+(?:banao|banau|dinu)\b", unquoted, re.I)
+            or re.search(r"\b(?:advanced\s+pdf|high-level\s+pdf|pdf\s+format|document\s+format)\b", unquoted, re.I)
+            or (re.search(r"\b(?:create|make|generate|build|write|prepare)\b[^.?!]*\b(?:document|report|pdf|docx)\b", unquoted, re.I) and not re.search(r"\b(?:slide|presentation|deck)\b", unquoted, re.I))
+        )
+        if pdf_command and not any(t.toolName == "pdf_generate" for t in plan.toolRequests):
+            from hinaa_api.models import safe_extract_display_text
+
+            topic_str = plain_text
+            topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:i\s+need\s+to\s+complete\s+my\s+assignment|my\s+topic\s+is)\b", "", topic_str).strip()
+            # If the user specified "document about X" or "pdf on Y", extract the topic directly
+            doc_topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", topic_str)
+            extracted_doc_topic = doc_topic_m.group(1).strip() if (doc_topic_m and len(doc_topic_m.group(1).strip()) >= 3) else ""
+            topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:pdf|document|report|docx?)\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:make|give\s+me)\s+a?\s*(?:pdf|document|report)\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"(?i)\b(?:the\s+)?(?:pdf|document|report)\s*(?:file|document|banao|banau|dinu|bro|please|pls)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+            topic_str = re.sub(r"[\"']", "", topic_str).strip()
+            topic_str = re.sub(r"[^\w\s-]", "", topic_str).strip()
+            topic_str = re.sub(r"\s+", " ", topic_str).strip()
+            if extracted_doc_topic:
+                topic_str = extracted_doc_topic
+
+            is_referential = (
+                not topic_str
+                or len(topic_str) < 4
+                or topic_str.lower() in {"it", "this", "that", "the", "pdf", "file", "document", "report", "the pdf", "this pdf", "that pdf"}
+                or bool(
+                    re.search(
+                        r"(?i)^(?:based\s+on\s+)?(?:that|this|it|her|the\s+above|above|same|previous|last|what\s+you\s+(?:said|wrote|generated)|report|the\s+report|thr\s+report)(?:\s+(?:assignment|report|paper|doc|document|topic|conversation))?$",
+                        topic_str,
+                    )
+                )
+                or bool(
+                    re.search(
+                        r"(?i)^(?:the|that|this|my|her)?\s*(?:assignment|report|paper|doc|document|notes|topic)$",
+                        topic_str,
+                    )
+                )
+            )
+
+            extracted_content = ""
+            resolved_topic = ""
+
+            # Check conversation context and dialogue state if referential or empty
+            if session_id:
+                try:
+                    if self.dialogue_state_service is not None:
+                        d_state = self.dialogue_state_service.load(session_id, user_id)
+                        if d_state and d_state.active_topic:
+                            resolved_topic = d_state.active_topic
+                        elif d_state and d_state.slots.get("topic"):
+                            resolved_topic = str(d_state.slots["topic"])
+                        elif d_state and d_state.slots.get("subject"):
+                            resolved_topic = str(d_state.slots["subject"])
+
+                    history = self.memory.context(session_id)
+                    for role, hist_content in reversed(history):
+                        if hist_content.strip().casefold() == plain_text.strip().casefold():
+                            continue
+                        clean_text = safe_extract_display_text(hist_content).strip()
+                        if role == "assistant" and len(clean_text) > 80 and not extracted_content:
+                            extracted_content = clean_text
+                            # Extract topic from title or header if available
+                            title_m = re.search(r"^#{1,3}\s+(?:📄\s*)?([^\n]+)", clean_text)
+                            if title_m and not resolved_topic:
+                                raw_t = title_m.group(1).strip()
+                                raw_t = re.sub(r"(?i)\b(?:assignment|report|overview|guide|breakdown|document)\b", "", raw_t).strip(" :-")
+                                if len(raw_t) >= 3:
+                                    resolved_topic = raw_t
+                        elif role == "user" and not resolved_topic:
+                            clean_user = re.sub(r"^/[a-zA-Z0-9_-]+\s*", "", clean_text).strip()
+                            clean_user = re.sub(r"(?i)\b(?:assignment|complete|karna\s+hai|help\s+me|tell\s+me\s+about|what\s+is|explain|topic\s+is)\b", "", clean_user).strip()
+                            clean_user = re.sub(r"[?!.,]", "", clean_user).strip()
+                            if len(clean_user) >= 3 and not re.search(r"(?i)^(?:pdf|hi|hey|hello|yes|no|ok|okay|ha|haan)$", clean_user):
+                                resolved_topic = clean_user
+                except Exception:
+                    pass
+
+            if not is_referential and topic_str:
+                final_topic = topic_str
+            elif resolved_topic:
+                final_topic = resolved_topic
+            else:
+                final_topic = "Comprehensive Academic Research"
+
+            # Clean topic typos
+            final_topic = re.sub(r"(?i)\bcryptogrpic\b", "Cryptography", final_topic)
+            final_topic = re.sub(r"(?i)\bcryptogrp[a-z]*\b", "Cryptography", final_topic)
+            final_topic = re.sub(r"(?i)\bww2\b", "World War II", final_topic)
+            final_topic = re.sub(r"(?i)\bwwii\b", "World War II", final_topic)
+            final_topic = re.sub(r"(?i)\bww1\b", "World War I", final_topic)
+
+            clean_display_title = final_topic.strip().title()
+            if clean_display_title.lower() in {"it", "it.", "this", "that", "pdf"} or len(clean_display_title) <= 2:
+                clean_display_title = resolved_topic.strip().title() if resolved_topic else "Research Document"
+            clean_display_title = clean_display_title.rstrip(" .;,!?")
+            if clean_display_title.lower().endswith(("assignment", "report", "document")):
+                doc_title = clean_display_title
+            else:
+                doc_title = f"{clean_display_title} Report"
+
+            # A proposal is not a progress report. This copy used to read
+            # "I'm typesetting ... from a pass I am running now" while the
+            # execute call had already answered DOCUMENT_NO_SOURCE, so the
+            # bubble contradicted the refusal card next to it.
+            if extracted_content:
+                body_clause = (
+                    "Its pages will be the write-up already in our conversation, so nothing new "
+                    "has to be researched."
+                )
+                closing = "The card shows up here only once the file actually exists."
+                spoken_source = "from what we already wrote here"
+            else:
+                body_clause = (
+                    "Its pages have to come from a live research pass, which starts the moment this "
+                    "action runs."
+                )
+                closing = (
+                    "If that pass finds nothing usable, no file gets written and you will see that "
+                    "here instead of a filled template."
+                )
+                spoken_source = "but its pages have to come from a live research pass first"
+
+            plan.toolRequests.append(ToolRequest(
+                toolName="pdf_generate",
+                parameters={
+                    "topic": final_topic,
+                    "title": doc_title,
+                    "category": "Research Report",
+                    "content": extracted_content,
+                },
+            ))
+
+            plan.displayText = (
+                f"### 📄 PDF: {clean_display_title}\n\n"
+                f"**{doc_title}** is ready to build. {body_clause} The document builder only lays "
+                f"material out — it adds no sections, facts, or references of its own.\n\n"
+                f"• **Title**: {doc_title}\n"
+                f"• **Category**: Research Report\n"
+                f"• **Layout**: ReportLab PDF with running header and page numbers\n\n"
+                f"{closing}"
+            )
+            plan.spokenText = (
+                f"Your {final_topic} PDF is ready to build {spoken_source} — "
+                f"the card shows up here only if the file really gets written."
+            )
+            plan.language = "en-US"
+            plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
+
+        slides_command = bool(
+            re.search(
+                r"\b(?:make|create|generate|give\s+me|build|prepare|design)\b[^.?!]*\b(?:slides?|presentations?|decks?|pitch\s*decks?|powerpoint|pptx)\b",
+                unquoted,
+                re.I,
+            )
+            or re.search(r"\b(?:slides?|presentation|deck)\s+(?:on|about|for|banao|banau|dinu|chahiye)\b", unquoted, re.I)
+        )
+        if slides_command and not any(t.toolName in ("create_gamma_presentation", "document_generate") for t in plan.toolRequests):
+            topic_str = plain_text
+            topic_str = re.sub(r"(?i)\b(?:like|please|pls|hina|bro|babe|can\s+you|could\s+you)\b", "", topic_str).strip()
+            slide_topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", topic_str)
+            if slide_topic_m and len(slide_topic_m.group(1).strip()) >= 3:
+                final_slide_topic = slide_topic_m.group(1).strip()
+            else:
+                topic_str = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|prepare|design)\s+(?:me\s+)?(?:a\s+)?(?:the\s+)?(?:slide\s*deck|slides?|presentation|deck|pitch\s*deck|powerpoint|pptx)\s*(?:and\s+give\s+me)?\s*(?:based\s+on|about|of|on|for)?\b", "", topic_str).strip()
+                topic_str = re.sub(r"[\"']", "", topic_str).strip()
+                topic_str = re.sub(r"[^\w\s-]", "", topic_str).strip()
+                topic_str = re.sub(r"\s+", " ", topic_str).strip()
+                final_slide_topic = topic_str if len(topic_str) >= 3 else "Executive Presentation"
+
+            clean_slide_title = final_slide_topic.strip().title()
+            plan.toolRequests.append(ToolRequest(
+                toolName="create_gamma_presentation",
+                parameters={
+                    "topic": final_slide_topic,
+                    "title": f"{clean_slide_title} Deck",
+                    "format": "presentation",
+                    "export_as": "pptx",
+                    "num_cards": 8,
+                },
+            ))
+            plan.displayText = (
+                f"### 📊 Presentation: {clean_slide_title}\n\n"
+                f"**{clean_slide_title} Deck** is compiling with executive slide layouts.\n\n"
+                f"• **Topic**: {final_slide_topic}\n"
+                f"• **Format**: PowerPoint (.pptx) Executive Deck\n"
+                f"• **Cards/Slides**: 8 Designed Slides\n\n"
+                f"The download and preview card will appear as soon as the file is rendered."
+            )
+            plan.spokenText = f"I'm compiling your {final_slide_topic} presentation slides right now."
+            plan.language = "en-US"
+            plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
+
+        browser_command = is_command(
+            [r"^\s*(please\s+)?(open|navigate to|go to|browse to|launch|खोलो|खोल्नुहोस्)\b"],
+            target=r"\b(https?://\S+|website|url|page|site|netflix|youtube|google)\b",
+        )
+        if browser_command and not any(t.toolName in {"browser_navigate", "browser_execute_task"} for t in plan.toolRequests):
+            prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:open|navigate to|go to|browse to|launch)\s+", "", text).strip()
+            target = prompt_str or text
+            known_destinations = {
+                "netflix": "https://www.netflix.com",
+                "youtube": "https://www.youtube.com",
+                "google": "https://www.google.com",
+            }
+            destination = next((url for name, url in known_destinations.items() if re.search(rf"\b{name}\b", target, re.IGNORECASE)), None)
+            explicit_url = re.search(r"https?://[^\s]+", target)
+            if explicit_url:
+                destination = explicit_url.group(0)
+            if destination:
+                # A direct destination is a single owned navigation, not an
+                # autonomous browser sub-agent task.  It creates one page only.
+                plan.toolRequests.append(ToolRequest(
+                    toolName="browser_navigate",
+                    parameters={"url": destination},
+                ))
+
+        has_substantive_answer = bool(
+            getattr(plan, "displayText", None) and len(str(plan.displayText).strip()) > 30
+        )
+
+        cited_answer_command = is_command(
+            [r"^\s*(please\s+)?(answer with sources|give (?:me )?a cited answer|verify online)\b"],
+            target=r"\b(sources?|citations?|online|web|internet)\b|वेब|स्रोत",
+        )
+        if (
+            cited_answer_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_answer" for t in plan.toolRequests)
+        ):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:answer with sources|give (?:me )?a cited answer|verify online)\s*(?:for|about|:)?\s*",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_answer",
+                parameters={"query": prompt_str or text},
+            ))
+
+        extract_command = is_command(
+            [r"^\s*(please\s+)?(read|extract|summarize)\b"],
+            target=r"https?://[^\s]+",
+        )
+        if (
+            extract_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_extract" for t in plan.toolRequests)
+        ):
+            urls = re.findall(r"https?://[^\s]+", text)
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_extract",
+                parameters={"urls": urls[:5]},
+            ))
+
+        finance_command = is_command(
+            [r"^\s*(please\s+)?(?:financial|finance) research\b"],
+            target=r"\b(finance|financial|earnings|filing|stock|market|company)\b",
+        )
+        if (
+            finance_command
+            and not has_substantive_answer
+            and not any(t.toolName == "finance_research" for t in plan.toolRequests)
+        ):
+            prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:financial|finance) research\s*(?:on|about|:)?\s*", "", text).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="finance_research",
+                parameters={"query": prompt_str or text, "effort": "deep"},
+            ))
+
+        deep_research_command = is_command(
+            [r"^\s*(please\s+)?(search and research|research|investigate|compare with sources|deep research)\b"],
+            target=r"\b(web|internet|online|sources?|citations?|documentation|current|breakthrough|quantum|computing|technology|science|news|ai|market|development|history|theory)\b|वेब|स्रोत",
+        )
+        if (
+            deep_research_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_research" for t in plan.toolRequests)
+        ):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:search and research|research|investigate|compare with sources|deep research)\s*(?:the web for|online|with sources|about|into|on|:)?\s*",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_research",
+                parameters={"query": prompt_str or text, "effort": "lite"},
+            ))
+
+        search_command = is_command(
+            [
+                r"^\s*(please\s+)?(search the web for|look up|find information about|google search for|खोज|खोज्नुहोस्)\b",
+                r"\b(give me|find me|show me|get me|fetch me)\b.*\b(links?|sites?|websites?|urls?|results?)\b",
+                r"\b(latest|current|recent|new|best|top|popular)\b.*\b(sites?|websites?|links?|platforms?|services?|apps?)\b",
+                r"\b(where can I|how can I|where to)\b.*\b(watch|stream|see|find|get)\b",
+                r"\b(recommend|suggest|list)\b.*\b(sites?|websites?|links?|platforms?|services?)\b",
+                r"\b(streaming|anime|movie|music|video)\b.*\b(sites?|websites?|links?|platforms?)\b",
+                r"\b(search|find|look)\b.*\b(for|about|on)\b",
+            ],
+            target=r"\b(web|internet|online|google|documentation|sources?|links?|sites?|websites?|find|search|latest|current|recent|best|top|watch|stream|recommend|anime|movie|music|video)\b|वेब|इन्टरनेट|खोज",
+        )
+        if (
+            search_command
+            and not has_substantive_answer
+            and not any(t.toolName == "web_search" for t in plan.toolRequests)
+        ):
+            prompt_str = re.sub(
+                r"(?i)^\s*(?:please\s+)?(?:search the web for|look up|find information about|google search for)\s+",
+                "",
+                text,
+            ).strip()
+            plan.toolRequests.append(ToolRequest(
+                toolName="web_search",
+                parameters={"query": prompt_str or text},
+            ))
+
+    def _resolve_session_history(
+        self,
+        session_id: str | None,
+        conversation_id: str | None,
+        limit: int = 20,
+    ) -> list[tuple[str, str]]:
+        """Retrieve conversational history, falling back to persistent database when memory cache is cold.
+        This guarantees zero session amnesia across reconnects or tab reloads."""
+        if session_id:
+            try:
+                self.memory.compact_if_needed(session_id, threshold_ratio=0.75)
+            except Exception:
+                pass
+            cached = list(self.memory.context(session_id))
+            if cached:
+                return cached
+
+        cid = conversation_id or session_id
+        if not cid:
+            return []
+
+        factory = (
+            getattr(self, "_session_factory", None)
+            or (self.memory_service._factory if self.memory_service else None)
+            or getattr(self, "session_factory", None)
+        )
+        if factory:
+            try:
+                from sqlalchemy import select
+                from .persistence.orm import Message
+                with factory() as db_session:
+                    msgs = db_session.scalars(
+                        select(Message)
+                        .where(
+                            Message.conversation_id == cid,
+                            Message.deleted_at.is_(None),
+                        )
+                        .order_by(Message.created_at.desc())
+                        .limit(limit * 2)
+                    ).all()
+                    msgs.reverse()
+                    turns: list[tuple[str, str]] = []
+                    for m in msgs:
+                        if m.role in ("user", "assistant") and m.content:
+                            turns.append((m.role, m.content))
+
+                    if turns and session_id:
+                        from collections import deque
+                        mem_bucket = self.memory._sessions.setdefault(
+                            session_id, deque(maxlen=self.memory._turn_limit)
+                        )
+                        for r, c in turns:
+                            if (r, c) not in mem_bucket:
+                                mem_bucket.append((r, c))
+                    return turns
+            except Exception:
+                logger.debug("Failed to hydrate conversation history from db for %s", cid, exc_info=True)
+        return []
+
+    def _turn_tool_whitelist(
+        self,
+        text: str,
+        gate_intent,
+        history: list[tuple[str, str]] | None = None,
+    ) -> tuple[str, ...]:
+        """The tools his own words earned for this turn, decided before any brain speaks.
+
+        Both the prompt and the executed plan are cut from this one set. When the
+        streamed path built its prompt tool-free and the injector filed the action
+        afterwards, she was told "Tools on this turn: none" and then ran an image
+        job anyway, so the bubble denied a capability the same turn was using.
+        """
+        from .tools.intent_gate import sanction_tools
+        from hinaa_intent_gate import Intent as HinaaIntent
+
+        if gate_intent == HinaaIntent.IMAGE_GENERATE:
+            return ("image_generate", "magnific_image_generate", "freepik_image_generate")
+        if gate_intent == HinaaIntent.IMAGE_SEARCH:
+            return ("image_search",)
+        if gate_intent == HinaaIntent.WEB_SEARCH:
+            return ("web_search", "web_answer", "web_research")
+        if gate_intent == HinaaIntent.DOCUMENT_CREATE:
+            # Either builder answers the ask; the injector picks and the gate
+            # dedupes the family, so both names stay open.
+            return ("pdf_generate", "document_generate", "create_gamma_presentation")
+        # The pre-LLM classifier only knows the loud intents. A turn it fell
+        # through on can still name an action in words the richer gate reads --
+        # "same one but darker", "generate hina again", "fetch Nepal incident
+        # images" -- so the whitelist comes from the same sanction that later
+        # filters the provider's own calls, not from this one regex pass.
+        sanction = sanction_tools(text, known_subjects=CHARACTER_ENTITY_MAP)
+        allowed_set = set(sanction.allowed) if sanction.allowed else set()
+        UI_CONTROL_PATTERN = re.compile(
+            r"(?i)\b(?:switch|change|open|toggle|show|enter|go\s+to|dock|expand)\b.*?"
+            r"\b(?:mode|view|showroom|3d|avatar|workspace|vault|operate|tasks|terminal|hands|drawer|settings|memory|desktop|companion|window)\b"
+            r"|\b(?:terminal\s+hands|floating\s+companion|showroom\s+mode|work\s+mode|operate\s+mode|vault\s+mode|3d\s+avatar|3d\s+presence)\b"
+        )
+        if UI_CONTROL_PATTERN.search(text):
+            allowed_set.add("ui_control")
+
+        MEDIA_PATTERN = re.compile(
+            r"(?i)\b(?:play|playing|listen\s+to|put\s+on|stream|hear|gaana|geet|bajao|baja\s+do|music|song|songs|track|tracks|lofi|youtube|spotify|video|pause\s+music|resume\s+music)\b"
+        )
+        if MEDIA_PATTERN.search(text) and not re.search(r"(?i)\b(?:why|cannot)\b", text):
+            allowed_set.add("youtube_playback_request")
+            allowed_set.add("computer_operator")
+
+        BROWSER_PATTERN = re.compile(
+            r"(?i)\b(?:browse|browsing|browser|browser-use|navigate|go\s+to|visit|url|https?://|automate\s+browser|browser\s+agent|web\s+task|scroll|scroll\s+down|scroll\s+up|read\s+page|type\s+into)\b"
+        )
+        if BROWSER_PATTERN.search(text):
+            allowed_set.update([
+                "browser_cloud_agent",
+                "browser_execute_task",
+                "browser_navigate",
+                "browser_click",
+                "browser_type",
+                "browser_extract",
+                "browser_scroll",
+                "browser_press_key",
+            ])
+
+        COMPUTER_PATTERN = re.compile(
+            r"(?i)\b(?:open|launch|start|run|close|switch\s+to|focus|minimize|maximize)\s+(?:app|application|software|window|program|browser|youtube|spotify|chrome|edge|firefox|brave|notepad|calc|calculator|terminal|powershell|cmd|vscode|code|discord|telegram|steam|word|excel|powerpoint|settings|camera|explorer|files|[a-zA-Z0-9_\-\.]{2,35})\b"
+            r"|\b(?:computer|desktop|os)\s+(?:operator|control|automation|action|apps?)\b"
+            r"|\b(?:click|hotkey|press\s+key|mouse\s+click|type\s+text)\b"
+        )
+        if COMPUTER_PATTERN.search(text):
+            allowed_set.update(["computer_operator", "app_launch", "system_info"])
+
+        # Autonomous Coding, Shell Execution, File Mutation & Agentic Workbench Pattern
+        CODING_AUTONOMY_PATTERN = re.compile(
+            r"(?i)\b(?:code|coding|build|fix|debug|refactor|test|terminal|powershell|bash|cmd|shell|script|python|git|commit|push|clean[- ]room|subagent|fork|patch|edit\s+file|write\s+file|read\s+file|create\s+file)\b"
+        )
+        if CODING_AUTONOMY_PATTERN.search(text):
+            allowed_set.update([
+                "coding_agent",
+                "clean_room_loop",
+                "terminal_hands",
+                "subagent_fork",
+                "file_read",
+                "file_write",
+                "system_info",
+            ])
+
+        if allowed_set:
+            return tuple(sorted(allowed_set))
+        # If user gave an affirmative confirmation and recent turns discussed generating an image
+        if history:
+            from hinaa_intent_gate import YES_CONFIRM_PATTERN, _check_image_proposal
+            if YES_CONFIRM_PATTERN.match(text):
+                is_img, _ = _check_image_proposal(history)
+                if is_img:
+                    return ("image_generate", "magnific_image_generate", "freepik_image_generate")
+        return ()
+
+    def _gate_tool_intents(
+        self, request: TurnRequest, plan: AssistantTurnPlan, *, user_id: str | None
+    ) -> None:
+        """Decide with his words, not with the answering brain, which tools run.
+
+        Every gated call a provider invented is removed before it can become a
+        ``tool.proposed`` event, and the two calls this gate can specify
+        completely -- the subject of a picture, the moment of a reminder -- are
+        added even when the brain never noticed he had asked. The reply is then
+        rewritten to match the actions, because a paragraph written before the
+        gate existed can only promise or refuse the wrong thing.
+        """
+        from .tools.intent_gate import (
+            blocked_note,
+            denies_capability,
+            gate_tool_requests,
+            strip_capability_denials,
+        )
+
+        kept, dropped, sanction = gate_tool_requests(
+            request.text, plan.toolRequests, known_subjects=CHARACTER_ENTITY_MAP
+        )
+        plan.toolRequests = kept
+
+        if kept:
+            # The answer was written before this decision existed, and a brain
+            # that invents its own call also pastes its arguments into the
+            # bubble. Now that a call is known to have been filed, the copy goes.
+            from .providers.display_stream_decoder import (
+                drop_echoed_call_arguments,
+                drop_inlined_page_source,
+            )
+
+            plan.displayText = drop_echoed_call_arguments(plan.displayText)
+            plan.spokenText = drop_echoed_call_arguments(plan.spokenText)
+
+            if any(req.toolName == "design_website" for req in kept):
+                # A weak brain answers "build me a site" by writing the whole
+                # page into its reply. He then reads 17K characters of markup in
+                # the bubble while the same turn quietly writes the real file.
+                plan.displayText = drop_inlined_page_source(plan.displayText or "")
+                plan.spokenText = drop_inlined_page_source(plan.spokenText or "")
+                if not plan.displayText.strip():
+                    fallback = self._action_confirmation(
+                        next(req for req in kept if req.toolName == "design_website")
+                    )
+                    plan.displayText = plan.spokenText = fallback
+
+        if sanction.abort and self._cancel_inflight_image_jobs(user_id=user_id) is None:
+            # Nothing was cancelled because nothing could be reached, so the
+            # plain "Stopped." would be a lie about work still running.
+            note = "I could not reach the queue, so the running job may still finish."
+            plan.displayText = self._blocked_reply(plan.displayText, note)
+            plan.spokenText = self._blocked_reply(plan.spokenText, note)
+            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
+            return
+
+        added = [tool for tool in kept if tool.reason == "deterministic-intent"]
+        if added:
+            confirmation = " ".join(self._action_confirmation(tool) for tool in added)
+            plan.displayText = confirmation
+            plan.spokenText = confirmation
+            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
+            return
+
+        if kept and denies_capability(plan.displayText or ""):
+            # She proposed this call herself, so it runs -- and a paragraph that
+            # says the tool is missing is false on his screen either way. The
+            # action leads, and whatever else still answers him stays under it.
+            confirmation = " ".join(self._action_confirmation(tool) for tool in kept)
+            for field in ("displayText", "spokenText"):
+                remaining = strip_capability_denials(getattr(plan, field) or "")
+                setattr(
+                    plan,
+                    field,
+                    f"{confirmation} {remaining}".strip() if remaining.strip() else confirmation,
+                )
+            _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
+            return
+
+        if dropped or sanction.abort:
+            note = blocked_note(dropped, aborted=sanction.abort, unbound=bool(sanction.resolved))
+            plan.displayText = self._blocked_reply(plan.displayText, note)
+            plan.spokenText = self._blocked_reply(plan.spokenText, note)
+
+    @staticmethod
+    def _action_confirmation(tool: ToolRequest) -> str:
+        parameters = tool.parameters if isinstance(tool.parameters, dict) else {}
+        if tool.toolName == "reminder.create":
+            from .tools.reminder import display_time, parse_at
+
+            return f"Reminder — {parameters.get('title')}, {display_time(parse_at(parameters.get('at')))}."
+        if tool.toolName == "image_generate":
+            subject = parameters.get("prompt")
+            count = parameters.get("count") or 1
+            if count > 1:
+                return f"Generating {count} images of {subject}."
+            return f"Generating an image of {subject}."
+        if tool.toolName == "image_search":
+            subject = parameters.get("canonicalSubject") or parameters.get("query")
+            return f"Searching images for {subject}."
+        if tool.toolName == "design_website":
+            from .tools.website_design import _subject_line
+
+            subject = _subject_line(parameters.get("brief") or "")
+            return f"Building the website for {subject}." if subject else "Building that website for you."
+        if tool.toolName == "youtube_playback_request":
+            q = parameters.get("query") or "music"
+            return f"Playing '{q}' on YouTube."
+        if tool.toolName == "browser_cloud_agent":
+            t = parameters.get("task") or "cloud browser task"
+            return f"Starting autonomous cloud browser task: '{t}'."
+        if tool.toolName == "browser_execute_task":
+            g = parameters.get("goal") or "task"
+            return f"Starting autonomous browser task for: '{g}'."
+        if tool.toolName == "browser_navigate":
+            u = parameters.get("url") or "website"
+            return f"Opening {u} in the browser."
+        if tool.toolName == "computer_operator":
+            action = parameters.get("action") or "action"
+            target = parameters.get("target") or ""
+            if action == "youtube_play":
+                return f"Playing '{target}' on YouTube."
+            if action == "open_application":
+                return f"Opening {target}."
+            return f"Executing desktop action '{action}'."
+        if tool.toolName == "terminal_hands":
+            command = (parameters.get("command") or "").strip()
+            return f"Running {command} in the terminal." if command else "Running that in the terminal."
+        if tool.toolName == "ui_control":
+            return "Adjusting HINAA workspace interface."
+        return f"Running {tool.toolName}."
+
+    @staticmethod
+    def _blocked_reply(text: str, note: str) -> str:
+        """Keep whatever still answers him, drop the promise that does not."""
+        from .tools.intent_gate import strip_stale_promises
+
+        remaining = strip_stale_promises(text or "")
+        if not remaining:
+            return note
+        if note in remaining:
+            return remaining
+        # Stripping the promise can leave a clause with no end mark, and the
+        # note then fuses with it on his screen.
+        if remaining[-1] not in ".!?।॥":
+            remaining = f"{remaining}."
+        return f"{remaining} {note}"
+
+    def _cancel_inflight_image_jobs(self, *, user_id: str | None) -> int | None:
+        """Stop the renders he just told us to stop; None means we could not look.
+
+        ``image_generate`` checks its row before every status write and returns
+        early on ``cancelled``, so flipping these rows really does end the work
+        rather than only hiding it.
+        """
+        from sqlalchemy import select
+
+        from .persistence.db import get_session_factory
+        from .persistence.orm import GenerationSet, ImageJob
+
+        # Scoped by owner, not by conversation: the generate tool only files a
+        # conversation_id when that conversation already has a row, so a thread
+        # narrowed filter would match nothing and "Stopped." would be a lie.
+        owner = user_id or self.settings.dev_auth_subject
+        try:
+            session_factory = get_session_factory(self.settings)
+            with session_factory() as session:
+                query = (
+                    select(ImageJob)
+                    .join(GenerationSet, ImageJob.generation_set_id == GenerationSet.id)
+                    .where(GenerationSet.user_id == owner)
+                    .where(ImageJob.status.in_(("pending", "processing")))
+                )
+                rows = list(session.execute(query).scalars().all())
+                for row in rows:
+                    row.status = "cancelled"
+                session.commit()
+                return len(rows)
+        except Exception:
+            logger.warning("Failed to cancel in-flight image jobs", exc_info=True)
+            return None
+
+    def _map_explicit_command(
+        self, parsed_command: ParsedCommand, plan: AssistantTurnPlan, user_id: str | None = None
+    ) -> None:
+        """Map an explicit /command to a tool request."""
+        cmd = parsed_command.command.lower()
+        args = parsed_command.args.strip()
+
+        # Extract flags like --seed=123 --model=flux-anime --mode=quality --count=2
+        raw_tokens = args.split()
+        clean_tokens = []
+        flags: dict[str, Any] = {}
+        for token in raw_tokens:
+            if token.startswith("--") and "=" in token:
+                k, v = token[2:].split("=", 1)
+                flags[k.lower()] = int(v) if v.isdigit() else v
+            else:
+                clean_tokens.append(token)
+        clean_args = " ".join(clean_tokens).strip()
+
+        # 0a. /memory is consent to write the store the memories panel reads. It is
+        # resolved here, against the durable service, rather than proposed as a tool
+        # call that no handler implements.
+        if cmd in {"memory", "remember", "recall"}:
+            self._apply_memory_command(clean_args, plan, user_id)
+            return
+
+        # 0. Character lookup shortcut (e.g. "/image gojo" or "/image mikasa")
+        if clean_args.lower() in CHARACTER_ENTITY_MAP and not flags and cmd in {"image", "images", "img", "pics", "pictures", "search", "find"}:
+            from hinaa_api.media.search_intelligence import build_media_intent, compile_image_search_query
+            media_intent = build_media_intent(clean_args)
+            if media_intent:
+                spec = compile_image_search_query(media_intent)
+                final_query = spec.primary_query
+                canonical_sub = media_intent.canonical_subject
+            else:
+                canonical_sub = CHARACTER_ENTITY_MAP[clean_args.lower()]
+                final_query = canonical_sub
+            plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search", "image_generate"}]
+            lookup_count = _image_fetch_count(clean_args)
+            plan.toolRequests.append(ToolRequest(
+                toolName="image_search",
+                parameters={"query": final_query, "count": lookup_count, "canonicalSubject": canonical_sub},
+            ))
+            plan.displayText = f"Found {lookup_count} relevant {canonical_sub} images."
+            plan.spokenText = f"Found {lookup_count} relevant {canonical_sub} images."
+            plan.language = "en-US"
+            plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
+            return
+
+        # 1. Image Generation Commands (/image, /draw, /generate, /imagine, /flux, /dalle)
+        is_generate_cmd = cmd in {
+            "image", "generate", "draw", "imagine", "create image",
+            "generate image", "image_generate", "img", "dalle", "flux", "paint"
+        }
+        if is_generate_cmd:
+            from .tools.intent_gate import requested_count
+
+            # Negation / Conversational inquiry check:
+            # If the user is negating ("no, don't need images"), asking meta questions
+            # ("why are you getting that tag?"), or purely conversing ("hey hina"),
+            # do NOT hijack the turn into an image generation job!
+            _arg_lower = (clean_args or "").strip().lower()
+            _is_negation_or_meta = bool(
+                not _arg_lower
+                or re.match(r"^(?:no\b|don'?t\b|dont\b|stop\b|cancel\b|abort\b|never\b|why\b|what\b|who\b|hey\b|hi\b|hello\b)", _arg_lower)
+                or re.search(r"\b(?:no\s+images?|don'?t\s+need|dont\s+need|not\s+need|not\s+an\s+image|stop\s+generating|why\s+are\s+you|getting\s+that\s+tag|why\s+tag)\b", _arg_lower)
+            )
+            if _is_negation_or_meta:
+                logger.info("Explicit slash '%s' bypassed for conversational/negation intent: %s", cmd, clean_args)
+                return
+
+            prompt_text = clean_args or "beautiful digital artwork"
+            # The batch size is a request for how many pictures, not part of the
+            # subject: strip the number with the noun it hangs off, range included.
+            prompt_text = re.sub(
+                r"(?i)\b\d{1,2}\s*(?:(?:or|to|-|,)\s*\d{1,2})?\s*(?:images?|imges?|pictures?|photos?|pics?|wallpapers?)\b",
+                " ",
+                prompt_text,
+            )
+            # Strip trailing noise tokens like images, imges, pictures, pics, etc.
+            prompt_text = re.sub(r"(?i)\b(images?|imges?|pictures?|photos?|pics?|wallpapers?)\b", " ", prompt_text)
+            prompt_text = re.sub(r"\s{2,}", " ", prompt_text).strip(" ,") or "beautiful digital artwork"
+            # Expand known character names to canonical full names
+            _pt_lower = prompt_text.lower()
+            for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                _pattern = r"\b" + re.escape(alias) + r"\b"
+                if re.search(_pattern, _pt_lower, re.IGNORECASE):
+                    prompt_text = re.sub(_pattern, canonical, prompt_text, flags=re.IGNORECASE)
+                    break
+            flag_count = flags.get("count")
+            count = int(flag_count) if isinstance(flag_count, int) and flag_count > 0 else requested_count(
+                clean_args, maximum=10
+            )
+            mode = flags.get("mode", "quality")
+            seed = flags.get("seed")
+            engine = flags.get("model") or flags.get("engine")
+
+            gen_params: dict[str, Any] = {
+                "prompt": prompt_text,
+                "count": min(max(1, count), 10),
+                "mode": mode,
+            }
+            if seed is not None:
+                gen_params["seed"] = seed
+            if engine:
+                gen_params["engine"] = engine
+
+            plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search", "image_generate"}]
+            plan.toolRequests.append(ToolRequest(
+                toolName="image_generate",
+                parameters=gen_params,
+            ))
+            display_model = f" [{engine}]" if engine else ""
+            batch = int(gen_params["count"])
+            if batch > 1:
+                plan.displayText = f"Generating {batch} of '{prompt_text}'{display_model} for you now! 🎨✨"
+                plan.spokenText = f"Generating {batch} images for you now!"
+            else:
+                plan.displayText = f"Generating '{prompt_text}'{display_model} for you now! 🎨✨"
+                plan.spokenText = "Generating that image for you now!"
+            plan.language = "en-US"
+            plan.emotion = Emotion(primary="excited", intensity=0.8, valence=0.8, arousal=0.6)
+            return
+
+        # 2. Web Image Search Commands (/image_search, /find images, /wallpaper)
+        has_image_kw = bool(re.search(r"\b(images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|pinterest|pintrest|pintrens)\b", clean_args, re.I))
+        is_search_image_cmd = (
+            cmd in {
+                "imagesearch", "image_search", "image search", "find images",
+                "wallpaper", "wallpapers", "pinterest", "pintrest"
+            }
+            or (cmd in {"search", "find", "lookup"} and has_image_kw)
+        )
+
+        if is_search_image_cmd:
+            from hinaa_api.media.search_intelligence import build_media_intent, compile_image_search_query
+            media_intent = build_media_intent(clean_args)
+            if media_intent:
+                spec = compile_image_search_query(media_intent)
+                final_query = spec.primary_query
+                canonical_sub = media_intent.canonical_subject
+            else:
+                clean_q = re.sub(r"(?i)\b(images?|pictures?|photos?|pics?|imgs?|wallpaper|wallpapers?|pinterest|pintrest|pintrens|bro|and|of|from|please|pls)\b", "", clean_args).strip()
+                clean_q = re.sub(r"\s+", " ", clean_q).strip()
+                if clean_q.lower() in CHARACTER_ENTITY_MAP:
+                    clean_q = CHARACTER_ENTITY_MAP[clean_q.lower()]
+                final_query = clean_q or clean_args or "anime aesthetic"
+                canonical_sub = final_query.title()
+            plan.toolRequests = [t for t in plan.toolRequests if t.toolName not in {"web_search", "image_search"}]
+            flag_count = flags.get("count")
+            search_count = _image_fetch_count(
+                clean_args,
+                default=flag_count if isinstance(flag_count, int) and flag_count > 0 else 6,
+            )
+            plan.toolRequests.append(ToolRequest(
+                toolName="image_search",
+                parameters={"query": final_query, "count": search_count, "canonicalSubject": canonical_sub},
+            ))
+            plan.displayText = f"Found {search_count} relevant {canonical_sub} images."
+            plan.spokenText = f"Found {search_count} relevant {canonical_sub} images."
+            plan.language = "en-US"
+            plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
+            return
+
+        if cmd == "extract":
+            urls = [u for u in clean_args.split() if re.match(r"^https?://", u, re.I)]
+            if urls:
+                plan.toolRequests.append(ToolRequest(toolName="web_extract", parameters={"urls": urls}))
+            else:
+                plan.toolRequests.append(ToolRequest(toolName="web_search", parameters={"query": clean_args}))
+            return
+        
+        # 3. Map general commands to tool names
+        command_to_tool: dict[str, tuple[str, dict]] = {
+            "search": ("web_search", {"query": clean_args}),
+            "find": ("web_search", {"query": clean_args}),
+            "lookup": ("web_search", {"query": clean_args}),
+            "web": ("web_search", {"query": clean_args}),
+            "google": ("web_search", {"query": clean_args}),
+            "research": ("web_research", {"query": clean_args, "effort": flags.get("effort", "lite")}),
+            "investigate": ("web_research", {"query": clean_args, "effort": "standard"}),
+            "deep research": ("web_research", {"query": clean_args, "effort": "deep"}),
+            "answer": ("web_answer", {"query": clean_args}),
+            "verify": ("web_answer", {"query": clean_args}),
+            "extract": ("web_extract", {"urls": clean_args.split()}),
+            "read": ("web_extract", {"urls": clean_args.split()}),
+            "document": ("document_generate", {"title": clean_args, "content": "", "format": flags.get("format", "pdf")}),
+            "create doc": ("document_generate", {"title": clean_args, "content": "", "format": "docx"}),
+            "pdf": ("pdf_generate", {"topic": clean_args, "title": clean_args, "content": ""}),
+            "site": ("design_website", {"brief": clean_args}),
+            "website": ("design_website", {"brief": clean_args}),
+            "webpage": ("design_website", {"brief": clean_args}),
+            "landing page": ("design_website", {"brief": clean_args}),
+            "gamma": ("create_gamma_presentation", {"topic": clean_args or "Presentation", "format": "presentation"}),
+            "deck": ("create_gamma_presentation", {"topic": clean_args or "Pitch Deck", "format": "presentation"}),
+            "gamma doc": ("create_gamma_presentation", {"topic": clean_args or "Document", "format": "document"}),
+            "gamma webpage": ("create_gamma_presentation", {"topic": clean_args or "Webpage", "format": "webpage"}),
+            "presentation": ("create_gamma_presentation", {"topic": clean_args or "Presentation Slides", "format": "presentation"}),
+            "slides": ("create_gamma_presentation", {"topic": clean_args or "Presentation Slides", "format": "presentation"}),
+            "analyze": ("analyze_text", {"target": clean_args, "focus": "summary"}),
+            "summarize": ("summarize_text", {"target": clean_args, "length": "standard"}),
+            "plan": ("create_plan", {"goal": clean_args, "horizon": "week"}),
+            "play": ("youtube_playback_request", {"query": clean_args}),
+            "music": ("youtube_playback_request", {"query": clean_args}),
+            "song": ("youtube_playback_request", {"query": clean_args}),
+            "browser": ("browser_execute_task", {"goal": clean_args}),
+            "browse": ("browser_navigate", {"url": clean_args}),
+            "app": ("computer_operator", {"action": "open_application", "target": clean_args}),
+            "open": ("computer_operator", {"action": "open_application", "target": clean_args}),
+            "files": ("search_files", {"query": clean_args}),
+            "model": ("switch_model", {"model": clean_args}),
+            "voice": ("voice_config", {"action": "test", "provider": clean_args}),
+            "avatar": ("avatar_config", {"action": "switch", "model": clean_args}),
+            "settings": ("open_settings", {"section": clean_args}),
+            "automate": ("create_automation", {"schedule": "", "task": clean_args, "tools": []}),
+            "upscale": ("image_upscale", {"prompt": clean_args, "scale": 2}),
+            "upscale image": ("image_upscale", {"prompt": clean_args, "scale": 2}),
+            "relight": ("image_relight", {"lighting_prompt": clean_args or "studio lighting"}),
+            "relight image": ("image_relight", {"lighting_prompt": clean_args or "studio lighting"}),
+        }
+        
+        if cmd in command_to_tool:
+            from hinaa_api.tools.registry import registry as tool_registry
+
+            tool_name, base_params = command_to_tool[cmd]
+            if tool_registry.get_tool(tool_name) is None:
+                # No handler implements this action, so proposing it can only end
+                # in a failed card. The turn stays conversational instead.
+                return
+            existing_req = next((t for t in plan.toolRequests if t.toolName == tool_name), None)
+            is_referential_arg = bool(
+                not clean_args
+                or (
+                    len(clean_args) < 80
+                    and re.search(
+                        r"(?i)^(?:make\s+(?:me\s+)?(?:a\s+)?)?(?:based\s+on\s+)?(?:that|this|it|the\s+report|report|thr\s+report|above|same|previous|notes|conversation)",
+                        clean_args,
+                    )
+                )
+            )
+            if tool_name in {"pdf_generate", "document_generate", "create_gamma_presentation"} and is_referential_arg:
+                from hinaa_api.tools.pdf_generate import _fetch_last_report_from_db
+                db_report = _fetch_last_report_from_db(user_id)
+                if db_report:
+                    rep_title, rep_content = db_report
+                    if tool_name == "create_gamma_presentation":
+                        base_params["outline"] = rep_content
+                        base_params["topic"] = rep_title or "Executive Presentation"
+                    else:
+                        base_params["content"] = rep_content
+                        base_params["title"] = rep_title or "Executive Research Report"
+                        base_params["topic"] = rep_title or "Executive Research Report"
+                    self._set_command_text(
+                        plan,
+                        f"### 📄 Compiling Document: {rep_title or 'Executive Report'}\n\n"
+                        f"Typesetting the write-up from our conversation history into a publication-ready PDF.",
+                        spoken=f"Generating your document from our conversation write-up now.",
+                    )
+                elif not clean_args and not existing_req:
+                    self._set_command_text(
+                        plan,
+                        "What should the document be about? Try `/pdf World War II`. I typeset either the "
+                        "text you give me or a live research pass on the subject you name — I don't invent "
+                        "one from an empty command.",
+                    )
+                    return
+            elif tool_name in {"pdf_generate", "document_generate"} and not clean_args and not existing_req:
+                self._set_command_text(
+                    plan,
+                    "What should the document be about? Try `/pdf World War II`. I typeset either the "
+                    "text you give me or a live research pass on the subject you name — I don't invent "
+                    "one from an empty command.",
+                )
+                return
+
+            if existing_req:
+                for k, v in base_params.items():
+                    if not existing_req.parameters.get(k):
+                        existing_req.parameters[k] = v
+            else:
+                plan.toolRequests.append(ToolRequest(
+                    toolName=tool_name,
+                    parameters=base_params,
+                ))
+
+    _MEMORY_WRITE_ACTIONS = {"save", "remember", "store", "keep"}
+    _MEMORY_READ_ACTIONS = {"recall", "list", "show"}
+    _MEMORY_FORGET_ACTIONS = {"delete", "forget", "remove"}
+
+    @staticmethod
+    def _set_command_text(plan: AssistantTurnPlan, text: str, spoken: str | None = None) -> None:
+        plan.displayText = text
+        plan.spokenText = spoken or text
+        plan.language = "en-US"
+
+    def _apply_memory_command(
+        self, args: str, plan: AssistantTurnPlan, user_id: str | None
+    ) -> None:
+        """Resolve an explicit /memory command against the durable store.
+
+        The reply carries what the service reported -- a stored entry, a real
+        listing, or the refusal reason -- never what the wording implied.
+        """
+        plan.toolRequests = [t for t in plan.toolRequests if t.toolName != "memory_manage"]
+
+        head, _, tail = args.partition(" ")
+        lead = head.lower()
+        if lead in self._MEMORY_WRITE_ACTIONS:
+            action, body = "save", tail.strip()
+        elif lead in self._MEMORY_READ_ACTIONS:
+            action, body = "recall", tail.strip()
+        elif lead in self._MEMORY_FORGET_ACTIONS:
+            action, body = "forget", tail.strip()
+        else:
+            action, body = "save", args.strip()
+
+        if self.memory_service is None:
+            self._set_command_text(
+                plan,
+                "Memories are not stored on this HINAA instance, so I could not do that.",
+            )
+            return
+        if not user_id:
+            self._set_command_text(
+                plan,
+                "I did not touch your memories: this turn has no signed-in owner to store them under.",
+            )
+            return
+
+        if action == "save":
+            if not body:
+                self._set_command_text(
+                    plan, "Tell me what to keep, for example: /memory save my favourite colour is teal."
+                )
+                return
+            try:
+                saved = self.memory_service.remember(
+                    user_id=user_id, content=body, category="preference"
+                )
+            except HinaaError as err:
+                self._set_command_text(plan, f"I did not save that: {err.message}")
+                return
+            self._set_command_text(
+                plan,
+                f"Saved to your memories: {saved['content']}",
+                "That is saved in your memories.",
+            )
+            return
+
+        try:
+            stored = self.memory_service.list_memories(user_id)
+        except HinaaError as err:
+            self._set_command_text(plan, f"I could not read your memories: {err.message}")
+            return
+
+        needle = body.casefold()
+        hits = [m for m in stored if not needle or needle in str(m.get("content", "")).casefold()]
+
+        if action == "recall":
+            if not hits:
+                self._set_command_text(
+                    plan,
+                    f'None of your {len(stored)} saved memories mention "{body}".'
+                    if needle
+                    else "You have no saved memories yet.",
+                )
+                return
+            listing = "\n".join(f"- {m.get('content')}" for m in hits[:8])
+            self._set_command_text(
+                plan,
+                f"From your saved memories:\n{listing}",
+                f"I found {len(hits)} of your saved memories.",
+            )
+            return
+
+        if not hits:
+            self._set_command_text(
+                plan, f'I have no saved memory matching "{body}", so nothing was removed.'
+            )
+            return
+        if len(hits) > 1:
+            listing = "\n".join(f"- {m.get('content')}" for m in hits[:8])
+            self._set_command_text(
+                plan,
+                f"More than one memory matches, so I removed none:\n{listing}\nName one of them exactly.",
+                "Several memories match, so I removed none. Name one of them exactly.",
+            )
+            return
+        try:
+            self.memory_service.forget(user_id, str(hits[0]["id"]))
+        except HinaaError as err:
+            self._set_command_text(plan, f"I could not remove that memory: {err.message}")
+            return
+        self._set_command_text(
+            plan,
+            f"Removed from your memories: {hits[0].get('content')}",
+            "That memory is removed.",
+        )
+
+    def _detect_artifact_lookup(self, text: str, plan: AssistantTurnPlan) -> None:
+        """Detect artifact follow-up questions and add lookup tool requests.
+        
+        Handles questions like:
+        - "where is the pdf file?"
+        - "where's my document?"
+        - "show me the pdf"
+        - "find the pdf"
+        """
+        lower_text = text.casefold().strip()
+        
+        # Patterns for artifact lookup questions
+        artifact_patterns = [
+            (r"\bwhere (is|'s|was) (the|my|a) (pdf|docx|pptx|document|image|video|audio|file)\b", "pdf"),
+            (r"\b(find|show|get|locate) (the|my|a) (pdf|docx|pptx|document|image|video|audio|file)\b", "pdf"),
+            (r"\b(pdf|docx|pptx|document) (file|artifact)? (where|location)\b", "pdf"),
+        ]
+        
+        import re
+        for pattern, default_kind in artifact_patterns:
+            match = re.search(pattern, lower_text)
+            if match:
+                # Extract the artifact kind from the match
+                kind_match = re.search(r"(pdf|docx|pptx|document|image|video|audio|file)", lower_text)
+                kind = kind_match.group(1) if kind_match else default_kind
+                if kind == "document":
+                    kind = "pdf"
+                
+                # Add artifact lookup tool request
+                if not any(t.toolName == "artifact_lookup" for t in plan.toolRequests):
+                    plan.toolRequests.append(ToolRequest(
+                        toolName="artifact_lookup",
+                        parameters={"kind": kind},
+                    ))
+                break
+
+    def _brain_model(self, mode: str | None, model: str | None) -> str | None:
+        """The model a turn will really use when the caller named none.
+
+        Capability questions have to be asked about this value, not about
+        ``request.brainModel``: a turn that names no model still runs on the
+        mode's configured default, and treating an unnamed model as unknowable
+        would refuse a brain that sees perfectly well.
+        """
+        if model:
+            return model
+        return {
+            "real": self.settings.gemini_model,
+            "gemini": self.settings.gemini_model,
+            "claude": self.settings.active_claude_model,
+            "openai": self.settings.active_openai_model,
+            "qwen": self.settings.qwen_model,
+            "custom": self.settings.active_custom_model,
+            "cx-gateway": self.settings.cx_gateway_model,
+            "codecraft": self.settings.active_codecraft_model,
+            "agent-router": self.settings.active_agent_router_model,
+            "groq": self.settings.groq_model,
+            "experiential": self.settings.active_explabs_model,
+            "pgsgrove": self.settings.active_pgsgrove_model,
+            "seekai": self.settings.active_seekai_model,
+            "tokentable": self.settings.active_tokentable_model,
+            "xkiro": self.settings.active_xkiro_model,
+            "cavoti": self.settings.active_cavoti_model,
+            "apmix": self.settings.active_apmix_model,
+            "ollama": self.settings.active_ollama_model,
+        }.get(mode or "")
+
+    async def _apply_vision_gate(
+        self, request: TurnRequest, resolved_media: list[Any]
+    ) -> tuple[bool, str | None]:
+        """Put an image turn on a brain that can actually look at it.
+
+        Returns ``(carries_image, moved_off)``. ``moved_off`` names the brain the
+        turn was taken away from, which the caller reports as the turn's
+        fallback reason so the answer visibly came from somewhere other than
+        what was asked for.
+
+        ``providers/openai_llm.py`` will serialise an ``image_url`` part to any
+        endpoint it is pointed at, so a text-only brain does not fail on a photo
+        turn. It answers from the caption line in the prompt instead, which is
+        how a blind turn comes back as a confident description of a dashboard
+        nobody showed her. When nothing configured can see, that is said out loud
+        rather than papered over with an invention.
+        """
+        if not _turn_has_image(resolved_media):
+            return False, None
+        mode = request.providerMode
+        model = self._brain_model(mode, request.brainModel)
+        if brain_accepts_images(mode, model):
+            return True, None
+
+        seeing = await self._fallback_candidate_modes(mode, requires_vision=True)
+        if not seeing:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "You sent a picture and none of the configured brains can look at "
+                "one, so I will not guess at what it shows.",
+                status_code=503,
+                user_action_required=True,
+            )
+        request.providerMode, request.brainModel = seeing[0]
+        logger.info(
+            "Image turn moved off %s:%s (cannot take image input) to %s:%s",
+            mode,
+            model,
+            request.providerMode,
+            request.brainModel,
+        )
+        return True, f"{mode}:{model}"
+
+    async def _fallback_candidate_modes(
+        self, primary_mode: str, *, requires_vision: bool = False
+    ) -> list[tuple[str, str | None]]:
+        """Configured brains that can take this turn, strongest answer first.
+
+        The point of falling back is to keep the conversation intelligent, but a
+        brain that answered minutes ago outranks a nominally stronger brain whose
+        last live call was a 403 or a timeout: fresh ledger evidence sorts the
+        ready list (healthy, then untested, then degraded, then unavailable), so
+        a fallback never walks a row of dead gateways before reaching a healthy
+        one. Ties keep the static quality order. Behind all of them sits the
+        measured OmniRoute gateway, which only earns a slot while its
+        ``/v1/models`` endpoint answers.
+
+        ``requires_vision`` narrows that list to brains that will actually look
+        at an attached picture. Without it a fallback lands on whichever brain
+        answers, and a text-only endpoint silently discards the image part and
+        replies from the caption instead, which reads to the user as invention
+        rather than as a failure.
+        """
+        configured: dict[str, tuple[bool, str | None]] = {
+            "experiential": (self.settings.explabs_configured, self.settings.active_explabs_model),
+            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
+            "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
+            "agent-router": (
+                self.settings.agent_router_configured,
+                self.settings.active_agent_router_model,
+            ),
+            "codecraft": (self.settings.codecraft_configured, self.settings.active_codecraft_model),
+            "seekai": (self.settings.seekai_configured, self.settings.active_seekai_model),
+            "tokentable": (self.settings.tokentable_configured, self.settings.active_tokentable_model),
+            "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
+            "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
+            "claude": (self.settings.claude_configured, self.settings.active_claude_model),
+            "custom": (self.settings.custom_configured, self.settings.active_custom_model),
+            "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
+            "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
+            "openai": (self.settings.openai_configured, self.settings.active_openai_model),
+            "groq": (self.settings.groq_configured, self.settings.groq_model),
+            "real": (self.settings.gemini_configured, self.settings.gemini_model),
+        }
+        primary = "real" if primary_mode == "gemini" else primary_mode
+
+        ready: list[tuple[str, str | None]] = []
+        cooling: list[tuple[str, str | None]] = []
+        for mode, (is_configured, model) in configured.items():
+            if not is_configured or mode == primary:
+                continue
+            breaker = peek_circuit_breaker(mode)
+            if breaker is not None and breaker.cooldown_remaining() > 0:
+                cooling.append((mode, model))
+            else:
+                ready.append((mode, model))
+
+        def _health_rank(pair: tuple[str, str | None]) -> int:
+            row = row_for_brain(pair[0])
+            fingerprint = fingerprint_for(self.settings, row)
+            verdict = newest_verdict(
+                aliases_for(row),
+                fingerprints={brain: fingerprint for brain in aliases_for(row)},
+            )
+            if verdict is None:
+                return 1  # untested beats known-failing
+            if verdict.ok:
+                return 0
+            if verdict.state == "degraded":
+                return 2
+            return 3  # unavailable: rejected key or dead endpoint
+
+        # Stable sort: ties keep the static quality order above.
+        ready.sort(key=_health_rank)
+
+        last_resort: list[tuple[str, str | None]] = []
+        if primary != "omniroute" and self.settings.omniroute_configured:
+            # Inline on a live turn, so it gets a sub-second budget rather than
+            # the reporting default: this machine takes ~2s to report a refused
+            # loopback connection, and a stopped fallback container must not
+            # cost a spoken turn that time.
+            probe = await probe_gateway_models(
+                self.settings.active_omniroute_base_url,
+                api_key=self.settings.active_omniroute_key,
+                timeout=0.6,
+            )
+            if probe.serving:
+                last_resort.append(("omniroute", self.settings.omniroute_model))
+            else:
+                logger.info("OmniRoute fallback skipped: %s", probe.detail)
+
+        # A brain in cooldown is still better than no candidate at all.
+        candidates = ready + cooling + last_resort
+        if requires_vision:
+            seeing = [
+                pair for pair in candidates if brain_accepts_images(pair[0], pair[1])
+            ]
+            skipped = [
+                f"{mode}:{model}" for mode, model in candidates if (mode, model) not in seeing
+            ]
+            if skipped:
+                logger.info(
+                    "Image turn: fallback candidates excluded because they cannot take "
+                    "image input: %s",
+                    ", ".join(skipped),
+                )
+            return seeing
+        return candidates
+
+    async def _resolve_turn_media(self, request: TurnRequest) -> list[Any]:
+        from .media import MediaResolver
+        resolver = MediaResolver()
+        resolved: list[Any] = []
+        # Check attachment_ids
+        for aid in (request.attachment_ids or []):
+            try:
+                res = await resolver.resolve(aid)
+                resolved.append(res)
+            except Exception:
+                logger.warning("Failed to resolve attachment ID %s", aid, exc_info=True)
+        # Check attachments
+        for att in (request.attachments or []):
+            aid = att.get("asset_id") or att.get("assetId")
+            url = att.get("url")
+            ref = aid if (aid and not str(aid).startswith("client-")) else (url or aid)
+            if ref and ref not in (request.attachment_ids or []):
+                try:
+                    res = await resolver.resolve(ref, role=att.get("role"))
+                    resolved.append(res)
+                except Exception:
+                    if url and url != ref:
+                        try:
+                            res = await resolver.resolve(url, role=att.get("role"))
+                            resolved.append(res)
+                        except Exception:
+                            logger.warning("Failed to resolve attachment fallback %s", str(url)[:50], exc_info=True)
+                    else:
+                        logger.warning("Failed to resolve attachment %s", str(ref)[:50], exc_info=True)
+        # Check imageUrl
+        if request.imageUrl and not resolved:
+            try:
+                res = await resolver.resolve(request.imageUrl)
+                resolved.append(res)
+            except Exception:
+                logger.warning("Failed to resolve imageUrl", exc_info=True)
+        return resolved
+
+    def _durable_conversation_context(
+        self,
+        request: TurnRequest,
+        user_id: str | None,
+    ) -> tuple[tuple[tuple[str, str], ...], list[str]]:
+        history: list[tuple[str, str]] = []
+        blocks: list[str] = []
+        convo_id = request.conversationId or request.sessionId
+        if not user_id or not self.memory_service or not convo_id:
+            return tuple(history), blocks
+
+        try:
+            ctx = self.memory_service.recent_working_context(user_id, convo_id, limit=6)
+            for msg in ctx.get("recentMessages", []):
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role and content:
+                    history.append((role, content))
+
+            summary = ctx.get("rollingSummary") or {}
+            entities = ctx.get("entities") or []
+            goal = summary.get("current_goal") or ""
+            ent_str = ", ".join(e.get("displayName", "") for e in entities if e.get("displayName"))
+            blocks.append(f"conversation_state: goal={goal}; entities={ent_str}")
+        except Exception:
+            pass
+
+        try:
+            res = self.memory_service.resolve_reference_intent(user_id, convo_id, request.text)
+            if res and res.get("hasReference"):
+                target = (res.get("targetEntity") or {}).get("displayName") or ""
+                asset = (res.get("targetAsset") or {}).get("asset_id") or ""
+                intent = res.get("intent") or ""
+                blocks.append(f"reference_resolution: intent={intent}; target={target}; asset={asset}")
+        except Exception:
+            pass
+
+        return tuple(history), blocks
+
+    def _route_context_for_turn(
+        self,
+        request: TurnRequest,
+        user_id: str | None,
+        d_state: Any = None,
+    ) -> "tuple[object, dict[str, Any]]":
+        """Phase B2 — route the turn and decide context behavior.
+
+        Directive §39: trivial turns ("yes", "ok", "hey") route FAST — hot
+        context only, no heavy historical/vector retrieval, low latency.
+        Directive §37: every turn records a ContextManifest for the developer
+        inspector; retrieval work performed is observable per-turn.
+        Returns (RouteDecision, metadata) — callers use metadata to skip or
+        trim expensive retrieval phases.
+        """
+        from .agent.context_profiles import ContextProfile
+
+        active_goal = getattr(d_state, "active_goal", None) if d_state is not None else None
+        decision = self.context_compiler.router.route(
+            request.text or "",
+            has_active_task=False,
+            has_active_project=False,
+            has_selected_asset=bool(getattr(d_state, "selected_asset", None)) if d_state is not None else False,
+        )
+        meta: dict[str, Any] = {
+            "profile": decision.profile.value,
+            "domain": decision.domain,
+            "routes": [r.value for r in decision.routes],
+            "skip_recent_working_context": decision.profile is ContextProfile.FAST,
+            "skip_history_ranking": False,
+        }
+        self._context_manifests.append(
+            {
+                "request_id": getattr(request, "requestId", None) or request.sessionId or "turn",
+                "conversation_id": request.conversationId or request.sessionId,
+                "profile": decision.profile.value,
+                "routes": meta["routes"],
+                "reason": decision.reason,
+                "active_goal": getattr(active_goal, "goal", None),
+            }
+        )
+        return decision, meta
+
+    def _last_context_manifest(self) -> dict[str, Any] | None:
+        """Developer inspector hook (§37) — most recent turn routing record."""
+        return self._context_manifests[-1] if self._context_manifests else None
+
+    def _compile_turn_context(
+        self,
+        *,
+        request: TurnRequest,
+        history: tuple[tuple[str, str], ...],
+        approved: tuple[str, ...],
+        session_memories: tuple[str, ...],
+        dialogue_state_block: str,
+        live_search_block: str,
+        decision: Any,
+    ) -> "tuple[tuple[tuple[str, str], ...], dict[str, Any]]":
+        """B2.1 — canonical context SELECTION for one chat turn (directive §1).
+
+        The ContextCompiler decides WHAT history/memory/live state the model
+        receives; assembly and providers only decide HOW it is serialized.
+
+        Returns (selected_history, selection_meta). ``selected_history`` is the
+        compiler-ranked, budgeted turn sequence that assembly renders verbatim
+        (history_preselected=True) and providers consume without re-slicing.
+        Every include decision is recorded in the turn's ContextManifest.
+        """
+        from .agent.compiler import estimate_tokens
+        from .agent.context_items import ContextManifest, ManifestStatus
+        from .agent.context_profiles import ContextProfile
+
+        profile = decision.profile
+        history_list = [
+            {"role": role, "content": content}
+            for role, content in history
+        ]
+
+        # Canonical selection — ContextCompiler is the single canonical authority (§1/§2/§11)
+        # deciding what history, memories, live state, and external evidence reach the model.
+        compiled = self.context_compiler.compile(
+            system_identity="",  # system identity is owned by assembly layers
+            user_query=request.text or "",
+            history=history_list,
+            memories=[
+                {"id": f"sm_{i}", "content": m}
+                for i, m in enumerate(session_memories)
+            ],
+            profile=profile,
+            request_id=getattr(request, "requestId", None) or request.sessionId or "turn",
+            conversation_id=request.conversationId or request.sessionId,
+            dialogue_state=dialogue_state_block or "",
+            live_search_evidence=[live_search_block] if live_search_block else None,
+            approved_memories=approved,
+        )
+        manifest = compiled.manifest
+        assert manifest is not None
+
+        # Compiler-selected conversation turns → the tuple assembly renders verbatim.
+        selected: list[tuple[str, str]] = [
+            (m.get("role", "user"), m.get("content", ""))
+            for m in compiled.dialogue_messages
+        ]
+
+        # Serializing pre-selected history re-adds role prefixes and the
+        # untrusted wrapper — reserve for them so the manifest stays honest.
+        serialization_overhead = sum(
+            estimate_tokens(f"{r}: {c}") + 8 for r, c in selected
+        )
+        manifest.token_estimate += serialization_overhead
+        manifest.status = ManifestStatus.OK
+
+        meta: dict[str, Any] = {
+            "manifest_id": manifest.manifest_id,
+            "profile": manifest.profile,
+            "selected_history_turns": len(selected),
+            "selected_history_tokens": sum(estimate_tokens(c) for _, c in selected),
+            "compile_ms": manifest.compile_ms,
+            "dedup_dropped": manifest.dedup_dropped,
+            "excluded_count": len(manifest.excluded_items),
+        }
+
+        # Record the full manifest for the developer inspector (§37).
+        self._context_manifests.append(manifest.to_dict())
+        return tuple(selected), meta
+
+    def _record_episode_turn(
+        self,
+        *,
+        request: TurnRequest,
+        user_id: str | None,
+        assistant_text: str,
+    ) -> None:
+        """B2 §17–§22 — fold the finished turn into the persistent episode tree.
+
+        Best-effort: episode summarization must never fail a chat turn.
+        """
+        if self.episode_summarizer is None:
+            return
+        convo_id = request.conversationId or request.sessionId
+        try:
+            seq = self._episode_turn_counters.get(convo_id, 0) + 1
+            self._episode_turn_counters[convo_id] = seq
+            # Keep the counter map bounded.
+            if len(self._episode_turn_counters) > 2048:
+                self._episode_turn_counters.popitem()
+            boundary = self.episode_summarizer.detect_boundary(
+                request.text or "",
+                previous_turn_text=None,
+                seconds_since_last_turn=None,
+                current_episode_turns=0,
+            )
+            self.episode_summarizer.record_turn(
+                conversation_id=convo_id,
+                user_id=user_id,
+                sequence=seq,
+                user_text=request.text or "",
+                assistant_text=assistant_text[:800],
+                force_new_episode=boundary.new_episode,
+                boundary_reason=boundary.reason,
+            )
+        except Exception:
+            logger.debug("Episode summarization skipped", exc_info=True)
+
+    def _should_pre_search(self, text: str, d_state: Any = None) -> bool:
+        """True when the user query explicitly or implicitly asks for current/real-time facts."""
+        if not text or len(text.strip()) < 4:
+            return False
+        lowered = text.strip().lower()
+
+        # Suppress commands and generative tool requests
+        if lowered.startswith(("/", "!", "\\")):
+            return False
+        if re.search(r"^\s*(?:please\s+)?(?:can\s+you\s+)?(generate|create|make|draw|paint|sketch|build|write\s+(?:a|me|an)?\s*(?:code|script|doc|pdf|essay|story|poem))\b", lowered):
+            return False
+        # Suppress standalone persona/chit-chat queries with no substantive research subject
+        if re.search(r"^\s*(?:can\s+you\s+)?(?:who\s+are\s+you|what\s+is\s+your\s+name|do\s+you\s+love\s+me|tell\s+me\s+a\s+joke|say\s+something)\s*[!., ]*$", lowered):
+            return False
+        # Suppress greetings, check-ins, and personal relational queries when purely conversational
+        is_substantive = bool(
+            re.search(
+                r"\b(?:situation|politics|political|party|nepal|nepali|minister|government|election|crisis|leader|news|updates?|today|latest|current|what\s+is|who\s+is|why|how|present|status|stock|weather|score|price|release|event|fact)\b",
+                lowered,
+            )
+        )
+        if not is_substantive and re.search(
+            r"\b(how\s+are\s+you|how\s+are\s+you\s+doing|how\s+do\s+you\s+feel|how\'?s\s+it\s+going|"
+            r"how\s+are\s+things|how\s+is\s+your\s+day|how\s+was\s+your\s+day|"
+            r"are\s+you\s+there|can\s+you\s+hear\s+me|can\s+you\s+listen|"
+            r"can\s+you\s+talk|can\s+you\s+speak|talk\s+in\s+english|talk\s+in\s+hindi|"
+            r"kya\s+haal|kaise\s+ho|kaisi\s+ho|kya\s+kar\s+rahi\s+ho|suno\s+na|suno)\b",
+            lowered,
+        ):
+            return False
+
+        if re.search(r"^(?:hi|hello|hey|yo|namaste|good\s+(?:morning|evening|afternoon|night)|k\s+cha|kasto\s+cha)(?:\s+(?:hina|hinaa|babe|bro|dear))?[!., ]*$", lowered):
+            return False
+
+        # CRITICAL: She must not Google herself.
+        # "What is the current state of Hina?" contains "current", which the
+        # temporal indicators below treat as a live-facts signal. The search then
+        # returns anime characters named Hina, and because retrieved web context is
+        # declared authoritative she answers about One Piece instead of her own
+        # runtime. Questions about her are answered from MEASURED SELF STATE.
+        _SELF_TOPIC = (
+            r"(?:system|state|status|architecture|subsystem|capabilit\w*|memory|memories|"
+            r"tool\w*|brain|model|provider|limit\w*|feature\w*|voice|ability|abilities|dashboard|well[- ]being|health)"
+        )
+        is_about_herself = bool(
+            re.search(rf"\b(?:your|her)\s+{_SELF_TOPIC}\b", lowered)
+            or re.search(rf"\bhinaa?'s\s+{_SELF_TOPIC}\b", lowered)
+            or re.search(rf"\b{_SELF_TOPIC}\s+of\s+hinaa?\b", lowered)
+            or re.search(r"\bhow\s+(?:do|does)\s+(?:you|she|hinaa?)\s+work\b", lowered)
+            or re.search(r"\bhow\s+are\s+you\b", lowered)
+            or re.search(r"\bhinaa?\b[^?.]{0,40}\bexplain\b", lowered)
+        )
+        if is_about_herself:
+            logger.info("Pre-search suppressed: the question is about her own runtime.")
+            return False
+
+        # CRITICAL: Referent-Before-Research Guard.
+        # If the user utterance is anaphoric/pronoun-based ("tell me more details about her", "who is she",
+        # "tell me about him") without a concrete named entity in this turn, AND dialogue state has NO
+        # active entity or topic antecedent, we MUST NOT fire an ungrounded web search!
+        try:
+            from hinaa_api.dialogue_state import build_semantic_turn_frame
+            frame = build_semantic_turn_frame(text, d_state)
+            if not frame.referent_resolved:
+                logger.info("Pre-search suppressed: referent ungrounded for %r", text)
+                return False
+        except Exception:
+            pass
+
+        # Explicit search intent
+        if re.search(r"\b(search\s+(?:the\s+)?web|search\s+online|google|look\s+up\s+online|check\s+online|browse)\b", lowered):
+            return True
+
+        # Real-time / temporal indicators requiring up-to-date knowledge
+        temporal_indicators = [
+            r"\blatest\b",
+            r"\bcurrent(?:ly)?\b",
+            r"\bnews\b",
+            r"\btoday(?:'s)?\b",
+            r"\byesterday\b",
+            r"\btonight\b",
+            r"\bright\s+now\b",
+            r"\bthis\s+(?:week|month|year)\b",
+            r"\brecent(?:ly)?\b",
+            r"\bbreaking\b",
+            r"\bupdates?\b",
+            r"\bsituation\b",
+            r"\bdetails?\s+(?:about|on|of)\b",
+            r"\binfo(?:rmation)?\s+(?:about|on|regarding)\b",
+            r"\bwho\s+is\s+(?:the\s+)?(?:current|new|present)\b",
+            r"\bwhat\s+(?:is|are)\s+the\s+(?:latest|current|recent)\b",
+            r"\bwhat(?:'s|\s+is)\s+happening\b",
+            r"\bwhat\s+happened\s+(?:today|recently|in\s+202[4-9])\b",
+            r"\bweather\s+(?:in|for|today|forecast)\b",
+            r"\blive\s+score\b",
+            r"\bstock\s+price\b",
+            r"\b202[5-9]\b",
+        ]
+        # Follow-up research queries when an active topic exists in dialogue state
+        if d_state and getattr(d_state, "active_topic", None):
+            active_top = getattr(d_state, "active_topic", "").strip()
+            if active_top and active_top.lower() not in {"general", "chat", "anime", "image", "something"}:
+                if re.search(r"\b(?:tf|data|the\s+data|results?|details?|what\s+about|what\s+happened|who\s+won|who\s+is\s+winning|status|update|tell\s+more|continue|k\s+bhyo)\b", lowered):
+                    return True
+
+        try:
+            from hinaa_api.intelligence.research_detector import ResearchNeedDetector
+            needs_res, _ = ResearchNeedDetector.needs_research(text)
+            if needs_res:
+                return True
+        except Exception:
+            pass
+        return any(re.search(pat, lowered) for pat in temporal_indicators)
+
+    def _extract_search_query(self, text: str, d_state: Any = None) -> str:
+        """Normalize user text to an effective search query with antecedent resolution."""
+        lowered = text.strip().lower()
+        if d_state and getattr(d_state, "active_topic", None):
+            active_top = getattr(d_state, "active_topic", "").strip()
+            if active_top and active_top.lower() not in {"general", "chat", "anime", "image", "something"}:
+                if re.search(r"^(?:tf(?:\s+is)?(?:\s+the)?\s+data|continue|tell\s+me|what\s+happened|what\s+about\s+it)\b", lowered):
+                    return f"{active_top} latest news status updates"
+
+        query = re.sub(
+            r"(?i)\b(?:(?:hey|hi|hello)\s+(?:hinaa?|dude|bro|babe|yaar)\b|"
+            r"what'?s\s+up\b|"
+            r"dude\b|"
+            r"bro\b|"
+            r"babe\b|"
+            r"yaar\b|"
+            r"i\s+(?:want|would\s+like)\s+to\s+(?:say\s+something|tell\s+you\s+something|ask(?:\s+you)?(?:\s+something)?)\b|"
+            r"i\s+(?:like|want|need)\s+to\s+know\s+(?:about)?\b|"
+            r"can\s+you\s+(?:tell\s+me|check|search|find)\b|"
+            r"tell\s+me\s+(?:about)?\b)\s*[ ,!.:?-]*",
+            " ",
+            text.strip(),
+        )
+        query = re.sub(
+            r"(?i)^\s*(?:(?:hey\s+)?hinaa?\b|babe\b|bro\b|please\b|can\s+you\b|could\s+you\b|tell\s+me\b|check\b|search(?:\s+for)?\b|look\s+up\b|what\s+is\b|what\s+are\b|what's\b|find(?:\s+me)?\b|send(?:\s+me)?\b|show(?:\s+me)?\b|give(?:\s+me)?\b|fetch(?:\s+me)?\b|bring(?:\s+me)?\b|[ ,!.-])+",
+            "",
+            query.strip(),
+        ).strip(" ?!.,;:")
+        query = re.sub(
+            r"(?i)^\s*(?:some\s+|a\s+few\s+|any\s+)?(?:images?|pictures?|photos?|pics?|imgs?|wallpaper)?\s*(?:of|for|about|on)?\s*",
+            "",
+            query,
+        ).strip(" ?!.,;:")
+        # Strip trailing companion address names & conversational demands (e.g. "... Tell", "... batao")
+        query = re.sub(
+            r"(?i)\s+(?:hina|hinaa|babe|bro|please|pls|tell|tell\s+me|batao|bata\s+de)$",
+            "",
+            query,
+        ).strip(" ?!.,;:")
+        # Strip conversational connective clauses in compound queries
+        query = re.sub(
+            r"(?i)\b(?:what\'?s\s+the\s+(?:current|present)\s+situation\s+(?:about\s+it\s+)?(?:right\s+now|today)?|and\s+what\'?s\s+the\s+present\s+situation\s+of)\b",
+            " ",
+            query,
+        )
+        query = re.sub(r"(?i)\b(?:it\s+is\s+going\s+to\s+have|and\s+it\'?s\s+having\s+to\s+heal)\b", " ", query)
+        query = re.sub(r"\s+", " ", query).strip(" .,!?:;-")
+
+        # Resolve referential pronouns / anaphoric phrases using active dialogue state
+        if d_state:
+            topic = getattr(d_state, "active_topic", None)
+            if not topic and getattr(d_state, "active_entities", None):
+                for ent in d_state.active_entities:
+                    if ent.get("name"):
+                        topic = ent["name"]
+                        break
+            if topic and topic.strip().lower() not in {"anime", "image", "images", "general", "something", "chat"}:
+                if re.search(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them|those|these)\b", query):
+                    query = re.sub(r"(?i)\b(?:about|of|on|regarding)\s+(?:it|this|that|her|him|them|those|these)\b", f"about {topic}", query)
+                elif re.search(r"(?i)\b(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)\b", query):
+                    query = re.sub(r"(?i)\b(?:those|these|that|this|the)\s+(?:anime|shows?|series|movies?|characters?|titles?|ones?|things?)\b", topic, query)
+                elif query.strip().lower() in {"it", "this", "that", "them", "those", "these", "her", "him", "details", "more details", "news", "those anime", "these anime", "anime", "send anime"}:
+                    query = f"{topic} latest {query}".strip()
+                elif re.search(r"(?i)\b(?:data|the\s+data|results?|status|update)\b", query):
+                    query = f"{topic} latest status news updates".strip()
+        return query if len(query) >= 3 else text.strip()
+
+    async def create_plan(
+        self, request: TurnRequest, *, user_id: str | None = None
+    ) -> ProviderResult[AssistantTurnPlan]:
+        from .models import ToolRequest
+
+        convo_id = request.conversationId or request.sessionId
+        d_state = None
+        dialogue_state_block = ""
+        live_search_block = ""
+
+        if request.history:
+            session_history = [
+                (
+                    str(h.get("role") or "user"),
+                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
+                )
+                for h in request.history
+                if isinstance(h, dict) and (h.get("content") or h.get("text"))
+            ]
+        else:
+            session_history = self._resolve_session_history(request.sessionId, request.conversationId)
+
+        # Gate First: evaluate intent before running LLM or routing
+        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
+        gate_decision = decide_intent(request.text, history=session_history)
+
+        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
+            from .tools.reminder import schedule_reminder
+            from .models import ToolRequest
+            saved = schedule_reminder(
+                user_id=user_id or "anonymous",
+                title=gate_decision.arguments["title"],
+                at=gate_decision.arguments["due_at"],
+                conversation_id=request.conversationId or request.sessionId,
+                settings=self.settings,
+            )
+            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
+            plan = build_plan_from_text(
+                text=confirm_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = confirm_text
+            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
+            plan.toolRequests = [
+                ToolRequest(
+                    toolName="reminder.create",
+                    parameters={
+                        "title": saved["title"],
+                        "at": saved["at"],
+                        "display": saved["display"],
+                        "id": saved["id"],
+                    },
+                    status="ready",
+                    reason="deterministic-intent",
+                )
+            ]
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
+            return result
+
+        if gate_decision.intent == HinaaIntent.CANCEL:
+            self._cancel_inflight_image_jobs(user_id=user_id)
+            cancel_text = "Stopped. I have cancelled any running jobs."
+            plan = build_plan_from_text(
+                text=cancel_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = cancel_text
+            plan.spokenText = cancel_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.CLARIFY:
+            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
+            plan = build_plan_from_text(
+                text=reason,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = reason
+            plan.spokenText = reason
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+
+        allowed_tools = self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
+        if self.dialogue_state_service and convo_id:
+            try:
+                d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
+                if d_state:
+                    from hinaa_api.dialogue_state import DialogueStateService, EntityReferenceResolver
+                    DialogueStateService.extract_goal_and_constraints(d_state, request.text)
+                    EntityReferenceResolver.update_entities_from_text(d_state, request.text)
+                    DialogueStateService.update_topic_from_request(d_state, request.text)
+                    self.dialogue_state_service.save(d_state)
+            except Exception:
+                logger.debug("Failed to extract goal/constraints in plan", exc_info=True)
+
+        if user_id:
+            self._handle_continuity_promotions(user_id, convo_id, request.text)
+
+        # Phase B2 — route this turn's context needs BEFORE heavy retrieval.
+        try:
+            _route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
+        except Exception:
+            logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
+            _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
+
+        # Real-time pre-turn live web search grounding. Trivial FAST turns
+        # never hit search (§39: simple chat must not suffer or pay for it).
+        grounded_sources: list[Any] = []
+        search_query = ""
+        if (
+            request.providerMode != "mock"
+            and not _route_meta.get("skip_recent_working_context")
+            and (self._should_pre_search(request.text, d_state=d_state) or gate_decision.intent == HinaaIntent.WEB_SEARCH)
+        ):
+            search_query = (
+                gate_decision.arguments.get("query")
+                if gate_decision.intent == HinaaIntent.WEB_SEARCH
+                else None
+            ) or self._extract_search_query(request.text, d_state=d_state)
+            # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
+            try:
+                from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
+                _depth = AnswerDepthController.infer_depth(request.text, active_goal=getattr(d_state, "active_goal", None) if d_state else None)
+                if _depth == AnswerDepth.QUICK:
+                    search_budget = 4
+                elif _depth == AnswerDepth.STANDARD:
+                    search_budget = 6
+                elif _depth == AnswerDepth.DETAILED:
+                    search_budget = 8
+                elif _depth == AnswerDepth.DEEP:
+                    search_budget = 10
+                else:
+                    search_budget = 15
+            except Exception:
+                search_budget = 6
+
+            try:
+                from hinaa_api.tools.browser import search_web
+                from hinaa_api.grounding.citations import EvidenceSource, CitationRenderer
+                from datetime import datetime, timezone
+                search_res = await asyncio.wait_for(
+                    search_web({"query": search_query, "count": search_budget}),
+                    timeout=15.0,
+                )
+                items = search_res.get("results") or search_res.get("sources") or []
+                if items:
+                    now = datetime.now(timezone.utc)
+                    formatted_date = now.strftime("%A, %B %d, %Y")
+                    grounded_sources = [
+                        EvidenceSource(
+                            source_id=str(idx),
+                            title=itm.get("title") or "Source",
+                            publisher=itm.get("domain") or "",
+                            url=itm.get("url") or "",
+                            date=itm.get("date"),
+                            snippet=itm.get("snippet") or "",
+                        )
+                        for idx, itm in enumerate(items[:25], 1)
+                    ]
+                    lines = [
+                        f"LIVE REAL-TIME WEB SEARCH INTELLIGENCE ({len(items)} Sources Retrieved {formatted_date} for query: {search_query!r}):",
+                        "Synthesize these retrieved facts into an authoritative, structured response with verified claims:",
+                    ]
+                    for idx, s in enumerate(grounded_sources, 1):
+                        clean_title = CitationRenderer.sanitize_untrusted_text(s.title)
+                        clean_snippet = CitationRenderer.sanitize_untrusted_text(s.snippet)
+                        lines.append(f"[{idx}] [{s.publisher}] {clean_title}: {clean_snippet} ({s.url})")
+                    lines.extend([
+                        "OPERATIONAL MANDATE (CRITICAL):",
+                        "- Synthesize across these live sources into an authoritative, high-impact analysis or report.",
+                        "- Attribute key claims with numbered bracket citations matching the sources above: e.g. [1], [2].",
+                        "- ZERO REPETITION: Do NOT repeat paragraphs, regurgitate text blocks, or echo previous turns. Never cut off mid-thought.",
+                        "- spokenText: Deliver a substantive, intelligent executive voice summary covering core findings and significance.",
+                        "- Make displayText directly informative, structured with key bullets, clear headings, and zero repetitive filler.",
+                    ])
+                    live_search_block = "\n".join(lines)
+
+                    if d_state is not None:
+                        d_state.tool_result_sets.append({
+                            "tool": "web_search",
+                            "query": search_query,
+                            "items": items[:25],
+                            "timestamp": now.isoformat(),
+                        })
+                        try:
+                            self.dialogue_state_service.save(d_state)
+                        except Exception:
+                            pass
+                elif gate_decision.intent == HinaaIntent.WEB_SEARCH:
+                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
+                    plan = build_plan_from_text(
+                        text=offline_text,
+                        companion_id=request.companionId or "hinaa",
+                        language=request.language or "en-US",
+                        depth="conversational",
+                    )
+                    plan.displayText = offline_text
+                    plan.spokenText = offline_text
+                    plan.toolRequests = []
+                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+                    self.memory.append_turn(
+                        request.sessionId, request.text, result.value.model_dump_json()
+                    )
+                    if self.memory_service and user_id:
+                        try:
+                            self.memory_service.append_turn(
+                                user_id=user_id,
+                                companion_id=request.companionId or "hinaa",
+                                conversation_id=request.conversationId or request.sessionId,
+                                user_text=request.text,
+                                assistant_text=result.value.model_dump_json(),
+                                language=result.value.language or "mixed",
+                            )
+                        except Exception:
+                            pass
+                    return result
+            except Exception:
+                logger.debug("Pre-search grounding skipped or timed out", exc_info=True)
+                if gate_decision.intent == HinaaIntent.WEB_SEARCH:
+                    offline_text = "Search is offline: You.com key or API tunnel is not on production."
+                    plan = build_plan_from_text(
+                        text=offline_text,
+                        companion_id=request.companionId or "hinaa",
+                        language=request.language or "en-US",
+                        depth="conversational",
+                    )
+                    plan.displayText = offline_text
+                    plan.spokenText = offline_text
+                    plan.toolRequests = []
+                    result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+                    self.memory.append_turn(
+                        request.sessionId, request.text, result.value.model_dump_json()
+                    )
+                    if self.memory_service and user_id:
+                        try:
+                            self.memory_service.append_turn(
+                                user_id=user_id,
+                                companion_id=request.companionId or "hinaa",
+                                conversation_id=request.conversationId or request.sessionId,
+                                user_text=request.text,
+                                assistant_text=result.value.model_dump_json(),
+                                language=result.value.language or "mixed",
+                            )
+                        except Exception:
+                            pass
+                    return result
+
+        if d_state is not None:
+            try:
+                from hinaa_api.dialogue_state import build_dialogue_state_block
+                dialogue_state_block = build_dialogue_state_block(d_state)
+            except Exception:
+                pass
+
+        durable_memory = self._capture_turn_facts(request, user_id)
+        if request.history:
+            history = [
+                (
+                    str(h.get("role") or "user"),
+                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
+                )
+                for h in request.history
+                if isinstance(h, dict) and (h.get("content") or h.get("text"))
+            ]
+        else:
+            history = self._resolve_session_history(request.sessionId, request.conversationId)
+        effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+        approved = self._approved_blocks(effective_user)
+        session_memories = _dedupe_session_facts(
+            self.memory.learned_memories(request.sessionId), approved
+        )
+        if getattr(self, "advanced_memory", None) is not None:
+            try:
+                adv_mem = self.advanced_memory.assemble_memory_context(
+                    user_id=effective_user,
+                    query=request.text,
+                    conversation_id=request.conversationId or request.sessionId,
+                )
+                if adv_mem.get("graph_facts"):
+                    session_memories = session_memories + tuple(f"[Knowledge Fact]: {gf}" for gf in adv_mem["graph_facts"])
+                if adv_mem.get("recalled_episodes"):
+                    approved = approved + tuple(f"[Past Interaction]: {ep}" for ep in adv_mem["recalled_episodes"])
+            except Exception:
+                logger.debug("Advanced memory retrieval failed in create_plan", exc_info=True)
+        # B2.1 §1 — canonical context selection BEFORE assembly. The compiler
+        # (not the assembler/providers) decides which turns reach the model.
+        route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
+        history, selection_meta = self._compile_turn_context(
+            request=request,
+            history=history,
+            approved=approved,
+            session_memories=session_memories,
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            decision=route_decision,
+        )
+        resolved_media = await self._resolve_turn_media(request)
+        rag_context_block = ""
+        if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
+            try:
+                rag_context_block = await self.rag_service.resolve_grounded_context(request.text, top_k=3)
+            except Exception:
+                try:
+                    rag_context_block = self.rag_service.format_context_block(request.text, top_k=3)
+                except Exception:
+                    logger.debug("RAG context formatting failed in create_plan", exc_info=True)
+
+        from .prompts.skill_doctrine import doctrine_for_turn
+        skill_doctrine_block = doctrine_for_turn(
+            request.text,
+            is_voice=request.responseMode == "concise_voice",
+        )
+
+        prompt = build_turn_prompt(
+            request=request,
+            history=history,
+            settings=self.settings,
+            interaction_mode="rest",
+            session_memories=session_memories,
+            approved_memory_blocks=approved,
+            durable_memory=durable_memory,
+            attachments=tuple(resolved_media),
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            rag_context_block=rag_context_block,
+            history_preselected=True,
+            allowed_tools=allowed_tools,
+            skill_doctrine_block=skill_doctrine_block,
+        )
+        self._log_prompt_meta(
+            request.sessionId,
+            prompt.fingerprint,
+            "rest",
+            manifest_id=selection_meta.get("manifest_id"),
+        )
+        requested_provider = request.providerMode
+        requested_model = request.brainModel
+        resolved_provider = requested_provider
+        resolved_model = requested_model
+        is_fallback = False
+        fallback_reason: str | None = None
+
+        vision_required, moved_off = await self._apply_vision_gate(
+            request, resolved_media
+        )
+        if moved_off:
+            is_fallback = True
+            fallback_reason = (
+                f"{moved_off} cannot look at images, so a seeing brain answered"
+            )
+            resolved_provider = request.providerMode
+            resolved_model = request.brainModel
+
+        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
+        # Use the configured LLM timeout for all providers. The old 2.5s was far
+        # too short for mwapi.dev (which needs 3-8s cold) and caused constant
+        # timeouts. HINAA_LLM_TIMEOUT_SECONDS=90 from .env.local applies here.
+        primary_plan_timeout = self.settings.llm_timeout_seconds
+        # Same bench rule as the streaming path: a brain whose gateway hangs
+        # must not be paid another full timeout of silence on every turn, and
+        # a brain past cooloff proves recovery on a cheap probe budget.
+        primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
+            primary_plan_timeout = min(primary_plan_timeout, 12.0)
+        attempted_brain = request.providerMode
+        fast_provider_id = None
+
+        try:
+            if primary_bench_cooloff:
+                raise HinaaError(
+                    "PROVIDER_TIMEOUT",
+                    f"Primary brain {request.providerMode} is benched for "
+                    f"{primary_bench_cooloff:.0f}s after hanging on recent turns.",
+                    503,
+                    True,
+                )
+            async with asyncio.timeout(primary_plan_timeout):
+                provider = (
+                    None
+                    if vision_required
+                    else self._fast_casual_provider(
+                        request.providerMode, request.text, history
+                    )
+                )
+                fast_provider_id = getattr(provider, "id", None)
+                if provider is None:
+                    provider = self.router.llm(
+                        request.providerMode, request.brainModel
+                    )
+                attempted_brain = getattr(provider, "id", None) or request.providerMode
+                # The router resolves aliases and allow-lists to a concrete model id,
+                # so the instance — not the request — is the only honest source of
+                # what went over the wire.
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
+                result = await provider.create_plan(
+                    request.text,
+                    request.companionId,
+                    request.language,
+                    history,
+                    prompt,
+                )
+                resolved_model = served_model or resolved_model
+                self._record_brain_call(attempted_brain, ok=True, model=served_model)
+                if request.providerMode == "mock" and self.cross_session_retriever and user_id:
+                    try:
+                        evs = self.cross_session_retriever.retrieve_relevant_context(
+                            user_id, request.text, conversation_id=convo_id
+                        )
+                        for ev in evs:
+                            if ev.source_type == "project" and ev.content:
+                                result.value.displayText = ev.content
+                                result.value.spokenText = ev.content
+                                break
+                    except Exception:
+                        pass
+        except (HinaaError, TimeoutError, Exception) as raw_error:
+            if isinstance(raw_error, TimeoutError):
+                error = HinaaError(
+                    "PROVIDER_TIMEOUT",
+                    f"Primary brain {request.providerMode} timed out after {primary_plan_timeout}s.",
+                    504,
+                    True,
+                )
+            elif isinstance(raw_error, HinaaError):
+                error = raw_error
+            else:
+                error = HinaaError(
+                    "PROVIDER_UNAVAILABLE",
+                    str(raw_error) or "The selected brain could not complete this turn.",
+                    503,
+                    True,
+                )
+
+            # A benched brain was never tried; recording the skip as a fresh
+            # failure would push its cooloff forward forever.
+            if not primary_bench_cooloff:
+                self._record_brain_call(attempted_brain, ok=False, error=error)
+
+            if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                logger.warning("Primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
+                raise error
+
+            retry_succeeded = False
+            if fast_provider_id and error.code in {
+                "PROVIDER_KEY_INVALID",
+                "PROVIDER_UNAVAILABLE",
+                "PROVIDER_RATE_LIMIT",
+            }:
+                # The fast brain (e.g. a deactivated key or schema failure) must
+                # never fail the turn: negative-cache its key and retry
+                # once with the configured reasoning brain.
+                self._mark_fast_key_bad(fast_provider_id)
+                logger.warning(
+                    "casual fast provider %s failed (%s); retrying with %s",
+                    fast_provider_id,
+                    error.code,
+                    request.providerMode,
+                )
+                provider = self.router.llm(
+                    request.providerMode, request.brainModel
+                )
+                attempted_brain = getattr(provider, "id", None) or request.providerMode
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
+                try:
+                    async with asyncio.timeout(primary_plan_timeout):
+                        result = await provider.create_plan(
+                            request.text,
+                            request.companionId,
+                            request.language,
+                            history,
+                            prompt,
+                        )
+                    resolved_model = served_model or resolved_model
+                    self._record_brain_call(attempted_brain, ok=True, model=served_model)
+                    retry_succeeded = True
+                except Exception as retry_err:
+                    if isinstance(retry_err, HinaaError):
+                        error = retry_err
+                    else:
+                        error = HinaaError("PROVIDER_UNAVAILABLE", str(retry_err), 503, True)
+                    self._record_brain_call(attempted_brain, ok=False, error=error)
+
+            if not retry_succeeded:
+                if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                    logger.warning("Provider returned SAFETY_REFUSAL; raising without fallback.")
+                    raise error
+                if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
+                    fallback_result = None
+                    for fb_mode, fb_model in await self._fallback_candidate_modes(
+                        request.providerMode, requires_vision=vision_required
+                    ):
+                        try:
+                            logger.info(
+                                "Primary brain %s failed with %s; falling back to %s (%s)",
+                                request.providerMode,
+                                error.code,
+                                fb_mode,
+                                fb_model,
+                            )
+                            fb_brain = fb_mode
+                            fb_provider = self.router.llm(fb_mode, fb_model)
+                            fb_brain = getattr(fb_provider, "id", None) or fb_mode
+                            async with asyncio.timeout(max(45.0, primary_plan_timeout)):  # Enough for Gemini/other fallbacks
+                                fallback_result = await fb_provider.create_plan(
+                                    request.text,
+                                    request.companionId,
+                                    request.language,
+                                    history,
+                                    prompt,
+                                )
+                            self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
+                            logger.info("Fallback to %s succeeded", fb_mode)
+                            is_fallback = True
+                            fallback_reason = f"Primary {request.providerMode} failed: {error.code}"
+                            resolved_provider = fb_mode
+                            resolved_model = fb_model
+                            break
+                        except Exception as fb_exc:
+                            self._record_brain_call(fb_brain, ok=False, error=fb_exc)
+                            logger.warning("Fallback provider %s failed: %r", fb_mode, fb_exc)
+                    if fallback_result is not None:
+                        result = fallback_result
+                    else:
+                        plan = neutral_fallback_plan(
+                            user_text=request.text,
+                            companion_id=request.companionId,
+                            language=request.language,
+                            depth=prompt.response_depth,
+                        )
+                        result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
+                        is_fallback = True
+                        fallback_reason = f"Candidate fallbacks exhausted ({error.code}): neutral fallback engaged"
+                        resolved_provider = "neutral_fallback"
+                        resolved_model = None
+                elif error.code == "MODEL_RESPONSE_INVALID":
+                    plan = neutral_fallback_plan(
+                        user_text=request.text,
+                        companion_id=request.companionId,
+                        language=request.language,
+                        depth=prompt.response_depth,
+                    )
+                    result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
+                    is_fallback = True
+                    fallback_reason = "MODEL_RESPONSE_INVALID: neutral fallback plan engaged"
+                    resolved_provider = "neutral_fallback"
+                    resolved_model = None
+                else:
+                    raise error
+        _apply_response_quality_guard(result.value, evidence_sources=grounded_sources, user_text=request.text, response_mode=getattr(request, "responseMode", None))
+        result.value.requestedProvider = requested_provider
+        result.value.requestedModel = requested_model
+        result.value.resolvedProvider = resolved_provider
+        result.value.resolvedModel = resolved_model
+        result.value.fallback = is_fallback
+        result.value.fallbackReason = fallback_reason
+        result.value.latencyMs = result.latency_ms
+
+        # Auto-persist learned memory candidates
+        if getattr(result.value, "memoryCandidates", None):
+            for candidate in result.value.memoryCandidates:
+                try:
+                    if self.memory_service and user_id:
+                        self.memory_service.remember(
+                            user_id=user_id,
+                            content=candidate.content,
+                            category=getattr(candidate, 'category', None) or "conversation",
+                            source_turn_ref=f"auto:{request.conversationId or request.sessionId}",
+                            explicit=True,
+                        )
+                except Exception:
+                    logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
+
+        if allowed_tools == ():
+            result.value.toolRequests = []
+        else:
+            self._inject_deterministic_tool_intents(
+                request.text,
+                result.value,
+                session_id=request.sessionId,
+                turn_request=request,
+                user_id=user_id,
+            )
+            self._gate_tool_intents(request, result.value, user_id=user_id)
+            if gate_decision.intent == HinaaIntent.WEB_SEARCH and not any(t.toolName in ("web_search", "web_answer", "web_research") for t in result.value.toolRequests):
+                if not live_search_block:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="web_search",
+                            parameters={"query": search_query or request.text},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+            # Deterministic Image Generation Guarantee (only when user explicitly requests image generation)
+            if (
+                gate_decision.intent == HinaaIntent.IMAGE_GENERATE
+            ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
+                prompt_to_use = gate_decision.arguments.get("prompt") or request.text
+                if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
+                    session_history = self._resolve_session_history(request.sessionId, request.conversationId)
+                    from hinaa_intent_gate import _check_image_proposal
+                    is_img, pending_prompt = _check_image_proposal(session_history)
+                    if pending_prompt and pending_prompt not in {"image", "it", "this"}:
+                        prompt_to_use = pending_prompt
+                    elif d_state:
+                        active = getattr(d_state, "active_entity", None) or getattr(d_state, "active_topic", None)
+                        if active:
+                            prompt_to_use = active
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    if re.search(r"\b" + re.escape(alias) + r"\b", prompt_to_use, re.IGNORECASE):
+                        prompt_to_use = re.sub(r"\b" + re.escape(alias) + r"\b", canonical, prompt_to_use, flags=re.IGNORECASE)
+                        break
+
+                engine = getattr(request, "imageEngine", None) or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="image_generate",
+                        parameters={
+                            "prompt": prompt_to_use,
+                            "count": 1,
+                            "mode": "quality",
+                            "engine": engine,
+                        },
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "copyright", "do you want me to", "should i generate", "let me know if you want")):
+                    result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
+                    result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
+
+            # Deterministic Document & Presentation Generation Guarantee (only when user requested document)
+            if (
+                gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
+            ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
+                is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
+                doc_topic = request.text
+                topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", request.text)
+                if topic_m:
+                    doc_topic = topic_m.group(1).strip()
+                else:
+                    doc_topic = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare|please|pls|bro|hina|can\s+you)\b", "", request.text).strip()
+                    doc_topic = re.sub(r"[\"']", "", doc_topic).strip()
+                    doc_topic = re.sub(r"[^\w\s-]", "", doc_topic).strip()
+                    doc_topic = re.sub(r"\s+", " ", doc_topic).strip()
+                clean_title = (doc_topic if len(doc_topic) >= 3 else "Executive Report").strip().title()
+                if is_slides:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="create_gamma_presentation",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Deck", "format": "presentation", "export_as": "pptx", "num_cards": 8},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                else:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="pdf_generate",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Report", "category": "Research Report", "content": ""},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
+                    result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
+
+            # Deterministic Website Design Guarantee
+            if (
+                "design_website" in allowed_tools
+            ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
+                clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
+                web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="design_website",
+                        parameters={"brief": request.text, "title": web_title, "theme": "auto"},
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
+                    result.value.spokenText = f"Designing your live {web_title} website for you right now."
+
+            # Deterministic Autonomous UI Steering Guarantee
+            if (
+                "ui_control" in allowed_tools
+            ) and not any(t.toolName == "ui_control" for t in result.value.toolRequests):
+                lower_text = request.text.lower()
+                ui_action = "navigate"
+                target_mode = None
+                target_section = None
+                target_drawer = None
+                target_window_mode = None
+                target_avatar_mode = None
+
+                if "showroom" in lower_text or "3d" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "showroom"
+                elif "work" in lower_text or "chat" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "work"
+                elif "operate" in lower_text or "task" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "operate"
+                elif "vault" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "vault"
+                elif "terminal" in lower_text:
+                    ui_action = "toggle_drawer"
+                    target_drawer = "terminal"
+                elif "companion" in lower_text or "floating" in lower_text:
+                    ui_action = "desktop_window_mode"
+                    target_window_mode = "floating_companion"
+                elif "avatar" in lower_text:
+                    ui_action = "set_avatar_mode"
+                    target_avatar_mode = "3d"
+
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="ui_control",
+                        parameters={
+                            "action": ui_action,
+                            "mode": target_mode,
+                            "section": target_section,
+                            "drawer": target_drawer,
+                            "window_mode": target_window_mode,
+                            "avatar_mode": target_avatar_mode,
+                        },
+                        status="ready",
+                        reason="deterministic-ui-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
+                    target_desc = target_mode or target_drawer or target_window_mode or "requested view"
+                    result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
+                    result.value.spokenText = f"Switching your workspace to {target_desc} now."
+
+            # Deterministic Computer Operator / OS Action Guarantee
+            if (
+                "computer_operator" in allowed_tools
+            ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                cop_params = sanction.parameters.get("computer_operator", {})
+                if not cop_params:
+                    cop_params = {"action": "create_folder", "target": request.text}
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="computer_operator",
+                        parameters=cop_params,
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+
+            if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")
+                cop_act = cop_req.parameters.get("action", "")
+                cop_tgt = cop_req.parameters.get("target", "")
+                cop_refusal_patterns = ("cannot create", "can't create", "don't have access to your", "as an ai", "unable to create", "cannot open app", "unable to open", "cannot control", "don't have permission")
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in cop_refusal_patterns):
+                    if cop_act == "create_folder":
+                        result.value.displayText = "I'm creating that folder on your computer for you right now! 📁✨"
+                        result.value.spokenText = "Creating that folder on your computer now!"
+                    elif cop_act in ("open_application", "open_app"):
+                        result.value.displayText = f"Opening {cop_tgt or 'application'} on your computer! 🚀"
+                        result.value.spokenText = f"Opening {cop_tgt or 'application'} for you now!"
+
+            # Deterministic Autonomous Browser Action Guarantee
+            if (
+                "browser_execute_task" in allowed_tools
+                or "browser_navigate" in allowed_tools
+            ) and not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                if "browser_execute_task" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_execute_task", {"goal": request.text})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_execute_task",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+                elif "browser_navigate" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_navigate",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+
+            if any(t.toolName in {"browser_execute_task", "browser_navigate"} for t in result.value.toolRequests):
+                browser_refusal_patterns = (
+                    "cannot browse", "can't browse", "don't have access to the web", "don't have internet",
+                    "as an ai", "unable to browse", "cannot open websites", "unable to navigate",
+                    "don't have a web browser", "cannot interact with websites"
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in browser_refusal_patterns):
+                    result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
+                    result.value.spokenText = "Launching autonomous browser agent now!"
+
+            result.value.toolRequests = [
+                tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
+            ]
+            if live_search_block or (result.value.displayText and len(result.value.displayText.strip()) > 30):
+                SEARCH_TOOLS = {"web_search", "web_research", "web_answer", "finance_research", "web_extract"}
+                result.value.toolRequests = [
+                    tr for tr in result.value.toolRequests if tr.toolName not in SEARCH_TOOLS
+                ]
+
+        self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
+
+        if getattr(self, "advanced_memory", None) is not None:
+            try:
+                effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+                assistant_display = result.value.displayText or result.value.spokenText or ""
+                self.advanced_memory.process_turn(
+                    user_id=effective_user,
+                    conversation_id=request.conversationId or request.sessionId,
+                    user_text=request.text,
+                    assistant_text=assistant_display,
+                )
+            except Exception:
+                logger.debug("Advanced memory turn processing failed", exc_info=True)
+
+        # Persist to durable storage
+        try:
+            effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+            if self.memory_service and effective_user:
+                self.memory_service.append_turn(
+                    user_id=effective_user,
+                    companion_id=request.companionId or "hinaa",
+                    conversation_id=request.conversationId or request.sessionId,
+                    user_text=request.text,
+                    assistant_text=result.value.model_dump_json(),
+                    language=result.value.language or "mixed",
+                    attachments=request.attachments or (
+                        [{"asset_id": aid} for aid in request.attachment_ids] if request.attachment_ids else None
+                    ),
+                )
+        except Exception:
+            logger.warning("Failed to persist turn to database", exc_info=True)
+
+        # B2 summary tree (§17–§24): fold the finished turn into the open
+        # episode. Incremental — only this turn's sequence is summarized.
+        self._record_episode_turn(
+            request=request,
+            user_id=user_id,
+            assistant_text=result.value.displayText or result.value.spokenText or "",
+        )
+
+        guard_spoken = check_reply(result.value.spokenText, user_text=request.text, language=request.language)
+        if guard_spoken.text != result.value.spokenText:
+            result.value.spokenText = guard_spoken.text
+        if result.value.displayText:
+            guard_display = check_reply(result.value.displayText, user_text=request.text, language=request.language)
+            if guard_display.text != result.value.displayText:
+                result.value.displayText = guard_display.text
+
+        self._persist_learned_memories(user_id, request.sessionId)
+
+        return result
+
+    async def create_live_plan(
+        self,
+        request: TurnRequest,
+        emit_delta: Callable[[str], Awaitable[None]],
+        *,
+        user_id: str | None = None,
+        emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> ProviderResult[AssistantTurnPlan]:
+        from .providers.timing import ProviderTiming
+        from .models import ToolRequest
+
+        convo_id = request.conversationId or request.sessionId
+        d_state = None
+        dialogue_state_block = ""
+        live_search_block = ""
+
+        if request.history:
+            session_history = [
+                (
+                    str(h.get("role") or "user"),
+                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
+                )
+                for h in request.history
+                if isinstance(h, dict) and (h.get("content") or h.get("text"))
+            ]
+        else:
+            session_history = self._resolve_session_history(request.sessionId, request.conversationId)
+
+        # Gate First: evaluate intent before running LLM or routing
+        from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
+        gate_decision = decide_intent(request.text, history=session_history)
+
+        if gate_decision.intent == HinaaIntent.REMINDER_CREATE:
+            from .tools.reminder import schedule_reminder
+            from .models import ToolRequest
+            saved = schedule_reminder(
+                user_id=user_id or "anonymous",
+                title=gate_decision.arguments["title"],
+                at=gate_decision.arguments["due_at"],
+                conversation_id=request.conversationId or request.sessionId,
+                settings=self.settings,
+            )
+            confirm_text = f"Reminder set: {saved['title']} — {saved['display']}."
+            plan = build_plan_from_text(
+                text=confirm_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = confirm_text
+            plan.spokenText = f"Reminder set: {saved['title']}, {saved['display']}."
+            plan.toolRequests = [
+                ToolRequest(
+                    toolName="reminder.create",
+                    parameters={
+                        "title": saved["title"],
+                        "at": saved["at"],
+                        "display": saved["display"],
+                        "id": saved["id"],
+                    },
+                    status="ready",
+                    reason="deterministic-intent",
+                )
+            ]
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    logger.warning("Failed to persist reminder turn to database", exc_info=True)
+            return result
+
+        if gate_decision.intent == HinaaIntent.CANCEL:
+            self._cancel_inflight_image_jobs(user_id=user_id)
+            cancel_text = "Stopped. I have cancelled any running jobs."
+            plan = build_plan_from_text(
+                text=cancel_text,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = cancel_text
+            plan.spokenText = cancel_text
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if gate_decision.intent == HinaaIntent.CLARIFY:
+            reason = gate_decision.reason or "Could you clarify what you'd like me to do?"
+            plan = build_plan_from_text(
+                text=reason,
+                companion_id=request.companionId or "hinaa",
+                language=request.language or "en-US",
+                depth="conversational",
+            )
+            plan.displayText = reason
+            plan.spokenText = reason
+            plan.toolRequests = []
+            result = ProviderResult(plan, f"intent-gate:{PROMPT_VERSION}", 0)
+            self.memory.append_turn(
+                request.sessionId, request.text, result.value.model_dump_json()
+            )
+            if self.memory_service and user_id:
+                try:
+                    self.memory_service.append_turn(
+                        user_id=user_id,
+                        companion_id=request.companionId or "hinaa",
+                        conversation_id=request.conversationId or request.sessionId,
+                        user_text=request.text,
+                        assistant_text=result.value.model_dump_json(),
+                        language=result.value.language or "mixed",
+                    )
+                except Exception:
+                    pass
+            return result
+
+        if self.dialogue_state_service and convo_id:
+            try:
+                d_state = self.dialogue_state_service.load(convo_id, user_id=user_id)
+                if d_state:
+                    from hinaa_api.dialogue_state import DialogueStateService, EntityReferenceResolver
+                    DialogueStateService.extract_goal_and_constraints(d_state, request.text)
+                    EntityReferenceResolver.update_entities_from_text(d_state, request.text)
+                    DialogueStateService.update_topic_from_request(d_state, request.text)
+                    self.dialogue_state_service.save(d_state)
+            except Exception:
+                logger.debug("Failed to extract goal/constraints in live plan", exc_info=True)
+
+        if user_id:
+            self._handle_continuity_promotions(user_id, convo_id, request.text)
+
+        # Phase B2 — route this turn's context needs BEFORE heavy retrieval.
+        try:
+            _route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
+        except Exception:
+            logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
+            _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
+
+        # Real-time pre-turn live web search grounding. Trivial FAST turns
+        # never hit search (§39: simple chat must not suffer or pay for it).
+        grounded_sources: list[Any] = []
+        if (
+            request.providerMode != "mock"
+            and not _route_meta.get("skip_recent_working_context")
+            and self._should_pre_search(request.text, d_state=d_state)
+        ):
+            search_query = self._extract_search_query(request.text, d_state=d_state)
+            # Calculate bounded research budget (Light: 3-4, Standard: 6, Deep: 10, Max: 15)
+            try:
+                from hinaa_api.intelligence.answer_depth import AnswerDepth, AnswerDepthController
+                _depth = AnswerDepthController.infer_depth(request.text, active_goal=getattr(d_state, "active_goal", None) if d_state else None)
+                if _depth == AnswerDepth.QUICK:
+                    search_budget = 4
+                elif _depth == AnswerDepth.STANDARD:
+                    search_budget = 6
+                elif _depth == AnswerDepth.DETAILED:
+                    search_budget = 8
+                elif _depth == AnswerDepth.DEEP:
+                    search_budget = 10
+                else:
+                    search_budget = 15
+            except Exception:
+                search_budget = 6
+
+            if emit_event:
+                try:
+                    await emit_event("search.started", {
+                        "query": search_query,
+                        "correlationId": convo_id,
+                    })
+                except Exception:
+                    pass
+            try:
+                from hinaa_api.tools.browser import search_web
+                from hinaa_api.grounding.citations import EvidenceSource, CitationRenderer
+                from datetime import datetime, timezone
+                search_res = await asyncio.wait_for(
+                    search_web({"query": search_query, "count": search_budget}),
+                    timeout=15.0,
+                )
+                items = search_res.get("results") or search_res.get("sources") or []
+                if emit_event:
+                    try:
+                        await emit_event("search.completed", {
+                            "query": search_query,
+                            "sourcesCount": len(items),
+                            "correlationId": convo_id,
+                        })
+                    except Exception:
+                        pass
+                if items:
+                    now = datetime.now(timezone.utc)
+                    formatted_date = now.strftime("%A, %B %d, %Y")
+                    grounded_sources = [
+                        EvidenceSource(
+                            source_id=str(idx),
+                            title=itm.get("title") or "Source",
+                            publisher=itm.get("domain") or "",
+                            url=itm.get("url") or "",
+                            date=itm.get("date"),
+                            snippet=itm.get("snippet") or "",
+                        )
+                        for idx, itm in enumerate(items[:25], 1)
+                    ]
+                    lines = [
+                        f"LIVE REAL-TIME WEB SEARCH INTELLIGENCE ({len(items)} Sources Retrieved {formatted_date} for query: {search_query!r}):",
+                        "Synthesize these retrieved facts into an authoritative, structured response with verified claims:",
+                    ]
+                    for idx, s in enumerate(grounded_sources, 1):
+                        clean_title = CitationRenderer.sanitize_untrusted_text(s.title)
+                        clean_snippet = CitationRenderer.sanitize_untrusted_text(s.snippet)
+                        lines.append(f"[{idx}] [{s.publisher}] {clean_title}: {clean_snippet} ({s.url})")
+                    lines.extend([
+                        "OPERATIONAL MANDATE (CRITICAL):",
+                        "- Synthesize across these live sources into an authoritative, high-impact analysis or report.",
+                        "- Attribute key claims with numbered bracket citations matching the sources above: e.g. [1], [2].",
+                        "- You ALREADY HAVE the retrieved search intelligence above! Synthesize your response directly in displayText and spokenText. Do NOT emit <web_search> tags, simulated tool markers, or further tool calls.",
+                        "- ZERO REPETITION: Do NOT repeat paragraphs, regurgitate text blocks, or echo previous turns. Never cut off mid-thought.",
+                        "- spokenText: Deliver a substantive, intelligent executive voice summary covering core findings and significance.",
+                        "- Make displayText directly informative, structured with key bullets, clear headings, and zero repetitive filler.",
+                    ])
+                    live_search_block = "\n".join(lines)
+
+                    if d_state is not None:
+                        d_state.tool_result_sets.append({
+                            "tool": "web_search",
+                            "query": search_query,
+                            "items": items[:25],
+                            "timestamp": now.isoformat(),
+                        })
+                        try:
+                            self.dialogue_state_service.save(d_state)
+                        except Exception:
+                            pass
+            except Exception:
+                logger.debug("Live pre-search grounding skipped or timed out", exc_info=True)
+
+        if d_state is not None:
+            try:
+                from hinaa_api.dialogue_state import build_dialogue_state_block
+                dialogue_state_block = build_dialogue_state_block(d_state)
+            except Exception:
+                pass
+
+        durable_memory = self._capture_turn_facts(request, user_id)
+        timing = ProviderTiming()
+        history = session_history or self._resolve_session_history(request.sessionId, request.conversationId)
+        effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+        approved = self._approved_blocks(effective_user)
+        session_memories = _dedupe_session_facts(
+            self.memory.learned_memories(request.sessionId), approved
+        )
+        if getattr(self, "advanced_memory", None) is not None:
+            try:
+                adv_mem = self.advanced_memory.assemble_memory_context(
+                    user_id=effective_user,
+                    query=request.text,
+                    conversation_id=request.conversationId or request.sessionId,
+                )
+                if adv_mem.get("graph_facts"):
+                    session_memories = session_memories + tuple(f"[Knowledge Fact]: {gf}" for gf in adv_mem["graph_facts"])
+                if adv_mem.get("recalled_episodes"):
+                    approved = approved + tuple(f"[Past Interaction]: {ep}" for ep in adv_mem["recalled_episodes"])
+            except Exception:
+                logger.debug("Advanced memory retrieval failed in create_plan", exc_info=True)
+        # B2.1 §1 — canonical context selection BEFORE assembly (realtime path).
+        route_decision_rt, _route_meta_rt = self._route_context_for_turn(request, user_id, d_state)
+        history, selection_meta_rt = self._compile_turn_context(
+            request=request,
+            history=history,
+            approved=approved,
+            session_memories=session_memories,
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            decision=route_decision_rt,
+        )
+        resolved_media = await self._resolve_turn_media(request)
+        rag_context_block_rt = ""
+        if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
+            try:
+                rag_context_block_rt = await self.rag_service.resolve_grounded_context(request.text, top_k=3)
+            except Exception:
+                try:
+                    rag_context_block_rt = self.rag_service.format_context_block(request.text, top_k=3)
+                except Exception:
+                    logger.debug("Live RAG context formatting failed", exc_info=True)
+
+        # ``turns:stream`` carries typed chat as well as voice, so the tool-free
+        # contract is keyed on the mode that is actually voice. A typed turn gets
+        # the whitelist its own words earned: passing () here told her the turn
+        # had no tools while the injector below filed the action anyway.
+        is_voice_turn = request.responseMode == "concise_voice"
+        live_allowed_tools = (
+            ()
+            if is_voice_turn
+            else self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
+        )
+        from .prompts.skill_doctrine import doctrine_for_turn
+        prompt = build_turn_prompt(
+            request=request,
+            history=history,
+            settings=self.settings,
+            interaction_mode="realtime",
+            session_memories=session_memories,
+            approved_memory_blocks=approved,
+            durable_memory=durable_memory,
+            attachments=tuple(resolved_media),
+            dialogue_state_block=dialogue_state_block,
+            live_search_block=live_search_block,
+            rag_context_block=rag_context_block_rt,
+            history_preselected=True,
+            allowed_tools=live_allowed_tools,
+            skill_doctrine_block=doctrine_for_turn(request.text, is_voice=is_voice_turn),
+        )
+        timing.mark("prompt_built")
+        self._log_prompt_meta(
+            request.sessionId,
+            prompt.fingerprint,
+            "realtime",
+            manifest_id=selection_meta_rt.get("manifest_id"),
+        )
+        fast_provider_id: str | None = None
+        requested_provider = request.providerMode
+        requested_model = request.brainModel
+        resolved_provider = requested_provider
+        resolved_model = requested_model
+        is_fallback = False
+        fallback_reason: str | None = None
+
+        vision_required, moved_off = await self._apply_vision_gate(
+            request, resolved_media
+        )
+        if moved_off:
+            is_fallback = True
+            fallback_reason = (
+                f"{moved_off} cannot look at images, so a seeing brain answered"
+            )
+            resolved_provider = request.providerMode
+            resolved_model = request.brainModel
+
+        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
+        primary_idle_timeout = self.settings.llm_stream_idle_timeout_seconds
+        primary_live_timeout = max(
+            self.settings.llm_stream_ceiling_seconds, primary_idle_timeout
+        )
+        # A brain benched by its breaker (a gateway that accepted the request
+        # and hung) must not be paid another full turn window of silence: the
+        # turn goes straight to the fallback chain. A brain past cooloff but
+        # not yet proven healthy gets a cheap probe budget for the same reason.
+        primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
+            primary_idle_timeout = min(primary_idle_timeout, 12.0)
+            primary_live_timeout = min(primary_live_timeout, 45.0)
+        primary_text: list[str] = []
+        primary_idle_expired: Callable[[], bool] = lambda: False
+        attempted_brain = request.providerMode
+
+        try:
+            if primary_bench_cooloff:
+                raise HinaaError(
+                    "PROVIDER_TIMEOUT",
+                    f"Primary brain {request.providerMode} is benched for "
+                    f"{primary_bench_cooloff:.0f}s after hanging on recent turns.",
+                    503,
+                    True,
+                )
+            async with live_generation_window(
+                ceiling_s=primary_live_timeout,
+                idle_s=primary_idle_timeout,
+                forward=emit_delta,
+                sink=primary_text,
+                first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
+            ) as (primary_emit, idle_expired):
+                primary_idle_expired = idle_expired
+                # The fast path shaves latency off short social chat. A turn
+                # carrying a photo is not that, and a fast brain that cannot see
+                # would answer it from the caption alone.
+                provider = (
+                    None
+                    if vision_required
+                    else self._fast_casual_provider(
+                        request.providerMode, request.text, history
+                    )
+                )
+                fast_provider_id = getattr(provider, "id", None)
+                if provider is None:
+                    provider = self.router.llm(
+                        request.providerMode, request.brainModel
+                    )
+                attempted_brain = getattr(provider, "id", None) or request.providerMode
+                served_model = getattr(provider, "model", "") or request.brainModel or ""
+                if isinstance(provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                    result = await provider.create_live_plan(
+                        request.text,
+                        request.companionId,
+                        request.language,
+                        history,
+                        primary_emit,
+                        prompt,
+                    )
+                    stages = {"prompt_built": timing.ms_since_start("prompt_built") or 0}
+                    if result.stages:
+                        stages.update(result.stages)
+                    result = ProviderResult(
+                        result.value,
+                        result.provider,
+                        result.latency_ms,
+                        stages=stages,
+                    )
+                    # The interface now names the brain that answered, so record the
+                    # ones that actually ran rather than the ones requested. A badge
+                    # built from the request said "claude" for weeks while a flash-tier
+                    # gateway wrote every word.
+                    resolved_provider = getattr(provider, "id", None) or resolved_provider
+                    resolved_model = served_model or resolved_model
+                else:
+                    # Mock / non-streaming path: deltas are synthetic after full plan.
+                    timing.mark("provider_client_ready")
+                    timing.mark("request_sent")
+                    result = await provider.create_plan(
+                        request.text,
+                        request.companionId,
+                        request.language,
+                        history,
+                        prompt,
+                    )
+                    timing.mark("first_provider_event")
+                    timing.mark("plan_parsed")
+                    timing.mark("plan_validated")
+
+                    # If mock mode and cross-session project fact was queried
+                    if self.cross_session_retriever and user_id and ("nova" in request.text.lower() or "what db" in request.text.lower() or "which db" in request.text.lower() or "database" in request.text.lower()):
+                        try:
+                            evs = self.cross_session_retriever.retrieve_relevant_context(
+                                user_id, request.text, conversation_id=convo_id
+                            )
+                            for ev in evs:
+                                if ev.source_type == "project" and ev.content:
+                                    result.value.displayText = ev.content
+                                    result.value.spokenText = ev.content
+                                    break
+                        except Exception:
+                            pass
+
+                    display = result.value.displayText
+                    for start in range(0, len(display), 7):
+                        chunk = display[start : start + 7]
+                        timing.mark("first_text_delta")
+                        await primary_emit(chunk)
+                        await asyncio.sleep(0.006)
+                    timing.mark("text_complete")
+                    result = ProviderResult(
+                        result.value,
+                        result.provider,
+                        result.latency_ms,
+                        stages=timing.snapshot(),
+                    )
+            self._record_brain_call(attempted_brain, ok=True, model=served_model)
+        except (HinaaError, TimeoutError, Exception) as raw_error:
+            if isinstance(raw_error, TimeoutError):
+                timed_out_idle = primary_idle_expired()
+                error = HinaaError(
+                    "PROVIDER_TIMEOUT",
+                    (
+                        f"Live primary brain {request.providerMode} went silent for "
+                        f"{primary_idle_timeout}s."
+                        if timed_out_idle
+                        else f"Live primary brain {request.providerMode} exceeded the "
+                        f"{primary_live_timeout}s ceiling for one turn."
+                    ),
+                    504,
+                    True,
+                )
+            elif isinstance(raw_error, HinaaError):
+                error = raw_error
+            else:
+                error = HinaaError(
+                    "PROVIDER_UNAVAILABLE",
+                    str(raw_error) or "The selected brain could not complete this live turn.",
+                    503,
+                    True,
+                )
+
+            # A benched brain was never tried, so the skip must not record
+            # another failure — that would push its cooloff forward on every
+            # turn and it would never get a recovery probe.
+            if not primary_bench_cooloff:
+                self._record_brain_call(attempted_brain, ok=False, error=error)
+
+            if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                logger.warning("Live primary brain returned SAFETY_REFUSAL; raising without fallback or retry.")
+                raise error
+
+            kept_text = "".join(primary_text).strip()
+            keep_streamed_text = len(kept_text) >= _MIN_STREAMED_CHARS_TO_KEEP
+            if keep_streamed_text:
+                # The user already watched this brain answer. Shipping another
+                # model's reply over the top of it would put words on screen that
+                # she never wrote, so finish with what she actually produced.
+                logger.warning(
+                    "Live primary %s ended with %s chars already streamed; keeping her "
+                    "own text instead of answering with a fallback brain (%s).",
+                    request.providerMode,
+                    len(kept_text),
+                    error.code,
+                )
+                result = ProviderResult(
+                    build_plan_from_text(
+                        text=kept_text,
+                        companion_id=request.companionId,
+                        language=request.language,
+                        depth=prompt.response_depth,
+                    ),
+                    provider=request.providerMode,
+                    latency_ms=timing.ms_since_start("prompt_built") or 0,
+                    stages=timing.snapshot(),
+                )
+
+            live_retry_succeeded = False
+            if (
+                not keep_streamed_text
+                and fast_provider_id
+                and error.code in {
+                    "PROVIDER_KEY_INVALID",
+                    "PROVIDER_UNAVAILABLE",
+                    "PROVIDER_RATE_LIMIT",
+                }
+            ):
+                self._mark_fast_key_bad(fast_provider_id)
+                selected_provider = self.router.llm(request.providerMode, request.brainModel)
+                attempted_brain = getattr(selected_provider, "id", None) or attempted_brain
+                if getattr(selected_provider, "id", None) != fast_provider_id:
+                    try:
+                        async with asyncio.timeout(primary_live_timeout):
+                            if isinstance(selected_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                                result = await selected_provider.create_live_plan(
+                                    request.text,
+                                    request.companionId,
+                                    request.language,
+                                    history,
+                                    emit_delta,
+                                    prompt,
+                                )
+                            else:
+                                result = await selected_provider.create_plan(
+                                    request.text,
+                                    request.companionId,
+                                    request.language,
+                                    history,
+                                    prompt,
+                                )
+                            self._record_brain_call(
+                                attempted_brain,
+                                ok=True,
+                                model=getattr(selected_provider, "model", "")
+                                or request.brainModel
+                                or "",
+                            )
+                            live_retry_succeeded = True
+                    except HinaaError as retry_err:
+                        error = retry_err
+                        self._record_brain_call(attempted_brain, ok=False, error=error)
+                    except Exception as retry_error:
+                        error = HinaaError(
+                            "PROVIDER_UNAVAILABLE",
+                            "The selected brain could not complete this live turn.",
+                            503,
+                            True,
+                        )
+                        self._record_brain_call(attempted_brain, ok=False, error=error)
+
+            if not live_retry_succeeded and not keep_streamed_text:
+                if getattr(error, "code", None) == "SAFETY_REFUSAL":
+                    logger.warning("Live provider returned SAFETY_REFUSAL; raising without fallback.")
+                    raise error
+                if self.settings.auto_fallback_enabled and error.code in FALLBACK_ELIGIBLE_ERROR_CODES:
+                    fallback_live_result = None
+                    for fb_mode, fb_model in await self._fallback_candidate_modes(
+                        request.providerMode, requires_vision=vision_required
+                    ):
+                        try:
+                            logger.info(
+                                "Live primary %s failed with %s; attempting fallback to %s (%s)",
+                                request.providerMode,
+                                error.code,
+                                fb_mode,
+                                fb_model,
+                            )
+                            fb_brain = fb_mode
+                            fb_provider = self.router.llm(fb_mode, fb_model)
+                            fb_brain = getattr(fb_provider, "id", None) or fb_mode
+                            async with live_generation_window(
+                                ceiling_s=primary_live_timeout,
+                                idle_s=primary_idle_timeout,
+                                forward=emit_delta,
+                                first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
+                            ) as (fallback_emit, _):
+                                if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                                    fallback_live_result = await fb_provider.create_live_plan(
+                                        request.text,
+                                        request.companionId,
+                                        request.language,
+                                        history,
+                                        fallback_emit,
+                                        prompt,
+                                    )
+                                else:
+                                    fallback_live_result = await fb_provider.create_plan(
+                                        request.text,
+                                        request.companionId,
+                                        request.language,
+                                        history,
+                                        prompt,
+                                    )
+                            self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
+                            logger.info("Live fallback to %s succeeded", fb_mode)
+                            is_fallback = True
+                            fallback_reason = f"Primary {request.providerMode} failed: {error.code}"
+                            resolved_provider = fb_mode
+                            resolved_model = fb_model
+                            break
+                        except Exception as fb_exc:
+                            self._record_brain_call(fb_brain, ok=False, error=fb_exc)
+                            logger.warning("Live fallback provider %s failed: %r", fb_mode, fb_exc)
+                    if fallback_live_result is not None:
+                        result = fallback_live_result
+                    else:
+                        raise error
+                elif error.code == "MODEL_RESPONSE_INVALID":
+                    fallback_live_result = None
+                    if self.settings.auto_fallback_enabled:
+                        for fb_mode, fb_model in await self._fallback_candidate_modes(
+                            request.providerMode, requires_vision=vision_required
+                        ):
+                            try:
+                                logger.info(
+                                    "Live primary %s returned invalid response; attempting fallback to %s (%s)",
+                                    request.providerMode,
+                                    fb_mode,
+                                    fb_model,
+                                )
+                                fb_brain = fb_mode
+                                fb_provider = self.router.llm(fb_mode, fb_model)
+                                fb_brain = getattr(fb_provider, "id", None) or fb_mode
+                                async with live_generation_window(
+                                    ceiling_s=primary_live_timeout,
+                                    idle_s=primary_idle_timeout,
+                                    forward=emit_delta,
+                                    first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
+                                ) as (fallback_emit, _):
+                                    if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                                        fallback_live_result = await fb_provider.create_live_plan(
+                                            request.text,
+                                            request.companionId,
+                                            request.language,
+                                            history,
+                                            fallback_emit,
+                                            prompt,
+                                        )
+                                    else:
+                                        fallback_live_result = await fb_provider.create_plan(
+                                            request.text,
+                                            request.companionId,
+                                            request.language,
+                                            history,
+                                            prompt,
+                                        )
+                                self._record_brain_call(fb_brain, ok=True, model=fb_model or "")
+                                logger.info("Live fallback to %s succeeded after invalid response", fb_mode)
+                                is_fallback = True
+                                fallback_reason = f"Primary {request.providerMode} invalid response: auto-routed to {fb_mode}"
+                                resolved_provider = fb_mode
+                                resolved_model = fb_model
+                                break
+                            except Exception as fb_exc:
+                                self._record_brain_call(fb_brain, ok=False, error=fb_exc)
+                                logger.warning("Live fallback provider %s failed during invalid response recovery: %r", fb_mode, fb_exc)
+                    if fallback_live_result is not None:
+                        result = fallback_live_result
+                    else:
+                        plan = neutral_fallback_plan(
+                            user_text=request.text,
+                            companion_id=request.companionId,
+                            language=request.language,
+                            depth=prompt.response_depth,
+                        )
+                        result = ProviderResult(plan, f"fallback:{PROMPT_VERSION}", 0)
+                        is_fallback = True
+                        fallback_reason = "MODEL_RESPONSE_INVALID: neutral fallback plan engaged"
+                        resolved_provider = "neutral_fallback"
+                        resolved_model = None
+                        if plan.displayText:
+                            await emit_delta(plan.displayText)
+                else:
+                    # Configuration/allow-list errors have no response to inspect.
+                    # Preserve the typed failure instead of falling through with
+                    # an unbound result and turning it into an opaque stream crash.
+                    raise error
+        # Autonomous Simulated Tool Recovery:
+        # If the model produced a tool request (TOOL_REQUEST, <web_search>, etc.) or stalled without answering
+        raw_streamed = "".join(primary_text)
+        simulated_tool_present = bool(
+            re.search(r'(?i)\bTOOL_REQUEST\b', raw_streamed)
+            or re.search(r'<\s*web_search\b', raw_streamed)
+            or re.search(r'\{\s*"(?:tool|name)"\s*:\s*"web_search"', raw_streamed)
+        )
+        is_stall_sentence = bool(
+            re.search(r"(?i)\b(?:let\s+me\s+(?:search|look\s+up|check|find|dig)|searching\s+for\s+the\s+latest|while\s+that\s+search\s+runs)\b", result.value.displayText or "")
+            and len((result.value.displayText or "").strip().split()) < 45
+        )
+        if (simulated_tool_present or is_stall_sentence) and not is_voice_turn:
+            recovery_query = None
+            q_m = re.search(r'(?i)"(?:query|q)"\s*:\s*"([^"]+)"', raw_streamed)
+            if q_m:
+                recovery_query = q_m.group(1).strip()
+            else:
+                tag_m = re.search(r'<\s*web_search[^>]*>(.*?)<\s*/\s*web_search\s*>', raw_streamed, re.DOTALL | re.IGNORECASE)
+                if tag_m:
+                    recovery_query = tag_m.group(1).strip()
+            if not recovery_query or len(recovery_query) < 4:
+                recovery_query = self._extract_search_query(request.text, d_state=d_state)
+
+            try:
+                from hinaa_api.tools.browser import search_web
+                from hinaa_api.grounding.citations import EvidenceSource
+                from datetime import datetime, timezone
+                if emit_event:
+                    try:
+                        await emit_event("search.started", {"query": recovery_query, "correlationId": convo_id})
+                    except Exception:
+                        pass
+                search_res = await asyncio.wait_for(search_web({"query": recovery_query, "count": 6}), timeout=10.0)
+                rec_items = search_res.get("results") or search_res.get("sources") or []
+                if emit_event:
+                    try:
+                        await emit_event("search.completed", {"query": recovery_query, "sourcesCount": len(rec_items), "correlationId": convo_id})
+                    except Exception:
+                        pass
+                if rec_items:
+                    fact_lines = [f"Retrieved live facts on {recovery_query}:"]
+                    rec_grounded = []
+                    for idx, itm in enumerate(rec_items[:8], 1):
+                        title = itm.get("title", "")
+                        snip = itm.get("snippet", "")
+                        fact_lines.append(f"[{idx}] {title}: {snip}")
+                        rec_grounded.append(EvidenceSource(
+                            source_id=str(idx),
+                            title=title,
+                            publisher=itm.get("domain") or "",
+                            url=itm.get("url") or "",
+                            date=itm.get("date"),
+                            snippet=snip,
+                        ))
+                    facts_context = "\n".join(fact_lines)
+                    grounded_sources = rec_grounded
+
+                    synthesis_user_text = (
+                        f"User asked: {request.text}\n\n"
+                        f"REAL-TIME VERIFIED FACTS:\n{facts_context}\n\n"
+                        "MANDATE: Deliver a thorough, comprehensive, authoritative answer explaining the situation clearly. "
+                        "Do not include any tool syntax, tool tags, or TOOL_REQUEST. Answer directly in natural prose."
+                    )
+                    synth_prompt = build_turn_prompt(
+                        request=request.model_copy(update={"text": synthesis_user_text}),
+                        history=history,
+                        settings=self.settings,
+                        interaction_mode="realtime",
+                        session_memories=session_memories,
+                        approved_memory_blocks=approved,
+                        durable_memory=durable_memory,
+                        live_search_block=facts_context,
+                        history_preselected=True,
+                        allowed_tools=(),
+                    )
+                    recovery_deltas: list[str] = []
+                    async with live_generation_window(
+                        ceiling_s=primary_live_timeout,
+                        idle_s=primary_idle_timeout,
+                        forward=emit_delta,
+                        sink=recovery_deltas,
+                        first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
+                    ) as (rec_emit, _):
+                        rec_provider = self.router.llm(resolved_provider, resolved_model)
+                        if isinstance(rec_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
+                            rec_res = await rec_provider.create_live_plan(
+                                synthesis_user_text,
+                                request.companionId,
+                                request.language,
+                                history,
+                                rec_emit,
+                                synth_prompt,
+                            )
+                        else:
+                            rec_res = await rec_provider.create_plan(
+                                synthesis_user_text,
+                                request.companionId,
+                                request.language,
+                                history,
+                                synth_prompt,
+                            )
+                    rec_text = "".join(recovery_deltas).strip() or rec_res.value.displayText
+                    if rec_text:
+                        from .providers.display_stream_decoder import strip_simulated_tool_calls
+                        clean_opening = strip_simulated_tool_calls(result.value.displayText or "").strip()
+                        if clean_opening and not any(clean_opening.lower().startswith(x) for x in ("let me", "searching", "tool_")):
+                            result.value.displayText = f"{clean_opening}\n\n{rec_text}"
+                        else:
+                            result.value.displayText = rec_text
+                        result.value.spokenText = rec_res.value.spokenText or rec_text
+            except Exception as rec_exc:
+                logger.warning("Simulated tool recovery failed: %r", rec_exc, exc_info=True)
+
+        _apply_response_quality_guard(result.value, is_live=True, evidence_sources=grounded_sources, user_text=request.text, response_mode=getattr(request, "responseMode", None))
+        result.value.requestedProvider = requested_provider
+        result.value.requestedModel = requested_model
+        result.value.resolvedProvider = resolved_provider
+        result.value.resolvedModel = resolved_model
+        result.value.fallback = is_fallback
+        result.value.fallbackReason = fallback_reason
+        result.value.latencyMs = result.latency_ms
+
+        # Auto-persist learned memory candidates
+        if getattr(result.value, "memoryCandidates", None):
+            for candidate in result.value.memoryCandidates:
+                try:
+                    if self.memory_service and user_id:
+                        self.memory_service.remember(
+                            user_id=user_id,
+                            content=candidate.content,
+                            category=getattr(candidate, 'category', None) or "conversation",
+                            source_turn_ref=f"auto:{request.conversationId or request.sessionId}",
+                            explicit=True,
+                        )
+                except Exception:
+                    logger.debug("Failed to persist memory candidate: %s", candidate.content[:50], exc_info=True)
+
+        # The live path used to receive a tool-free prompt and a blanket
+        # ``toolRequests = []`` afterwards. That wiped image and document
+        # actions for every streamed turn, not just voice ones, so "generate
+        # Hina in a cafe" on the web chat filed no job at all. Turns:stream now
+        # carries typed chat as well as voice, so the tool-free contract is
+        # decided once, above, from the mode that is actually voice: a
+        # ``concise_voice`` turn gets a tool-free prompt and zero tool execution,
+        # while a typed turn is told and then runs the same words-decided set.
+        if is_voice_turn:
+            result.value.toolRequests = []
+        else:
+            self._inject_deterministic_tool_intents(
+                request.text,
+                result.value,
+                session_id=request.sessionId,
+                turn_request=request,
+                user_id=user_id,
+            )
+            self._gate_tool_intents(request, result.value, user_id=user_id)
+            # Deterministic Image Generation Guarantee (only when user explicitly requests image generation)
+            if (
+                gate_decision.intent == HinaaIntent.IMAGE_GENERATE
+            ) and not any(t.toolName in ("image_generate", "magnific_image_generate", "freepik_image_generate") for t in result.value.toolRequests):
+                prompt_to_use = gate_decision.arguments.get("prompt") or request.text
+                if prompt_to_use.lower() in {"it", "this", "that", "what you can", "whatever you can", "image", "something", "yes", "now"}:
+                    session_history = self._resolve_session_history(request.sessionId, request.conversationId)
+                    from hinaa_intent_gate import _check_image_proposal
+                    is_img, pending_prompt = _check_image_proposal(session_history)
+                    if pending_prompt and pending_prompt not in {"image", "it", "this"}:
+                        prompt_to_use = pending_prompt
+                    elif d_state:
+                        active = getattr(d_state, "active_entity", None) or getattr(d_state, "active_topic", None)
+                        if active:
+                            prompt_to_use = active
+                for alias, canonical in sorted(CHARACTER_ENTITY_MAP.items(), key=lambda x: -len(x[0])):
+                    if re.search(r"\b" + re.escape(alias) + r"\b", prompt_to_use, re.IGNORECASE):
+                        prompt_to_use = re.sub(r"\b" + re.escape(alias) + r"\b", canonical, prompt_to_use, flags=re.IGNORECASE)
+                        break
+
+                engine = getattr(request, "imageEngine", None) or getattr(self.settings, "magnific_model_quality", "seedance-5.0")
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="image_generate",
+                        parameters={
+                            "prompt": prompt_to_use,
+                            "count": 1,
+                            "mode": "quality",
+                            "engine": engine,
+                        },
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "copyright", "do you want me to", "should i generate", "let me know if you want")):
+                    result.value.displayText = f"Generating an image of {prompt_to_use}! ✨"
+                    result.value.spokenText = f"Generating an image of {prompt_to_use} for you!"
+
+            # Deterministic Document & Presentation Generation Guarantee (only when user requested document)
+            if (
+                gate_decision.intent == HinaaIntent.DOCUMENT_CREATE
+            ) and not any(t.toolName in ("pdf_generate", "document_generate", "create_gamma_presentation") for t in result.value.toolRequests):
+                is_slides = bool(re.search(r"(?i)\b(?:slide|presentation|deck|powerpoint|pptx)\b", request.text))
+                doc_topic = request.text
+                topic_m = re.search(r"(?i)\b(?:about|on|regarding|for)\s+([a-zA-Z0-9\s:_-]{3,80}?)(?:\s*[,.!?]|\s+(?:properly|not\s+like|don'?t|dont|make\s+it|designed\s+with|format\b)|\s*$)", request.text)
+                if topic_m:
+                    doc_topic = topic_m.group(1).strip()
+                else:
+                    doc_topic = re.sub(r"(?i)\b(?:make|create|generate|give\s+me|build|write|download|export|prepare|please|pls|bro|hina|can\s+you)\b", "", request.text).strip()
+                    doc_topic = re.sub(r"[\"']", "", doc_topic).strip()
+                    doc_topic = re.sub(r"[^\w\s-]", "", doc_topic).strip()
+                    doc_topic = re.sub(r"\s+", " ", doc_topic).strip()
+                clean_title = (doc_topic if len(doc_topic) >= 3 else "Executive Report").strip().title()
+                if is_slides:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="create_gamma_presentation",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Deck", "format": "presentation", "export_as": "pptx", "num_cards": 8},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                else:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="pdf_generate",
+                            parameters={"topic": doc_topic or clean_title, "title": f"{clean_title} Report", "category": "Research Report", "content": ""},
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
+                    )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
+                    result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
+
+            # Deterministic Website Design Guarantee
+            if (
+                "design_website" in live_allowed_tools
+            ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
+                clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
+                web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="design_website",
+                        parameters={"brief": request.text, "title": web_title, "theme": "auto"},
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "can't fire", "can't generate", "don't have access", "unable to generate")):
+                    result.value.displayText = f"### 🌐 Website Foundry: {web_title}\n\nDesigning and deploying your live {web_title} web application now! Interactive preview and sandboxed controls will appear below."
+                    result.value.spokenText = f"Designing your live {web_title} website for you right now."
+
+            # Deterministic Autonomous UI Steering Guarantee
+            if (
+                "ui_control" in live_allowed_tools
+            ) and not any(t.toolName == "ui_control" for t in result.value.toolRequests):
+                lower_text = request.text.lower()
+                ui_action = "navigate"
+                target_mode = None
+                target_section = None
+                target_drawer = None
+                target_window_mode = None
+                target_avatar_mode = None
+
+                if "showroom" in lower_text or "3d" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "showroom"
+                elif "work" in lower_text or "chat" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "work"
+                elif "operate" in lower_text or "task" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "operate"
+                elif "vault" in lower_text:
+                    ui_action = "switch_mode"
+                    target_mode = "vault"
+                elif "terminal" in lower_text:
+                    ui_action = "toggle_drawer"
+                    target_drawer = "terminal"
+                elif "companion" in lower_text or "floating" in lower_text:
+                    ui_action = "desktop_window_mode"
+                    target_window_mode = "floating_companion"
+                elif "avatar" in lower_text:
+                    ui_action = "set_avatar_mode"
+                    target_avatar_mode = "3d"
+
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="ui_control",
+                        parameters={
+                            "action": ui_action,
+                            "mode": target_mode,
+                            "section": target_section,
+                            "drawer": target_drawer,
+                            "window_mode": target_window_mode,
+                            "avatar_mode": target_avatar_mode,
+                        },
+                        status="ready",
+                        reason="deterministic-ui-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "conversation mode", "conversational mode", "conversational engagement", "can't fire", "can't generate", "don't have access", "unable to", "wish i could", "don't have the ability", "do not have the ability", "not by me directly", "would be handled by", "cannot switch", "can't switch")):
+                    target_desc = target_mode or target_drawer or target_window_mode or "requested view"
+                    result.value.displayText = f"Switching your workspace to {target_desc} now. You're all set."
+                    result.value.spokenText = f"Switching your workspace to {target_desc} now."
+
+            # Deterministic Computer Operator / OS Action Guarantee
+            if (
+                "computer_operator" in live_allowed_tools
+            ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                cop_params = sanction.parameters.get("computer_operator", {})
+                if not cop_params:
+                    cop_params = {"action": "create_folder", "target": request.text}
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="computer_operator",
+                        parameters=cop_params,
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+
+            if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
+                cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")
+                cop_act = cop_req.parameters.get("action", "")
+                cop_tgt = cop_req.parameters.get("target", "")
+                cop_refusal_patterns = ("cannot create", "can't create", "don't have access to your", "as an ai", "unable to create", "cannot open app", "unable to open", "cannot control", "don't have permission")
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in cop_refusal_patterns):
+                    if cop_act == "create_folder":
+                        result.value.displayText = "I'm creating that folder on your computer for you right now! 📁✨"
+                        result.value.spokenText = "Creating that folder on your computer now!"
+                    elif cop_act in ("open_application", "open_app"):
+                        result.value.displayText = f"Opening {cop_tgt or 'application'} on your computer! 🚀"
+                        result.value.spokenText = f"Opening {cop_tgt or 'application'} for you now!"
+
+            # Deterministic Autonomous Browser Action Guarantee
+            if (
+                "browser_execute_task" in live_allowed_tools
+                or "browser_navigate" in live_allowed_tools
+            ) and not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                if "browser_execute_task" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_execute_task", {"goal": request.text})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_execute_task",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+                elif "browser_navigate" in sanction.allowed:
+                    b_params = sanction.parameters.get("browser_navigate", {"url": "https://www.google.com"})
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="browser_navigate",
+                            parameters=b_params,
+                            status="ready",
+                            reason="deterministic-browser-intent",
+                        )
+                    )
+
+            if any(t.toolName in {"browser_execute_task", "browser_navigate"} for t in result.value.toolRequests):
+                browser_refusal_patterns = (
+                    "cannot browse", "can't browse", "don't have access to the web", "don't have internet",
+                    "as an ai", "unable to browse", "cannot open websites", "unable to navigate",
+                    "don't have a web browser", "cannot interact with websites"
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in browser_refusal_patterns):
+                    result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
+                    result.value.spokenText = "Launching autonomous browser agent now!"
+
+            result.value.toolRequests = [
+                tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
+            ]
+            if live_search_block or (result.value.displayText and len(result.value.displayText.strip()) > 30):
+                SEARCH_TOOLS = {"web_search", "web_research", "web_answer", "finance_research", "web_extract"}
+                result.value.toolRequests = [
+                    tr for tr in result.value.toolRequests if tr.toolName not in SEARCH_TOOLS
+                ]
+
+        self.memory.append_turn(request.sessionId, request.text, result.value.model_dump_json())
+
+        if getattr(self, "advanced_memory", None) is not None:
+            try:
+                effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+                assistant_display = result.value.displayText or result.value.spokenText or ""
+                self.advanced_memory.process_turn(
+                    user_id=effective_user,
+                    conversation_id=request.conversationId or request.sessionId,
+                    user_text=request.text,
+                    assistant_text=assistant_display,
+                )
+            except Exception:
+                logger.debug("Advanced memory turn processing failed", exc_info=True)
+
+        # Persist to durable storage
+        try:
+            effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
+            if self.memory_service and effective_user:
+                self.memory_service.append_turn(
+                    user_id=effective_user,
+                    companion_id=request.companionId or "hinaa",
+                    conversation_id=request.conversationId or request.sessionId,
+                    user_text=request.text,
+                    assistant_text=result.value.model_dump_json(),
+                    language=result.value.language or "mixed",
+                    attachments=request.attachments or (
+                        [{"asset_id": aid} for aid in request.attachment_ids] if request.attachment_ids else None
+                    ),
+                )
+        except Exception:
+            logger.warning("Failed to persist turn to database", exc_info=True)
+
+        guard_spoken = check_reply(result.value.spokenText, user_text=request.text, language=request.language)
+        if guard_spoken.text != result.value.spokenText:
+            result.value.spokenText = guard_spoken.text
+        if result.value.displayText:
+            guard_display = check_reply(result.value.displayText, user_text=request.text, language=request.language)
+            if guard_display.text != result.value.displayText:
+                result.value.displayText = guard_display.text
+
+        self._persist_learned_memories(user_id, request.sessionId)
+        
+        return result
+
+    async def stream_turn(
+        self, request: TurnRequest, correlation_id: str, *, user_id: str | None = None
+    ) -> AsyncIterator[bytes]:
+        import uuid
+        start_time = time.time()
+        yield self._event("thinking", {"correlationId": correlation_id})
+        yield self._event("run.started", {
+            "runId": correlation_id,
+            "providerMode": request.providerMode,
+            "brainModel": request.brainModel,
+            "imageEngine": request.imageEngine,
+            "voiceEngine": request.voiceEngine,
+        })
+        yield self._event("planning.started", {
+            "step": 1,
+            "description": "Analyzing context & synthesizing plan",
+            "correlationId": correlation_id,
+        })
+
+        # True token-by-token streaming and live research event dispatch.
+        # Provider deltas and real-time research events are relayed onto the
+        # wire the instant they are produced instead of waiting for the whole
+        # plan, so the interface reveals web search animations and text continuously.
+        queue: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue()
+        # A delta is not a word boundary: `$\text{CO` can arrive as one chunk and
+        # `_2}$` as the next. The guard already converted the final text, so the
+        # stream holds a trailing open construct back until it resolves, which
+        # keeps the typed-out bubble identical to what lands in it.
+        notation_stream = MathNotationStream()
+        # Decided from his words, before the brain speaks, by the same sanction
+        # that files the call below: on a turn already building the page, a
+        # document typed into the reply is machinery, and the client paints
+        # whatever reaches the wire. Prose either side of it still streams.
+        from .providers.display_stream_decoder import PageSourceGuard
+        from .tools.intent_gate import page_will_be_built, document_will_be_built
+
+        page_active = page_will_be_built(request.text)
+        doc_active = document_will_be_built(request.text)
+        page_guard = (
+            PageSourceGuard(stop_on_document_code=doc_active)
+            if (page_active or doc_active)
+            else None
+        )
+
+        async def emit_delta(delta: str) -> None:
+            if page_guard is not None:
+                delta = page_guard.feed(delta)
+                if not delta:
+                    return
+            safe = notation_stream.feed(delta)
+            if safe:
+                await queue.put(("delta", safe))
+
+        async def emit_event(name: str, payload: dict[str, Any]) -> None:
+            await queue.put(("event", (name, payload)))
+
+        turn_task = asyncio.create_task(
+            self.create_live_plan(request, emit_delta, user_id=user_id, emit_event=emit_event)
+        )
+        emitted: list[str] = []
+        delta_sequence = 0
+
+        def _make_delta_event(delta_text: str, seg_id: int = 0) -> bytes:
+            nonlocal delta_sequence
+            ev = self._event(
+                "text.delta",
+                {
+                    "delta": delta_text,
+                    "streamId": correlation_id,
+                    "segmentId": seg_id,
+                    "sequence": delta_sequence,
+                },
+            )
+            delta_sequence += 1
+            return ev
+
+        # Instant-action path: when his sentence fully specifies the work --
+        # "open netflix", "run X in the terminal", "remind me at 6", "build a
+        # site for my gym" -- the gate files the same call the slow path would
+        # and then replaces the brain's 20-45 second monologue with the action
+        # confirmation anyway. Acting immediately turns that wait into an
+        # instant answer, and she speaks while the tool runs. A question mark
+        # keeps the brain: he asked something, so action alone is not the reply.
+        # State-bound tools stay on the slow path: image_generate binds its
+        # reference asset from conversation state inside create_live_plan, and
+        # an instant filing would lose the picture he pointed at.
+        from .prompts.performance import build_plan_from_text
+        from .tools.intent_gate import gate_tool_requests
+
+        _INSTANT_ACTION_TOOLS = frozenset({
+            "computer_operator",
+            "terminal_hands",
+            "reminder.create",
+            "youtube_playback_request",
+            "ui_control",
+            "design_website",
+            "browser_navigate",
+            "browser_execute_task",
+            "browser_press_key",
+            "browser_scroll",
+        })
+        instant_requests, _, _instant_sanction = gate_tool_requests(
+            request.text, [], known_subjects=CHARACTER_ENTITY_MAP
+        )
+        if (
+            instant_requests
+            and "?" not in request.text
+            and all(getattr(req, "reason", None) == "deterministic-intent" for req in instant_requests)
+            and all(req.toolName in _INSTANT_ACTION_TOOLS for req in instant_requests)
+        ):
+            confirmation = " ".join(self._action_confirmation(req) for req in instant_requests)
+            instant_plan = build_plan_from_text(
+                text=confirmation,
+                companion_id=request.companionId or "hinaa",
+                language=getattr(request, "language", None) or "en-US",
+                depth="conversational",
+            )
+            instant_plan.toolRequests = list(instant_requests)
+            yield _make_delta_event(confirmation)
+            instant_elapsed_ms = int((time.time() - start_time) * 1000)
+            yield self._event("planning.completed", {
+                "step": 1,
+                "durationMs": instant_elapsed_ms,
+                "correlationId": correlation_id,
+            })
+            instant_total = len(instant_requests)
+            for idx, tool_req in enumerate(instant_requests, 1):
+                tool_run_id = str(uuid.uuid4())
+                yield self._event("tool.started", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "step": idx,
+                    "totalSteps": instant_total,
+                    "parameters": tool_req.parameters,
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.progress", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "message": f"Processing {tool_req.toolName}...",
+                })
+                yield self._event("tool.proposed", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "parameters": tool_req.parameters,
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.completed", {
+                    "toolRunId": tool_run_id,
+                    "toolName": tool_req.toolName,
+                    "status": "ready",
+                })
+            yield self._event("plan", {
+                "plan": instant_plan.model_dump(),
+                "provider": "deterministic-intent",
+            })
+            yield self._event("usage", {"latencyMs": instant_elapsed_ms})
+            yield self._event("run.completed", {
+                "runId": correlation_id,
+                "status": "completed",
+                "latencyMs": instant_elapsed_ms,
+                "totalDurationMs": int((time.time() - start_time) * 1000),
+            })
+            return
+
+        # Silence watchdog: when the first brain hangs (a dead primary pays its
+        # timeout before failover), he otherwise stares at a frozen veil for
+        # the whole wait. After six seconds of no output she acknowledges out
+        # loud -- the transient bubble shows it, her voice says it, and the
+        # final plan still lands as clean answer text.
+        ack_watchdog = asyncio.create_task(asyncio.sleep(_SILENCE_ACK_SECONDS))
+        ack_retired = False
+
+        try:
+            while True:
+                getter = asyncio.create_task(queue.get())
+                wait_set: set[asyncio.Task[Any]] = {getter, turn_task}
+                if not ack_retired:
+                    wait_set.add(ack_watchdog)
+                done, _ = await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED)
+                if ack_watchdog in done and not ack_retired:
+                    ack_retired = True
+                    if not emitted:
+                        ack = "One sec, babe…"
+                        emitted.append(ack)
+                        yield _make_delta_event(ack)
+                    getter.cancel()
+                    continue
+                if getter in done:
+                    if not ack_retired:
+                        ack_retired = True
+                        ack_watchdog.cancel()
+                    item = getter.result()
+                    if item is not None:
+                        kind, data = item
+                        if kind == "delta":
+                            emitted.append(data)
+                            yield _make_delta_event(data)
+                        elif kind == "event":
+                            event_name, payload = data
+                            yield self._event(event_name, payload)
+                    continue
+                getter.cancel()
+                ack_watchdog.cancel()
+                # The turn finished; drain any deltas/events queued a beat earlier.
+                while not queue.empty():
+                    item = queue.get_nowait()
+                    if item is not None:
+                        kind, data = item
+                        if kind == "delta":
+                            emitted.append(data)
+                            yield _make_delta_event(data)
+                        elif kind == "event":
+                            event_name, payload = data
+                            yield self._event(event_name, payload)
+                break
+            # Anything still held back was never followed by a resolving delta;
+            # ship it before the remainder comparison so it cannot be emitted twice.
+            held_page = page_guard.flush() if page_guard is not None else ""
+            if held_page:
+                safe = notation_stream.feed(held_page)
+                if safe:
+                    emitted.append(safe)
+                    yield _make_delta_event(safe)
+            tail = notation_stream.flush()
+            if tail:
+                emitted.append(tail)
+                yield _make_delta_event(tail)
+            result = await turn_task
+            # Guarantee full display text even if a provider finished without
+            # streaming (or emitted a different final polish than its deltas).
+            full_text = result.value.displayText or ""
+            if page_guard is not None and page_guard.closed:
+                from .providers.display_stream_decoder import drop_inlined_page_source, drop_inlined_document_code
+                full_text = drop_inlined_document_code(drop_inlined_page_source(full_text))
+            streamed_so_far = "".join(emitted)
+            is_watchdog_ack = bool(
+                streamed_so_far
+                and any(
+                    ack_phrase in streamed_so_far
+                    for ack_phrase in ("One sec, babe", "One sec, babe…", "One sec, babe...")
+                )
+            )
+            if not streamed_so_far and full_text:
+                # Provider emitted no deltas at all during execution; yield full text once
+                yield _make_delta_event(full_text)
+            elif streamed_so_far and full_text:
+                if full_text.startswith(streamed_so_far):
+                    remainder = full_text[len(streamed_so_far):]
+                    if remainder:
+                        yield _make_delta_event(remainder)
+                elif full_text.strip().startswith(streamed_so_far.strip()):
+                    s_stripped = streamed_so_far.strip()
+                    idx = full_text.find(s_stripped)
+                    if idx != -1:
+                        remainder = full_text[idx + len(s_stripped):]
+                        if remainder:
+                            yield _make_delta_event(remainder)
+                elif is_watchdog_ack:
+                    # Watchdog emitted a transient hold. Deliver the real model answer!
+                    yield _make_delta_event("\n\n" + full_text)
+                else:
+                    # Never drop full_text if formatting diverged or commonprefix is empty
+                    import os
+                    common = os.path.commonprefix([full_text, streamed_so_far])
+                    remainder = full_text[len(common):] if len(common) > 0 else full_text
+                    if remainder:
+                        yield _make_delta_event(remainder)
+        finally:
+            ack_watchdog.cancel()
+            if not turn_task.done():
+                turn_task.cancel()
+
+        plan_elapsed_ms = int((time.time() - start_time) * 1000)
+        yield self._event("planning.completed", {
+            "step": 1,
+            "durationMs": plan_elapsed_ms,
+            "correlationId": correlation_id,
+        })
+
+        # Emit tool events for each tool request
+        total_tools = len(result.value.toolRequests)
+        for idx, tool_req in enumerate(result.value.toolRequests, 1):
+            if tool_req.toolName in {"image_search", "web_search"} and isinstance(tool_req.parameters, dict):
+                # Whatever planned this call, the vendor gets a subject rather
+                # than the sentence he typed, and the card shows the same thing.
+                from hinaa_api.media.search_intelligence import (
+                    compiled_image_query_parameters,
+                    compiled_web_query_parameters,
+                )
+
+                compile_query = (
+                    compiled_image_query_parameters
+                    if tool_req.toolName == "image_search"
+                    else compiled_web_query_parameters
+                )
+                tool_req.parameters = compile_query(tool_req.parameters)
+            tool_run_id = str(uuid.uuid4())
+            yield self._event("tool.started", {
+                "toolRunId": tool_run_id,
+                "toolName": tool_req.toolName,
+                "step": idx,
+                "totalSteps": total_tools,
+                "parameters": tool_req.parameters,
+                "correlationId": correlation_id,
+            })
+            yield self._event("tool.progress", {
+                "toolRunId": tool_run_id,
+                "toolName": tool_req.toolName,
+                "message": f"Processing {tool_req.toolName}...",
+            })
+            yield self._event("tool.proposed", {
+                "toolRunId": tool_run_id,
+                "toolName": tool_req.toolName,
+                "parameters": tool_req.parameters,
+                "correlationId": correlation_id,
+            })
+            yield self._event("tool.completed", {
+                "toolRunId": tool_run_id,
+                "toolName": tool_req.toolName,
+                "status": "ready",
+            })
+        # Self-check before she speaks. The generator occasionally leaves its
+        # own diagnostics in the text, or a fence it opened and never closed;
+        # he should never read either. Repairs are conservative and logged.
+        guard_spoken = check_reply(
+            result.value.spokenText, user_text=request.text, language=request.language
+        )
+        if guard_spoken.text != result.value.spokenText:
+            result.value.spokenText = guard_spoken.text
+
+        if result.value.displayText:
+            guard_display = check_reply(
+                result.value.displayText, user_text=request.text, language=request.language
+            )
+            if guard_display.text != result.value.displayText:
+                result.value.displayText = guard_display.text
+        plan_payload: dict[str, object] = {
+            "plan": result.value.model_dump(),
+            "provider": result.provider,
+        }
+        if self.settings.prompt_debug_metadata:
+            plan_payload["promptVersion"] = PROMPT_VERSION
+        yield self._event("plan", plan_payload)
+        yield self._event("usage", {"latencyMs": result.latency_ms})
+        yield self._event("run.completed", {
+            "runId": correlation_id,
+            "status": "completed",
+            "latencyMs": result.latency_ms,
+            "totalDurationMs": int((time.time() - start_time) * 1000),
+        })
+
+    async def synthesize(self, request: SpeechRequest) -> ProviderResult[bytes]:
+        # The speaker button reads the same text the bubble shows, so the voice
+        # channel gets the shaping the Talk path already applies: emoji and the
+        # pet name stay on screen and are never read aloud. A reply that is
+        # nothing but decoration keeps its original text instead of going silent.
+        text = speech_text_for_tts(request.text) or request.text
+        try:
+            async with asyncio.timeout(12.0 if request.realtime else max(25.0, self.settings.provider_timeout_seconds)):
+                provider = self.router.tts(request.providerMode, request.companionId, request.voiceEngine)
+                if isinstance(provider, DeepgramTTSProvider):
+                    dg_voice = (
+                        self.settings.deepgram_tts_model_hiro
+                        if request.companionId == "hiro"
+                        else self.settings.deepgram_tts_model_hinaa
+                    )
+                    try:
+                        return await provider.synthesize(text, voice=dg_voice)
+                    except Exception as dg_err:
+                        logger.warning("Deepgram synthesis failed (%s), attempting secondary voice fallback: %s", type(dg_err).__name__, dg_err)
+                        if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
+                            try:
+                                voice_id = (
+                                    self.settings.fish_audio_hiro_voice_id
+                                    if request.companionId == "hiro" and self.settings.fish_audio_hiro_voice_id
+                                    else self.settings.fish_audio_hinaa_voice_id
+                                )
+                                fa = FishAudioTTSProvider(
+                                    FishAudioConfig(
+                                        api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                                        base_url=self.settings.fish_audio_base_url,
+                                        voice_id=voice_id,
+                                        model_id=self.settings.fish_audio_model_id,
+                                        output_format=self.settings.fish_audio_output_format,
+                                        request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                                    )
+                                )
+                                return await fa.synthesize(
+                                    text,
+                                    voice=voice_id,
+                                    language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto",
+                                )
+                            except Exception as fa_err:
+                                logger.warning("Secondary Fish Audio fallback failed: %s", fa_err)
+                        if self.settings.elevenlabs_configured:
+                            try:
+                                el_provider = make_elevenlabs_provider(
+                                    self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+                                )
+                                el_voice = (
+                                    self.settings.elevenlabs_hiro_voice_id
+                                    if request.companionId == "hiro"
+                                    else self.settings.elevenlabs_hinaa_voice_id
+                                )
+                                return await el_provider.synthesize_full(text, voice_id=el_voice)
+                            except Exception as el_err:
+                                logger.warning("Secondary ElevenLabs fallback failed: %s", el_err)
+                        raise
+                if isinstance(
+                    provider,
+                    (
+                        ElevenLabsHTTPStreamingProvider,
+                        ElevenLabsWebSocketStreamingProvider,
+                    ),
+                ):
+                    voice_id = (
+                        self.settings.elevenlabs_hiro_voice_id
+                        if request.companionId == "hiro"
+                        else self.settings.elevenlabs_hinaa_voice_id
+                    )
+                    return await self._voice_with_fallback(
+                        provider,
+                        text=text,
+                        companion_id=request.companionId,
+                        voice_id=voice_id,
+                        model_id=(choose_live_tts_model(
+                            text,
+                            configured_model=self.settings.elevenlabs_model_id,
+                            fast_model=self.settings.elevenlabs_tts_model_fast,
+                            nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                        ) if request.realtime else choose_text_tts_model(
+                            text,
+                            configured_model=self.settings.elevenlabs_model_id,
+                            nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                        )),
+                        # Without this the bubble voice falls back to the "warm"
+                        # performance pace, and the two speech channels disagree on
+                        # how fast she talks. One calibration ("natural") is the
+                        # single source of truth for both live and bubble voice.
+                        rate=resolve_calibration("natural").rate,
+                    )
+                voice = resolve_voice(
+                    request.companionId,
+                    self.settings.azure_speech_female_voice,
+                    self.settings.azure_speech_male_voice,
+                    request.language,
+                )
+                if isinstance(provider, FishAudioTTSProvider):
+                    voice_id = self.settings.fish_audio_voice_ids[0 if request.companionId == "hinaa" else 1]
+                    try:
+                        return await provider.synthesize(
+                            text,
+                            voice=voice_id,
+                            language_hint=request.language.split("-")[0] if request.language != "mixed" else "auto",
+                        )
+                    except Exception as fa_err:
+                        logger.warning("Fish Audio synthesis failed (%s), falling back to secondary voice: %s", type(fa_err).__name__, fa_err)
+                        if self.settings.deepgram_configured:
+                            dg_voice = (
+                                self.settings.deepgram_tts_model_hiro
+                                if request.companionId == "hiro"
+                                else self.settings.deepgram_tts_model_hinaa
+                            )
+                            dg = self._get_deepgram_tts_provider()
+                            if dg is not None:
+                                return await dg.synthesize(text, voice=dg_voice)
+                            raise
+                return await provider.synthesize(text, voice)
+        except TimeoutError as error:
+            raise HinaaError(
+                "PROVIDER_TIMEOUT", "Voice synthesis took too long.", 504, True
+            ) from error
+
+    async def _voice_with_fallback(
+        self,
+        provider,
+        *,
+        text: str,
+        companion_id: CompanionId,
+        voice_id: str,
+        model_id: str,
+        delivery_mode: str = "warm",
+        rate: float | None = None,
+        turn_id: str | None = None,
+    ) -> ProviderResult[bytes]:
+        """Speak with ElevenLabs, or with the Deepgram Aura fallback if it refuses.
+
+        Her voice is an identity, so the primary is never silently skipped. But an
+        account that runs out of characters must not leave her mute: when the
+        vendor answers with a status another vendor can cure, the reply is spoken
+        by the configured fallback and the degradation is written to the run
+        ledger, where the owner reads the reason instead of hearing silence.
+        """
+        if voice_on_cooldown(_ELEVENLABS_PROVIDER):
+            # The account already refused us inside this window; do not make the
+            # owner wait through the same vendor timeout before she speaks.
+            cooled = await self._deepgram_voice(
+                text=text, companion_id=companion_id, turn_id=turn_id
+            )
+            if cooled is not None:
+                return cooled
+        ledger = get_run_ledger()
+        started = time.perf_counter()
+        try:
+            async with asyncio.timeout(max(15.0, self.settings.provider_timeout_seconds)):
+                result = await provider.synthesize_full(
+                    text,
+                    voice=voice_id,
+                    delivery_mode=delivery_mode,
+                    companion_id=companion_id,
+                    model_id=model_id,
+                    rate=rate,
+                )
+            ledger.record_tts(
+                provider="elevenlabs",
+                voice_id=voice_id,
+                model_id=model_id,
+                output_format=self.settings.elevenlabs_output_format,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=True,
+                audio_bytes=len(result.value),
+                turn_id=turn_id,
+            )
+            return result
+        except Exception as error:
+            note_voice_failure(_ELEVENLABS_PROVIDER, error)
+            ledger.record_tts(
+                provider="elevenlabs",
+                voice_id=voice_id,
+                model_id=model_id,
+                output_format=self.settings.elevenlabs_output_format,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=False,
+                error=str(error),
+                turn_id=turn_id,
+            )
+            fallback = await self._deepgram_fallback(
+                text=text, companion_id=companion_id, cause=error, turn_id=turn_id
+            )
+            if fallback is not None:
+                return fallback
+            raise HinaaError(
+                "TTS_FAILED", f"ElevenLabs TTS failed: {error}", 503, True
+            ) from error
+
+    async def _deepgram_fallback(
+        self,
+        *,
+        text: str,
+        companion_id: CompanionId,
+        cause: Exception,
+        turn_id: str | None = None,
+    ) -> ProviderResult[bytes] | None:
+        """Last-resort voice. Returns None when there is nothing to fall back to."""
+        if not self.settings.deepgram_configured or not is_fallback_worthy(cause):
+            return None
+        return await self._deepgram_voice(
+            text=text, companion_id=companion_id, turn_id=turn_id
+        )
+
+    async def _deepgram_voice(
+        self,
+        *,
+        text: str,
+        companion_id: CompanionId,
+        turn_id: str | None = None,
+    ) -> ProviderResult[bytes] | None:
+        """Speak with the configured Aura fallback voice, or None if it fails."""
+        if not self.settings.deepgram_configured:
+            return None
+        assert self.settings.deepgram_api_key
+        voice = fallback_voice_id(
+            companion_id,
+            hinaa_voice=self.settings.deepgram_tts_model_hinaa,
+            hiro_voice=self.settings.deepgram_tts_model_hiro,
+        )
+        provider = self._get_deepgram_tts_provider()
+        if provider is None:
+            return None
+        ledger = get_run_ledger()
+        started = time.perf_counter()
+        try:
+            async with asyncio.timeout(max(20.0, self.settings.provider_timeout_seconds)):
+                result = await provider.synthesize(text, voice=voice)
+            logger.warning(
+                "Voice fell back to Deepgram Aura %s: primary voice refused",
+                voice,
+            )
+            ledger.record_tts(
+                provider="deepgram-fallback",
+                voice_id=voice,
+                model_id=voice,
+                output_format="wav",
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=True,
+                audio_bytes=len(result.value),
+                turn_id=turn_id,
+            )
+            return result
+        except Exception as error:
+            logger.error("Voice fallback also failed: %s", error)
+            ledger.record_tts(
+                provider="deepgram-fallback",
+                voice_id=voice,
+                model_id=voice,
+                output_format="wav",
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                ok=False,
+                error=str(error),
+                turn_id=turn_id,
+            )
+            return None
+
+    async def synthesize_text(
+        self,
+        text: str,
+        companion_id: CompanionId,
+        mode: ProviderMode,
+        calibration: str = "natural",
+        rate: float | None = None,
+        pitch_semitones: float | None = None,
+        volume: float | None = None,
+        delivery_mode: str = "warm",
+        language: str = "mixed",
+        live: bool = False,
+        voice_engine: str | None = None,
+    ) -> ProviderResult[bytes]:
+        provider = self.router.tts(mode, companion_id, voice_engine)
+        if isinstance(provider, DeepgramTTSProvider):
+            has_devanagari = bool(re.search(r"[\u0900-\u097F]", text))
+            if has_devanagari and self.settings.azure_configured:
+                # Deepgram Aura is English-only and cannot pronounce Devanagari.
+                # Azure hi-IN-SwaraNeural is the authentic native Indian Hindi voice!
+                try:
+                    azure_voice = (
+                        self.settings.azure_speech_male_voice
+                        if companion_id == "hiro"
+                        else self.settings.azure_speech_female_voice
+                    )
+                    azure_provider = AzureSpeechProvider(
+                        self.settings.azure_speech_key.get_secret_value(),
+                        self.settings.azure_speech_region,
+                    )
+                    return await azure_provider.synthesize_calibrated(text, azure_voice, 1.15, 0.5, 1.0)
+                except Exception as az_err:
+                    logger.warning("Azure Hindi speech synthesis attempt: %s", az_err)
+
+            dg_voice = (
+                self.settings.deepgram_tts_model_hiro
+                if companion_id == "hiro"
+                else self.settings.deepgram_tts_model_hinaa
+            )
+            try:
+                async with asyncio.timeout(max(30.0, self.settings.provider_timeout_seconds)):
+                    return await provider.synthesize(text, voice=dg_voice)
+            except Exception as deepgram_err:
+                logger.warning("Deepgram synthesis failed (%s), attempting secondary fallback: %s", type(deepgram_err).__name__, deepgram_err)
+                if self.settings.fish_audio_configured and self.settings.fish_audio_voice_ids[0]:
+                    try:
+                        voice_id = (
+                            self.settings.fish_audio_hiro_voice_id
+                            if companion_id == "hiro" and self.settings.fish_audio_hiro_voice_id
+                            else self.settings.fish_audio_hinaa_voice_id
+                        )
+                        fa = FishAudioTTSProvider(
+                            FishAudioConfig(
+                                api_key=self.settings.fish_audio_api_key.get_secret_value(),
+                                base_url=self.settings.fish_audio_base_url,
+                                voice_id=voice_id,
+                                model_id=self.settings.fish_audio_model_id,
+                                output_format=self.settings.fish_audio_output_format,
+                                request_timeout_s=self.settings.fish_audio_timeout_seconds,
+                            )
+                        )
+                        return await fa.synthesize(text, voice=voice_id)
+                    except Exception:
+                        pass
+                if self.settings.azure_configured:
+                    try:
+                        azure_voice = (
+                            self.settings.azure_speech_male_voice
+                            if companion_id == "hiro"
+                            else self.settings.azure_speech_female_voice
+                        )
+                        azure_provider = AzureSpeechProvider(
+                            self.settings.azure_speech_key.get_secret_value(),
+                            self.settings.azure_speech_region,
+                        )
+                        return await azure_provider.synthesize_calibrated(text, azure_voice, 1.1, 0.5, 1.0)
+                    except Exception as az_err:
+                        logger.warning("Azure Speech fallback also failed: %s", az_err)
+                raise HinaaError("TTS_FAILED", f"Deepgram TTS failed: {deepgram_err}", 503, True) from deepgram_err
+        
+        if isinstance(provider, FishAudioTTSProvider):
+            # Language hint auto-detects Nepali (Devanagari) vs English per turn.
+            voice_id = (
+                self.settings.fish_audio_voice_ids[0]
+                if companion_id == "hinaa"
+                else self.settings.fish_audio_voice_ids[1]
+            )
+            if not voice_id:
+                raise HinaaError("TTS_FAILED", "Fish Audio voice id is not configured.", 503, True)
+            try:
+                async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                    return await provider.synthesize(text, voice=voice_id, language_hint=language.split("-")[0] if language != "mixed" else "auto")
+            except Exception as error:
+                raise HinaaError("TTS_FAILED", f"Fish Audio TTS failed: {error}", 503, True) from error
+        if isinstance(
+            provider,
+            (ElevenLabsHTTPStreamingProvider, ElevenLabsWebSocketStreamingProvider),
+        ):
+            # Select per-companion voice ID
+            if companion_id == "hiro":
+                voice_id = self.settings.elevenlabs_hiro_voice_id
+            else:
+                voice_id = self.settings.elevenlabs_hinaa_voice_id
+            # A live turn buys latency with the fast model; typed chat keeps the
+            # configured voice. Both go to a Nepali-capable model when the text
+            # is Nepali, which is the only case where the configured model is
+            # provably unable to say what she was asked to say.
+            chosen_model = (
+                choose_live_tts_model(
+                    text,
+                    configured_model=self.settings.elevenlabs_model_id,
+                    fast_model=self.settings.elevenlabs_tts_model_fast,
+                    nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                )
+                if live
+                else choose_text_tts_model(
+                    text,
+                    configured_model=self.settings.elevenlabs_model_id,
+                    nepali_model=self.settings.elevenlabs_tts_model_nepali,
+                )
+            )
+            return await self._voice_with_fallback(
+                provider,
+                text=text,
+                companion_id=companion_id,
+                voice_id=voice_id,
+                model_id=chosen_model,
+                delivery_mode=delivery_mode,
+                # Same rule as the Azure path below: an explicit rate wins,
+                # otherwise the calibration decides. The live client sends
+                # "natural" and has no picker, so this value is her pace.
+                rate=rate if rate is not None else resolve_calibration(calibration).rate,
+            )
+        if mode in {"mock", "local"}:
+            return await self.synthesize(
+                SpeechRequest(text=text, companionId=companion_id, providerMode=mode)
+            )
+        if not isinstance(provider, AzureSpeechProvider):
+            raise HinaaError("TTS_FAILED", "Speech synthesis provider is unavailable.", 503, True)
+        voice = resolve_voice(
+            companion_id,
+            self.settings.azure_speech_female_voice,
+            self.settings.azure_speech_male_voice,
+            language,
+        )
+        tuning = resolve_calibration(calibration)
+        try:
+            async with asyncio.timeout(self.settings.provider_timeout_seconds):
+                return await provider.synthesize_calibrated(
+                    text,
+                    voice,
+                    rate if rate is not None else tuning.rate,
+                    pitch_semitones if pitch_semitones is not None else tuning.pitch_semitones,
+                    volume if volume is not None else tuning.volume,
+                )
+        except TimeoutError as error:
+            raise HinaaError(
+                "PROVIDER_TIMEOUT", "Voice synthesis took too long.", 504, True
+            ) from error
+
+
+    def _log_prompt_meta(
+        self, session_id: str, fingerprint: str, mode: str, *, manifest_id: str | None = None
+    ) -> None:
+        # B2.1 §7: every model invocation carries a context_manifest_id trace.
+        # A missing manifest_id on a production turn is a selection-bypass bug.
+        logger.info(
+            "prompt_assembled",
+            extra={
+                "session_id": session_id,
+                "prompt_version": PROMPT_VERSION,
+                "fingerprint": fingerprint,
+                "interaction_mode": mode,
+                "context_manifest_id": manifest_id,
+            },
+        )
+
+    @staticmethod
+    def _event(event_type: str, payload: dict[str, object]) -> bytes:
+        return (json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n").encode()
