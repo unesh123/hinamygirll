@@ -30,7 +30,7 @@ from .response.notation import MathNotationStream, ascii_math, plainify_math
 from .errors import HinaaError
 from .reachability import probe_gateway_models
 from .memory import SessionMemory
-from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest, ToolRequest, Emotion
+from .models import AssistantTurnPlan, CompanionId, ProviderMode, SpeechRequest, TurnRequest, ToolRequest, Emotion, safe_extract_display_text
 
 if TYPE_CHECKING:  # pragma: no cover
     from .persistence.memory_service import MemoryService
