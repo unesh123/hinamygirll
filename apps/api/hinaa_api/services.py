@@ -1310,7 +1310,7 @@ class ProviderRouter:
         # Route any LLM calls for "claude-opus-5.5" through the Experiential gateway
         # (https://api.experientiallabs.ai/v1) using EXPLABS_API_KEY via OpenAI Chat Completions
         if mode == "experiential" or (
-            mode not in {"mock", "local"}
+            mode not in {"mock", "local", "oxion", "cavoti", "tokentable"}
             and brain_model and brain_model.strip() in {"claude-opus-5.5", "claude-opus-5-5"}
         ):
             self._require_experiential_brain()

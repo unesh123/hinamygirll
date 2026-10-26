@@ -834,6 +834,19 @@ class OpenAILLMProvider:
                 True,
                 True,
             )
+        if response.status_code == 503 and any(
+            marker in provider_text
+            for marker in ("service_upgrading", "upgraded right now", "maintenance", "temporarily unavailable")
+        ):
+            msg = f"{self._provider_label()} is temporarily undergoing service maintenance or upgrade. Please retry shortly."
+            self._circuit_breaker.record_failure("PROVIDER_TEMPORARY_MAINTENANCE", msg)
+            raise HinaaError(
+                "PROVIDER_TEMPORARY_MAINTENANCE",
+                msg,
+                503,
+                True,
+                False,
+            )
         msg = f"{self._provider_label()} is unavailable safely."
         self._circuit_breaker.record_failure("PROVIDER_UNAVAILABLE", msg)
         raise HinaaError(
@@ -891,6 +904,16 @@ class OpenAILLMProvider:
                 True,
                 True,
             )
+        if any(marker in redacted for marker in ("service_upgrading", "upgraded right now", "maintenance", "temporarily unavailable")):
+            msg = f"{self._provider_label()} is temporarily undergoing service maintenance or upgrade. Please retry shortly."
+            self._circuit_breaker.record_failure("PROVIDER_TEMPORARY_MAINTENANCE", msg)
+            return HinaaError(
+                "PROVIDER_TEMPORARY_MAINTENANCE",
+                msg,
+                503,
+                True,
+                False,
+            )
         if "timeout" in redacted or "timed out" in redacted:
             msg = f"{self._provider_label()} timed out."
             self._circuit_breaker.record_failure("PROVIDER_TIMEOUT", msg)
@@ -920,6 +943,20 @@ class OpenAILLMProvider:
             return "Agent router"
         if self._provider_id == "experiential":
             return "Experiential Gateway"
+        if self._provider_id == "oxion":
+            return "Oxion AI"
+        if self._provider_id == "apmix":
+            return "APMIX.AI"
+        if self._provider_id == "cavoti":
+            return "Cavoti AI"
+        if self._provider_id == "xkiro":
+            return "XKiro AI"
+        if self._provider_id == "tokentable":
+            return "TokenTable"
+        if self._provider_id == "seekai":
+            return "SeekAI"
+        if self._provider_id == "pgsgrove":
+            return "PGSGrove AI"
         return "OpenAI"
 
 

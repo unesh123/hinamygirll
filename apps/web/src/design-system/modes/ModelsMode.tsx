@@ -36,7 +36,7 @@ export function ModelsMode({isDark=false, selectedModelId, selectedProviderId, o
       {visible.map(model=>{
         const provider = providers.find(item=>item.id===model.provider);
         const health = provider?.health ?? "untested";
-        const supported = providerModeFromId(model.provider)!==null;
+        const supported = providerModeFromId(model.provider)!==null && model.id !== "*";
         const canSelect = runtime.backendConnected && Boolean(provider?.configured) && model.configured && health!=="unavailable" && supported;
         const selected = selectedModelId===model.id && providerModeFromId(selectedProviderId ?? "")===providerModeFromId(model.provider);
         const status = !provider?.configured ? "Setup required" : health==="healthy" ? "Verified healthy" : health==="unavailable" ? "Unavailable" : health==="degraded" ? "Last call failed" : "Not yet tested";

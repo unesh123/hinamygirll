@@ -118,6 +118,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   // Group models by provider
   const providerGroups: { [key: string]: DiscoveredModel[] } = {};
   for (const m of models) {
+    if (m.id === "*") continue;
     if (!providerGroups[m.provider]) {
       providerGroups[m.provider] = [];
     }
@@ -384,7 +385,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
 
                 {groupModels.map((model) => {
                   const isSelected = !isAutoRouter && selectedModelId === model.id && (!selectionProvider || model.provider === selectionProvider);
-                  const canSelect = backendConnected && isConfigured && model.configured && health !== "unavailable" && providerModeFromId(model.provider) !== null;
+                  const canSelect = backendConnected && isConfigured && model.configured && health !== "unavailable" && providerModeFromId(model.provider) !== null && model.id !== "*";
 
                   return (
                     <button

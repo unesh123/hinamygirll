@@ -55,7 +55,7 @@ export function extractModelOptions(capabilities: string[]): {
   defaultId: string | null;
 } {
   const models = capabilities
-    .filter((c) => c.startsWith("model:"))
+    .filter((c) => c.startsWith("model:") && c !== "model:*")
     .map((c) => ({ id: c.slice("model:".length), isDefault: false }));
 
   const defaultId =

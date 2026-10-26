@@ -144,10 +144,10 @@ class ProviderCircuitBreaker:
             )
             return
 
-        if error_code in {"PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE", "MODEL_UNAVAILABLE"}:
+        if error_code in {"PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE", "MODEL_UNAVAILABLE", "PROVIDER_TEMPORARY_MAINTENANCE"}:
             self.state = CircuitBreakerState.MODEL_UNAVAILABLE
-            self.cooloff_until = now + 30.0
-            logger.warning("Circuit breaker [%s]: MODEL_UNAVAILABLE (no accounts or missing model)", self.provider_id)
+            self.cooloff_until = now + 15.0
+            logger.warning("Circuit breaker [%s]: %s recorded (cooldown: 15.0s)", self.provider_id, error_code)
             return
 
         if error_code == "ENDPOINT_MISMATCH":

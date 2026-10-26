@@ -1874,6 +1874,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # same "fake model list" defect the audit flagged.
                 continue
             for model_id in provider.get("allowedModels") or []:
+                if model_id == "*":
+                    continue
                 models.append(
                     {
                         "id": model_id,
@@ -2343,7 +2345,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "text-stream",
                     "openai-compatible",
                     f"default-model:{active_settings.oxion_model}",
-                    *[f"model:{model}" for model in active_settings.oxion_allowed_models],
+                    *[f"model:{model}" for model in active_settings.oxion_allowed_models if model != "*"],
                 ],
                 state=oxion_state,
                 userMessage=oxion_message,
