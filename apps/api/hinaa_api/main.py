@@ -319,6 +319,7 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "xkiro",
         "cavoti",
         "apmix",
+        "oxion",
         "experiential",
     }
 )
@@ -1780,6 +1781,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "protocol": "openai-compatible",
             },
             {
+                "id": "oxion",
+                "name": "Oxion AI",
+                "configured": bool(getattr(active_settings, "oxion_configured", False)),
+                "defaultModel": active_settings.active_oxion_model,
+                "allowedModels": list(active_settings.oxion_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
                 "id": "experiential",
                 "name": "Experiential Labs",
                 "configured": active_settings.explabs_configured,
@@ -2087,6 +2096,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 apmix_state = "unavailable"
                 apmix_message = f"APMIX.AI probe failed: {apmix_probe.detail}"
 
+        # Probe Oxion AI Gateway if configured
+        oxion_state = "unavailable"
+        oxion_message = "Oxion AI needs OXION_AI_API_KEY and OXION_AI_BASE_URL."
+        if active_settings.oxion_configured:
+            oxion_probe = await probe_gateway_models(
+                active_settings.active_oxion_base_url,
+                api_key=active_settings.active_oxion_key.get_secret_value() if active_settings.active_oxion_key else None,
+            )
+            if oxion_probe.serving:
+                oxion_state = "healthy"
+                probe_measured.add("oxion")
+                oxion_message = (
+                    f"Oxion AI is connected ({oxion_probe.model_count} models serving; default: {active_settings.oxion_model})."
+                )
+            else:
+                oxion_state = "unavailable"
+                oxion_message = f"Oxion AI probe failed: {oxion_probe.detail}"
+
         # Gemini / real is measured healthy when credentials are configured
         if active_settings.gemini_configured:
             probe_measured.add("gemini")
@@ -2307,6 +2334,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ],
                 state=apmix_state,
                 userMessage=apmix_message,
+            ),
+            ProviderStatus(
+                id="oxion",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.oxion_model}",
+                    *[f"model:{model}" for model in active_settings.oxion_allowed_models],
+                ],
+                state=oxion_state,
+                userMessage=oxion_message,
             ),
             ProviderStatus(
                 id="seekai",

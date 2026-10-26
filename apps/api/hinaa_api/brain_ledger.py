@@ -271,6 +271,7 @@ _SETTINGS_PREFIX: dict[str, str] = {
     "tokentable": "tokentable",
     "xkiro": "xkiro",
     "apmix": "apmix",
+    "oxion": "oxion",
     "experiential": "explabs",
 }
 

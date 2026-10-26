@@ -88,6 +88,7 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "pgsgrove",
   "xkiro",
   "apmix",
+  "oxion",
   "agent-router",
   "seekai",
   "tokentable",

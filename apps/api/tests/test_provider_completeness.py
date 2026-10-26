@@ -28,7 +28,7 @@ def configured_settings(settings, **updates):
 
 
 @pytest.mark.parametrize("mode", [
-    "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix",
+    "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion",
 ])
 def test_newer_providers_are_valid_defaults_and_request_modes(mode):
     config = Settings(_env_file=None, HINAA_PROVIDER_MODE=mode)
@@ -50,7 +50,7 @@ def test_gemini_text_brain_does_not_require_a_cloud_voice(settings):
 @pytest.mark.parametrize("mode,prefix", [
     ("custom", "openai_codex"), ("qwen", "qwen"), ("agent-router", "agent_router"),
     ("codecraft", "codecraft"), ("pgsgrove", "pgsgrove"), ("seekai", "seekai"),
-    ("tokentable", "tokentable"), ("xkiro", "xkiro"), ("cavoti", "cavoti"), ("apmix", "apmix"),
+    ("tokentable", "tokentable"), ("xkiro", "xkiro"), ("cavoti", "cavoti"), ("apmix", "apmix"), ("oxion", "oxion"),
 ])
 def test_each_openai_compatible_gateway_uses_its_own_key_model_and_endpoint(settings, mode, prefix):
     config = configured_settings(settings, **{
@@ -92,6 +92,7 @@ def test_stale_cloud_model_cannot_turn_offline_mode_into_paid_call(settings, mod
     ("xkiro", "xkiro_model", "qwen-test-vl"),
     ("cavoti", "cavoti_model", "claude-opus-test"),
     ("apmix", "apmix_model", "deepseek-vision-test"),
+    ("oxion", "oxion_model", "claude-sonnet-vision-test"),
     ("ollama", "ollama_model", "local-test-vision"),
 ])
 def test_newer_vision_adapters_resolve_unnamed_default(settings, mode, field, model):

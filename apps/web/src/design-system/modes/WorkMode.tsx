@@ -159,6 +159,7 @@ function getProviderDisplayName(mode?: string): string {
     case "xkiro": return "XKiro AI";
     case "cavoti": return "Cavoti AI";
     case "apmix": return "APMIX.AI";
+    case "oxion": return "Oxion AI";
     default:
       return mode.charAt(0).toUpperCase() + mode.slice(1);
   }

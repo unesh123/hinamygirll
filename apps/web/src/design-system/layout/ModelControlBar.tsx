@@ -121,6 +121,17 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
     ],
   },
   {
+    mode: "oxion",
+    label: "🌌 Oxion AI",
+    defaultModel: "claude-fable-5.1",
+    models: [
+      { id: "claude-fable-5.1", label: "Claude Fable 5.1", isDefault: true },
+      { id: "claude-opus-5.5", label: "Claude Opus 5.5" },
+      { id: "grok-4.6", label: "Grok 4.6" },
+      { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash" },
+    ],
+  },
+  {
     mode: "claude",
     label: "🧠 Anthropic Claude",
     defaultModel: "claude-3-7-sonnet-20250219",
@@ -335,7 +346,9 @@ export function ModelControlBar({
                 ? "XKiro AI"
                 : currentMode === "apmix"
                   ? "APMIX.AI"
-                  : providerOptions.find((p) => p.mode === currentMode)?.label || currentMode;
+                  : currentMode === "oxion"
+                    ? "Oxion AI"
+                    : providerOptions.find((p) => p.mode === currentMode)?.label || currentMode;
 
   const currentImageObj = IMAGE_ENGINES.find((e) => e.id === imageEngine) || IMAGE_ENGINES[0];
   const currentVoiceObj = VOICE_ENGINES.find((v) => v.id === voiceEngine) || VOICE_ENGINES[0];

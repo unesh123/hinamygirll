@@ -21,6 +21,7 @@ export type ProviderMode =
   | "xkiro"
   | "cavoti"
   | "apmix"
+  | "oxion"
   | "experiential";
 
 

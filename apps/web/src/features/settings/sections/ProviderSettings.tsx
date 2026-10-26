@@ -53,6 +53,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   xkiro:          "XKiro AI (api.xkiro.com)",
   cavoti:         "Cavoti AI (cavoti.com)",
   apmix:          "APMIX.AI (api.apmix.ai)",
+  oxion:          "Oxion AI (oxionai.com)",
   experiential:   "Experiential Labs (api.experientiallabs.ai)",
 };
 
@@ -78,6 +79,7 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   xkiro:          "api.xkiro.com — fast free frontier models (Qwen 3.8 Max, Qwen 3.7 Flash).",
   cavoti:         "cavoti.com — frontier models (Claude Fable 5, Claude Opus 5, Claude Haiku 4.5).",
   apmix:          "api.apmix.ai — fast free DeepSeek V4 Flash & upcoming GPT-6 Luna.",
+  oxion:          "oxionai.com — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5).",
   experiential:   "api.experientiallabs.ai — frontier Claude Opus 5.5 gateway.",
 };
 
