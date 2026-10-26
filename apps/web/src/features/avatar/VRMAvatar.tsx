@@ -31,6 +31,7 @@ import { DIRECT_MORPH_KEYS } from "./companionExpression";
 import { normalizeVrmAvatar } from "./normalization";
 import { getDefaultAvatarForCompanion } from "./avatarRegistry";
 import { disposeVrmModel } from "./avatarDisposal";
+import { useAvatarVisibility } from "./useAvatarVisibility";
 import { getActiveViseme } from "../audio/textToViseme";
 import { playFootstepSound } from "../../lib/uiSound";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
@@ -1453,6 +1454,7 @@ function VrmModel({
 }
 
 export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
+  const visibility = useAvatarVisibility();
   const [modelUrl, setModelUrl] = useState<string | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
   const [glContextLost, setGlContextLost] = useState(false);
@@ -1488,6 +1490,7 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
   }, []);
 
   useEffect(() => {
+    if (props.textOnly) return;
     // When the parent explicitly passes a modelUrl, use it directly (no HEAD probe needed).
     if (props.modelUrl !== undefined) {
       setModelNotice("");
@@ -1504,7 +1507,7 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
     return () => {
       alive = false;
     };
-  }, [props.modelUrl]);
+  }, [props.modelUrl, props.textOnly]);
 
   const resolvedJawEnergy =
     typeof props.jawEnergy === "number"
@@ -1515,24 +1518,6 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
 
   const emotion = props.plan?.emotion.primary ?? "neutral";
   const gesture = props.plan?.performance.gesture ?? "none";
-
-  // No model at all, a hard load failure, or WebGL unavailable entirely →
-  // the procedural girl takes over instead of a blank canvas. (A transient
-  // GPU context loss does NOT land here — it remounts the canvas with
-  // conservative settings first; only a second loss marks `failed`.)
-  if (modelUrl === null || failed || !webglAvailable) {
-    return <ProceduralAvatar {...props} jawEnergy={resolvedJawEnergy} />;
-  }
-
-  if (props.textOnly) {
-    return (
-      <div className="avatar-fallback" data-testid="text-only-avatar">
-        <span aria-hidden="true">✦</span>
-        <strong>Text-only mode</strong>
-        <small>Avatar motion is paused. Conversation controls still work.</small>
-      </div>
-    );
-  }
 
   const input: VrmExpressionInput & {
     gesture: string;
@@ -1567,21 +1552,30 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
     props.walkMode,
   ]);
 
-  function CanvasContextTeardown() {
-    const { gl } = useThree();
-    useEffect(() => {
-      return () => {
-        try {
-          gl.dispose();
-        } catch {}
-      };
-    }, [gl]);
-    return null;
+  // No model at all, a hard load failure, or WebGL unavailable entirely →
+  // the procedural girl takes over instead of a blank canvas. (A transient
+  // GPU context loss does NOT land here — it remounts the canvas with
+  // conservative settings first; only a second loss marks `failed`.)
+  if (modelUrl === null || failed || !webglAvailable) {
+    if (props.textOnly) return <div className="avatar-fallback">Avatar motion is paused.</div>;
+    return <ProceduralAvatar {...props} jawEnergy={resolvedJawEnergy} />;
   }
+
+  if (props.textOnly) {
+    return (
+      <div className="avatar-fallback" data-testid="text-only-avatar">
+        <span aria-hidden="true">✦</span>
+        <strong>Text-only mode</strong>
+        <small>Avatar motion is paused. Conversation controls still work.</small>
+      </div>
+    );
+  }
+
 
   return (
     <div
       className="vrm-stage"
+      ref={visibility.ref}
       data-engine="vrm-avatar-v1"
       data-state={props.state}
       data-emotion={emotion}
@@ -1599,6 +1593,7 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
           <Canvas
             key={glContextLost ? "conservative" : "full"}
             className="vrm-canvas"
+            frameloop={visibility.visible && !props.textOnly ? 'always' : 'never'}
             dpr={1}
             gl={{
               antialias: false,
@@ -1617,7 +1612,6 @@ export const VRMAvatar = memo(function VRMAvatar(props: VRMAvatarProps) {
               fov: (props.walkMode && !props.closeUp) ? 42 : ((props.closeUp ?? true) ? 32 : 38),
             }}
           >
-            <CanvasContextTeardown />
             <ambientLight color="#fff5fa" intensity={0.65} />
             <directionalLight position={[0.8, 1.8, 1.5]} color="#fff8f5" intensity={1.05} />
             <directionalLight position={[-1.2, 1.6, -1.2]} color="#d8b4fe" intensity={0.55} />

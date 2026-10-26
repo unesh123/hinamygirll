@@ -1,6 +1,7 @@
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 
 export type ProviderMode =
+  | "gmi"
   | "mock"
   | "local"
   | "groq"

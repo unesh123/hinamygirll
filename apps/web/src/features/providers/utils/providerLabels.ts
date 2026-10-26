@@ -13,6 +13,7 @@ export function providerModeFromId(id: string): ProviderMode | null {
 }
 
 const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string }> = {
+  gmi: { label: "GMI Cloud", description: "GMI streaming inference; provider and model availability require live checks." },
   mock:   { label: "Demo",           description: "Deterministic responses. No API calls." },
   local:  { label: "Local",          description: "Zero-credit on-device model. Text only." },
   custom: { label: "Custom Gateway", description: "Your private backend gateway (hcnsec.cn)." },
@@ -90,7 +91,7 @@ export function buildProviderOptions(statuses: ProviderStatus[]): ProviderOption
   const byId = new Map(statuses.map((s) => [s.id, s]));
 
   const alwaysPresent: ProviderMode[] = ["mock", "local"];
-  const cloudProviders: ProviderMode[] = ["custom", "openai", "real", "groq", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "experiential"];
+  const cloudProviders: ProviderMode[] = ["gmi", "custom", "openai", "real", "groq", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "experiential"];
 
   const options: ProviderOption[] = [];
 

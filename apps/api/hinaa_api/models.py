@@ -12,6 +12,7 @@ Language = Literal[
     "mixed",
 ]
 ProviderMode = Literal[
+    "gmi",
     "auto",
     "mock",
     "local",

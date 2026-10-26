@@ -1966,52 +1966,103 @@ function IrisWaveformStage({
   onReconnect: () => void;
   overlayActive?: boolean;
 }) {
-  if (overlayActive) return null;
+
+
+
 
   const isSpeaking = state === "speaking" || Boolean(speakingRef?.current);
+
   const isThinking = state === "thinking";
+
   const isListening = state === "listening" || (live.active && !live.paused);
+
   const status = live.status ?? "idle";
+
   const faulty = status === "reconnecting" || status === "error";
 
+
+
   const [energy, setEnergy] = useState(0);
+
   useEffect(() => {
+
+    if (overlayActive) return;
     let animId = 0;
-    const loop = () => {
+    let lastSample = 0;
+
+    const loop = (now: number) => {
+      if (document.hidden || now - lastSample < 33) { animId = requestAnimationFrame(loop); return; }
+      lastSample = now;
+
       const jaw = jawEnergy?.current ?? 0;
+
       const mic = live.microphoneLevel ?? 0;
+
       const cur = isSpeaking ? Math.max(0.18, jaw) : isListening ? Math.max(0.12, mic) : isThinking ? 0.35 : 0.06;
-      setEnergy((prev) => prev * 0.72 + cur * 0.28);
+
+      setEnergy((prev) => { const next = prev * 0.72 + cur * 0.28; return Math.abs(next - prev) > 0.01 ? next : prev; });
+
       animId = requestAnimationFrame(loop);
+
     };
+
     animId = requestAnimationFrame(loop);
+
     return () => cancelAnimationFrame(animId);
-  }, [isSpeaking, isListening, isThinking, jawEnergy, live.microphoneLevel]);
+
+  }, [overlayActive, isSpeaking, isListening, isThinking, jawEnergy, live.microphoneLevel]);
+
+
 
   const barMultipliers = [0.25, 0.45, 0.68, 0.9, 1.0, 0.95, 0.78, 0.55, 0.55, 0.78, 0.95, 1.0, 0.9, 0.68, 0.45, 0.25];
 
+
+
   const badgeText = faulty
+
     ? (status === "error" ? "Voice link dropped" : "Reconnecting…")
+
     : isSpeaking
+
     ? "Speaking"
+
     : isThinking
+
     ? "Thinking…"
+
     : isListening
+
     ? (live.paused ? "Mic paused" : "I'm listening")
+
     : "Hina is ready";
 
+
+
   const badgeColor = faulty
+
     ? "rgba(239, 68, 68, 0.85)"
+
     : isSpeaking
+
     ? "rgba(244, 114, 182, 0.9)"
+
     : isThinking
+
     ? "rgba(192, 132, 252, 0.9)"
+
     : isListening
+
     ? "rgba(52, 211, 153, 0.9)"
+
     : "rgba(255, 255, 255, 0.55)";
+
+
 
   const subtitle = expressionText || streamingText || plan?.spokenText || "";
 
+
+
+  if (overlayActive) return null;
   return (
     <div className="iris-waveform-stage">
       <div className="iris-waveform-dock">
@@ -2167,18 +2218,6 @@ export function AvatarPresence({
   const vEvts  = visemeEvents   ?? _emptyRef as React.MutableRefObject<VisemeEvent[]>;
   const aStart = audioStartTimeRef ?? _startRef as React.MutableRefObject<number>;
 
-  function CanvasContextTeardown() {
-    const { gl } = useThree();
-    useEffect(() => {
-      return () => {
-        try {
-          gl.dispose();
-        } catch {}
-      };
-    }, [gl]);
-    return null;
-  }
-
   return (
     <div ref={playgroundRef} className={`avatar-playground${isFullscreen ? " avatar-playground--fullscreen" : ""}`} style={{ position:"relative", width:"100%", height:"100%", minHeight:200 }}>
       {/* Atmospheric glow */}
@@ -2191,7 +2230,7 @@ export function AvatarPresence({
             key={`${modelUrl}:${modelAttempt}`}
             fallback={<AvatarFallback state={state} />}
             style={{ position:"absolute", inset:0, zIndex:1 }}
-            frameloop={renderVisible ? "always" : "demand"}
+            frameloop={renderVisible ? "always" : "never"}
             dpr={1}
             performance={{ min: 0.75, debounce: 150 }}
             gl={{ antialias: false, alpha: true, powerPreference: "default", depth: true, stencil: false }}
@@ -2202,7 +2241,7 @@ export function AvatarPresence({
               }, { once: true });
             }}
           >
-            <CanvasContextTeardown />
+
             <AdaptiveAvatarResolution />
             <Suspense fallback={null}>
               <Cam

@@ -47,6 +47,7 @@ export interface AppearanceSettings {
 
 /** Provider modes supported by the backend. */
 export type ProviderPreferenceMode =
+  | "gmi"
   | "auto"
   | "custom"
   | "openai"

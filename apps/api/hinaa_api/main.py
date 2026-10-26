@@ -2093,7 +2093,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             probe_measured.add("real")
 
         statuses = [
-            ProviderStatus(
+            ProviderStatus(id='gmi', capabilities=['llm', 'text-stream', 'openai-compatible',                           f'default-model:{active_settings.gmi_model}', f'model:{active_settings.gmi_model}'],                           state='degraded' if active_settings.gmi_api_key else 'unavailable',                           userMessage='GMI Cloud configured; generation has not been verified.' if active_settings.gmi_api_key else 'GMI Cloud needs GMI_API_KEY.'),            ProviderStatus(
                 id="mock",
                 capabilities=["stt", "llm", "tts", "hi-IN", "offline"],
                 state="healthy",

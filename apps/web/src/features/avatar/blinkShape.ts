@@ -25,8 +25,8 @@ export function rollBlinkShapeSpec(
     peak: fullClose
       ? 0.86 + rng() * 0.14
       : 0.48 + rng() * 0.24 + drowsyHeavy * 0.08,
-    close: (0.100 + rng() * 0.050) * (1 + drowsyHeavy * 0.5),
-    open: (0.065 + rng() * 0.035) * (1 + drowsyHeavy * 0.4),
+    close: (0.050 + rng() * 0.035) * (1 + drowsyHeavy * 0.5),
+    open: (0.110 + rng() * 0.100) * (1 + drowsyHeavy * 0.4),
     asym: 0.90 + rng() * 0.16,
   };
 }

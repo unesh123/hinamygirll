@@ -12,7 +12,8 @@ import {
   PictureInPicture,
   Footprints,
 } from "lucide-react";
-import { AvatarPresence, type PresenceMode } from "../../components/ui/AvatarPresence";
+import type { PresenceMode } from "../../components/ui/AvatarPresence";
+import { LazyAvatarPresence as AvatarPresence } from "../../features/avatar/LazyAvatarPresence";
 import type { AvatarPresentation } from "../../features/avatar/avatarPresentation";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY } from "../../features/avatar/avatarRegistry";
@@ -112,7 +113,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
   }, [streamingText, partialTranscript]);
 
   const currentAvatarDef = AVATAR_REGISTRY.find((a) => a.fileUrl === avatarModel || a.id === avatarModel);
-  const currentModelName = currentAvatarDef?.name || "Hinaa Perfect Sync (52 Blendshapes)";
+  const currentModelName = currentAvatarDef?.name || "Hinaa (Original)";
 
   if (dockMode === "hidden") {
     return null;

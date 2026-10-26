@@ -135,7 +135,7 @@ import { AgentActivityCard, type ActivityStep } from "../../features/chat/compon
 import { SearchingLoader, WebSearchLoader } from "../../components/ui/SearchingLoader";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY, DEFAULT_AVATAR_FILE } from "../../features/avatar/avatarRegistry";
-import { AvatarPresence } from "../../components/ui/AvatarPresence";
+import { LazyAvatarPresence as AvatarPresence } from "../../features/avatar/LazyAvatarPresence";
 import { ModelControlBar } from "../layout/ModelControlBar";
 import type { PresenceMode } from "../../components/ui/AvatarPresence";
 import type { ExecutiveMode } from "../layout/TopBarV6";

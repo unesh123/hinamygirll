@@ -1338,6 +1338,12 @@ class ProviderRouter:
             return GroqLLMProvider(
                 self.settings.groq_api_key.get_secret_value(), self.settings.groq_model
             )
+        if mode == "gmi":
+            if not self.settings.gmi_api_key:
+                raise HinaaError('PROVIDER_CONFIGURATION_MISSING', 'GMI Cloud needs GMI_API_KEY.', 503, False, True)
+            return OpenAILLMProvider(self.settings.gmi_api_key.get_secret_value(), brain_model or self.settings.gmi_model,
+                                     base_url=self.settings.active_gmi_base_url, provider_id='gmi')
+
         if mode == "openai":
             self._require_openai_brain()
             active_openai_key = self.settings.active_openai_key
