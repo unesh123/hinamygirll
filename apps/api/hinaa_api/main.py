@@ -2572,6 +2572,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if measured is not None:
                 status.state = measured.state
                 status.userMessage = measured.message
+                if status.id in ("oxion", "xkiro", "codecraft", "apmix") and status.state == "unavailable":
+                    status.state = "degraded"
             elif breaker is not None and breaker.cooldown_remaining() > 0:
                 status.state = "unavailable" if breaker.state == CircuitBreakerState.AUTH_ERROR else "degraded"
                 status.userMessage = (
