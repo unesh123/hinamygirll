@@ -446,7 +446,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
             }}
           >
             <Footprints size={11} />
-            <span>COCO GAIT · ROAMING</span>
+            <span>Walking preview</span>
           </motion.div>
         )}
 

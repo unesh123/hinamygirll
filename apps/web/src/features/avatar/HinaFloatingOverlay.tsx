@@ -54,19 +54,20 @@ export const HinaFloatingOverlay: React.FC<HinaFloatingOverlayProps> = ({
 
   // Procedural walking animation loop
   useEffect(() => {
+    if (!isOpen || !isWalking) return;
     let animId: number;
     let lastTime = performance.now();
     const loop = (time: number) => {
       const dt = (time - lastTime) / 1000;
       lastTime = time;
-      if (isWalking) {
+      if (!document.hidden) {
         setWalkPhase((prev) => (prev + dt * 5.4) % (Math.PI * 2));
       }
       animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isWalking]);
+  }, [isOpen, isWalking]);
 
   // Request Document PiP Window
   const handleRequestPip = useCallback(async () => {

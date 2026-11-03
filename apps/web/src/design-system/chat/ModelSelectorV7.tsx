@@ -385,7 +385,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
 
                 {groupModels.map((model) => {
                   const isSelected = !isAutoRouter && selectedModelId === model.id && (!selectionProvider || model.provider === selectionProvider);
-                  const canSelect = backendConnected && isConfigured && model.configured && health !== "unavailable" && providerModeFromId(model.provider) !== null && model.id !== "*";
+                  const canSelect = backendConnected && isConfigured && model.configured && providerModeFromId(model.provider) !== null && model.id !== "*";
 
                   return (
                     <button

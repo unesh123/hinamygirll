@@ -44,6 +44,8 @@ import type { SpeechAudio } from "./features/audio/progressiveSpeech";
 import { timedAlignmentToVisemes } from "./features/audio/textToViseme";
 import { useAudioPlayback } from "./features/audio/useAudioPlayback";
 import { SpeechPlaybackContext } from "./features/audio/speechPlaybackBridge";
+import { withSpeechFallback } from "./features/audio/speechFallback";
+import { synthesizeSpeechStream } from "./features/audio/streamingSpeechAudio";
 import { useLiveConversation } from "./features/audio/useLiveConversation";
 import { useVSeeFace } from "./features/audio/useVSeeFace";
 import { companionProfiles, type CompanionId, type CompanionState } from "./features/companion/types";
@@ -871,50 +873,44 @@ export default function App() {
       let generating = true;
       playback.beginSpeechStream();
       const effectiveEngine = (voiceEngine === "auto" || !voiceEngine || voiceEngine.startsWith("deepgram")) ? "elevenlabs" : voiceEngine;
-      // Streamed speech budget: a long essay is fine on screen but exhausting
-      // read aloud sentence-by-sentence — and free-tier brains often restate
-      // the same answer two or three ways in one reply, which sounds exactly
-      // like she is repeating herself. She speaks the gist live; the complete
-      // text stays on screen. The completion path below is already capped by
-      // deriveSpokenText; this caps the streaming path the same way.
-      const STREAMED_SPEECH_WORD_BUDGET = 90;
-      let streamedSpeechWords = 0;
       const queue = new ProgressiveSpeech({
         synthesize: async (phrase, signal) => {
           if (playback.muted) return null;
           const effectiveMode = (!mode || mode === "mock") ? "agent-router" : mode;
           try {
             const locale = resolveConversationLocale(phrase, settings.language.activePolicy);
-            let speech: SpeechAudio;
-            try {
+            const speech = await withSpeechFallback<SpeechAudio>(signal, async synthesisSignal => {
+              if (effectiveEngine === "elevenlabs" && (window.AudioContext || (window as unknown as {webkitAudioContext?: unknown}).webkitAudioContext)) {
+                return synthesizeSpeechStream(phrase, companionId, effectiveMode, synthesisSignal, locale);
+              }
               const timed = await synthesizeSpeechTimed(
                 phrase,
                 companionId,
                 effectiveMode,
-                AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+                synthesisSignal,
                 locale,
                 true,
                 effectiveEngine,
               );
-              speech = {
+              return {
                 blob: timed.blob,
                 provider: timed.provider,
                 latencyMs: timed.latencyMs,
                 visemes: timedAlignmentToVisemes(timed.alignment),
               };
-            } catch {
+            }, async synthesisSignal => {
               // Timing is an enhancement; the audio-only route is the fallback.
               const plain = await synthesizeSpeech(
                 phrase,
                 companionId,
                 effectiveMode,
-                AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+                synthesisSignal,
                 locale,
                 true,
                 effectiveEngine,
               );
-              speech = { blob: plain.blob, provider: plain.provider, latencyMs: plain.latencyMs };
-            }
+              return { blob: plain.blob, provider: plain.provider, latencyMs: plain.latencyMs };
+            });
             runtimeMeasurements.synthesized(speech.latencyMs);
             return /placeholder|mock/i.test(speech.provider) ? null : speech;
           } catch (err) {
@@ -940,6 +936,22 @@ export default function App() {
           });
           };
           signal.addEventListener("abort", finish, { once: true });
+          if (audio?.stream) {
+            void (async () => {
+              let first = true;
+              let lastEnded = Promise.resolve();
+              for await (const frame of audio.stream!) {
+                if (signal.aborted || playback.muted) break;
+                let markEnded!: () => void;
+                lastEnded = new Promise<void>(done => { markEnded = done; });
+                await playback.play(frame.blob, frame.text || undefined, first ? started : undefined, markEnded, frame.visemes);
+                first = false;
+              }
+              await lastEnded;
+              finish();
+            })().catch(reject);
+            return;
+          }
           if (audio) {
             void playback.play(audio.blob, phrase, started, finish, audio.visemes).catch(reject);
           } else {
@@ -961,8 +973,7 @@ export default function App() {
         voiceEngine: effectiveEngine,
         onSentenceChunk: phrase => {
           if (playback.muted) return;
-          streamedSpeechWords += phrase.trim().split(/\s+/).filter(Boolean).length;
-          if (streamedSpeechWords <= STREAMED_SPEECH_WORD_BUDGET) queue.enqueue(phrase);
+          queue.enqueue(phrase);
         },
       });
       generating = false;
@@ -972,11 +983,7 @@ export default function App() {
       // through the same bounded phrase queue, without replaying streamed content.
       if (!queue.hasPhrases && !playback.muted) {
         const detector = new PhraseDetector({ maxBufferChars: 160, minPhraseChars: 12 });
-        const rawSpoken = result.plan.spokenText?.trim() || "";
-        const spoken = (rawSpoken && rawSpoken.length <= 200 && rawSpoken !== result.plan.displayText?.trim())
-          ? rawSpoken
-          : deriveSpokenText(result.plan.displayText);
-        const fullText = cleanSpeechText(spoken || result.plan.displayText || "");
+        const fullText = cleanSpeechText(result.plan.displayText || result.plan.spokenText || "");
         for (const phrase of [...detector.push(fullText), ...detector.flush()]) queue.enqueue(phrase);
       }
     })();

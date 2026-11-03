@@ -43,6 +43,7 @@ import { rollBlinkShapeSpec } from "../../features/avatar/blinkShape";
 import { SpeechPlaybackContext, sampleSpeechPlayback } from "../../features/audio/speechPlaybackBridge";
 import { optimizeVrm, DEFAULT_KEEP_EXPRESSIONS } from "../../features/avatar/vrmOptimizer";
 import { playFootstepSound } from "../../lib/uiSound";
+import { fullBodyCameraDistance } from "../../features/avatar/fullBodyCamera";
 import type { AssistantTurnPlan } from "../../contracts/assistantTurnPlan";
 
 
@@ -60,6 +61,8 @@ const CAMERAS: Record<PresenceMode, { pos: [number,number,number]; target: [numb
 type CameraPreset = { pos: [number, number, number]; target: [number, number, number]; fov: number };
 
 type AnatomyFrame = {
+  width?: number;
+  depth?: number;
   centerX: number;
   headY: number;
   neckY: number;
@@ -70,7 +73,7 @@ type AnatomyFrame = {
   revision: string;
 };
 
-function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: AnatomyFrame, compactViewport = false): CameraPreset {
+function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: AnatomyFrame, compactViewport = false, aspect = 1): CameraPreset {
   if (!frame || mode === "hidden") return fallback;
   const torso = Math.max(0.28, frame.headY - frame.chestY);
   const bodyHeight = Math.max(1.1, frame.maxY - frame.minY);
@@ -96,7 +99,7 @@ function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: A
   if (mode === "full") {
     const targetY = (frame.minY + frame.maxY) / 2;
     const fov = 43;
-    const distance = Math.max(2.15, (bodyHeight / 2) / Math.tan(THREE.MathUtils.degToRad(fov / 2)) * 1.12);
+    const distance = fullBodyCameraDistance(bodyHeight, frame.width ?? 0.9, aspect, fov, frame.depth);
     return { pos: [x, targetY, distance], target: [x, targetY, 0], fov };
   }
   if (mode === "upperbody") {
@@ -542,8 +545,9 @@ function Model({
 
       // Derive a stable frame only after the calibrated transform is applied.
       // This runs on model load, never in the render loop, so it cannot drift.
+      const reportAnatomy = () => {
       v.scene.updateMatrixWorld(true);
-      const bounds = new THREE.Box3().setFromObject(v.scene);
+      const bounds = new THREE.Box3().setFromObject(v.scene, true);
       const center = bounds.getCenter(new THREE.Vector3());
       const size = bounds.getSize(new THREE.Vector3());
       const head = v.humanoid?.getNormalizedBoneNode("head" as any);
@@ -558,6 +562,8 @@ function Model({
       const neckY = neck?.getWorldPosition(new THREE.Vector3()).y ?? safeHeadY - Math.max(0.10, (safeHeadY - chestY) * 0.28);
       const hipsY = hips?.getWorldPosition(new THREE.Vector3()).y ?? bounds.min.y + size.y * 0.38;
       onAnatomyFrame?.({
+        width: bounds.max.x - bounds.min.x,
+        depth: bounds.max.z - bounds.min.z,
         centerX: center.x,
         headY: safeHeadY,
         neckY: Math.max(chestY + 0.08, neckY),
@@ -567,6 +573,7 @@ function Model({
         maxY: bounds.max.y,
         revision: `${url}:${bounds.min.y.toFixed(3)}:${bounds.max.y.toFixed(3)}:${safeHeadY.toFixed(3)}`,
       });
+      };
 
       // Cache available expressions
       const em = v.expressionManager;
@@ -626,6 +633,8 @@ function Model({
               restQRef.current[boneName] = rest;
               curQRef.current[boneName] = rest.clone();
               poseTargetRef.current[boneName] = rest.clone().multiply(offsets[boneName]);
+              node.quaternion.copy(poseTargetRef.current[boneName]);
+              curQRef.current[boneName].copy(poseTargetRef.current[boneName]);
             }
           } catch {}
         }
@@ -708,6 +717,8 @@ function Model({
         jawBoneRef.current = null;
       }
 
+      v.update(0);
+      reportAnatomy();
       vrmRef.current = v;
       setLoaded(true);
       onLoadState?.("ready");
@@ -1805,8 +1816,9 @@ function Cam({
   const fallback = MODEL_CAMERA_PRESETS[modelUrl]?.[effectiveMode] ?? CAMERAS[effectiveMode] ?? CAMERAS.portrait;
   const camera = useThree(s => s.camera);
   const viewportWidth = useThree(s => s.size.width);
+  const viewportHeight = useThree(s => s.size.height);
   const compactViewport = viewportWidth <= 768;
-  const cfg = cameraFromAnatomy(effectiveMode, fallback, anatomy, compactViewport);
+  const cfg = cameraFromAnatomy(effectiveMode, fallback, anatomy, compactViewport, viewportWidth / Math.max(1, viewportHeight));
   const curPos = useRef(new THREE.Vector3(...cfg.pos));
   const curTarget = useRef(new THREE.Vector3(...cfg.target));
   const initialized = useRef(false);
@@ -1872,7 +1884,7 @@ function Cam({
 
     // 3. Dynamic face push-in dolly for conversational warmth & cute emphasis
     const baseDist = Math.hypot(rx, dy, rz);
-    const dollyOffset = (isCuteOrAffectionate ? 0.13 : 0.09) * speechFactor;
+    const dollyOffset = effectiveMode === "full" ? 0 : (isCuteOrAffectionate ? 0.13 : 0.09) * speechFactor;
     const dollyFactor = baseDist > 0.3 ? Math.max(0.65, (baseDist - dollyOffset) / baseDist) : 1.0;
 
     camFinalPos.set(
@@ -1891,7 +1903,7 @@ function Cam({
     persCam.lookAt(camFinalTarget);
 
     // Dynamic FOV punch during dialogue
-    const targetFov = cfg.fov - (isCuteOrAffectionate ? 3.2 : 2.0) * speechFactor;
+    const targetFov = effectiveMode === "full" ? cfg.fov : cfg.fov - (isCuteOrAffectionate ? 3.2 : 2.0) * speechFactor;
     if (Math.abs(persCam.fov - targetFov) > 0.02) {
       persCam.fov = THREE.MathUtils.damp(persCam.fov, targetFov, 4.5, realDt);
       persCam.updateProjectionMatrix();

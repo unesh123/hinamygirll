@@ -9,6 +9,35 @@ import {
 import { SyntheticSpeechTimingSource } from "../audio/speechTimingSource";
 
 describe("Avatar Performance Substrate", () => {
+  it("advances fallback visemes using the speech playback clock", () => {
+    const director = new PerformanceDirector();
+    director.setState("SPEAKING");
+    const fallbackVisemes = [
+      { timeMs: 0, durationMs: 100, mouth: "aa" as const, weight: 1 },
+      { timeMs: 100, durationMs: 300, mouth: "ou" as const, weight: 1 },
+    ];
+    const frame = director.update(0.1, 20, { fallbackVisemes, playbackTimeMs: 180 });
+    expect(frame.lipSync.ou).toBeGreaterThan(0.8);
+    expect(frame.lipSync.aa).toBe(0);
+    const silence = director.update(0.1, 20.4, { fallbackVisemes, playbackTimeMs: 600 });
+    expect(silence.lipSync.ou).toBeLessThan(frame.lipSync.ou);
+  });
+
+  it("uses calibrated playback time when a timing source is present", () => {
+    const director = new PerformanceDirector();
+    director.setState("SPEAKING");
+    const timing = new SyntheticSpeechTimingSource({
+      durationMs: 1000,
+      visemes: [
+        { timeMs: 0, durationMs: 100, mouth: "aa", weight: 1 },
+        { timeMs: 100, durationMs: 300, mouth: "ou", weight: 1 },
+      ],
+    });
+    const frame = director.update(0.1, 20, { timingSource: timing, playbackTimeMs: 180 });
+    expect(frame.lipSync.ou).toBeGreaterThan(0.8);
+    expect(frame.lipSync.aa).toBe(0);
+  });
+
   it("EmotionRuntime tracks emotion and clamps intensity", () => {
     const runtime = new EmotionRuntime();
     expect(runtime.getEmotion()).toBe("neutral");

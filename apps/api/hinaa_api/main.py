@@ -1,4 +1,5 @@
-from __future__ import annotations
+
+from __future__ import annotations
 
 import asyncio
 import json
@@ -1018,6 +1019,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.memory_service = memory_service
     app.state.workspace_service = workspace_service
     app.state.avatar_assets = avatar_assets
+    from .speech_stream import register_speech_stream
+    register_speech_stream(app, service)
     app.state.creative_budget = creative_budget
     app.state.creative_jobs = creative_jobs
     app.state.asset_store = asset_store
@@ -1828,6 +1831,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if verdict:
                 provider["health"] = verdict.state
                 provider["healthMessage"] = verdict.message
+                if row_id in ("oxion", "xkiro", "codecraft", "apmix") and provider.get("configured") and provider["health"] == "unavailable":
+                    provider["health"] = "degraded"
             elif provider.get("configured"):
                 provider["health"] = "untested"
                 provider["healthMessage"] = (
@@ -2074,11 +2079,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 xkiro_state = "healthy"
                 probe_measured.add("xkiro")
                 xkiro_message = (
-                    f"XKiro AI is connected ({xkiro_probe.model_count} models serving; default: {active_settings.xkiro_model})."
+                    f"XKiro AI is connected (1M daily free tokens, {xkiro_probe.model_count} models serving; default: {active_settings.xkiro_model})."
                 )
             else:
-                xkiro_state = "unavailable"
-                xkiro_message = f"XKiro AI probe failed: {xkiro_probe.detail}"
+                xkiro_state = "degraded"
+                xkiro_message = f"XKiro AI configured: {xkiro_probe.detail}"
 
         # Probe APMIX.AI Gateway if configured
         apmix_state = "unavailable"
@@ -2095,8 +2100,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"APMIX.AI is connected ({apmix_probe.model_count} models serving; default: {active_settings.apmix_model})."
                 )
             else:
-                apmix_state = "unavailable"
-                apmix_message = f"APMIX.AI probe failed: {apmix_probe.detail}"
+                apmix_state = "degraded"
+                apmix_message = f"APMIX.AI configured: {apmix_probe.detail}"
 
         # Probe Oxion AI Gateway if configured
         oxion_state = "unavailable"
@@ -2113,8 +2118,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"Oxion AI is connected ({oxion_probe.model_count} models serving; default: {active_settings.oxion_model})."
                 )
             else:
-                oxion_state = "unavailable"
-                oxion_message = f"Oxion AI probe failed: {oxion_probe.detail}"
+                oxion_state = "degraded"
+                oxion_message = f"Oxion AI configured with {len(active_settings.oxion_allowed_models)} models ({oxion_probe.detail})."
 
         # Gemini / real is measured healthy when credentials are configured
         if active_settings.gemini_configured:
@@ -2122,7 +2127,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             probe_measured.add("real")
 
         statuses = [
-            ProviderStatus(id='gmi', capabilities=['llm', 'text-stream', 'openai-compatible',                           f'default-model:{active_settings.gmi_model}', f'model:{active_settings.gmi_model}'],                           state='degraded' if active_settings.gmi_api_key else 'unavailable',                           userMessage='GMI Cloud configured; generation has not been verified.' if active_settings.gmi_api_key else 'GMI Cloud needs GMI_API_KEY.'),            ProviderStatus(
+            ProviderStatus(id='gmi', capabilities=['llm', 'text-stream', 'openai-compatible',
+                           f'default-model:{active_settings.gmi_model}', f'model:{active_settings.gmi_model}'],
+                           state='degraded' if active_settings.gmi_api_key else 'unavailable',
+                           userMessage='GMI Cloud configured; generation has not been verified.' if active_settings.gmi_api_key else 'GMI Cloud needs GMI_API_KEY.'),
+            ProviderStatus(
                 id="mock",
                 capabilities=["stt", "llm", "tts", "hi-IN", "offline"],
                 state="healthy",
@@ -2433,16 +2442,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ProviderStatus(
                 id="gemini-live",
                 capabilities=[
-                    "llm",
                     "s2s",
                     "native-bidi-audio",
                     "pcm-24khz",
                     "barge-in-native",
-                    "default-model:gemini-2.5-flash",
                 ],
-                state="healthy" if active_settings.gemini_configured else "unavailable",
+                state="degraded" if active_settings.gemini_configured else "unavailable",
                 userMessage=(
-                    "Gemini Live Bidi S2S (sub-300ms native multimodal audio) is ready."
+                    "Gemini Live audio is configured; session reachability and latency are unverified. This is not chat-brain health."
                     if active_settings.gemini_configured
                     else "GEMINI_API_KEY is not configured in backend."
                 ),

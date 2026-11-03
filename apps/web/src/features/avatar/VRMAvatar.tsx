@@ -521,6 +521,7 @@ function VrmRig({
       gesture: input.gesture,
       codeMode: input.codeMode,
       timingSource: speechBridge?.current?.timing,
+      playbackTimeMs: speechSample?.timeMs,
       fallbackVisemes: speechSample?.events,
       jawEnergy: liveJaw,
       isVrm1,

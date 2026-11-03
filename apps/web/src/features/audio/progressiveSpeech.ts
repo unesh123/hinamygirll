@@ -4,6 +4,8 @@ export interface SpeechAudio {
   blob: Blob;
   provider: string;
   latencyMs: number;
+  stream?: AsyncIterable<SpeechAudio>;
+  text?: string;
   /** Vendor-timed mouth shapes for this clip (relative to clip start). */
   visemes?: VisemeEvent[];
 }

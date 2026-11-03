@@ -264,6 +264,7 @@ export class PerformanceDirector {
       gesture?: string;
       codeMode?: boolean;
       timingSource?: SpeechTimingSource | null;
+      playbackTimeMs?: number;
       fallbackVisemes?: VisemeEvent[];
       jawEnergy?: number;
       isVrm1?: boolean;
@@ -293,6 +294,7 @@ export class PerformanceDirector {
       fallbackVisemes: options.fallbackVisemes,
       jawEnergy: options.jawEnergy,
       speaking: isSpeaking,
+      customTimeMs: options.playbackTimeMs,
     });
 
     return {

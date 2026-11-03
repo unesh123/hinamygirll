@@ -566,8 +566,9 @@ class OpenAILLMProvider:
             timing.mark("text_complete")
             answer = outcome.text.strip()
             if not answer:
-                if outcome.thinking and outcome.thinking.strip():
-                    answer = outcome.thinking.strip()
+                thinking_val = getattr(outcome, "thinking", None)
+                if thinking_val and str(thinking_val).strip():
+                    answer = str(thinking_val).strip()
                 else:
                     raise HinaaError(
                         "MODEL_RESPONSE_INVALID", "The model returned no safe text.", 502, True
@@ -632,25 +633,38 @@ class OpenAILLMProvider:
         return default
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
-        payload = {
-            "model": self._model_for_payload(),
-            "messages": _messages(prompt),
-            "temperature": self._effective_temperature(0.35),
-            # Dynamically budgeted tokens based on turn depth and interaction mode
-            "max_tokens": _llm_budget_tokens(prompt),
-        }
-        async with _pooled_client() as client:
-            response = await client.post(
-                self._chat_url(),
-                headers=self._headers(),
-                json=payload,
-            )
-        self._raise_for_status(response)
-        data = response.json()
-        choices = data.get("choices") or []
-        msg = choices[0].get("message", {}) if choices else {}
-        content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
-        return content if isinstance(content, str) else ""
+        models_to_try = [self._model_for_payload()]
+        if self._provider_id == "xkiro":
+            for fb_m in ("mistralai/ministral-14b", "cohere/command-a-reasoning"):
+                if fb_m not in models_to_try:
+                    models_to_try.append(fb_m)
+        last_resp: httpx.Response | None = None
+        for candidate_model in models_to_try:
+            payload = {
+                "model": candidate_model,
+                "messages": _messages(prompt),
+                "temperature": self._effective_temperature(0.35),
+                # Dynamically budgeted tokens based on turn depth and interaction mode
+                "max_tokens": _llm_budget_tokens(prompt),
+            }
+            async with _pooled_client() as client:
+                response = await client.post(
+                    self._chat_url(),
+                    headers=self._headers(),
+                    json=payload,
+                )
+            last_resp = response
+            if response.status_code in {429, 503} and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                continue
+            self._raise_for_status(response)
+            data = response.json()
+            choices = data.get("choices") or []
+            msg = choices[0].get("message", {}) if choices else {}
+            content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
+            return content if isinstance(content, str) else ""
+        if last_resp is not None:
+            self._raise_for_status(last_resp)
+        return ""
 
     async def _repair_json(self, invalid_raw: str) -> str:
         payload = {
@@ -689,68 +703,96 @@ class OpenAILLMProvider:
         """
         budget = _llm_budget_tokens(prompt)
         stream_temp = self._effective_temperature(0.45)
-        if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:
-            # Gateways host reasoning models (e.g. Kimi, Claude Fable, cx/gpt-5.6-sol)
-            # that spend tokens on hidden reasoning_content before any visible content.
-            # A generous token budget guarantees comprehensive, unclipped output.
-            payload: dict[str, object] = {
-                "model": self._model_for_payload(),
-                "messages": _messages(prompt),
-                "temperature": stream_temp,
-                "max_tokens": budget,
-                "stream": True,
-            }
-        else:
-            payload = {
-                "model": self._model,
-                "messages": _messages(prompt),
-                "temperature": 0.45,
-                "max_completion_tokens": budget,
-                "stream": True,
-            }
-        async with _pooled_client() as client:
-            async with client.stream(
-                "POST",
-                self._chat_url(),
-                headers=self._headers(),
-                json=payload,
-            ) as response:
-                self._raise_for_status(response)
-                in_thought = False
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    event = line.removeprefix("data:").strip()
-                    if event == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(event)
-                    except json.JSONDecodeError:
-                        continue
-                    choices = data.get("choices") or []
-                    if not choices:
-                        # Usage/heartbeat events legally carry no choices;
-                        # indexing [0] here used to crash the whole live turn.
-                        continue
-                    if finish_reason_holder is not None:
-                        raw_fr = choices[0].get("finish_reason")
-                        if raw_fr:
-                            finish_reason_holder["value"] = str(raw_fr)
-                    delta_dict = choices[0].get("delta") or {}
-                    content_chunk = delta_dict.get("content")
-                    reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
-                    if isinstance(reasoning_chunk, str) and reasoning_chunk:
-                        if not in_thought:
-                            in_thought = True
-                            yield "<think>"
-                        yield reasoning_chunk
-                    if isinstance(content_chunk, str) and content_chunk:
-                        if in_thought:
+        primary_model = self._model_for_payload() if (self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS) else self._model
+        models_to_try = [primary_model]
+        if self._provider_id == "xkiro":
+            for fb_m in ("mistralai/ministral-14b", "cohere/command-a-reasoning"):
+                if fb_m not in models_to_try:
+                    models_to_try.append(fb_m)
+
+        for candidate_model in models_to_try:
+            if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:
+                payload: dict[str, object] = {
+                    "model": candidate_model,
+                    "messages": _messages(prompt),
+                    "temperature": stream_temp,
+                    "max_tokens": budget,
+                    "stream": True,
+                }
+            else:
+                payload = {
+                    "model": candidate_model,
+                    "messages": _messages(prompt),
+                    "temperature": 0.45,
+                    "max_completion_tokens": budget,
+                    "stream": True,
+                }
+            streamed_any = False
+            stream_failed_early = False
+            try:
+                async with _pooled_client() as client:
+                    async with client.stream(
+                        "POST",
+                        self._chat_url(),
+                        headers=self._headers(),
+                        json=payload,
+                    ) as response:
+                        if (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                            stream_failed_early = True
+                        else:
+                            self._raise_for_status(response)
                             in_thought = False
-                            yield "</think>\n\n"
-                        yield content_chunk
-                if in_thought:
-                    yield "</think>\n\n"
+                            async for line in response.aiter_lines():
+                                if not line.startswith("data:"):
+                                    continue
+                                event = line.removeprefix("data:").strip()
+                                if event == "[DONE]":
+                                    break
+                                try:
+                                    data = json.loads(event)
+                                except json.JSONDecodeError:
+                                    continue
+                                if isinstance(data, dict) and "error" in data:
+                                    if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                                        stream_failed_early = True
+                                        break
+                                    err_msg = data["error"].get("message", "Upstream stream error")
+                                    raise HinaaError("PROVIDER_UNAVAILABLE", err_msg, 502, True)
+                                choices = data.get("choices") or []
+                                if not choices:
+                                    continue
+                                if finish_reason_holder is not None:
+                                    raw_fr = choices[0].get("finish_reason")
+                                    if raw_fr:
+                                        finish_reason_holder["value"] = str(raw_fr)
+                                delta_dict = choices[0].get("delta") or {}
+                                content_chunk = delta_dict.get("content")
+                                reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
+                                if isinstance(reasoning_chunk, str) and reasoning_chunk:
+                                    streamed_any = True
+                                    if not in_thought:
+                                        in_thought = True
+                                        yield "<think>"
+                                    yield reasoning_chunk
+                                if isinstance(content_chunk, str) and content_chunk:
+                                    streamed_any = True
+                                    if in_thought:
+                                        in_thought = False
+                                        yield "</think>\n\n"
+                                    yield content_chunk
+                            if not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                                stream_failed_early = True
+                            elif streamed_any:
+                                if in_thought:
+                                    yield "</think>\n\n"
+                                return
+            except Exception:
+                if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                    stream_failed_early = True
+                else:
+                    raise
+            if stream_failed_early:
+                continue
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {

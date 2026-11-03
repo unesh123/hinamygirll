@@ -28,6 +28,13 @@ function providersWith(
 }
 
 describe("resolveProviderSelection", () => {
+  it("does not use native-audio availability as proof of a working chat brain", () => {
+    const selection = resolveProviderSelection(
+      { preferredMode: "auto", preferredModelByProvider: {} },
+      providersWith({ "gemini-live": "healthy", openai: "untested", mock: "healthy" }),
+    );
+    expect(selection.activeMode).toBe("openai");
+  });
   it.each(["groq", "experiential"] as const)("automatically selects a working %s instead of offline fallback", (mode) => {
     const selection = resolveProviderSelection(
       { preferredMode: "auto", preferredModelByProvider: {} },

@@ -4889,7 +4889,10 @@ class ConversationService:
         session_memories = _dedupe_session_facts(
             self.memory.learned_memories(request.sessionId), approved
         )
-        if getattr(self, "advanced_memory", None) is not None:
+        if (
+            getattr(self, "advanced_memory", None) is not None
+            and not _route_meta.get("skip_recent_working_context")
+        ):
             try:
                 adv_mem = self.advanced_memory.assemble_memory_context(
                     user_id=effective_user,
@@ -5500,6 +5503,7 @@ class ConversationService:
         from .providers.timing import ProviderTiming
         from .models import ToolRequest
 
+        timing = ProviderTiming()
         convo_id = request.conversationId or request.sessionId
         d_state = None
         dialogue_state_block = ""
@@ -5759,14 +5763,16 @@ class ConversationService:
                 pass
 
         durable_memory = self._capture_turn_facts(request, user_id)
-        timing = ProviderTiming()
         history = session_history or self._resolve_session_history(request.sessionId, request.conversationId)
         effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
         approved = self._approved_blocks(effective_user)
         session_memories = _dedupe_session_facts(
             self.memory.learned_memories(request.sessionId), approved
         )
-        if getattr(self, "advanced_memory", None) is not None:
+        if (
+            getattr(self, "advanced_memory", None) is not None
+            and not _route_meta.get("skip_recent_working_context")
+        ):
             try:
                 adv_mem = self.advanced_memory.assemble_memory_context(
                     user_id=effective_user,
@@ -6109,7 +6115,7 @@ class ConversationService:
                                 ceiling_s=primary_live_timeout,
                                 idle_s=primary_idle_timeout,
                                 forward=emit_delta,
-                                first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
+                                first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
                             ) as (fallback_emit, _):
                                 if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                                     fallback_live_result = await fb_provider.create_live_plan(
@@ -6162,7 +6168,7 @@ class ConversationService:
                                     ceiling_s=primary_live_timeout,
                                     idle_s=primary_idle_timeout,
                                     forward=emit_delta,
-                                    first_token_s=min(3.5, self.settings.llm_stream_first_token_timeout_seconds),
+                                    first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
                                 ) as (fallback_emit, _):
                                     if isinstance(fb_provider, GeminiLLMProvider | GroqLLMProvider | OpenAILLMProvider | AgentRouterOpenAIProvider | AgentRouterAnthropicProvider):
                                         fallback_live_result = await fb_provider.create_live_plan(

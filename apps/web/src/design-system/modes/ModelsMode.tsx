@@ -37,7 +37,7 @@ export function ModelsMode({isDark=false, selectedModelId, selectedProviderId, o
         const provider = providers.find(item=>item.id===model.provider);
         const health = provider?.health ?? "untested";
         const supported = providerModeFromId(model.provider)!==null && model.id !== "*";
-        const canSelect = runtime.backendConnected && Boolean(provider?.configured) && model.configured && health!=="unavailable" && supported;
+        const canSelect = runtime.backendConnected && Boolean(provider?.configured) && model.configured && supported;
         const selected = selectedModelId===model.id && providerModeFromId(selectedProviderId ?? "")===providerModeFromId(model.provider);
         const status = !provider?.configured ? "Setup required" : health==="healthy" ? "Verified healthy" : health==="unavailable" ? "Unavailable" : health==="degraded" ? "Last call failed" : "Not yet tested";
         return <button key={`${model.provider}:${model.id}`} type="button" className="models-mode__model" disabled={!canSelect} aria-pressed={selected} aria-label={`Use ${model.name} via ${provider?.name ?? model.provider}`} onClick={()=>onSelectModel(model.id,model.provider)} title={provider?.healthMessage || (!supported ? "This provider has no supported chat route." : model.description)}>

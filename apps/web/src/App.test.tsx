@@ -103,10 +103,7 @@ describe("HINAA assistant workspace", () => {
     utterance.onend?.();
   }, 10_000);
 
-  it("caps streamed speech at the word budget instead of reading a rambling reply aloud", async () => {
-    // A free-tier brain can restate the same answer three ways in one reply.
-    // She must speak the gist and stop — reading every sentence aloud is what
-    // sounded like "repeating the message". The full text still lands on screen.
+  it("speaks a complete streamed reply beyond 90 words without replaying its final plan", async () => {
     const speak = vi.fn();
     vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak, cancel: vi.fn() });
     vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
@@ -179,15 +176,12 @@ describe("HINAA assistant workspace", () => {
       }
     }
 
-    const spokenWords = speak.mock.calls
+    const spokenText = speak.mock.calls
       .map((call) => String((call[0] as FakeUtterance).text))
-      .join(" ")
-      .split(/\s+/)
-      .filter(Boolean).length;
+      .join(" ");
     const essayWords = essay.split(/\s+/).filter(Boolean).length;
-    expect(essayWords).toBeGreaterThan(90); // the reply really was a ramble
-    expect(spokenWords).toBeGreaterThan(40); // she still speaks the gist…
-    expect(spokenWords).toBeLessThanOrEqual(90); // …but never the whole essay
+    expect(essayWords).toBeGreaterThan(90);
+    expect(spokenText).toBe(essay);
   }, 15_000);
 
   async function sendAttachedPicture(roleLabel: string): Promise<any> {
@@ -304,6 +298,9 @@ describe("URLs that earn the Clerk token", () => {
       if (String(url).includes("/conversations/turns:stream")) return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }), { headers: { "Content-Type": "application/x-ndjson" } });
       if (String(url).includes("/speech/synthesis")) {
         requests.push(JSON.parse(String(init?.body)));
+        if (String(url).endsWith("/stream")) {
+          return new Response(JSON.stringify({ type: "audio", audioBase64: "AAAAAA==", sampleRate: 24_000, text: "a", alignment: [] }) + "\n" + JSON.stringify({type:"done"}) + "\n", {headers:{"Content-Type":"application/x-ndjson"}});
+        }
         return new Response(new Blob(["audio"], {type:"audio/mpeg"}), { headers: {"X-HINAA-Provider":"elevenlabs"} });
       }
       return Response.json({}, {status:404});
