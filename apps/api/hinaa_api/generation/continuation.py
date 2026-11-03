@@ -518,6 +518,8 @@ def detect_continuation_need(
 
     if finish_reason in {"STOP", "stop"}:
         evidence.natural_stop = True
+        # Natural stop: avoid repeating turns on conversational/informal endings
+        reasons = [r for r in reasons if r.reason not in (ContinuationReason.INCOMPLETE_SENTENCE, ContinuationReason.INCOMPLETE_PARAGRAPH)]
 
     # 9. No-progress guard. A gateway model writing a long report opens a code
     # fence to quote something and never closes it; every resume then reported

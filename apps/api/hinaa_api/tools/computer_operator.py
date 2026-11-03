@@ -821,6 +821,12 @@ class NativeComputerOperator:
             "whatsapp": "whatsapp:",
             "whatsapp desktop": "whatsapp:",
             "whatsapp web": "https://web.whatsapp.com",
+            "bluestacks": r"C:\Program Files\BlueStacks_nxt\HD-Player.exe",
+            "bluestacks 5": r"C:\Program Files\BlueStacks_nxt\HD-Player.exe",
+            "bluestacks x": r"C:\Program Files\BlueStacks_nxt\HD-Player.exe",
+            "hd-player": r"C:\Program Files\BlueStacks_nxt\HD-Player.exe",
+            "android emulator": r"C:\Program Files\BlueStacks_nxt\HD-Player.exe",
+            "emulator": r"C:\Program Files\BlueStacks_nxt\HD-Player.exe",
         }
         if cleaned.lower() in {"my editor", "preferred editor", "code editor", "integrity"}:
             cleaned = os.getenv("HINAA_PREFERRED_EDITOR", "antigravity")

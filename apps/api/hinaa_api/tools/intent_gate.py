@@ -255,8 +255,9 @@ _TERMINAL_CMD_ASK = re.compile(
     \s+(?:in|on|through|using|via|from)\s+(?:the\s+|my\s+)?
     (?:terminal|shell|console|command\s*(?:line|prompt)|powershell|cmd|git\s+bash|wsl)\b
     |
-    \b(?:run|execute|exec)\s+(?:the\s+)?command\s+[:`]?\s*(.+?)
-    \s*$
+    \b(?:run|execute|exec)\s+(?:the\s+)?(?:command|script|python\s+script|powershell\s+script|code)\s+[:`]?\s*(.+?)\s*$
+    |
+    \b(?:run|execute|exec)\s+(?:python|py|powershell|pwsh|bash|sh|node|deno|npm|pnpm|git|adb|curl)\s+(.+?)\s*$
     """
 )
 
@@ -268,6 +269,7 @@ _COMPUTER_APP_ASK = re.compile(
     (?:
         application | app | program | software |
         spotify | chrome | edge | firefox | brave | notepad | calc | calculator |
+        bluestacks | emulator |
         terminal | powershell | cmd | command\s+prompt | vs\s*code | vscode |
         discord | telegram | steam | slack | youtube | explorer | file\s+explorer | settings |
         camera | paint | word | excel | powerpoint | [a-zA-Z0-9_\-\.]{2,30}

@@ -53,7 +53,19 @@ class MobileKeyParams(BaseModel):
 
 def _find_adb() -> str | None:
     """Locates the ADB executable on the system."""
-    return shutil.which("adb")
+    found = shutil.which("adb")
+    if found:
+        return found
+    import os
+    for candidate in [
+        r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe",
+        r"C:\Program Files\BlueStacks\HD-Adb.exe",
+        r"C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe"),
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+    return None
 
 
 def _run_adb_cmd(args: list[str], device_serial: str | None = None, timeout: float = 20.0) -> subprocess.CompletedProcess[str]:
