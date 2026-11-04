@@ -18,14 +18,20 @@ from playwright.async_api import Page
 
 logger = logging.getLogger("hinaa.browser.evidence")
 
-_DEFAULT_ARTIFACTS_DIR = Path("apps/data/browser_artifacts")
+def _get_default_artifacts_dir() -> Path:
+    current = Path.cwd().resolve()
+    for p in [current, current.parent, current.parent.parent]:
+        candidate = p / "apps" / "data"
+        if candidate.is_dir():
+            return candidate / "browser_artifacts"
+    return current / "apps" / "data" / "browser_artifacts"
 
 
 class EvidenceCollector:
     """Collects and stores verifiable evidence (screenshots, DOM snapshots, hashes)."""
 
     def __init__(self, artifacts_dir: Optional[Path] = None) -> None:
-        self.artifacts_dir = artifacts_dir or _DEFAULT_ARTIFACTS_DIR
+        self.artifacts_dir = artifacts_dir or _get_default_artifacts_dir()
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     async def capture_screenshot(

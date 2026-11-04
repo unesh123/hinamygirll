@@ -20,7 +20,15 @@ from playwright.async_api import Download, Page
 
 logger = logging.getLogger("hinaa.browser.files")
 
-_DEFAULT_DOWNLOADS_DIR = Path("apps/data/browser_downloads")
+def _get_default_downloads_dir() -> Path:
+    current = Path.cwd().resolve()
+    for p in [current, current.parent, current.parent.parent]:
+        candidate = p / "apps" / "data"
+        if candidate.is_dir():
+            return candidate / "browser_downloads"
+    return current / "apps" / "data" / "browser_downloads"
+
+
 _PROHIBITED_EXTENSIONS: Set[str] = {
     ".exe", ".bat", ".cmd", ".vbs", ".ps1", ".msi", ".scr", ".pif", ".com", ".sh", ".bash"
 }
@@ -31,7 +39,7 @@ class FileTransferManager:
     """Manages secure sandboxed downloads and strictly bounded uploads."""
 
     def __init__(self, downloads_dir: Optional[Path] = None) -> None:
-        self.downloads_dir = downloads_dir or _DEFAULT_DOWNLOADS_DIR
+        self.downloads_dir = downloads_dir or _get_default_downloads_dir()
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
     def _sanitize_filename(self, filename: str) -> str:

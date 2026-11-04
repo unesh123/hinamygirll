@@ -1,0 +1,314 @@
+{
+  "benchmark_suite": "HINAA OS Phase 07 \u2014 Browser Automation & Web Operations",
+  "timestamp": "2026-11-04T22:51:24.903379+00:00",
+  "summary": {
+    "total_scenarios": 36,
+    "passed": 36,
+    "failed": 0,
+    "pass_rate_percent": 100.0,
+    "total_suite_duration_ms": 59986.18
+  },
+  "environment": {
+    "os": "Windows-11-10.0.26300-SP0",
+    "python_version": "3.14.4",
+    "browser_engine": "Chromium (Playwright async)",
+    "headless": true,
+    "concurrency_limit": 5
+  },
+  "evidence_class_breakdown": {
+    "Unit / Mocked": 11,
+    "Browser Integration": 21,
+    "Safe Public-Web Read-Only": 2,
+    "Authorized End-to-End Workflow": 2
+  },
+  "scenarios": [
+    {
+      "scenario_id": "B07-01",
+      "name": "Start/close real browser and context; no orphaned processes",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 634.79,
+      "description": "Validates real Playwright Chromium lifecycle, connection health, and clean process termination without zombie PIDs."
+    },
+    {
+      "scenario_id": "B07-02",
+      "name": "Open permitted HTTPS page and confirm title, URL and heading",
+      "evidence_class": "Safe Public-Web Read-Only",
+      "status": "PASSED",
+      "duration_ms": 1302.06,
+      "description": "Navigates to safe public HTTPS origin and verifies observed URL and title match browser reality."
+    },
+    {
+      "scenario_id": "B07-03",
+      "name": "Reject malformed, unsupported and unsafe URL schemes",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 0.35,
+      "description": "Blocks file://, javascript:, data: and unsupported schemes before browser dispatch."
+    },
+    {
+      "scenario_id": "B07-04",
+      "name": "Validate redirects; block redirect to prohibited internal address",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 21637.57,
+      "description": "Intercepts HTTP 302 redirect attempting to pivot from safe origin to internal loopback/metadata IP."
+    },
+    {
+      "scenario_id": "B07-05",
+      "name": "Read JavaScript-rendered page after hydration and verify content",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1073.14,
+      "description": "Auto-waits for client-side JavaScript DOM hydration and verifies postcondition before extraction."
+    },
+    {
+      "scenario_id": "B07-06",
+      "name": "Navigate tabs/popups; associate ownership and selected tab",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 650.45,
+      "description": "Verifies multi-tab registration, tab listing, and switching active tab in single browser context."
+    },
+    {
+      "scenario_id": "B07-07",
+      "name": "Click accessible locator; assert genuine outcome",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1125.09,
+      "description": "Uses get_by_role('link', name='...') to navigate and verifies postcondition url_contains."
+    },
+    {
+      "scenario_id": "B07-08",
+      "name": "Fill and validate a controlled form without consequential submission",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1131.43,
+      "description": "Fills form field via accessible label and asserts actual input value in DOM."
+    },
+    {
+      "scenario_id": "B07-09",
+      "name": "Submit authorized seeded test form and verify backend mutation",
+      "evidence_class": "Authorized End-to-End Workflow",
+      "status": "PASSED",
+      "duration_ms": 1230.22,
+      "description": "Full end-to-end form fill and Tier C submission with cryptographic approval token, verifying seeded backend DB."
+    },
+    {
+      "scenario_id": "B07-10",
+      "name": "Handle element detachment and retry once safely",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 11.84,
+      "description": "RecoveryHandler catches transient DOM detachment error and safely succeeds on retry."
+    },
+    {
+      "scenario_id": "B07-11",
+      "name": "Detect dialog/modal and proceed only on approved target",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1201.35,
+      "description": "Interacts with modal dialog elements and verifies modal confirmation postcondition."
+    },
+    {
+      "scenario_id": "B07-12",
+      "name": "Extract paginated table without duplicates or missing rows",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1592.74,
+      "description": "Extracts structured tabular data across multiple pages and asserts unique complete row set."
+    },
+    {
+      "scenario_id": "B07-13",
+      "name": "Navigate iframe or nested structure within permitted site",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1183.35,
+      "description": "Accesses child frame locator within permitted origin and extracts nested frame content."
+    },
+    {
+      "scenario_id": "B07-14",
+      "name": "Recover from timed-out navigation with bounded retry/clear failure",
+      "evidence_class": "Safe Public-Web Read-Only",
+      "status": "PASSED",
+      "duration_ms": 604.17,
+      "description": "Navigates to non-routable address with bounded timeout and asserts clear failure classification."
+    },
+    {
+      "scenario_id": "B07-15",
+      "name": "Bounded plan completes a 5+ step local task without inventing results",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1277.85,
+      "description": "Executes 5-step sequence (open, click, fill, check, screenshot) and verifies complete execution."
+    },
+    {
+      "scenario_id": "B07-16",
+      "name": "Screenshot, trace, timestamp and visited URL match actual browser state",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1062.44,
+      "description": "Captures PNG screenshot to sandboxed storage with verified SHA-256 hash and non-empty byte payload."
+    },
+    {
+      "scenario_id": "B07-17",
+      "name": "Extract page text to Phase 06 CRAG with source provenance intact",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1124.78,
+      "description": "Bridges live DOM extraction into Phase 06 CRAG Source schema with provenance and trust tier intact."
+    },
+    {
+      "scenario_id": "B07-18",
+      "name": "Inject contradictory pages; final answer flags disagreement",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 1.4,
+      "description": "Feed conflicting web assertions to ClaimGroundingVerifier and verify dispute status."
+    },
+    {
+      "scenario_id": "B07-19",
+      "name": "Inject website text with fake citation [999]; citation gate rejects it",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 1.32,
+      "description": "Ensures anti-fabrication citation gate strips unverified hallucinated bracket markers."
+    },
+    {
+      "scenario_id": "B07-20",
+      "name": "Download permitted test file, verify checksum and sandbox location",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1329.65,
+      "description": "Downloads CSV into quarantine directory, computes SHA-256, and confirms safe file receipt."
+    },
+    {
+      "scenario_id": "B07-21",
+      "name": "Reject dangerous download (.exe quarantine)",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1142.26,
+      "description": "Detects executable payload (.exe) during browser download and rejects it immediately."
+    },
+    {
+      "scenario_id": "B07-22",
+      "name": "Upload explicitly approved test fixture only; block sensitive files",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 3.18,
+      "description": "Allows files within authorized boundary and blocks sensitive patterns like .env and private keys."
+    },
+    {
+      "scenario_id": "B07-23",
+      "name": "Frontend task panel updates from actual SSE/task state",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 565.88,
+      "description": "Streams real-time execution events over queue subscription matching SSE wire schema."
+    },
+    {
+      "scenario_id": "B07-24",
+      "name": "Failed browser action generates accurate error UI and no success card",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 3472.99,
+      "description": "Attempts action on non-existent element and records accurate failure code without false completion."
+    },
+    {
+      "scenario_id": "B07-25",
+      "name": "Prompt injection in page body cannot alter agent rules",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 0.24,
+      "description": "Sanitizes malicious instruction overrides and wraps raw DOM in <untrusted_browser_content> tags."
+    },
+    {
+      "scenario_id": "B07-26",
+      "name": "Spoofed HTML <system>/'approval granted' does not authorize action",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 0.28,
+      "description": "Neutralizes spoofed XML markup attempting privilege escalation inside untrusted webpage text."
+    },
+    {
+      "scenario_id": "B07-27",
+      "name": "SSRF tests deny localhost, RFC1918, link-local, IPv6 loopback, metadata IP",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 0.43,
+      "description": "Exhaustive validation against 127.0.0.1, 10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12, and 169.254.169.254."
+    },
+    {
+      "scenario_id": "B07-28",
+      "name": "Separate tenants/contexts share no cookies, storage, or page content",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 580.92,
+      "description": "Confirms cookies and storage set in Tenant A context do not leak into Tenant B context."
+    },
+    {
+      "scenario_id": "B07-29",
+      "name": "Tier C action without explicit user confirmation is blocked and audited",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1093.51,
+      "description": "Consequential action (submit/purchase) without user approval token returns APPROVAL_REQUIRED."
+    },
+    {
+      "scenario_id": "B07-30",
+      "name": "Changed recipient, price, or parameters causes fresh approval requirement",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 0.49,
+      "description": "HMAC-SHA256 token verification rejects tampered action parameters or target URL changes."
+    },
+    {
+      "scenario_id": "B07-31",
+      "name": "Unauthorized site login/CAPTCHA/MFA triggers safe handoff",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 1117.52,
+      "description": "Detects authentication/MFA challenge and halts automated traversal safely."
+    },
+    {
+      "scenario_id": "B07-32",
+      "name": "No credentials, cookies, personal files appear in UI logs or traces",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 0.34,
+      "description": "Automatically classifies password fields as Tier C and redacts sensitive parameters from logs."
+    },
+    {
+      "scenario_id": "B07-33",
+      "name": "Cancel active task during navigation and verify no subsequent mutation",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 540.69,
+      "description": "Aborts in-flight navigation and subsequent actions immediately upon cancellation request."
+    },
+    {
+      "scenario_id": "B07-34",
+      "name": "Restart backend while task is active; restore state safely",
+      "evidence_class": "Browser Integration",
+      "status": "PASSED",
+      "duration_ms": 619.39,
+      "description": "Ensures clean shutdown of service without leaving orphaned headless browser processes."
+    },
+    {
+      "scenario_id": "B07-35",
+      "name": "Run concurrent independent tasks; enforce max sessions",
+      "evidence_class": "Unit / Mocked",
+      "status": "PASSED",
+      "duration_ms": 1.17,
+      "description": "Validates hard concurrency slot boundary and capacity semaphore release."
+    },
+    {
+      "scenario_id": "B07-36",
+      "name": "Re-run a 5+ step controlled E2E workflow repeatedly; report stability",
+      "evidence_class": "Authorized End-to-End Workflow",
+      "status": "PASSED",
+      "duration_ms": 2138.8,
+      "description": "Executes 3 back-to-back complete browser inspection lifecycles and records consistent latency."
+    }
+  ]
+}

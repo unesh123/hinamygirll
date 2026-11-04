@@ -11,7 +11,7 @@ from aiohttp import web
 from typing import Any, Dict, List
 
 
-class TestFixtureServer:
+class LocalHttpFixtureServer:
     """In-process HTTP server for deterministic browser automation tests."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8923) -> None:
@@ -272,11 +272,16 @@ class TestFixtureServer:
 </html>"""
         return web.Response(text=html, status=401, content_type="text/html")
 
-    async def start(self) -> None:
+    async def start(self) -> str:
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, self.host, self.port)
         await self.site.start()
+        actual_port = self.site._server.sockets[0].getsockname()[1]
+        self.port = actual_port
+        self.base_url = f"http://{self.host}:{actual_port}"
+        return self.base_url
+
 
     async def stop(self) -> None:
         if self.runner is not None:

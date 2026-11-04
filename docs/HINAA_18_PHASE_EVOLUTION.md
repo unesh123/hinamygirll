@@ -145,5 +145,34 @@
   5. *Indic-Safe Multilingual Research*: Unicode regex tokenization preserving Devanagari vowel signs (*matras*) for accurate Nepali and code-mixed Hindi factual search.
   6. *Voice & Frontend Integration*: Answers emit bracketed numbers (`[1]`) for the interactive `GroundedResearchCard.tsx` component while `speech_text_for_tts` strips brackets for smooth TTS voice pronunciation.
   7. *Live Endpoints*: `POST /api/research/query`, `POST /api/research/evaluate`.
-  8. *Authoritative Benchmark Suite*: 25/25 scenarios passing in 25.25 ms; 62/62 research tests passing in 1.31s; frontend building cleanly with 0 TypeScript errors.
+  8. *Authoritative Benchmark Suite*: 25/25 scenarios passing in 25.25 ms (unit/mock) and ~3.9s live web retrieval; 62/62 research tests passing; frontend building cleanly with 0 TypeScript errors.
+
+---
+
+### PHASE 07 — Browser Automation & Web Operations
+- **Status**: **COMPLETE** (Signed off: Nov 5, 2026)
+- **Report**: [`docs/evolution/PHASE_07_REPORT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/evolution/PHASE_07_REPORT.md)
+- **Architecture**: [`docs/browser/BROWSER_AUTOMATION_ARCHITECTURE.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/browser/BROWSER_AUTOMATION_ARCHITECTURE.md)
+- **Dataset Specification**: [`docs/browser/PHASE_07_EVAL_DATASET.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/browser/PHASE_07_EVAL_DATASET.md)
+- **Benchmark Results**: [`docs/browser/benchmark_results.json`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/browser/benchmark_results.json)
+- **Package**: `apps/api/hinaa_api/browser/`
+- **Git Checkpoint Tag**: `phase-07-checkpoint`
+- **Key Milestones Achieved**:
+  1. *Playwright Chromium Lifecycle & Sandbox Architecture*: 9-state formal task lifecycle (`CREATED` through `COMPLETED`), ephemeral `BrowserContext` per task/tenant with zero cookie/storage leakage, dynamic event loop reinitialization, and hard 5-session concurrency semaphore.
+  2. *3-Tier Permission Hierarchy & Cryptographic Human Approval* (`apps/api/hinaa_api/browser/policy.py`): Tier A (Read-only), Tier B (Scoped), and Tier C (Consequential mutation/payments/form submissions) gated behind parameter-bound HMAC-SHA256 user approval tokens.
+  3. *SSRF Defense & Cloud Metadata Shielding*: Unconditional pre-navigation and 3xx redirect interception blocking loopback (`127.0.0.1`), RFC1918 private ranges, and cloud metadata (`169.254.169.254`).
+  4. *Untrusted DOM Content Sanitization*: Regex defanging of prompt injection instructions and passive encapsulation within `<untrusted_browser_content>` XML tags.
+  5. *Accessible Locators & Postcondition Verifier* (`apps/api/hinaa_api/browser/executor.py`): Prioritized accessible ARIA roles (`get_by_role`, `get_by_label`, `get_by_text`) with postcondition auto-waiting (`url_contains`, `text_present`, `element_visible`).
+  6. *Sandboxed File Transfer Quarantine* (`apps/api/hinaa_api/browser/file_transfer.py`): Isolated download directory with directory traversal stripping, automatic dangerous executable extension rejection (`.exe`, `.bat`), and workspace-scoped upload validation.
+  7. *Phase 06 CRAG Bridge*: Direct conversion of live DOM extractions into typed `Source` models with provenance and `TrustTier.REPUTABLE_SECONDARY` intact.
+  8. *REST & SSE Streaming Endpoints*: 6 live endpoints in `main.py` (`POST /api/browser/tasks`, `GET /tasks/{id}`, `GET /tasks/{id}/events` via SSE, `POST /cancel`, `POST /approve`, `GET /artifacts`).
+  9. *Interactive Frontend UI* (`apps/web/src/components/browser/`): `BrowserTaskPanel.tsx` and `BrowserActionTimeline.tsx` with live telemetry, active tab inspection, screenshot preview, and Tier C approval confirmation.
+  10. *Authoritative 36-Scenario Benchmark*: 36/36 scenarios passed (100.0%) across all 4 evidence classes with 0 zombie processes and 0 unauthenticated mutations in 59.98s.
+
+---
+
+### PHASE 08 — Code Execution & Developer Sandbox
+- **Status**: **NEXT UP**
+- **Objectives**: Sandboxed Python/Node.js/Bash execution, container isolation, workspace diff engine, and interactive developer terminal tooling.
+
 

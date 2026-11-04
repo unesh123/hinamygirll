@@ -202,23 +202,28 @@ class BrowserSessionManager:
             if not self.runtime.acquire_session_slot():
                 raise RuntimeError("MAX_CONCURRENT_BROWSER_SESSIONS_EXCEEDED")
 
-            browser = await self.runtime.get_browser()
+            try:
+                browser = await self.runtime.get_browser()
 
-            # 2. Create isolated ephemeral context
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 800},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 HINAA-Agent/2.0",
-                permissions=[],  # Deny all permissions (geo, mic, camera, notifications)
-                ignore_https_errors=False,
-            )
+                # 2. Create isolated ephemeral context
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 HINAA-Agent/2.0",
+                    permissions=[],  # Deny all permissions (geo, mic, camera, notifications)
+                    ignore_https_errors=False,
+                )
 
-            # 3. Create initial page
-            initial_page = await context.new_page()
+                # 3. Create initial page
+                initial_page = await context.new_page()
 
-            session = BrowserSession(spec, context, initial_page, self.runtime)
-            session.emit_event("Browser session initialized with isolated context", state=BrowserTaskState.RUNNING)
-            self._sessions[spec.task_id] = session
-            return session
+                session = BrowserSession(spec, context, initial_page, self.runtime)
+                session.emit_event("Browser session initialized with isolated context", state=BrowserTaskState.RUNNING)
+                self._sessions[spec.task_id] = session
+                return session
+            except Exception:
+                self.runtime.release_session_slot()
+                raise
+
 
     def get_session(self, task_id: str) -> Optional[BrowserSession]:
         return self._sessions.get(task_id)

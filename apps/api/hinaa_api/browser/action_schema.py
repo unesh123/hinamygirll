@@ -60,7 +60,7 @@ class BrowserActionType(str, Enum):
 class ActionTarget(BaseModel):
     """Target element locator specification."""
     by: Literal["role", "text", "label", "placeholder", "css", "test_id", "coordinate"] = "role"
-    selector: str
+    selector: str = ""
     role: Optional[str] = None
     name: Optional[str] = None
     exact: bool = False

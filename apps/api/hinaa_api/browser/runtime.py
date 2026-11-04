@@ -27,6 +27,7 @@ class BrowserRuntimeManager:
         self.headless = headless
         self._playwright: Optional[Playwright] = None
         self._browser: Optional[Browser] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._active_sessions_count = 0
         self._initialized = False
 
@@ -40,9 +41,12 @@ class BrowserRuntimeManager:
     async def get_browser(self) -> Browser:
         """Returns the shared Browser process, launching it lazily if needed."""
         async with self._lock:
-            if self._playwright is None:
-                logger.info("Initializing async_playwright runtime...")
+            current_loop = asyncio.get_running_loop()
+            if self._playwright is None or self._loop != current_loop:
+                self._browser = None
+                logger.info("Initializing async_playwright runtime on loop %s...", current_loop)
                 self._playwright = await async_playwright().start()
+                self._loop = current_loop
 
             if self._browser is None or not self._browser.is_connected():
                 # Detect executable if specified
@@ -70,6 +74,7 @@ class BrowserRuntimeManager:
                 self._initialized = True
 
             return self._browser
+
 
     def acquire_session_slot(self) -> bool:
         """Checks concurrency limits before creating a new session."""

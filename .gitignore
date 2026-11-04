@@ -111,3 +111,6 @@ apps/api/data/screenshots/
 
 # Provider circuit-breaker benches (runtime state, per live instance)
 apps/api/hinaa_api/data/circuit_breakers*.json
+
+apps/data/browser_artifacts/
+apps/data/browser_downloads/
