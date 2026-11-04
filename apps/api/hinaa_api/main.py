@@ -1052,6 +1052,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.research_coordinator = GroundedResearchCoordinator(search_adapter=live_search)
     from .browser import BrowserAutomationService
     app.state.browser_service = BrowserAutomationService()
+    from .coding import CodingService
+    app.state.coding_service = CodingService()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -1602,6 +1604,131 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Browser service not initialized")
         artifacts = service.get_task_artifacts(task_id)
         return {"taskId": task_id, "artifacts": artifacts}
+
+
+    # ─────────────────────────────────────────────────────────────
+    # Phase 08 — Code Execution & Developer Sandbox Endpoints
+    # ─────────────────────────────────────────────────────────────
+    @app.get("/api/coding/sandbox/status")
+    @app.get("/v1/coding/sandbox/status")
+    async def get_coding_sandbox_status() -> dict[str, Any]:
+        """Returns host sandbox isolation capabilities and health."""
+        from .coding import CodingService
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            service = CodingService()
+            app.state.coding_service = service
+        return service.get_sandbox_status().model_dump()
+
+    @app.post("/api/coding/tasks")
+    @app.post("/v1/coding/tasks")
+    async def create_coding_task(spec_data: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Creates and initiates an autonomous bounded coding task."""
+        from .coding import CodingService, CodingTaskSpec
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            service = CodingService()
+            app.state.coding_service = service
+        spec = CodingTaskSpec.model_validate(spec_data)
+        loop = service.create_task(spec)
+        target_file = spec_data.get("target_file", "")
+        target_content = spec_data.get("target_content", "")
+        replacement_content = spec_data.get("replacement_content", "")
+        test_cmd = spec_data.get("test_command")
+        if target_file:
+            asyncio.create_task(loop.execute_task(target_file, target_content, replacement_content, test_cmd))
+        return loop.status.model_dump()
+
+    @app.get("/api/coding/tasks/{task_id}")
+    @app.get("/v1/coding/tasks/{task_id}")
+    async def get_coding_task(task_id: str) -> dict[str, Any]:
+        """Returns current status and step results for a coding task."""
+        from .coding import CodingService
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Coding service not initialized")
+        status = service.get_task(task_id)
+        if not status:
+            raise HTTPException(status_code=404, detail=f"Coding task {task_id} not found")
+        return status.model_dump()
+
+    @app.get("/api/coding/tasks/{task_id}/events")
+    @app.get("/v1/coding/tasks/{task_id}/events")
+    async def stream_coding_task_events(task_id: str):
+        """Streams real-time activity events over SSE for developer workspace."""
+        from .coding import CodingService
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Coding service not initialized")
+        loop = service._active_loops.get(task_id)
+        if not loop:
+            raise HTTPException(status_code=404, detail=f"Coding task {task_id} not found")
+        queue = service.subscribe_events(task_id)
+
+        async def sse_generator():
+            try:
+                while True:
+                    evt = await queue.get()
+                    data = json.dumps(evt.model_dump())
+                    yield f"event: progress\ndata: {data}\n\n"
+                    if evt.type in {"run.completed", "run.failed"} or loop.is_cancelled:
+                        break
+            finally:
+                service.unsubscribe_events(task_id, queue)
+
+        return StreamingResponse(
+            sse_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/api/coding/tasks/{task_id}/cancel")
+    @app.post("/v1/coding/tasks/{task_id}/cancel")
+    async def cancel_coding_task(task_id: str) -> dict[str, Any]:
+        """Cancels an active coding task and terminates sandbox processes."""
+        from .coding import CodingService
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Coding service not initialized")
+        cancelled = service.cancel_task(task_id)
+        if not cancelled:
+            raise HTTPException(status_code=404, detail=f"Coding task {task_id} not found")
+        return {"taskId": task_id, "status": "CANCELLED"}
+
+    @app.post("/api/coding/tasks/{task_id}/approve")
+    @app.post("/v1/coding/tasks/{task_id}/approve")
+    async def approve_coding_action(task_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Verifies cryptographic human approval for Tier C action."""
+        from .coding import CodingService, CodingActionRequest
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Coding service not initialized")
+        token = str(body.get("token", ""))
+        action_req = CodingActionRequest.model_validate(body.get("actionRequest", {}))
+        approved = service.approve_action(task_id, action_req, token)
+        return {"taskId": task_id, "approved": approved}
+
+    @app.get("/api/coding/tasks/{task_id}/artifacts")
+    @app.get("/v1/coding/tasks/{task_id}/artifacts")
+    async def get_coding_task_artifacts(task_id: str) -> dict[str, Any]:
+        """Returns artifacts produced by the coding task."""
+        from .coding import CodingService
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Coding service not initialized")
+        artifacts = service.list_artifacts(task_id)
+        return {"taskId": task_id, "artifacts": artifacts}
+
+    @app.post("/api/coding/tasks/{task_id}/rollback")
+    @app.post("/v1/coding/tasks/{task_id}/rollback")
+    async def rollback_coding_task(task_id: str) -> dict[str, Any]:
+        """Rolls back all files modified by the task."""
+        from .coding import CodingService
+        service: CodingService = getattr(app.state, "coding_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Coding service not initialized")
+        reverted = service.rollback_task(task_id)
+        return {"taskId": task_id, "status": "ROLLED_BACK", "reverted": reverted}
 
     @app.get("/v1/readiness")
     @app.get("/api/v1/readiness")
