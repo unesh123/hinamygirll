@@ -981,6 +981,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             owner_id=active_settings.dev_auth_subject,
         )
         heartbeat_daemon.start()
+
+        # Autonomous Agency Runtime initialization & background loop
+        from .agency import get_agency_runtime
+        agency_runtime = get_agency_runtime()
+        agency_runtime.set_heartbeat_daemon(heartbeat_daemon)
+        agency_runtime.start()
         # A restart must not forget which providers were benched: the first
         # turn after boot would otherwise pay the full dead-primary hang again.
         # Live only, armed by the runner's environment -- a test app on a
@@ -992,6 +998,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 Path(__file__).resolve().parent / "data" / "circuit_breakers.json"
         )
         yield
+        agency_runtime.stop()
         heartbeat_daemon.stop()
         scheduler_stop.set()
         if scheduler_task is not None:
@@ -1101,12 +1108,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "/v1/telemetry/metrics",
                 "/api/telemetry/traces",
                 "/v1/telemetry/traces",
+                "/api/agency/status",
+                "/v1/agency/status",
+                "/api/agency/trigger",
+                "/v1/agency/trigger",
+                "/api/agency/pause",
+                "/v1/agency/pause",
+                "/api/agency/resume",
+                "/v1/agency/resume",
+                "/api/neural-lab/audit",
+                "/v1/neural-lab/audit",
+                "/api/neural-lab/models",
+                "/v1/neural-lab/models",
+                "/api/neural-lab/datasets",
+                "/v1/neural-lab/datasets",
+                "/api/neural-lab/benchmark",
+                "/v1/neural-lab/benchmark",
+                "/api/neural-lab/adapters",
+                "/v1/neural-lab/adapters",
             }
             if (
                 active_settings.auth_mode == "clerk"
                 and request.method != "OPTIONS"
                 and request.url.path not in _exempt_paths
-                and not request.url.path.startswith(("/api/telemetry", "/v1/telemetry"))
+                and not request.url.path.startswith(("/api/telemetry", "/v1/telemetry", "/api/agency", "/v1/agency", "/api/neural-lab", "/v1/neural-lab"))
             ):
                 try:
                     if memory_service is None:
@@ -1147,6 +1172,113 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/health")
     async def liveness() -> dict[str, str]:
         return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.get("/api/telemetry/metrics")
+    @app.get("/v1/telemetry/metrics")
+    async def get_telemetry_metrics() -> dict[str, Any]:
+        """Live P50, P90, P95, and P99 latency percentiles and system resource metrics."""
+        from .telemetry import get_metrics_registry
+        return get_metrics_registry().get_metrics_report()
+
+    @app.get("/api/telemetry/traces")
+    @app.get("/v1/telemetry/traces")
+    async def get_recent_traces(limit: int = 50) -> list[dict[str, Any]]:
+        """Recent OpenTelemetry trace waterfalls and span trees."""
+        from .telemetry import get_tracer
+        return get_tracer().get_recent_traces(limit=min(limit, 200))
+
+    @app.get("/api/telemetry/traces/{trace_id}")
+    @app.get("/v1/telemetry/traces/{trace_id}")
+    async def get_trace_detail(trace_id: str) -> dict[str, Any]:
+        """Detailed OpenTelemetry trace waterfall for a specific trace ID."""
+        from .telemetry import get_tracer
+        trace = get_tracer().get_trace(trace_id)
+        if not trace:
+            raise HinaaError("TRACE_NOT_FOUND", f"Trace {trace_id} was not found or expired.", 404)
+        return trace
+
+    @app.get("/api/agency/status")
+    @app.get("/v1/agency/status")
+    async def get_agency_status() -> dict[str, Any]:
+        """Current operational status, goals, and reflections of the Independent Agency Engine."""
+        from .agency import get_agency_runtime
+        return get_agency_runtime().get_status()
+
+    @app.post("/api/agency/trigger")
+    @app.post("/v1/agency/trigger")
+    async def trigger_agency_cycle() -> dict[str, Any]:
+        """Trigger an immediate autonomous decision cycle on demand."""
+        from .agency import get_agency_runtime
+        goal = await get_agency_runtime().trigger_cycle()
+        return {"triggered": True, "goal": goal.model_dump() if goal else None}
+
+    @app.post("/api/agency/pause")
+    @app.post("/v1/agency/pause")
+    async def pause_agency() -> dict[str, bool]:
+        """Administrative pause switch for all autonomous background activity."""
+        from .agency import get_agency_runtime
+        get_agency_runtime().pause()
+        return {"paused": True}
+
+    @app.post("/api/agency/resume")
+    @app.post("/v1/agency/resume")
+    async def resume_agency() -> dict[str, bool]:
+        """Administrative resume switch for autonomous background activity."""
+        from .agency import get_agency_runtime
+        get_agency_runtime().resume()
+        return {"paused": False}
+
+    @app.get("/api/neural-lab/audit")
+    @app.get("/v1/neural-lab/audit")
+    async def get_neural_lab_audit() -> dict[str, Any]:
+        """Hardware, VRAM, CUDA, PyTorch, and Ollama training readiness audit."""
+        from .neural_lab import run_system_audit
+        return run_system_audit().model_dump()
+
+    @app.get("/api/neural-lab/models")
+    @app.get("/v1/neural-lab/models")
+    async def get_base_models() -> list[dict[str, Any]]:
+        """Base model catalog with VRAM budgets and license specifications."""
+        from .neural_lab import get_model_registry
+        return [m.model_dump() for m in get_model_registry().list_models()]
+
+    @app.get("/api/neural-lab/datasets")
+    @app.get("/v1/neural-lab/datasets")
+    async def get_neural_lab_datasets() -> dict[str, Any]:
+        """Manifest of curated training datasets across the 5 domains."""
+        from .neural_lab import DatasetBuilder
+        builder = DatasetBuilder()
+        builder.load_gold_standards()
+        manifest = builder.build_and_export()
+        return manifest.model_dump()
+
+    @app.post("/api/neural-lab/train")
+    @app.post("/v1/neural-lab/train")
+    async def run_training_experiment(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Execute SFT / QLoRA training experiment."""
+        from .neural_lab import TrainingPipelineManager
+        mgr = TrainingPipelineManager()
+        exp = mgr.create_experiment(
+            base_model_id=body.get("baseModelId", "Qwen/Qwen2.5-1.5B-Instruct"),
+            adapter_name=body.get("adapterName", "hinaa-core-v1"),
+            dataset_name=body.get("datasetName", "hinaa_gold_sft_v1"),
+        )
+        finished = mgr.run_training_experiment(exp.experiment_id)
+        return finished.model_dump()
+
+    @app.get("/api/neural-lab/benchmark")
+    @app.get("/v1/neural-lab/benchmark")
+    async def get_model_benchmark() -> dict[str, Any]:
+        """Comparative evaluation report between base model and fine-tuned adapter."""
+        from .neural_lab import run_model_benchmark_comparison
+        return run_model_benchmark_comparison().model_dump()
+
+    @app.get("/api/neural-lab/adapters")
+    @app.get("/v1/neural-lab/adapters")
+    async def list_adapters() -> list[dict[str, Any]]:
+        """List registered LoRA adapters and active status."""
+        from .neural_lab import get_adapter_manager
+        return [a.model_dump() for a in get_adapter_manager().list_adapters()]
 
     @app.get("/v1/readiness")
     @app.get("/api/v1/readiness")
@@ -5203,6 +5335,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # The run ledger is the audit trail for "did she actually stop?":
             # a start row here and a stop/idle row in the finally below.
             turn_id = request.state.correlation_id
+            req_trace_id = getattr(request.state, "trace_id", "") or turn_id
+            turn_t0 = time.perf_counter()
+            first_token_ms: float | None = None
+            total_chars_streamed = 0
             stream_ledger = get_run_ledger()
             stream_ledger.record_turn_start(
                 turn_id,
@@ -5268,7 +5404,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         raise HinaaError("RUN_TIMEOUT", "Agent run exceeded configured execution deadline.", 408, False)
                     try:
                         decoded = json.loads(event.decode("utf-8"))
-                        if decoded.get("type") == "plan" and isinstance(decoded.get("plan"), dict):
+                        ev_type = decoded.get("type")
+                        if ev_type == "text.delta":
+                            if first_token_ms is None:
+                                first_token_ms = round((time.perf_counter() - turn_t0) * 1000, 2)
+                            total_chars_streamed += len(decoded.get("delta", ""))
+                        elif ev_type == "plan" and isinstance(decoded.get("plan"), dict):
                             final_plan_payload = decoded["plan"]
                             ledger_plan = final_plan_payload
                     except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
@@ -5289,6 +5430,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     for runtime_event in completed_events:
                         yield _runtime_event_payload(runtime_event)
                 turn_completed = True
+                turn_dur_ms = round((time.perf_counter() - turn_t0) * 1000, 2)
+                yield service._event(
+                    "telemetry.trace",
+                    {
+                        "traceId": req_trace_id,
+                        "providerMode": body.providerMode,
+                        "brainModel": body.brainModel or "",
+                        "ttftMs": first_token_ms,
+                        "totalDurationMs": turn_dur_ms,
+                        "charsStreamed": total_chars_streamed,
+                        "status": "completed",
+                    },
+                )
             except HinaaError as error:
                 logger.warning(
                     "Streamed turn failed: code=%s message=%s cause=%s",
@@ -5336,6 +5490,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status="completed" if turn_completed else "aborted",
                     provider=body.providerMode,
                 )
+                try:
+                    from .telemetry.metrics import record_turn_metrics
+                    final_turn_dur = round((time.perf_counter() - turn_t0) * 1000, 2)
+                    ttft_val = first_token_ms if first_token_ms is not None else final_turn_dur
+                    record_turn_metrics(
+                        trace_id=req_trace_id,
+                        provider_id=body.providerMode,
+                        model=body.brainModel or "default",
+                        ttft_ms=ttft_val,
+                        model_latency_ms=ttft_val,
+                        total_turn_ms=final_turn_dur,
+                        chars_generated=total_chars_streamed,
+                        success=turn_completed,
+                    )
+                except Exception:
+                    pass
 
         return StreamingResponse(guarded_stream(), media_type="application/x-ndjson")
 
