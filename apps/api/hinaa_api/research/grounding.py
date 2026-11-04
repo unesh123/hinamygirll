@@ -33,14 +33,20 @@ _CONTRADICTION_MARKERS = [
     re.compile(r"\b(?:dispute|conflict|contrary|unlike|disagree|however|refute|instead\s+of|revised\s+from)\b", re.I),
 ]
 
+_STOP_WORDS = frozenset({
+    "what", "is", "the", "of", "from", "in", "to", "and", "a", "an", "on", "for", "with",
+    "are", "did", "why", "who", "when", "how", "whose", "which", "where", "was", "were",
+    "at", "by", "this", "that", "it", "its", "as", "be", "been",
+})
+
 
 class ClaimGroundingVerifier:
     """Verifies that every factual claim is strictly entailed by registered evidence."""
 
     @classmethod
     def extract_claims(cls, text: str) -> list[Claim]:
-        """Splits answer text into atomic propositional claim units."""
-        sentences = re.split(r"(?<=[.!?।])\s+", text)
+        """Splits answer text into atomic propositional claim units, preserving decimals in numbers."""
+        sentences = re.split(r"(?<=[!?।]|\.(?!\d))\s+", text)
         claims: list[Claim] = []
 
         claim_idx = 0
@@ -96,33 +102,35 @@ class ClaimGroundingVerifier:
         all_supported_scores: list[float] = []
 
         for c in claims:
-            c_tokens = set(re.findall(r"\w+", c.text.lower()))
+            all_c_tokens = set(re.findall(r"\w+", c.text.lower()))
+            c_tokens = {t for t in all_c_tokens if t not in _STOP_WORDS} or all_c_tokens
             supporting: list[EvidenceSpan] = []
             contradicting: list[EvidenceSpan] = []
             best_overlap = 0.0
 
             for span in evidence_spans:
-                span_tokens = set(re.findall(r"\w+", span.text.lower()))
-                overlap = len(c_tokens.intersection(span_tokens)) / len(c_tokens) if c_tokens else 0.0
+                all_s_tokens = set(re.findall(r"\w+", span.text.lower()))
+                s_tokens = {t for t in all_s_tokens if t not in _STOP_WORDS} or all_s_tokens
+                overlap = len(c_tokens.intersection(s_tokens)) / len(c_tokens) if c_tokens else 0.0
 
-                if overlap > 0.35:
+                if overlap > 0.30:
                     supporting.append(span)
                     if overlap > best_overlap:
                         best_overlap = overlap
 
                 # Check if evidence notes a dispute/contradiction
                 for marker in _CONTRADICTION_MARKERS:
-                    if marker.search(span.text) and overlap > 0.25:
+                    if marker.search(span.text) and overlap > 0.20:
                         contradicting.append(span)
 
             # Categorize support status
             if contradicting:
                 status = ClaimSupportStatus.DISPUTED
                 rationale = "Retrieved sources contain conflicting or disputing metrics."
-            elif best_overlap >= 0.60:
+            elif best_overlap >= 0.50:
                 status = ClaimSupportStatus.DIRECTLY_SUPPORTED
                 rationale = f"Direct textual entailment from source evidence (overlap {best_overlap:.2f})."
-            elif best_overlap >= 0.30:
+            elif best_overlap >= 0.25:
                 status = ClaimSupportStatus.PARTIALLY_SUPPORTED
                 rationale = f"Partial evidence found (overlap {best_overlap:.2f}); includes inference."
             else:

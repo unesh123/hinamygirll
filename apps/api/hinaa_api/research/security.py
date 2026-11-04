@@ -61,6 +61,21 @@ class ResearchSecurityGuard:
         return html.escape(cleaned, quote=True)
 
     @classmethod
+    def neutralize_prompt_injections(cls, text: str) -> str:
+        """Neutralizes prompt injection directives and exfiltration URLs from untrusted text."""
+        cleaned = text
+        for pat in _PROMPT_INJECTION_PATTERNS:
+            cleaned = pat.sub("[INJECTION_ATTEMPT_NEUTRALIZED]", cleaned)
+        # Neutralize exfiltration URLs
+        cleaned = re.sub(
+            r"https?://(?:evil|attacker|malicious|\S*exfiltrat\S*)\S*",
+            "[UNTRUSTED_LINK_REMOVED]",
+            cleaned,
+            flags=re.I,
+        )
+        return cleaned
+
+    @classmethod
     def validate_url(cls, url: str) -> tuple[bool, str]:
         """Validates that a URL is safe for browser navigation (http/https only)."""
         cleaned = url.strip()
