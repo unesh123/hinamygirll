@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "name": "hinaa_gold_sft_v1",
+  "total_examples": 9,
+  "categories_breakdown": {
+    "reasoning_instructions": 2,
+    "research_verification": 1,
+    "multilingual_dialogue": 2,
+    "agent_tools": 2,
+    "character_identity": 2
+  },
+  "languages_breakdown": {
+    "en": 7,
+    "ne": 1,
+    "hi": 1
+  },
+  "splits": {
+    "train": 7,
+    "val": 0,
+    "test": 2
+  },
+  "created_at": 1793822340.353712
+}

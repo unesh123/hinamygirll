@@ -1,0 +1,21 @@
+{
+  "base_model_name_or_path": "Qwen/Qwen2.5-1.5B-Instruct",
+  "peft_type": "LORA",
+  "r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj"
+  ],
+  "bias": "none",
+  "task_type": "CAUSAL_LM",
+  "dataset_name": "hinaa_gold_sft_v1",
+  "adapter_version": "1.0.0",
+  "hinaa_personality_alignment": "verified"
+}
