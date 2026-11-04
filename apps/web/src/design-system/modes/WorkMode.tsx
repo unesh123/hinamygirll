@@ -1114,10 +1114,15 @@ export function WorkMode({
                   fontSize: "var(--text-xs)",
                   fontWeight: 650,
                   cursor: "pointer",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
-                <Sparkles size={13} color="var(--accent)" />
-                <span>{currentModelName}</span>
+                <Sparkles size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentModelName}</span>
               </button>
               <AvatarModelPicker
                 isOpen={showModelPicker}
@@ -1201,12 +1206,15 @@ export function WorkMode({
                   color: "var(--text-primary)",
                   maxHeight: 120,
                   overflowY: "auto",
+                  minWidth: 0,
+                  wordBreak: "break-word",
+                  overflowWrap: "break-word",
                 }}
               >
                 <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>
                   {companionName}
                 </div>
-                <div>{streamingText || partialTranscript || (messages.filter((m) => m.role === "assistant").slice(-1)[0]?.text) || ""}</div>
+                <div style={{ wordBreak: "break-word", overflowWrap: "break-word", minWidth: 0 }}>{streamingText || partialTranscript || (messages.filter((m) => m.role === "assistant").slice(-1)[0]?.text) || ""}</div>
               </motion.div>
             )}
 
@@ -1507,8 +1515,8 @@ export function WorkMode({
             </div>
           ))}
 
-          {/* Spacer for composer */}
-          <div style={{ height: "var(--space-2)", flexShrink: 0 }} />
+          {/* Spacer for composer - 96px ensures input toolbar never overlaps last message bubble */}
+          <div style={{ height: "96px", flexShrink: 0 }} />
           <div ref={endRef} />
         </div>
 

@@ -33,6 +33,13 @@ from .voice_performance import (
     strip_greeting,
 )
 from .voice_profiles import resolve_calibration, resolve_voice
+from .voice import (
+    LanguageClass,
+    MultilingualNormalizer,
+    VoiceLifecycleManager,
+    VoiceProsodyEngine,
+    VoiceTurnState,
+)
 
 
 class ClientHello(StrictModel):
@@ -98,6 +105,7 @@ class LiveSession:
     processing: asyncio.Task[None] | None = None
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     recognition: StreamingTranscription | None = None
+    lifecycle: VoiceLifecycleManager = field(default_factory=VoiceLifecycleManager)
 
 
 def _timestamp_ms() -> float:
@@ -344,6 +352,7 @@ class RealtimeGateway:
             session.audio.clear()
             session.speech_detected = False
             session.partial_sent = False
+            session.lifecycle.start_listening(generation)
             await self._send(websocket, session, "audio.started", {})
             async def show_partial(text: str) -> None:
                 if session.recognition is recognition and generation == session.hello.generation:
@@ -416,6 +425,8 @@ class RealtimeGateway:
                 session.recognition.offer(frame)
             session.expected_sequence += 1
             session.speech_detected = session.speech_detected or _has_speech(frame)
+            if session.speech_detected:
+                session.lifecycle.mark_speech_detected()
             if (
                 session.speech_detected
                 and not session.partial_sent
@@ -556,6 +567,7 @@ class RealtimeGateway:
         speech_tail: asyncio.Task[None] | None = None
         try:
             # Notify frontend: pipeline is processing
+            session.lifecycle.start_transcribing()
             await self._send_current(
                 websocket, session, generation,
                 "voice.pipeline",
@@ -607,6 +619,10 @@ class RealtimeGateway:
                 )
                 return
             stt_ms = int((perf_counter() - stt_started) * 1000)
+            # Multilingual phonetic normalization for Isekai, anime, dev, and Nepali/Hindi terms
+            transcript = MultilingualNormalizer.normalize_transcript(transcript)
+            session.lifecycle.finish_transcribing(transcript, stt_provider)
+            session.lifecycle.start_thinking()
             await self._send_current(
                 websocket,
                 session,
@@ -659,6 +675,22 @@ class RealtimeGateway:
                 reply_text="",
                 depth="conversational",
             )
+            # Adapt vocal prosody based on active emotional state
+            voice_delivery_mode = voice_plan.mode
+            try:
+                from .personality import get_mood_engine
+                engine = get_mood_engine()
+                prosody = VoiceProsodyEngine.compute_prosody(
+                    mood_state=engine.current_state,
+                    mood_vector=engine.vector,
+                    calibration=session.hello.calibration,
+                )
+                effective_rate = prosody.rate
+                effective_pitch = prosody.pitch_semitones
+                effective_volume = prosody.volume
+                voice_delivery_mode = prosody.voice_mode
+            except Exception:
+                pass
 
             async def emit_speech(
                 phrase: str,
@@ -676,6 +708,8 @@ class RealtimeGateway:
                     return
                 tts_ms = int((perf_counter() - tts_started) * 1000)
                 tts_latency_ms.append(tts_ms)
+                session.lifecycle.start_speaking(speech.provider)
+                session.lifecycle.record_audio_chunk()
                 await self._send_current(
                     websocket,
                     session,
@@ -776,6 +810,8 @@ class RealtimeGateway:
                 nonlocal ws_audio_chunks
                 if not chunk.audio:
                     return
+                session.lifecycle.start_speaking(stream.model_id)
+                session.lifecycle.record_audio_chunk()
                 await self._send_current(
                     websocket,
                     session,
@@ -906,6 +942,7 @@ class RealtimeGateway:
                     return
                 if first_delta_ms is None:
                     first_delta_ms = int((perf_counter() - llm_started) * 1000)
+                    session.lifecycle.mark_first_token()
                 await self._send_current(
                     websocket,
                     session,
@@ -1065,6 +1102,8 @@ class RealtimeGateway:
                 else "failed"
             )
             output_mode = "text_and_audio" if tts_succeeded > 0 else "text"
+            turn_metrics = session.lifecycle.finish_turn()
+            lifecycle_data = turn_metrics.to_dict() if turn_metrics else None
             await self._send_current(
                 websocket,
                 session,
@@ -1087,6 +1126,7 @@ class RealtimeGateway:
                     "ttsTransport": (
                         "websocket" if decided_voice_path[0] == "ws" else "phrases"
                     ),
+                    "voiceLifecycle": lifecycle_data,
                 },
             )
         except asyncio.CancelledError:
@@ -1161,6 +1201,7 @@ class RealtimeGateway:
     async def _interrupt(self, websocket: WebSocket, session: LiveSession, generation: int) -> None:
         previous = session.hello.generation
         session.hello.generation = max(previous + 1, generation)
+        session.lifecycle.trigger_barge_in(session.hello.generation)
         if session.recognition:
             await session.recognition.abort()
             session.recognition = None

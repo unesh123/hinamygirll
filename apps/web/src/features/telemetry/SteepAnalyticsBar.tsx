@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Sliders,
 } from "lucide-react";
+import { Stat } from "../../components/StatusBar";
+import { useStatus } from "../../hooks/useStatus";
 
 interface SteepAnalyticsBarProps {
   activeModel?: string;
@@ -31,6 +33,7 @@ export function SteepAnalyticsBar({
   onOpenVault,
   onOpenPulseDrawer,
 }: SteepAnalyticsBarProps) {
+  const status = useStatus();
   const [heartbeatState, setHeartbeatState] = useState<{
     isRunning: boolean;
     pulsesEmitted: number;
@@ -105,11 +108,12 @@ export function SteepAnalyticsBar({
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
         flexShrink: 0,
         zIndex: 20,
+        minWidth: 0,
       }}
     >
       {/* ── Left: Steep Editorial Brand & Model Readout ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <span
             style={{
               fontFamily: "'Newsreader', 'Signifier', 'Georgia', serif",
@@ -137,95 +141,36 @@ export function SteepAnalyticsBar({
           </span>
         </div>
 
-        <div style={{ width: 1, height: 14, backgroundColor: "#e8e3dc" }} />
+        <div style={{ width: 1, height: 14, backgroundColor: "#e8e3dc", flexShrink: 0 }} />
 
         {/* Model ID */}
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <Cpu size={13} style={{ color: "#78716c" }} />
-          <span style={{ color: "#1c1917", fontWeight: 600 }}>{activeModel}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+          <Cpu size={13} style={{ color: "#78716c", flexShrink: 0 }} />
+          <span style={{ color: "#1c1917", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {activeModel}
+          </span>
         </div>
-
-        {/* Latency */}
-        {lastLatencyMs != null && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#78716c" }}>
-            <Clock size={12} />
-            <span>{lastLatencyMs}ms</span>
-          </div>
-        )}
       </div>
 
-      {/* ── Middle: 1M Context Window Meter ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 11, color: "#78716c", fontWeight: 500 }}>Context Window:</span>
-          <div
-            style={{
-              width: 110,
-              height: 6,
-              backgroundColor: "#f5f3ef",
-              borderRadius: 9999,
-              overflow: "hidden",
-              border: "1px solid #e8e3dc",
-            }}
-          >
-            <div
-              style={{
-                width: `${Math.max(4, contextPercent)}%`,
-                height: "100%",
-                backgroundColor: contextPercent > 80 ? "#f97316" : "#1c1917",
-                borderRadius: 9999,
-                transition: "width 0.4s ease",
-              }}
-            />
-          </div>
-          <span style={{ fontSize: 11, color: "#1c1917", fontWeight: 600 }}>
-            {contextTokens.toLocaleString()} / {(maxContextTokens / 1000000).toFixed(1)}M
-          </span>
-        </div>
-
-        <div style={{ width: 1, height: 14, backgroundColor: "#e8e3dc" }} />
-
-        {/* Heartbeat Status */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              backgroundColor: heartbeatState.isRunning ? "#10b981" : "#94a3b8",
-              boxShadow: heartbeatState.isRunning ? "0 0 6px rgba(16, 185, 129, 0.4)" : "none",
-            }}
-          />
-          <span style={{ fontSize: 11, color: "#78716c" }}>
-            Pulse: <strong style={{ color: "#1c1917" }}>{heartbeatState.pulsesEmitted}</strong> emitted
-          </span>
-          <button
-            type="button"
-            onClick={handleForceTick}
-            disabled={isTicking}
-            title="Trigger immediate heartbeat pulse"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#78716c",
-              cursor: "pointer",
-              padding: 2,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <RefreshCw size={11} style={{ animation: isTicking ? "spin 1s linear infinite" : "none" }} />
-          </button>
-          {tickFeedback && (
-            <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 600 }}>
-              {tickFeedback}
-            </span>
-          )}
-        </div>
+      {/* ── Middle: Live Telemetry Metrics (flex gap-6 tabular-nums, NO COLLISION) ── */}
+      <div
+        className="telemetry-cluster"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 24, // gap-6
+          fontVariantNumeric: "tabular-nums",
+          flexShrink: 0,
+        }}
+      >
+        <Stat label="TRACK" value={`${status.trackMs} ms`} />
+        <Stat label="CTX" value={`${status.ctxPct}%`} />
+        <Stat label="RENDER" value={`${status.renderFps} fps`} />
+        <Stat label="MSGS" value={status.msgCount} highlight />
       </div>
 
       {/* ── Right: Executive Quick Links ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         {onOpenVault && (
           <button
             type="button"

@@ -1010,6 +1010,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(*tasks, return_exceptions=True)
         vmc_bridge.stop()
 
+    from .voice import VoiceLifecycleManager
+    _global_voice_lifecycle = VoiceLifecycleManager("master")
     app = FastAPI(
         title="HINAA API",
         version=__version__,
@@ -1037,6 +1039,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.cognitive_kernel = cognitive_kernel
     app.state.memory_v2_manager = memory_v2_manager
     app.state.session_bridge = session_bridge
+    app.state.active_voice_lifecycle = _global_voice_lifecycle
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -1343,6 +1346,89 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = get_mood_engine()
         event = engine.process_stimulus(stimulus, context=context)
         return event.model_dump()
+
+    # ═══════════════════════════════════════════════════════
+    # REAL-TIME VOICE INTELLIGENCE (PHASE 05)
+    # ═══════════════════════════════════════════════════════
+
+    @app.get("/api/voice/status")
+    @app.get("/v1/voice/status")
+    async def get_voice_status() -> dict[str, Any]:
+        """Returns the real-time voice intelligence status, turn metrics, and fallback status."""
+        from .voice import VoiceLifecycleManager
+        from .voice_fallback import voice_on_cooldown
+        active_lifecycle: VoiceLifecycleManager = getattr(
+            app.state, "active_voice_lifecycle", None
+        )
+        return {
+            "status": "ready",
+            "activeSession": active_lifecycle.get_status() if active_lifecycle else None,
+            "providers": {
+                "elevenlabs_on_cooldown": voice_on_cooldown("elevenlabs"),
+                "azure_on_cooldown": voice_on_cooldown("azure"),
+                "deepgram_on_cooldown": voice_on_cooldown("deepgram"),
+            },
+        }
+
+    @app.post("/api/voice/normalize")
+    @app.post("/v1/voice/normalize")
+    async def normalize_voice_text(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Phonetically normalizes multilingual text and detects dominant language."""
+        from .voice import MultilingualNormalizer
+        text = str(body.get("text", ""))
+        dominant = MultilingualNormalizer.detect_dominant_language(text)
+        normalized = MultilingualNormalizer.normalize_transcript(text)
+        tts_pronunciation = MultilingualNormalizer.prepare_tts_pronunciation(normalized)
+        return {
+            "original": text,
+            "dominantLanguage": dominant.value,
+            "normalized": normalized,
+            "ttsPronunciation": tts_pronunciation,
+        }
+
+    @app.post("/api/voice/prosody")
+    @app.post("/v1/voice/prosody")
+    async def preview_voice_prosody(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Calculates dynamic prosody modulation from personality mood and calibration."""
+        from .voice import VoiceProsodyEngine
+        from .personality import get_mood_engine, MoodState
+        mood_str = body.get("mood")
+        calibration = body.get("calibration", "natural")
+        engine = get_mood_engine()
+        mood_state = MoodState(mood_str) if mood_str else engine.current_state
+        prosody = VoiceProsodyEngine.compute_prosody(
+            mood_state=mood_state,
+            mood_vector=engine.vector,
+            calibration=calibration,
+        )
+        return {
+            "mood": prosody.mood_state.value,
+            "calibration": calibration,
+            "rate": prosody.rate,
+            "pitchSemitones": prosody.pitch_semitones,
+            "volume": prosody.volume,
+            "warmth": prosody.warmth,
+            "energy": prosody.energy,
+            "voiceMode": prosody.voice_mode,
+        }
+
+    @app.post("/api/voice/interrupt")
+    @app.post("/v1/voice/interrupt")
+    async def trigger_voice_interrupt(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """REST trigger to cancel active voice turn and execute barge-in."""
+        from .voice import VoiceLifecycleManager
+        target_gen = body.get("generation")
+        active_lifecycle: VoiceLifecycleManager = getattr(
+            app.state, "active_voice_lifecycle", None
+        )
+        if active_lifecycle:
+            new_gen, cancelled_turn = active_lifecycle.trigger_barge_in(target_gen)
+            return {
+                "interrupted": True,
+                "newGeneration": new_gen,
+                "cancelledTurn": cancelled_turn.to_dict() if cancelled_turn else None,
+            }
+        return {"interrupted": True, "newGeneration": (target_gen or 0) + 1}
 
     @app.get("/v1/readiness")
     @app.get("/api/v1/readiness")
