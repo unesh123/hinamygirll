@@ -1,0 +1,13 @@
+{
+  "player_installed": true,
+  "adb_installed": true,
+  "adb_version": "Android Debug Bridge version 1.0.36\nRevision 6e8ac8fa2d76-android",
+  "connected_devices": [
+    "emulator-5554"
+  ],
+  "device_details": {
+    "serial": "emulator-5554",
+    "model": "SM-S908E",
+    "android_version": "9"
+  }
+}

@@ -1037,15 +1037,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["*"],
-        expose_headers=["X-Correlation-ID", "X-HINAA-Provider", "X-HINAA-Latency-Ms"],
+        expose_headers=["X-Correlation-ID", "X-HINAA-Provider", "X-HINAA-Latency-Ms", "X-Trace-Id", "traceparent", "Server-Timing"],
     )
     app.add_exception_handler(HinaaError, hinaa_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unhandled_error_handler)
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):  # type: ignore[no-untyped-def]
+        req_start_time = time.perf_counter()
         correlation_id = _correlation_id(request.headers.get("X-Correlation-ID"))
         request.state.correlation_id = correlation_id
+        
+        # W3C TraceContext propagation
+        from .telemetry.tracer import (
+            get_tracer,
+            parse_traceparent,
+            format_traceparent,
+            generate_trace_id,
+            generate_span_id,
+        )
+        incoming_tp = request.headers.get("traceparent")
+        incoming_tid = request.headers.get("X-Trace-Id")
+        parsed_tp = parse_traceparent(incoming_tp)
+        if parsed_tp:
+            trace_id, parent_span_id, _ = parsed_tp
+        elif incoming_tid and len(incoming_tid.strip()) == 32:
+            trace_id = incoming_tid.strip()
+            parent_span_id = None
+        else:
+            trace_id = generate_trace_id()
+            parent_span_id = None
+
+        request.state.trace_id = trace_id
+        tracer = get_tracer()
+        span_mgr = tracer.start_span(
+            f"http.{request.method.lower()} {request.url.path}",
+            trace_id=trace_id,
+            parent_span_id=parent_span_id,
+            attributes={"http.method": request.method, "http.url": str(request.url), "correlation_id": correlation_id},
+        )
+        active_span = span_mgr.__enter__()
+
         host_token = tool_policy.set_request_host(request.headers.get("host"))
         from .integrations.remote_pc import request_pc
         pc_context_token = request_pc.set(None)
@@ -1065,11 +1097,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "/api/v1/realtime/url",
                 "/v1/speech/synthesis",
                 "/api/v1/speech/synthesis",
+                "/api/telemetry/metrics",
+                "/v1/telemetry/metrics",
+                "/api/telemetry/traces",
+                "/v1/telemetry/traces",
             }
             if (
                 active_settings.auth_mode == "clerk"
                 and request.method != "OPTIONS"
                 and request.url.path not in _exempt_paths
+                and not request.url.path.startswith(("/api/telemetry", "/v1/telemetry"))
             ):
                 try:
                     if memory_service is None:
@@ -1083,12 +1120,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     if auth.mode == "clerk":
                         request_pc.set((request.headers.get("X-HINAA-PC-Session", ""), auth.auth_subject))
                 except HinaaError as error:
+                    active_span.record_error(error)
+                    span_mgr.__exit__(type(error), error, None)
                     return await hinaa_error_handler(request, error)
             response = await call_next(request)
+            active_span.set_attribute("http.status_code", response.status_code)
+            span_mgr.__exit__(None, None, None)
+        except Exception as exc:
+            active_span.record_error(exc)
+            span_mgr.__exit__(type(exc), exc, None)
+            raise
         finally:
             request_pc.reset(pc_context_token)
             tool_policy.reset_request_host(host_token)
+        
+        dur_ms = round((time.perf_counter() - req_start_time) * 1000, 2)
         response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["X-Trace-Id"] = trace_id
+        response.headers["traceparent"] = format_traceparent(trace_id, active_span.span_id, True)
+        response.headers["Server-Timing"] = f"total;dur={dur_ms}"
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response

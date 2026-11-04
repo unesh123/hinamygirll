@@ -1,0 +1,106 @@
+[
+  {
+    "mode": "xkiro",
+    "name": "XKiro AI",
+    "model": "qwen/qwen3.8-max:free",
+    "status": "ERROR",
+    "http_status": 200,
+    "ttfb_s": null,
+    "total_time_s": 1.81,
+    "error": "'charmap' codec can't encode character '\\U0001f496' in position 26: character maps to <undefined>"
+  },
+  {
+    "mode": "apmix",
+    "name": "APMIX.AI",
+    "model": "claude-sonnet-4-6-free",
+    "status": "ERROR",
+    "http_status": 200,
+    "ttfb_s": null,
+    "total_time_s": 2.28,
+    "error": "'charmap' codec can't encode character '\\U0001f496' in position 26: character maps to <undefined>"
+  },
+  {
+    "mode": "oxion",
+    "name": "Oxion AI",
+    "model": "claude-fable-5.1",
+    "status": "ERROR",
+    "http_status": 200,
+    "ttfb_s": null,
+    "total_time_s": 1.55,
+    "error": "'charmap' codec can't encode character '\\U0001f496' in position 26: character maps to <undefined>"
+  },
+  {
+    "mode": "gemini",
+    "name": "Google Gemini",
+    "model": "gemini-3.5-flash",
+    "status": "PASS",
+    "http_status": 200,
+    "ttfb_s": 4.877,
+    "total_time_s": 4.88,
+    "output_snippet": "Pong",
+    "error": null
+  },
+  {
+    "mode": "claude",
+    "name": "Anthropic Claude",
+    "model": "claude-sonnet-4-6",
+    "status": "ERROR",
+    "http_status": 200,
+    "ttfb_s": null,
+    "total_time_s": 7.07,
+    "error": "'charmap' codec can't encode character '\\U0001f496' in position 26: character maps to <undefined>"
+  },
+  {
+    "mode": "agent-router",
+    "name": "Agent Router",
+    "model": "agnes-2.5-flash",
+    "status": "ERROR",
+    "http_status": 200,
+    "ttfb_s": null,
+    "total_time_s": 10.19,
+    "error": "'charmap' codec can't encode character '\\U0001f496' in position 26: character maps to <undefined>"
+  },
+  {
+    "mode": "codecraft",
+    "name": "CodeCraft AI",
+    "model": "claude-fable-5",
+    "status": "ERROR",
+    "http_status": 200,
+    "ttfb_s": null,
+    "total_time_s": 7.9,
+    "error": "'charmap' codec can't encode character '\\U0001f496' in position 26: character maps to <undefined>"
+  },
+  {
+    "mode": "seekai",
+    "name": "SeekAI",
+    "model": "glm-5.3-flash",
+    "status": "PASS",
+    "http_status": 200,
+    "ttfb_s": 7.57,
+    "total_time_s": 7.57,
+    "output_snippet": "Pong",
+    "error": null
+  },
+  {
+    "mode": "tokentable",
+    "name": "TokenTable",
+    "model": "auto",
+    "status": "PASS",
+    "http_status": 200,
+    "ttfb_s": 8.966,
+    "total_time_s": 8.97,
+    "output_snippet": "Pong",
+    "error": null
+  },
+  {
+    "mode": "cavoti",
+    "name": "Cavoti AI",
+    "model": "claude-fable-5",
+    "status": "PASS",
+    "http_status": 200,
+    "ttfb_s": 17.701,
+    "total_time_s": 17.7,
+    "output_snippet": "Pong.",
+    "error": null
+  }
+]

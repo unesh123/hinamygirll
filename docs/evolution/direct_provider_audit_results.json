@@ -1,0 +1,92 @@
+[
+  {
+    "id": "xkiro",
+    "name": "XKiro AI",
+    "url": "https://api.xkiro.com/v1/chat/completions",
+    "model": "qwen/qwen3.8-max:free",
+    "status_code": 429,
+    "latency_s": 0.456,
+    "response_snippet": "{\"error\":{\"message\":\"You've reached today's free-model token quota. Your plan's paid allowance is separate \u2014 switch to a paid model to keep going, or wait for t",
+    "status": "FAIL"
+  },
+  {
+    "id": "oxion",
+    "name": "Oxion AI",
+    "url": "https://oxionai.com/v1/chat/completions",
+    "model": "claude-fable-5.1",
+    "status_code": 401,
+    "latency_s": 0.807,
+    "response_snippet": "{\"error\":{\"code\":\"invalid_api_key\",\"message\":\"Invalid or revoked API key.\",\"param\":null,\"type\":\"authentication_error\"}} ",
+    "status": "FAIL"
+  },
+  {
+    "id": "apmix",
+    "name": "APMIX.AI",
+    "url": "https://api.apmix.ai/v1/chat/completions",
+    "model": "claude-sonnet-4-6-free",
+    "status_code": 404,
+    "latency_s": 1.634,
+    "response_snippet": "{\"error\":{\"message\":\"Unknown model. See apmix.ai/models for the current list.\",\"type\":\"not_found_error\",\"code\":\"model_not_found\",\"param\":null}}",
+    "status": "FAIL"
+  },
+  {
+    "id": "claude",
+    "name": "Anthropic Claude (mwapi)",
+    "url": "https://api.mwapi.dev/v1/messages",
+    "model": "claude-sonnet-4-6",
+    "status_code": 403,
+    "latency_s": 0.917,
+    "response_snippet": "{\"code\":\"INSUFFICIENT_BALANCE\",\"message\":\"Insufficient account balance\"}",
+    "status": "FAIL"
+  },
+  {
+    "id": "agent-router",
+    "name": "Agent Router",
+    "url": "https://router.bynara.id/v1/chat/completions",
+    "model": "agnes-2.5-flash",
+    "status_code": 400,
+    "latency_s": 1.03,
+    "response_snippet": "{\"error\":{\"type\":\"bad_request\",\"message\":\"The requested model is not available.\",\"request_id\":\"864f0adf-7bf7-46d3-ab79-ded018143dbd\"}} ",
+    "status": "FAIL"
+  },
+  {
+    "id": "codecraft",
+    "name": "CodeCraft AI",
+    "url": "https://codecraftapi.com/v1/chat/completions",
+    "model": "claude-fable-5",
+    "status_code": 402,
+    "latency_s": 1.011,
+    "response_snippet": "{\"error\":{\"code\":\"insufficient_quota\",\"message\":\"A paid subscription plan or account balance is required. Please upgrade your plan or top up your balance at htt",
+    "status": "FAIL"
+  },
+  {
+    "id": "seekai",
+    "name": "SeekAI",
+    "url": "https://seekai.cc/v1/chat/completions",
+    "model": "glm-5.3-flash",
+    "status_code": 526,
+    "latency_s": 1.001,
+    "response_snippet": "<!DOCTYPE html> <!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]--> <!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endi",
+    "status": "FAIL"
+  },
+  {
+    "id": "tokentable",
+    "name": "TokenTable",
+    "url": "https://tokentable.asia/v1/chat/completions",
+    "model": "auto",
+    "status_code": 401,
+    "latency_s": 0.81,
+    "response_snippet": "{\"error\":{\"message\":\"Invalid or revoked API key\",\"type\":\"invalid_request_error\"}}",
+    "status": "FAIL"
+  },
+  {
+    "id": "cavoti",
+    "name": "Cavoti AI",
+    "url": "https://cavoti.com/v1/chat/completions",
+    "model": "claude-fable-5",
+    "status_code": 521,
+    "latency_s": 0.767,
+    "response_snippet": "<!DOCTYPE html> <!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]--> <!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endi",
+    "status": "FAIL"
+  }
+]
