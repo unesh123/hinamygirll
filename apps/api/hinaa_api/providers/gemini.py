@@ -69,7 +69,7 @@ def _llm_budgets(prompt: Any = None) -> tuple[int, int]:
 
 def _max_continuations(prompt: Any = None) -> int:
     depth = getattr(prompt, "response_depth", None) if prompt is not None else None
-    if depth in ("minimal", "clarification", "safety_redirect"):
+    if depth in ("minimal", "clarification", "safety_redirect", "conversational", "supportive"):
         return 0
     try:
         from ..config import get_settings

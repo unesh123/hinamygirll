@@ -257,13 +257,137 @@ export const ResponseRenderer = memo(function ResponseRenderer({
 
           case "image":
             return (
-              <div key={key} className="response-block-image my-3">
-                <a href={block.url} target="_blank" rel="noopener noreferrer" className="text-sakura-primary underline text-sm">
-                  {block.alt || "View image"}
-                </a>
-                {block.caption && <p className="text-xs text-sakura-text-muted mt-1">{block.caption}</p>}
+              <div key={key} className="response-block-image my-3 rounded-xl overflow-hidden border border-sakura-border/40 bg-black/20 max-w-xl">
+                <img
+                  src={block.url}
+                  alt={block.alt || "Visual output"}
+                  loading="lazy"
+                  className="w-full max-h-[420px] object-contain rounded-t-xl"
+                  onError={(e) => {
+                    // Fallback to text link on broken image
+                    (e.currentTarget as HTMLElement).style.display = "none";
+                  }}
+                />
+                {(block.caption || block.alt) && (
+                  <div className="p-2 px-3 text-xs text-sakura-text-muted bg-sakura-card-bg/40 border-t border-sakura-border/20 flex items-center justify-between">
+                    <span>{block.caption || block.alt}</span>
+                    <a
+                      href={block.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sakura-primary hover:underline text-[11px]"
+                    >
+                      Open ↗
+                    </a>
+                  </div>
+                )}
               </div>
             );
+
+          case "gallery":
+            return (
+              <div key={key} className="response-block-gallery my-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                  {block.items.map((item, gIdx) => (
+                    <div
+                      key={`gallery-${gIdx}`}
+                      className="group relative rounded-lg overflow-hidden border border-sakura-border/40 bg-black/30 aspect-video flex flex-col justify-end"
+                    >
+                      <img
+                        src={item.url}
+                        alt={item.alt || item.title || `Gallery item ${gIdx + 1}`}
+                        loading="lazy"
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                      {(item.title || item.alt) && (
+                        <div className="relative z-10 p-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-[11px] text-white/90">
+                          {item.title || item.alt}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+
+          case "citation":
+            return (
+              <div key={key} className="response-block-citation my-2 p-2.5 rounded-lg border border-sakura-border/30 bg-sakura-card-bg/30 text-xs flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <span className="px-1.5 py-0.5 rounded bg-sakura-primary/20 text-sakura-primary font-mono text-[10px]">
+                    SOURCE
+                  </span>
+                  <a
+                    href={block.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-sakura-text hover:text-sakura-primary hover:underline truncate"
+                  >
+                    {block.label}
+                  </a>
+                  {block.snippet && (
+                    <span className="text-sakura-text-muted truncate hidden sm:inline">
+                      — {block.snippet}
+                    </span>
+                  )}
+                </div>
+                <a
+                  href={block.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sakura-primary font-mono text-[11px] shrink-0 hover:underline"
+                >
+                  Visit ↗
+                </a>
+              </div>
+            );
+
+          case "file":
+            return (
+              <div key={key} className="response-block-file my-2.5 p-3 rounded-xl border border-sakura-border/40 bg-sakura-card-bg/40 flex items-center justify-between gap-3 max-w-md">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-pink-500/20 text-pink-300 flex items-center justify-center font-mono text-xs font-bold shrink-0">
+                    {block.filename.split('.').pop()?.toUpperCase() || "FILE"}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium text-xs text-sakura-text truncate">{block.filename}</div>
+                    {block.sizeBytes !== undefined && (
+                      <div className="text-[10px] text-sakura-text-muted">
+                        {(block.sizeBytes / 1024).toFixed(1)} KB
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {block.downloadUrl && (
+                  <a
+                    href={block.downloadUrl}
+                    download={block.filename}
+                    className="px-3 py-1 rounded-md bg-sakura-primary text-black text-xs font-medium hover:bg-sakura-primary/90 transition-colors shrink-0"
+                  >
+                    Download
+                  </a>
+                )}
+              </div>
+            );
+
+          case "diagram":
+            return (
+              <div key={key} className="response-block-diagram my-3">
+                <ResponseMarkdown text={`\`\`\`${block.diagramType || "mermaid"}\n${block.definition}\n\`\`\``} />
+              </div>
+            );
+
+          case "table": {
+            const headerRow = block.headers.join(" | ");
+            const separator = block.headers.map(() => "---").join(" | ");
+            const dataRows = block.rows.map((r) => r.join(" | ")).join("\n");
+            const mdTable = `| ${headerRow} |\n| ${separator} |\n${dataRows.split('\n').map(r => `| ${r} |`).join('\n')}`;
+            return (
+              <div key={key} className="response-block-table my-3">
+                <ResponseMarkdown text={mdTable} />
+              </div>
+            );
+          }
 
           case "video":
             return (

@@ -6892,8 +6892,18 @@ class ConversationService:
                         remainder = full_text[idx + len(s_stripped):]
                         if remainder:
                             yield _make_delta_event(remainder)
+                elif full_text.strip() in streamed_so_far.strip():
+                    # full_text is already fully present in what was streamed; never re-emit
+                    pass
+                elif streamed_so_far.strip().endswith(full_text.strip()[-min(len(full_text.strip()), 40):]):
+                    # The tail was already streamed; never re-emit
+                    pass
+                elif len(streamed_so_far.strip()) >= 30:
+                    # Substantial message was already streamed to the client in real-time.
+                    # Never re-dump full_text when opening greetings/reflections diverged,
+                    # eliminating duplicate response loops.
+                    pass
                 else:
-                    # Never drop full_text if formatting diverged or commonprefix is empty
                     import os
                     common = os.path.commonprefix([full_text, streamed_so_far])
                     remainder = full_text[len(common):] if len(common) > 0 else full_text

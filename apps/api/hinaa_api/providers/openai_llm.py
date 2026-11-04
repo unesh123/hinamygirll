@@ -76,7 +76,7 @@ def _sanitize_delta(value: str) -> str:
 
 def _orchestrator_continuations(prompt: Any = None) -> int:
     depth = getattr(prompt, "response_depth", None) if prompt is not None else None
-    if depth in ("minimal", "clarification", "safety_redirect"):
+    if depth in ("minimal", "clarification", "safety_redirect", "conversational", "supportive"):
         return 0
     try:
         from ..config import get_settings
@@ -747,6 +747,8 @@ class OpenAILLMProvider:
                                     continue
                                 event = line.removeprefix("data:").strip()
                                 if event == "[DONE]":
+                                    if finish_reason_holder is not None and not finish_reason_holder.get("value"):
+                                        finish_reason_holder["value"] = "stop"
                                     break
                                 try:
                                     data = json.loads(event)
@@ -783,6 +785,8 @@ class OpenAILLMProvider:
                             if not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
                                 stream_failed_early = True
                             elif streamed_any:
+                                if finish_reason_holder is not None and not finish_reason_holder.get("value"):
+                                    finish_reason_holder["value"] = "stop"
                                 if in_thought:
                                     yield "</think>\n\n"
                                 return

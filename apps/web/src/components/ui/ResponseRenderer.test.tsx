@@ -127,4 +127,51 @@ Internal pipeline steps are configured here.
     fireEvent.click(deployBtn);
     expect(onAction).toHaveBeenCalledWith("act-deploy");
   });
+
+  it("renders gallery, image, citation, file, diagram, and table blocks cleanly", () => {
+    render(
+      <ResponseRenderer
+        content={[
+          {
+            kind: "image",
+            url: "https://example.com/hina.png",
+            caption: "HINAA Autonomous Avatar",
+          },
+          {
+            kind: "gallery",
+            items: [
+              { url: "https://example.com/shot1.png", title: "Shot 1" },
+              { url: "https://example.com/shot2.png", title: "Shot 2" },
+            ],
+          },
+          {
+            kind: "citation",
+            label: "FastAPI Documentation",
+            url: "https://fastapi.tiangolo.com",
+            snippet: "High performance web framework",
+          },
+          {
+            kind: "file",
+            filename: "architecture_report.pdf",
+            sizeBytes: 1048576,
+            downloadUrl: "/api/files/download/123",
+          },
+          {
+            kind: "table",
+            headers: ["Feature", "Status"],
+            rows: [["Latency", "Optimized"], ["TTS", "Streaming"]],
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("HINAA Autonomous Avatar")).toBeInTheDocument();
+    expect(screen.getByText("Shot 1")).toBeInTheDocument();
+    expect(screen.getByText("Shot 2")).toBeInTheDocument();
+    expect(screen.getByText("FastAPI Documentation")).toBeInTheDocument();
+    expect(screen.getByText("architecture_report.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Download")).toBeInTheDocument();
+    expect(screen.getByText("Latency")).toBeInTheDocument();
+    expect(screen.getByText("Optimized")).toBeInTheDocument();
+  });
 });
