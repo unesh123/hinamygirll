@@ -12,6 +12,16 @@
 
 Phase 06 upgrades HINAA OS from standard conversational prompting and naive RAG chunk injection into an authoritative, enterprise-grade **Corrective Retrieval-Augmented Generation (CRAG)** engine.
 
+### Erratum & Verification Clarification: Mock vs Live Retrieval
+> [!NOTE]
+> The initial 25-scenario automated benchmark (`R06-01` through `R06-25`) executed in **25.25 ms total (~1.01 ms per scenario)** because it ran against `MockSearchAdapter` in offline deterministic mode. This tested the local architectural components (CRAG evaluation, SimHash deduplication, prompt injection defenses, multi-tenant ACLs, Indic tokenization, and claim entailment) without external network I/O.
+> 
+> In production environments with `EXA_API_KEY` configured, `GroundedResearchCoordinator` activates `LiveSearchAdapter`. Live end-to-end web research (e.g. *"When was Python 3.13 officially released?"*) yields:
+> - **Live Network Latency:** 3,895.41 ms (~3.9s)
+> - **Top Live Source:** `https://www.python.org/downloads/release/python-3130/`
+> - **Factual Verification:** Grounded release date `Oct. 7, 2024`.
+> Mock, replay, cached, and live results are now distinctly labeled across all test suites and reports.
+
 ### Critical Capabilities Delivered
 1. **Confidence-Gated Corrective Retrieval (CRAG)**: Retrieval results are audited for quality and semantic relevance. If evidence is ambiguous or incorrect, the engine automatically rewrites search queries and fetches corrective corroboration before synthesizing responses.
 2. **Multi-Hop Relational Decomposition**: Multi-step queries (e.g. *"Who directed the movie whose lead actor played Oppenheimer in 2023?"*) are programmatically split into entity hops with bridge-entity resolution under strict query budget constraints.

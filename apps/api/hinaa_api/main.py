@@ -1041,7 +1041,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_bridge = session_bridge
     app.state.active_voice_lifecycle = _global_voice_lifecycle
     from .research import GroundedResearchCoordinator
-    app.state.research_coordinator = GroundedResearchCoordinator()
+    from .research.adapters import LiveSearchAdapter
+    live_search = None
+    if active_settings.exa_configured:
+        live_search = LiveSearchAdapter(
+            api_key=active_settings.exa_api_key.get_secret_value(),
+            search_url=f"{active_settings.active_exa_base_url}/search",
+            timeout_seconds=active_settings.exa_timeout_seconds,
+        )
+    app.state.research_coordinator = GroundedResearchCoordinator(search_adapter=live_search)
+    from .browser import BrowserAutomationService
+    app.state.browser_service = BrowserAutomationService()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -1467,6 +1477,131 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "confidenceScore": score,
             "sourcesCount": len(sources),
         }
+
+    # ─────────────────────────────────────────────────────────────
+    # BROWSER AUTOMATION & WEB OPERATIONS (PHASE 07)
+    # ─────────────────────────────────────────────────────────────
+
+    @app.post("/api/browser/tasks")
+    @app.post("/v1/browser/tasks")
+    async def create_browser_task(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Creates a new isolated browser automation task."""
+        from .browser import BrowserAutomationService, BrowserTaskSpec, BrowserActionRequest
+        service: BrowserAutomationService = getattr(app.state, "browser_service", None)
+        if service is None:
+            service = BrowserAutomationService()
+            app.state.browser_service = service
+
+        task_id = body.get("taskId") or f"task-brw-{uuid4().hex[:8]}"
+        spec = BrowserTaskSpec(
+            task_id=task_id,
+            objective=body.get("objective", "Web browsing task"),
+            user_id=body.get("userId", "default_user"),
+            tenant_id=body.get("tenantId", "default_tenant"),
+            start_url=body.get("startUrl"),
+            max_steps=int(body.get("maxSteps", 15)),
+        )
+        session = await service.create_task(spec)
+
+        # If start_url provided, navigate to it automatically
+        initial_results = []
+        if spec.start_url:
+            plan = service.planner.create_navigation_plan(spec, spec.start_url)
+            initial_results = await service.run_task_plan(task_id, plan)
+
+        return {
+            "taskId": task_id,
+            "state": session.state.value,
+            "objective": spec.objective,
+            "startUrl": spec.start_url,
+            "initialResults": [r.model_dump() for r in initial_results],
+        }
+
+    @app.get("/api/browser/tasks/{task_id}")
+    @app.get("/v1/browser/tasks/{task_id}")
+    async def get_browser_task(task_id: str) -> dict[str, Any]:
+        """Retrieves status, active tabs, and pending approvals for a browser task."""
+        from .browser import BrowserAutomationService
+        service: BrowserAutomationService = getattr(app.state, "browser_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Browser service not initialized")
+        session = service.get_task(task_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Browser task '{task_id}' not found")
+
+        tabs = await session.list_tabs()
+        return {
+            "taskId": session.task_id,
+            "state": session.state.value,
+            "objective": session.spec.objective,
+            "currentUrl": session.current_page.url if session.pages else None,
+            "tabs": [t.model_dump() for t in tabs],
+            "pendingApproval": session.pending_approval.model_dump() if session.pending_approval else None,
+        }
+
+    @app.get("/api/browser/tasks/{task_id}/events")
+    @app.get("/v1/browser/tasks/{task_id}/events")
+    async def stream_browser_task_events(task_id: str) -> StreamingResponse:
+        """Streams real-time action events and state transitions via SSE."""
+        from .browser import BrowserAutomationService, BrowserTaskEvent
+        service: BrowserAutomationService = getattr(app.state, "browser_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Browser service not initialized")
+        session = service.get_task(task_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Browser task '{task_id}' not found")
+
+        q = session.subscribe_events()
+
+        async def sse_generator():
+            try:
+                while True:
+                    evt: BrowserTaskEvent = await q.get()
+                    yield f"data: {evt.model_dump_json()}\n\n"
+                    if evt.state in {BrowserTaskState.COMPLETED, BrowserTaskState.FAILED, BrowserTaskState.CANCELLED}:
+                        break
+            finally:
+                session.unsubscribe_events(q)
+
+        return StreamingResponse(sse_generator(), media_type="text/event-stream")
+
+    @app.post("/api/browser/tasks/{task_id}/cancel")
+    @app.post("/v1/browser/tasks/{task_id}/cancel")
+    async def cancel_browser_task(task_id: str) -> dict[str, Any]:
+        """Cancels an active browser task and aborts in-flight actions."""
+        from .browser import BrowserAutomationService
+        service: BrowserAutomationService = getattr(app.state, "browser_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Browser service not initialized")
+        cancelled = await service.cancel_task(task_id)
+        return {"taskId": task_id, "cancelled": cancelled}
+
+    @app.post("/api/browser/tasks/{task_id}/approve")
+    @app.post("/v1/browser/tasks/{task_id}/approve")
+    async def approve_browser_task_action(task_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Submits human approval for a paused Tier C action."""
+        from .browser import BrowserAutomationService, BrowserActionRequest
+        service: BrowserAutomationService = getattr(app.state, "browser_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Browser service not initialized")
+        approval_id = str(body.get("approvalId", ""))
+        token = str(body.get("token", ""))
+        action_data = body.get("actionRequest", {})
+        action_req = BrowserActionRequest.model_validate(action_data)
+
+        result = await service.approve_and_resume(task_id, approval_id, token, action_req)
+        return {"taskId": task_id, "result": result.model_dump()}
+
+    @app.get("/api/browser/tasks/{task_id}/artifacts")
+    @app.get("/v1/browser/tasks/{task_id}/artifacts")
+    async def get_browser_task_artifacts(task_id: str) -> dict[str, Any]:
+        """Returns collected artifacts (screenshots, downloads) for a browser task."""
+        from .browser import BrowserAutomationService
+        service: BrowserAutomationService = getattr(app.state, "browser_service", None)
+        if not service:
+            raise HTTPException(status_code=404, detail="Browser service not initialized")
+        artifacts = service.get_task_artifacts(task_id)
+        return {"taskId": task_id, "artifacts": artifacts}
 
     @app.get("/v1/readiness")
     @app.get("/api/v1/readiness")
