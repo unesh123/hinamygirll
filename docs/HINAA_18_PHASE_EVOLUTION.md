@@ -172,7 +172,31 @@
 ---
 
 ### PHASE 08 — Code Execution & Developer Sandbox
+- **Status**: **COMPLETE** (Signed off: Nov 5, 2026)
+- **Report**: [\docs/evolution/PHASE_08_REPORT.md\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/evolution/PHASE_08_REPORT.md)
+- **Architecture**: [\docs/coding/PHASE_08_ARCHITECTURE.md\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/coding/PHASE_08_ARCHITECTURE.md)
+- **Dataset Specification**: [\docs/coding/PHASE_08_EVAL_DATASET.md\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/coding/PHASE_08_EVAL_DATASET.md)
+- **Benchmark Results**: [\docs/coding/benchmark_results.json\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/coding/benchmark_results.json)
+- **Product V3 Requirements**: [\docs/product/HINAA_V3_REQUIREMENTS.md\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/product/HINAA_V3_REQUIREMENTS.md)
+- **Feature Acceptance Matrix**: [\docs/product/FEATURE_ACCEPTANCE_MATRIX.md\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/product/FEATURE_ACCEPTANCE_MATRIX.md)
+- **Nepal Payment Integration**: [\docs/commerce/NEPAL_PAYMENT_INTEGRATION.md\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/commerce/NEPAL_PAYMENT_INTEGRATION.md)
+- **Billing Evidence**: [\docs/commerce/BILLING_TEST_EVIDENCE.md\](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/commerce/BILLING_TEST_EVIDENCE.md)
+- **Package**: \pps/api/hinaa_api/coding/\, \pps/api/hinaa_api/sandbox/\, \pps/api/hinaa_api/workspaces/- **Git Checkpoint Tag**: \phase-08-checkpoint- **Key Milestones Achieved**:
+  1. *Host Runtime Discovery & Multi-Backend Isolation*: Discovers Docker, WSL2, and Windows Job Objects; reports honest capabilities (\SecurityLevel.RESTRICTED\) without labeling host processes as containers.
+  2. *Restricted Host Process Execution (\process_adapter.py\)*: Enforces strict workspace directory boundaries, regex-based secret scrubbing, and guaranteed process-tree kill via Windows Job Objects (\JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE\) and \	askkill /F /T\.
+  3. *Hardened Docker Container Isolation (\docker_adapter.py\)*: Drops capabilities (\--cap-drop=ALL\), enforces non-root UID (@0:1000\), drops network egress by default, and unconditionally rejects Docker socket mounts or privileged container escalation.
+  4. *Project Scanner & Language Indexer (\scanner.py\)*: Non-destructively scans repositories; indexes Python (\pytest\) and Node/TypeScript (pm test\, pm run build\); bounded symbol lookup preserves token limits.
+  5. *Structured Diff Engine (\diff_engine.py\)*: Character-exact replacement patches with CRLF/LF line-ending normalization, base SHA-256 collision detection, and standard unified diff generation.
+  6. *Task-Scoped Atomic Rollback (\manager.py\)*: Pre-mutation snapshots allow one-click reversal of task-owned edits without clobbering concurrent user changes.
+  7. *Autonomous Bounded Coding Loop (\loop.py\)*: Multi-step cycle (Inspect -> Snapshot -> Patch -> Test -> Repair -> Diff/Rollback) bounded by a hard ceiling of 3 self-repair rounds.
+  8. *REST & SSE Endpoints (\main.py\)*: 8 live endpoints (\POST /tasks\, \GET /tasks/{id}\, \GET /tasks/{id}/events\ via SSE, \POST /cancel\, \POST /approve\, \GET /artifacts\, \POST /rollback\, \GET /sandbox/status\).
+  9. *Frontend Developer Workspace (\CodingTaskPanel.tsx\)*: Real-time activity status stream (runId, type, label), skeleton shimmer animation, unified diff viewer, live terminal logs with 1MB buffer ceiling, cancellation and rollback buttons.
+  10. *Authoritative 48-Scenario Benchmark*: 48/48 scenarios passed (100.0%) across all 5 evidence classes in 18.30s with 0 orphan processes and 0 secret environment leaks.
+
+---
+
+### PHASE 09 — Creative Studios: Image Generation & Inpainting
 - **Status**: **NEXT UP**
-- **Objectives**: Sandboxed Python/Node.js/Bash execution, container isolation, workspace diff engine, and interactive developer terminal tooling.
+- **Objectives**: ComfyUI/Diffusers integration, text-to-image, mask-based inpainting, background removal, asset inventory provenance, and RTX 4060 GPU memory budgeting.
 
 
