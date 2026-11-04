@@ -1040,6 +1040,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.memory_v2_manager = memory_v2_manager
     app.state.session_bridge = session_bridge
     app.state.active_voice_lifecycle = _global_voice_lifecycle
+    from .research import GroundedResearchCoordinator
+    app.state.research_coordinator = GroundedResearchCoordinator()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -1429,6 +1431,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "cancelledTurn": cancelled_turn.to_dict() if cancelled_turn else None,
             }
         return {"interrupted": True, "newGeneration": (target_gen or 0) + 1}
+
+    # ═══════════════════════════════════════════════════════
+    # GROUNDED RESEARCH & CORRECTIVE RAG (PHASE 06)
+    # ═══════════════════════════════════════════════════════
+
+    @app.post("/api/research/query")
+    @app.post("/v1/research/query")
+    async def execute_grounded_research(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Executes full CRAG research pipeline: multi-hop, deduplication, claim-grounding, and citations."""
+        from .research import GroundedResearchCoordinator
+        query = str(body.get("query", ""))
+        force = bool(body.get("forceResearch", False))
+        user_id = body.get("userId")
+        coordinator: GroundedResearchCoordinator = getattr(
+            app.state, "research_coordinator", None
+        )
+        if coordinator is None:
+            coordinator = GroundedResearchCoordinator()
+        answer = await coordinator.execute_research(query, requesting_user_id=user_id, force_research=force)
+        return answer.model_dump()
+
+    @app.post("/api/research/evaluate")
+    @app.post("/v1/research/evaluate")
+    async def evaluate_crag_retrieval(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Evaluates retrieval quality (CORRECT / INCORRECT / AMBIGUOUS) using the CRAG engine."""
+        from .research import CRAGEngine, Source
+        query = str(body.get("query", ""))
+        sources_raw = body.get("sources", [])
+        sources = [Source.model_validate(s) for s in sources_raw]
+        crag = CRAGEngine()
+        verdict, score = crag.evaluate_retrieval(query, sources)
+        return {
+            "verdict": verdict.value,
+            "confidenceScore": score,
+            "sourcesCount": len(sources),
+        }
 
     @app.get("/v1/readiness")
     @app.get("/api/v1/readiness")
