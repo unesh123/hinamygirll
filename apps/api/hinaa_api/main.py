@@ -1131,7 +1131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 active_settings.auth_mode == "clerk"
                 and request.method != "OPTIONS"
                 and request.url.path not in _exempt_paths
-                and not request.url.path.startswith(("/api/telemetry", "/v1/telemetry", "/api/agency", "/v1/agency", "/api/neural-lab", "/v1/neural-lab"))
+                and not request.url.path.startswith(("/api/telemetry", "/v1/telemetry", "/api/agency", "/v1/agency", "/api/neural-lab", "/v1/neural-lab", "/api/identity", "/v1/identity", "/api/personality", "/v1/personality"))
             ):
                 try:
                     if memory_service is None:
@@ -1279,6 +1279,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """List registered LoRA adapters and active status."""
         from .neural_lab import get_adapter_manager
         return [a.model_dump() for a in get_adapter_manager().list_adapters()]
+
+    # -------------------------------------------------------------------------
+    # Character Identity & Adaptive Personality Endpoints (Phase 04 / Modules 02 & 03)
+    # -------------------------------------------------------------------------
+    @app.get("/api/identity")
+    @app.get("/v1/identity")
+    async def get_character_identity() -> dict[str, Any]:
+        """Returns persistent character identity profile, traits, and operational mode."""
+        from .identity import get_identity_manager
+        return get_identity_manager().identity.model_dump()
+
+    @app.post("/api/identity/mode")
+    @app.post("/v1/identity/mode")
+    async def update_identity_mode(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Updates active relationship mode (companion, co_pilot, analyst, operator)."""
+        from .identity import get_identity_manager, RelationshipMode
+        mode_val = body.get("mode", "co_pilot")
+        try:
+            mode = RelationshipMode(mode_val)
+        except ValueError:
+            raise HinaaError("INVALID_MODE", f"Invalid relationship mode: {mode_val}", 400)
+        mgr = get_identity_manager()
+        mgr.set_relationship_mode(mode)
+        return mgr.identity.model_dump()
+
+    @app.post("/api/identity/traits")
+    @app.post("/v1/identity/traits")
+    async def update_identity_traits(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Updates numeric persona traits (warmth, intellect, playfulness, etc.)."""
+        from .identity import get_identity_manager
+        mgr = get_identity_manager()
+        mgr.update_traits(**body)
+        return mgr.identity.model_dump()
+
+    @app.get("/api/personality/mood")
+    @app.get("/v1/personality/mood")
+    async def get_current_mood() -> dict[str, Any]:
+        """Returns current dynamic emotional presentation, mood vector, avatar animation, and voice cues."""
+        from .personality import get_mood_engine
+        engine = get_mood_engine()
+        pitch, rate = engine.get_voice_modulation()
+        return {
+            "currentState": engine.current_state.value,
+            "vector": engine.vector.model_dump(),
+            "avatarAnimation": engine.get_avatar_animation(),
+            "voicePitchMultiplier": pitch,
+            "voiceRateMultiplier": rate,
+            "promptCue": engine.get_prompt_mood_cue(),
+        }
+
+    @app.post("/api/personality/stimulus")
+    @app.post("/v1/personality/stimulus")
+    async def trigger_mood_stimulus(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        """Applies an emotional stimulus impulse to the mood engine."""
+        from .personality import get_mood_engine, StimulusType
+        stimulus_val = body.get("stimulus", "casual_chat")
+        context = body.get("context", "")
+        try:
+            stimulus = StimulusType(stimulus_val)
+        except ValueError:
+            raise HinaaError("INVALID_STIMULUS", f"Invalid stimulus: {stimulus_val}", 400)
+        engine = get_mood_engine()
+        event = engine.process_stimulus(stimulus, context=context)
+        return event.model_dump()
 
     @app.get("/v1/readiness")
     @app.get("/api/v1/readiness")

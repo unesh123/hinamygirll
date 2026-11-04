@@ -142,11 +142,24 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
                 else f"- Registered tools ({len(tool_names)}): {', '.join(sorted(tool_names))}."
             )
         )
+        identity_cue = ""
+        mood_cue = ""
+        try:
+            from ..identity import get_identity_manager
+            from ..personality import get_mood_engine
+            ident = get_identity_manager().identity
+            identity_cue = f"- Character Mode: {ident.active_mode.value.upper()} (Archetype: {ident.core_archetype}).\n"
+            mood_cue = f"- {get_mood_engine().get_prompt_mood_cue()}\n"
+        except Exception:
+            pass
+
         return (
             "\n\nMEASURED SELF STATE (read from the running process, not recalled):\n"
             f"- Prompt assembly version: {PROMPT_VERSION}.\n"
             f"- Active brain routing: {settings.provider_mode}.\n"
             f"- Configured brains ({len(brains)}): {', '.join(brains) or 'none'}.\n"
+            f"{identity_cue}"
+            f"{mood_cue}"
             f"{capabilities}\n"
             f"- Persistence: {'on' if settings.persistence_enabled else 'off'}.\n"
             f"- Auth mode: {settings.auth_mode}.\n"

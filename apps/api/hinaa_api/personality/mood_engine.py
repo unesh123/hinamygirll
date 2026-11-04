@@ -35,16 +35,16 @@ class AdaptiveMoodEngine:
     def _determine_state(self) -> MoodState:
         """Resolves the discrete mood state from continuous dimensional vector."""
         v = self.vector
+        if v.valence < -0.3 and v.arousal > 0.5:
+            return MoodState.FRUSTRATED
+        if v.valence < 0.4 and v.focus > 0.5:
+            return MoodState.THOUGHTFUL
         if v.focus > 0.75:
             return MoodState.FOCUSED
         if v.valence > 0.6 and v.arousal > 0.6:
             return MoodState.ENTHUSIASTIC if v.focus > 0.4 else MoodState.PLAYFUL
         if v.valence > 0.3 and v.arousal > 0.4:
             return MoodState.CURIOUS
-        if v.valence < 0.0 and v.focus > 0.5:
-            return MoodState.THOUGHTFUL
-        if v.valence < -0.3 and v.arousal > 0.5:
-            return MoodState.FRUSTRATED
         return MoodState.CALM
 
     def process_stimulus(self, stimulus: StimulusType, context: str = "") -> MoodTransitionEvent:
