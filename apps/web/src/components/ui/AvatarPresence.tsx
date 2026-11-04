@@ -250,7 +250,12 @@ const MODEL_POSE_OFFSETS: Record<string, Record<PoseBoneName, THREE.Quaternion>>
   "/models/hinaa.vrm": HINAA_RELAXED_POSE_OFFSETS,
   // The default Hinaa rig (default model in App.tsx). It previously had no
   // entry, so resolvePoseOffsets fell through to the generic pose.
-  "/models/hinaa-original.vrm": HINAA_RELAXED_POSE_OFFSETS,
+  "/models/hinaa-original.vrm": {
+    ...HINAA_RELAXED_POSE_OFFSETS,
+    leftShoulder: q(0, 0, 0.12), rightShoulder: q(0, 0, -0.12),
+    leftUpperArm: q(-0.06, 0.04, 0.90), rightUpperArm: q(-0.06, -0.04, -0.90),
+    leftLowerArm: q(0, 0, 0.12), rightLowerArm: q(0, 0, -0.12),
+  },
   "/models/model_6164.vrm": {
     // Measured against the shipped VRM's actual horizontal upper-arm hierarchy.
     // Sharing rotation through shoulder → upper arm → forearm avoids a stiff
@@ -377,9 +382,6 @@ function Model({
   // Procedural walk gait dynamics
   const walkWeightRef = useRef(0);
   const walkPhaseRef = useRef(0);
-  const walkRoamXRef = useRef(0);
-  const walkDirectionRef = useRef(1);
-  const walkTurnYawRef = useRef(0);
   const lastFootstepSideRef = useRef<"left" | "right" | null>(null);
 
   // Per-frame refs — no allocations
@@ -1201,33 +1203,20 @@ function Model({
     let armSwing = 0;
     let walkStride = 0;
     if (wWeight > 0.001) {
-      walkPhaseRef.current = (walkPhaseRef.current + realDt * 2.2) % (Math.PI * 2);
+      walkPhaseRef.current = (walkPhaseRef.current + realDt * 4.4) % (Math.PI * 2);
       const phase = walkPhaseRef.current;
       walkStride = -Math.sin(phase) * wWeight;
       armSwing = walkStride * 0.40;
 
-      // Roam laterally across floor / runway
-      const roamStep = 0.12 * walkDirectionRef.current * realDt * wWeight;
-      walkRoamXRef.current += roamStep;
-      const maxRoam = 0.28;
-      if (walkRoamXRef.current > maxRoam) {
-        walkRoamXRef.current = maxRoam;
-        walkDirectionRef.current = -1;
-      } else if (walkRoamXRef.current < -maxRoam) {
-        walkRoamXRef.current = -maxRoam;
-        walkDirectionRef.current = 1;
-      }
-      const targetYaw = (walkDirectionRef.current > 0 ? 0.20 : -0.20) * wWeight;
-      walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, targetYaw, 5, dt);
-
+      // A walk preview stays rooted; lateral drift without foot IK causes skating.
       // Apply root translation & turning yaw
-      vrm.scene.position.x = walkRoamXRef.current * wWeight;
-      vrm.scene.rotation.y = baseRotationY + (walkTurnYawRef.current * wWeight);
+      vrm.scene.position.x = THREE.MathUtils.damp(vrm.scene.position.x, 0, 8, dt);
+      vrm.scene.rotation.y = baseRotationY;
 
       // Pelvis / Hips dynamics (graceful runway lemniscate sway, vertical bob, forward pitch)
       const hipBob = Math.abs(Math.sin(phase)) * 0.018 * wWeight;
-      const hipRoll = -Math.sin(phase) * 0.068 * wWeight;
-      const hipYaw = Math.sin(phase) * 0.055 * wWeight;
+      const hipRoll = -Math.sin(phase) * 0.032 * wWeight;
+      const hipYaw = Math.sin(phase) * 0.03 * wWeight;
       const hipPitch = 0.025 * wWeight;
 
       const hips = hipsBoneRef.current;
@@ -1283,8 +1272,8 @@ function Model({
       const leftStrideFlex = Math.max(0, walkStride);
       const rightStrideFlex = Math.max(0, -walkStride);
       const STANCE_FLEX = 0.032;
-      const leftKnee = Math.pow(leftStrideFlex, 1.35) * 1.05 * wWeight + STANCE_FLEX * wWeight;
-      const rightKnee = Math.pow(rightStrideFlex, 1.35) * 1.05 * wWeight + STANCE_FLEX * wWeight;
+      const leftKnee = Math.pow(leftStrideFlex, 1.35) * 0.65 * wWeight + STANCE_FLEX * wWeight;
+      const rightKnee = Math.pow(rightStrideFlex, 1.35) * 0.65 * wWeight + STANCE_FLEX * wWeight;
       const lll = leftLowerLegRef.current;
       const lllQ = leftLowerLegRestQRef.current;
       if (lll && lllQ) {
@@ -1344,8 +1333,6 @@ function Model({
       // Return gracefully to neutral standing posture
       vrm.scene.position.x = THREE.MathUtils.damp(vrm.scene.position.x, 0, 6, dt);
       vrm.scene.rotation.y = THREE.MathUtils.damp(vrm.scene.rotation.y, baseRotationY, 6, dt);
-      walkRoamXRef.current = THREE.MathUtils.damp(walkRoamXRef.current, 0, 6, dt);
-      walkTurnYawRef.current = THREE.MathUtils.damp(walkTurnYawRef.current, 0, 6, dt);
 
       const hips = hipsBoneRef.current;
       const hipsPos = hipsRestPosRef.current;
@@ -1485,7 +1472,7 @@ function Model({
         : (affectiveProfile.headTiltBias * 0.4);
       const thinkingPitch = (affectiveProfile.thoughtfulness > 0.5 || activeIntent === "thinking") ? 0.045 : 0;
       const laughingPitch = (activeIntent === "laughing") ? -0.05 + Math.sin(t.current * 7.2) * 0.03 : 0;
-      const walkGazeStabilizeYaw = -walkTurnYawRef.current * wWeight;
+      const walkGazeStabilizeYaw = 0;
       const walkHeadBobPitch = Math.sin(walkPhaseRef.current * 2) * 0.006 * wWeight;
       const swayTarget = scratch.target.copy(headRest).multiply(
         scratch.rotation.setFromEuler(scratch.euler.set(
@@ -1824,7 +1811,6 @@ function Cam({
   const initialized = useRef(false);
   const camClock = useRef(0);
   const speechDampRef = useRef(0);
-  const walkOrbitRef = useRef(0);
 
   // Detect emotional warmth or cute emphasis for intimate cinematic framing
   const dialogueSample = `${expressionText || ""} ${plan?.spokenText || ""} ${plan?.displayText?.slice(0, 120) || ""}`;
@@ -1834,9 +1820,6 @@ function Cam({
     const persCam = camera as THREE.PerspectiveCamera;
     const realDt = Math.min(dt, 0.1);
     camClock.current += realDt;
-    if (isWalking) {
-      walkOrbitRef.current += realDt * 0.08; // slow 0.08 Hz walk showcase orbit
-    }
 
     const isListening = state === "listening" || (liveStatus?.active && liveStatus?.status === "listening");
     const isSpeakingNow = !isListening && Boolean((speakingRef && speakingRef.current) || state === "speaking");
@@ -1864,7 +1847,7 @@ function Cam({
     const floatZ = Math.sin(camClock.current * 0.41) * 0.0035;
 
     // 2. Subtle multi-angle cinematic orbit pan (±2.5° azimuth shift while speaking, + walk showcase orbit)
-    const walkOrbit = isWalking ? Math.sin(walkOrbitRef.current * Math.PI * 2) * 0.35 : 0;
+    const walkOrbit = 0;
     const orbitAngle = Math.sin(camClock.current * 0.22) * 0.042 * speechFactor + walkOrbit;
 
     // Relative displacement from target

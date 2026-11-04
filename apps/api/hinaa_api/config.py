@@ -120,6 +120,8 @@ class Settings(BaseSettings):
     # default to avoid OOM on consumer cards such as an 8 GB RTX 4060.
     vmc_port: int = Field(39539, alias="HINAA_VMC_PORT")
     comfyui_base_url: str = Field("http://127.0.0.1:8188", alias="HINAA_COMFYUI_BASE_URL")
+    comfyui_workflow_path: str | None = Field(None, alias="HINAA_COMFYUI_WORKFLOW_PATH")
+    comfyui_ultra_workflow_path: str | None = Field(None, alias="HINAA_COMFYUI_ULTRA_WORKFLOW_PATH")
     comfyui_max_concurrent_jobs: int = Field(1, ge=1, le=4, alias="HINAA_COMFYUI_MAX_CONCURRENT_JOBS")
     groq_api_key: SecretStr | None = Field(None, alias="GROQ_API_KEY")
     groq_model: str = Field("llama-3.1-8b-instant", alias="GROQ_MODEL")

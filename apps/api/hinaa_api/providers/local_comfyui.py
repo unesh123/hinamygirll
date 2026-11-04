@@ -5,7 +5,6 @@ import base64
 import io
 import json
 import logging
-import os
 import uuid
 from pathlib import Path
 from time import monotonic
@@ -20,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 class ComfyUIConfig(BaseModel):
     base_url: str = "http://127.0.0.1:8188"
+    workflow_path: str | None = None
+    ultra_workflow_path: str | None = None
     # This gate controls lightweight prompt submission, not unsafe latent-image
     # batching. ComfyUI's own queue remains the source of GPU scheduling truth.
     max_concurrency: int = Field(1, ge=1, le=4)
@@ -52,7 +53,7 @@ class LocalComfyUIProvider:
     def __init__(self, config: ComfyUIConfig | None = None) -> None:
         self.config = config or ComfyUIConfig()
         self._submission_semaphore = asyncio.Semaphore(self.config.max_concurrency)
-        self._http = httpx.AsyncClient(base_url=self.config.base_url.rstrip("/"), timeout=300.0)
+        self._http = httpx.AsyncClient(base_url=self.config.base_url.rstrip("/"), timeout=300.0, trust_env=False)
 
     async def health_check(self) -> bool:
         try:
@@ -63,17 +64,57 @@ class LocalComfyUIProvider:
             logger.info("ComfyUI health check failed: %s", type(error).__name__)
             return False
 
+    async def workflow_readiness(self) -> dict[str, Any]:
+        """Discover missing workflow dependencies without queueing GPU work."""
+        try:
+            response = await self._http.get("/object_info", timeout=3.0)
+            response.raise_for_status()
+            catalog = response.json()
+            if not isinstance(catalog, dict) or not catalog:
+                raise ValueError("Invalid node catalog")
+        except Exception:
+            return {"ready": False, "serverReachable": False, "workflows": {},
+                    "hint": "Start ComfyUI on its configured loopback address, then refresh this check."}
+        reports = {}
+        model_fields = {"ckpt_name", "unet_name", "clip_name", "clip_name1", "clip_name2", "vae_name", "lora_name"}
+        for mode, loader in (("fast", self.load_base_workflow), ("ultra", self.load_ultra_workflow)):
+            try:
+                workflow = loader()
+                if not isinstance(workflow, dict) or not workflow or not all(
+                    isinstance(node, dict) and isinstance(node.get("class_type"), str)
+                    for node in workflow.values()
+                ):
+                    raise ValueError("Export the workflow in API format.")
+                missing_nodes, missing_models = set(), []
+                for node in workflow.values():
+                    kind = node["class_type"]
+                    if kind not in catalog:
+                        missing_nodes.add(kind)
+                        continue
+                    required = catalog[kind].get("input", {}).get("required", {})
+                    for key, value in node.get("inputs", {}).items():
+                        schema = required.get(key, [])
+                        choices = schema[0] if schema else None
+                        if key in model_fields and isinstance(value, str) and isinstance(choices, list) and value not in choices:
+                            missing_models.append({"node": kind, "input": key, "file": value})
+                reports[mode] = {"ready": not missing_nodes and not missing_models,
+                                 "missingNodes": sorted(missing_nodes), "missingModels": missing_models}
+            except (OSError, ValueError, TypeError, AttributeError):
+                reports[mode] = {"ready": False, "error": "Workflow missing or invalid. Export a valid API-format workflow."}
+        return {"ready": reports["fast"]["ready"], "serverReachable": True, "workflows": reports,
+                "hint": "Fast workflow ready." if reports["fast"]["ready"] else "Install the listed workflow nodes/models before generating."}
+
     @staticmethod
     def _project_root() -> Path:
         return Path(__file__).resolve().parents[4]
 
     def load_base_workflow(self) -> Dict[str, Any]:
-        path = self._project_root() / "HINAA_ANIMA_QUALITY_API.json"
+        path = self._project_root() / (self.config.workflow_path or "HINAA_ANIMA_QUALITY_API.json")
         with path.open("r", encoding="utf-8") as file:
             return json.load(file)
 
     def load_ultra_workflow(self) -> Dict[str, Any]:
-        path = self._project_root() / "HINAA_NEWBIE_ULTRA_API.json"
+        path = self._project_root() / (self.config.ultra_workflow_path or "HINAA_NEWBIE_ULTRA_API.json")
         with path.open("r", encoding="utf-8") as file:
             return json.load(file)
 
@@ -303,9 +344,20 @@ class LocalComfyUIProvider:
                 )
                 response = await self._http.get(f"/view?{query}")
                 response.raise_for_status()
-                extension = os.path.splitext(str(image["filename"]))[1] or ".png"
+                from PIL import Image
+                content = response.content
+                if not content or len(content) > 30 * 1024 * 1024:
+                    raise ValueError("ComfyUI image output is empty or exceeds 30 MB.")
+                try:
+                    with Image.open(io.BytesIO(content)) as decoded:
+                        if decoded.width * decoded.height > 25_000_000 or decoded.format not in {"PNG", "JPEG", "WEBP"}:
+                            raise ValueError("Unsupported ComfyUI image output.")
+                        extension = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}[decoded.format]
+                        decoded.verify()
+                except Exception as error:
+                    raise ValueError("ComfyUI returned an invalid image output.") from error
                 local_path = data_dir / f"{uuid.uuid4().hex}{extension}"
-                local_path.write_bytes(response.content)
+                local_path.write_bytes(content)
                 output_files.append(str(local_path))
         return output_files
 

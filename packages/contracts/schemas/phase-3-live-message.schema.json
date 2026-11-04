@@ -82,7 +82,7 @@
       "additionalProperties": true,
       "required": ["type", "protocolVersion", "sessionId", "turn", "generation", "serverAtMs"],
       "properties": {
-        "type": {"enum": ["session.ready", "audio.started", "stt.partial", "stt.final", "assistant.thinking", "assistant.text.delta", "assistant.plan", "tts.audio", "turn.complete", "turn.cancelled", "event.ignored", "pong", "error"]},
+        "type": {"enum": ["session.ready", "audio.started", "stt.status", "stt.partial", "stt.final", "assistant.thinking", "assistant.text.delta", "assistant.plan", "tts.audio", "turn.complete", "turn.cancelled", "event.ignored", "pong", "error"]},
         "protocolVersion": {"const": "1.0"},
         "sessionId": {"type": "string", "minLength": 1, "maxLength": 80},
         "turn": {"type": "integer", "minimum": 0},

@@ -4,6 +4,8 @@ Comprehensive test suite for HINAA Cognitive Core & World State OS.
 
 import pytest
 import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 from hinaa_api.cognitive import (
     CognitiveKernel,
     CognitiveRun,
@@ -127,10 +129,16 @@ def test_session_bridge_continuity(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cognitive_kernel_execution(tmp_path):
+async def test_cognitive_kernel_execution(tmp_path, monkeypatch):
     bridge = SessionBridge(root_dir=str(tmp_path))
     mem_mgr = MemoryManagerV2()
-    kernel = CognitiveKernel(session_bridge=bridge, memory_manager=mem_mgr)
+    monkeypatch.setattr("hinaa_api.tools.computer_operator.execute_computer_operator", AsyncMock(return_value={
+        "success": True, "verified": True, "detail": "Observed test window",
+    }))
+    kernel = CognitiveKernel(session_bridge=bridge, memory_manager=mem_mgr,
+        policy_engine=SimpleNamespace(evaluate=Mock(return_value=SimpleNamespace(allowed=True)), record_audit=Mock()),
+        data_lake=SimpleNamespace(record_event=Mock(), archive_run=Mock(), flush_sync=Mock()),
+        resilient_router=SimpleNamespace())
 
     events_received = []
 

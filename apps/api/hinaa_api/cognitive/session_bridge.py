@@ -95,7 +95,7 @@ class SessionBridge:
                 f"## Key Decisions Made\n" +
                 ("\n".join([f"- {d}" for d in (decisions or ["None explicitly recorded"])]) + "\n\n") +
                 f"## Completed Tasks\n" +
-                ("\n".join([f"- [x] {t}" for t in (completed_tasks or ["General session activity"])]) + "\n\n") +
+                ("\n".join([f"- [x] {t}" for t in completed_tasks]) if completed_tasks else "- No verified tasks completed.") + "\n\n" +
                 f"## Open / Unresolved Items\n" +
                 ("\n".join([f"- [ ] {u}" for u in (unresolved_items or ["None pending"])]) + "\n")
             )

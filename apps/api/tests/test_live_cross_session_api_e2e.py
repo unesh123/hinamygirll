@@ -206,10 +206,8 @@ def test_e2e_image_turn_keeps_slow_path_for_asset_binding(api_client):
     assert plan_event.get("provider") != "deterministic-intent"
 
 
-def test_e2e_silence_watchdog_acknowledges_slow_brain(api_client, monkeypatch):
-    """A hung primary made him stare at a frozen veil for the full timeout.
-    After a few seconds of silence she says something, and the final plan
-    still lands as clean answer text."""
+def test_e2e_silence_watchdog_keeps_waiting_out_of_speech(api_client, monkeypatch):
+    """A slow provider reports status without inventing assistant speech."""
     import asyncio
 
     import hinaa_api.services as services_module
@@ -238,7 +236,8 @@ def test_e2e_silence_watchdog_acknowledges_slow_brain(api_client, monkeypatch):
     events = _parse_stream_events(resp)
 
     deltas = [e.get("delta", "") for e in events if e.get("type") == "text.delta"]
-    assert any("One sec" in d for d in deltas), f"no acknowledgement delta in {deltas[:3]}"
+    assert not any("One sec" in d for d in deltas)
+    assert any(e.get("type") == "provider.waiting" for e in events)
 
     # The final plan is still the clean answer, not the acknowledgement.
     plan_event = next((e for e in events if e.get("type") == "plan"), None)

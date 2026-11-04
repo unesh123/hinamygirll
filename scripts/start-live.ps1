@@ -4,11 +4,7 @@ $hinaRoot = Split-Path -Parent $PSScriptRoot
 $hinaRuntime = Join-Path $hinaRoot '.runtime\live'
 New-Item -ItemType Directory -Path $hinaRuntime -Force | Out-Null
 
-# Default to full live online mode (with tunnel + Vercel deploy) unless -Dev is explicitly passed
-if (-not $Dev -and -not $Public) {
-    $Public = $true
-    $Deploy = $true
-}
+# Local production preview is the default. Publishing requires explicit flags.
 if ($Deploy -and -not $Public) {
     $Public = $true
 }
@@ -21,7 +17,7 @@ if (Test-Path -LiteralPath $hinaPidFile) {
         if ($hinaExisting -and $hinaExisting.ProcessName -eq 'python') {
             Write-Output "Hina live runner is already active (PID $hinaExistingPid)."
             Write-Output "Local:  http://127.0.0.1:5173"
-            Write-Output "Online: https://hinaa-workspace.vercel.app"
+            Write-Output "See .runtime/live/runner-state.json for the active runner mode."
             return
         }
     }
@@ -41,6 +37,7 @@ if (Test-Path -LiteralPath $hinaStopFile) { Remove-Item -LiteralPath $hinaStopFi
 $hinaProcess = Start-Process -FilePath $hinaPython -ArgumentList $argList -WorkingDirectory $hinaRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $hinaRuntime 'runner.out.log') -RedirectStandardError (Join-Path $hinaRuntime 'runner.err.log') -PassThru
 Write-Output ('Live runner started. PID ' + $hinaProcess.Id)
 Write-Output 'Local site:  http://127.0.0.1:5173'
-Write-Output 'Online site: https://hinaa-workspace.vercel.app'
+if ($Public) { Write-Output 'Public tunnel requested; check runner-state.json for reachability.' }
+if ($Deploy) { Write-Output 'Public deployment recovery requested.' }
 Write-Output 'Status file: .runtime/live/runner-state.json'
 

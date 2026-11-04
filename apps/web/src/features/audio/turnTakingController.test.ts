@@ -256,6 +256,7 @@ describe("TurnTakingController", () => {
       maxSilenceFrames: 8,
       hesitationFrames: 1,
       initialNoiseFloor: 0.055,
+      noTranscriptEndFrames: 4,
     });
     // Ambient room noise matches calibrated baseline
     controller.process({
@@ -306,11 +307,11 @@ describe("TurnTakingController", () => {
       expect(controller.currentState).toBe("waiting_for_provider");
     }
 
-    // Loud intentional barge-in (> 0.20 RMS for bargeInFrames)
+    // Ordinary sustained speech can interrupt while no assistant audio is playing.
     let bargeInDetected = false;
     for (let i = 0; i < 12; i++) {
       const decision = controller.process({
-        level: 0.25,
+        level: 0.05,
         assistantPlaying: false,
         partialText: "",
         sessionActive: true,
@@ -323,6 +324,55 @@ describe("TurnTakingController", () => {
       }
     }
     expect(bargeInDetected).toBe(true);
+  });
+
+  it("keeps a 600ms pause and resumed speech in one batch-STT turn", () => {
+    const controller = new TurnTakingController();
+    const first = runFrames(controller, Array(20).fill(0.08), "");
+    const pause = runFrames(controller, Array(30).fill(0), "");
+    const resumed = runFrames(controller, Array(8).fill(0.08), "");
+    const secondPause = runFrames(controller, Array(30).fill(0), "");
+    expect([...first, ...pause, ...resumed, ...secondPause].some(d => d.speechCommit)).toBe(false);
+    const finished = runFrames(controller, Array(12).fill(0), "");
+    expect(finished.filter(d => d.speechCommit)).toHaveLength(1);
+  });
+
+  it("holds an incomplete transcript beyond the fast end-of-turn threshold", () => {
+    const controller = new TurnTakingController();
+    runFrames(controller, Array(15).fill(0.08), "please create a report and");
+    expect(runFrames(controller, Array(30).fill(0), "please create a report and").some(d => d.speechCommit)).toBe(false);
+    runFrames(controller, Array(8).fill(0.08), "please create a report and an image.");
+    expect(runFrames(controller, Array(40).fill(0), "please create a report and an image.").filter(d => d.speechCommit)).toHaveLength(1);
+  });
+
+  it("does not discard a one-word transcript at the fast silence threshold", () => {
+    const controller = new TurnTakingController();
+    runFrames(controller, Array(12).fill(0.08), "Hello");
+    expect(runFrames(controller, Array(40).fill(0), "Hello").some(d => d.speechCommit)).toBe(false);
+    expect(runFrames(controller, Array(20).fill(0), "Hello").filter(d => d.speechCommit)).toHaveLength(1);
+  });
+
+  it("accepts repeated no-partial turns with equal audio durations", () => {
+    const controller = new TurnTakingController();
+    for (let turn = 0; turn < 2; turn++) {
+      runFrames(controller, Array(8).fill(0.08), "");
+      expect(runFrames(controller, Array(45).fill(0), "").filter(d => d.speechCommit)).toHaveLength(1);
+    }
+  });
+
+  it("learns a resumed pause while keeping the wait bounded", () => {
+    const controller = new TurnTakingController();
+    runFrames(controller, Array(12).fill(0.08), "");
+    runFrames(controller, Array(36).fill(0), "");
+    runFrames(controller, Array(6).fill(0.08), "");
+    expect(runFrames(controller, Array(40).fill(0), "").some(d => d.speechCommit)).toBe(false);
+    expect(runFrames(controller, Array(20).fill(0), "").filter(d => d.speechCommit)).toHaveLength(1);
+  });
+
+  it("keeps the quick path for complete recognized sentences", () => {
+    const controller = new TurnTakingController();
+    runFrames(controller, Array(12).fill(0.08), "How are you?");
+    expect(runFrames(controller, Array(22).fill(0), "How are you?").filter(d => d.speechCommit)).toHaveLength(1);
   });
 });
 

@@ -1,0 +1,2849 @@
+{
+  "scope": "Structural inventory of active source and manifests; excludes vendor archives, installed packages, secrets and user data",
+  "counts": {
+    "backendPythonFiles": 294,
+    "frontendSourceFiles": 363,
+    "backendTestFiles": 196,
+    "frontendTestFiles": 98,
+    "routeDeclarationsIncludingAliases": 315
+  },
+  "backendAreas": {
+    "agent": 25,
+    "agents": 2,
+    "artifacts": 16,
+    "astra": 13,
+    "brain": 3,
+    "cognitive": 10,
+    "college": 1,
+    "commands": 2,
+    "continuity": 6,
+    "creative": 7,
+    "desktop": 1,
+    "documents": 2,
+    "durable": 1,
+    "evaluation": 2,
+    "fleet": 1,
+    "generation": 4,
+    "grounding": 2,
+    "harness": 16,
+    "integrations": 6,
+    "intelligence": 8,
+    "media": 9,
+    "memory_v2": 3,
+    "persistence": 10,
+    "prompts": 18,
+    "providers": 27,
+    "rag": 7,
+    "repository": 6,
+    "response": 3,
+    "root": 30,
+    "security": 2,
+    "skills": 5,
+    "tools": 46
+  },
+  "parseErrors": [],
+  "providerModes": [
+    "gmi",
+    "auto",
+    "mock",
+    "local",
+    "groq",
+    "openai",
+    "custom",
+    "real",
+    "claude",
+    "qwen",
+    "agent-router",
+    "cx-gateway",
+    "gemini-live",
+    "codecraft",
+    "ollama",
+    "omniroute",
+    "pgsgrove",
+    "seekai",
+    "tokentable",
+    "xkiro",
+    "cavoti",
+    "apmix",
+    "oxion",
+    "experiential"
+  ],
+  "providerClasses": [
+    {
+      "path": "apps/api/hinaa_api/providers/agent_router.py",
+      "class": "AgentRouterOpenAIProvider",
+      "line": 62
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/agent_router.py",
+      "class": "AgentRouterAnthropicProvider",
+      "line": 188
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/agent_router.py",
+      "class": "ClaudeLLMProvider",
+      "line": 468
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/anthropic_direct.py",
+      "class": "AnthropicDirectProvider",
+      "line": 46
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/azure_errors.py",
+      "class": "SanitizedAzureFailure",
+      "line": 42
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/azure_speech.py",
+      "class": "RecognitionEvent",
+      "line": 37
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/azure_speech.py",
+      "class": "AzureContinuousRecognizer",
+      "line": 42
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/azure_speech.py",
+      "class": "AzureSpeechProvider",
+      "line": 162
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "ProviderResult",
+      "line": 12
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "STTProvider",
+      "line": 20
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "LLMProvider",
+      "line": 26
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "LiveLLMProvider",
+      "line": 39
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "TTSProvider",
+      "line": 53
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "SpeechToTextProvider",
+      "line": 59
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "TextToSpeechProvider",
+      "line": 63
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "RealtimeTranscriptionSession",
+      "line": 67
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "RealtimeSynthesisSession",
+      "line": 74
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "VoiceAlignmentSource",
+      "line": 81
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/base.py",
+      "class": "VoicePerformancePlanner",
+      "line": 85
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/blocks.py",
+      "class": "CanonicalTextBlock",
+      "line": 11
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/blocks.py",
+      "class": "CanonicalToolUseBlock",
+      "line": 17
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/blocks.py",
+      "class": "CanonicalToolResultBlock",
+      "line": 25
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/blocks.py",
+      "class": "CanonicalReasoningBlock",
+      "line": 33
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/blocks.py",
+      "class": "CanonicalImageBlock",
+      "line": 39
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/blocks.py",
+      "class": "CanonicalUnknownBlock",
+      "line": 46
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/cx_quota.py",
+      "class": "CXQuotaSummary",
+      "line": 19
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/deepgram_voice.py",
+      "class": "DeepgramTTSProvider",
+      "line": 52
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/deepgram_voice.py",
+      "class": "DeepgramSTTProvider",
+      "line": 139
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/display_stream_decoder.py",
+      "class": "DisplayTextStreamDecoder",
+      "line": 81
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/display_stream_decoder.py",
+      "class": "JsonDisplayTextLocator",
+      "line": 228
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/display_stream_decoder.py",
+      "class": "DisplayTextChain",
+      "line": 294
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/display_stream_decoder.py",
+      "class": "ThinkingStreamFilter",
+      "line": 429
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/display_stream_decoder.py",
+      "class": "AdaptiveStreamDecoder",
+      "line": 550
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/display_stream_decoder.py",
+      "class": "PageSourceGuard",
+      "line": 721
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsStatus",
+      "line": 205
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsVoiceEntry",
+      "line": 218
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsConfig",
+      "line": 231
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsError",
+      "line": 331
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsCancellationToken",
+      "line": 346
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsHTTPStreamingProvider",
+      "line": 358
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "SpeechAlignment",
+      "line": 642
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "SpeechChunk",
+      "line": 663
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "WebSocketTransport",
+      "line": 674
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsSpeechStream",
+      "line": 791
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsWebSocketStreamingProvider",
+      "line": 1062
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsSTTProvider",
+      "line": 1348
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "VoicePerformancePlanner",
+      "line": 1477
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "ElevenLabsAlignmentSource",
+      "line": 1553
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/elevenlabs.py",
+      "class": "VisemeApproximationAdapter",
+      "line": 1567
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fabric.py",
+      "class": "TaskType",
+      "line": 13
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fabric.py",
+      "class": "ModelRouter",
+      "line": 21
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fabric.py",
+      "class": "CircuitBreakerState",
+      "line": 80
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fabric.py",
+      "class": "CircuitBreaker",
+      "line": 86
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fabric.py",
+      "class": "ResilientProviderExecutor",
+      "line": 119
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fish_audio.py",
+      "class": "FishAudioConfig",
+      "line": 47
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fish_audio.py",
+      "class": "FishAudioError",
+      "line": 79
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/fish_audio.py",
+      "class": "FishAudioTTSProvider",
+      "line": 94
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/gemini.py",
+      "class": "GeminiLLMProvider",
+      "line": 166
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/gemini_live.py",
+      "class": "GeminiLiveSession",
+      "line": 19
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/groq.py",
+      "class": "GroqLLMProvider",
+      "line": 101
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/local.py",
+      "class": "LocalLLMProvider",
+      "line": 119
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/local.py",
+      "class": "LocalSTTProvider",
+      "line": 281
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/local.py",
+      "class": "LocalTTSProvider",
+      "line": 373
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/local_comfyui.py",
+      "class": "ComfyUIConfig",
+      "line": 20
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/local_comfyui.py",
+      "class": "ComfyUIGenerationResult",
+      "line": 39
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/local_comfyui.py",
+      "class": "LocalComfyUIProvider",
+      "line": 44
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/magnific.py",
+      "class": "MagnificError",
+      "line": 33
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/magnific.py",
+      "class": "MagnificProviderError",
+      "line": 41
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/magnific.py",
+      "class": "MagnificImageResult",
+      "line": 108
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/magnific.py",
+      "class": "MagnificProvider",
+      "line": 119
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/mock.py",
+      "class": "MockLLMProvider",
+      "line": 55
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/mock.py",
+      "class": "MockSTTProvider",
+      "line": 87
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/mock.py",
+      "class": "MockTTSProvider",
+      "line": 96
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/openai_image.py",
+      "class": "OpenAIImageResult",
+      "line": 23
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/openai_image.py",
+      "class": "OpenAIImageProvider",
+      "line": 32
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/openai_llm.py",
+      "class": "OpenAILLMProvider",
+      "line": 322
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/stability_ai.py",
+      "class": "StabilityImageResult",
+      "line": 20
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/stability_ai.py",
+      "class": "StabilityAIProvider",
+      "line": 28
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/streaming_stt.py",
+      "class": "StreamingTranscription",
+      "line": 19
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/timing.py",
+      "class": "ProviderTiming",
+      "line": 36
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/tool_call_narration.py",
+      "class": "SimulatedToolCallFilter",
+      "line": 43
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/youcom.py",
+      "class": "YouComError",
+      "line": 24
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/youcom.py",
+      "class": "YouComImage",
+      "line": 34
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/youcom.py",
+      "class": "YouComSource",
+      "line": 50
+    },
+    {
+      "path": "apps/api/hinaa_api/providers/youcom.py",
+      "class": "YouComClient",
+      "line": 229
+    }
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "route": "/health/live",
+      "handler": "liveness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1098
+    },
+    {
+      "method": "GET",
+      "route": "/api/health",
+      "handler": "liveness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1098
+    },
+    {
+      "method": "GET",
+      "route": "/v1/readiness",
+      "handler": "readiness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1105
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/readiness",
+      "handler": "readiness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1105
+    },
+    {
+      "method": "GET",
+      "route": "/api/readiness",
+      "handler": "readiness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1105
+    },
+    {
+      "method": "GET",
+      "route": "/readiness",
+      "handler": "readiness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1105
+    },
+    {
+      "method": "GET",
+      "route": "/v1/auth/session",
+      "handler": "authenticated_session",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1191
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/auth/session",
+      "handler": "authenticated_session",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1191
+    },
+    {
+      "method": "POST",
+      "route": "/v1/assets",
+      "handler": "upload_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1234
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/assets",
+      "handler": "upload_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1234
+    },
+    {
+      "method": "GET",
+      "route": "/v1/assets/{asset_id}/file",
+      "handler": "get_asset_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1262
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/assets/{asset_id}/file",
+      "handler": "get_asset_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1262
+    },
+    {
+      "method": "POST",
+      "route": "/v1/documents/extract",
+      "handler": "extract_document_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1271
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/documents/extract",
+      "handler": "extract_document_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1271
+    },
+    {
+      "method": "POST",
+      "route": "/v1/conversations/{conversation_id}/assets/select",
+      "handler": "select_conversation_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1302
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/conversations/{conversation_id}/assets/select",
+      "handler": "select_conversation_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1302
+    },
+    {
+      "method": "GET",
+      "route": "/v1/conversations/{conversation_id}/assets/selection",
+      "handler": "get_conversation_asset_selection",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1338
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/conversations/{conversation_id}/assets/selection",
+      "handler": "get_conversation_asset_selection",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1338
+    },
+    {
+      "method": "GET",
+      "route": "/v1/creative/budget",
+      "handler": "creative_budget_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1353
+    },
+    {
+      "method": "POST",
+      "route": "/v1/creative/budget/snapshot",
+      "handler": "update_creative_budget_snapshot",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1357
+    },
+    {
+      "method": "GET",
+      "route": "/v1/creative/models",
+      "handler": "creative_models",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1362
+    },
+    {
+      "method": "GET",
+      "route": "/v1/creative/estimate",
+      "handler": "get_creative_estimate",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1395
+    },
+    {
+      "method": "POST",
+      "route": "/v1/creative/estimate",
+      "handler": "post_creative_estimate",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1401
+    },
+    {
+      "method": "POST",
+      "route": "/v1/creative/jobs",
+      "handler": "create_creative_job",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1405
+    },
+    {
+      "method": "GET",
+      "route": "/v1/local-services/comfyui",
+      "handler": "comfyui_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1412
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/local-services/comfyui",
+      "handler": "comfyui_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1412
+    },
+    {
+      "method": "GET",
+      "route": "/v1/avatar-assets",
+      "handler": "avatar_asset_inventory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1430
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/avatar-assets",
+      "handler": "avatar_asset_inventory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1430
+    },
+    {
+      "method": "POST",
+      "route": "/v1/avatar-assets/import",
+      "handler": "import_avatar_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1439
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/avatar-assets/import",
+      "handler": "import_avatar_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1439
+    },
+    {
+      "method": "GET",
+      "route": "/v1/avatar-assets/{asset_id}/file",
+      "handler": "get_managed_avatar_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1462
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/avatar-assets/{asset_id}/file",
+      "handler": "get_managed_avatar_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1462
+    },
+    {
+      "method": "DELETE",
+      "route": "/v1/avatar-assets/{asset_id}",
+      "handler": "delete_managed_avatar_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1470
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/v1/avatar-assets/{asset_id}",
+      "handler": "delete_managed_avatar_asset",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1470
+    },
+    {
+      "method": "GET",
+      "route": "/v1/vmc/status",
+      "handler": "vmc_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1478
+    },
+    {
+      "method": "POST",
+      "route": "/v1/vmc/test-signal",
+      "handler": "vmc_test_signal",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1483
+    },
+    {
+      "method": "WEBSOCKET",
+      "route": "/ws/vmc",
+      "handler": "vmc_websocket",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1492
+    },
+    {
+      "method": "GET",
+      "route": "/health",
+      "handler": "health_alias",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1525
+    },
+    {
+      "method": "GET",
+      "route": "/healthz",
+      "handler": "health_alias",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1525
+    },
+    {
+      "method": "GET",
+      "route": "/health/ready",
+      "handler": "readiness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1530
+    },
+    {
+      "method": "GET",
+      "route": "/readyz",
+      "handler": "readiness",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1530
+    },
+    {
+      "method": "GET",
+      "route": "/v1/diagnostics/context",
+      "handler": "context_diagnostics",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1565
+    },
+    {
+      "method": "GET",
+      "route": "/v1/diagnostics/voice",
+      "handler": "voice_diagnostics",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1581
+    },
+    {
+      "method": "GET",
+      "route": "/v1/capabilities",
+      "handler": "get_capabilities",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1610
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/capabilities",
+      "handler": "get_capabilities",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1610
+    },
+    {
+      "method": "GET",
+      "route": "/api/capabilities",
+      "handler": "get_capabilities",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1610
+    },
+    {
+      "method": "GET",
+      "route": "/capabilities",
+      "handler": "get_capabilities",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1610
+    },
+    {
+      "method": "GET",
+      "route": "/v1/providers",
+      "handler": "provider_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1949
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/providers",
+      "handler": "provider_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 1949
+    },
+    {
+      "method": "GET",
+      "route": "/v1/commands",
+      "handler": "command_registry",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2596
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/commands",
+      "handler": "command_registry",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2596
+    },
+    {
+      "method": "GET",
+      "route": "/v1/voice-profiles",
+      "handler": "voice_profiles",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2715
+    },
+    {
+      "method": "POST",
+      "route": "/v1/realtime/ticket",
+      "handler": "realtime_ticket",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2723
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/realtime/ticket",
+      "handler": "realtime_ticket",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2723
+    },
+    {
+      "method": "WEBSOCKET",
+      "route": "/v1/realtime",
+      "handler": "realtime_session",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2750
+    },
+    {
+      "method": "WEBSOCKET",
+      "route": "/api/v1/realtime",
+      "handler": "realtime_session",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2750
+    },
+    {
+      "method": "GET",
+      "route": "/v1/realtime/url",
+      "handler": "realtime_url",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2755
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/realtime/url",
+      "handler": "realtime_url",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2755
+    },
+    {
+      "method": "POST",
+      "route": "/v1/speech/transcriptions",
+      "handler": "transcribe",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2796
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/speech/transcriptions",
+      "handler": "transcribe",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2796
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tools/approve",
+      "handler": "approve_tool",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2826
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/tools/approve",
+      "handler": "approve_tool",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2826
+    },
+    {
+      "method": "GET",
+      "route": "/v1/image-studio/status",
+      "handler": "image_studio_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2839
+    },
+    {
+      "method": "GET",
+      "route": "/v1/image-studio/config",
+      "handler": "get_image_studio_config",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2914
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/image-studio/config",
+      "handler": "get_image_studio_config",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2914
+    },
+    {
+      "method": "POST",
+      "route": "/v1/image-studio/config",
+      "handler": "update_image_studio_config",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2936
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/image-studio/config",
+      "handler": "update_image_studio_config",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2936
+    },
+    {
+      "method": "GET",
+      "route": "/v1/generated-images",
+      "handler": "list_generated_images",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 2993
+    },
+    {
+      "method": "GET",
+      "route": "/v1/generated-images/{image_id}",
+      "handler": "get_generated_image",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3040
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/generated-images/{image_id}",
+      "handler": "get_generated_image",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3040
+    },
+    {
+      "method": "GET",
+      "route": "/v1/generated-docs/{doc_id}",
+      "handler": "get_generated_document",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3093
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/generated-docs/{doc_id}",
+      "handler": "get_generated_document",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3093
+    },
+    {
+      "method": "GET",
+      "route": "/v1/generated-docs/{doc_id}/preview",
+      "handler": "preview_generated_document",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3179
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/generated-docs/{doc_id}/preview",
+      "handler": "preview_generated_document",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3179
+    },
+    {
+      "method": "GET",
+      "route": "/v1/workspace/identity",
+      "handler": "workspace_identity",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3214
+    },
+    {
+      "method": "GET",
+      "route": "/v1/tools/poll",
+      "handler": "poll_tool",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3223
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/tools/poll",
+      "handler": "poll_tool",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3223
+    },
+    {
+      "method": "GET",
+      "route": "/v1/tools",
+      "handler": "list_tools",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3318
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/tools",
+      "handler": "list_tools",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3318
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tools/execute",
+      "handler": "execute_tool",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3337
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/tools/execute",
+      "handler": "execute_tool",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3337
+    },
+    {
+      "method": "POST",
+      "route": "/v1/terminal/execute",
+      "handler": "execute_terminal_endpoint",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3549
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/terminal/execute",
+      "handler": "execute_terminal_endpoint",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3549
+    },
+    {
+      "method": "POST",
+      "route": "/v1/harness/threads",
+      "handler": "harness_create_thread",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3560
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harness/threads",
+      "handler": "harness_create_thread",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3560
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/threads",
+      "handler": "harness_list_threads",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3574
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/threads",
+      "handler": "harness_list_threads",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3574
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/threads/{thread_id}",
+      "handler": "harness_get_thread",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3582
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/threads/{thread_id}",
+      "handler": "harness_get_thread",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3582
+    },
+    {
+      "method": "POST",
+      "route": "/v1/harness/threads/{thread_id}/fork",
+      "handler": "harness_fork_thread",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3592
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harness/threads/{thread_id}/fork",
+      "handler": "harness_fork_thread",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3592
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/threads/{thread_id}/graph",
+      "handler": "harness_get_graph",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3605
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/threads/{thread_id}/graph",
+      "handler": "harness_get_graph",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3605
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/threads/{thread_id}/board",
+      "handler": "harness_get_board",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3616
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/threads/{thread_id}/board",
+      "handler": "harness_get_board",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3616
+    },
+    {
+      "method": "POST",
+      "route": "/v1/harness/threads/{thread_id}/subagents",
+      "handler": "harness_spawn_subagent",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3624
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harness/threads/{thread_id}/subagents",
+      "handler": "harness_spawn_subagent",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3624
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/repository-memory",
+      "handler": "harness_repo_memory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3635
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/repository-memory",
+      "handler": "harness_repo_memory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3635
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/effective-policy",
+      "handler": "harness_effective_policy",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3647
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/effective-policy",
+      "handler": "harness_effective_policy",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3647
+    },
+    {
+      "method": "POST",
+      "route": "/v1/harness/verify",
+      "handler": "harness_verify_output",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3668
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harness/verify",
+      "handler": "harness_verify_output",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3668
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/models",
+      "handler": "harness_list_models",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3681
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/models",
+      "handler": "harness_list_models",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3681
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/telemetry",
+      "handler": "harness_get_telemetry",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3689
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/telemetry",
+      "handler": "harness_get_telemetry",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3689
+    },
+    {
+      "method": "POST",
+      "route": "/v1/harness/verify-release",
+      "handler": "harness_verify_release",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3697
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harness/verify-release",
+      "handler": "harness_verify_release",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3697
+    },
+    {
+      "method": "POST",
+      "route": "/v1/harness/browser/evaluate",
+      "handler": "harness_browser_evaluate",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3707
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harness/browser/evaluate",
+      "handler": "harness_browser_evaluate",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3707
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/motion/state",
+      "handler": "harness_get_motion_state",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3722
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/motion/state",
+      "handler": "harness_get_motion_state",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3722
+    },
+    {
+      "method": "POST",
+      "route": "/v1/harness/motion/transition",
+      "handler": "harness_transition_motion",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3733
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harness/motion/transition",
+      "handler": "harness_transition_motion",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3733
+    },
+    {
+      "method": "GET",
+      "route": "/v1/fleet/devices",
+      "handler": "fleet_list_devices",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3763
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/fleet/devices",
+      "handler": "fleet_list_devices",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3763
+    },
+    {
+      "method": "POST",
+      "route": "/v1/fleet/devices/heartbeat",
+      "handler": "fleet_device_heartbeat",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3776
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/fleet/devices/heartbeat",
+      "handler": "fleet_device_heartbeat",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3776
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/runs/{run_id}/replay",
+      "handler": "harness_replay_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3792
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/runs/{run_id}/replay",
+      "handler": "harness_replay_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3792
+    },
+    {
+      "method": "GET",
+      "route": "/v1/harness/runs/{run_id}/trace",
+      "handler": "harness_get_trace",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3810
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/harness/runs/{run_id}/trace",
+      "handler": "harness_get_trace",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3810
+    },
+    {
+      "method": "GET",
+      "route": "/v1/rag/status",
+      "handler": "rag_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3828
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/rag/status",
+      "handler": "rag_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3828
+    },
+    {
+      "method": "POST",
+      "route": "/v1/rag/query",
+      "handler": "rag_query",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3837
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/rag/query",
+      "handler": "rag_query",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3837
+    },
+    {
+      "method": "POST",
+      "route": "/v1/rag/ingest",
+      "handler": "rag_ingest_document",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3868
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/rag/ingest",
+      "handler": "rag_ingest_document",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3868
+    },
+    {
+      "method": "POST",
+      "route": "/v1/rag/reindex-specs",
+      "handler": "rag_reindex_specs",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3897
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/rag/reindex-specs",
+      "handler": "rag_reindex_specs",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3897
+    },
+    {
+      "method": "GET",
+      "route": "/v1/projects",
+      "handler": "list_projects",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3930
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects",
+      "handler": "create_project",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3934
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/{project_id}/plans",
+      "handler": "create_project_plan",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3940
+    },
+    {
+      "method": "GET",
+      "route": "/v1/projects/{project_id}",
+      "handler": "get_project",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3951
+    },
+    {
+      "method": "GET",
+      "route": "/v1/projects/runs/{run_id}/events",
+      "handler": "list_run_events",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3958
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/runs/{run_id}/events",
+      "handler": "append_run_event",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3966
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/{project_id}/tasks",
+      "handler": "create_project_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3982
+    },
+    {
+      "method": "GET",
+      "route": "/v1/projects/{project_id}/code/files",
+      "handler": "list_code_files",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 3998
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/{project_id}/code/files",
+      "handler": "save_code_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4005
+    },
+    {
+      "method": "PATCH",
+      "route": "/v1/projects/tasks/{task_id}",
+      "handler": "update_project_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4026
+    },
+    {
+      "method": "GET",
+      "route": "/v1/projects/{project_id}/runs",
+      "handler": "list_project_runs",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4037
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/{project_id}/runs",
+      "handler": "create_project_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4044
+    },
+    {
+      "method": "PATCH",
+      "route": "/v1/projects/runs/{run_id}",
+      "handler": "update_project_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4085
+    },
+    {
+      "method": "GET",
+      "route": "/v1/agent/runs/{run_id}",
+      "handler": "get_agent_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4163
+    },
+    {
+      "method": "GET",
+      "route": "/v1/agent/runs/{run_id}/steps",
+      "handler": "list_agent_run_steps",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4171
+    },
+    {
+      "method": "GET",
+      "route": "/v1/agent/runs/{run_id}/events",
+      "handler": "list_agent_run_events",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4179
+    },
+    {
+      "method": "POST",
+      "route": "/v1/agent/runs/{run_id}/cancel",
+      "handler": "cancel_agent_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4191
+    },
+    {
+      "method": "POST",
+      "route": "/v1/agent/runs/{run_id}/resume",
+      "handler": "resume_agent_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4199
+    },
+    {
+      "method": "POST",
+      "route": "/v1/agent/runs/{run_id}/recover",
+      "handler": "recover_agent_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4215
+    },
+    {
+      "method": "POST",
+      "route": "/v1/agent/runs/{run_id}/confirm",
+      "handler": "confirm_agent_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4223
+    },
+    {
+      "method": "GET",
+      "route": "/v1/cognitive/world-state",
+      "handler": "get_world_state",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4240
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/cognitive/world-state",
+      "handler": "get_world_state",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4240
+    },
+    {
+      "method": "GET",
+      "route": "/v1/cognitive/session-bootstrap",
+      "handler": "get_session_bootstrap",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4247
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/cognitive/session-bootstrap",
+      "handler": "get_session_bootstrap",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4247
+    },
+    {
+      "method": "POST",
+      "route": "/v1/cognitive/runs",
+      "handler": "execute_cognitive_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4253
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/cognitive/runs",
+      "handler": "execute_cognitive_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4253
+    },
+    {
+      "method": "GET",
+      "route": "/v1/cognitive/runs/{run_id}",
+      "handler": "get_cognitive_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4268
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/cognitive/runs/{run_id}",
+      "handler": "get_cognitive_run",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4268
+    },
+    {
+      "method": "GET",
+      "route": "/v1/enterprise/status",
+      "handler": "enterprise_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4277
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/enterprise/status",
+      "handler": "enterprise_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4277
+    },
+    {
+      "method": "GET",
+      "route": "/v1/enterprise/metrics",
+      "handler": "enterprise_metrics",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4303
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/enterprise/metrics",
+      "handler": "enterprise_metrics",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4303
+    },
+    {
+      "method": "GET",
+      "route": "/v1/enterprise/audit-trail",
+      "handler": "enterprise_audit_trail",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4324
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/enterprise/audit-trail",
+      "handler": "enterprise_audit_trail",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4324
+    },
+    {
+      "method": "POST",
+      "route": "/v1/enterprise/export-compliance",
+      "handler": "enterprise_export_compliance",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4336
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/enterprise/export-compliance",
+      "handler": "enterprise_export_compliance",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4336
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/{project_id}/artifacts",
+      "handler": "create_project_artifact",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4344
+    },
+    {
+      "method": "POST",
+      "route": "/v1/documents/pdf",
+      "handler": "export_document_pdf",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4362
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/documents/pdf",
+      "handler": "export_document_pdf",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4362
+    },
+    {
+      "method": "POST",
+      "route": "/v1/documents/pptx",
+      "handler": "export_document_pptx",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4398
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/documents/pptx",
+      "handler": "export_document_pptx",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4398
+    },
+    {
+      "method": "GET",
+      "route": "/v1/prodcamp/features",
+      "handler": "get_prodcamp_features",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4435
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/prodcamp/features",
+      "handler": "get_prodcamp_features",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4435
+    },
+    {
+      "method": "POST",
+      "route": "/v1/prodcamp/feedback",
+      "handler": "post_prodcamp_feedback",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4443
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/prodcamp/feedback",
+      "handler": "post_prodcamp_feedback",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4443
+    },
+    {
+      "method": "POST",
+      "route": "/v1/prodcamp/features",
+      "handler": "post_prodcamp_feature",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4458
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/prodcamp/features",
+      "handler": "post_prodcamp_feature",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4458
+    },
+    {
+      "method": "POST",
+      "route": "/v1/vision/observe",
+      "handler": "observe_vision_frame",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4474
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/vision/observe",
+      "handler": "observe_vision_frame",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4474
+    },
+    {
+      "method": "GET",
+      "route": "/v1/companion/briefing",
+      "handler": "get_companion_briefing",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4486
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/companion/briefing",
+      "handler": "get_companion_briefing",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4486
+    },
+    {
+      "method": "POST",
+      "route": "/v1/agents/swarm/execute",
+      "handler": "execute_agent_swarm",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4503
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/agents/swarm/execute",
+      "handler": "execute_agent_swarm",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4503
+    },
+    {
+      "method": "GET",
+      "route": "/v1/projects/artifacts/{artifact_id}/export",
+      "handler": "export_project_artifact",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4513
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/{project_id}/files",
+      "handler": "upload_project_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4538
+    },
+    {
+      "method": "POST",
+      "route": "/v1/projects/files/{file_id}/analyze",
+      "handler": "analyze_project_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4556
+    },
+    {
+      "method": "GET",
+      "route": "/v1/projects/files/{file_id}",
+      "handler": "download_project_file",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4566
+    },
+    {
+      "method": "GET",
+      "route": "/v1/artifacts/lookup",
+      "handler": "lookup_artifact",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4574
+    },
+    {
+      "method": "POST",
+      "route": "/v1/artifacts/documents",
+      "handler": "create_document_artifact",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4622
+    },
+    {
+      "method": "POST",
+      "route": "/v1/artifacts/presentations",
+      "handler": "create_presentation_artifact",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4658
+    },
+    {
+      "method": "POST",
+      "route": "/v1/artifacts/spreadsheets",
+      "handler": "create_spreadsheet_artifact",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4677
+    },
+    {
+      "method": "GET",
+      "route": "/v1/artifacts/{artifact_id}",
+      "handler": "get_artifact_endpoint",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4695
+    },
+    {
+      "method": "GET",
+      "route": "/v1/artifacts/{artifact_id}/inspect",
+      "handler": "inspect_artifact_endpoint",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4702
+    },
+    {
+      "method": "GET",
+      "route": "/v1/artifacts/{artifact_id}/export",
+      "handler": "export_artifact_endpoint",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4710
+    },
+    {
+      "method": "POST",
+      "route": "/v1/artifacts/package",
+      "handler": "package_artifacts_endpoint",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4741
+    },
+    {
+      "method": "GET",
+      "route": "/v1/conversations",
+      "handler": "list_conversations",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4757
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/conversations",
+      "handler": "list_conversations",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4757
+    },
+    {
+      "method": "GET",
+      "route": "/v1/conversations/{conversation_id}/messages",
+      "handler": "conversation_messages",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4770
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/conversations/{conversation_id}/messages",
+      "handler": "conversation_messages",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4770
+    },
+    {
+      "method": "PATCH",
+      "route": "/v1/conversations/{conversation_id}",
+      "handler": "rename_conversation",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4786
+    },
+    {
+      "method": "PATCH",
+      "route": "/api/v1/conversations/{conversation_id}",
+      "handler": "rename_conversation",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4786
+    },
+    {
+      "method": "GET",
+      "route": "/v1/conversations/{conversation_id}/working-context",
+      "handler": "conversation_working_context",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4803
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/conversations/{conversation_id}/working-context",
+      "handler": "conversation_working_context",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4803
+    },
+    {
+      "method": "POST",
+      "route": "/v1/conversations/{conversation_id}/resolve-reference",
+      "handler": "resolve_conversation_reference",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4818
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/conversations/{conversation_id}/resolve-reference",
+      "handler": "resolve_conversation_reference",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4818
+    },
+    {
+      "method": "GET",
+      "route": "/v1/reminders",
+      "handler": "get_reminders",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4834
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/reminders",
+      "handler": "get_reminders",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4834
+    },
+    {
+      "method": "POST",
+      "route": "/v1/reminders",
+      "handler": "create_reminder",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4846
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/reminders",
+      "handler": "create_reminder",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4846
+    },
+    {
+      "method": "POST",
+      "route": "/v1/reminders/{reminder_id}/cancel",
+      "handler": "cancel_scheduled_reminder",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4863
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/reminders/{reminder_id}/cancel",
+      "handler": "cancel_scheduled_reminder",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4863
+    },
+    {
+      "method": "GET",
+      "route": "/v1/training/candidates",
+      "handler": "list_training_candidates",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4872
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks",
+      "handler": "create_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4885
+    },
+    {
+      "method": "GET",
+      "route": "/v1/tasks",
+      "handler": "list_durable_tasks",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4904
+    },
+    {
+      "method": "GET",
+      "route": "/v1/tasks/{task_id}",
+      "handler": "get_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4922
+    },
+    {
+      "method": "GET",
+      "route": "/v1/tasks/{task_id}/events",
+      "handler": "task_events",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4931
+    },
+    {
+      "method": "GET",
+      "route": "/v1/tasks/{task_id}/checkpoints",
+      "handler": "task_checkpoints",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4941
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/resolve",
+      "handler": "resolve_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4950
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/continue",
+      "handler": "continue_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4964
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/claim",
+      "handler": "claim_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4973
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/steps/{step_id}/complete",
+      "handler": "complete_task_step",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 4988
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/steps/{step_id}/complete-with-lease",
+      "handler": "complete_task_step_with_lease",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5000
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/steps/{step_id}/fail",
+      "handler": "fail_task_step",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5018
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/steer",
+      "handler": "steer_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5029
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/cancel",
+      "handler": "cancel_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5039
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/pause",
+      "handler": "pause_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5050
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/resume",
+      "handler": "resume_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5060
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/side-effects",
+      "handler": "plan_side_effect",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5069
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/side-effects/{operation_id}/provider-accepted",
+      "handler": "accept_side_effect",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5087
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/{task_id}/rollback",
+      "handler": "rollback_durable_task",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5102
+    },
+    {
+      "method": "POST",
+      "route": "/v1/tasks/recover",
+      "handler": "recover_durable_tasks",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5112
+    },
+    {
+      "method": "POST",
+      "route": "/v1/conversations/turns:stream",
+      "handler": "stream_turn",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5121
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/conversations/turns:stream",
+      "handler": "stream_turn",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5121
+    },
+    {
+      "method": "POST",
+      "route": "/v1/astra/turns:stream",
+      "handler": "stream_astra_turn",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5294
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/astra/turns:stream",
+      "handler": "stream_astra_turn",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5294
+    },
+    {
+      "method": "DELETE",
+      "route": "/v1/sessions/{session_id}",
+      "handler": "clear_session",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5314
+    },
+    {
+      "method": "POST",
+      "route": "/v1/text/humanize",
+      "handler": "text_humanize",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5319
+    },
+    {
+      "method": "POST",
+      "route": "/v1/speech/synthesis/timed",
+      "handler": "synthesize_timed",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5476
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/speech/synthesis/timed",
+      "handler": "synthesize_timed",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5476
+    },
+    {
+      "method": "POST",
+      "route": "/v1/speech/synthesis",
+      "handler": "synthesize",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5544
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/speech/synthesis",
+      "handler": "synthesize",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5544
+    },
+    {
+      "method": "GET",
+      "route": "/v1/generated-docs",
+      "handler": "list_generated_documents",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5635
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/generated-docs",
+      "handler": "list_generated_documents",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5635
+    },
+    {
+      "method": "GET",
+      "route": "/v1/artifacts",
+      "handler": "list_artifacts",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5649
+    },
+    {
+      "method": "POST",
+      "route": "/v1/college/students/register",
+      "handler": "college_register_student",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5694
+    },
+    {
+      "method": "GET",
+      "route": "/v1/college/students/{student_id}",
+      "handler": "college_verify_student",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5699
+    },
+    {
+      "method": "GET",
+      "route": "/v1/college/vault/resources",
+      "handler": "college_list_resources",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5707
+    },
+    {
+      "method": "GET",
+      "route": "/v1/college/admin/dashboard",
+      "handler": "college_admin_dashboard",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5713
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/audit/receipts",
+      "handler": "get_execution_receipts",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5718
+    },
+    {
+      "method": "GET",
+      "route": "/v1/ledger/turns",
+      "handler": "ledger_turns",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5768
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/ledger/turns",
+      "handler": "ledger_turns",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5768
+    },
+    {
+      "method": "GET",
+      "route": "/v1/ledger/tts",
+      "handler": "ledger_tts",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5774
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/ledger/tts",
+      "handler": "ledger_tts",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5774
+    },
+    {
+      "method": "GET",
+      "route": "/v1/ledger/motion",
+      "handler": "ledger_motion",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5780
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/ledger/motion",
+      "handler": "ledger_motion",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5780
+    },
+    {
+      "method": "POST",
+      "route": "/v1/ledger/motion",
+      "handler": "ledger_motion_write",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5786
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/ledger/motion",
+      "handler": "ledger_motion_write",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5786
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/brain/run",
+      "handler": "brain_run_stream",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5795
+    },
+    {
+      "method": "GET",
+      "route": "/v1/privacy/status",
+      "handler": "privacy_status",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5563
+    },
+    {
+      "method": "PATCH",
+      "route": "/v1/privacy/memory",
+      "handler": "toggle_memory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5567
+    },
+    {
+      "method": "GET",
+      "route": "/v1/privacy/memories",
+      "handler": "list_memories",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5573
+    },
+    {
+      "method": "POST",
+      "route": "/v1/privacy/memories",
+      "handler": "remember",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5577
+    },
+    {
+      "method": "DELETE",
+      "route": "/v1/privacy/memories/{memory_id}",
+      "handler": "forget_memory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5589
+    },
+    {
+      "method": "PUT",
+      "route": "/v1/privacy/memories/{memory_id}",
+      "handler": "update_memory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5595
+    },
+    {
+      "method": "POST",
+      "route": "/v1/privacy/memories/{memory_id}/supersede",
+      "handler": "supersede_memory",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5603
+    },
+    {
+      "method": "DELETE",
+      "route": "/v1/privacy/memories",
+      "handler": "clear_all_memories",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5616
+    },
+    {
+      "method": "DELETE",
+      "route": "/v1/privacy/conversations/{conversation_id}",
+      "handler": "clear_conversation",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5620
+    },
+    {
+      "method": "GET",
+      "route": "/v1/privacy/export",
+      "handler": "export_data",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5626
+    },
+    {
+      "method": "DELETE",
+      "route": "/v1/privacy/account",
+      "handler": "delete_all",
+      "path": "apps/api/hinaa_api/main.py",
+      "line": 5630
+    },
+    {
+      "method": "GET",
+      "route": "/v1/heartbeat/status",
+      "handler": "get_heartbeat_status",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 40
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/heartbeat/status",
+      "handler": "get_heartbeat_status",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 40
+    },
+    {
+      "method": "POST",
+      "route": "/v1/heartbeat/tick",
+      "handler": "force_heartbeat_tick",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 47
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/heartbeat/tick",
+      "handler": "force_heartbeat_tick",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 47
+    },
+    {
+      "method": "GET",
+      "route": "/v1/heartbeat/pulses",
+      "handler": "list_recent_pulses",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 59
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/heartbeat/pulses",
+      "handler": "list_recent_pulses",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 59
+    },
+    {
+      "method": "POST",
+      "route": "/v1/heartbeat/acknowledge/{pulse_id}",
+      "handler": "acknowledge_heartbeat_pulse",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 70
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/heartbeat/acknowledge/{pulse_id}",
+      "handler": "acknowledge_heartbeat_pulse",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 70
+    },
+    {
+      "method": "GET",
+      "route": "/v1/heartbeat/events:stream",
+      "handler": "stream_heartbeat_events",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 80
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/heartbeat/events:stream",
+      "handler": "stream_heartbeat_events",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 80
+    },
+    {
+      "method": "POST",
+      "route": "/v1/terminal/execute",
+      "handler": "execute_terminal_command",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 131
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/terminal/execute",
+      "handler": "execute_terminal_command",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 131
+    },
+    {
+      "method": "POST",
+      "route": "/v1/college/register",
+      "handler": "register_student",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 151
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/college/register",
+      "handler": "register_student",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 151
+    },
+    {
+      "method": "GET",
+      "route": "/v1/college/verify/{student_id}",
+      "handler": "verify_student",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 158
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/college/verify/{student_id}",
+      "handler": "verify_student",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 158
+    },
+    {
+      "method": "GET",
+      "route": "/v1/college/resources",
+      "handler": "list_college_resources",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 168
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/college/resources",
+      "handler": "list_college_resources",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 168
+    },
+    {
+      "method": "GET",
+      "route": "/v1/college/resources/{resource_id}",
+      "handler": "get_college_resource",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 180
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/college/resources/{resource_id}",
+      "handler": "get_college_resource",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 180
+    },
+    {
+      "method": "GET",
+      "route": "/v1/college/admin/stats",
+      "handler": "get_college_admin_stats",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 190
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/college/admin/stats",
+      "handler": "get_college_admin_stats",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 190
+    },
+    {
+      "method": "GET",
+      "route": "/v1/integrations/status",
+      "handler": "get_integrations_status",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 201
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/integrations/status",
+      "handler": "get_integrations_status",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 201
+    },
+    {
+      "method": "POST",
+      "route": "/v1/integrations/github/action",
+      "handler": "execute_github_action",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 217
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/integrations/github/action",
+      "handler": "execute_github_action",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 217
+    },
+    {
+      "method": "POST",
+      "route": "/v1/integrations/email/send",
+      "handler": "send_outlook_email",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 232
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/integrations/email/send",
+      "handler": "send_outlook_email",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 232
+    },
+    {
+      "method": "GET",
+      "route": "/v1/integrations/agenda",
+      "handler": "get_today_agenda",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 246
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/integrations/agenda",
+      "handler": "get_today_agenda",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 246
+    },
+    {
+      "method": "GET",
+      "route": "/v1/integrations/outlook/inbox",
+      "handler": "outlook_inbox",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 254
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/integrations/outlook/inbox",
+      "handler": "outlook_inbox",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 254
+    },
+    {
+      "method": "GET",
+      "route": "/v1/terminal/status",
+      "handler": "terminal_status",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 261
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/terminal/status",
+      "handler": "terminal_status",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 261
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/pc/pair",
+      "handler": "pair_pc",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 273
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/pc/disconnect",
+      "handler": "disconnect_pc",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 292
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/integrations/github/mcp",
+      "handler": "verify_github_mcp",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 302
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/integrations/github/mcp/call",
+      "handler": "github_mcp_call",
+      "path": "apps/api/hinaa_api/omega_router.py",
+      "line": 311
+    },
+    {
+      "method": "GET",
+      "route": "",
+      "handler": "list_skills",
+      "path": "apps/api/hinaa_api/skills/endpoints.py",
+      "line": 25
+    },
+    {
+      "method": "GET",
+      "route": "/categories",
+      "handler": "get_categories",
+      "path": "apps/api/hinaa_api/skills/endpoints.py",
+      "line": 47
+    },
+    {
+      "method": "GET",
+      "route": "/search",
+      "handler": "search_skills",
+      "path": "apps/api/hinaa_api/skills/endpoints.py",
+      "line": 58
+    },
+    {
+      "method": "GET",
+      "route": "/{skill_id}",
+      "handler": "get_skill",
+      "path": "apps/api/hinaa_api/skills/endpoints.py",
+      "line": 81
+    },
+    {
+      "method": "POST",
+      "route": "/import",
+      "handler": "import_skill",
+      "path": "apps/api/hinaa_api/skills/endpoints.py",
+      "line": 93
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/speech/synthesis/stream",
+      "handler": "synthesize_stream",
+      "path": "apps/api/hinaa_api/speech_stream.py",
+      "line": 70
+    },
+    {
+      "method": "POST",
+      "route": "/v1/speech/synthesis/stream",
+      "handler": "synthesize_stream",
+      "path": "apps/api/hinaa_api/speech_stream.py",
+      "line": 70
+    }
+  ],
+  "backendRequirements": [
+    {
+      "declared": "fastapi==0.141.1",
+      "installedInAuditInterpreter": "0.141.1"
+    },
+    {
+      "declared": "uvicorn==0.52.0",
+      "installedInAuditInterpreter": "0.52.0"
+    },
+    {
+      "declared": "pydantic==2.13.4",
+      "installedInAuditInterpreter": "2.13.4"
+    },
+    {
+      "declared": "pydantic-settings==2.14.2",
+      "installedInAuditInterpreter": "2.14.2"
+    },
+    {
+      "declared": "python-multipart==0.0.32",
+      "installedInAuditInterpreter": "0.0.32"
+    },
+    {
+      "declared": "azure-cognitiveservices-speech==1.51.1",
+      "installedInAuditInterpreter": "1.51.1"
+    },
+    {
+      "declared": "google-genai==2.15.0",
+      "installedInAuditInterpreter": "2.15.0"
+    },
+    {
+      "declared": "httpx==0.28.1",
+      "installedInAuditInterpreter": "0.28.1"
+    },
+    {
+      "declared": "websockets>=13,<16",
+      "installedInAuditInterpreter": "15.0.1"
+    },
+    {
+      "declared": "SQLAlchemy==2.0.43",
+      "installedInAuditInterpreter": "2.0.43"
+    },
+    {
+      "declared": "alembic==1.16.5",
+      "installedInAuditInterpreter": "1.16.5"
+    },
+    {
+      "declared": "anthropic==0.84.0",
+      "installedInAuditInterpreter": "0.84.0"
+    },
+    {
+      "declared": "clerk-backend-api==7.0.0",
+      "installedInAuditInterpreter": "7.0.0"
+    },
+    {
+      "declared": "reportlab==4.4.5",
+      "installedInAuditInterpreter": "5.0.1"
+    },
+    {
+      "declared": "fpdf2>=2.8.3",
+      "installedInAuditInterpreter": "2.8.8"
+    },
+    {
+      "declared": "pyperclip==1.11.0",
+      "installedInAuditInterpreter": "1.11.0"
+    },
+    {
+      "declared": "psutil==7.2.2",
+      "installedInAuditInterpreter": "7.2.2"
+    },
+    {
+      "declared": "pypdf==6.19.0",
+      "installedInAuditInterpreter": "6.19.0"
+    },
+    {
+      "declared": "beautifulsoup4==4.15.0",
+      "installedInAuditInterpreter": "4.15.0"
+    },
+    {
+      "declared": "playwright==1.63.0",
+      "installedInAuditInterpreter": "1.62.0"
+    },
+    {
+      "declared": "exa-py==2.25.0",
+      "installedInAuditInterpreter": "2.25.0"
+    },
+    {
+      "declared": "tzdata==2026.5",
+      "installedInAuditInterpreter": "2026.4"
+    }
+  ],
+  "frontendDependencies": {
+    "@clerk/react": "^6.14.1",
+    "@pixiv/three-vrm": "^3.5.5",
+    "@pixiv/three-vrm-animation": "^3.5.5",
+    "@react-spring/web": "^10.1.2",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@types/three": "^0.185.4",
+    "border-beam": "^1.3.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^13.0.0",
+    "gsap": "^3.15.0",
+    "lenis": "^1.3.26",
+    "mermaid": "^12.0.0",
+    "ogl": "^1.0.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.2",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.6.0",
+    "three": "^0.185.1",
+    "zod": "4.4.3"
+  },
+  "frontendDevDependencies": {
+    "@playwright/test": "1.62.0",
+    "@radix-ui/react-slot": "^1.3.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "7.0.0",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "autoprefixer": "^10.5.4",
+    "class-variance-authority": "^0.7.1",
+    "jsdom": "30.0.1",
+    "lucide-react": "^1.30.0",
+    "oxlint": "1.76.0",
+    "postcss": "^8.5.26",
+    "prettier": "3.9.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "vite-plugin-pwa": "1.3.0",
+    "vitest": "4.1.10"
+  },
+  "recommendedButNotDeclaredHere": [
+    "langgraph",
+    "redis",
+    "transformers",
+    "peft"
+  ]
+}

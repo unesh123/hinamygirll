@@ -320,7 +320,7 @@ export function WorkMode({
   executiveMode,
   onExecutiveModeChange,
 }: WorkModeProps) {
-  const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText]);
+  const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText, partialTranscript]);
   const deduplicatedMessages = useMemo(() => {
     const seen = new Set<string>();
     const deduped: TranscriptMessage[] = [];
@@ -1415,6 +1415,13 @@ export function WorkMode({
             deduplicatedMessages.map((msg) => (
               <WorkMessage key={msg.id} message={msg} isDark={isDark} />
             ))}
+
+          {partialTranscript && (
+            <div role="status" aria-label="Your live transcript" style={{ alignSelf: "flex-end", marginLeft: "auto", maxWidth: "85%", padding: "12px 16px", borderRadius: 16, background: "var(--bg-surface-raised)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)", overflowWrap: "anywhere" }}>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>You · transcribing</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{partialTranscript}</div>
+            </div>
+          )}
 
           {/* Execution progress — only shown when execution is actually live with real steps */}
           {isExecutionLive && convertedActivitySteps.length > 0 && (

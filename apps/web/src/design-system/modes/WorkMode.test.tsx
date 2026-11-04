@@ -49,6 +49,18 @@ function renderWorkMode(overrides: Partial<Parameters<typeof WorkMode>[0]> = {})
 }
 
 describe("WorkMode voice controls", () => {
+  it("replaces the live user draft with the finalized chat message", () => {
+    const props = defaultProps();
+    const { rerender } = render(<WorkMode {...props} isVoiceActive partialTranscript="Please help me" />);
+    expect(screen.getByRole("status", { name: "Your live transcript" })).toHaveTextContent("Please help me");
+    rerender(<WorkMode {...props} isVoiceActive partialTranscript="Please help me study" />);
+    expect(screen.getAllByRole("status", { name: "Your live transcript" })).toHaveLength(1);
+    expect(screen.getByRole("status", { name: "Your live transcript" })).toHaveTextContent("Please help me study");
+    rerender(<WorkMode {...props} partialTranscript="" messages={[...messages, { id: "spoken", role: "user", text: "Please help me study.", createdAt: new Date().toISOString() }]} />);
+    expect(screen.queryByRole("status", { name: "Your live transcript" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Please help me study.")).toHaveLength(1);
+    expect(props.onSend).not.toHaveBeenCalled();
+  });
   it("renders assistant markdown as a document and leaves user text literal", () => {
     renderWorkMode({ messages: [
       { id: "user", role: "user", text: "## keep this literal", createdAt: new Date().toISOString() },

@@ -39,6 +39,8 @@ settings = get_settings()
 comfyui_provider = LocalComfyUIProvider(
     ComfyUIConfig(
         base_url=settings.comfyui_base_url,
+        workflow_path=settings.comfyui_workflow_path,
+        ultra_workflow_path=settings.comfyui_ultra_workflow_path,
         max_concurrency=settings.comfyui_max_concurrent_jobs,
     )
 )

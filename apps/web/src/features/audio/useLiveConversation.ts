@@ -103,6 +103,8 @@ interface LiveEvent {
   audioBase64?: string;
   mediaType?: string;
   provider?: string;
+  mode?: "streaming" | "batch";
+  latencyMs?: number;
   code?: string;
   message?: string;
   /** error contract: true ends the turn, false ends the session. */
@@ -361,6 +363,7 @@ export function useLiveConversation({
   const audibleGeneration = useRef<number | undefined>(undefined);
   const lastPartial = useRef("");
   const frameTraceCount = useRef(0);
+  const lastMeterUpdateAt = useRef(0);
   const startupCalibrationCount = useRef(0);
   const turnTaking = useRef(new TurnTakingController());
   const phraseDetector = useRef(new PhraseDetector());
@@ -465,6 +468,7 @@ export function useLiveConversation({
   // explicit and cannot capture a stale render.
   const teardownSession = useCallback(() => {
     active.current = false;
+    callbacks.current.controller.applyLivePartial("");
     ready.current = false;
     capturing.current = false;
     sendJson({ type: "session.close" });
@@ -540,6 +544,9 @@ export function useLiveConversation({
     textGeneration.current = undefined;
     audibleGeneration.current = undefined;
     lastPartial.current = "";
+    partialGeneration.current = undefined;
+    turnTaking.current.notePartial("");
+    callbacks.current.controller.applyLivePartial("");
     setBrainPending(false);
     phraseDetector.current.reset();
     diagnosticsRef.current.audioChunksReceived = 0;
@@ -553,15 +560,19 @@ export function useLiveConversation({
 
   const handleWorkletFrame = useCallback(
     (frame: ArrayBuffer, level: number) => {
-      setMicrophoneLevel((current) => current * 0.7 + level * 0.3);
       chunksSentRef.current += 1;
-      // Update RMS in diagnostics (throttled to avoid excessive re-renders)
-      setDiagnostics((prev) => ({
-        ...prev,
-        rmsLevel: level,
-        noiseFloor: turnTaking.current.currentNoiseFloor,
-        vadThreshold: turnTaking.current.currentThreshold,
-      }));
+      // Capture and VAD still process every frame; only visual meters run at 10Hz.
+      const now = performance.now();
+      if (now - lastMeterUpdateAt.current >= 100) {
+        lastMeterUpdateAt.current = now;
+        setMicrophoneLevel((current) => current * 0.7 + level * 0.3);
+        setDiagnostics((prev) => ({
+          ...prev,
+          rmsLevel: level,
+          noiseFloor: turnTaking.current.currentNoiseFloor,
+          vadThreshold: turnTaking.current.currentThreshold,
+        }));
+      }
       if (pushToTalkHeld.current && capturing.current && active.current && ready.current && !pausedRef.current) {
         sendFrame(frame);
         return;
@@ -585,7 +596,7 @@ export function useLiveConversation({
         paused: pausedRef.current,
         waitingForProvider: isWaiting,
       });
-      setMetrics((current) => ({ ...current, turnState: decision.state }));
+      setMetrics((current) => current.turnState === decision.state ? current : { ...current, turnState: decision.state });
 
       // Periodic frame-level trace so quiet-mic / threshold issues are visible
       frameTraceCount.current = (frameTraceCount.current + 1) % 25;
@@ -599,7 +610,7 @@ export function useLiveConversation({
         );
 
       // Trust the controller's barge-in decision: it already enforces the
-      // sustained-intent threshold (0.22 floor + bargeInFrames). The old extra
+      // playback-aware sustained-intent threshold. The old extra
       // `level >= 0.22` check only ran on the single frame where hotFrames
       // equaled bargeInFrames — if that one frame was slightly under 0.22 the
       // barge-in was rejected and could never re-fire, creating a dead zone
@@ -722,6 +733,15 @@ export function useLiveConversation({
       );
       current.controller.setLiveState("listening");
       latency.current.mark("microphone_ready");
+    } else if (event.type === "stt.status") {
+      const streaming = event.mode === "streaming";
+      setDiagnostics((prev) => ({
+        ...prev,
+        currentStage: streaming ? "stt-streaming" : "stt-batch-fallback",
+        lastError: streaming ? "" : event.code || "STT_STREAM_NOT_SUPPORTED",
+        voiceRoute: { ...prev.voiceRoute, sttProvider: event.provider || "", sttTransport: streaming ? "websocket" : "batch" },
+      }));
+      if (!streaming) setDetail("Listening · transcript appears when you finish speaking");
     } else if (event.type === "stt.partial" && event.text) {
       lastPartial.current = event.text;
       turnTaking.current.notePartial(event.text);
@@ -747,7 +767,7 @@ export function useLiveConversation({
       setDiagnostics((prev) => ({
         ...prev,
         lastCommittedTranscript: event.text || "",
-        sttLatencyMs: event.sttMs ?? 0,
+        sttLatencyMs: event.latencyMs ?? event.sttMs ?? 0,
         brainProvider: prev.voiceRoute.brainProvider || "claude",
         currentStage: "stt-final",
         turnCount: prev.turnCount + 1,
@@ -1051,6 +1071,8 @@ export function useLiveConversation({
         setDetail(reason);
       }
             } else if (event.type === "turn.cancelled") {
+      lastPartial.current = "";
+      current.controller.applyLivePartial("");
       setBrainPending(false);
       latency.current.mark("server_cancel_acknowledged");
       const reason = (event as any).reason || "unknown";
@@ -1282,9 +1304,6 @@ export function useLiveConversation({
       speakerThreshold: outputMode === "speaker" ? 0.095 : 0.045,
       startFrames: 4,
       minimumSpeechFrames: 8,
-      hesitationFrames: 14,
-      endOfTurnFrames: 28,
-      maxSilenceFrames: 40,
       maxSpeechFrames: 1000,
     });
     turnTaking.current.setSessionState("initializing");
@@ -1409,13 +1428,20 @@ export function useLiveConversation({
     pushToTalkHeld.current = false;
     if (!active.current) return;
     pausedRef.current = true;
+    if (capturing.current) {
+      generation.current += 1;
+      sendJson({ type: "interrupt", generation: generation.current });
+      callbacks.current.controller.applyLivePartial("");
+      lastPartial.current = "";
+      preRoll.current = [];
+    }
     setPaused(true);
     capturing.current = false;
     turnTaking.current.resetSpeech();
     turnTaking.current.setSessionState("listening");
     setStatus("paused");
     setDetail("Listening paused · microphone tracks remain until Stop");
-  }, []);
+  }, [sendJson]);
 
   const resume = useCallback(() => {
     if (!active.current) return;

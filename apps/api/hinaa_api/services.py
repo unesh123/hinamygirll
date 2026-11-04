@@ -6810,11 +6810,8 @@ class ConversationService:
             })
             return
 
-        # Silence watchdog: when the first brain hangs (a dead primary pays its
-        # timeout before failover), he otherwise stares at a frozen veil for
-        # the whole wait. After six seconds of no output she acknowledges out
-        # loud -- the transient bubble shows it, her voice says it, and the
-        # final plan still lands as clean answer text.
+        # Slow providers report transport status only. Synthetic acknowledgements
+        # must never enter the assistant text or trigger speech synthesis.
         ack_watchdog = asyncio.create_task(asyncio.sleep(_SILENCE_ACK_SECONDS))
         ack_retired = False
 
@@ -6828,11 +6825,10 @@ class ConversationService:
                 if ack_watchdog in done and not ack_retired:
                     ack_retired = True
                     if not emitted:
-                        ack = "One sec, babe…"
-                        emitted.append(ack)
-                        yield _make_delta_event(ack)
-                    getter.cancel()
-                    continue
+                        yield self._event("provider.waiting", {"correlationId": correlation_id})
+                    if getter not in done:
+                        getter.cancel()
+                        continue
                 if getter in done:
                     if not ack_retired:
                         ack_retired = True
@@ -6881,13 +6877,6 @@ class ConversationService:
                 from .providers.display_stream_decoder import drop_inlined_page_source, drop_inlined_document_code
                 full_text = drop_inlined_document_code(drop_inlined_page_source(full_text))
             streamed_so_far = "".join(emitted)
-            is_watchdog_ack = bool(
-                streamed_so_far
-                and any(
-                    ack_phrase in streamed_so_far
-                    for ack_phrase in ("One sec, babe", "One sec, babe…", "One sec, babe...")
-                )
-            )
             if not streamed_so_far and full_text:
                 # Provider emitted no deltas at all during execution; yield full text once
                 yield _make_delta_event(full_text)
@@ -6903,9 +6892,6 @@ class ConversationService:
                         remainder = full_text[idx + len(s_stripped):]
                         if remainder:
                             yield _make_delta_event(remainder)
-                elif is_watchdog_ack:
-                    # Watchdog emitted a transient hold. Deliver the real model answer!
-                    yield _make_delta_event("\n\n" + full_text)
                 else:
                     # Never drop full_text if formatting diverged or commonprefix is empty
                     import os

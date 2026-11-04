@@ -25,6 +25,7 @@ from .providers.elevenlabs import (
     ElevenLabsWebSocketStreamingProvider,
     choose_live_tts_model,
 )
+from .providers.streaming_stt import StreamingTranscription, create_streaming_transcription
 from .services import ConversationService
 from .voice_performance import (
     plan_voice_performance,
@@ -96,6 +97,7 @@ class LiveSession:
     turn: int = 0
     processing: asyncio.Task[None] | None = None
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    recognition: StreamingTranscription | None = None
 
 
 def _timestamp_ms() -> float:
@@ -150,20 +152,22 @@ def _tts_media_type(provider_id: str, elevenlabs_output_format: str, audio: byte
 # synthesis request and its own audio blip. The wrap width matches
 # segment_phrases so both spoken paths cut text the same way.
 SPEECH_MIN_PHRASE_CHARS = 40
-SPEECH_MIN_FIRST_PHRASE_CHARS = 16
+SPEECH_MIN_FIRST_PHRASE_CHARS = 6
 SPEECH_PHRASE_WRAP_CHARS = 160
 
 
 def spoken_phrase_is_complete(buffer: str, is_first: bool = False) -> bool:
     """Whether streamed text so far should be handed to the voice vendor as one phrase.
 
-    First phrase starts at 16+ chars on sentence boundary so Hina begins talking
-    instantly while the remainder streams. Standard phrases batch at 40+ chars.
+    Start a complete short reply or a substantial first clause while the rest
+    streams. Later phrases batch at 40+ chars to avoid choppy delivery.
     """
     if len(buffer) >= SPEECH_PHRASE_WRAP_CHARS:
         return True
     min_chars = SPEECH_MIN_FIRST_PHRASE_CHARS if is_first else SPEECH_MIN_PHRASE_CHARS
-    return any(p in buffer for p in ".!?।;\n") and len(buffer) >= min_chars
+    sentence_boundary = re.search(r"(?:[!?।;]|\.(?!\d)|\n)(?:\s|$)", buffer)
+    first_clause = is_first and len(buffer) >= 48 and re.search(r",\s*$", buffer)
+    return bool((sentence_boundary and len(buffer) >= min_chars) or first_clause)
 
 
 def segment_phrases(text: str, limit: int = 160) -> list[str]:
@@ -274,6 +278,8 @@ class RealtimeGateway:
                         if len(frame) % 2 == 0 and len(session.audio) + len(frame) <= self.settings.realtime_max_buffer_bytes:
                             session.audio.extend(frame)
                             session.expected_sequence += 1
+                            if session.recognition:
+                                session.recognition.offer(bytes(frame))
                         continue
                     logger.warning("realtime: unrecognized non-text frame received")
                     continue
@@ -293,6 +299,8 @@ class RealtimeGateway:
             logger.error("realtime: ClientHello validation failed: %s", e)
             await self._error(websocket, session, "PROTOCOL_MESSAGE_INVALID", False)
         finally:
+            if session and session.recognition:
+                await session.recognition.abort()
             request_pc.reset(pc_context_token)
             tool_policy.reset_request_host(host_token)
             if session and session.processing:
@@ -329,12 +337,33 @@ class RealtimeGateway:
                 return
             if session.processing and generation > session.hello.generation:
                 await self._interrupt(websocket, session, generation)
+            if session.recognition:
+                await session.recognition.abort()
             session.hello.generation = generation
             session.expected_sequence = 0
             session.audio.clear()
             session.speech_detected = False
             session.partial_sent = False
             await self._send(websocket, session, "audio.started", {})
+            async def show_partial(text: str) -> None:
+                if session.recognition is recognition and generation == session.hello.generation:
+                    await self._send_current(websocket, session, generation, "stt.partial", {
+                        "text": text, "provider": recognition.provider,
+                    })
+
+            async def show_status(mode: str) -> None:
+                if session.recognition is recognition and generation == session.hello.generation:
+                    await self._send_current(websocket, session, generation, "stt.status", {
+                        "mode": mode, "provider": recognition.provider if recognition else "batch",
+                        "code": recognition.failure_code if recognition else "STT_STREAM_NOT_SUPPORTED",
+                    })
+
+            recognition = create_streaming_transcription(
+                self.settings, session.hello.providerMode, session.hello.language, show_partial, show_status,
+            )
+            session.recognition = recognition
+            if recognition is None and session.hello.providerMode != "mock":
+                await show_status("batch")
             return
         if message_type == "audio.frame":
             descriptor = FrameDescriptor.model_validate(value)
@@ -383,6 +412,8 @@ class RealtimeGateway:
                 await self._error(websocket, session, "AUDIO_BUFFER_LIMIT", False)
                 return
             session.audio.extend(frame)
+            if session.recognition:
+                session.recognition.offer(frame)
             session.expected_sequence += 1
             session.speech_detected = session.speech_detected or _has_speech(frame)
             if (
@@ -406,11 +437,14 @@ class RealtimeGateway:
                 )
                 return
             turn_audio = bytes(session.audio)
+            recognition, session.recognition = session.recognition, None
             session.audio.clear()
             session.expected_sequence = 0
             session.speech_detected = False
             session.partial_sent = False
             if _is_dead_silence(turn_audio):
+                if recognition:
+                    await recognition.abort()
                 # All-zero capture is never speech, even if the frontend VAD
                 # fired on a glitch. Reject before any provider call.
                 await self._error(
@@ -423,7 +457,7 @@ class RealtimeGateway:
                     await session.processing
             session.turn += 1
             session.processing = asyncio.create_task(
-                self._process_turn(websocket, session, commit, turn_audio), name=f"live-turn-{session.turn}"
+                self._process_turn(websocket, session, commit, turn_audio, recognition), name=f"live-turn-{session.turn}"
             )
             return
         await self._error(websocket, session, "PROTOCOL_MESSAGE_UNSUPPORTED", False)
@@ -508,6 +542,7 @@ class RealtimeGateway:
         session: LiveSession,
         commit: CommitMessage,
         turn_audio: bytes | None = None,
+        recognition: StreamingTranscription | None = None,
     ) -> None:
         generation = session.hello.generation
         turn_started = perf_counter()
@@ -538,9 +573,15 @@ class RealtimeGateway:
                 stt_provider = f"{session.hello.providerMode}-stt-scripted-v1"
             else:
                 async with asyncio.timeout(self.settings.voice_stt_timeout_seconds):
-                    stt_result = await self.service.transcribe(
-                        pcm, session.hello.language, session.hello.providerMode
-                    )
+                    stt_result = await recognition.finish() if recognition else None
+                    if stt_result is None:
+                        if recognition:
+                            await self._send_current(websocket, session, generation, "stt.status", {
+                                "mode": "batch", "provider": "batch", "code": recognition.failure_code or "STT_STREAM_NO_FINAL",
+                            })
+                        stt_result = await self.service.transcribe(
+                            pcm, session.hello.language, session.hello.providerMode
+                        )
                 transcript, stt_provider = stt_result.value, stt_result.provider
             if not transcript.strip():
                 audio_bytes = len(pcm)
@@ -583,6 +624,7 @@ class RealtimeGateway:
             first_delta_ms: int | None = None
             sentence_tasks: list[tuple[str, asyncio.Task]] = []
             sentence_buffer = ""
+            phrases_scheduled = 0
             tts_latency_ms: list[int] = []
             # Browser fallback speech needs the final complete spoken text. Real
             # configured voice output can safely begin on a stable clause while
@@ -826,7 +868,8 @@ class RealtimeGateway:
 
             def schedule_phrase(phrase: str) -> None:
                 """Queue one phrase behind the previous one, never out of order."""
-                nonlocal speech_tail
+                nonlocal speech_tail, phrases_scheduled
+                phrases_scheduled += 1
                 previous = speech_tail
 
                 async def run_after_previous() -> None:
@@ -871,7 +914,7 @@ class RealtimeGateway:
                     {"delta": delta},
                 )
                 sentence_buffer += delta
-                if spoken_phrase_is_complete(sentence_buffer, is_first=len(sentence_tasks) == 0):
+                if spoken_phrase_is_complete(sentence_buffer, is_first=phrases_scheduled == 0):
                     phrase_text = speech_text_for_tts(sentence_buffer.strip())
                     sentence_buffer = ""
                     if phrase_text and len(phrase_text) >= 2:
@@ -1084,6 +1127,8 @@ class RealtimeGateway:
             )
             await self._error(websocket, session, "REALTIME_TURN_FAILED", True, generation)
         finally:
+            if recognition:
+                await recognition.abort()
             # Nothing may outlive its turn. A socket left open keeps a vendor
             # connection — and its billing — running after barge-in or a
             # timeout, and an unfinished warm-up task would be destroyed as
@@ -1116,6 +1161,9 @@ class RealtimeGateway:
     async def _interrupt(self, websocket: WebSocket, session: LiveSession, generation: int) -> None:
         previous = session.hello.generation
         session.hello.generation = max(previous + 1, generation)
+        if session.recognition:
+            await session.recognition.abort()
+            session.recognition = None
         if session.processing and not session.processing.done():
             session.processing.cancel()
             with suppress(asyncio.CancelledError):

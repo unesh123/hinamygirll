@@ -45,6 +45,17 @@ from .resilient_router import ResilientProviderRouter, get_resilient_router
 logger = logging.getLogger("hinaa.cognitive.kernel")
 
 
+def _tool_result_error(result: Any) -> str | None:
+    """A returned value is not proof that an external action succeeded."""
+    if not isinstance(result, dict):
+        return "TOOL_RESULT_INVALID: expected a structured execution result"
+    if result.get("success") is not True:
+        return "TOOL_EXECUTION_FAILED: tool did not report success"
+    if result.get("verified") is not True:
+        return "TOOL_EXECUTION_UNVERIFIED: no positive verification was supplied"
+    return None
+
+
 class CognitiveKernel:
     """The central HINAA Cognitive Runtime with Enterprise Guardrails and Data Lake."""
 
@@ -212,7 +223,6 @@ class CognitiveKernel:
         # Stage 5: Execution & Grounded Actuation Loop with Policy Guardrails
         # -------------------------------------------------------------------
         run.status = "executing"
-        completed_tasks = []
 
         for step in run.plan.nodes:
             step.status = "running"
@@ -257,9 +267,9 @@ class CognitiveKernel:
                 try:
                     from ..tools.computer_operator import execute_computer_operator
                     res = await execute_computer_operator(step.parameters)
-                    step.status = "completed"
                     step.result = res
-                    completed_tasks.append(step.title)
+                    step.error = _tool_result_error(res)
+                    step.status = "failed" if step.error else "completed"
                     obs = res.get("data", {}).get("observation") if isinstance(res, dict) else None
                     if obs:
                         world_state = WorldModel.apply_desktop_observation(world_state, obs)
@@ -273,25 +283,31 @@ class CognitiveKernel:
                 try:
                     from ..tools.browser_automation import app_launch, AppLaunchParams
                     res = await app_launch(AppLaunchParams.model_validate(step.parameters))
-                    step.status = "completed"
                     step.result = res
-                    completed_tasks.append(step.title)
+                    step.error = _tool_result_error(res)
+                    step.status = "failed" if step.error else "completed"
                 except Exception as err:
                     step.status = "failed"
                     step.error = str(err)
 
             else:
-                # Cognitive synthesis
-                step.status = "completed"
-                step.result = "Response synthesized successfully."
-                completed_tasks.append(step.title)
+                # This route has no connected synthesis implementation yet.
+                # Normal chat still uses ConversationService; don't invent a
+                # successful model execution in this separate kernel path.
+                step.status = "failed"
+                step.error = "MODEL_EXECUTION_NOT_CONNECTED"
 
-            emit("step.completed", {"node_id": step.node_id, "status": step.status})
+            emit("step.completed" if step.status == "completed" else "step.failed", {
+                "node_id": step.node_id, "status": step.status,
+            })
 
         # -------------------------------------------------------------------
         # Stage 6: Verification
         # -------------------------------------------------------------------
         run.status = "verifying"
+        # Derive the summary from final step states, including failures during
+        # result/observation processing after an actuator returned successfully.
+        completed_tasks = [step.title for step in run.plan.nodes if step.status == "completed"]
         any_failed = any(n.status == "failed" for n in run.plan.nodes)
         run.verification = VerificationState(
             passed=not any_failed,
@@ -327,6 +343,7 @@ class CognitiveKernel:
             project_id=project_id,
             turns=[{"role": "user", "content": text}, {"role": "assistant", "content": str(run.plan.nodes[0].result or "")}],
             completed_tasks=completed_tasks,
+            unresolved_items=[f"{step.title}: {step.error}" for step in run.plan.nodes if step.status == "failed"],
         )
 
         run.status = "completed" if run.verification.passed else "failed"

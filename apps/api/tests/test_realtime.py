@@ -19,6 +19,19 @@ from hinaa_api.realtime import (
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def test_first_spoken_phrase_can_start_before_the_full_answer():
+    assert spoken_phrase_is_complete("Hello!", is_first=True)
+    assert not spoken_phrase_is_complete("Hello!", is_first=False)
+    clause = "I can help you plan the next steps for your project,"
+    assert spoken_phrase_is_complete(clause, is_first=True)
+    assert not spoken_phrase_is_complete(clause, is_first=False)
+
+
+def test_decimal_or_domain_is_not_a_sentence_boundary():
+    assert not spoken_phrase_is_complete("The value is 3.14 and we are still explaining", is_first=True)
+    assert not spoken_phrase_is_complete("Check example.com for the documentation", is_first=True)
+
+
 def hello(generation: int = 1) -> dict[str, object]:
     return {
         "type": "session.hello",
@@ -312,7 +325,7 @@ async def test_a_live_turn_outlives_the_idle_silence_window(monkeypatch) -> None
     replied = asyncio.Event()
     open_when_replied: list[bool] = []
 
-    async def slow_turn(websocket, session, commit, turn_audio=None) -> None:
+    async def slow_turn(websocket, session, commit, turn_audio=None, recognition=None) -> None:
         await asyncio.sleep(0.4)  # 8x the idle window: brain, then synthesis
         await gateway._send(websocket, session, "turn.complete", {})
         open_when_replied.append(socket.closed_after_events is None)

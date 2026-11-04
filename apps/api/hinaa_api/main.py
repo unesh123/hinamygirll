@@ -1408,16 +1408,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return job.to_dict()
 
     @app.get("/v1/local-services/comfyui")
+    @app.get("/api/v1/local-services/comfyui")
     async def comfyui_status() -> JSONResponse:
         from hinaa_api.tools.image_generate import comfyui_provider
 
-        available = await comfyui_provider.health_check()
+        readiness = await comfyui_provider.workflow_readiness()
+        available = readiness["ready"]
         return JSONResponse(
             status_code=200 if available else 503,
             content={
                 "status": "ready" if available else "unavailable",
                 "service": "ComfyUI",
                 "localOnly": True,
+                "readiness": readiness,
                 "hint": "Start ComfyUI on http://127.0.0.1:8188, then refresh Hinaa Image Studio." if not available else "Local ComfyUI is ready.",
             },
         )

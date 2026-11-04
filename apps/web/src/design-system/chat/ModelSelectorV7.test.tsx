@@ -47,7 +47,7 @@ describe("model picker", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("disables a provider that failed its last request", () => {
+  it("allows an explicit retry of a configured provider that failed its last request", () => {
     const select = vi.fn();
     render(<ModelSelectorV7 models={[models[1]]} providers={[{
       id: "experiential", name: "Experiential", configured: true, defaultModel: "shared-model",
@@ -55,8 +55,8 @@ describe("model picker", () => {
     }]} onSelectAuto={vi.fn()} onSelectModel={select} />);
     fireEvent.click(screen.getByTestId("composer-model-selector-btn"));
     const option = screen.getByRole("menuitemradio", { name: /experiential model/ });
-    expect(option).toBeDisabled();
+    expect(option).toBeEnabled();
     fireEvent.click(option);
-    expect(select).not.toHaveBeenCalled();
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({id:"shared-model", provider:"experiential"}));
   });
 });

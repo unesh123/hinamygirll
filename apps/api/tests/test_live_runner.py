@@ -47,6 +47,34 @@ def test_tunnel_discovery_uses_latest_address(tmp_path):
     assert runner.tunnel_origin(log) == "https://new-name.trycloudflare.com"
 
 
+def test_unhealthy_owned_service_is_restarted_after_threshold(monkeypatch):
+    live = object.__new__(runner.Runner)
+    child = Mock()
+    child.poll.return_value = None
+    live.children, live.failures, live.retry_at = {"api": child}, {}, {}
+    live.stop, live.start = Mock(), Mock()
+    monkeypatch.setattr(runner, "port_open", lambda _: False)
+    command = ["python", "-m", "uvicorn"]
+    for _ in range(2):
+        live.ensure("api", 8000, False, command, Path.cwd())
+    live.stop.assert_not_called()
+    live.ensure("api", 8000, False, command, Path.cwd())
+    live.stop.assert_called_once_with("api")
+    live.start.assert_called_once_with("api", command, Path.cwd(), None)
+
+
+def test_healthy_owned_service_clears_failure_count_without_restart():
+    live = object.__new__(runner.Runner)
+    child = Mock()
+    child.poll.return_value = None
+    live.children, live.failures, live.retry_at = {"api": child}, {"api": 2}, {}
+    live.stop, live.start = Mock(), Mock()
+    live.ensure("api", 8000, True, [], Path.cwd())
+    assert live.failures["api"] == 0
+    live.stop.assert_not_called()
+    live.start.assert_not_called()
+
+
 def test_desktop_probe_requires_private_token(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     assert runner.desktop_probe() is False

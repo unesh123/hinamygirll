@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AvatarPresence, resolvePoseOffsets } from "./AvatarPresence";
+import { Vector3 } from "three";
 
 const loading = vi.hoisted(() => ({ errors: [] as Array<() => void> }));
 vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => ({
@@ -26,8 +27,25 @@ describe("default model pose", () => {
     const tuned = resolvePoseOffsets("/models/hinaa.vrm");
     const generic = resolvePoseOffsets("/models/unknown-rig.vrm");
     const defaults = resolvePoseOffsets("/models/hinaa-original.vrm");
-    expect(defaults).toBe(tuned);
+    expect(defaults).not.toBe(tuned);
     expect(defaults).not.toBe(generic);
+  });
+  it("keeps the default rig's wrists outside the dress rather than folding them into the torso", () => {
+    const pose = resolvePoseOffsets("/models/hinaa-original.vrm");
+    // Shipped VRM shoulder, upper arm, forearm and wrist rest translations.
+    for (const side of ["left", "right"] as const) {
+      const sign = side === "left" ? -1 : 1;
+      const shoulder = pose[`${side}Shoulder`];
+      const upper = shoulder.clone().multiply(pose[`${side}UpperArm`]);
+      const lower = upper.clone().multiply(pose[`${side}LowerArm`]);
+      const wrist = new Vector3(sign * 0.022395, 0.105686, 0.029969)
+        .add(new Vector3(sign * 0.086160, -0.012260, 0).applyQuaternion(shoulder))
+        .add(new Vector3(sign * 0.219853, 0, 0).applyQuaternion(upper))
+        .add(new Vector3(sign * 0.214685, 0.000002, -0.000376).applyQuaternion(lower));
+      expect(wrist.x * sign).toBeGreaterThan(0.28);
+      expect(wrist.y).toBeLessThan(0);
+      expect(Math.abs(shoulder.z)).toBeLessThan(0.1);
+    }
   });
 });
 

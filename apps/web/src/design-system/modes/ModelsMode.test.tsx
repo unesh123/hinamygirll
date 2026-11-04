@@ -21,9 +21,14 @@ describe("ModelsMode", () => {
     fireEvent.click(other);
     expect(select).toHaveBeenCalledWith("shared-model","apmix");
   });
-  it("disables missing credentials, unavailable services, and unsupported chat routes", () => {
+  it("blocks missing credentials and unsupported routes while allowing a configured service retry", () => {
     render(<ModelsMode onSelectModel={select} onSelectAuto={auto}/>);
-    for(const id of ["openai","ollama","unsupported"]) expect(screen.getByRole("button",{name:`Use ${id} model via ${id}`})).toBeDisabled();
+    for(const id of ["openai","unsupported"]) expect(screen.getByRole("button",{name:`Use ${id} model via ${id}`})).toBeDisabled();
+    const retry = screen.getByRole("button",{name:"Use ollama model via ollama"});
+    expect(retry).toBeEnabled();
+    expect(retry).toHaveTextContent("Unavailable");
+    fireEvent.click(retry);
+    expect(select).toHaveBeenCalledWith("shared-model", "ollama");
     expect(screen.getByRole("button",{name:"Use xkiro model via xkiro"})).toBeEnabled();
   });
   it("filters models by both provider and search and offers automatic routing", () => {

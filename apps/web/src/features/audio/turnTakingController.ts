@@ -26,6 +26,8 @@ export interface TurnTakingConfig {
   hesitationFrames: number;
   /** Silence frames required to end a turn when partial looks complete. */
   endOfTurnFrames: number;
+  /** Silence budget when recognition provides no partial transcript. */
+  noTranscriptEndFrames?: number;
   /** Hard silence ceiling before forced commit. */
   maxSilenceFrames: number;
   /** Hard max speech frames (~20ms) before force commit. */
@@ -44,7 +46,8 @@ export const DEFAULT_TURN_TAKING: TurnTakingConfig = {
   minimumSpeechFrames: 6,       // ~120ms minimum voiced frames (picks up short greetings: "Hi", "Hey", "Hina")
   hesitationFrames: 12,         // ~240ms pause treated as natural thinking hesitation
   endOfTurnFrames: 22,          // ~440ms natural pause before turn commit (snappy conversational response)
-  maxSilenceFrames: 35,         // ~700ms hard silence ceiling
+  noTranscriptEndFrames: 40,   // ~800ms: batch STT cannot tell hesitation from a complete sentence
+  maxSilenceFrames: 60,         // ~1200ms for incomplete speech; bounded even without punctuation
   maxSpeechFrames: 1_500,
   startThreshold: 0.012,        // Immune to fan/AC rumble (~0.004-0.006 RMS) while sensitive to speech (>=0.020)
   speakerThreshold: 0.045,      // Responsive threshold for natural voice interruption
@@ -93,6 +96,7 @@ export class TurnTakingController {
   private lastCommitFingerprint = "";
   private noiseFloor = 0.005; // Adaptive background noise baseline (e.g. laptop fans)
   private lastThreshold = 0.015;
+  private resumedPauseFrames = 0;
   private readonly config: TurnTakingConfig;
 
   constructor(config: Partial<TurnTakingConfig> = {}) {
@@ -221,7 +225,7 @@ export class TurnTakingController {
       input.assistantPlaying
         ? Math.max(0.045, (this.config.speakerThreshold || 0.045) * 1.5)
         : isBusy
-          ? 0.20
+          ? dynamicStartThreshold
           : 0.040,
       this.noiseFloor * 2.2 + 0.015,
     );
@@ -254,14 +258,16 @@ export class TurnTakingController {
     } else if (this.speaking) {
       if (hot) {
         this.voicedFrames += 1;
-        // Don't let a single frame of background flutter (fan/AC) completely destroy
-        // an active silence period: only decrement if consecutive hot frames >= 2
+        // Two consecutive voiced frames resume the same utterance. Retaining the
+        // previous quiet count cut off speech on the next brief pause.
         if (this.hotFrames >= 2) {
-          if (this.quietFrames > 0) {
-            this.quietFrames = Math.max(0, this.quietFrames - 2);
-          } else {
-            this.quietFrames = 0;
+          if (this.quietFrames > this.config.hesitationFrames) {
+            this.resumedPauseFrames = Math.min(
+              this.config.maxSilenceFrames,
+              Math.max(this.resumedPauseFrames, this.quietFrames + 8),
+            );
           }
+          this.quietFrames = 0;
         }
         this.state = "active_speech";
       } else {
@@ -277,11 +283,15 @@ export class TurnTakingController {
       const hasTranscript =
         this.lastPartial.length >= this.config.minimumTranscriptChars;
       const complete = looksComplete(this.lastPartial);
+      const completeEndFrames = Math.max(this.config.endOfTurnFrames, this.resumedPauseFrames);
+      const noTranscriptEndFrames = Math.min(
+        this.config.maxSilenceFrames,
+        Math.max(this.config.noTranscriptEndFrames ?? this.config.endOfTurnFrames, this.resumedPauseFrames),
+      );
       const softEnd =
         enoughSpeech &&
         hasTranscript &&
-        this.quietFrames >= this.config.endOfTurnFrames &&
-        (complete || hasTranscript);
+        this.quietFrames >= completeEndFrames && complete;
       const hardSilence =
         enoughSpeech &&
         hasTranscript &&
@@ -312,24 +322,19 @@ export class TurnTakingController {
         this.resetSpeech();
         this.state = "committing";
       } else if (
-        this.voicedFrames >= Math.max(this.config.minimumSpeechFrames * 2, 4) &&
-        (this.quietFrames >= this.config.endOfTurnFrames || hardMax)
+        !hasTranscript &&
+        this.voicedFrames >= Math.max(this.config.minimumSpeechFrames, 4) &&
+        (this.quietFrames >= noTranscriptEndFrames || hardMax)
       ) {
         // Without streaming partials (batch STT via Deepgram Nova-2 on commit), commit once user has
-        // spoken for a sustained stretch and paused naturally for endOfTurnFrames.
+        // spoken for a sustained stretch and exhausted the no-transcript pause budget.
         // Backend STT will transcribe from the audio.
-        const fingerprint = `silent_commit|${this.voicedFrames}`;
-        if (fingerprint !== this.lastCommitFingerprint) {
-          this.lastCommitFingerprint = fingerprint;
-          speechCommit = true;
-          reason = hardMax ? "max_speech_no_partial" : "silence_commit_no_partial";
-          this.resetSpeech();
-          this.state = "committing";
-        } else {
-          this.resetSpeech();
-          this.state = "listening";
-          reason = "noise_rejected";
-        }
+        // Equal audio durations do not imply duplicate utterances. Resetting the
+        // capture already prevents a second commit without a fresh speech start.
+        speechCommit = true;
+        reason = hardMax ? "max_speech_no_partial" : "silence_commit_no_partial";
+        this.resetSpeech();
+        this.state = "committing";
       } else if (this.quietFrames >= this.config.maxSilenceFrames) {
         // If silence exceeded maxSilenceFrames and not enough speech was voiced, reset cleanly.
         this.resetSpeech();
