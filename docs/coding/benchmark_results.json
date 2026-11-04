@@ -1,12 +1,12 @@
 {
   "benchmark_suite": "HINAA OS Phase 08 \u2014 Code Execution & Developer Sandbox",
-  "timestamp": "2026-11-04T23:26:46.629042+00:00",
+  "timestamp": "2026-11-04T23:56:25.771337+00:00",
   "summary": {
     "total_scenarios": 48,
     "passed": 48,
     "failed": 0,
     "pass_rate_percent": 100.0,
-    "total_suite_duration_ms": 17970.01
+    "total_suite_duration_ms": 13591.56
   },
   "environment": {
     "os": "Windows-11-10.0.26300-SP0",
@@ -27,7 +27,7 @@
       "name": "Host OS/runtime discovery accurately distinguishes available backends; fail closed",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 1022.48,
+      "duration_ms": 727.53,
       "description": "Probes Docker, WSL2, and Windows Job Objects; verifies honest security classification."
     },
     {
@@ -35,7 +35,7 @@
       "name": "Launch real disposable isolated environment; verify identity and cleanup",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 61.41,
+      "duration_ms": 39.61,
       "description": "Spawns isolated worker under boundary constraints and verifies process termination."
     },
     {
@@ -43,7 +43,7 @@
       "name": "Attempt read outside authorized project root; blocked by real runtime",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 1.85,
+      "duration_ms": 1.35,
       "description": "Enforces canonical workspace root verification and blocks directory traversal escape."
     },
     {
@@ -51,7 +51,7 @@
       "name": "Attempt cross-tenant project/file access; boundaries prevent leakage",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 2.58,
+      "duration_ms": 2.48,
       "description": "Confirms Tenant B cannot execute commands or read files in Tenant A workspace."
     },
     {
@@ -59,7 +59,7 @@
       "name": "Attempt outbound network in default-off runtime",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 0.2,
+      "duration_ms": 0.15,
       "description": "ResourceLimits enforces allow_network=False boundary by default."
     },
     {
@@ -67,7 +67,7 @@
       "name": "Attempt access to secrets; no credential exposed in env",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 119.17,
+      "duration_ms": 41.35,
       "description": "Strips all API keys, merchant secrets, and tokens from child process environment."
     },
     {
@@ -75,7 +75,7 @@
       "name": "Reject privileged container, host-mounted root, Docker socket",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 0.61,
+      "duration_ms": 0.4,
       "description": "Blocks --privileged, /var/run/docker.sock, and root filesystem mount arguments."
     },
     {
@@ -83,7 +83,7 @@
       "name": "Enforce CPU and memory limits on aggressive fixture",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 1590.11,
+      "duration_ms": 1292.96,
       "description": "Terminates infinite loops and long-running fixtures upon timeout ceiling."
     },
     {
@@ -91,7 +91,7 @@
       "name": "Enforce PID/process count and output buffer quotas (1MB)",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 68.54,
+      "duration_ms": 40.34,
       "description": "Gracefully truncates oversized stdout/stderr buffers exceeding quota."
     },
     {
@@ -99,7 +99,7 @@
       "name": "Cancel a spawned process tree; all descendants gone and resources cleaned",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 1259.59,
+      "duration_ms": 889.61,
       "description": "Kills entire process tree via Windows Job Object / taskkill with zero zombie PIDs."
     },
     {
@@ -107,7 +107,7 @@
       "name": "Create workspace snapshot; preserve existing user files",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 3.45,
+      "duration_ms": 7.85,
       "description": "Pre-mutation backup stores file state before applying patches for safe reversal."
     },
     {
@@ -115,7 +115,7 @@
       "name": "Block ../, absolute paths, symlink/junction escape",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 0.85,
+      "duration_ms": 0.74,
       "description": "DiffEngine rejects patches targeting paths outside the workspace boundary."
     },
     {
@@ -123,7 +123,7 @@
       "name": "Detect project languages, lockfiles, tests, build scripts",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 2.98,
+      "duration_ms": 1.85,
       "description": "Accurately indexes Python (pytest) and Node/TypeScript (npm test, build) setups."
     },
     {
@@ -131,7 +131,7 @@
       "name": "Perform bounded repository search and symbol retrieval",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 3.73,
+      "duration_ms": 11.05,
       "description": "Retrieves class and function definitions without whole-repository context flooding."
     },
     {
@@ -139,7 +139,7 @@
       "name": "Apply structured patch; generated diff matches disk result",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 4.09,
+      "duration_ms": 3.64,
       "description": "Replaces exact target characters and generates standard unified diff."
     },
     {
@@ -147,7 +147,7 @@
       "name": "Reject patch outside scope, invalid base hash and conflicting modifications",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 1.9,
+      "duration_ms": 1.59,
       "description": "Detects missing target text or concurrent base hash drift and aborts cleanly."
     },
     {
@@ -155,7 +155,7 @@
       "name": "Roll back only task-owned modifications; detect conflicts",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 4.96,
+      "duration_ms": 16.94,
       "description": "Reverts only changes made by specific task ID, preserving user modifications."
     },
     {
@@ -163,7 +163,7 @@
       "name": "Preserve UTF-8 Nepali/Devanagari source, filenames and mixed-language strings",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 2.84,
+      "duration_ms": 2.34,
       "description": "Ensures Devanagari Unicode scripts and vowel matras are preserved without corruption."
     },
     {
@@ -171,7 +171,7 @@
       "name": "Python script executes with real bounded stdout/stderr/exit status",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 45.91,
+      "duration_ms": 43.92,
       "description": "Executes real Python interpreter and captures separate stdout and stderr streams."
     },
     {
@@ -179,7 +179,7 @@
       "name": "Node/TypeScript test runs with accurate tool version and isolated evidence",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 93.02,
+      "duration_ms": 56.88,
       "description": "Executes Node.js test script inside sandbox and asserts genuine test output."
     },
     {
@@ -187,7 +187,7 @@
       "name": "A failed lint/test reports precise failure and remains failed until fixed",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 845.93,
+      "duration_ms": 575.37,
       "description": "Captures ZeroDivisionError traceback and non-zero exit code faithfully."
     },
     {
@@ -203,7 +203,7 @@
       "name": "Reject shell-injection arguments; never concatenate untrusted strings",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 0.27,
+      "duration_ms": 0.21,
       "description": "Identifies dangerous system commands (rm -rf /, curl | sh) as Tier C."
     },
     {
@@ -211,7 +211,7 @@
       "name": "Run build with explicit command, exit code and hashes",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 62.3,
+      "duration_ms": 55.25,
       "description": "Executes build script and asserts bundle file generation on disk."
     },
     {
@@ -219,7 +219,7 @@
       "name": "Python feature task: inspect -> baseline fail -> patch -> tests pass -> verified diff",
       "evidence_class": "End-to-End Workflow (E2E)",
       "status": "PASSED",
-      "duration_ms": 748.79,
+      "duration_ms": 538.77,
       "description": "Autonomous repair of Python calculator bug; runs pytest and verifies green status."
     },
     {
@@ -227,7 +227,7 @@
       "name": "TypeScript bug fix: reproduce issue, patch, build and verify",
       "evidence_class": "End-to-End Workflow (E2E)",
       "status": "PASSED",
-      "duration_ms": 69.26,
+      "duration_ms": 53.47,
       "description": "Autonomous update of Node.js function with test pass and build confirmation."
     },
     {
@@ -235,7 +235,7 @@
       "name": "Introduce intentional regression fixture; coding loop declines false success",
       "evidence_class": "End-to-End Workflow (E2E)",
       "status": "PASSED",
-      "duration_ms": 775.07,
+      "duration_ms": 536.33,
       "description": "Agent declines false success when tests fail; transitions to FAILED state."
     },
     {
@@ -243,7 +243,7 @@
       "name": "Ambiguous user task produces explicit assumptions; no unrelated mutations",
       "evidence_class": "End-to-End Workflow (E2E)",
       "status": "PASSED",
-      "duration_ms": 2.67,
+      "duration_ms": 5.75,
       "description": "Guarantees out-of-scope files like README are completely untouched by task."
     },
     {
@@ -251,7 +251,7 @@
       "name": "Repair loop executes within configured iteration budget",
       "evidence_class": "End-to-End Workflow (E2E)",
       "status": "PASSED",
-      "duration_ms": 0.25,
+      "duration_ms": 0.13,
       "description": "Task spec enforces hard ceiling of 3 repair iterations to avoid runaway loops."
     },
     {
@@ -259,7 +259,7 @@
       "name": "Fresh checkout reruns instructions and reproduces build/test result",
       "evidence_class": "End-to-End Workflow (E2E)",
       "status": "PASSED",
-      "duration_ms": 835.34,
+      "duration_ms": 448.35,
       "description": "Deterministic rerun of pytest suite produces identical passing result."
     },
     {
@@ -267,7 +267,7 @@
       "name": "Git branch creation leaves main unchanged",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 0.21,
+      "duration_ms": 0.17,
       "description": "Ensures feature branching operates safely under Tier B mutation tier."
     },
     {
@@ -275,7 +275,7 @@
       "name": "Reject git push, force push, remote change without Tier C approval",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 0.21,
+      "duration_ms": 0.17,
       "description": "Remote git operations strictly classified as Tier C Specific Approval."
     },
     {
@@ -283,7 +283,7 @@
       "name": "Artifact manifest includes task, command, time, checksum, dependency digest",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 0.2,
+      "duration_ms": 0.16,
       "description": "Verifies artifact inventory records 64-char SHA-256 and task provenance."
     },
     {
@@ -291,7 +291,7 @@
       "name": "Trace/tenant/task IDs link backend action history",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 493.29,
+      "duration_ms": 454.93,
       "description": "Guarantees tenant_id and user_id propagate through coding task status."
     },
     {
@@ -299,7 +299,7 @@
       "name": "Developer panel event schema verification",
       "evidence_class": "UI Observation (UI)",
       "status": "PASSED",
-      "duration_ms": 2.1,
+      "duration_ms": 0.41,
       "description": "Verifies activity status stream schema (runId, type, label, timestamp)."
     },
     {
@@ -307,7 +307,7 @@
       "name": "Streaming output handles large outputs via truncation",
       "evidence_class": "UI Observation (UI)",
       "status": "PASSED",
-      "duration_ms": 55.76,
+      "duration_ms": 47.17,
       "description": "Truncates large terminal streams gracefully without freezing client DOM."
     },
     {
@@ -315,7 +315,7 @@
       "name": "User cancellation immediately stops active task and backend processes",
       "evidence_class": "UI Observation (UI)",
       "status": "PASSED",
-      "duration_ms": 1.47,
+      "duration_ms": 1.27,
       "description": "Cancellation signal instantly transitions task to CANCELLED state."
     },
     {
@@ -323,7 +323,7 @@
       "name": "Reconnected SSE resumes event stream from buffer",
       "evidence_class": "UI Observation (UI)",
       "status": "PASSED",
-      "duration_ms": 514.58,
+      "duration_ms": 399.41,
       "description": "Reconnected clients receive all past events in sequence before live stream."
     },
     {
@@ -331,7 +331,7 @@
       "name": "UI component export verification",
       "evidence_class": "UI Observation (UI)",
       "status": "PASSED",
-      "duration_ms": 1.88,
+      "duration_ms": 0.67,
       "description": "Verifies CodingTaskPanel.tsx exists, compiles, and connects to EventSource."
     },
     {
@@ -339,7 +339,7 @@
       "name": "Approval token bound to user, tenant, task, command; tampering invalidates it",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 0.47,
+      "duration_ms": 0.26,
       "description": "HMAC-SHA256 parameter binding rejects altered command or task targets."
     },
     {
@@ -347,7 +347,7 @@
       "name": "Malicious README/log prompt-injection defanged; no privileges granted",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 6.51,
+      "duration_ms": 0.28,
       "description": "Defangs override instructions and encapsulates in untrusted tags."
     },
     {
@@ -355,7 +355,7 @@
       "name": "Untrusted script inside sandbox cannot access secrets",
       "evidence_class": "Sandbox Security (S)",
       "status": "PASSED",
-      "duration_ms": 53.98,
+      "duration_ms": 48.87,
       "description": "Child process inspection reveals scrubbed environment variables."
     },
     {
@@ -363,7 +363,7 @@
       "name": "Task cancellation leaves durable terminal state",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 465.23,
+      "duration_ms": 429.43,
       "description": "Cancelled tasks persist CANCELLED status in service registry."
     },
     {
@@ -371,7 +371,7 @@
       "name": "Two parallel tasks enforce quotas and isolated workspaces",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 87.23,
+      "duration_ms": 64.46,
       "description": "Concurrent workers run independently without cross-workspace interference."
     },
     {
@@ -379,7 +379,7 @@
       "name": "Repeated 5-step coding workflow completes reliably over 5 runs",
       "evidence_class": "End-to-End Workflow (E2E)",
       "status": "PASSED",
-      "duration_ms": 243.62,
+      "duration_ms": 200.42,
       "description": "Five consecutive command executions exhibit 100% stability and consistent latency."
     },
     {
@@ -387,7 +387,7 @@
       "name": "Distinct actionable error classification for dependency failure and timeouts",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 1302.22,
+      "duration_ms": 998.25,
       "description": "Distinguishes ModuleNotFoundError and TimeoutError with explicit diagnostic signals."
     },
     {
@@ -395,7 +395,7 @@
       "name": "Phase 06 CRAG and Phase 07 browser integration preserve permissions",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 0.22,
+      "duration_ms": 0.15,
       "description": "Prevents shell command execution under read-only browser or search permissions."
     },
     {
@@ -403,7 +403,7 @@
       "name": "Regression check across Phase 06 CRAG, Phase 05 Voice, and Agency",
       "evidence_class": "Component Integration (I)",
       "status": "PASSED",
-      "duration_ms": 0.17,
+      "duration_ms": 0.12,
       "description": "Verifies core contract enum imports for Research, Voice, and Browser engines."
     }
   ]

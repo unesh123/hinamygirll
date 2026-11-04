@@ -57,6 +57,8 @@ data/private/
 apps/api/data/images/
 apps/api/data/documents/
 apps/api/data/freepik_usage.json
+apps/api/data/creative_assets/
+apps/api/data/creative_jobs.json
 apps/api/hinaa_api/data/documents/
 apps/api/hinaa_api/data/college/
 apps/api/hinaa_api/data/brain_outcomes.json

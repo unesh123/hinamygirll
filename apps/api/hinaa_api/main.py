@@ -1054,6 +1054,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.browser_service = BrowserAutomationService()
     from .coding import CodingService
     app.state.coding_service = CodingService()
+    from .creative import creative_service
+    app.state.creative_service = creative_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_origins,
@@ -1729,6 +1731,143 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Coding service not initialized")
         reverted = service.rollback_task(task_id)
         return {"taskId": task_id, "status": "ROLLED_BACK", "reverted": reverted}
+
+    # ─── PHASE 09: CREATIVE STUDIO & MULTIMODAL ENDPOINTS ───────────────────
+    @app.get("/api/creative/capabilities")
+    @app.get("/v1/creative/capabilities")
+    async def get_creative_capabilities() -> dict[str, Any]:
+        """Returns discovered hardware, runtime capabilities, and honest model availability."""
+        from .creative import creative_registry
+        return creative_registry.matrix.model_dump()
+
+    @app.post("/api/creative/jobs")
+    @app.post("/v1/creative/jobs")
+    async def submit_creative_job(spec: Any = Body(...), request: Request = None) -> dict[str, Any]:
+        """Submits a creative studio job (image, edit/inpaint, video timeline export)."""
+        from .creative import creative_service, CreativeJobSpec
+        if isinstance(spec, dict):
+            spec = CreativeJobSpec.model_validate(spec)
+        tenant_id = request.headers.get("X-Tenant-ID", spec.tenant_id or "default_tenant") if request else spec.tenant_id
+        user_id = request.headers.get("X-User-ID", spec.user_id or "default_user") if request else spec.user_id
+        spec.tenant_id = tenant_id
+        spec.user_id = user_id
+        job = await creative_service.submit_job(spec)
+        return job.model_dump()
+
+    @app.get("/api/creative/jobs/{job_id}")
+    @app.get("/v1/creative/jobs/{job_id}")
+    async def get_creative_job(job_id: str, request: Request) -> dict[str, Any]:
+        """Returns current status and telemetry for a creative job."""
+        from .creative import creative_service, CreativeSecurityPolicy
+        job = await creative_service.store.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Creative job '{job_id}' not found.")
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        CreativeSecurityPolicy.verify_tenant_access(tenant_id, job.tenant_id)
+        return job.model_dump()
+
+    @app.get("/api/creative/jobs/{job_id}/events")
+    @app.get("/v1/creative/jobs/{job_id}/events")
+    async def stream_creative_job_events(job_id: str, request: Request) -> StreamingResponse:
+        """SSE stream for real-time progress and telemetry with reconnect support."""
+        from .creative import creative_service, CreativeSecurityPolicy
+        job = await creative_service.store.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Creative job '{job_id}' not found.")
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        CreativeSecurityPolicy.verify_tenant_access(tenant_id, job.tenant_id)
+        return StreamingResponse(
+            creative_service.stream_events(job_id, tenant_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/api/creative/jobs/{job_id}/cancel")
+    @app.post("/v1/creative/jobs/{job_id}/cancel")
+    async def cancel_creative_job(job_id: str, request: Request) -> dict[str, Any]:
+        """Cancels an active or queued creative job."""
+        from .creative import creative_service
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        job = await creative_service.cancel_job(job_id, tenant_id)
+        return {"jobId": job.job_id, "status": job.state.value}
+
+    @app.post("/api/creative/jobs/{job_id}/retry")
+    @app.post("/v1/creative/jobs/{job_id}/retry")
+    async def retry_creative_job(job_id: str, request: Request) -> dict[str, Any]:
+        """Retries a failed creative job within retry bounds."""
+        from .creative import creative_service
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        new_job = await creative_service.retry_job(job_id, tenant_id)
+        return new_job.model_dump()
+
+    @app.post("/api/creative/assets/upload")
+    @app.post("/v1/creative/assets/upload")
+    async def upload_creative_asset(
+        request: Request,
+        file: UploadFile = File(...),
+        operation: str = Form("IMAGE_TO_IMAGE"),
+    ) -> dict[str, Any]:
+        """Uploads source image or mask asset with MIME validation."""
+        from .creative import creative_asset_manager, CreativeOperation
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        user_id = request.headers.get("X-User-ID", "default_user")
+        data = await file.read()
+        op = CreativeOperation.IMAGE_TO_IMAGE
+        try:
+            op = CreativeOperation(operation)
+        except Exception:
+            pass
+        meta = creative_asset_manager.store_asset(
+            data=data,
+            filename=file.filename or "upload.png",
+            operation=op,
+            provider="user_upload",
+            model_version="upload",
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+        return meta.model_dump()
+
+    @app.get("/api/creative/assets/{asset_id}")
+    @app.get("/v1/creative/assets/{asset_id}")
+    async def get_creative_asset(asset_id: str, request: Request) -> dict[str, Any]:
+        """Returns asset metadata and provenance."""
+        from .creative import creative_asset_manager
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        meta = creative_asset_manager.get_asset_metadata(asset_id, tenant_id)
+        if not meta:
+            raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found.")
+        return meta.model_dump()
+
+    @app.get("/api/creative/assets/{asset_id}/download")
+    @app.get("/v1/creative/assets/{asset_id}/download")
+    async def download_creative_asset(asset_id: str, request: Request) -> Response:
+        """Streams verified asset media bytes with safe headers."""
+        from .creative import creative_asset_manager
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        p = creative_asset_manager.get_asset_path(asset_id, tenant_id)
+        meta = creative_asset_manager.get_asset_metadata(asset_id, tenant_id)
+        if not p or not meta:
+            raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found.")
+        data = p.read_bytes()
+        headers = {
+            "Content-Disposition": f'attachment; filename="{meta.filename}"',
+            "X-Content-Type-Options": "nosniff",
+            "Content-Length": str(len(data)),
+            "ETag": f'"{meta.sha256_hash}"',
+        }
+        return Response(content=data, media_type=meta.mime_type, headers=headers)
+
+    @app.get("/api/creative/assets")
+    @app.get("/v1/creative/assets")
+    async def list_creative_assets(request: Request, limit: int = 50) -> dict[str, Any]:
+        """Lists tenant-owned creative assets."""
+        from .creative import creative_asset_manager
+        tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
+        user_id = request.headers.get("X-User-ID", None)
+        assets = creative_asset_manager.list_assets(tenant_id, user_id, limit=limit)
+        return {"tenant_id": tenant_id, "assets": [a.model_dump() for a in assets], "count": len(assets)}
+
 
     @app.get("/v1/readiness")
     @app.get("/api/v1/readiness")

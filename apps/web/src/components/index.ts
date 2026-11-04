@@ -6,3 +6,4 @@ export * from "./ui/GroundedResearchCard";
 export * from "./browser/BrowserActionTimeline";
 export * from "./browser/BrowserTaskPanel";
 export * from "./coding/CodingTaskPanel";
+export * from "./creative/CreativeStudioPanel";

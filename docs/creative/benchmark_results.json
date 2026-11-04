@@ -1,0 +1,535 @@
+{
+  "benchmark_suite": "HINAA OS Phase 09 \u2014 Multimodal Intelligence & Creative Studios",
+  "timestamp": "2026-11-04T23:55:41.344821+00:00",
+  "summary": {
+    "total_scenarios": 64,
+    "passed": 64,
+    "failed": 0,
+    "pass_rate_percent": 100.0,
+    "total_suite_duration_ms": 11105.86
+  },
+  "environment": {
+    "os": "Windows-11-10.0.26300-SP0",
+    "python": "3.14.4",
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "vram_total_mb": 8188,
+    "ffmpeg": "7.1-essentials",
+    "comfyui_status": "OFFLINE (Local fallback engine active)",
+    "generative_video_status": "BLOCKED (Truthful fail-closed gate)",
+    "timeline_video_status": "AVAILABLE (FFmpeg MP4 export)"
+  },
+  "scenarios": [
+    {
+      "id": "C09-01",
+      "function": "test_c09_01_verify_phase_08_checkpoint_and_git_tree",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Verify phase-08-checkpoint tag and clean git tree"
+    },
+    {
+      "id": "C09-02",
+      "function": "test_c09_02_verify_product_ledger_preserves_p8_p9_sandbox",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Verify P8/P9 remain sandbox-only and product ledger updated"
+    },
+    {
+      "id": "C09-03",
+      "function": "test_c09_03_hardware_enumeration",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Runtime Discovery (R)",
+      "status": "PASSED",
+      "description": "Enumerate GPU, VRAM, memory, disk, and FFmpeg version"
+    },
+    {
+      "id": "C09-04",
+      "function": "test_c09_04_comfyui_probe_accuracy",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Runtime Discovery (R)",
+      "status": "PASSED",
+      "description": "Detect ComfyUI availability without fabricating status"
+    },
+    {
+      "id": "C09-05",
+      "function": "test_c09_05_freepik_account_configured_check",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Validate Freepik account configured without leaking keys"
+    },
+    {
+      "id": "C09-06",
+      "function": "test_c09_06_truthful_capability_matrix",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Runtime Discovery (R)",
+      "status": "PASSED",
+      "description": "Return truthful capability matrix for all 8 operations"
+    },
+    {
+      "id": "C09-07",
+      "function": "test_c09_07_reject_unsupported_model_workflow",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Reject unsupported model with explicit diagnostic error"
+    },
+    {
+      "id": "C09-08",
+      "function": "test_c09_08_reject_impossible_gpu_workload_before_start",
+      "category": "Audit & Provider Truthfulness",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Reject impossible GPU workload dimensions before start"
+    },
+    {
+      "id": "C09-09",
+      "function": "test_c09_09_genuine_text_to_image",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Generate authentic raster output and verify SHA-256 and nonblank pixels"
+    },
+    {
+      "id": "C09-10",
+      "function": "test_c09_10_validate_dimensions_aspect_ratio_and_mime",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Validate dimensions, aspect ratio, and MIME type on generated raster"
+    },
+    {
+      "id": "C09-11",
+      "function": "test_c09_11_english_prompt_preservation",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "English prompt retains meaning in rendered raster output"
+    },
+    {
+      "id": "C09-12",
+      "function": "test_c09_12_nepali_unicode_preservation",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Nepali / Devanagari Unicode preserved through generation and metadata"
+    },
+    {
+      "id": "C09-13",
+      "function": "test_c09_13_seed_reproducibility",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Deterministic seed produces bit-identical raster output"
+    },
+    {
+      "id": "C09-14",
+      "function": "test_c09_14_generate_variation_preserves_original",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Generate variation with unique digest while preserving original"
+    },
+    {
+      "id": "C09-15",
+      "function": "test_c09_15_corrupt_provider_image_rejected",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Corrupt / empty provider bytes rejected rather than stored"
+    },
+    {
+      "id": "C09-16",
+      "function": "test_c09_16_image_preview_download_digest_match",
+      "category": "Image Creation & Reliability",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Stored asset hash matches exactly on download retrieval"
+    },
+    {
+      "id": "C09-17",
+      "function": "test_c09_17_upload_real_png_and_mime_inspection",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Upload real PNG/JPEG with MIME inspection"
+    },
+    {
+      "id": "C09-18",
+      "function": "test_c09_18_mask_alignment_survives_dimension_check",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Mask alignment survives dimension checks without distortion"
+    },
+    {
+      "id": "C09-19",
+      "function": "test_c09_19_genuine_masked_inpainting_changes_target_area",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Genuine masked inpainting alters target pixels while preserving boundary"
+    },
+    {
+      "id": "C09-20",
+      "function": "test_c09_20_inpainting_preserves_untouched_source_hash",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Inpainting preserves untouched original parent asset hash"
+    },
+    {
+      "id": "C09-21",
+      "function": "test_c09_21_empty_invalid_mask_rejected",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Empty or invalid mask rejected before allocating compute"
+    },
+    {
+      "id": "C09-22",
+      "function": "test_c09_22_background_removal",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Background removal isolates foreground with alpha channel transparency"
+    },
+    {
+      "id": "C09-23",
+      "function": "test_c09_23_reference_image_consistency_eval",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Reference image lineage tracked across multiple variations"
+    },
+    {
+      "id": "C09-24",
+      "function": "test_c09_24_multi_step_edit_lineage",
+      "category": "Editing & Reference Pipelines",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Multi-step edit version history safely tracked (v1 -> v2 -> v3)"
+    },
+    {
+      "id": "C09-25",
+      "function": "test_c09_25_detect_t2v_independent_of_timeline_encoder",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Runtime Discovery (R)",
+      "status": "PASSED",
+      "description": "Distinguish neural generative video from timeline export"
+    },
+    {
+      "id": "C09-26",
+      "function": "test_c09_26_t2v_execution_explicitly_blocked",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Direct T2V execution fails closed when model unconfigured"
+    },
+    {
+      "id": "C09-27",
+      "function": "test_c09_27_i2v_execution_explicitly_blocked",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Direct I2V execution fails closed when model unconfigured"
+    },
+    {
+      "id": "C09-28",
+      "function": "test_c09_28_timeline_video_export_mp4",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Exports authentic playable MP4 video via FFmpeg"
+    },
+    {
+      "id": "C09-29",
+      "function": "test_c09_29_validate_video_ffprobe_metrics",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "FFmpeg probe accurately validates codec, dimensions, and duration"
+    },
+    {
+      "id": "C09-30",
+      "function": "test_c09_30_video_header_validity",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Live Generation (L)",
+      "status": "PASSED",
+      "description": "Video output contains valid MP4 ftyp container header"
+    },
+    {
+      "id": "C09-31",
+      "function": "test_c09_31_reject_fake_video",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Reject fake video (canvas preview, HTML) as generative result"
+    },
+    {
+      "id": "C09-32",
+      "function": "test_c09_32_cancel_active_job_cleans_resources",
+      "category": "Genuine Video & Encoded Export",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Cancelled video job cleanly terminates child processes"
+    },
+    {
+      "id": "C09-33",
+      "function": "test_c09_33_job_persistence_across_restarts",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Job records persist to disk and restore safely across restarts"
+    },
+    {
+      "id": "C09-34",
+      "function": "test_c09_34_idempotency_key_prevents_duplicate_jobs",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Idempotency key prevents duplicate execution within tenant"
+    },
+    {
+      "id": "C09-35",
+      "function": "test_c09_35_distinguish_job_telemetry",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Distinguish queue, inference, encode, and validation telemetry"
+    },
+    {
+      "id": "C09-36",
+      "function": "test_c09_36_vram_quota_admission_guard",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Runtime Discovery (R)",
+      "status": "PASSED",
+      "description": "VRAM quota admission guard tracks available hardware"
+    },
+    {
+      "id": "C09-37",
+      "function": "test_c09_37_chat_voice_responsiveness_during_creative_load",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Voice and chat remain responsive during creative GPU load"
+    },
+    {
+      "id": "C09-38",
+      "function": "test_c09_38_safe_retry_preserves_spec",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Safe retry creates linked child job with incremented retry count"
+    },
+    {
+      "id": "C09-39",
+      "function": "test_c09_39_invalid_dimension_cleans_resources",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Invalid job parameters clean up before resource allocation"
+    },
+    {
+      "id": "C09-40",
+      "function": "test_c09_40_cancelled_job_state_persists",
+      "category": "Jobs & Resource Recovery",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Cancelled job state permanently persists in job registry"
+    },
+    {
+      "id": "C09-41",
+      "function": "test_c09_41_frontend_component_exists",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "CreativeStudioPanel.tsx exists and exports cleanly"
+    },
+    {
+      "id": "C09-42",
+      "function": "test_c09_42_edit_mode_mask_canvas_present",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "Inpainting mask canvas drawing tools provided in edit mode"
+    },
+    {
+      "id": "C09-43",
+      "function": "test_c09_43_video_mode_shows_blocked_badge",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "Video mode displays honest Blocked badge when neural model absent"
+    },
+    {
+      "id": "C09-44",
+      "function": "test_c09_44_error_state_handling_in_ui",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "Error state handling provides clear diagnostic feedback"
+    },
+    {
+      "id": "C09-45",
+      "function": "test_c09_45_responsive_layout_grid",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "Responsive layout adapts across mobile viewports"
+    },
+    {
+      "id": "C09-46",
+      "function": "test_c09_46_accessibility_attributes",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "Keyboard accessibility and semantic label attributes present"
+    },
+    {
+      "id": "C09-47",
+      "function": "test_c09_47_bilingual_labels_rendered",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "English and Devanagari labels render cleanly"
+    },
+    {
+      "id": "C09-48",
+      "function": "test_c09_48_sse_event_stream_sequence",
+      "category": "Frontend & Accessibility",
+      "evidence_class": "UI Observation (UI)",
+      "status": "PASSED",
+      "description": "SSE events stream monotonically with integer sequence IDs"
+    },
+    {
+      "id": "C09-49",
+      "function": "test_c09_49_cross_tenant_access_denied",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Strict rejection of cross-tenant resource requests"
+    },
+    {
+      "id": "C09-50",
+      "function": "test_c09_50_path_traversal_blocked",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Path traversal filename sanitization prevents directory escape"
+    },
+    {
+      "id": "C09-51",
+      "function": "test_c09_51_scriptable_metadata_injection_defanged",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "HTML injection scripts in prompts or metadata are defanged"
+    },
+    {
+      "id": "C09-52",
+      "function": "test_c09_52_untrusted_comfyui_node_execution_denied",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Untrusted custom ComfyUI node or script execution denied"
+    },
+    {
+      "id": "C09-53",
+      "function": "test_c09_53_prompt_injection_override_defanged",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "System prompt override commands stripped from creative inputs"
+    },
+    {
+      "id": "C09-54",
+      "function": "test_c09_54_secret_tokens_scrubbed_from_metadata",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "API keys and bearer tokens scrubbed from metadata objects"
+    },
+    {
+      "id": "C09-55",
+      "function": "test_c09_55_ssrf_internal_ip_blocked",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "SSRF and traversal patterns in asset paths blocked"
+    },
+    {
+      "id": "C09-56",
+      "function": "test_c09_56_unapproved_paid_generation_blocked",
+      "category": "Security, Privacy & Rights",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Unapproved paid video generation remains disabled"
+    },
+    {
+      "id": "C09-57",
+      "function": "test_c09_57_agency_budget_compatibility",
+      "category": "Integration & Governance",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Agency runtime creative proposals respect budget allocations"
+    },
+    {
+      "id": "C09-58",
+      "function": "test_c09_58_research_grounding_separation",
+      "category": "Integration & Governance",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Creative metadata keeps research citations separate"
+    },
+    {
+      "id": "C09-59",
+      "function": "test_c09_59_browser_coding_creative_permission_isolation",
+      "category": "Integration & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "status": "PASSED",
+      "description": "Creative permission tokens cannot execute shell commands"
+    },
+    {
+      "id": "C09-60",
+      "function": "test_c09_60_voice_barge_in_compatibility",
+      "category": "Integration & Governance",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Voice lifecycle operates concurrently with creative tasks"
+    },
+    {
+      "id": "C09-61",
+      "function": "test_c09_61_frontend_build_verified",
+      "category": "Integration & Governance",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Production Vite build of frontend completed with zero errors"
+    },
+    {
+      "id": "C09-62",
+      "function": "test_c09_62_generation_latency_telemetry",
+      "category": "Integration & Governance",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Local raster synthesis latency remains under 5000ms"
+    },
+    {
+      "id": "C09-63",
+      "function": "test_c09_63_feature_matrix_updates",
+      "category": "Integration & Governance",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "Product feature acceptance matrix reflects active creative milestones"
+    },
+    {
+      "id": "C09-64",
+      "function": "test_c09_64_audit_and_checkpoint_verification",
+      "category": "Integration & Governance",
+      "evidence_class": "Component Integration (I)",
+      "status": "PASSED",
+      "description": "All 64 scenarios provide real evidence without fabricated success"
+    }
+  ]
+}
