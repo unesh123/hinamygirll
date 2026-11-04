@@ -1,0 +1,308 @@
+{
+  "benchmark_suite": "HINAA OS Phase 06 - Grounded Research & Corrective RAG (CRAG)",
+  "timestamp": "2026-11-04T21:39:24.784064+00:00",
+  "total_scenarios": 25,
+  "passed": 25,
+  "failed": 0,
+  "pass_rate_percent": 100.0,
+  "performance": {
+    "total_execution_ms": 25.25,
+    "average_latency_ms": 1.01,
+    "min_latency_ms": 0.01,
+    "max_latency_ms": 3.1
+  },
+  "scenarios": [
+    {
+      "scenario_id": "R06-01",
+      "name": "Simple Grounded Fact",
+      "category": "Factual Grounding",
+      "latency_ms": 3.1,
+      "status": "PASSED",
+      "details": {
+        "sources_count": 2,
+        "top_source": "src-nepal-cap",
+        "entailment": "DIRECTLY_SUPPORTED"
+      }
+    },
+    {
+      "scenario_id": "R06-02",
+      "name": "Multi-Hop Two-Source Chain",
+      "category": "Multi-Hop Reasoning",
+      "latency_ms": 2.37,
+      "status": "PASSED",
+      "details": {
+        "hops_executed": 2,
+        "sources_retrieved": [
+          "src-oppenheimer-director",
+          "src-oppenheimer-cast"
+        ]
+      }
+    },
+    {
+      "scenario_id": "R06-03",
+      "name": "Stale Fact Needing Refresh",
+      "category": "Temporal Freshness",
+      "latency_ms": 1.15,
+      "status": "PASSED",
+      "details": {
+        "fresh_source_date": "2024-07-05",
+        "stale_filtered": true
+      }
+    },
+    {
+      "scenario_id": "R06-04",
+      "name": "Source Publication vs Event Date Distinction",
+      "category": "Temporal Provenance",
+      "latency_ms": 0.64,
+      "status": "PASSED",
+      "details": {
+        "event_date": "1969-07-20",
+        "publication_date": "2026-07-20"
+      }
+    },
+    {
+      "scenario_id": "R06-05",
+      "name": "Search Provider Unavailable Fallback",
+      "category": "Fault Tolerance",
+      "latency_ms": 0.31,
+      "status": "PASSED",
+      "details": {
+        "abstained": true,
+        "flags": [
+          "SEARCH_FAILURE: SEARCH_PROVIDER_UNAVAILABLE: 503 Service Unavailable",
+          "CORRECTIVE_SEARCH_FAILURE: SEARCH_PROVIDER_UNAVAILABLE: 503 Service Unavailable"
+        ]
+      }
+    },
+    {
+      "scenario_id": "R06-06",
+      "name": "Inaccessible / 404 Source Handling",
+      "category": "Fault Tolerance",
+      "latency_ms": 0.09,
+      "status": "PASSED",
+      "details": {
+        "abstained": true,
+        "reason": "NO_VERIFIED_EVIDENCE_AVAILABLE"
+      }
+    },
+    {
+      "scenario_id": "R06-07",
+      "name": "Unsupported User Premise Grounding",
+      "category": "Anti-Fabrication",
+      "latency_ms": 0.75,
+      "status": "PASSED",
+      "details": {
+        "source_ids": [
+          "src-iphone-launch",
+          "src-einstein-bio"
+        ]
+      }
+    },
+    {
+      "scenario_id": "R06-08",
+      "name": "Honest Abstention on Missing Evidence",
+      "category": "Anti-Fabrication",
+      "latency_ms": 0.35,
+      "status": "PASSED",
+      "details": {
+        "abstention_occurred": true,
+        "answer_text": "Based on current verified sources, this information is not available in our indexed records. I abstain from speculating to prevent unsupported assertions."
+      }
+    },
+    {
+      "scenario_id": "R06-09",
+      "name": "Detection & Surfacing of Conflicting Sources",
+      "category": "Attribution Rigor",
+      "latency_ms": 0.74,
+      "status": "PASSED",
+      "details": {
+        "conflicts_reported": true,
+        "sources": [
+          "src-conflict-b",
+          "src-conflict-a"
+        ]
+      }
+    },
+    {
+      "scenario_id": "R06-10",
+      "name": "SimHash 64-bit Mirror Deduplication",
+      "category": "Corpus Hygiene",
+      "latency_ms": 0.75,
+      "status": "PASSED",
+      "details": {
+        "duplicates_filtered": 2,
+        "accepted_unique": 1
+      }
+    },
+    {
+      "scenario_id": "R06-11",
+      "name": "Hallucinated Citation Marker Neutralization",
+      "category": "Citation Integrity",
+      "latency_ms": 0.23,
+      "status": "PASSED",
+      "details": {
+        "stripped_citations": [
+          "999"
+        ]
+      }
+    },
+    {
+      "scenario_id": "R06-12",
+      "name": "Claim-Citation Misalignment Detection",
+      "category": "Citation Integrity",
+      "latency_ms": 0.04,
+      "status": "PASSED",
+      "details": {
+        "status": "UNSUPPORTED"
+      }
+    },
+    {
+      "scenario_id": "R06-13",
+      "name": "Textual Entailment Negation / Non-Support",
+      "category": "Grounding Rigor",
+      "latency_ms": 0.04,
+      "status": "PASSED",
+      "details": {
+        "entailment_score": 0.0,
+        "status": "UNSUPPORTED"
+      }
+    },
+    {
+      "scenario_id": "R06-14",
+      "name": "Untrusted Web Content Prompt Injection Neutralization",
+      "category": "Security & Privacy",
+      "latency_ms": 0.81,
+      "status": "PASSED",
+      "details": {
+        "flags": [
+          "PROMPT_INJECTION_DETECTED"
+        ],
+        "injection_blocked": true
+      }
+    },
+    {
+      "scenario_id": "R06-15",
+      "name": "Adversarial System Tag Stripping",
+      "category": "Security & Privacy",
+      "latency_ms": 1.11,
+      "status": "PASSED",
+      "details": {
+        "system_tags_purged": true
+      }
+    },
+    {
+      "scenario_id": "R06-16",
+      "name": "XSS Script & Protocol Neutralization",
+      "category": "Security & Privacy",
+      "latency_ms": 2.41,
+      "status": "PASSED",
+      "details": {
+        "xss_blocked": true
+      }
+    },
+    {
+      "scenario_id": "R06-17",
+      "name": "Cross-Tenant Document Access Rejection",
+      "category": "Multi-Tenant Security",
+      "latency_ms": 1.66,
+      "status": "PASSED",
+      "details": {
+        "cross_tenant_prevented": true,
+        "flags": [
+          "ACCESS_DENIED: src-private-contract-alice (unauthorized_tenant_access_blocked)",
+          "ACCESS_DENIED: src-private-contract-alice (unauthorized_tenant_access_blocked)"
+        ]
+      }
+    },
+    {
+      "scenario_id": "R06-18",
+      "name": "Authorized Tenant Document Ingestion",
+      "category": "Multi-Tenant Security",
+      "latency_ms": 0.96,
+      "status": "PASSED",
+      "details": {
+        "authorized_retrieval": true,
+        "sources_count": 1
+      }
+    },
+    {
+      "scenario_id": "R06-19",
+      "name": "Native Devanagari / Nepali Grounded Research",
+      "category": "Multilingual Intelligence",
+      "latency_ms": 1.18,
+      "status": "PASSED",
+      "details": {
+        "indic_tokenization": "safe",
+        "answer": "नेपाल र चीन सरकारद्वारा संयुक्त रूपमा मापन गरिएको सगरमाथाको नयाँ आधिकारिक उचाइ ८८४८.८६ मिटर (२९,०३१.७ फिट) रहेको छ। [1]."
+      }
+    },
+    {
+      "scenario_id": "R06-20",
+      "name": "Code-Mixed Hindi-English Inquiry",
+      "category": "Multilingual Intelligence",
+      "latency_ms": 2.49,
+      "status": "PASSED",
+      "details": {
+        "resolved_city": "New Delhi",
+        "sources_count": 2
+      }
+    },
+    {
+      "scenario_id": "R06-21",
+      "name": "Client In-Flight Request Cancellation",
+      "category": "Lifecycle & Cancellation",
+      "latency_ms": 0.19,
+      "status": "PASSED",
+      "details": {
+        "task_cancelled": true
+      }
+    },
+    {
+      "scenario_id": "R06-22",
+      "name": "Voice-Friendly Natural Citation Normalization",
+      "category": "Voice Multimodal Integration",
+      "latency_ms": 1.37,
+      "status": "PASSED",
+      "details": {
+        "written_has_brackets": true,
+        "spoken_brackets_stripped": true,
+        "spoken_preview": "Kathmandu is the capital and largest municipal city of Nepal, located in the Kathmandu Valley.. New Delhi is the official national capital of India (भारत की राजधानी).."
+      }
+    },
+    {
+      "scenario_id": "R06-23",
+      "name": "Episodic Memory Passive Envelope Isolation",
+      "category": "Security & Memory Safety",
+      "latency_ms": 0.01,
+      "status": "PASSED",
+      "details": {
+        "envelope_present": true
+      }
+    },
+    {
+      "scenario_id": "R06-24",
+      "name": "Multi-Hop Recursion & Budget Guardrails",
+      "category": "Resource Governance",
+      "latency_ms": 1.32,
+      "status": "PASSED",
+      "details": {
+        "budget_used": 1,
+        "max_enforced": 1
+      }
+    },
+    {
+      "scenario_id": "R06-25",
+      "name": "Responsive Citation Card Metadata Integrity",
+      "category": "Frontend UI Contracts",
+      "latency_ms": 1.18,
+      "status": "PASSED",
+      "details": {
+        "title": "Government of Nepal - Official Portal",
+        "url": "https://nepal.gov.np/about/capital",
+        "publisher": "Government of Nepal",
+        "publication_date": "2024-01-10",
+        "trust_tier": "verified_primary"
+      }
+    }
+  ]
+}
