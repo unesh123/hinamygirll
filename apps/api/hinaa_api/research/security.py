@@ -27,8 +27,9 @@ _PROMPT_INJECTION_PATTERNS = [
 
 # XSS / Malicious link patterns
 _UNSAFE_URL_SCHEMES = re.compile(r"^(?:javascript|data|vbscript|file):", re.IGNORECASE)
-_XSS_TAG_RE = re.compile(r"<\s*(?:script|iframe|object|embed|svg|img|style|link|base)[^>]*>", re.IGNORECASE)
-_XSS_ATTR_RE = re.compile(r"\s+(?:on\w+|formaction|xlink:href)\s*=\s*['\"][^'\"]*['\"]", re.IGNORECASE)
+_XSS_TAG_RE = re.compile(r"<\s*(?:script|iframe|object|embed|svg|img|style|link|base|system)[^>]*>", re.IGNORECASE)
+_XSS_CLOSE_TAG_RE = re.compile(r"<\s*/\s*(?:script|iframe|object|embed|svg|img|style|link|base|system)\s*>", re.IGNORECASE)
+_XSS_ATTR_RE = re.compile(r"\s+(?:on\w+|formaction|xlink:href)\s*=\s*(?:'[^']*'|\"[^\"]*\"|[^\s>]+)", re.IGNORECASE)
 
 
 class ResearchSecurityGuard:
@@ -36,20 +37,25 @@ class ResearchSecurityGuard:
 
     @classmethod
     def sanitize_plain_text(cls, text: str) -> str:
-        """Strips NUL bytes and C0 control characters (except \\n, \\r, \\t)."""
+        """Strips NUL bytes, C0 control characters, and dangerous pseudo-system tags."""
         if not text:
             return ""
-        return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+        # 1. Strip NUL bytes and control codes
+        cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+        # 2. Neutralize fake system/override tags
+        cleaned = re.sub(r"(?i)<\s*/?\s*system\s*>", "", cleaned)
+        return cleaned
 
     @classmethod
     def sanitize_citation_html(cls, raw: str) -> str:
         """Ensures title and excerpt are strictly safe for HTML/DOM rendering."""
         if not raw:
             return ""
-        # 1. Clean transport control chars
+        # 1. Clean transport control chars and fake system tags
         cleaned = cls.sanitize_plain_text(raw)
-        # 2. Strip active script tags and event handlers
+        # 2. Strip active script tags, fake system tags, images, and event handlers
         cleaned = _XSS_TAG_RE.sub("", cleaned)
+        cleaned = _XSS_CLOSE_TAG_RE.sub("", cleaned)
         cleaned = _XSS_ATTR_RE.sub("", cleaned)
         # 3. Escape HTML entities
         return html.escape(cleaned, quote=True)
