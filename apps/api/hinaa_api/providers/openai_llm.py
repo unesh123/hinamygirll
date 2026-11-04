@@ -315,6 +315,7 @@ _GATEWAY_PROVIDERS = {
     "tokentable",
     "cavoti",
     "apmix",
+    "oxion",
     "experiential",
 }
 

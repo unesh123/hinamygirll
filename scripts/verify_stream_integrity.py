@@ -40,7 +40,7 @@ def run_stream_test(name: str, prompt_text: str) -> dict[str, Any]:
     events: list[dict[str, Any]] = []
     
     try:
-        with requests.post(URL, json=payload, stream=True, timeout=30) as r:
+        with requests.post(URL, json=payload, stream=True, timeout=75) as r:
             if r.status_code != 200:
                 return {
                     "name": name,

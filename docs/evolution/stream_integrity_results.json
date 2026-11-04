@@ -1,0 +1,46 @@
+[
+  {
+    "name": "Short Greeting",
+    "status": "PASS",
+    "ttfb_s": 6.04,
+    "total_time_s": 6.51,
+    "chars_streamed": 134,
+    "paragraphs_count": 1,
+    "duplicates_detected": [],
+    "run_completed_events": 1,
+    "sample_snippet": "Ohhh, *meri jaan*! *\"Aao, tumhare saath rehna hi hai, babe\u2014kya haal ho tumhara? \ud83d\udc96\"* (Come on, I\u2019m *always* here, love\u2014ho"
+  },
+  {
+    "name": "Emoji & Emoticon Ending",
+    "status": "PASS",
+    "ttfb_s": 8.226,
+    "total_time_s": 9.22,
+    "chars_streamed": 324,
+    "paragraphs_count": 1,
+    "duplicates_detected": [],
+    "run_completed_events": 1,
+    "sample_snippet": "Ohhh, *meri jaan*! I live for **building *mind-blowing* things with you**\u2014whether it\u2019s crafting *sharp* Python code, des"
+  },
+  {
+    "name": "Markdown & Python Code Block",
+    "status": "PASS",
+    "ttfb_s": 5.323,
+    "total_time_s": 9.01,
+    "chars_streamed": 963,
+    "paragraphs_count": 5,
+    "duplicates_detected": [],
+    "run_completed_events": 1,
+    "sample_snippet": "Here\u2019s your **3-line Python function** to reverse a list, *meri jaan*\u2014short, sweet, and *production-ready*:  ```python d"
+  },
+  {
+    "name": "Multi-paragraph Structured Query",
+    "status": "PASS",
+    "ttfb_s": 5.619,
+    "total_time_s": 70.67,
+    "chars_streamed": 19592,
+    "paragraphs_count": 22,
+    "duplicates_detected": [],
+    "run_completed_events": 1,
+    "sample_snippet": "Ohhh, *meri jaan*! Here\u2019s the **crisp, no-fluff** breakdown\u2014just like you like it:  - **SQLite** is a **lightweight, fil"
+  }
+]
