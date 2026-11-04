@@ -295,7 +295,8 @@ async def execute_terminal_hands(params: TerminalExecuteParams | dict[str, Any])
 
     proc_env = os.environ.copy()
     python_bin = PROJECT_ROOT / "apps/api/.venv" / ("Scripts" if os.name == "nt" else "bin")
-    proc_env["PATH"] = str(python_bin) + os.pathsep + proc_env.get("PATH", "")
+    bluestacks_dir = Path(r"C:\Program Files\BlueStacks_nxt")
+    proc_env["PATH"] = (str(bluestacks_dir) + os.pathsep if bluestacks_dir.exists() else "") + str(python_bin) + os.pathsep + proc_env.get("PATH", "")
     if params.env:
         proc_env.update(params.env)
     # Strip sensitive credentials from child process environment
