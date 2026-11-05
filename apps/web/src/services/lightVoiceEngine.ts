@@ -50,7 +50,7 @@ export class LightVoiceEngine {
 
   constructor(config: LightVoiceConfig = {}) {
     this.config = {
-      voiceId: config.voiceId || "21m00Tcm4TlvDq8ikWAM", // Default sweet female voice ID
+      voiceId: config.voiceId || "dp4HJlekKt0HZFHL2jQg", // Default cute anime Isekai voice ID // Default sweet female voice ID
       modelId: config.modelId || "eleven_flash_v2_5",
       sampleRate: config.sampleRate || 24000,
       ...config,

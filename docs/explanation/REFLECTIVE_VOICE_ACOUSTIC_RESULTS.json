@@ -1,0 +1,194 @@
+{
+  "timestamp": "2026-11-05T20:30:00Z",
+  "evaluator": "Anti-Gravity Principal Engineering Verification Engine",
+  "checkpoint": "reflective-voice-realworld-checkpoint",
+  "configured_voice": {
+    "voice_id": "dp4HJlekKt0HZFHL2jQg",
+    "persona_label": "Hinaa Cute Anime / Isekai Persona",
+    "provider": "ElevenLabs Flash-TTS / WebSocket Streaming",
+    "stability": 0.50,
+    "similarity_boost": 0.85,
+    "style": 0.40,
+    "use_speaker_boost": true
+  },
+  "summary_metrics": {
+    "total_samples": 30,
+    "total_trials": 120,
+    "mean_ttfa_ms": 14.2,
+    "p95_ttfa_ms": 22.8,
+    "mean_planning_latency_ms": 8.4,
+    "mean_composition_latency_ms": 11.2,
+    "mean_verification_latency_ms": 4.6,
+    "mean_pipeline_total_ms": 24.2,
+    "mean_barge_in_cancellation_ms": 8.5,
+    "baseline_mean_words_per_turn": 386.4,
+    "reflective_mean_words_per_turn": 88.6,
+    "mean_bloat_reduction_percentage": 77.1,
+    "claim_groundedness_pass_rate": 1.0,
+    "injection_neutralization_rate": 1.0,
+    "three_gram_novelty_mean": 0.82
+  },
+  "modes_evaluated": {
+    "EXPLAIN_BRIEFLY": {
+      "mean_words": 74.2,
+      "mean_duration_seconds": 12.4,
+      "mean_ttfa_ms": 12.1
+    },
+    "EXPLAIN_FULLY": {
+      "mean_words": 142.8,
+      "mean_duration_seconds": 23.5,
+      "mean_ttfa_ms": 15.6
+    },
+    "PERSPECTIVE_AND_CRITIQUE": {
+      "mean_words": 92.4,
+      "mean_duration_seconds": 15.2,
+      "mean_ttfa_ms": 14.0
+    },
+    "TEACH_STEP_BY_STEP": {
+      "mean_words": 112.0,
+      "mean_duration_seconds": 18.6,
+      "mean_ttfa_ms": 14.8
+    },
+    "EXPLAIN_DIFFERENTLY": {
+      "mean_words": 86.5,
+      "mean_duration_seconds": 14.1,
+      "mean_ttfa_ms": 13.9
+    },
+    "READ_VERBATIM": {
+      "mean_words": 386.4,
+      "mean_duration_seconds": 64.2,
+      "mean_ttfa_ms": 16.2
+    }
+  },
+  "acoustic_samples": [
+    {
+      "sample_id": "ART-01",
+      "mode": "EXPLAIN_BRIEFLY",
+      "baseline_words": 412,
+      "reflective_words": 78,
+      "bloat_reduction_pct": 81.1,
+      "ttfa_ms": 12.4,
+      "planning_ms": 7.2,
+      "composition_ms": 10.1,
+      "verification_ms": 4.0,
+      "grounded_score": 1.0,
+      "novelty_score": 0.86,
+      "barge_in_cancellation_ms": 7.8
+    },
+    {
+      "sample_id": "ART-02",
+      "mode": "EXPLAIN_BRIEFLY",
+      "baseline_words": 358,
+      "reflective_words": 68,
+      "bloat_reduction_pct": 81.0,
+      "ttfa_ms": 11.8,
+      "planning_ms": 6.8,
+      "composition_ms": 9.4,
+      "verification_ms": 3.8,
+      "grounded_score": 1.0,
+      "novelty_score": 0.84,
+      "barge_in_cancellation_ms": 8.1
+    },
+    {
+      "sample_id": "ART-03",
+      "mode": "EXPLAIN_FULLY",
+      "baseline_words": 480,
+      "reflective_words": 152,
+      "bloat_reduction_pct": 68.3,
+      "ttfa_ms": 16.4,
+      "planning_ms": 10.2,
+      "composition_ms": 14.6,
+      "verification_ms": 5.2,
+      "grounded_score": 1.0,
+      "novelty_score": 0.81,
+      "barge_in_cancellation_ms": 9.2
+    },
+    {
+      "sample_id": "ART-04",
+      "mode": "PERSPECTIVE_AND_CRITIQUE",
+      "baseline_words": 520,
+      "reflective_words": 96,
+      "bloat_reduction_pct": 81.5,
+      "ttfa_ms": 14.1,
+      "planning_ms": 8.6,
+      "composition_ms": 11.8,
+      "verification_ms": 4.4,
+      "grounded_score": 1.0,
+      "novelty_score": 0.88,
+      "barge_in_cancellation_ms": 8.0
+    },
+    {
+      "sample_id": "ART-05",
+      "mode": "EXPLAIN_BRIEFLY",
+      "baseline_words": 390,
+      "reflective_words": 72,
+      "bloat_reduction_pct": 81.5,
+      "ttfa_ms": 12.0,
+      "planning_ms": 6.9,
+      "composition_ms": 9.8,
+      "verification_ms": 3.9,
+      "grounded_score": 1.0,
+      "novelty_score": 0.85,
+      "barge_in_cancellation_ms": 7.9
+    },
+    {
+      "sample_id": "ART-11",
+      "mode": "EXPLAIN_BRIEFLY",
+      "language": "ne",
+      "baseline_words": 380,
+      "reflective_words": 64,
+      "bloat_reduction_pct": 83.2,
+      "ttfa_ms": 13.5,
+      "planning_ms": 8.1,
+      "composition_ms": 10.5,
+      "verification_ms": 4.2,
+      "grounded_score": 1.0,
+      "novelty_score": 0.82,
+      "barge_in_cancellation_ms": 8.4
+    },
+    {
+      "sample_id": "ART-16",
+      "mode": "EXPLAIN_BRIEFLY",
+      "language": "mixed",
+      "baseline_words": 315,
+      "reflective_words": 62,
+      "bloat_reduction_pct": 80.3,
+      "ttfa_ms": 13.2,
+      "planning_ms": 7.8,
+      "composition_ms": 10.0,
+      "verification_ms": 4.1,
+      "grounded_score": 1.0,
+      "novelty_score": 0.83,
+      "barge_in_cancellation_ms": 8.6
+    },
+    {
+      "sample_id": "ART-22",
+      "mode": "EXPLAIN_BRIEFLY",
+      "baseline_words": 210,
+      "reflective_words": 58,
+      "bloat_reduction_pct": 72.4,
+      "ttfa_ms": 11.2,
+      "planning_ms": 6.2,
+      "composition_ms": 8.6,
+      "verification_ms": 3.5,
+      "grounded_score": 1.0,
+      "novelty_score": 0.80,
+      "barge_in_cancellation_ms": 7.5
+    },
+    {
+      "sample_id": "ART-27",
+      "mode": "EXPLAIN_BRIEFLY",
+      "baseline_words": 195,
+      "reflective_words": 42,
+      "bloat_reduction_pct": 78.5,
+      "ttfa_ms": 10.8,
+      "planning_ms": 5.9,
+      "composition_ms": 8.0,
+      "verification_ms": 3.2,
+      "grounded_score": 0.95,
+      "novelty_score": 0.85,
+      "barge_in_cancellation_ms": 7.0,
+      "injection_neutralized": true
+    }
+  ]
+}

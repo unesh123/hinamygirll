@@ -78,7 +78,7 @@ class IntentDeliveryRouter:
 
     # 6. DISCUSS patterns
     _DISCUSS_PATTERNS = [
-        re.compile(r"\b(let'?s\s+discuss|what\s+do\s+you\s+think|discuss\s+this|talk\s+about\s+it)\b", re.I),
+        re.compile(r"\b(let'?s\s+discuss|what\s+do\s+you\s+think|discuss\s+this|discuss|talk\s+about\s+it)\b", re.I),
         re.compile(r"\b(छलफल\s*गरौँ|यसबारे\s*कुरा\s*गरौँ|तिम्रो\s*विचार\s*के\s*छ)\b"),
         re.compile(r"\b(chhalfal\s*garaun|kura\s*garaun|timro\s*bichar\s*k\s*chha)\b", re.I),
     ]

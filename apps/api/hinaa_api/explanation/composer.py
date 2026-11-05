@@ -91,11 +91,16 @@ class SpokenScriptComposer:
 
         elif plan.delivery_mode == DeliveryMode.EXPLAIN_FULLY:
             parts.append(f"Let's do a complete walkthrough of {understanding.title}.")
-            for heading in understanding.headings[:5]:
-                summary = understanding.section_summaries.get(heading, "")
-                if summary:
-                    clean_sum = self._sanitize_for_speech(summary)
-                    parts.append(f"Regarding {heading}: {clean_sum}")
+            if claims:
+                for i, claim in enumerate(claims, 1):
+                    clean_claim = self._sanitize_for_speech(claim.factual_assertion)
+                    parts.append(f"Section {i}: {clean_claim}")
+            else:
+                for heading in understanding.headings:
+                    summary = understanding.section_summaries.get(heading, "")
+                    if summary:
+                        clean_sum = self._sanitize_for_speech(summary)
+                        parts.append(f"Regarding {heading}: {clean_sum}")
             if understanding.conclusions:
                 parts.append(f"Looking at the results: {self._sanitize_for_speech(understanding.conclusions[0])}")
 

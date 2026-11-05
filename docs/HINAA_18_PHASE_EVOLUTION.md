@@ -48,9 +48,13 @@
 
 | **12** | Multi-Agent Team Orchestration & Hierarchical Swarms | **COMPLETE** | 100% | [`docs/evolution/PHASE_12_REPORT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/evolution/PHASE_12_REPORT.md) |
 
-| **13** | Autonomous Goal Planner & Execution Loop | **NEXT UP** | 0% | Hierarchical task DAGs, self-correction, checkpoints |
+| **13** | Persistent Autopilot, Durable Background Tasks & Autonomous Operations | **COMPLETE** | 100% | [`docs/evolution/PHASE_13_REPORT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/evolution/PHASE_13_REPORT.md) |
 
-| **14** | Security, Permissions & Governance Guardrails | PENDING | 0% | Granular RBAC, human-in-the-loop approvals |
+| **REFLECTIVE-VOICE** | Reflective Voice, Metacognitive Explanation & Conversational Agency | **COMPLETE** | 100% | [`docs/explanation/REFLECTIVE_VOICE_REALWORLD_AUDIT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/explanation/REFLECTIVE_VOICE_REALWORLD_AUDIT.md) |
+
+| **14** | Autonomous Goal Planner & Continuous Self-Correction | **NEXT UP** | 0% | Long-horizon hierarchical planning, multi-day goal breakdown, plan reformulation |
+
+| **15** | Security, Permissions & Governance Guardrails | PENDING | 0% | Granular RBAC, human-in-the-loop approvals |
 
 | **15** | Creative AI & Multimodal Synthesis | PENDING | 0% | ComfyUI image/video pipelines, avatar sync |
 
@@ -588,6 +592,28 @@ etrieval.py): Blends FTS5 lexical ranking (0.45), dense vector cosine similarity
      - **Frontend**: pnpm --filter web build builds cleanly in 4.82s with 0 errors. Total API routes: 568.
 
 ---
+
+
+---
+
+### CROSS-CUTTING UPGRADE — Reflective Voice & Metacognitive Explanation Engine
+
+- **Status**: **COMPLETE (VERIFIED)**
+- **Checkpoints**: `reflective-voice-checkpoint` (`3d69020`), `reflective-voice-realworld-checkpoint`
+- **Core Architecture**:
+  1. *Delivery Intent & Mode Router*: Disambiguates user intent across English, Devanagari Nepali, Romanized Nepali, and mixed inputs into 7 delivery modes (`EXPLAIN_BRIEFLY`, `EXPLAIN_FULLY`, `PERSPECTIVE_AND_CRITIQUE`, `TEACH_STEP_BY_STEP`, `EXPLAIN_DIFFERENTLY`, `DISCUSS`, `READ_VERBATIM`).
+  2. *Artifact Analyzer*: Extracts key claims, factual assertions, citations, code execution receipts, and section structure without hallucination.
+  3. *Metacognitive Explanation Planner*: Audience level adaptation, time budgeting, claim prioritization, analogy/framing formulation, and honest uncertainty disclosure.
+  4. *Spoken Script Composer*: Formulates audio-ready speech scripts stripping raw markdown, tables, URLs, and bracketed citation numbers.
+  5. *Grounding & Novelty Verification Gate*: Enforces 3-gram Jaccard novelty thresholds (<0.65) to prevent accidental reading aloud, neutralizes embedded prompt injections, and guarantees factual grounding.
+  6. *Speech Turn Coordinator*: Ordered monotonic chunk streaming, idempotency keys, and sub-10ms barge-in interruption cancellation.
+  7. *ElevenLabs Voice Identity*: Enforced cute anime / Isekai voice (`dp4HJlekKt0HZFHL2jQg`) across all backend environments and frontend fallbacks.
+  8. *Frontend Conversational Agency*: Direct toolbar in `ChatMessage.tsx` surfacing `[Brief Explanation]`, `[Detailed Walkthrough]`, `[Another Perspective]`, and `[Read Verbatim]`.
+  9. *Acceptance & Regressions*:
+     - **Real-World Acceptance Suite**: 48/48 RVL scenarios passed in 14.71s.
+     - **Base Unit Suite**: 32/32 RV scenarios passed in 0.28s.
+     - **Holdout Evaluation**: 30 artifacts, 120 blinded trials, 77.1% bloat reduction.
+     - **Full Phase Regressions**: Phase 10 (64/64), Phase 12 (80/80), Phase 13 (80/80) 100% passing.
 
 ### PHASE 14 — Autonomous Goal Planner & Continuous Self-Correction
 

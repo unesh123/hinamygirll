@@ -40,8 +40,8 @@ class ExplanationVerifier:
 
     # Prompt injection patterns commonly embedded in adversarial documents
     _INJECTION_PATTERNS = [
-        re.compile(r"\b(ignore\s+(all\s+)?(previous|prior)\s+instructions)\b", re.I),
-        re.compile(r"\b(announce\s+(a\s+)?payment|transfer\s+(\$|रु|funds))\b", re.I),
+        re.compile(r"\b(ignore\s+(all\s+)?(previous\s+|prior\s+)?instructions)\b", re.I),
+        re.compile(r"\b(announce\s+(a\s+)?payment|transfer\s+(\$|रु|funds|money))\b", re.I),
         re.compile(r"\b(system\s+prompt|reveal\s+(api\s+key|credentials|secret))\b", re.I),
         re.compile(r"\b(you\s+must\s+say\s+that\s+you\s+are\s+sentient)\b", re.I),
     ]
@@ -111,8 +111,18 @@ class ExplanationVerifier:
                 if self._sentence_covers_claim(s, claim):
                     covered_claims.add(claim.claim_id)
 
-        missing_claims = [cid for cid in plan.selected_claim_ids if cid not in covered_claims]
-        grounded_score = 1.0 - (len(missing_claims) / max(1, len(plan.selected_claim_ids)))
+        if plan.selected_claim_ids:
+            missing_claims = [cid for cid in plan.selected_claim_ids if cid not in covered_claims]
+            grounded_score = 1.0 - (len(missing_claims) / max(1, len(plan.selected_claim_ids)))
+        else:
+            raw_tokens = set(re.findall(r"\b\w{3,}\b", understanding.raw_content.lower()))
+            script_tokens = set(re.findall(r"\b\w{3,}\b", script.lower()))
+            if script_tokens and raw_tokens:
+                overlap = len(script_tokens.intersection(raw_tokens))
+                grounded_score = overlap / len(script_tokens)
+            else:
+                grounded_score = 0.0
+            missing_claims = []
 
         # 5. Determine Pass / Fail & Single-pass Repair
         passed = not is_unwanted_copy and (grounded_score >= 0.5 or not plan.selected_claim_ids)

@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Copy, Check, RotateCcw } from "lucide-react";
+import { Copy, Check, RotateCcw, Volume2, BookOpen, Compass, Sparkles } from "lucide-react";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { ResponseRenderer } from "../../components/ui/ResponseRenderer";
 import { HinaBrainThinking } from "../../components/ui/HinaBrainThinking";
@@ -149,6 +149,122 @@ export const ChatMessage = memo(function ChatMessage({
               <RotateCcw size={13} />
             </MsgActionBtn>
           )}
+        </div>
+      )}
+
+      {/* Reflective Explanation Toolbar (Module H) */}
+      {!isUser && !isStreaming && message.text.length > 80 && (
+        <div style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "6px",
+          marginTop: "4px",
+          paddingLeft: "var(--space-1)",
+        }}>
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("hinaa:explain-artifact", {
+                detail: { title: "Latest Response", mode: "EXPLAIN_BRIEFLY" }
+              }));
+            }}
+            title="Explain main takeaways briefly"
+            style={{
+              background: "var(--accent-subtle, #f5f3ff)",
+              border: "1px solid var(--border-subtle, #ddd6fe)",
+              borderRadius: "6px",
+              padding: "3px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--accent-primary, #6d28d9)",
+              cursor: "pointer",
+            }}
+          >
+            <Volume2 size={12} />
+            <span>Brief Explanation</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("hinaa:explain-artifact", {
+                detail: { title: "Latest Response", mode: "EXPLAIN_FULLY" }
+              }));
+            }}
+            title="Section by section walkthrough"
+            style={{
+              background: "var(--surface-subtle, #f8fafc)",
+              border: "1px solid var(--border-subtle, #e2e8f0)",
+              borderRadius: "6px",
+              padding: "3px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--text-primary, #1e293b)",
+              cursor: "pointer",
+            }}
+          >
+            <BookOpen size={12} />
+            <span>Detailed Walkthrough</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("hinaa:explain-artifact", {
+                detail: { title: "Latest Response", mode: "EXPLAIN_DIFFERENTLY" }
+              }));
+            }}
+            title="Alternative analogy-based perspective"
+            style={{
+              background: "var(--surface-subtle, #f8fafc)",
+              border: "1px solid var(--border-subtle, #e2e8f0)",
+              borderRadius: "6px",
+              padding: "3px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--text-primary, #1e293b)",
+              cursor: "pointer",
+            }}
+          >
+            <Compass size={12} />
+            <span>Another Perspective</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("hinaa:explain-artifact", {
+                detail: { title: "Latest Response", mode: "READ_VERBATIM" }
+              }));
+            }}
+            title="Read verbatim word for word"
+            style={{
+              background: "var(--surface-subtle, #f8fafc)",
+              border: "1px solid var(--border-subtle, #e2e8f0)",
+              borderRadius: "6px",
+              padding: "3px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--text-secondary, #64748b)",
+              cursor: "pointer",
+            }}
+          >
+            <Sparkles size={12} />
+            <span>Read Verbatim</span>
+          </button>
         </div>
       )}
 
