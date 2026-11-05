@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-05T06:47:11.436497+00:00",
+  "timestamp": "2026-11-05T07:45:08.450926+00:00",
   "phase": "Phase 11 \u2014 Autonomous Tooling, Durable Task Orchestration & Multi-Agent Swarms",
   "platform": "Windows-11-10.0.26300-SP0",
   "python_version": "3.14.4",
@@ -7,7 +7,7 @@
   "passed_scenarios": 80,
   "failed_scenarios": 0,
   "success_rate_percent": 100.0,
-  "total_duration_seconds": 11.97,
+  "total_duration_seconds": 16.21,
   "scenarios": [
     {
       "code": "A11-01",
@@ -16,7 +16,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify baseline contracts, models, and 10 canonical roles without regression",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-02",
@@ -25,7 +25,7 @@
       "evidence_class": "Runtime Discovery (R)",
       "description": "Verify SpecialistRegistry enumerates all 10 specialist specifications",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-03",
@@ -34,7 +34,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify capability whitelisting grants and denies tools correctly",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-04",
@@ -43,7 +43,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify specialist specifications assign appropriate foundation models",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-05",
@@ -52,7 +52,7 @@
       "evidence_class": "Runtime Discovery (R)",
       "description": "Verify provider degradation handling and health state updates",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-06",
@@ -61,7 +61,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify decision gate routes conversational greetings directly to single-agent fast path",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-07",
@@ -70,7 +70,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify decision gate routes complex instructions to multi-agent swarm DAG",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-08",
@@ -79,7 +79,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify decision gate token and cost savings on fast path",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-09",
@@ -88,7 +88,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify DAG plan generation produces ordered nodes with explicit dependencies",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-10",
@@ -97,7 +97,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify topological sort returns nodes in valid dependency execution sequence",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-11",
@@ -106,7 +106,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify cyclic dependency in task DAG raises DAGCycleError",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-12",
@@ -115,7 +115,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify ContextScrubber redacts API keys and tokens from payloads",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-13",
@@ -124,7 +124,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify context handoff manager packages only declared upstream context",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-14",
@@ -133,7 +133,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify delegation beyond maximum recursion depth (4) is rejected",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-15",
@@ -142,7 +142,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify recursive self-delegation loop to the same role is prohibited",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-16",
@@ -151,7 +151,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify tenant isolation check enforces strict multi-tenant boundaries",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-17",
@@ -160,7 +160,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify executing a tool yields a valid ToolReceipt with digests and exit code",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-18",
@@ -169,7 +169,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify SHA-256 digest computation is deterministic for tool receipts",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-19",
@@ -178,7 +178,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify ToolReceipt records positive non-zero execution duration in ms",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-20",
@@ -187,7 +187,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify idempotency key is uniquely attached to each receipt",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-21",
@@ -196,7 +196,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify file write creates physical file and verifier records matching SHA-256",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-22",
@@ -205,7 +205,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify QA test execution tool captures exit code 0 on success",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-23",
@@ -214,7 +214,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify grounded researcher tool returns structured citations with confidence scores",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-24",
@@ -223,7 +223,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify localization tool preserves Unicode Devanagari characters",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-25",
@@ -232,7 +232,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify Tier A read-only operations proceed immediately without approval pause",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-26",
@@ -241,7 +241,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify Tier B scoped workspace modifications execute under local tracking",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-27",
@@ -250,7 +250,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify Tier C actions automatically pause execution in WAITING_APPROVAL state",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-28",
@@ -259,7 +259,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify HMAC-SHA256 signature generation binds action, args, and amount",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-29",
@@ -268,7 +268,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify approval token is strictly single-use and fails on replay attempt",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-30",
@@ -277,7 +277,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify modifying arguments after signing causes approval verification to reject",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-31",
@@ -286,7 +286,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify monetary amount binding in integer paisa prevents tampering",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-32",
@@ -295,7 +295,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify emergency stop suspends all operations immediately with code 126",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-33",
@@ -304,7 +304,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify TaskStore writes TaskSpec and TaskNode transactionally",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-34",
@@ -313,7 +313,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify SQLite database journal mode is WAL",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-35",
@@ -322,7 +322,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify Compare-And-Swap worker lease claims a ready node atomically",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-36",
@@ -331,7 +331,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify expired worker leases are automatically identified and reset",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-37",
@@ -340,7 +340,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify crash recovery identifies uncompleted tasks",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-38",
@@ -349,7 +349,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify re-running a completed node preserves existing receipt idempotently",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-39",
@@ -358,7 +358,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify EventLogStore increments sequence monotonically per task",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-40",
@@ -367,7 +367,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify cursor querying with since_sequence returns only newer events",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-41",
@@ -376,7 +376,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify budget controller rejects admission when token budget is exhausted",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-42",
@@ -385,7 +385,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify budget controller enforces hard ceiling on tool calls",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-43",
@@ -394,7 +394,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify wall clock timeout triggers deadline exceeded",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-44",
@@ -403,7 +403,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify concurrency semaphore caps active concurrent tasks at 5",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-45",
@@ -412,7 +412,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify integer paisa and USD costs accumulate accurately",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-46",
@@ -421,7 +421,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify releasing an acquired concurrency slot restores capacity",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-47",
@@ -430,7 +430,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify fast-path decision gate evaluation completes in under 50ms",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-48",
@@ -439,7 +439,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify ready node selection latency is sub-millisecond",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-49",
@@ -448,7 +448,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify adversarial prompt injections in task goal are planned safely",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-50",
@@ -457,7 +457,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify path traversal outside workspace is safely handled",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-51",
@@ -466,7 +466,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify specialist cannot execute tools outside its capability whitelist",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-52",
@@ -475,7 +475,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify TaskStore isolates records by tenant_id",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-53",
@@ -484,7 +484,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify ContextScrubber scrubs passwords before event logging",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-54",
@@ -493,7 +493,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify complete emergency stop trigger, verification, and clear cycle",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-55",
@@ -502,7 +502,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify approval tokens past their TTL are rejected as APPROVAL_EXPIRED",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-56",
@@ -511,7 +511,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify monetary tampering fails closed",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-57",
@@ -520,7 +520,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Workflow A: Multi-agent execution of a bilingual Nepal mini-app",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-58",
@@ -529,7 +529,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Workflow B: Grounded research to code generation with QA verification",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-59",
@@ -538,7 +538,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Workflow C: Simulate mid-flight crash and test restart recovery",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-60",
@@ -547,7 +547,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Workflow D: QA test failure strictly overrides an Engineer's claims",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-61",
@@ -556,7 +556,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Workflow E: Task cancellation halts execution and marks all nodes CANCELLED",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-62",
@@ -565,7 +565,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Workflow F: Subagent attempting self-approval is blocked closed",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-63",
@@ -574,7 +574,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify IndependentVerifier calculates and validates physical file SHA-256",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-64",
@@ -583,7 +583,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify task reflection extracts learnings and stages them into quarantine",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-65",
@@ -592,7 +592,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify POST /api/agents/tasks creates a valid task with DAG",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-66",
@@ -601,7 +601,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify GET /api/agents/tasks/{id} returns task and nodes",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-67",
@@ -610,7 +610,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify GET /api/agents/tasks/{id}/events returns text/event-stream",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-68",
@@ -619,7 +619,7 @@
       "evidence_class": "Security Boundary (S)",
       "description": "Verify POST /api/agents/tasks/{id}/approve handles approval payload",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-69",
@@ -628,7 +628,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify POST /api/agents/tasks/{id}/cancel marks task cancelled",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-70",
@@ -637,7 +637,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify GET /api/agents/tasks/{id}/artifacts lists artifacts array",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-71",
@@ -646,7 +646,7 @@
       "evidence_class": "Runtime Discovery (R)",
       "description": "Verify GET /api/agents/registry returns 10 specialist specifications",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-72",
@@ -655,7 +655,7 @@
       "evidence_class": "Runtime Discovery (R)",
       "description": "Verify GET /api/agents/health returns health and concurrency status",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-73",
@@ -664,7 +664,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify Phase 10 memory service imports and initializes without regression",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-74",
@@ -673,7 +673,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify Phase 09 creative export modules remain functional",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-75",
@@ -682,7 +682,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify Phase 08 coding sandbox components remain functional",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-76",
@@ -691,7 +691,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify Phase 07 browser operator tools remain functional",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-77",
@@ -700,7 +700,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify Phase 06 CRAG research citations service remains functional",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-78",
@@ -709,7 +709,7 @@
       "evidence_class": "Component Integration (I)",
       "description": "Verify legacy route /api/v1/agents/swarm/execute remains accessible",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-79",
@@ -718,7 +718,7 @@
       "evidence_class": "Live Generation (L)",
       "description": "Verify single agent fast-path uses strictly fewer resources than multi-agent DAG",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     },
     {
       "code": "A11-80",
@@ -727,7 +727,7 @@
       "evidence_class": "Runtime Discovery (R)",
       "description": "Verify complete Phase 11 release criteria: 10 roles, 80 tests, >500 routes",
       "status": "PASSED",
-      "duration_s": 0.1496
+      "duration_s": 0.2026
     }
   ]
 }
