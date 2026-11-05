@@ -1026,6 +1026,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .explanation.endpoints import router as explanation_router, get_explanation_service
     app.include_router(explanation_router)
     app.state.explanation_service = get_explanation_service()
+    from .goals.endpoints import router as goals_router, get_goal_service
+    app.include_router(goals_router)
+    app.state.goal_service = get_goal_service()
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service

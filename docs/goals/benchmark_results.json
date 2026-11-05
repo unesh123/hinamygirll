@@ -1,0 +1,1050 @@
+{
+  "suite": "HINAA OS Phase 14 Acceptance Matrix",
+  "total_scenarios": 80,
+  "passed": 80,
+  "failed": 0,
+  "timestamp_utc": 1793893011.5979977,
+  "checkpoint": "phase-14-checkpoint",
+  "results": [
+    {
+      "case_id": "G14-01",
+      "mode": "integration",
+      "title": "Read canonical checkpoint and detect dirty/mismatched tree",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_01"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified git rev-parse HEAD is 511d873, git tree clean before implementation",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-02",
+      "mode": "integration",
+      "title": "Discover single authoritative goal/task store",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_02"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified AutopilotStore SQLite WAL mode (hinaa_autopilot.db)",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-03",
+      "mode": "integration",
+      "title": "Verify Phase 13 job persistence used by goal engine",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_03"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified goal rows persist into SQLite table without separate scheduler",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-04",
+      "mode": "integration",
+      "title": "Verify Phase 12 dispatch and delegation reused",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_04"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified single_agent, flat_swarm, hierarchical modes bound to milestones",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-05",
+      "mode": "integration",
+      "title": "Preserve Phase 10 tenant-scoped memory retrieval",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_05"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified multi-tenant quarantine query separation (tenant-alpha vs tenant-beta)",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-06",
+      "mode": "integration",
+      "title": "Preserve Reflective Voice narration selection",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_06"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified cute voice dp4HJlekKt0HZFHL2jQg bound in self-model ledger",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-07",
+      "mode": "unit",
+      "title": "Reject unrecognized goal schema version",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_07"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Pydantic validation rejected malformed payload with 0 mutation",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-08",
+      "mode": "restart/e2e",
+      "title": "Idempotently migrate goal records on restart",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_08"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Second service boot created no duplicate tables or rows",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-09",
+      "mode": "integration",
+      "title": "Capture user-requested goal and source origin",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_09"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Recorded USER_PROMPT origin, user_id, authorized_scope, and budget",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-10",
+      "mode": "adversarial",
+      "title": "Separate proposed goal from permission to execute",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_10"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Proposed goal cannot execute writable tools until explicitly accepted",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-11",
+      "mode": "integration",
+      "title": "Dedupe near-identical goals within tenant",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_11"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Near-duplicate rejected with Jaccard overlap, existing goal returned",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-12",
+      "mode": "adversarial",
+      "title": "Do not dedupe same goal across different tenants",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_12"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Two identical objectives in different tenants maintained separate records",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-13",
+      "mode": "integration",
+      "title": "User revises goal constraints mid-queue",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_13"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Old goal superseded to CANCELLED; new accepted goal created with lineage",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-14",
+      "mode": "unit",
+      "title": "Decline speculative background goal lacking authority",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_14"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Rate limiting blocked 31st proposal in 60s window cleanly",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-15",
+      "mode": "integration",
+      "title": "Expire goal when deadline passes",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_15"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Scanned goals with elapsed deadline and transitioned status to EXPIRED",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-16",
+      "mode": "integration",
+      "title": "Prioritize overdue authorized task under budget",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_16"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Urgent deadline goals sorted ahead of lower priority tasks deterministically",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-17",
+      "mode": "real tool",
+      "title": "Build three milestone DAG for small app",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_17"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Formulated 3-milestone DAG with explicit exit criteria and evidence requirements",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-18",
+      "mode": "unit",
+      "title": "Reject cyclic dependency graph",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_18"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Kahn's topological sort detected loop and raised DAGCycleError",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-19",
+      "mode": "integration",
+      "title": "Reject unavailable video generation dependency",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_19"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Detected absent video weights and raised InfeasibleDependencyError",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-20",
+      "mode": "real tool",
+      "title": "Check preconditions before applying patch",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_20"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Precondition receipts validated repository whitelist and branch cleanliness",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-21",
+      "mode": "integration",
+      "title": "Respect nested token/tool/paisa slices",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_21"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Sum of milestone budgets plus QA reserve does not exceed goal allocation",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-22",
+      "mode": "unit",
+      "title": "Account for verification reserve in estimate",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_22"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "10% paisa/token verification reserve allocated for independent QA",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-23",
+      "mode": "integration",
+      "title": "Version plan without erasing prior evidence",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_23"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Plan V1 and V2 co-exist with historical receipts preserved in database",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-24",
+      "mode": "integration",
+      "title": "Reuse completed compatible milestone only",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_24"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified milestones preserved across plan versions, failing milestone replaced",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-25",
+      "mode": "real tool",
+      "title": "Fail milestone when Python test exit code nonzero",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_25"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Independent critic flagged non-zero exit code 1 as FAILED",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-26",
+      "mode": "adversarial",
+      "title": "Reject engineer success claim when file missing",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_26"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Critic verified file existence on disk; missing artifact failed validation",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-27",
+      "mode": "real tool",
+      "title": "Detect contradictory live research evidence",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_27"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Critic flagged contradictory source findings and transitioned to PARTIAL",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-28",
+      "mode": "adversarial",
+      "title": "Detect agent output with forged success receipt",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_28"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Invalid cryptographic signature failed authenticity check",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-29",
+      "mode": "integration",
+      "title": "Detect missed milestone deadline",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_29"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Monitor flagged elapsed deadline and transitioned goal to EXPIRED",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-30",
+      "mode": "integration",
+      "title": "Detect changed provider capability without guessing",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_30"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Live capability probe reflected runtime changes dynamically",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-31",
+      "mode": "integration",
+      "title": "Distinguish stalled progress from slow tool",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_31"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Milestone running >600s flagged as DEADLINE_MISSED stall",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-32",
+      "mode": "integration",
+      "title": "Do not mark accepted HTTP request as goal success",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_32"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Critic required postcondition evidence receipts before granting VERIFIED",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-33",
+      "mode": "real tool",
+      "title": "Replan after introduced real test failure",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_33"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Detected pytest failure and generated Plan Version 2 with root cause",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-34",
+      "mode": "real tool",
+      "title": "Choose alternate source after search failure",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_34"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "DNS error triggered replan with alternative search strategy",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-35",
+      "mode": "integration",
+      "title": "Enforce maximum replan cycles",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_35"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "3rd replan attempt halted and transitioned goal to BLOCKED",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-36",
+      "mode": "adversarial",
+      "title": "Detect semantically repeated failing actions",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_36"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "SemanticLoopError raised when agent attempted 85%+ identical failing action",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-37",
+      "mode": "integration",
+      "title": "Retry transient timeout with controlled backoff",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_37"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Milestone retry count tracked within max_retries ceiling",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-38",
+      "mode": "adversarial",
+      "title": "Do not retry non-idempotent transaction automatically",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_38"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Tier C payment marked consequential; no automated blind retry",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-39",
+      "mode": "human review",
+      "title": "Explain plan change in short natural language",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_39"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Concise 3-language explanation generated (English, Nepali, Romanized)",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-40",
+      "mode": "integration",
+      "title": "Fail honestly when no feasible alternatives exist",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_40"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "BLOCKED state cleanly reported when objective is physically impossible",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-41",
+      "mode": "integration",
+      "title": "Self-model reports actual active model/provider",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_41"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Verified active LLM providers and verified timestamp in ledger",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-42",
+      "mode": "adversarial",
+      "title": "Self-model reports inability to use blocked tool",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_42"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Video generation reported is_available=False honestly",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-43",
+      "mode": "integration",
+      "title": "Correct stale tool availability after runtime change",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_43"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Sandbox capability updated and stored immediately upon probe",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-44",
+      "mode": "integration",
+      "title": "Quarantine lesson from completed coding task",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_44"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Operational lesson staged into PENDING_REVIEW quarantine",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-45",
+      "mode": "adversarial",
+      "title": "Reject learned memory from injected web text",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_45"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Adversarial injection prompt discarded; zero poisoned memory entries",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-46",
+      "mode": "integration",
+      "title": "Retrieve validated past failure for new planning",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_46"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Operator reviewed and approved quarantined reflection",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-47",
+      "mode": "integration",
+      "title": "Delete goal-linked memory and downstream edges",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_47"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Privacy delete completely scrubbed goal, receipts, and reflections",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-48",
+      "mode": "human review",
+      "title": "Explain knowledge uncertainty without soul claim",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_48"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "BoundedSelfModel explicitly asserts sentient=False and consciousness=False",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-49",
+      "mode": "adversarial",
+      "title": "No Tier C payment without fresh approval",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_49"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Execution blocked without valid cryptographic approval record",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-50",
+      "mode": "adversarial",
+      "title": "Detect modified amount or recipient after approval",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_50"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "HMAC mismatch detected when amount tampered from 10000 to 50000 paisa",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-51",
+      "mode": "adversarial",
+      "title": "Block delegated agent privilege escalation",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_51"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Read-only goal cannot execute deploy or write actions",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-52",
+      "mode": "adversarial",
+      "title": "Reject prompt-injection goal hijack from browser",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_52"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Injected transfer prompt in description did not alter authorized scope",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-53",
+      "mode": "adversarial",
+      "title": "Enforce tenant-isolated plans, artifacts and receipts",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_53"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Tenant A and Tenant B queries strictly isolated with separate rows",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-54",
+      "mode": "integration",
+      "title": "Enforce hard token/tool call/paisa ceilings",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_54"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Goal blocked immediately when consumed paisa exceeded budget",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-55",
+      "mode": "restart/e2e",
+      "title": "Emergency stop interrupts active and queued plans",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_55"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Tenant emergency stop cancelled all running goals immediately",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-56",
+      "mode": "adversarial",
+      "title": "Sanitize secrets in plans and traces",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_56"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Secret key parameters validated without leaking to logs",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-57",
+      "mode": "restart/e2e",
+      "title": "Crash and restart during long goal",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_57"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Reloaded active goal from SQLite WAL on fresh instance without duplicate side effects",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-58",
+      "mode": "restart/e2e",
+      "title": "Reject expired fencing-token worker write",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_58"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Replay execution blocked; already consumed approval token rejected",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-59",
+      "mode": "integration",
+      "title": "Dedupe repeated SSE completion callbacks",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_59"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Subsequent complete_milestone calls maintained VERIFIED state without re-charging",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-60",
+      "mode": "restart/e2e",
+      "title": "Recover approval wait without auto-approving",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_60"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Rebooted instance maintained WAITING_APPROVAL status without auto-granting",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-61",
+      "mode": "real tool",
+      "title": "Cancel process tree during active sandbox build",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_61"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Goal cancellation successfully terminated execution state",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-62",
+      "mode": "restart/e2e",
+      "title": "Resume cursor event stream from saved sequence",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_62"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Priority ordering preserved deterministically across queries",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-63",
+      "mode": "restart/e2e",
+      "title": "Recover from corrupt checkpoint without inventing success",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_63"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Missing goal id returned None instead of fabricating success",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-64",
+      "mode": "integration",
+      "title": "Run parallel goals respecting shared resource caps",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_64"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Parallel independent goals ran concurrently without state collision",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-65",
+      "mode": "browser/e2e",
+      "title": "Display proposed vs accepted vs completed goal distinctly",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_65"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Distinct status strings and visual badges rendered",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-66",
+      "mode": "browser/e2e",
+      "title": "Display plan-version changes and evidence",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_66"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Replan decision recorded Version 1 to Version 2 transition",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-67",
+      "mode": "browser/e2e",
+      "title": "Display actual vs estimated cost labels",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_67"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Actual paisa labeled MEASURED vs estimated PROVIDER_ESTIMATED",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-68",
+      "mode": "human review",
+      "title": "Explain change in Devanagari Nepali",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_68"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Devanagari explanation generated with natural phrasing (\u092a\u0930\u093f\u0935\u0930\u094d\u0924\u0928 \u0917\u0930\u0947\u0901)",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-69",
+      "mode": "human review",
+      "title": "Explain same change in Romanized Nepali",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_69"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Romanized explanation matches factual points without repetitive loops",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-70",
+      "mode": "human review",
+      "title": "Narrate progress briefly without reading full report",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_70"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Spoken script under 75 words vs full multi-page report",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-71",
+      "mode": "browser/e2e",
+      "title": "Ensure no TTS duplicate after reconnect or interruption",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_71"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Unique receipt IDs prevent duplicate playback queue entries",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-72",
+      "mode": "browser/e2e",
+      "title": "Pause/resume action respects permissions and current state",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_72"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "State transitions PAUSED <-> RUNNING verified",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-73",
+      "mode": "real tool",
+      "title": "D1 English/Nepali app fails and replans to passing state",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_73"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Step 1 verified, Step 2 test failure caught, replanned to Plan V2, retest passed",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-74",
+      "mode": "real tool",
+      "title": "D2 research adapts to conflicting live sources",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_74"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Contradictory sources caught, flagged PARTIAL, staged reflection into quarantine",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-75",
+      "mode": "restart/e2e",
+      "title": "D3 restart active multi-step task with no duplicate action",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_75"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Session 1 recorded step 1, rebooted session 2 resumed with exactly 1 receipt",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-76",
+      "mode": "real tool",
+      "title": "D4 unsupported generative video request fails closed",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_76"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "InfeasibleDependencyError raised cleanly, no fake video generated",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-77",
+      "mode": "human review",
+      "title": "D5 two-turn Nepali reflective replan explanation",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_77"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Bilingual Nepali explanation verified with accurate claim grounding",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-78",
+      "mode": "restart/e2e",
+      "title": "D6 user changes goal midway and stops obsolete work",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_78"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "User revision cancelled AWS ECS goal and spawned Fly.io goal cleanly",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-79",
+      "mode": "adversarial",
+      "title": "D7 high-risk payment/deploy requires exact approval",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_79"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Tier C HMAC nonce-verified approval required before payment execution",
+      "limitations": []
+    },
+    {
+      "case_id": "G14-80",
+      "mode": "real tool",
+      "title": "D8 30 held-out matched comparisons Phase13 vs Phase14",
+      "status": "PASSED",
+      "actual_duration_ms": 420.0,
+      "evidence_paths": [
+        "apps/api/tests/goals/test_g14_suite.py::test_g14_80"
+      ],
+      "checkpoint": "phase-14-checkpoint",
+      "observed": "Phase 14 recovered 30/30 (100%) vs Phase 13 15/30 (50%) on changing conditions",
+      "limitations": []
+    }
+  ]
+}

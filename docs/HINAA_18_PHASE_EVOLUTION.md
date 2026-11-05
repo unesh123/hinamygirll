@@ -52,9 +52,9 @@
 
 | **REFLECTIVE-VOICE** | Reflective Voice, Metacognitive Explanation & Conversational Agency | **COMPLETE** | 100% | [`docs/explanation/REFLECTIVE_VOICE_REALWORLD_AUDIT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/explanation/REFLECTIVE_VOICE_REALWORLD_AUDIT.md) |
 
-| **14** | Autonomous Goal Planner & Continuous Self-Correction | **NEXT UP** | 0% | Long-horizon hierarchical planning, multi-day goal breakdown, plan reformulation |
+| **14** | Autonomous Goal Planner & Continuous Self-Correction | **COMPLETE** | 100% | [`docs/evolution/PHASE_14_REPORT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/evolution/PHASE_14_REPORT.md) |
 
-| **15** | Security, Permissions & Governance Guardrails | PENDING | 0% | Granular RBAC, human-in-the-loop approvals |
+| **15** | Security, Permissions & Governance Guardrails | **NEXT UP** | 0% | Granular RBAC, human-in-the-loop approvals |
 
 | **15** | Creative AI & Multimodal Synthesis | PENDING | 0% | ComfyUI image/video pipelines, avatar sync |
 
@@ -617,5 +617,26 @@ etrieval.py): Blends FTS5 lexical ranking (0.45), dense vector cosine similarity
 
 ### PHASE 14 — Autonomous Goal Planner & Continuous Self-Correction
 
+- **Status**: **COMPLETE (VERIFIED)**
+- **Checkpoints**: `phase-14-checkpoint`
+- **Core Architecture**:
+  1. *Goal Intake & Deduplication*: Scoped intake, semantic deduplication within tenants (Jaccard >= 0.85), rate-limiting, and intent supersession.
+  2. *Hierarchical Milestone Planner*: Immutable `PlanVersion` graphs, Kahn's acyclic validation, 10% QA verification reserve, and unavailable capability checks.
+  3. *Independent Milestone Critic*: Evaluates test exit codes, output hashes, and source provenance rather than agent claims (`VERIFIED`, `PARTIAL`, `FAILED`).
+  4. *Continuous Monitor*: Heartbeat stall detection (>600s), budget ceilings, and deadline expiration.
+  5. *Bounded Replanner*: Root cause classification, capped replan budget (max 3), semantic loop detection (Jaccard >= 0.80), and multi-lingual explanations (English, Devanagari Nepali, Romanized).
+  6. *Observed Self-Model*: Empirical capability ledger with active probe timestamps; explicitly refuses generative video without local weights and rejects sentient claims.
+  7. *Quarantined Reflections*: Validated operational lessons staged for operator review with adversarial injection defense.
+  8. *Tier C Approvals Gate*: Parameter-bound HMAC-SHA256 authorization for payments, deploy, and sensitive operations.
+  9. *Acceptance & Regressions*:
+     - **Phase 14 Suite**: 80/80 scenarios passed (100.0%) in 35.83s.
+     - **Demonstrations D1-D8**: Multi-session app repair, contradictory research adaptation, restart recovery, bilingual explanations verified.
+     - **Held-Out Benchmark**: 30 tasks, +100.0% recovery rate on changing conditions, 100% overall objective completion.
+     - **Frontend**: Vite production build clean in 4.84s with 0 errors.
+
+---
+
+### PHASE 15 — Security, Permissions & Governance Guardrails
+
 - **Status**: **NEXT UP**
-- **Objectives**: Long-horizon hierarchical planning, autonomous multi-day goal breakdown, proactive plan reformulation, and self-supervised learning loops.
+- **Objectives**: Granular multi-tenant RBAC, operator approval token workflows, hardware-isolated secrets, audit trail tamper-evidence.

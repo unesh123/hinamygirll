@@ -23,6 +23,7 @@
 | **P11** | Autonomous Tooling & Multi-Agent Swarms | Phase 11 | **VERIFIED** | 80 A11 scenarios: 10 canonical specialist roles, acyclic DAG planning, cryptographic ToolReceipts, independent verification oracle, Tier C HMAC approvals, CAS leases, restart recovery, SSE event journal, React 19 UI workspace. |
 | **P12** | Hierarchical Team Orchestration & Long-Horizon Execution | Phase 12 | **VERIFIED** | 80 H12 scenarios: 3-way adaptive routing, 4 canonical team templates, typed delegation packets & outcomes, context isolation & secret scrubbing, nested budget slicing with auto-refunds, complete ancestry HMAC approvals, independent QA overrides, workflows W1–W6 verified, 3-mode comparative benchmark. |
 | **P13** | Persistent Autopilot, Durable Background Tasks & Resource-Aware Autonomous Operations | Phase 13 | **VERIFIED** | 80 A13 scenarios: SQLite WAL persistence, atomic CAS claiming, fencing tokens, deterministic 5-field cron, Asia/Kathmandu timezones, integer paisa minor-unit budgeting, SSRF/PII scrubbing, Tier C HMAC approvals, 5 real workflows (W1–W5), React 19 AutopilotDashboard, ElevenLabs voice perfection, 3D character lip sync & expression perfection. |
+| **P14** | Autonomous Goal Planner & Continuous Self-Correction | Phase 14 | **VERIFIED** | 80 G14 scenarios: Scoped intake, milestone DAGs, independent critic evaluation, 9-step bounded replanning, loop detection (Jaccard >= 0.80), observed self-model, quarantined reflections, parameter-bound HMAC approvals, crash recovery, 8 real demonstrations D1–D8, React 19 GoalsDashboard. |
 
 ---
 
