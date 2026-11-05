@@ -39,7 +39,7 @@ interface VRMAvatarProps {
 
 /* ─── Emotion → Blend Shape Map ────────────────────────── */
 const EMOTION_BLENDS: Record<AvatarEmotion, Partial<Record<VRMExpressionPresetName, number>>> = {
-  neutral: { Happy: 0, Sad: 0, Angry: 0, Surprised: 0, Relaxed: 0.15 },
+  neutral: { Happy: 0.20, Sad: 0, Angry: 0, Surprised: 0, Relaxed: 0.25 },
   happy: { Happy: 0.8, Sad: 0, Surprised: 0.1, Relaxed: 0.1 },
   excited: { Happy: 1.0, Surprised: 0.4, Relaxed: 0 },
   playful: { Happy: 0.6, Surprised: 0.2, Relaxed: 0.2 },
@@ -162,8 +162,13 @@ export function VRMAvatar({
     // Smooth mouth lerp
     mouthOpenRef.current += (targetMouth - mouthOpenRef.current) * (dt * 18);
 
-    // Apply primary mouth shape (Aa) for jaw energy
+    // Apply primary mouth shape (Aa) and jaw articulation
     em.setValue(VRMExpressionPresetName.Aa, mouthOpenRef.current * 0.9);
+    try {
+      em.setValue("jawOpen" as any, mouthOpenRef.current * 0.85);
+      em.setValue("mouthOpen" as any, mouthOpenRef.current * 0.85);
+      em.setValue("mouthSmile" as any, Math.max(0.18, mouthOpenRef.current * 0.45));
+    } catch {}
 
     // Add secondary mouth shapes for realism
     if (isSpeaking && mouthOpenRef.current > 0.05) {

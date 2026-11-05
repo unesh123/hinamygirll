@@ -2,7 +2,7 @@
 
 **Architecture**: Autonomous Multimodal AI Operating System  
 
-**Current Status**: Phases 01–12 COMPLETE | Phase 13 NEXT UP  
+**Current Status**: Phases 01–13 COMPLETE | Phase 14 NEXT UP  
 
 **Last Updated**: November 5, 2026  
 
@@ -569,7 +569,27 @@ etrieval.py): Blends FTS5 lexical ranking (0.45), dense vector cosine similarity
 
 ---
 
-### PHASE 13 — Autonomous Goal Planner & Execution Loop
+### PHASE 13 — Persistent Autopilot, Durable Background Tasks & Resource-Aware Autonomous Operations
+
+- **Status**: **COMPLETE & VERIFIED** (November 5, 2026)
+- **Checkpoints**: phase-13-checkpoint
+- **Core Architecture**:
+  1. *Durable Autopilot Subsystem*: SQLite WAL state persistence (hinaa_autopilot.db), atomic CAS job claiming with fencing tokens, heartbeat renewals, and crash recovery.
+  2. *Deterministic Scheduling Engine*: Standard 5-field cron parsing, interval scheduling, and one-shot execution across IANA timezones (canonical: Asia/Kathmandu UTC+5:45) with COALESCE, RUN_LATEST, and SKIP misfire handling.
+  3. *Resource & Financial Governor*: Integer minor-unit paisa budgeting (1 NPR = 100 paisa), token ceilings, GPU VRAM admission control, sandbox/browser concurrency limits, and fair multi-tenant deficit round-robin dispatch.
+  4. *Security & Isolation*: HMAC-SHA256 task provenance signature verification, SSRF guard blocking cloud metadata and private subnets, PII/secret scrubbing, and mandatory Tier C approval gates.
+  5. *5 Real Workflows (W1–W5)*: Unattended repository health monitor, verified CRAG research digest with quarantined memory candidate staging, service health watcher with truthful neural capability gates, resumable project continuation, and user review queue.
+  6. *React 19 Autopilot Dashboard*: AutopilotDashboard.tsx with live schedule management, next fire time in Asia/Kathmandu, active jobs, Tier C approvals queue, telemetry gauges, emergency stop kill switch, and English/Nepali localization.
+  7. *ElevenLabs Voice & Anime Avatar Perfection*: Voice ID dp4HJlekKt0HZFHL2jQg tuned for cute anime delivery, R3F context bridging for SpeechPlaybackContext, high-precision audio timestamp viseme sync, lower jaw articulation (jawOpen / mouthOpen), and sweet resting anime expressions.
+  8. *Acceptance & Regression Results*:
+     - **Phase 13 Suite**: 80/80 A13 scenarios passed (100.0%) in 1.94s.
+     - **Phase 12 Suite**: 80/80 H12 scenarios passed (100.0%).
+     - **Phase 10 Suite**: 64/64 M10 scenarios passed (100.0%).
+     - **Frontend**: pnpm --filter web build builds cleanly in 4.82s with 0 errors. Total API routes: 568.
+
+---
+
+### PHASE 14 — Autonomous Goal Planner & Continuous Self-Correction
 
 - **Status**: **NEXT UP**
-- **Objectives**: Hierarchical task DAGs, long-horizon self-correction, checkpoints, and proactive plan reformulation.
+- **Objectives**: Long-horizon hierarchical planning, autonomous multi-day goal breakdown, proactive plan reformulation, and self-supervised learning loops.

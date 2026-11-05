@@ -22,6 +22,7 @@
 | **P10** | Long-Term Memory & Knowledge Graph | Phase 10 | **VERIFIED** | 64 M10 scenarios: SQLite WAL ACID persistence, FTS5 BM25, temporal knowledge graph (max 3 hops), non-destructive supersession, quarantine staging, 11 REST endpoints. |
 | **P11** | Autonomous Tooling & Multi-Agent Swarms | Phase 11 | **VERIFIED** | 80 A11 scenarios: 10 canonical specialist roles, acyclic DAG planning, cryptographic ToolReceipts, independent verification oracle, Tier C HMAC approvals, CAS leases, restart recovery, SSE event journal, React 19 UI workspace. |
 | **P12** | Hierarchical Team Orchestration & Long-Horizon Execution | Phase 12 | **VERIFIED** | 80 H12 scenarios: 3-way adaptive routing, 4 canonical team templates, typed delegation packets & outcomes, context isolation & secret scrubbing, nested budget slicing with auto-refunds, complete ancestry HMAC approvals, independent QA overrides, workflows W1–W6 verified, 3-mode comparative benchmark. |
+| **P13** | Persistent Autopilot, Durable Background Tasks & Resource-Aware Autonomous Operations | Phase 13 | **VERIFIED** | 80 A13 scenarios: SQLite WAL persistence, atomic CAS claiming, fencing tokens, deterministic 5-field cron, Asia/Kathmandu timezones, integer paisa minor-unit budgeting, SSRF/PII scrubbing, Tier C HMAC approvals, 5 real workflows (W1–W5), React 19 AutopilotDashboard, ElevenLabs voice perfection, 3D character lip sync & expression perfection. |
 
 ---
 
@@ -129,3 +130,15 @@
 - [x] **Acceptance Suite:** 80/80 H12 scenarios passed (100.0%) in 3.43s; 80/80 Phase 11 regression passed (100.0%) in 11.87s.
 - [x] **Comparative Benchmark:** 30 frozen tasks evaluated across Mode A, Mode B, and Mode C logged in docs/agents/benchmark_results_phase12.json.
 - [x] **Frontend & API Routes:** AgentOrchestrationPanel.tsx, AgentTaskGraph.tsx, and AgentApprovalPanel.tsx updated and built cleanly (pnpm --filter web build 3.63s, 0 errors). Live daemon serving 550 total routes.
+
+### Capability P13: Persistent Autopilot, Durable Background Tasks & Resource-Aware Autonomous Operations (Phase 13 Sign-Off)
+- [x] **Durable SQLite Persistence:** SQLite WAL persistence (hinaa_autopilot.db), atomic CAS job claiming with fencing tokens, heartbeat renewals, and crash recovery.
+- [x] **Deterministic Cron Engine:** Standard 5-field cron parser, interval validator, IANA timezone converter (Asia/Kathmandu, UTC), and misfire resolver (COALESCE, RUN_LATEST, SKIP).
+- [x] **Resource & Financial Governor:** Integer minor-unit paisa budgeting (100 paisa = 1 NPR), token ceilings, GPU VRAM admission control, sandbox/browser concurrency pools, and fair multi-tenant deficit round-robin dispatch.
+- [x] **Security & Defense-in-Depth:** HMAC-SHA256 task ancestry validation, SSRF guard blocking AWS metadata/loopback, PII/secret scrubber, and mandatory Tier C approvals for high-impact actions.
+- [x] **5 Real Autonomous Workflows (W1–W5):** Unattended repo health monitor, verified CRAG research digest with quarantined memory candidate staging, service health watcher with truthful neural capability gates, resumable project continuation, and user review queue.
+- [x] **React 19 Autopilot Dashboard:** AutopilotDashboard.tsx with live schedule management, next fire time in Asia/Kathmandu, active jobs, Tier C approvals queue, telemetry gauges, emergency stop kill switch, and English/Nepali localization.
+- [x] **ElevenLabs Voice Perfection:** Voice ID dp4HJlekKt0HZFHL2jQg configured and tuned for cute anime delivery (similarity: 0.88, style_intensity: 0.56, stability: 0.32).
+- [x] **3D Avatar Lip Sync & Expression Perfection:** R3F context bridging for SpeechPlaybackContext, high-precision audio timestamp viseme sync, lower jaw articulation (jawOpen / mouthOpen), and sweet resting anime expressions.
+- [x] **Acceptance Suite:** 80/80 A13 scenarios passed (100.0%) in 1.94s; 80/80 Phase 12 regression passed (100.0%); 64/64 Phase 10 regression passed (100.0%).
+- [x] **Frontend & API Routes:** AutopilotDashboard.tsx built cleanly (pnpm --filter web build in 4.82s, 0 errors). Live daemon serving 568 total routes.
