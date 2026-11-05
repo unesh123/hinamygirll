@@ -1,7 +1,8 @@
 """
-HINAA OS — Phase 11 Multi-Agent Contracts & Schemas
+HINAA OS — Phase 11 & Phase 12 Multi-Agent Contracts & Schemas
 Authoritative typed data contracts for autonomous agent orchestration,
-DAG execution, tool receipts, cryptographic approvals, and budget tracking.
+DAG execution, tool receipts, cryptographic approvals, budget tracking,
+and Phase 12 hierarchical team delegation.
 """
 
 from __future__ import annotations
@@ -63,6 +64,19 @@ class PermissionTier(str, Enum):
     DENIED = "DENIED"
 
 
+class ExecutionMode(str, Enum):
+    SINGLE_AGENT_FAST_PATH = "SINGLE_AGENT_FAST_PATH"
+    FLAT_MULTI_AGENT = "FLAT_MULTI_AGENT"
+    HIERARCHICAL_TEAM = "HIERARCHICAL_TEAM"
+
+
+class TeamType(str, Enum):
+    ENGINEERING = "engineering"
+    RESEARCH = "research"
+    CREATIVE = "creative"
+    OPERATIONS = "operations"
+
+
 class CapabilityGrant(BaseModel):
     grant_id: str = Field(default_factory=lambda: f"grant-{uuid.uuid4().hex[:8]}")
     role: AgentRole
@@ -85,6 +99,18 @@ class AgentSpec(BaseModel):
     capability_grant: CapabilityGrant
     is_available: bool = True
     health_status: str = "HEALTHY"  # HEALTHY | DEGRADED | UNAVAILABLE
+
+
+class TeamSpec(BaseModel):
+    team_id: str
+    team_type: TeamType
+    display_name: str
+    description: str = ""
+    lead_role: AgentRole
+    member_roles: list[AgentRole] = Field(default_factory=list)
+    capability_grant: CapabilityGrant
+    budget_slice: BudgetLedger = Field(default_factory=lambda: BudgetLedger())
+    max_workers: int = 4
 
 
 class ToolReceipt(BaseModel):
@@ -122,6 +148,8 @@ class ApprovalRecord(BaseModel):
     signature: str = ""
     created_at: str = Field(default_factory=_now_iso)
     approved_at: Optional[str] = None
+    ancestry: list[str] = Field(default_factory=list)
+    team_id: Optional[str] = None
 
 
 class BudgetLedger(BaseModel):
@@ -145,11 +173,50 @@ class BudgetLedger(BaseModel):
             return True, "TOOL_CALL_BUDGET_EXCEEDED"
         if self.consumed_cost_usd >= self.allocated_cost_usd:
             return True, "COST_BUDGET_EXCEEDED"
+        if self.consumed_cost_paisa >= self.allocated_cost_paisa:
+            return True, "COST_PAISA_BUDGET_EXCEEDED"
         if self.elapsed_seconds >= self.allocated_seconds:
             return True, "DEADLINE_EXCEEDED"
         if self.current_depth >= self.max_recursion_depth:
             return True, "RECURSION_DEPTH_EXCEEDED"
         return False, None
+
+
+class DelegationRequest(BaseModel):
+    parent_task_id: str
+    team_run_id: str = Field(default_factory=lambda: f"team-run-{uuid.uuid4().hex[:8]}")
+    principal_id: str = "user-default"
+    tenant_id: str = "default"
+    team_type: TeamType
+    lead_role: AgentRole
+    objective: str
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    input_artifact_refs: list[str] = Field(default_factory=list)
+    required_capabilities: list[str] = Field(default_factory=list)
+    allowed_resources: dict[str, Any] = Field(default_factory=dict)
+    budget_slice: BudgetLedger = Field(default_factory=BudgetLedger)
+    deadline: float = 300.0
+    approval_state: str = "GRANTED"
+    context_provenance: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str = Field(default_factory=lambda: f"idem-del-{uuid.uuid4().hex[:10]}")
+    trace_id: str = Field(default_factory=lambda: f"trc-{uuid.uuid4().hex[:12]}")
+    depth: int = 1
+    ancestry: list[str] = Field(default_factory=list)
+
+
+class TeamResult(BaseModel):
+    team_run_id: str
+    parent_task_id: str
+    team_type: TeamType
+    status: TaskStatus
+    output_artifact_refs: list[str] = Field(default_factory=list)
+    verified_postconditions: list[str] = Field(default_factory=list)
+    evidence_receipts: list[ToolReceipt] = Field(default_factory=list)
+    cost_metrics: dict[str, Any] = Field(default_factory=dict)
+    failure_reasons: list[str] = Field(default_factory=list)
+    scoped_context_summary: str = ""
+    signature: str = ""
+    duration_ms: float = 0.0
 
 
 class TaskNode(BaseModel):
@@ -173,6 +240,10 @@ class TaskNode(BaseModel):
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     receipts: list[ToolReceipt] = Field(default_factory=list)
+    team_id: Optional[str] = None
+    team_type: Optional[TeamType] = None
+    ancestry: list[str] = Field(default_factory=list)
+    depth: int = 0
 
 
 class TaskEvent(BaseModel):
@@ -180,13 +251,15 @@ class TaskEvent(BaseModel):
     sequence: int
     task_id: str
     node_id: Optional[str] = None
+    team_run_id: Optional[str] = None
     timestamp: str = Field(default_factory=_now_iso)
     actor_role: AgentRole
-    event_type: str  # task.started, node.dispatched, tool.invoked, tool.completed, approval.requested, etc.
+    event_type: str  # task.started, node.dispatched, team.delegated, team.completed, etc.
     payload: dict[str, Any] = Field(default_factory=dict)
     state_before: Optional[TaskStatus] = None
     state_after: Optional[TaskStatus] = None
     trace_id: str = Field(default_factory=lambda: f"trc-{uuid.uuid4().hex[:12]}")
+    depth: int = 0
 
 
 class TaskSpec(BaseModel):
@@ -205,6 +278,10 @@ class TaskSpec(BaseModel):
     completed_at: Optional[str] = None
     version: int = 1
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    execution_mode: ExecutionMode = ExecutionMode.FLAT_MULTI_AGENT
+    team_runs: list[DelegationRequest] = Field(default_factory=list)
+    team_results: list[TeamResult] = Field(default_factory=list)
+    hierarchy_depth: int = 1
 
 
 class TaskResult(BaseModel):
@@ -219,3 +296,5 @@ class TaskResult(BaseModel):
     total_duration_ms: float
     verification_passed: bool
     evidence_trail: list[str] = Field(default_factory=list)
+    team_results: list[TeamResult] = Field(default_factory=list)
+    execution_mode: ExecutionMode = ExecutionMode.FLAT_MULTI_AGENT

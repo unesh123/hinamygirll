@@ -1,7 +1,8 @@
 """
-HINAA OS — Phase 11 Autonomous Tooling & Multi-Agent Swarms Package
+HINAA OS — Phase 11 Autonomous Swarms & Phase 12 Hierarchical Teams Package
 Exports authoritative contracts, specialist registry, dispatcher, verifier,
-budget controller, event journal, policy bridge, supervisor, and unified service.
+budget controller, event journal, policy bridge, hierarchical planner & supervisor,
+and unified orchestration service.
 """
 
 from .contracts import (
@@ -10,12 +11,17 @@ from .contracts import (
     ApprovalRecord,
     BudgetLedger,
     CapabilityGrant,
+    DelegationRequest,
+    ExecutionMode,
     PermissionTier,
     TaskEvent,
     TaskNode,
     TaskResult,
     TaskSpec,
     TaskStatus,
+    TeamResult,
+    TeamSpec,
+    TeamType,
     ToolReceipt,
 )
 from .registry import SpecialistRegistry
@@ -23,11 +29,13 @@ from .budget import BudgetController
 from .policy_bridge import PolicyBridge, policy_bridge
 from .event_log import EventLogStore
 from .planner import TaskPlanner, DAGCycleError
+from .hierarchy_planner import HierarchicalPlanner
 from .handoff import ContextHandoffManager, ContextScrubber
 from .verifier import IndependentVerifier, VerificationResult
 from .resume import TaskStore
 from .dispatcher import TaskDispatcher
 from .supervisor import SupervisorAgent
+from .hierarchy_supervisor import HierarchicalSupervisor
 from .reflection import AgentReflector
 from .service import AgentOrchestrationService, agent_service
 
@@ -43,12 +51,17 @@ __all__ = [
     "ApprovalRecord",
     "BudgetLedger",
     "CapabilityGrant",
+    "DelegationRequest",
+    "ExecutionMode",
     "PermissionTier",
     "TaskEvent",
     "TaskNode",
     "TaskResult",
     "TaskSpec",
     "TaskStatus",
+    "TeamResult",
+    "TeamSpec",
+    "TeamType",
     "ToolReceipt",
     "SpecialistRegistry",
     "BudgetController",
@@ -56,6 +69,7 @@ __all__ = [
     "policy_bridge",
     "EventLogStore",
     "TaskPlanner",
+    "HierarchicalPlanner",
     "DAGCycleError",
     "ContextHandoffManager",
     "ContextScrubber",
@@ -64,6 +78,7 @@ __all__ = [
     "TaskStore",
     "TaskDispatcher",
     "SupervisorAgent",
+    "HierarchicalSupervisor",
     "AgentReflector",
     "AgentOrchestrationService",
     "agent_service",
