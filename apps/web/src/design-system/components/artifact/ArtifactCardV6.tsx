@@ -6,21 +6,32 @@ import {
   FileCode,
   Download,
   Eye,
-  ExternalLink,
-  Layers,
+  Volume2,
+  Sparkles,
+  BookOpen,
+  Compass,
+  MessageSquare,
 } from "lucide-react";
 
 export type ArtifactType = "document" | "presentation" | "spreadsheet" | "code";
+
+export type ExplanationActionMode =
+  | "EXPLAIN_BRIEFLY"
+  | "EXPLAIN_FULLY"
+  | "EXPLAIN_DIFFERENTLY"
+  | "READ_VERBATIM"
+  | "DISCUSS";
 
 export interface ArtifactCardV6Props {
   id: string;
   type: ArtifactType;
   title: string;
   summary?: string;
-  meta?: string; // e.g. "12 slides · 1.4 MB" or "4 pages · 1,240 words"
+  meta?: string;
   timestamp?: string;
   onPreview?: (id: string) => void;
   onDownload?: (id: string) => void;
+  onExplain?: (id: string, mode: ExplanationActionMode) => void;
 }
 
 export const ArtifactCardV6: React.FC<ArtifactCardV6Props> = ({
@@ -32,6 +43,7 @@ export const ArtifactCardV6: React.FC<ArtifactCardV6Props> = ({
   timestamp,
   onPreview,
   onDownload,
+  onExplain,
 }) => {
   const getIcon = () => {
     switch (type) {
@@ -44,6 +56,18 @@ export const ArtifactCardV6: React.FC<ArtifactCardV6Props> = ({
       case "document":
       default:
         return <FileText size={16} />;
+    }
+  };
+
+  const handleExplainAction = (mode: ExplanationActionMode) => {
+    if (onExplain) {
+      onExplain(id, mode);
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("hinaa:explain-artifact", {
+          detail: { artifactId: id, title, summary, mode },
+        })
+      );
     }
   };
 
@@ -83,7 +107,7 @@ export const ArtifactCardV6: React.FC<ArtifactCardV6Props> = ({
             </div>
             <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
               {meta || `${type.charAt(0).toUpperCase() + type.slice(1)} Artifact`}
-              {timestamp && ` · ${timestamp}`}
+              {timestamp && ` • ${timestamp}`}
             </div>
           </div>
         </div>
@@ -144,6 +168,127 @@ export const ArtifactCardV6: React.FC<ArtifactCardV6Props> = ({
           {summary}
         </div>
       )}
+
+      {/* Reflective Voice & Metacognitive Explanation Action Row (Module H) */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+          paddingTop: 8,
+          borderTop: "1px solid var(--border-subtle, rgba(0,0,0,0.06))",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => handleExplainAction("EXPLAIN_BRIEFLY")}
+          title="Explain main takeaways briefly"
+          style={{
+            background: "var(--accent-subtle, #f5f3ff)",
+            border: "1px solid var(--border-subtle, #ddd6fe)",
+            borderRadius: "var(--radius-sm, 6px)",
+            padding: "4px 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--accent-primary, #6d28d9)",
+            cursor: "pointer",
+          }}
+        >
+          <Volume2 size={12} />
+          <span>Brief Explanation</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleExplainAction("EXPLAIN_FULLY")}
+          title="Section by section walkthrough"
+          style={{
+            background: "var(--surface-subtle, #f8fafc)",
+            border: "1px solid var(--border-subtle, #e2e8f0)",
+            borderRadius: "var(--radius-sm, 6px)",
+            padding: "4px 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 500,
+            color: "var(--text-primary, #1e293b)",
+            cursor: "pointer",
+          }}
+        >
+          <BookOpen size={12} />
+          <span>Detailed Walkthrough</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleExplainAction("EXPLAIN_DIFFERENTLY")}
+          title="Alternative analogy-based perspective"
+          style={{
+            background: "var(--surface-subtle, #f8fafc)",
+            border: "1px solid var(--border-subtle, #e2e8f0)",
+            borderRadius: "var(--radius-sm, 6px)",
+            padding: "4px 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 500,
+            color: "var(--text-primary, #1e293b)",
+            cursor: "pointer",
+          }}
+        >
+          <Compass size={12} />
+          <span>Another Perspective</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleExplainAction("READ_VERBATIM")}
+          title="Read document out loud word for word"
+          style={{
+            background: "var(--surface-subtle, #f8fafc)",
+            border: "1px solid var(--border-subtle, #e2e8f0)",
+            borderRadius: "var(--radius-sm, 6px)",
+            padding: "4px 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 500,
+            color: "var(--text-secondary, #64748b)",
+            cursor: "pointer",
+          }}
+        >
+          <Sparkles size={12} />
+          <span>Read Verbatim</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleExplainAction("DISCUSS")}
+          title="Interactive discussion with Hina"
+          style={{
+            background: "var(--surface-subtle, #f8fafc)",
+            border: "1px solid var(--border-subtle, #e2e8f0)",
+            borderRadius: "var(--radius-sm, 6px)",
+            padding: "4px 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 500,
+            color: "var(--text-primary, #1e293b)",
+            cursor: "pointer",
+          }}
+        >
+          <MessageSquare size={12} />
+          <span>Discuss with Hina</span>
+        </button>
+      </div>
     </div>
   );
 };

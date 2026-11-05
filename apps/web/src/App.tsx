@@ -983,11 +983,39 @@ export default function App() {
       // through the same bounded phrase queue, without replaying streamed content.
       if (!queue.hasPhrases && !playback.muted) {
         const detector = new PhraseDetector({ maxBufferChars: 160, minPhraseChars: 12 });
-        const fullText = cleanSpeechText(result.plan.displayText || result.plan.spokenText || "");
-        for (const phrase of [...detector.push(fullText), ...detector.flush()]) queue.enqueue(phrase);
+        const rawText = result.plan.spokenText || result.plan.displayText || "";
+        const isLongArtifact = rawText.length > 500 || /```|#{1,4}\s+|\|.*\|/m.test(rawText);
+        const isExplicitVerbatim = /read\s+(this\s+)?word\s+for\s+word|read\s+verbatim|\u091c\u0938\u094d\u0924\u093e\u0915\u094b\s*\u0924\u0938\u094d\u0924\u0948\s*\u092a\u0922|jastako\s*tastai/i.test(text);
+
+        let textToSpeak = cleanSpeechText(rawText);
+        if (isLongArtifact && !isExplicitVerbatim) {
+          textToSpeak = "I've generated the full document on screen. Let me know if you would like me to explain the key takeaways, walk through it section by section, or explore another perspective.";
+        }
+        for (const phrase of [...detector.push(textToSpeak), ...detector.flush()]) queue.enqueue(phrase);
       }
     })();
   }, [input, live.active, live.interruptSpeech, controller, playback, attachedImage, interruptPlayback, requestResponseMode, voiceEngine]);
+
+  useEffect(() => {
+    const handleExplain = (evt: Event) => {
+      const custom = evt as CustomEvent<{ artifactId: string; title: string; summary?: string; mode: string }>;
+      if (!custom.detail) return;
+      const { title, mode } = custom.detail;
+      const prompt = mode === "READ_VERBATIM"
+        ? `Read the document "${title}" word for word exactly`
+        : mode === "EXPLAIN_DIFFERENTLY"
+        ? `Explain the document "${title}" differently with an analogy`
+        : mode === "EXPLAIN_FULLY"
+        ? `Walk me through "${title}" in detail section by section`
+        : mode === "DISCUSS"
+        ? `Let's discuss the findings of "${title}"`
+        : `Briefly explain the main takeaways of "${title}"`;
+      setInput(prompt);
+      void submit(undefined, prompt);
+    };
+    window.addEventListener("hinaa:explain-artifact", handleExplain);
+    return () => window.removeEventListener("hinaa:explain-artifact", handleExplain);
+  }, [submit]);
 
   const handlePowerUp = useCallback((p: PowerUp) => {
     // A command changes HINAA's working surface and leaves an explicit intent

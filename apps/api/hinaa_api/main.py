@@ -1023,6 +1023,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(omega_router)
     from .skills.endpoints import router as skills_router
     app.include_router(skills_router)
+    from .explanation.endpoints import router as explanation_router, get_explanation_service
+    app.include_router(explanation_router)
+    app.state.explanation_service = get_explanation_service()
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service
