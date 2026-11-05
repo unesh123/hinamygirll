@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 import tempfile
 import time
 import pytest
@@ -122,8 +123,11 @@ def test_a13_05_truthful_health_report():
 
 def test_a13_06_phase11_receipts_readable():
     """Ensure Phase 11/12 tool receipts remain valid and readable."""
-    from hinaa_api.agents.contracts import ToolReceipt
+    from hinaa_api.agents.contracts import AgentRole, ToolReceipt
     receipt = ToolReceipt(
+        task_id="tsk-test",
+        agent_role=AgentRole.ENGINEER,
+        action="execute",
         tool_name="sandbox_read",
         arguments={"path": "test.txt"},
         status="COMPLETED",
@@ -1055,9 +1059,12 @@ def test_a13_55_neural_video_remains_blocked():
 
 def test_a13_56_nepal_commerce_live_charges_blocked():
     """Nepal commerce simulator cannot initiate live wallet charges."""
+    from hinaa_api.agents.contracts import AgentRole
     from hinaa_api.agents.registry import SpecialistRegistry
     reg = SpecialistRegistry()
-    tools = reg.get_role_capability_grant(reg.get_role_for_tool("simulate_nepali_payment")).allowed_tools
+    grant = reg.get_capability_grant(AgentRole.PLANNER)
+    assert grant is not None
+    tools = grant.allowed_tools
     assert "simulate_nepali_payment" in tools
     # Live charges not present in allowed autonomous tools
     assert "execute_live_wallet_charge" not in tools

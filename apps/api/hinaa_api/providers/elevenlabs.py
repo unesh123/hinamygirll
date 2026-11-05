@@ -1534,9 +1534,11 @@ class VoicePerformancePlanner:
             style_intensity = max(0.0, style_intensity - 0.04)
             pace = max(0.5, pace - 0.02)
         else:
-            stability = max(0.0, stability - 0.05)
-            style_intensity = min(1.0, style_intensity + 0.12)
-            pace = min(1.5, pace + 0.02)
+            # Cute anime girl calibration: sweet expressive style, high timbre fidelity, clear lively cadence
+            stability = max(0.30, min(0.48, stability - 0.04))
+            similarity = min(0.92, max(0.82, similarity + 0.08))
+            style_intensity = min(0.60, max(0.38, style_intensity + 0.14))
+            pace = min(1.10, max(0.96, pace + 0.04))
 
         return {
             "deliveryMode": mode,

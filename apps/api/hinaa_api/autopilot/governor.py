@@ -50,7 +50,7 @@ class ResourceGovernor:
         max_concurrent_browsers: int = 3,
         max_concurrent_sandboxes: int = 5,
     ):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.max_gpu_vram_mb = max_gpu_vram_mb
         self.used_gpu_vram_mb = 0
 

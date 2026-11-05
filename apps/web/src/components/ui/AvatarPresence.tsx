@@ -292,6 +292,9 @@ const PRESET_ALIASES: Record<string, string> = {
   blinkLeft: "blink_l", blinkRight: "blink_r",
 
   surprised: "Surprised", neutral: "Neutral",
+  jawOpen: "jaw_open", mouthOpen: "mouth_open",
+  mouthSmile: "mouth_smile", mouthFunnel: "mouth_funnel", mouthPucker: "mouth_pucker",
+  mouthClose: "mouth_close",
 
 };
 
@@ -650,6 +653,7 @@ interface ModelProps {
   plan?: AssistantTurnPlan;
 
   liveStatus?: FullscreenLiveStatus;
+  speechBridge?: any;
 
 }
 
@@ -657,7 +661,7 @@ interface ModelProps {
 
 function Model({
 
-  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, presentation, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, expressionText, onAnatomyFrame, onLoadState, isWalking = false, plan, liveStatus,
+  state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, url, presentation, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, expressionText, onAnatomyFrame, onLoadState, isWalking = false, plan, liveStatus, speechBridge: speechBridgeProp,
 
 }: ModelProps) {
 
@@ -829,7 +833,7 @@ function Model({
 
   // AudioContext ref — populated lazily from global on first frame
 
-  const speechBridge = useContext(SpeechPlaybackContext);
+  const speechBridge = speechBridgeProp ?? useContext(SpeechPlaybackContext);
 
   const planEmotionStr = typeof plan?.emotion === "string" ? plan.emotion : plan?.emotion?.primary;
 
@@ -1672,9 +1676,9 @@ function Model({
 
       if (speaking) {
 
-        // ── Speaking: viseme-based mouth animation ──
+        // ── Speaking: viseme-based mouth animation with perfection timing ──
 
-        const events = speechSample?.events ?? visemeEvents.current;
+        const events = speechSample?.events ?? (visemeEvents.current.length > 0 ? visemeEvents.current : []);
 
         let targetMouth: MouthKey | null = null;
 
@@ -1688,77 +1692,115 @@ function Model({
 
         if (events.length > 0) {
 
-          // Use AudioContext time if available, else fallback to energy cycling
+          // High-precision timeline clock: synchronize against audio playback start
 
-          if (speechSample) {
+          let timeMs = speechSample?.timeMs;
 
-            // Anticipatory coarticulation: a real mouth starts shaping the NEXT
+          if (timeMs === undefined || timeMs === null) {
 
-            // phoneme ~50 ms before it sounds. Blending the upcoming viseme in
+            if (audioStartTimeRef?.current && audioStartTimeRef.current > 0) {
 
-            // at partial weight removes the robotic one-shape-at-a-time snap
+              timeMs = Math.max(0, performance.now() - audioStartTimeRef.current);
 
-            // that made the lip-sync read as mechanical.
+            } else if (typeof window !== "undefined" && (window as any).__hinaaAudioStartTime) {
 
-            const upcoming = getActiveViseme(speechSample.timeMs + COARTICULATION_LOOKAHEAD_MS, events);
+              timeMs = Math.max(0, performance.now() - (window as any).__hinaaAudioStartTime);
 
-            const coarticulated = computeCoarticulatedMouthTarget(speechSample.viseme, upcoming, energy);
+            } else {
 
-            targetMouth = coarticulated.mouth;
+              timeMs = (t.current * 1000);
 
-            targetWeight = coarticulated.weight;
-
-            lookaheadMouth = coarticulated.lookaheadMouth;
-
-            lookaheadWeight = coarticulated.lookaheadWeight;
-
-          } else {
-
-            // Fallback when the AudioContext clock is unavailable: blend mouth
-
-            // shape from the energy envelope instead of robotic 7Hz cycling.
-
-            // Aa (open) dominates on peaks, Ou/Ih shape the sustained vowels.
-
-            const env = energy;
-
-            if (env > 0.72) { targetMouth = "aa"; targetWeight = Math.min(1, env); }
-
-            else if (env > 0.48) { targetMouth = "ou"; targetWeight = env * 0.85; }
-
-            else if (env > 0.28) { targetMouth = "ih"; targetWeight = env * 0.7; }
-
-            else { targetMouth = "aa"; targetWeight = Math.max(0.05, env * 0.5); }
+            }
 
           }
 
+
+
+          const currentViseme = speechSample?.viseme ?? getActiveViseme(timeMs, events);
+
+          const upcoming = getActiveViseme(timeMs + COARTICULATION_LOOKAHEAD_MS, events);
+
+          const coarticulated = computeCoarticulatedMouthTarget(currentViseme, upcoming, energy);
+
+          targetMouth = coarticulated.mouth;
+
+          targetWeight = coarticulated.weight;
+
+          lookaheadMouth = coarticulated.lookaheadMouth;
+
+          lookaheadWeight = coarticulated.lookaheadWeight;
+
         } else {
 
-          // No viseme events — energy-based jaw-open fallback
+          // Continuous organic syllabic anime cadence (~6 Hz) where vowels transition with speech rhythm and energy
 
-          targetMouth = "aa";
+          const syllablePhase = (t.current * 6.28 * 2.8) % (Math.PI * 2);
 
-          targetWeight = energy;
+          const cadence = 0.5 + 0.5 * Math.sin(syllablePhase);
+
+          const vowelSeq: MouthKey[] = ["aa", "ih", "ou", "ee", "oh"];
+
+          const idx = Math.floor((t.current * 3.4) % vowelSeq.length);
+
+          targetMouth = vowelSeq[idx];
+
+          targetWeight = Math.min(1.0, energy * (0.65 + 0.35 * cadence));
+
+          lookaheadMouth = vowelSeq[(idx + 1) % vowelSeq.length];
+
+          lookaheadWeight = targetWeight * 0.4;
 
         }
 
 
 
-        // Smooth all mouth shapes (forward faster than decay: the mouth opens
-
-        // onto the phoneme, then closes gradually into the next window).
+        // Smooth all mouth shapes with fast attack and natural decay
 
         for (const k of ALL_MOUTH_KEYS) {
 
           const tgt = k === targetMouth ? targetWeight : (k === lookaheadMouth ? lookaheadWeight : 0);
 
-          const rate = tgt > mouthW.current[k] ? 28 : 18;
+          const rate = tgt > mouthW.current[k] ? 34 : 22;
 
           mouthW.current[k] += (tgt - mouthW.current[k]) * (1 - Math.exp(-dt * rate));
 
           set(VRM_PRESET[k], Math.max(0, mouthW.current[k]));
 
         }
+
+
+
+        // Perfection Jaw & ARKit Blendshapes for modern VRM 1.0 & anime rigs
+
+        const maxVowel = Math.max(
+
+          mouthW.current.aa,
+
+          mouthW.current.oh * 0.92,
+
+          mouthW.current.ou * 0.65,
+
+          mouthW.current.ih * 0.55,
+
+          mouthW.current.ee * 0.55
+
+        );
+
+        const jawOpening = Math.max(0, Math.min(1.0, maxVowel * (0.60 + energy * 0.50)));
+
+        set("jawOpen", jawOpening);
+
+        set("mouthOpen", jawOpening);
+
+        set("mouthClose", 0);
+
+        // Charming anime sweet mouth corners while speaking
+
+        set("mouthSmile", Math.max(0.18, mouthW.current.ee * 0.72));
+
+        set("mouthFunnel", mouthW.current.ou * 0.75);
+
+        set("mouthPucker", mouthW.current.ou * 0.55);
 
       } else if (!isListening && face && trackingCalibration?.expressionBaseline) {
 
@@ -1835,6 +1877,14 @@ function Model({
             set(VRM_PRESET[k], 0);
 
           }
+
+          set("jawOpen", 0);
+
+          set("mouthOpen", 0);
+
+          set("mouthFunnel", 0);
+
+          set("mouthPucker", 0);
 
         }
 
@@ -2082,11 +2132,11 @@ function Model({
 
             // Cap at 0.22 and duck during blinks so full-face Fcl_ALL_Joy never deforms the eyelids
 
-            if (speaking) tgt = Math.max(0.10, Math.min(0.20, tgt * 0.50));
+            if (speaking) tgt = Math.max(0.18, Math.min(0.28, tgt * 0.65));
 
-            else tgt = Math.min(0.18, tgt);
+            else tgt = Math.max(0.16, Math.min(0.24, tgt));
 
-            tgt = Math.min(0.22, (tgt + organicBreath * 0.3) * blinkDucking);
+            tgt = Math.min(0.26, (tgt + organicBreath * 0.3) * blinkDucking);
 
           } else if (key === VRMExpressionPresetName.Surprised) {
 
@@ -3793,6 +3843,7 @@ interface Props {
   visemeEvents?: React.MutableRefObject<VisemeEvent[]>;
 
   audioStartTimeRef?: React.MutableRefObject<number>;
+  speechBridge?: any;
 
   modelUrl?: string;
 
@@ -4228,7 +4279,7 @@ function ModelSkeletonLoader() {
 
 export function AvatarPresence({
 
-  mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
+  mode, state, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef, speechBridge: speechBridgeProp,
 
   modelUrl, onModeChange, faceExpressions, faceBones, faceTrackingActive, trackingCalibration, expressionText, presentation,
 
@@ -4240,6 +4291,8 @@ export function AvatarPresence({
 
 }: Props) {
 
+  const speechBridgeFromContext = useContext(SpeechPlaybackContext);
+  const effectiveSpeechBridge = speechBridgeProp ?? speechBridgeFromContext;
   const [webglFailed, setWebglFailed] = useState(false);
 
   const [modelLoadState, setModelLoadState] = useState<"loading" | "ready" | "failed">("loading");
@@ -4473,6 +4526,8 @@ export function AvatarPresence({
 
 
               <Model
+
+                speechBridge={effectiveSpeechBridge}
 
                 state={state}
 

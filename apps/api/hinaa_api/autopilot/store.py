@@ -389,6 +389,7 @@ class AutopilotStore:
                     lease_expires_at_utc = excluded.lease_expires_at_utc,
                     fencing_token = excluded.fencing_token,
                     last_heartbeat_at_utc = excluded.last_heartbeat_at_utc,
+                    scheduled_for_utc = excluded.scheduled_for_utc,
                     started_at_utc = excluded.started_at_utc,
                     completed_at_utc = excluded.completed_at_utc,
                     error_message = excluded.error_message,

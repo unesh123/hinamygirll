@@ -1,0 +1,79 @@
+{
+  "benchmark_timestamp_utc": 1793881738.6289763,
+  "phase": "13",
+  "modes_compared": [
+    "single_agent_fast_path",
+    "flat_swarm_phase11",
+    "hierarchical_teams_phase12",
+    "persistent_autopilot_phase13"
+  ],
+  "scenarios": {
+    "atomic_job_ingest_100": {
+      "total_jobs": 100,
+      "duration_ms": 1.21,
+      "ops_per_sec": 82815.74
+    },
+    "atomic_cas_claim_100": {
+      "claimed_jobs": 100,
+      "duration_ms": 2.57,
+      "claims_per_sec": 38922.62
+    },
+    "orphan_lease_recovery_20": {
+      "recovered_jobs": 20,
+      "duration_ms": 0.42,
+      "recovery_success_rate": "100%"
+    },
+    "pii_and_token_scrubber_300": {
+      "samples_scrubbed": 300,
+      "duration_ms": 0.74,
+      "scrubs_per_sec": 404694.49
+    },
+    "tier_c_human_gate_safety": {
+      "unauthorized_attempts_tested": 50,
+      "blocked_count": 50,
+      "safety_rate": "100.0%"
+    }
+  },
+  "comparison_matrix": {
+    "single_agent_fast_path": {
+      "average_latency_ms": 130.48,
+      "p50_latency_ms": 118.2,
+      "p95_latency_ms": 164.5,
+      "total_cost_npr": 313.25,
+      "fault_tolerance": "None (single point of failure)",
+      "persistence": "Transient (in-memory only)",
+      "verification_depth": "Low (single reviewer)",
+      "recommended_use": "Simple queries, instant conversational turns"
+    },
+    "flat_swarm_phase11": {
+      "average_latency_ms": 117.9,
+      "p50_latency_ms": 105.4,
+      "p95_latency_ms": 158.0,
+      "total_cost_npr": 965.75,
+      "fault_tolerance": "Moderate (peer re-request)",
+      "persistence": "Partial (SQLite task DAG)",
+      "verification_depth": "Medium (specialist consensus)",
+      "recommended_use": "Parallel independent multi-specialist tasks"
+    },
+    "hierarchical_teams_phase12": {
+      "average_latency_ms": 133.44,
+      "p50_latency_ms": 121.0,
+      "p95_latency_ms": 182.3,
+      "total_cost_npr": 1541.75,
+      "fault_tolerance": "High (supervisor escalation & DAG rollbacks)",
+      "persistence": "High (multi-layer task trees)",
+      "verification_depth": "Maximum (independent QA + Supervisor gate)",
+      "recommended_use": "Complex architectural refactoring & high-risk workflows"
+    },
+    "persistent_autopilot_phase13": {
+      "average_latency_ms": 42.15,
+      "p50_latency_ms": 36.4,
+      "p95_latency_ms": 78.2,
+      "total_cost_npr": 142.5,
+      "fault_tolerance": "Extreme (durable fencing leases, atomic CAS, crash orphan auto-recovery)",
+      "persistence": "Durable (SQLite WAL + monotonic event journal, zero memory leaks)",
+      "verification_depth": "Adaptive (Tier A fast-path, Tier B scoped, Tier C human signed gate)",
+      "recommended_use": "Persistent autonomous cron schedules, health monitors, unattended background ops"
+    }
+  }
+}
