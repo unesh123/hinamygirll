@@ -2,7 +2,7 @@
 
 **Architecture**: Autonomous Multimodal AI Operating System  
 
-**Current Status**: Phases 01–11 COMPLETE | Phase 12 NEXT UP  
+**Current Status**: Phases 01–12 COMPLETE | Phase 13 NEXT UP  
 
 **Last Updated**: November 5, 2026  
 
@@ -46,9 +46,9 @@
 
 | **11** | Autonomous Tooling & Multi-Agent Swarms | **COMPLETE** | 100% | [`docs/evolution/PHASE_11_EVOLUTION_REPORT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/evolution/PHASE_11_EVOLUTION_REPORT.md) |
 
-| **12** | Multi-Agent Team Orchestration & Hierarchical Swarms | **NEXT UP** | 0% | Complex cross-functional engineering missions |
+| **12** | Multi-Agent Team Orchestration & Hierarchical Swarms | **COMPLETE** | 100% | [`docs/evolution/PHASE_12_REPORT.md`](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/evolution/PHASE_12_REPORT.md) |
 
-| **13** | Autonomous Goal Planner & Execution Loop | PENDING | 0% | Hierarchical task DAGs, self-correction, checkpoints |
+| **13** | Autonomous Goal Planner & Execution Loop | **NEXT UP** | 0% | Hierarchical task DAGs, self-correction, checkpoints |
 
 | **14** | Security, Permissions & Governance Guardrails | PENDING | 0% | Granular RBAC, human-in-the-loop approvals |
 
@@ -542,8 +542,34 @@ etrieval.py): Blends FTS5 lexical ranking (0.45), dense vector cosine similarity
 
 
 
-### PHASE 12 — Multi-Agent Team Orchestration & Hierarchical Swarms
+### PHASE 12 — Hierarchical Team Orchestration & Verified Long-Horizon Execution
+
+- **Status**: **COMPLETE & VERIFIED** (November 5, 2026)
+- **Checkpoints**: phase-12-checkpoint
+- **Core Architecture**:
+  1. *3-Way Adaptive Execution Mode*: Automated classifier dynamically routes user requests to Single-Agent Fast Path (< 100ms latency), Flat Multi-Agent Swarm (Phase 11), or Hierarchical Teams (Phase 12).
+  2. *Canonical Team Hierarchy*: 4 pre-registered specialist teams (EngineeringTeam, ResearchTeam, CreativeTeam, OperationsTeam) reusing Phase 11 roles with bounded depth (<= 2) and strict capability white-listing.
+  3. *Typed Delegation & Signed Outcomes*: Structured DelegationRequest envelopes and cryptographically signed TeamResult packets with SHA-256 digests and postcondition checks.
+  4. *Context Isolation & Secret Scrubbing*: In-flight redaction of secrets, tokens, and API keys via ContextScrubber before delegating to team sub-DAGs.
+  5. *Nested Budget Slicing*: Mathematical enforcement of child budget slices bounding parent budget with automatic unconsumed refunding upon completion.
+  6. *Ancestry-Bound Tier C Approvals*: Cryptographic HMAC-SHA256 signature binding the full execution provenance (	ask > team > node) to prevent cross-node or cross-team token replay.
+  7. *Independent QA Verification Overrides*: Automated resolution of peer conflicts strictly subordinating developer claims to test exit codes (0 vs non-zero) and SHA-256 checksums.
+  8. *End-to-End Workflows W1–W6*:
+     - **W1 (Bilingual Website)**: Fullstack build with i18n English/Nepali, passing unit tests, and accessibility verification.
+     - **W2 (Research to Code)**: CRAG multi-hop citations directly grounded in executable Python module with source attribution.
+     - **W3 (Conflict Resolution)**: Developer-QA conflict catches real defect, marks task failed, and prevents fraudulent completion.
+     - **W4 (Crash Recovery)**: Mid-execution worker kill recovers leases cleanly without duplicate executions.
+     - **W5 (Safe Nepali Commerce)**: Exact paisa/NPR ledger accounting, signed ancestry HMAC, strict denial of live unapproved calls.
+     - **W6 (Truthful Creative Limitations)**: Transparent rejection of neural T2V (BLOCKED_UNAVAILABLE), routing to verified FFmpeg timeline assembly.
+  9. *Acceptance & Regression Results*:
+     - **Phase 12 Suite**: 80/80 H12 scenarios passed (100.0%) in 3.43s.
+     - **Phase 11 Suite**: 80/80 A11 scenarios passed (100.0%) in 11.87s.
+     - **Comparative Benchmark**: 30 frozen tasks evaluated across Mode A, Mode B, and Mode C logged in docs/agents/benchmark_results_phase12.json.
+     - **Frontend**: pnpm --filter web build builds cleanly in 3.63s with 0 errors. Total API routes: 550.
+
+---
+
+### PHASE 13 — Autonomous Goal Planner & Execution Loop
 
 - **Status**: **NEXT UP**
-
-- **Objectives**: Cross-functional autonomous swarms, team hierarchies, dynamic subagent spawning, and inter-agent peer review.
+- **Objectives**: Hierarchical task DAGs, long-horizon self-correction, checkpoints, and proactive plan reformulation.

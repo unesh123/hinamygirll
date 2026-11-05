@@ -183,9 +183,9 @@ class HierarchicalPlanner:
                     "All node receipts signed and postconditions met",
                 ],
                 budget_slice=BudgetLedger(
-                    allocated_tokens=team_spec.budget_slice_tokens,
-                    allocated_tool_calls=team_spec.budget_slice_tool_calls,
-                    allocated_cost_paisa=team_spec.budget_slice_paisa,
+                    allocated_tokens=team_spec.budget_slice.allocated_tokens,
+                    allocated_tool_calls=team_spec.budget_slice.allocated_tool_calls,
+                    allocated_cost_paisa=team_spec.budget_slice.allocated_cost_paisa,
                     allocated_seconds=120.0,
                     max_recursion_depth=MAX_HIERARCHY_DEPTH,
                     current_depth=1,
@@ -293,11 +293,13 @@ class HierarchicalPlanner:
                     title="Engineering Team: Workspace Implementation & Code Delivery",
                     specialist_role=AgentRole.ENGINEER,
                     dependencies=list(prior_team_exit_nodes),
-                    allowed_tools=["sandbox_read", "sandbox_write", "sandbox_execute", "git_commit_scoped"],
+                    allowed_tools=["sandbox_write", "sandbox_read", "sandbox_execute", "git_commit_scoped"],
                     permission_tier=PermissionTier.TIER_B_SCOPED_DEV,
                     input_data={
                         "instruction": goal,
                         "team_run_id": team_run_id,
+                        "path": "workspace/bilingual_app.html",
+                        "content": "<!DOCTYPE html><html><body><h1>नमस्ते / Welcome to HINAA</h1></body></html>",
                         "mock_exit_code": 1 if is_w3 else 0,  # Intentional bug in W3
                     },
                     expected_postcondition="Code implementation written and tested in scoped sandbox",

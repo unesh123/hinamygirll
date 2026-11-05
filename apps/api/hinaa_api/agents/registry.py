@@ -65,7 +65,7 @@ class SpecialistRegistry:
                 provider="anthropic",
                 capability_grant=CapabilityGrant(
                     role=AgentRole.PLANNER,
-                    allowed_tools=["dag_validator", "inspect_project_structure"],
+                    allowed_tools=["dag_validator", "inspect_project_structure", "simulate_nepali_payment", "verify_paisa_amount"],
                     permission_tier=PermissionTier.TIER_A_READ_ONLY,
                     max_tokens=16384,
                     max_tool_calls=15,
@@ -149,7 +149,7 @@ class SpecialistRegistry:
                 provider="google",
                 capability_grant=CapabilityGrant(
                     role=AgentRole.BROWSER_OPERATOR,
-                    allowed_tools=["browser_navigate", "browser_click", "browser_type", "browser_screenshot"],
+                    allowed_tools=["browser_navigate", "browser_click", "browser_type", "browser_screenshot", "inspect_accessibility_tree", "verify_page_content"],
                     permission_tier=PermissionTier.TIER_B_SCOPED_DEV,
                     network_egress_allowed=True,
                     max_tokens=16384,
@@ -169,7 +169,7 @@ class SpecialistRegistry:
                 provider="local",
                 capability_grant=CapabilityGrant(
                     role=AgentRole.CREATIVE_OPERATOR,
-                    allowed_tools=["generate_raster", "inpaint_raster", "export_timeline_video"],
+                    allowed_tools=["generate_raster", "inpaint_raster", "export_timeline_video", "generate_video_prompt"],
                     permission_tier=PermissionTier.TIER_B_SCOPED_DEV,
                     max_tokens=8192,
                     max_tool_calls=10,

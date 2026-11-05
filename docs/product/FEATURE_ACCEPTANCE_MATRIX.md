@@ -21,6 +21,7 @@
 | **P9** | NPR Pricing & Bilingual Support | Phase 11 | **SPECIFIED / SANDBOX** | Canonical paisa storage, South Asian digit grouping (`रु 1,25,000.00`), bilingual billing assistance. |
 | **P10** | Long-Term Memory & Knowledge Graph | Phase 10 | **VERIFIED** | 64 M10 scenarios: SQLite WAL ACID persistence, FTS5 BM25, temporal knowledge graph (max 3 hops), non-destructive supersession, quarantine staging, 11 REST endpoints. |
 | **P11** | Autonomous Tooling & Multi-Agent Swarms | Phase 11 | **VERIFIED** | 80 A11 scenarios: 10 canonical specialist roles, acyclic DAG planning, cryptographic ToolReceipts, independent verification oracle, Tier C HMAC approvals, CAS leases, restart recovery, SSE event journal, React 19 UI workspace. |
+| **P12** | Hierarchical Team Orchestration & Long-Horizon Execution | Phase 12 | **VERIFIED** | 80 H12 scenarios: 3-way adaptive routing, 4 canonical team templates, typed delegation packets & outcomes, context isolation & secret scrubbing, nested budget slicing with auto-refunds, complete ancestry HMAC approvals, independent QA overrides, workflows W1–W6 verified, 3-mode comparative benchmark. |
 
 ---
 
@@ -114,3 +115,17 @@
 - [x] Frontend multi-agent workspace (`AgentOrchestrationPanel.tsx`, `AgentTaskGraph.tsx`, `AgentApprovalPanel.tsx`) typechecked with React 19 (`tsc -b` clean).
 - [x] 9 authenticated REST endpoints in `main.py` verified on live daemon serving 548 total routes.
 - [x] Authoritative 80-scenario acceptance benchmark passed (80/80, 100.0%) in 11.48s.
+
+
+### Capability P12: Hierarchical Team Orchestration & Long-Horizon Execution (Phase 12 Sign-Off)
+- [x] **3-Way Adaptive Execution Mode:** Automated classification dynamically routing requests to Single-Agent Fast Path (< 100ms), Flat Multi-Agent Swarm (Phase 11), or Hierarchical Teams (Phase 12).
+- [x] **4 Canonical Team Templates:** EngineeringTeam, ResearchTeam, CreativeTeam, and OperationsTeam registered with strict least-privilege capability grants and subagent budgets.
+- [x] **Typed Delegation & Outcomes:** Bounded DelegationRequest envelopes and cryptographically signed TeamResult packets with SHA-256 digests and postcondition checks.
+- [x] **Context Isolation & Secret Scrubbing:** Credentials, bearer tokens, and API keys scrubbed in-flight by ContextScrubber during team delegation.
+- [x] **Nested Budget Slicing:** Child budgets bounded by parent capacity with automated return/refund of unconsumed allocations.
+- [x] **HMAC-SHA256 Ancestry Binding:** Complete execution ancestry (	ask > team > node) bound in Tier C human authorization tokens preventing replay across nodes/teams.
+- [x] **Independent QA Verification Overrides:** Developer claims strictly subordinated to test exit codes (0 vs non-zero) and artifact SHA-256 verification.
+- [x] **Workflows W1–W6:** Bilingual app build, research to code, conflict rejection, worker crash recovery, safe Nepali commerce, and creative limitation honesty verified.
+- [x] **Acceptance Suite:** 80/80 H12 scenarios passed (100.0%) in 3.43s; 80/80 Phase 11 regression passed (100.0%) in 11.87s.
+- [x] **Comparative Benchmark:** 30 frozen tasks evaluated across Mode A, Mode B, and Mode C logged in docs/agents/benchmark_results_phase12.json.
+- [x] **Frontend & API Routes:** AgentOrchestrationPanel.tsx, AgentTaskGraph.tsx, and AgentApprovalPanel.tsx updated and built cleanly (pnpm --filter web build 3.63s, 0 errors). Live daemon serving 550 total routes.

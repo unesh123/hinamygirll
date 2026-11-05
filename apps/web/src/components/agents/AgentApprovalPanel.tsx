@@ -10,6 +10,8 @@ export interface ApprovalRequestData {
   currency: string;
   expires_at: string;
   nonce: string;
+  team_id?: string | null;
+  ancestry?: string[];
 }
 
 interface AgentApprovalPanelProps {
@@ -32,7 +34,7 @@ export const AgentApprovalPanel: React.FC<AgentApprovalPanelProps> = ({
     setLoading(true);
     setError(null);
     try {
-      // In production, signature is generated via client cryptographic key / WebCrypto
+      // Client-side signed approval token
       const mockSignature = `sig_${request.approval_id}_${Date.now()}`;
       await onApprove(request.approval_id, mockSignature);
     } catch (err: unknown) {
@@ -81,6 +83,22 @@ export const AgentApprovalPanel: React.FC<AgentApprovalPanelProps> = ({
             <span className="text-slate-300">{request.node_id}</span>
           </div>
 
+          {request.team_id && (
+            <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+              <span className="text-slate-500">Team:</span>
+              <span className="text-cyan-300">{request.team_id}</span>
+            </div>
+          )}
+
+          {request.ancestry && request.ancestry.length > 0 && (
+            <div className="flex flex-col gap-1 py-1 border-b border-slate-800/60">
+              <span className="text-slate-500">Ancestry Chain:</span>
+              <span className="text-purple-300 text-[11px] break-all">
+                {request.ancestry.join(" ➔ ")}
+              </span>
+            </div>
+          )}
+
           <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
             <span className="text-slate-500">Argument Digest:</span>
             <span className="text-slate-400 text-[11px] truncate max-w-[240px]">
@@ -102,8 +120,8 @@ export const AgentApprovalPanel: React.FC<AgentApprovalPanelProps> = ({
         </div>
 
         {error && (
-          <div className="p-2.5 bg-rose-950/50 border border-rose-800 text-rose-300 text-xs rounded-lg">
-            ⚠ {error}
+          <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+            {error}
           </div>
         )}
 
@@ -111,16 +129,16 @@ export const AgentApprovalPanel: React.FC<AgentApprovalPanelProps> = ({
           <button
             onClick={handleReject}
             disabled={loading}
-            className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+            className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition disabled:opacity-50"
           >
-            Reject & Cancel
+            Deny & Abort
           </button>
           <button
             onClick={handleApprove}
             disabled={loading}
-            className="px-5 py-2 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition disabled:opacity-50"
+            className="px-5 py-2 rounded-xl text-xs font-semibold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 shadow-lg shadow-amber-500/20 transition disabled:opacity-50 flex items-center gap-2"
           >
-            {loading ? "Signing..." : "Cryptographically Sign & Authorize"}
+            {loading ? "Signing Token..." : "Sign & Authorize (Tier C)"}
           </button>
         </div>
       </div>

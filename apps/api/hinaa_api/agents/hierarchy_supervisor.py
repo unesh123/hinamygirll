@@ -333,7 +333,7 @@ class HierarchicalSupervisor:
             task_id=task.task_id,
             node=node,
             tool_name=tool,
-            action="execute",
+            action=tool,
             arguments=node.input_data,
             approval_id=approval_id,
         )

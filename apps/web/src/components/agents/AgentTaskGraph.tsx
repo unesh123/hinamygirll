@@ -40,6 +40,10 @@ export interface TaskNodeData {
   result_data?: Record<string, unknown> | null;
   error?: string | null;
   attempts: number;
+  team_id?: string | null;
+  team_type?: string | null;
+  ancestry?: string[];
+  depth?: number;
 }
 
 interface AgentTaskGraphProps {
@@ -98,11 +102,26 @@ export const AgentTaskGraph: React.FC<AgentTaskGraphProps> = ({
     }
   };
 
+  const getTeamBadgeColor = (teamType?: string | null) => {
+    switch (teamType) {
+      case "engineering":
+        return "bg-cyan-950/60 border-cyan-800/50 text-cyan-400";
+      case "research":
+        return "bg-indigo-950/60 border-indigo-800/50 text-indigo-400";
+      case "creative":
+        return "bg-fuchsia-950/60 border-fuchsia-800/50 text-fuchsia-400";
+      case "operations":
+        return "bg-emerald-950/60 border-emerald-800/50 text-emerald-400";
+      default:
+        return "bg-slate-800/60 border-slate-700/50 text-slate-400";
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3 p-4 bg-slate-900/60 rounded-xl border border-slate-800">
       <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-2">
         <span className="font-semibold uppercase tracking-wider text-slate-300">
-          Directed Acyclic Task Graph (DAG)
+          Hierarchical Task Graph (DAG)
         </span>
         <span className="text-slate-500">{nodes.length} nodes scheduled</span>
       </div>
@@ -110,11 +129,15 @@ export const AgentTaskGraph: React.FC<AgentTaskGraphProps> = ({
       <div className="flex flex-col gap-2 relative">
         {nodes.map((node, index) => {
           const isActive = activeNodeId === node.node_id;
+          const isNested = (node.depth || 0) > 1;
+
           return (
             <div
               key={node.node_id}
               onClick={() => onSelectNode && onSelectNode(node)}
               className={`p-3 rounded-lg border transition-all cursor-pointer flex flex-col gap-2 ${
+                isNested ? "ml-4 border-l-2" : ""
+              } ${
                 isActive
                   ? "border-cyan-500/80 bg-slate-800/80 shadow-lg shadow-cyan-500/10"
                   : "border-slate-800/80 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-800/40"
@@ -127,21 +150,39 @@ export const AgentTaskGraph: React.FC<AgentTaskGraphProps> = ({
                     {index + 1}. {node.title}
                   </span>
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded text-[11px] font-mono border ${getStatusBadge(
-                    node.status
-                  )}`}
-                >
-                  {node.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  {node.team_type && (
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono border uppercase tracking-wider ${getTeamBadgeColor(
+                        node.team_type
+                      )}`}
+                    >
+                      {node.team_type}
+                    </span>
+                  )}
+                  <span
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono border ${getStatusBadge(
+                      node.status
+                    )}`}
+                  >
+                    {node.status}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
+              <div className="flex items-center gap-3 text-xs text-slate-400 font-mono flex-wrap">
                 <span className="text-slate-500">role:</span>
                 <span className="text-cyan-300">{node.specialist_role}</span>
                 <span className="text-slate-600">•</span>
                 <span className="text-slate-500">tier:</span>
                 <span className="text-slate-300">{node.permission_tier}</span>
+                {node.depth !== undefined && node.depth > 0 && (
+                  <>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-slate-500">depth:</span>
+                    <span className="text-purple-300">{node.depth}</span>
+                  </>
+                )}
                 {node.dependencies.length > 0 && (
                   <>
                     <span className="text-slate-600">•</span>

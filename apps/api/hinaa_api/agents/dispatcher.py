@@ -56,7 +56,7 @@ class TaskDispatcher:
         # Explicit hierarchical triggers
         hierarchical_triggers = [
             "hierarchical", "nested", "cross-team", "team orchestration",
-            "bilingual website build", "workflow w1", "workflow w2", "workflow w3",
+            "bilingual website", "bilingual website build", "workflow w1", "workflow w2", "workflow w3",
             "workflow w4", "workflow w5", "workflow w6", "w1", "w2", "w3", "w4", "w5", "w6",
             "engineering team", "research team", "creative team", "operations team",
             "full-stack app", "multi-team", "nested team"

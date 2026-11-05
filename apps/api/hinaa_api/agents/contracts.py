@@ -112,6 +112,22 @@ class TeamSpec(BaseModel):
     budget_slice: BudgetLedger = Field(default_factory=lambda: BudgetLedger())
     max_workers: int = 4
 
+    @property
+    def team_name(self) -> str:
+        return self.display_name
+
+    @property
+    def budget_slice_tokens(self) -> int:
+        return self.budget_slice.allocated_tokens
+
+    @property
+    def budget_slice_tool_calls(self) -> int:
+        return self.budget_slice.allocated_tool_calls
+
+    @property
+    def budget_slice_paisa(self) -> int:
+        return self.budget_slice.allocated_cost_paisa
+
 
 class ToolReceipt(BaseModel):
     receipt_id: str = Field(default_factory=lambda: f"rcpt-{uuid.uuid4().hex[:12]}")
@@ -120,13 +136,13 @@ class ToolReceipt(BaseModel):
     agent_role: AgentRole
     tool_name: str
     action: str
-    input_digest: str
-    output_digest: str
+    input_digest: str = ""
+    output_digest: str = ""
     exit_code: int = 0
     duration_ms: float = 0.0
     verified: bool = False
     verification_notes: Optional[str] = None
-    idempotency_key: str
+    idempotency_key: str = Field(default_factory=lambda: f"idem-{uuid.uuid4().hex[:10]}")
     timestamp: str = Field(default_factory=_now_iso)
     artifact_paths: list[str] = Field(default_factory=list)
 
