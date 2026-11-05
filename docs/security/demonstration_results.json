@@ -1,0 +1,70 @@
+{
+  "E1": {
+    "name": "Allowed coding workflow with real audit receipt",
+    "status": "PASS",
+    "decision": "allow",
+    "reason_code": "AUTHORIZED",
+    "audit_sequence_id": 1,
+    "audit_event_hash": "fd5300ba3eb74774...",
+    "audit_prev_hash": "0000000000000000..."
+  },
+  "E2": {
+    "name": "Denied cross-tenant memory/asset/cookie access (BOLA Defense)",
+    "status": "PASS",
+    "decision": "deny",
+    "reason_code": "CROSS_TENANT_ACCESS_DENIED",
+    "audit_sequence_id": 2,
+    "audit_decision": "deny"
+  },
+  "E3": {
+    "name": "Nepal payment sandbox approval with anti-tamper and anti-replay",
+    "status": "PASS",
+    "challenge_id": "chl_a8ebb55dca228f4c3699d4b4",
+    "tampered_amount_result": {
+      "ok": false,
+      "reason": "PARAMETER_TAMPERED"
+    },
+    "legitimate_consumption_result": {
+      "ok": true,
+      "reason": "AUTHORIZED"
+    },
+    "replay_attempt_result": {
+      "ok": false,
+      "reason": "ALREADY_CONSUMED_REPLAY_BLOCKED"
+    }
+  },
+  "E4": {
+    "name": "Malicious prompt injection stopped at PEP boundary",
+    "status": "PASS",
+    "decision": "deny",
+    "reason_code": "PROMPT_INJECTION_DETECTED: Ignore previous instructions"
+  },
+  "E5": {
+    "name": "Crash/restart + audit verification + tamper detection",
+    "status": "PASS",
+    "chain_before_tamper": {
+      "is_valid": true,
+      "records": 3
+    },
+    "chain_after_tamper": {
+      "is_valid": false,
+      "detected_errors": [
+        "Content integrity failure at sequence 2: stored event_hash fc0b9a4e72b7cc13f354edb94756570aa06c3fff1ef22d05e254162620bddbf5 does not match recomputed 92f8b582d9f6ef6c6bb584e98efed261114b2d998aec2efe847bb18a0c1d9fc1."
+      ]
+    }
+  },
+  "E6": {
+    "name": "Security UI + Trilingual Risk Explanation + Zero Secret Leakage",
+    "status": "PASS",
+    "ui_component": "apps/web/src/components/security/SecurityCenterPanel.tsx",
+    "honest_keystore": "SOFTWARE_DPAPI",
+    "is_hardware_backed": false,
+    "honest_host_isolation": "PROCESS_JOB_OBJECT",
+    "can_execute_untrusted_code": false,
+    "trilingual_risk_notice": {
+      "en": "High-impact action requires cryptographic authorization. This operation cannot be undone.",
+      "ne": "\u0909\u091a\u094d\u091a-\u091c\u094b\u0916\u093f\u092e \u0915\u093e\u0930\u094d\u092f\u0915\u093e \u0932\u093e\u0917\u093f \u0924\u092a\u093e\u0907\u0901\u0915\u094b \u0938\u094d\u092a\u0937\u094d\u091f \u0938\u0939\u092e\u0924\u093f \u0906\u0935\u0936\u094d\u092f\u0915 \u091b\u0964 \u092f\u094b \u0915\u093e\u0930\u094d\u092f \u092b\u093f\u0930\u094d\u0924\u093e \u0917\u0930\u094d\u0928 \u0938\u0915\u093f\u0901\u0926\u0948\u0928\u0964",
+      "romanized": "Uchcha-jokhim karya ko lagi tapai ko anumati chahincha. Yo operation undo garna sakidaina."
+    }
+  }
+}

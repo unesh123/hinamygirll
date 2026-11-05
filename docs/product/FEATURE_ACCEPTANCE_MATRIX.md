@@ -24,6 +24,7 @@
 | **P12** | Hierarchical Team Orchestration & Long-Horizon Execution | Phase 12 | **VERIFIED** | 80 H12 scenarios: 3-way adaptive routing, 4 canonical team templates, typed delegation packets & outcomes, context isolation & secret scrubbing, nested budget slicing with auto-refunds, complete ancestry HMAC approvals, independent QA overrides, workflows W1–W6 verified, 3-mode comparative benchmark. |
 | **P13** | Persistent Autopilot, Durable Background Tasks & Resource-Aware Autonomous Operations | Phase 13 | **VERIFIED** | 80 A13 scenarios: SQLite WAL persistence, atomic CAS claiming, fencing tokens, deterministic 5-field cron, Asia/Kathmandu timezones, integer paisa minor-unit budgeting, SSRF/PII scrubbing, Tier C HMAC approvals, 5 real workflows (W1–W5), React 19 AutopilotDashboard, ElevenLabs voice perfection, 3D character lip sync & expression perfection. |
 | **P14** | Autonomous Goal Planner & Continuous Self-Correction | Phase 14 | **VERIFIED** | 80 G14 scenarios: Scoped intake, milestone DAGs, independent critic evaluation, 9-step bounded replanning, loop detection (Jaccard >= 0.80), observed self-model, quarantined reflections, parameter-bound HMAC approvals, crash recovery, 8 real demonstrations D1–D8, React 19 GoalsDashboard. |
+| **P15** | Security, Permissions & Governance Guardrails | Phase 15 | **VERIFIED** | 80 S15 scenarios: Central PDP/PEP (RBAC/ABAC/Delegation intersection), parameter-bound cryptographic human approval ceremonies, honest Windows DPAPI keystore & Job Object posture, append-only tamper-evident hash-chained audit trail, SecurityControlCenter UI. |
 
 ---
 
@@ -143,3 +144,13 @@
 - [x] **3D Avatar Lip Sync & Expression Perfection:** R3F context bridging for SpeechPlaybackContext, high-precision audio timestamp viseme sync, lower jaw articulation (jawOpen / mouthOpen), and sweet resting anime expressions.
 - [x] **Acceptance Suite:** 80/80 A13 scenarios passed (100.0%) in 1.94s; 80/80 Phase 12 regression passed (100.0%); 64/64 Phase 10 regression passed (100.0%).
 - [x] **Frontend & API Routes:** AutopilotDashboard.tsx built cleanly (pnpm --filter web build in 4.82s, 0 errors). Live daemon serving 568 total routes.
+
+### Capability P15: Security, Permissions & Governance Guardrails (Phase 15 Sign-Off)
+- [x] Central Policy Decision Point (PDP) and Policy Enforcement Points (PEPs) for REST, SSE/WS, and tool execution.
+- [x] Multi-tenant RBAC + ABAC + delegation capability intersection.
+- [x] Cryptographic parameter-bound single-use human approval ceremonies (HMAC-SHA256, nonce anti-replay, parameter digest).
+- [x] Honest platform keystore probing (Windows DPAPI, is_hardware_backed: False) and universal zero-leak secret scrubber.
+- [x] Runtime host privilege boundary auditing (Windows Job Objects, can_execute_untrusted_code: False, path traversal / NTFS junction defense).
+- [x] Append-only tamper-evident audit trail with canonical hash chaining, sequence monotonicity, and verify_audit_chain().
+- [x] Frontend Security Control Center (apps/web/src/components/security/SecurityCenterPanel.tsx) with trilingual risk notices (English, Nepali, Romanized).
+- [x] 80/80 S15 scenarios and 6/6 mandatory demonstrations (E1-E6) verified.

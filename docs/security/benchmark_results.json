@@ -1,0 +1,747 @@
+{
+  "phase": "Phase 15: Security, Permissions & Governance Guardrails",
+  "checkpoint": "phase-15-checkpoint",
+  "timestamp": "2026-11-06T00:20:07+0545",
+  "metrics": {
+    "total_scenarios": 80,
+    "passed": 80,
+    "failed": 0,
+    "blocked": 0,
+    "suite_duration_seconds": 15.74,
+    "cross_phase_regression_total": 464,
+    "cross_phase_regression_passed": 464
+  },
+  "posture": {
+    "keystore_type": "SOFTWARE_DPAPI",
+    "is_hardware_backed": false,
+    "host_isolation_level": "PROCESS_JOB_OBJECT",
+    "can_execute_untrusted_code": false
+  },
+  "routes": {
+    "total_app_routes": 571,
+    "unique_openapi_paths": 466,
+    "security_endpoints_count": 10
+  },
+  "scenarios": [
+    {
+      "test_id": "S15-01",
+      "class": "I",
+      "scenario": "A baseline checkpoint",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-02",
+      "class": "I",
+      "scenario": "Normalized route diff",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-03",
+      "class": "I",
+      "scenario": "Trust boundary threat model",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-04",
+      "class": "I",
+      "scenario": "Single authority policy enforcement map",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-05",
+      "class": "I",
+      "scenario": "No inherited green claims",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-06",
+      "class": "I",
+      "scenario": "Personal desktop versus cloud posture",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-07",
+      "class": "A",
+      "scenario": "Unknown-action default deny",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-08",
+      "class": "R",
+      "scenario": "Baseline regression smoke",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-09",
+      "class": "E",
+      "scenario": "Anonymous protected route",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-10",
+      "class": "E",
+      "scenario": "Viewer cannot administer",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-11",
+      "class": "E",
+      "scenario": "Operator can perform limited action",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-12",
+      "class": "A",
+      "scenario": "Server-verified tenant identity",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-13",
+      "class": "I",
+      "scenario": "Privilege change propagation",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-14",
+      "class": "A",
+      "scenario": "Cross-tenant role forgery",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-15",
+      "class": "E",
+      "scenario": "Session expiration & logout",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-16",
+      "class": "A",
+      "scenario": "CSRF, CORS & cookie contract",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-17",
+      "class": "E",
+      "scenario": "Memory BOLA read",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-18",
+      "class": "I",
+      "scenario": "Memory BOLA search",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-19",
+      "class": "E",
+      "scenario": "Memory export scope",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-20",
+      "class": "E",
+      "scenario": "Creative asset download isolation",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-21",
+      "class": "A",
+      "scenario": "Browser artifacts and cookies",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-22",
+      "class": "S",
+      "scenario": "Coding workspace project ACL",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-23",
+      "class": "I",
+      "scenario": "Field-level finance privacy",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-24",
+      "class": "I",
+      "scenario": "Deletion and audit minimization",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-25",
+      "class": "I",
+      "scenario": "Parent-child grants intersection",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-26",
+      "class": "A",
+      "scenario": "Supervisor self-promotion attempt",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-27",
+      "class": "A",
+      "scenario": "Prompt injection from README",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-28",
+      "class": "A",
+      "scenario": "Prompt injection from CRAG retrieval",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-29",
+      "class": "A",
+      "scenario": "Browser DOM instruction laundering",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-30",
+      "class": "A",
+      "scenario": "Memory poisoning and promotion",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-31",
+      "class": "I",
+      "scenario": "Revocation during nested long task",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-32",
+      "class": "I",
+      "scenario": "Runtime policy version pinning",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-33",
+      "class": "E",
+      "scenario": "No agent self-approval",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-34",
+      "class": "E",
+      "scenario": "Complete high-risk approval display",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-35",
+      "class": "A",
+      "scenario": "Changed amount invalidates approval",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-36",
+      "class": "A",
+      "scenario": "Cross-node cross-task replay",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-37",
+      "class": "I",
+      "scenario": "Atomic one-time nonce under concurrency",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-38",
+      "class": "I",
+      "scenario": "Expired approval after server restart",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-39",
+      "class": "I",
+      "scenario": "Revocation and signing-key rotation",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-40",
+      "class": "A",
+      "scenario": "Gateway callback is not user approval",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-41",
+      "class": "S",
+      "scenario": "Actual key-store runtime probe",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-42",
+      "class": "E",
+      "scenario": "No raw keys from secrets API",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-43",
+      "class": "S",
+      "scenario": "Frontend bundle secret scan",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-44",
+      "class": "S",
+      "scenario": "Environment and subprocess scrubbing",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-45",
+      "class": "S",
+      "scenario": "Git history and file scan",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-46",
+      "class": "I",
+      "scenario": "Prompt/output and SSE redaction",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-47",
+      "class": "I",
+      "scenario": "Key rotation continuity",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-48",
+      "class": "S",
+      "scenario": "Backups and restore protect keys",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-49",
+      "class": "I",
+      "scenario": "Allow and deny audit receipts",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-50",
+      "class": "I",
+      "scenario": "Canonical event hash chain",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-51",
+      "class": "S",
+      "scenario": "Single-record tamper detection",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-52",
+      "class": "S",
+      "scenario": "Truncation and deletion detection",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-53",
+      "class": "I",
+      "scenario": "Concurrent writer monotonicity",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-54",
+      "class": "S",
+      "scenario": "Restart after crash",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-55",
+      "class": "E",
+      "scenario": "Unauthorized audit access denied",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-56",
+      "class": "E",
+      "scenario": "Incident stop and containment",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-57",
+      "class": "S",
+      "scenario": "Untrusted-code isolation honesty",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-58",
+      "class": "S",
+      "scenario": "Workspace path/junction defense",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-59",
+      "class": "S",
+      "scenario": "Network egress policy",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-60",
+      "class": "S",
+      "scenario": "No privileged mounts or sockets",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-61",
+      "class": "S",
+      "scenario": "Process tree and budget enforcement",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-62",
+      "class": "I",
+      "scenario": "Async job prevents duplicate mutation",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-63",
+      "class": "A",
+      "scenario": "Agent tool registry tamper",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-64",
+      "class": "A",
+      "scenario": "External tool exfiltration block",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-65",
+      "class": "I",
+      "scenario": "PDP outage fail closed",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-66",
+      "class": "S",
+      "scenario": "Auth/approval service restart",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-67",
+      "class": "I",
+      "scenario": "Grant cache invalidation",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-68",
+      "class": "I",
+      "scenario": "Audit sink outage behavior",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-69",
+      "class": "S",
+      "scenario": "Secret store unavailable behavior",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-70",
+      "class": "I",
+      "scenario": "Migration and rollback safety",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-71",
+      "class": "E",
+      "scenario": "Policy overhead benchmark",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-72",
+      "class": "E",
+      "scenario": "False deny and normal user journey",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-73",
+      "class": "E",
+      "scenario": "Permissions dashboard from actual API",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-74",
+      "class": "E",
+      "scenario": "Human approval and reject flow",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-75",
+      "class": "E",
+      "scenario": "Bilingual risk explanations",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-76",
+      "class": "A",
+      "scenario": "SSE/WebSocket tenant authorization",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-77",
+      "class": "R",
+      "scenario": "Phase 14 and RV regressions",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-78",
+      "class": "R",
+      "scenario": "Agent/autopilot/memory regressions",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-79",
+      "class": "R",
+      "scenario": "Coding/browser/creative/research/build",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    },
+    {
+      "test_id": "S15-80",
+      "class": "A",
+      "scenario": "Release gate with adversarial negative control",
+      "status": "PASS",
+      "duration_ms": 196.7,
+      "evidence_file": "apps/api/tests/security/test_s15_suite.py",
+      "assertions_passed": true
+    }
+  ]
+}
