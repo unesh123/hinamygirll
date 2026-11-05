@@ -1,0 +1,16 @@
+{
+  "workflow": "repo_health_monitor",
+  "target_path": ".",
+  "test_command": [
+    "C:\\Python314\\python.exe",
+    "-c",
+    "print('Sandbox OK')"
+  ],
+  "exit_code": 0,
+  "status": "PASSED",
+  "duration_ms": 49.944162368774414,
+  "summary": "Sandbox OK",
+  "patch_suggestion": null,
+  "pushed_to_remote": false,
+  "timestamp_utc": 1793880722.3893962
+}
