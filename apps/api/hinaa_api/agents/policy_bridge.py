@@ -1,7 +1,7 @@
 """
-HINAA OS — Phase 11 Universal Policy Bridge & Approval Gate
+HINAA OS — Phase 11 & Phase 12 Universal Policy Bridge & Approval Gate
 Bridges to Phase 07 and 08 security policies, enforces multi-tenant boundaries,
-and verifies HMAC-SHA256 one-time-use action approval tokens.
+and verifies HMAC-SHA256 one-time-use action approval tokens with complete ancestry binding.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .contracts import (
     ApprovalRecord,
@@ -28,7 +28,7 @@ _APPROVAL_SECRET = os.getenv("HINAA_APPROVAL_SECRET", "hinaa_secure_approval_sec
 
 
 class PolicyBridge:
-    """Enforces authorization tiers, HMAC approval validation, and tenant isolation."""
+    """Enforces authorization tiers, HMAC approval validation, ancestry binding, and tenant isolation."""
 
     def __init__(self) -> None:
         self._approvals: Dict[str, ApprovalRecord] = {}
@@ -58,15 +58,23 @@ class PolicyBridge:
         amount_paisa: int = 0,
         currency: str = "NPR",
         ttl_seconds: int = 600,
+        team_id: Optional[str] = None,
+        ancestry: Optional[List[str]] = None,
     ) -> ApprovalRecord:
-        """Generate a cryptographically signed approval record bound to exact action and arguments."""
+        """Generate a cryptographically signed approval record bound to exact action, arguments, and optional ancestry."""
         arg_digest = _digest_dict(arguments)
         now_ts = time.time()
         expires_at = datetime.fromtimestamp(now_ts + ttl_seconds, tz=timezone.utc).isoformat()
         nonce = uuid.uuid4().hex
 
-        # Construct HMAC signature
-        raw_msg = f"{tenant_id}:{user_id}:{task_id}:{node_id}:{action}:{arg_digest}:{amount_paisa}:{nonce}:{expires_at}"
+        ancestry_list = ancestry or []
+        team_str = team_id or ""
+        if ancestry_list or team_str:
+            ancestry_str = ":".join(ancestry_list)
+            raw_msg = f"{ancestry_str}:{tenant_id}:{user_id}:{team_str}:{node_id}:{action}:{arg_digest}:{amount_paisa}:{nonce}:{expires_at}"
+        else:
+            raw_msg = f"{tenant_id}:{user_id}:{task_id}:{node_id}:{action}:{arg_digest}:{amount_paisa}:{nonce}:{expires_at}"
+
         sig = hmac.new(_APPROVAL_SECRET.encode("utf-8"), raw_msg.encode("utf-8"), hashlib.sha256).hexdigest()
 
         rec = ApprovalRecord(
@@ -83,6 +91,8 @@ class PolicyBridge:
             approved=False,
             used=False,
             signature=sig,
+            team_id=team_id,
+            ancestry=ancestry_list,
         )
         self._approvals[rec.approval_id] = rec
         return rec
@@ -94,9 +104,11 @@ class PolicyBridge:
         action: str,
         arguments: dict[str, Any],
         amount_paisa: int = 0,
+        team_id: Optional[str] = None,
+        ancestry: Optional[List[str]] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
-        Verify token integrity, single-use nonce, and exact argument match before consumption.
+        Verify token integrity, single-use nonce, ancestry binding, and exact argument match before consumption.
         Fails closed on any discrepancy.
         """
         if self._emergency_stop:
@@ -126,13 +138,24 @@ class PolicyBridge:
         if rec.amount_paisa != amount_paisa:
             return False, "PRICE_AMOUNT_MISMATCH"
 
+        if ancestry is not None and rec.ancestry != ancestry:
+            return False, "ANCESTRY_MISMATCH"
+
+        if team_id is not None and rec.team_id != team_id:
+            return False, "TEAM_MISMATCH"
+
         # Verify argument digest match
         cur_digest = _digest_dict(arguments)
         if rec.argument_digest != cur_digest:
             return False, "ARGUMENTS_TAMPERED"
 
         # Re-verify HMAC signature
-        expected_raw = f"{rec.tenant_id}:{rec.user_id}:{rec.task_id}:{rec.node_id}:{rec.action}:{rec.argument_digest}:{rec.amount_paisa}:{rec.nonce}:{rec.expires_at}"
+        if rec.ancestry or rec.team_id:
+            ancestry_str = ":".join(rec.ancestry)
+            expected_raw = f"{ancestry_str}:{rec.tenant_id}:{rec.user_id}:{rec.team_id or ''}:{rec.node_id}:{rec.action}:{rec.argument_digest}:{rec.amount_paisa}:{rec.nonce}:{rec.expires_at}"
+        else:
+            expected_raw = f"{rec.tenant_id}:{rec.user_id}:{rec.task_id}:{rec.node_id}:{rec.action}:{rec.argument_digest}:{rec.amount_paisa}:{rec.nonce}:{rec.expires_at}"
+
         expected_sig = hmac.new(_APPROVAL_SECRET.encode("utf-8"), expected_raw.encode("utf-8"), hashlib.sha256).hexdigest()
 
         if not hmac.compare_digest(rec.signature, expected_sig):

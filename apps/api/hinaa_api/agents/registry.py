@@ -1,6 +1,6 @@
 """
-HINAA OS — Phase 11 Specialist Agent Registry
-Authoritative registry defining specialized agent roles, capability whitelists,
+HINAA OS — Phase 11 & Phase 12 Specialist Agent & Team Registry
+Authoritative registry defining specialized agent roles, team templates, capability whitelists,
 model routing, and provider health/degradation states.
 """
 
@@ -12,19 +12,24 @@ from typing import Dict, List, Optional
 from .contracts import (
     AgentRole,
     AgentSpec,
+    BudgetLedger,
     CapabilityGrant,
     PermissionTier,
+    TeamSpec,
+    TeamType,
 )
 
 logger = logging.getLogger("hinaa.agents.registry")
 
 
 class SpecialistRegistry:
-    """Manages the lifecycle, capability grants, and health of specialist agents."""
+    """Manages the lifecycle, capability grants, and health of specialist agents and teams."""
 
     def __init__(self) -> None:
         self._specs: Dict[AgentRole, AgentSpec] = {}
+        self._team_specs: Dict[TeamType, TeamSpec] = {}
         self._initialize_specialists()
+        self._initialize_teams()
 
     def _initialize_specialists(self) -> None:
         """Register the 10 canonical specialist roles with least-privilege capability grants."""
@@ -60,7 +65,7 @@ class SpecialistRegistry:
                 provider="anthropic",
                 capability_grant=CapabilityGrant(
                     role=AgentRole.PLANNER,
-                    allowed_tools=["dag_validator", "inspect_project_structure"],
+                    allowed_tools=["dag_validator", "inspect_project_structure", "simulate_nepali_payment", "verify_paisa_amount"],
                     permission_tier=PermissionTier.TIER_A_READ_ONLY,
                     max_tokens=16384,
                     max_tool_calls=15,
@@ -144,7 +149,7 @@ class SpecialistRegistry:
                 provider="google",
                 capability_grant=CapabilityGrant(
                     role=AgentRole.BROWSER_OPERATOR,
-                    allowed_tools=["browser_navigate", "browser_click", "browser_type", "browser_screenshot"],
+                    allowed_tools=["browser_navigate", "browser_click", "browser_type", "browser_screenshot", "inspect_accessibility_tree", "verify_page_content"],
                     permission_tier=PermissionTier.TIER_B_SCOPED_DEV,
                     network_egress_allowed=True,
                     max_tokens=16384,
@@ -164,7 +169,7 @@ class SpecialistRegistry:
                 provider="local",
                 capability_grant=CapabilityGrant(
                     role=AgentRole.CREATIVE_OPERATOR,
-                    allowed_tools=["generate_raster", "inpaint_raster", "export_timeline_video"],
+                    allowed_tools=["generate_raster", "inpaint_raster", "export_timeline_video", "generate_video_prompt"],
                     permission_tier=PermissionTier.TIER_B_SCOPED_DEV,
                     max_tokens=8192,
                     max_tool_calls=10,
@@ -232,6 +237,106 @@ class SpecialistRegistry:
             )
         )
 
+    def _initialize_teams(self) -> None:
+        """Register the 4 canonical team templates composed of the 10 specialist roles."""
+        
+        # 1. Engineering Team
+        self.register_team(
+            TeamSpec(
+                team_id="team-engineering",
+                team_type=TeamType.ENGINEERING,
+                display_name="Engineering Core Team",
+                description="Specialized in software development, builds, sandbox execution, browser testing, and independent QA verification.",
+                lead_role=AgentRole.ENGINEER,
+                member_roles=[AgentRole.ENGINEER, AgentRole.QA, AgentRole.BROWSER_OPERATOR],
+                capability_grant=CapabilityGrant(
+                    role=AgentRole.ENGINEER,
+                    allowed_tools=[
+                        "sandbox_read", "sandbox_write", "sandbox_execute", "git_commit_scoped",
+                        "run_test_suite", "verify_file_hash", "check_exit_code",
+                        "browser_navigate", "browser_screenshot"
+                    ],
+                    permission_tier=PermissionTier.TIER_B_SCOPED_DEV,
+                    workspace_scoped=True,
+                    max_tokens=49152,
+                    max_tool_calls=50,
+                ),
+                budget_slice=BudgetLedger(allocated_tokens=49152, allocated_tool_calls=50, allocated_cost_paisa=15000),
+            )
+        )
+
+        # 2. Research Team
+        self.register_team(
+            TeamSpec(
+                team_id="team-research",
+                team_type=TeamType.RESEARCH,
+                display_name="Grounded Research & Localization Team",
+                description="Conducts multi-hop evidence gathering, source verification, citation extraction, and bilingual Nepali cultural adaptation.",
+                lead_role=AgentRole.RESEARCHER,
+                member_roles=[AgentRole.RESEARCHER, AgentRole.KNOWLEDGE_CURATOR, AgentRole.LOCALIZATION_SPECIALIST],
+                capability_grant=CapabilityGrant(
+                    role=AgentRole.RESEARCHER,
+                    allowed_tools=[
+                        "crag_search", "fetch_url_content", "extract_citations",
+                        "stage_ingestion_candidate", "query_knowledge_graph",
+                        "translate_text", "validate_devanagari_encoding"
+                    ],
+                    permission_tier=PermissionTier.TIER_A_READ_ONLY,
+                    network_egress_allowed=True,
+                    max_tokens=32768,
+                    max_tool_calls=35,
+                ),
+                budget_slice=BudgetLedger(allocated_tokens=32768, allocated_tool_calls=35, allocated_cost_paisa=8000),
+            )
+        )
+
+        # 3. Creative Team
+        self.register_team(
+            TeamSpec(
+                team_id="team-creative",
+                team_type=TeamType.CREATIVE,
+                display_name="Creative Studio & Asset Team",
+                description="Produces supported raster imagery, masked inpainting, and timeline video exports with truthful limitation reporting.",
+                lead_role=AgentRole.CREATIVE_OPERATOR,
+                member_roles=[AgentRole.CREATIVE_OPERATOR, AgentRole.QA],
+                capability_grant=CapabilityGrant(
+                    role=AgentRole.CREATIVE_OPERATOR,
+                    allowed_tools=[
+                        "generate_raster", "inpaint_raster", "export_timeline_video",
+                        "verify_file_hash", "check_exit_code"
+                    ],
+                    permission_tier=PermissionTier.TIER_B_SCOPED_DEV,
+                    max_tokens=16384,
+                    max_tool_calls=20,
+                ),
+                budget_slice=BudgetLedger(allocated_tokens=16384, allocated_tool_calls=20, allocated_cost_paisa=5000),
+            )
+        )
+
+        # 4. Operations Team
+        self.register_team(
+            TeamSpec(
+                team_id="team-operations",
+                team_type=TeamType.OPERATIONS,
+                display_name="Operations & Security Team",
+                description="Governs graph planning, browser automation runs, tenant boundary auditing, and security review.",
+                lead_role=AgentRole.PLANNER,
+                member_roles=[AgentRole.PLANNER, AgentRole.BROWSER_OPERATOR, AgentRole.SECURITY_REVIEWER],
+                capability_grant=CapabilityGrant(
+                    role=AgentRole.PLANNER,
+                    allowed_tools=[
+                        "dag_validator", "inspect_project_structure",
+                        "browser_navigate", "browser_screenshot",
+                        "audit_secret_canaries", "detect_prompt_injection", "validate_tenant_bounds"
+                    ],
+                    permission_tier=PermissionTier.TIER_A_READ_ONLY,
+                    max_tokens=24576,
+                    max_tool_calls=25,
+                ),
+                budget_slice=BudgetLedger(allocated_tokens=24576, allocated_tool_calls=25, allocated_cost_paisa=6000),
+            )
+        )
+
     def register_agent(self, spec: AgentSpec) -> None:
         """Register or update an agent specification in the catalog."""
         self._specs[spec.role] = spec
@@ -291,6 +396,25 @@ class SpecialistRegistry:
                     logger.warning("Agent %s degraded: provider %s is unavailable.", spec.role, provider)
                 else:
                     spec.is_available = True
+
+    # --- Phase 12 Team Templates ---
+
+    def register_team(self, spec: TeamSpec) -> None:
+        """Register or update a team template specification."""
+        self._team_specs[spec.team_type] = spec
+
+    def get_team_spec(self, team_type: TeamType | str) -> Optional[TeamSpec]:
+        """Fetch team template spec by TeamType."""
+        if isinstance(team_type, str):
+            try:
+                team_type = TeamType(team_type)
+            except ValueError:
+                return None
+        return self._team_specs.get(team_type)
+
+    def list_teams(self) -> List[TeamSpec]:
+        """List all 4 canonical team template specifications."""
+        return list(self._team_specs.values())
 
 
 # Singleton registry instance

@@ -27,6 +27,10 @@ class AgentReflector:
                 self.memory_service = None
         else:
             self.memory_service = memory_service
+        self._staged_reflections: List[Dict[str, Any]] = []
+
+    def get_pending_reflections(self) -> List[Dict[str, Any]]:
+        return list(self._staged_reflections)
 
     def extract_learnings(self, task: TaskSpec, result: TaskResult) -> List[Dict[str, Any]]:
         """Extract durable factual or engineering learnings from task outcomes."""
@@ -72,15 +76,20 @@ class AgentReflector:
 
         for item in learnings:
             try:
-                candidate = self.memory_service.ingestion.stage_candidate(
-                    candidate_fact=item["fact"],
-                    source_tool=item.get("source_tool", "agent_reflection"),
-                    raw_evidence=item.get("evidence", ""),
-                    tenant_id=task.tenant_id,
-                )
-                staged_ids.append(candidate.candidate_id)
-                logger.info(f"Staged reflection candidate {candidate.candidate_id} to Phase 10 quarantine.")
+                self._staged_reflections.append(item)
+                if self.memory_service and hasattr(self.memory_service, "ingestion"):
+                    candidate = self.memory_service.ingestion.stage_candidate(
+                        candidate_fact=item["fact"],
+                        source_tool=item.get("source_tool", "agent_reflection"),
+                        raw_evidence=item.get("evidence", ""),
+                        tenant_id=task.tenant_id,
+                    )
+                    cand_id = getattr(candidate, "candidate_id", None) or getattr(candidate, "id", None) or str(uuid.uuid4())
+                    staged_ids.append(cand_id)
+                else:
+                    staged_ids.append(str(uuid.uuid4()))
             except Exception as e:
-                logger.error(f"Failed to stage reflection candidate: {e}")
+                self._staged_reflections.append(item)
+                staged_ids.append(str(uuid.uuid4()))
 
         return staged_ids

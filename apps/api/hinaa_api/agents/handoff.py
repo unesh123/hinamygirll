@@ -16,7 +16,7 @@ logger = logging.getLogger("hinaa.agents.handoff")
 
 _SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|secret|password|bearer|auth[_-]?token|private[_-]?key)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-\.]{8,})['\"]?"),
-    re.compile(r"sk-[a-zA-Z0-9]{20,}"),
+    re.compile(r"sk-[a-zA-Z0-9_\-]{20,}"),
     re.compile(r"AIza[0-9A-Za-z-_]{35}"),
 ]
 
@@ -38,6 +38,16 @@ class ContextScrubber:
         return sanitized
 
     @classmethod
+    def scrub_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return cls.scrub_dict(data)
+        elif isinstance(data, list):
+            return [cls.scrub_data(x) for x in data]
+        elif isinstance(data, str):
+            return cls.scrub_string(data)
+        return data
+
+    @classmethod
     def scrub_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively scrub values in a dictionary."""
         clean: Dict[str, Any] = {}
@@ -56,7 +66,16 @@ class ContextScrubber:
         return clean
 
 
+import hashlib
+
 class ContextHandoffManager:
+    @staticmethod
+    def compute_artifact_sha256(file_path: str) -> str:
+        hasher = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(65536):
+                hasher.update(chunk)
+        return hasher.hexdigest()
     """Prepares and validates minimized, scoped context packets for delegation."""
 
     def __init__(self, max_depth: int = 4) -> None:

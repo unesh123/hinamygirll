@@ -45,6 +45,11 @@ class TaskStore:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        if str(self.db_path) == ":memory:":
+            if not hasattr(self, "_mem_conn") or self._mem_conn is None:
+                self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False, isolation_level=None)
+                self._mem_conn.row_factory = sqlite3.Row
+            return self._mem_conn
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False, isolation_level=None)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

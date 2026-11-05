@@ -1,0 +1,20 @@
+{
+  "benchmark": "HINAA OS Phase 12 \u2014 Hierarchical Team Orchestration",
+  "timestamp": "2026-11-05 06:40:17 UTC",
+  "exit_code": 0,
+  "total_scenarios": 80,
+  "passed": 80,
+  "duration_seconds": 15.21,
+  "groups": {
+    "Group A": "Execution Mode Decision Gate (H12-01 to H12-08)",
+    "Group B": "Canonical Team Registry & Scopes (H12-09 to H12-16)",
+    "Group C": "Typed Delegation Packets & Outcome Verification (H12-17 to H12-24)",
+    "Group D": "Context Isolation, Scrubbing & Provenance (H12-25 to H12-32)",
+    "Group E": "Nested Budget Slicing & Conservation (H12-33 to H12-40)",
+    "Group F": "Hierarchical DAG Validation & Ceilings (H12-41 to H12-48)",
+    "Group G": "Complete Ancestry Binding in Tier C Approvals (H12-49 to H12-56)",
+    "Group H": "Independent QA Verification & Conflict Resolution (H12-57 to H12-64)",
+    "Group I": "The Six Canonical Workflows W1-W6 (H12-65 to H12-72)",
+    "Group J": "Long-Horizon Telemetry, Events & Resilience (H12-73 to H12-80)"
+  }
+}

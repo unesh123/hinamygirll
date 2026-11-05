@@ -6886,7 +6886,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # -------------------------------------------------------------------------
     # HINAA OS — Phase 11 Multi-Agent Swarms & Autonomous Tooling Endpoints
     # -------------------------------------------------------------------------
-    from .agents import agent_service
+    from .agents import agent_service, ExecutionMode
 
     @app.post("/api/agents/tasks")
     async def create_agent_task(request: Request):
@@ -6901,9 +6901,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tenant_id = body.get("tenant_id", "default")
         user_id = body.get("user_id", "user-default")
         language = body.get("language", "en")
+        mode_str = body.get("execution_mode")
+        exec_mode = None
+        if mode_str:
+            try:
+                exec_mode = ExecutionMode(mode_str)
+            except Exception:
+                pass
 
         try:
-            task = agent_service.create_task(goal=goal, tenant_id=tenant_id, user_id=user_id, language=language)
+            task = agent_service.create_task(
+                goal=goal,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                language=language,
+                execution_mode=exec_mode,
+            )
             routing_mode, rationale = agent_service.dispatcher.evaluate_routing_gate(goal)
             return JSONResponse({
                 "task": task.model_dump(),
@@ -6912,6 +6925,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             })
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.get("/api/agents/teams")
+    async def list_agent_teams():
+        teams = agent_service.list_teams()
+        return JSONResponse({"teams": [t.model_dump() for t in teams]})
+
+    @app.get("/api/agents/tasks/{task_id}/teams")
+    async def get_agent_task_teams(task_id: str):
+        teams_data = agent_service.get_task_teams(task_id)
+        return JSONResponse(teams_data)
 
     @app.get("/api/agents/tasks/{task_id}")
     async def get_agent_task(task_id: str):

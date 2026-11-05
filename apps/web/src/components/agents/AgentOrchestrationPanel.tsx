@@ -13,6 +13,16 @@ export interface SpecialistSpec {
   health_status: string;
 }
 
+export interface TeamTemplate {
+  team_id: string;
+  team_type: string;
+  display_name: string;
+  description: string;
+  lead_role: AgentRole;
+  member_roles: AgentRole[];
+  max_workers: number;
+}
+
 export interface BudgetMetrics {
   allocated_tokens: number;
   consumed_tokens: number;
@@ -29,6 +39,7 @@ export interface TaskArtifact {
   filename: string;
   sha256: string;
   created_by: string;
+  team_id?: string;
 }
 
 export interface TaskEventLog {
@@ -36,20 +47,24 @@ export interface TaskEventLog {
   sequence: number;
   task_id: string;
   node_id?: string | null;
+  team_run_id?: string | null;
   timestamp: string;
   actor_role: string;
   event_type: string;
   payload: Record<string, unknown>;
+  depth?: number;
 }
 
 export const AgentOrchestrationPanel: React.FC = () => {
   const [goal, setGoal] = useState("");
   const [language, setLanguage] = useState("en");
+  const [executionMode, setExecutionMode] = useState<string>("auto");
   const [loading, setLoading] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [nodes, setNodes] = useState<TaskNodeData[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [specialists, setSpecialists] = useState<SpecialistSpec[]>([]);
+  const [teams, setTeams] = useState<TeamTemplate[]>([]);
   const [budget, setBudget] = useState<BudgetMetrics | null>(null);
   const [artifacts, setArtifacts] = useState<TaskArtifact[]>([]);
   const [events, setEvents] = useState<TaskEventLog[]>([]);
@@ -66,6 +81,19 @@ export const AgentOrchestrationPanel: React.FC = () => {
       }
     } catch {
       // Ignore network errors in preview
+    }
+  }, []);
+
+  // Fetch canonical teams
+  const fetchTeams = useCallback(async () => {
+    try {
+      const res = await fetch("/api/agents/teams");
+      if (res.ok) {
+        const data = await res.json();
+        setTeams(data.teams || []);
+      }
+    } catch {
+      // Ignore
     }
   }, []);
 
@@ -86,8 +114,9 @@ export const AgentOrchestrationPanel: React.FC = () => {
 
   useEffect(() => {
     fetchRegistry();
+    fetchTeams();
     fetchHealth();
-  }, [fetchRegistry, fetchHealth]);
+  }, [fetchRegistry, fetchTeams, fetchHealth]);
 
   // SSE event stream connection
   useEffect(() => {
@@ -113,6 +142,8 @@ export const AgentOrchestrationPanel: React.FC = () => {
             currency: "NPR",
             expires_at: new Date(Date.now() + 600000).toISOString(),
             nonce: "nonce-token",
+            team_id: parsed.team_run_id,
+            ancestry: [activeTaskId, parsed.team_run_id || "team", parsed.node_id || "node"],
           });
         }
       } catch {
@@ -135,10 +166,15 @@ export const AgentOrchestrationPanel: React.FC = () => {
     setArtifacts([]);
 
     try {
+      const payload: Record<string, unknown> = { goal, language };
+      if (executionMode !== "auto") {
+        payload.execution_mode = executionMode;
+      }
+
       const res = await fetch("/api/agents/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal, language }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -207,16 +243,16 @@ export const AgentOrchestrationPanel: React.FC = () => {
       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🐝</span>
+            <span className="text-2xl">🏛️</span>
             <h1 className="text-xl font-bold tracking-tight text-white">
-              Autonomous Tooling & Multi-Agent Swarms
+              Hierarchical Team Orchestration & Long-Horizon Execution
             </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-              Phase 11
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              Phase 12
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Authoritative DAG orchestration, cryptographic tool receipts, independent verifiers, and Tier C approval governance.
+            Nested team leads, bounded workstream budgets, cryptographic receipts, complete ancestry binding, and independent QA verification.
           </p>
         </div>
 
@@ -250,17 +286,28 @@ export const AgentOrchestrationPanel: React.FC = () => {
           {/* Dispatch Card */}
           <div className="p-5 bg-slate-900/60 rounded-2xl border border-slate-800 flex flex-col gap-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
-              Dispatch Specialist Mission
+              Dispatch Team Mission
             </h2>
             <form onSubmit={handleCreateTask} className="flex flex-col gap-3">
               <textarea
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="Describe your multi-agent mission (e.g. 'Build and test a bilingual Nepal legal search micro-service with verified citations')..."
+                placeholder="Describe your multi-team mission (e.g. 'Build a complete bilingual website with tests and browser verification')..."
                 className="w-full h-24 p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500/70 resize-none font-sans"
               />
 
-              <div className="flex items-center justify-between gap-3">
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={executionMode}
+                  onChange={(e) => setExecutionMode(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                >
+                  <option value="auto">Auto-Select Mode</option>
+                  <option value="hierarchical_team">Hierarchical Teams</option>
+                  <option value="flat_multi_agent">Flat Multi-Agent</option>
+                  <option value="single_agent_fast_path">Fast Path</option>
+                </select>
+
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
@@ -270,15 +317,15 @@ export const AgentOrchestrationPanel: React.FC = () => {
                   <option value="ne">नेपाली (Nepali)</option>
                   <option value="ne-rom">Romanized Nepali</option>
                 </select>
-
-                <button
-                  type="submit"
-                  disabled={loading || !goal.trim()}
-                  className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-cyan-500/20 transition disabled:opacity-50"
-                >
-                  {loading ? "Orchestrating..." : "Execute DAG Swarm"}
-                </button>
               </div>
+
+              <button
+                type="submit"
+                disabled={loading || !goal.trim()}
+                className="w-full mt-1 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-500/20 transition disabled:opacity-50"
+              >
+                {loading ? "Orchestrating Teams..." : "Execute Hierarchical Workflow"}
+              </button>
             </form>
 
             {error && (
@@ -288,15 +335,49 @@ export const AgentOrchestrationPanel: React.FC = () => {
             )}
           </div>
 
+          {/* Canonical Teams */}
+          <div className="p-5 bg-slate-900/60 rounded-2xl border border-slate-800 flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-2">
+              <span className="font-semibold uppercase tracking-wider text-slate-300">
+                Canonical Team Templates
+              </span>
+              <span>4 Teams Registered</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {teams.map((tm) => (
+                <div
+                  key={tm.team_id}
+                  className="flex flex-col p-2.5 rounded-lg bg-slate-950/50 border border-slate-800/60 text-xs gap-1"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-200">{tm.display_name}</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                      lead: {tm.lead_role}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-400">{tm.description}</span>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-[10px] text-slate-500">members:</span>
+                    {tm.member_roles.map((r) => (
+                      <span key={r} className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Specialist Roster */}
           <div className="p-5 bg-slate-900/60 rounded-2xl border border-slate-800 flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-2">
               <span className="font-semibold uppercase tracking-wider text-slate-300">
-                Active Specialist Roster
+                Specialist Roles Pool
               </span>
-              <span>10 roles whitelisted</span>
+              <span>10 roles available</span>
             </div>
-            <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1">
+            <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
               {specialists.map((sp) => (
                 <div
                   key={sp.agent_id}
@@ -325,9 +406,9 @@ export const AgentOrchestrationPanel: React.FC = () => {
             />
           ) : (
             <div className="p-8 bg-slate-900/40 rounded-2xl border border-slate-800/80 flex flex-col items-center justify-center text-center text-slate-500 gap-2">
-              <span className="text-3xl">🕸️</span>
-              <p className="text-sm font-medium text-slate-400">No active DAG graph running</p>
-              <p className="text-xs">Dispatch a mission above to generate and execute an acyclic multi-agent DAG.</p>
+              <span className="text-3xl">🏛️</span>
+              <p className="text-sm font-medium text-slate-400">No active hierarchical mission running</p>
+              <p className="text-xs">Dispatch a mission above to generate and execute nested team workstreams.</p>
             </div>
           )}
 
@@ -349,36 +430,44 @@ export const AgentOrchestrationPanel: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span>📄</span>
                       <span className="text-slate-200">{art.filename}</span>
+                      {art.team_id && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                          {art.team_id}
+                        </span>
+                      )}
                     </div>
-                    <span className="text-slate-500 text-[11px] truncate max-w-[200px]">
-                      sha256:{art.sha256}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-500">{art.created_by}</span>
+                      <span className="text-emerald-400 text-[11px] truncate max-w-[120px]">
+                        {art.sha256.slice(0, 12)}...
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* SSE Event Journal */}
+          {/* Real-Time Event Audit Stream */}
           {events.length > 0 && (
             <div className="p-5 bg-slate-900/60 rounded-2xl border border-slate-800 flex flex-col gap-3">
               <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-2">
                 <span className="font-semibold uppercase tracking-wider text-slate-300">
-                  Real-Time Event Journal
+                  Live Audit Journal (SSE Stream)
                 </span>
                 <span className="text-cyan-400 font-mono">{events.length} events logged</span>
               </div>
-              <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto pr-1 font-mono text-[11px]">
-                {events.map((evt) => (
+              <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto font-mono text-[11px] pr-1">
+                {events.map((evt, idx) => (
                   <div
-                    key={evt.event_id || evt.sequence}
-                    className="flex items-center gap-2 text-slate-400 py-0.5 border-b border-slate-900"
+                    key={idx}
+                    className="flex items-center gap-3 py-1 border-b border-slate-800/40 text-slate-400"
                   >
                     <span className="text-slate-600 w-6">#{evt.sequence}</span>
-                    <span className="text-cyan-400 font-semibold w-24 truncate">{evt.actor_role}</span>
-                    <span className="text-amber-300 w-36 truncate">{evt.event_type}</span>
-                    <span className="text-slate-500 truncate flex-1">
-                      {JSON.stringify(evt.payload || {})}
+                    <span className="text-cyan-400 w-24 truncate">{evt.actor_role}</span>
+                    <span className="text-purple-300 font-medium">{evt.event_type}</span>
+                    <span className="text-slate-500 text-[10px] truncate max-w-xs">
+                      {JSON.stringify(evt.payload)}
                     </span>
                   </div>
                 ))}
@@ -388,7 +477,7 @@ export const AgentOrchestrationPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Tier C Cryptographic Approval Modal */}
+      {/* Tier C Approval Modal */}
       {pendingApproval && (
         <AgentApprovalPanel
           request={pendingApproval}
