@@ -19,6 +19,7 @@
 | **P7** | Complete Coding Agent & IDE | Phase 08 | **VERIFIED** | 48 B08 scenarios: repo scanner, Windows Job Object / Docker isolation, diff engine, build/test loop, atomic rollback. |
 | **P8** | Nepal Local Payments (eSewa/Khalti) | Phase 11 | **SPECIFIED / SANDBOX** | HMAC-SHA256 eSewa signing, Khalti paisa minor units, order state machine, replay defense (production funds blocked). |
 | **P9** | NPR Pricing & Bilingual Support | Phase 11 | **SPECIFIED / SANDBOX** | Canonical paisa storage, South Asian digit grouping (`रु 1,25,000.00`), bilingual billing assistance. |
+| **P10** | Long-Term Memory & Knowledge Graph | Phase 10 | **VERIFIED** | 64 M10 scenarios: SQLite WAL ACID persistence, FTS5 BM25, temporal knowledge graph (max 3 hops), non-destructive supersession, quarantine staging, 11 REST endpoints. |
 
 ---
 
@@ -86,3 +87,16 @@
 - [ ] Automated billing receipts with downloadable PDF/HTML artifacts.
 - [ ] Grounded customer support agent answering billing FAQs without leaking other tenants' data.
 - [ ] Human escalation workflow for disputed charges.
+
+
+### Capability P10: Long-Term Memory & Continuous Knowledge Graph (Phase 10 Sign-Off)
+- [x] Durable SQLite transactional persistence with WAL mode (PRAGMA journal_mode=WAL), foreign keys, and idempotent schema migrations (v1_phase10_init).
+- [x] Full-text search via SQLite FTS5 with automatic insert/update/delete synchronization triggers and Devanagari Unicode support.
+- [x] Temporal knowledge graph with typed directed edges, alias resolution (English, Romanized, Devanagari), cycle detection, and bounds (max depth 3, max nodes 50).
+- [x] Hybrid multi-modal retrieval blending lexical FTS5 (0.45), dense vector cosine similarity (0.40), and graph proximity (0.15) with token budgeting and source provenance.
+- [x] Non-destructive contradiction detection and supersession lineage (is_contradicted=True, superseded_by_id, SUPERSEDES edge) preserving complete audit history.
+- [x] Multi-tenant privacy boundaries, automatic secret canary scrubbing (sk-..., tokens, private keys), and prompt injection defanging.
+- [x] Continuous knowledge acquisition quarantine staging pipeline (IngestionCandidate) with operator review workflow (approve/reject).
+- [x] Scoped JSON/CSV data export and hard delete cascade invalidating memory rows, FTS entries, and derived graph edges.
+- [x] Frontend developer & operations panel (MemoryKnowledgePanel.tsx) with hybrid search, graph visualization, candidate queue, and telemetry badges.
+- [x] 11 authenticated REST endpoints under /api/memory/... and /v1/memory/... in main.py.

@@ -1,0 +1,526 @@
+{
+  "phase": "Phase 10 — Long-Term Memory, Continuous Knowledge Graph & Verified Learning",
+  "timestamp": "2026-11-05T00:28:13.766825+00:00",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python_version": "3.14.4",
+  "total_scenarios": 64,
+  "passed": 64,
+  "failed": 0,
+  "pass_rate_pct": 100.0,
+  "total_duration_seconds": 10.548,
+  "avg_duration_per_scenario_ms": 164.81,
+  "scenarios": [
+    {
+      "code": "M10-01",
+      "test_function": "test_m10_01",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify phase-09-checkpoint tag and clean git tree",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-02",
+      "test_function": "test_m10_02",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify SQLite database initialization with WAL mode and foreign keys enabled",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-03",
+      "test_function": "test_m10_03",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify schema migration table records v1_phase10_init version idempotently",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-04",
+      "test_function": "test_m10_04",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify durable write surviving simulated process restart / re-open",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-05",
+      "test_function": "test_m10_05",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify transaction rollback on unhandled error leaves database uncorrupted",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-06",
+      "test_function": "test_m10_06",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify backward compatibility with legacy SessionMemory regex extraction",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-07",
+      "test_function": "test_m10_07",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify learned session memories bounded within budget limits",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-08",
+      "test_function": "test_m10_08",
+      "group": "Architecture Baseline & Durability",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify SessionMemory compaction triggers on dialogue turn threshold",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-09",
+      "test_function": "test_m10_09",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify entity node creation with canonical name and attributes",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-10",
+      "test_function": "test_m10_10",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify multilingual alias resolution maps Devanagari 'काठमाडौं' to 'Kathmandu'",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-11",
+      "test_function": "test_m10_11",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify Romanized Nepali and acronym aliases (e.g. 'KTM' -> 'Kathmandu')",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-12",
+      "test_function": "test_m10_12",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify directed relationship edge creation with confidence score",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-13",
+      "test_function": "test_m10_13",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify cycle detection terminates safely without infinite recursion",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-14",
+      "test_function": "test_m10_14",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify maximum traversal depth capped at 3 hops",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-15",
+      "test_function": "test_m10_15",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify maximum traversal nodes bounded at 50 nodes",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-16",
+      "test_function": "test_m10_16",
+      "group": "Temporal Knowledge Graph",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify temporal point-in-time filtering (valid_from <= date <= valid_to)",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-17",
+      "test_function": "test_m10_17",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify FTS5 virtual table synchronization on memory insert",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-18",
+      "test_function": "test_m10_18",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify FTS5 BM25 ranking over English search query",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-19",
+      "test_function": "test_m10_19",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify FTS5 lexical search over Unicode Devanagari text",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-20",
+      "test_function": "test_m10_20",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify dense cosine similarity score calculation between embeddings",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-21",
+      "test_function": "test_m10_21",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify truthful degradation indicator when neural embedding model offline",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-22",
+      "test_function": "test_m10_22",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify knowledge graph neighborhood boost in hybrid ranking",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-23",
+      "test_function": "test_m10_23",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify token budget enforcement truncates prompt injection block safely",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-24",
+      "test_function": "test_m10_24",
+      "group": "Hybrid Retrieval Engine",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify complete provenance dictionary attached to all search results",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-25",
+      "test_function": "test_m10_25",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify contradiction detection between polarity-flipped preferences (love vs hate)",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-26",
+      "test_function": "test_m10_26",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify contradiction detection on explicit updates ('moved to X')",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-27",
+      "test_function": "test_m10_27",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify superseded record is marked is_contradicted without deletion",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-28",
+      "test_function": "test_m10_28",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify superseded_by_id pointer correctly links old record to new record",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-29",
+      "test_function": "test_m10_29",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify SUPERSEDES edge added to knowledge graph connecting concepts",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-30",
+      "test_function": "test_m10_30",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify active search excludes contradicted records by default",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-31",
+      "test_function": "test_m10_31",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify historical search includes contradicted records when requested",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-32",
+      "test_function": "test_m10_32",
+      "group": "Non-Destructive Contradiction",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify audit trail logs contradiction resolution reason and timestamp",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-33",
+      "test_function": "test_m10_33",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify cross-tenant memory query returns zero records from other tenants",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-34",
+      "test_function": "test_m10_34",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify cross-tenant memory access raises authorization error",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-35",
+      "test_function": "test_m10_35",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify secret canary scrubbing redacts OpenAI/Anthropic API keys (sk-...)",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-36",
+      "test_function": "test_m10_36",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify secret canary scrubbing redacts GitHub tokens (ghp_...)",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-37",
+      "test_function": "test_m10_37",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify secret canary scrubbing redacts Bearer tokens and private keys",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-38",
+      "test_function": "test_m10_38",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify prompt injection defanging neutralizes 'Ignore previous instructions'",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-39",
+      "test_function": "test_m10_39",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify prompt injection defanging neutralizes system prompt tag delimiters",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-40",
+      "test_function": "test_m10_40",
+      "group": "Privacy & Security Isolation",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify sanitized content is indexed in FTS without raw secrets",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-41",
+      "test_function": "test_m10_41",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify hard delete removes memory row from SQLite",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-42",
+      "test_function": "test_m10_42",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify hard delete automatically removes entry from FTS5 index",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-43",
+      "test_function": "test_m10_43",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify hard delete cascade removes derived knowledge edges referencing memory",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-44",
+      "test_function": "test_m10_44",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify audit log records hard deletion event and timestamp",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-45",
+      "test_function": "test_m10_45",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify TTL maintenance sweep deactivates memories past expires_at",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-46",
+      "test_function": "test_m10_46",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify non-expired memories remain active during TTL maintenance",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-47",
+      "test_function": "test_m10_47",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify scoped JSON export produces valid JSON with metadata",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-48",
+      "test_function": "test_m10_48",
+      "group": "Lifecycle Governance & Cascades",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify scoped CSV export produces valid CSV with proper headers",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-49",
+      "test_function": "test_m10_49",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify candidate fact staged in pending status without polluting active memory",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-50",
+      "test_function": "test_m10_50",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify candidate extraction discovers named entities from unverified text",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-51",
+      "test_function": "test_m10_51",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify raw evidence text and source URL preserved in candidate record",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-52",
+      "test_function": "test_m10_52",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify candidate approval promotes fact to active verified MemoryRecord",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-53",
+      "test_function": "test_m10_53",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify candidate rejection marks record rejected with review notes",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-54",
+      "test_function": "test_m10_54",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify rejected candidates do not appear in active search results",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-55",
+      "test_function": "test_m10_55",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify promoted candidate becomes immediately searchable in FTS5",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-56",
+      "test_function": "test_m10_56",
+      "group": "Continuous Knowledge Acquisition",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify pending candidates list filtered correctly by tenant",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-57",
+      "test_function": "test_m10_57",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify POST /api/memory/items creates memory and returns 201",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-58",
+      "test_function": "test_m10_58",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify GET /api/memory/items filters by scope and returns list",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-59",
+      "test_function": "test_m10_59",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify GET /api/memory/items/{id} returns 404 for nonexistent ID",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-60",
+      "test_function": "test_m10_60",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify PATCH /api/memory/items/{id} updates fields non-destructively",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-61",
+      "test_function": "test_m10_61",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify DELETE /api/memory/items/{id} cascades deletion",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-62",
+      "test_function": "test_m10_62",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify POST /api/memory/search returns hybrid ranked results with token usage",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-63",
+      "test_function": "test_m10_63",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify GET /api/memory/knowledge/graph returns nodes and edges",
+      "status": "PASSED"
+    },
+    {
+      "code": "M10-64",
+      "test_function": "test_m10_64",
+      "group": "REST API & System Telemetry",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify GET /api/memory/health returns live database stats and route readiness",
+      "status": "PASSED"
+    }
+  ]
+}

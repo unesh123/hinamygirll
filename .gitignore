@@ -36,6 +36,9 @@ apps/web/blob-report/
 
 # Databases and local state
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.sqlite
 *.sqlite3
 *.tfstate
