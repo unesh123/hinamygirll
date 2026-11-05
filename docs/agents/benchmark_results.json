@@ -1,0 +1,733 @@
+{
+  "timestamp": "2026-11-05T05:29:03.329667+00:00",
+  "phase": "Phase 11 \u2014 Autonomous Tooling, Durable Task Orchestration & Multi-Agent Swarms",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python_version": "3.14.4",
+  "total_scenarios": 80,
+  "passed_scenarios": 80,
+  "failed_scenarios": 0,
+  "success_rate_percent": 100.0,
+  "total_duration_seconds": 11.48,
+  "scenarios": [
+    {
+      "code": "A11-01",
+      "test_function": "test_a11_01_baseline_verification",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify baseline contracts, models, and 10 canonical roles without regression",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-02",
+      "test_function": "test_a11_02_specialist_registry_initialization",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify SpecialistRegistry enumerates all 10 specialist specifications",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-03",
+      "test_function": "test_a11_03_capability_grant_whitelisting",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify capability whitelisting grants and denies tools correctly",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-04",
+      "test_function": "test_a11_04_model_routing_configuration",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify specialist specifications assign appropriate foundation models",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-05",
+      "test_function": "test_a11_05_provider_degradation_handling",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify provider degradation handling and health state updates",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-06",
+      "test_function": "test_a11_06_decision_gate_single_agent_fast_path",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify decision gate routes conversational greetings directly to single-agent fast path",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-07",
+      "test_function": "test_a11_07_decision_gate_multi_agent_swarm",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify decision gate routes complex instructions to multi-agent swarm DAG",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-08",
+      "test_function": "test_a11_08_decision_gate_token_savings",
+      "group": "Baseline, Registry & Routing",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify decision gate token and cost savings on fast path",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-09",
+      "test_function": "test_a11_09_dag_plan_generation",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify DAG plan generation produces ordered nodes with explicit dependencies",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-10",
+      "test_function": "test_a11_10_topological_dependency_ordering",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify topological sort returns nodes in valid dependency execution sequence",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-11",
+      "test_function": "test_a11_11_dag_cycle_rejection",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify cyclic dependency in task DAG raises DAGCycleError",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-12",
+      "test_function": "test_a11_12_context_minimization_scrubbing",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify ContextScrubber redacts API keys and tokens from payloads",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-13",
+      "test_function": "test_a11_13_scoped_upstream_results_propagation",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify context handoff manager packages only declared upstream context",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-14",
+      "test_function": "test_a11_14_delegation_depth_enforcement",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify delegation beyond maximum recursion depth (4) is rejected",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-15",
+      "test_function": "test_a11_15_self_delegation_prevention",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify recursive self-delegation loop to the same role is prohibited",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-16",
+      "test_function": "test_a11_16_tenant_isolation_boundary_preserved",
+      "group": "Planning, DAG Execution & Handoffs",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify tenant isolation check enforces strict multi-tenant boundaries",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-17",
+      "test_function": "test_a11_17_universal_tool_execution_receipt",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify executing a tool yields a valid ToolReceipt with digests and exit code",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-18",
+      "test_function": "test_a11_18_tool_receipt_cryptographic_digests",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify SHA-256 digest computation is deterministic for tool receipts",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-19",
+      "test_function": "test_a11_19_tool_receipt_duration_timing",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify ToolReceipt records positive non-zero execution duration in ms",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-20",
+      "test_function": "test_a11_20_idempotency_key_tracking",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify idempotency key is uniquely attached to each receipt",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-21",
+      "test_function": "test_a11_21_sandbox_file_write_physical_artifact",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify file write creates physical file and verifier records matching SHA-256",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-22",
+      "test_function": "test_a11_22_test_suite_execution_exit_code",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify QA test execution tool captures exit code 0 on success",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-23",
+      "test_function": "test_a11_23_grounded_research_citation_extraction",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify grounded researcher tool returns structured citations with confidence scores",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-24",
+      "test_function": "test_a11_24_localization_devanagari_validation",
+      "group": "Universal Tool Registry & Execution",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify localization tool preserves Unicode Devanagari characters",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-25",
+      "test_function": "test_a11_25_tier_a_read_only_execution",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify Tier A read-only operations proceed immediately without approval pause",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-26",
+      "test_function": "test_a11_26_tier_b_scoped_workspace_execution",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify Tier B scoped workspace modifications execute under local tracking",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-27",
+      "test_function": "test_a11_27_tier_c_explicit_user_approval_pause",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify Tier C actions automatically pause execution in WAITING_APPROVAL state",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-28",
+      "test_function": "test_a11_28_cryptographic_hmac_signature_generation",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify HMAC-SHA256 signature generation binds action, args, and amount",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-29",
+      "test_function": "test_a11_29_one_time_use_nonce_consumption",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify approval token is strictly single-use and fails on replay attempt",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-30",
+      "test_function": "test_a11_30_argument_tampering_rejection",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify modifying arguments after signing causes approval verification to reject",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-31",
+      "test_function": "test_a11_31_monetary_amount_binding_in_paisa",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify monetary amount binding in integer paisa prevents tampering",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-32",
+      "test_function": "test_a11_32_emergency_stop_kill_switch",
+      "group": "Permissions, Approvals & Governance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify emergency stop suspends all operations immediately with code 126",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-33",
+      "test_function": "test_a11_33_atomic_task_status_updates",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify TaskStore writes TaskSpec and TaskNode transactionally",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-34",
+      "test_function": "test_a11_34_sqlite_wal_mode_enabled",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify SQLite database journal mode is WAL",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-35",
+      "test_function": "test_a11_35_optimistic_cas_worker_lease_acquisition",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify Compare-And-Swap worker lease claims a ready node atomically",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-36",
+      "test_function": "test_a11_36_worker_lease_expiration_and_reset",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify expired worker leases are automatically identified and reset",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-37",
+      "test_function": "test_a11_37_crash_recovery_uncompleted_task_discovery",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify crash recovery identifies uncompleted tasks",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-38",
+      "test_function": "test_a11_38_idempotent_tool_execution_safety",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify re-running a completed node preserves existing receipt idempotently",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-39",
+      "test_function": "test_a11_39_event_log_append_monotonic_sequence",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify EventLogStore increments sequence monotonically per task",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-40",
+      "test_function": "test_a11_40_cursor_based_event_log_querying",
+      "group": "Persistence, Leases & Safety",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify cursor querying with since_sequence returns only newer events",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-41",
+      "test_function": "test_a11_41_token_budget_tracking_and_rejection",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify budget controller rejects admission when token budget is exhausted",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-42",
+      "test_function": "test_a11_42_tool_call_quota_enforcement",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify budget controller enforces hard ceiling on tool calls",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-43",
+      "test_function": "test_a11_43_wall_clock_execution_timeout",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify wall clock timeout triggers deadline exceeded",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-44",
+      "test_function": "test_a11_44_concurrency_semaphore_bounding",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify concurrency semaphore caps active concurrent tasks at 5",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-45",
+      "test_function": "test_a11_45_monetary_expenditure_tracking",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify integer paisa and USD costs accumulate accurately",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-46",
+      "test_function": "test_a11_46_concurrency_slot_release",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify releasing an acquired concurrency slot restores capacity",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-47",
+      "test_function": "test_a11_47_fast_path_execution_latency",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify fast-path decision gate evaluation completes in under 50ms",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-48",
+      "test_function": "test_a11_48_dag_node_dispatch_latency",
+      "group": "Budgets, Concurrency & Performance",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify ready node selection latency is sub-millisecond",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-49",
+      "test_function": "test_a11_49_prompt_injection_resistance_in_task_goal",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify adversarial prompt injections in task goal are planned safely",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-50",
+      "test_function": "test_a11_50_path_traversal_defense_in_tool_arguments",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify path traversal outside workspace is safely handled",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-51",
+      "test_function": "test_a11_51_unauthorized_tool_invocation_blocked",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify specialist cannot execute tools outside its capability whitelist",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-52",
+      "test_function": "test_a11_52_cross_tenant_data_isolation",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify TaskStore isolates records by tenant_id",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-53",
+      "test_function": "test_a11_53_secret_token_redaction_in_logged_events",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify ContextScrubber scrubs passwords before event logging",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-54",
+      "test_function": "test_a11_54_emergency_stop_recovery_cycle",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify complete emergency stop trigger, verification, and clear cycle",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-55",
+      "test_function": "test_a11_55_expired_approval_token_rejection",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify approval tokens past their TTL are rejected as APPROVAL_EXPIRED",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-56",
+      "test_function": "test_a11_56_tampered_amount_rejection_closed",
+      "group": "Security, Privacy & Adversarial",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify monetary tampering fails closed",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-57",
+      "test_function": "test_a11_57_task_a_bilingual_nepal_mini_app_end_to_end",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Live Generation (L)",
+      "description": "Workflow A: Multi-agent execution of a bilingual Nepal mini-app",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-58",
+      "test_function": "test_a11_58_task_b_grounded_research_to_code_generation",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Live Generation (L)",
+      "description": "Workflow B: Grounded research to code generation with QA verification",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-59",
+      "test_function": "test_a11_59_task_c_mid_flight_crash_and_recovery",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Component Integration (I)",
+      "description": "Workflow C: Simulate mid-flight crash and test restart recovery",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-60",
+      "test_function": "test_a11_60_task_d_engineer_vs_qa_conflicts_reconciliation",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Workflow D: QA test failure strictly overrides an Engineer's claims",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-61",
+      "test_function": "test_a11_61_task_e_mid_flight_task_cancellation",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Component Integration (I)",
+      "description": "Workflow E: Task cancellation halts execution and marks all nodes CANCELLED",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-62",
+      "test_function": "test_a11_62_task_f_privilege_escalation_attempt_blocked",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Workflow F: Subagent attempting self-approval is blocked closed",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-63",
+      "test_function": "test_a11_63_independent_verifier_physical_checksum",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify IndependentVerifier calculates and validates physical file SHA-256",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-64",
+      "test_function": "test_a11_64_continuous_knowledge_graph_quarantine_staging",
+      "group": "End-to-End Workflows & Quality",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify task reflection extracts learnings and stages them into quarantine",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-65",
+      "test_function": "test_a11_65_rest_create_task",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify POST /api/agents/tasks creates a valid task with DAG",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-66",
+      "test_function": "test_a11_66_rest_get_task",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify GET /api/agents/tasks/{id} returns task and nodes",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-67",
+      "test_function": "test_a11_67_rest_stream_events",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify GET /api/agents/tasks/{id}/events returns text/event-stream",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-68",
+      "test_function": "test_a11_68_rest_approve_action",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Security Boundary (S)",
+      "description": "Verify POST /api/agents/tasks/{id}/approve handles approval payload",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-69",
+      "test_function": "test_a11_69_rest_cancel_task",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify POST /api/agents/tasks/{id}/cancel marks task cancelled",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-70",
+      "test_function": "test_a11_70_rest_get_artifacts",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify GET /api/agents/tasks/{id}/artifacts lists artifacts array",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-71",
+      "test_function": "test_a11_71_rest_get_registry",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify GET /api/agents/registry returns 10 specialist specifications",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-72",
+      "test_function": "test_a11_72_rest_get_health",
+      "group": "Frontend, Voice & Integration",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify GET /api/agents/health returns health and concurrency status",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-73",
+      "test_function": "test_a11_73_phase_10_long_term_memory_preservation",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify Phase 10 memory service imports and initializes without regression",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-74",
+      "test_function": "test_a11_74_phase_09_creative_studio_preservation",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify Phase 09 creative export modules remain functional",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-75",
+      "test_function": "test_a11_75_phase_08_coding_workspace_preservation",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify Phase 08 coding sandbox components remain functional",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-76",
+      "test_function": "test_a11_76_phase_07_browser_automation_preservation",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify Phase 07 browser operator tools remain functional",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-77",
+      "test_function": "test_a11_77_phase_06_crag_research_preservation",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify Phase 06 CRAG research citations service remains functional",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-78",
+      "test_function": "test_a11_78_legacy_worker_hive_route_compatibility",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Component Integration (I)",
+      "description": "Verify legacy route /api/v1/agents/swarm/execute remains accessible",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-79",
+      "test_function": "test_a11_79_multi_agent_vs_single_agent_efficiency",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Live Generation (L)",
+      "description": "Verify single agent fast-path uses strictly fewer resources than multi-agent DAG",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    },
+    {
+      "code": "A11-80",
+      "test_function": "test_a11_80_release_readiness_and_checkpoint",
+      "group": "Regressions & Release Readiness",
+      "evidence_class": "Runtime Discovery (R)",
+      "description": "Verify complete Phase 11 release criteria: 10 roles, 80 tests, >500 routes",
+      "status": "PASSED",
+      "duration_s": 0.1436
+    }
+  ]
+}

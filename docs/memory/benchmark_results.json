@@ -1,14 +1,14 @@
 {
   "phase": "Phase 10 — Long-Term Memory, Continuous Knowledge Graph & Verified Learning",
-  "timestamp": "2026-11-05T00:28:13.766825+00:00",
+  "timestamp": "2026-11-05T05:30:20.436855+00:00",
   "platform": "Windows-11-10.0.26300-SP0",
   "python_version": "3.14.4",
   "total_scenarios": 64,
   "passed": 64,
   "failed": 0,
   "pass_rate_pct": 100.0,
-  "total_duration_seconds": 10.548,
-  "avg_duration_per_scenario_ms": 164.81,
+  "total_duration_seconds": 15.448,
+  "avg_duration_per_scenario_ms": 241.37,
   "scenarios": [
     {
       "code": "M10-01",
