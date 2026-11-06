@@ -1033,6 +1033,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .security.pdp import get_pdp
     app.include_router(security_router)
     app.state.pdp = get_pdp()
+    from .evals.endpoints import router as evals_router
+    app.include_router(evals_router)
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service
