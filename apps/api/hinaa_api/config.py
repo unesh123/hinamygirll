@@ -356,11 +356,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("XKIRO_BASE_URL", "XK_IRO_BASE_URL"),
     )
     xkiro_model: str = Field(
-        "qwen/qwen3.8-max:free",
+        "mistralai/codestral-2508",
         validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
     )
     xkiro_allowed_models_raw: str = Field(
-        "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free,deepseek/deepseek-v4.1-flash:free,minimax/minimax-m2.7:free,qwen/qwen3-coder-plus:free,qwen/qwen3-vl-plus:free,inclusionai/ling-3.0-flash-sante:free,meta/muse-spark-1.3-contributor:free,stealth/space-bunny-alpha:free,*",
+        "mistralai/codestral-2508,mistralai/ministral-14b,mistralai/mistral-large-2512,mistralai/ministral-8b,qwen/qwen3.8-max:free,qwen/qwen3.7-max:free,cohere/command-a-reasoning,*",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
     )
     # Cavoti AI Gateway — frontier models (claude-fable-5, claude-opus-5, claude-haiku-4-5)
@@ -1499,7 +1499,7 @@ class Settings(BaseSettings):
 
     @property
     def active_xkiro_model(self) -> str:
-        return self.xkiro_model or "qwen/qwen3.8-max:free"
+        return self.xkiro_model or "mistralai/codestral-2508"
 
     @property
     def xkiro_allowed_models(self) -> list[str]:

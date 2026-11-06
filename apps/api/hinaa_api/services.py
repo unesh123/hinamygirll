@@ -4986,7 +4986,8 @@ class ConversationService:
         # a brain past cooloff proves recovery on a cheap probe budget.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
         if not primary_bench_cooloff and self._primary_probing(request.providerMode):
-            primary_plan_timeout = min(primary_plan_timeout, 12.0)
+            probe_limit = 20.0 if request.providerMode in ("xkiro", "tokentable", "seekai") else 12.0
+            primary_plan_timeout = min(primary_plan_timeout, probe_limit)
         attempted_brain = request.providerMode
         fast_provider_id = None
 
@@ -5873,7 +5874,8 @@ class ConversationService:
         # not yet proven healthy gets a cheap probe budget for the same reason.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
         if not primary_bench_cooloff and self._primary_probing(request.providerMode):
-            primary_idle_timeout = min(primary_idle_timeout, 12.0)
+            probe_limit = 20.0 if request.providerMode in ("xkiro", "tokentable", "seekai") else 12.0
+            primary_idle_timeout = min(primary_idle_timeout, probe_limit)
             primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []
         primary_idle_expired: Callable[[], bool] = lambda: False

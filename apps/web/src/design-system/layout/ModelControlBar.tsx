@@ -103,12 +103,15 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
   {
     mode: "xkiro",
     label: "⚡ XKiro AI (Free)",
-    defaultModel: "qwen/qwen3.8-max:free",
+    defaultModel: "mistralai/codestral-2508",
     models: [
-      { id: "qwen/qwen3.8-max:free", label: "Qwen 3.8 Max (Free)", isDefault: true },
-      { id: "qwen/qwen3.7-flash:free", label: "Qwen 3.7 Flash (Free)" },
-      { id: "deepseek/deepseek-v4.1-flash:free", label: "DeepSeek V4.1 Flash (Free)" },
-      { id: "minimax/minimax-m2.7:free", label: "MiniMax M2.7 (Free)" },
+      { id: "mistralai/codestral-2508", label: "Codestral 2508 (Fast Free)", isDefault: true },
+      { id: "mistralai/ministral-14b", label: "Ministral 14B (Fast Free)" },
+      { id: "mistralai/mistral-large-2512", label: "Mistral Large 2512 (Free)" },
+      { id: "mistralai/ministral-8b", label: "Ministral 8B (Free)" },
+      { id: "qwen/qwen3.8-max:free", label: "Qwen 3.8 Max (Free)" },
+      { id: "qwen/qwen3.7-max:free", label: "Qwen 3.7 Max (Free)" },
+      { id: "cohere/command-a-reasoning", label: "Cohere Command A (Reasoning)" },
     ],
   },
   {

@@ -636,7 +636,12 @@ class OpenAILLMProvider:
     async def _chat_text(self, prompt: PromptPackage) -> str:
         models_to_try = [self._model_for_payload()]
         if self._provider_id == "xkiro":
-            for fb_m in ("mistralai/ministral-14b", "cohere/command-a-reasoning"):
+            for fb_m in (
+                "mistralai/codestral-2508",
+                "mistralai/ministral-14b",
+                "mistralai/mistral-large-2512",
+                "cohere/command-a-reasoning",
+            ):
                 if fb_m not in models_to_try:
                     models_to_try.append(fb_m)
         last_resp: httpx.Response | None = None
@@ -648,21 +653,32 @@ class OpenAILLMProvider:
                 # Dynamically budgeted tokens based on turn depth and interaction mode
                 "max_tokens": _llm_budget_tokens(prompt),
             }
-            async with _pooled_client() as client:
-                response = await client.post(
-                    self._chat_url(),
-                    headers=self._headers(),
-                    json=payload,
+            try:
+                per_candidate_timeout = (
+                    httpx.Timeout(9.0, connect=5.0)
+                    if (self._provider_id == "xkiro" and len(models_to_try) > 1 and candidate_model != models_to_try[-1])
+                    else None
                 )
-            last_resp = response
-            if response.status_code in {429, 503} and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                continue
-            self._raise_for_status(response)
-            data = response.json()
-            choices = data.get("choices") or []
-            msg = choices[0].get("message", {}) if choices else {}
-            content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
-            return content if isinstance(content, str) else ""
+                async with _pooled_client() as client:
+                    response = await client.post(
+                        self._chat_url(),
+                        headers=self._headers(),
+                        json=payload,
+                        timeout=per_candidate_timeout,
+                    )
+                last_resp = response
+                if (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                    continue
+                self._raise_for_status(response)
+                data = response.json()
+                choices = data.get("choices") or []
+                msg = choices[0].get("message", {}) if choices else {}
+                content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
+                return content if isinstance(content, str) else ""
+            except Exception:
+                if len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                    continue
+                raise
         if last_resp is not None:
             self._raise_for_status(last_resp)
         return ""
@@ -707,7 +723,12 @@ class OpenAILLMProvider:
         primary_model = self._model_for_payload() if (self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS) else self._model
         models_to_try = [primary_model]
         if self._provider_id == "xkiro":
-            for fb_m in ("mistralai/ministral-14b", "cohere/command-a-reasoning"):
+            for fb_m in (
+                "mistralai/codestral-2508",
+                "mistralai/ministral-14b",
+                "mistralai/mistral-large-2512",
+                "cohere/command-a-reasoning",
+            ):
                 if fb_m not in models_to_try:
                     models_to_try.append(fb_m)
 
@@ -731,12 +752,18 @@ class OpenAILLMProvider:
             streamed_any = False
             stream_failed_early = False
             try:
+                per_candidate_timeout = (
+                    httpx.Timeout(9.0, connect=5.0)
+                    if (self._provider_id == "xkiro" and len(models_to_try) > 1 and candidate_model != models_to_try[-1])
+                    else None
+                )
                 async with _pooled_client() as client:
                     async with client.stream(
                         "POST",
                         self._chat_url(),
                         headers=self._headers(),
                         json=payload,
+                        timeout=per_candidate_timeout,
                     ) as response:
                         if (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
                             stream_failed_early = True
