@@ -25,6 +25,7 @@
 | **P13** | Persistent Autopilot, Durable Background Tasks & Resource-Aware Autonomous Operations | Phase 13 | **VERIFIED** | 80 A13 scenarios: SQLite WAL persistence, atomic CAS claiming, fencing tokens, deterministic 5-field cron, Asia/Kathmandu timezones, integer paisa minor-unit budgeting, SSRF/PII scrubbing, Tier C HMAC approvals, 5 real workflows (W1–W5), React 19 AutopilotDashboard, ElevenLabs voice perfection, 3D character lip sync & expression perfection. |
 | **P14** | Autonomous Goal Planner & Continuous Self-Correction | Phase 14 | **VERIFIED** | 80 G14 scenarios: Scoped intake, milestone DAGs, independent critic evaluation, 9-step bounded replanning, loop detection (Jaccard >= 0.80), observed self-model, quarantined reflections, parameter-bound HMAC approvals, crash recovery, 8 real demonstrations D1–D8, React 19 GoalsDashboard. |
 | **P15** | Security, Permissions & Governance Guardrails | Phase 15 | **VERIFIED** | 80 S15 scenarios: Central PDP/PEP (RBAC/ABAC/Delegation intersection), parameter-bound cryptographic human approval ceremonies, honest Windows DPAPI keystore & Job Object posture, append-only tamper-evident hash-chained audit trail, SecurityControlCenter UI. |
+| **P16** | Self-Improvement & Continuous Eval Harness | Phase 16 | **VERIFIED** | 106 E16 scenarios: 240-case canonical dataset (60/20/20 Dev/Val/Holdout split with SHA-256 hash), 5 evaluation oracles, blinded pairwise judge (A/B/B/A swap testing with 1.0% position bias), 10 failure taxonomy clusters, bounded candidate proposals with weights_updated=False, matched experiment runner with p50/p95 latency and paisa accounting, canary stages (1%, 5%, 25%, 100%), automated rollback (<100ms) on >2.0% errors, memory quarantine export, React 19 EvalStudioPanel, 14 FastAPI endpoints. |
 
 ---
 
@@ -154,3 +155,16 @@
 - [x] Append-only tamper-evident audit trail with canonical hash chaining, sequence monotonicity, and verify_audit_chain().
 - [x] Frontend Security Control Center (apps/web/src/components/security/SecurityCenterPanel.tsx) with trilingual risk notices (English, Nepali, Romanized).
 - [x] 80/80 S15 scenarios and 6/6 mandatory demonstrations (E1-E6) verified.
+
+### Capability P16: Self-Improvement & Continuous Eval Harness (Phase 16 Sign-Off)
+- [x] Canonical 240-case dataset partitioned into 60% Dev (144), 20% Val (48), and 20% Sealed Holdout (48) with SHA-256 manifest integrity.
+- [x] Zero-trust holdout isolation: agent and developer roles querying holdout receive HTTP 403 Forbidden.
+- [x] Contamination and paraphrase leakage detector: 8-gram sliding window search and Jaccard token overlap (>0.65) blocking leaks.
+- [x] 5 evaluation oracles: Deterministic artifact, citation groundedness, blinded pairwise judge, reflective speech brevity, and PDP security gate.
+- [x] Blinded pairwise judge: dual-presentation A/B and B/A swap testing with audited position bias (1.0%) and verbosity bias (2.0%).
+- [x] Adaptive proposal engine: failure clustering across 10 categories, bounded blast radius (<= 0.10), and weights_updated=False strictly enforced.
+- [x] Matched experiment runner: side-by-side baseline vs candidate evaluation with p50/p95 latency quantiles and integer paisa cost accounting.
+- [x] Canary progression & automated rollback: phased traffic (1% -> 5% -> 25% -> 100%), circuit breaker abort on >2% errors or >20% latency degradation, restoring config_hash_before in <100ms.
+- [x] Quarantined lessons exported to Phase 10 temporal memory to prevent repeating known bad proposals.
+- [x] React 19 Evaluation Studio panel (EvalStudioPanel.tsx) and 14 FastAPI endpoints mounted under /api/evals/*.
+- [x] 10/10 mandatory real demonstrations and 96/96 acceptance test scenarios passing (106/106 tests total).

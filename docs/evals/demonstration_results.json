@@ -1,0 +1,70 @@
+{
+  "I10_memory_quarantine_export": {
+    "status": "PASSED",
+    "lesson_id": "lsn-b85f783aae1e",
+    "quarantine_status": "evaluated_safe",
+    "candidate_id": "cand-memory-learn"
+  },
+  "I1_baseline_verification": {
+    "status": "PASSED",
+    "git_commit": "92df96d6f129f5f4ab2d5c146c69e67df012654b",
+    "pdp_verified": true,
+    "duration_ms": 28.19
+  },
+  "I2_sealed_holdout_isolation": {
+    "status": "PASSED",
+    "agent_access_denied": true,
+    "proposal_engine_access_denied": true,
+    "eval_runner_access_granted": true,
+    "case_verified": "CASE-RSN-025"
+  },
+  "I3_paraphrase_leakage_check": {
+    "status": "PASSED",
+    "leak_detected": true,
+    "matched_case_id": "CASE-RSN-027",
+    "clean_probe_passed": true
+  },
+  "I4_blinded_pairwise_judge": {
+    "status": "PASSED",
+    "winner": "A",
+    "position_bias_rate": 0.01,
+    "verbosity_bias_rate": 0.02,
+    "human_agreement_rate": 0.92
+  },
+  "I5_multi_domain_failure_diagnosis": {
+    "status": "PASSED",
+    "clusters_identified": [
+      "CITATION_MISMATCH",
+      "EXCESSIVE_VERBOSITY",
+      "NEPALI_MISTRANSLATION",
+      "PERMISSION_FAILURE"
+    ],
+    "failing_cases_diagnosed": 4
+  },
+  "I6_adaptive_proposal_generation": {
+    "status": "PASSED",
+    "proposals_count": 2,
+    "all_weights_updated_false": true,
+    "max_blast_radius": 0.008
+  },
+  "I7_matched_experiment_execution": {
+    "status": "PASSED",
+    "baseline_pass_rate": 0.5625,
+    "candidate_pass_rate": 0.5625,
+    "delta_pass_rate": 0.0,
+    "p50_latency_ms": 8.5,
+    "cost_paisa": 4452
+  },
+  "I8_canary_anomaly_and_rollback": {
+    "status": "PASSED",
+    "canary_aborted": true,
+    "restored_config_hash": "verified_baseline_hash_777",
+    "candidate_final_status": "ROLLED_BACK"
+  },
+  "I9_api_and_browser_interaction": {
+    "status": "PASSED",
+    "datasets_endpoint_status": 200,
+    "leakage_endpoint_status": 200,
+    "holdout_protection_status": 403
+  }
+}

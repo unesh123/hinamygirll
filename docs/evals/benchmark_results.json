@@ -1,0 +1,116 @@
+{
+  "benchmark_suite": "hinaa-continuous-eval-v1",
+  "timestamp": 1793957518.802638,
+  "hardware_fingerprint": "OS=Windows 11 (10.0.26300); CPUs=32; GPU=NVIDIA GeForce RTX 4060 Laptop (8188 MiB VRAM); RAM=31.71GB",
+  "git_baseline_commit": "92df96d6f129f5f4ab2d5c146c69e67df012654b",
+  "candidate_id": "cand-hinaa-p16-promoted",
+  "candidate_layer": "prompts",
+  "weights_updated": false,
+  "val_partition_summary": {
+    "total_val_cases": 48,
+    "overall_baseline_pass_rate": 0.5,
+    "overall_candidate_pass_rate": 0.5,
+    "overall_delta": 0.0,
+    "domains": {
+      "REASONING": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 0.3333,
+        "candidate_pass_rate": 0.3333,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 648,
+        "statistically_significant": false,
+        "is_regression": false
+      },
+      "RESEARCH": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 1.0,
+        "candidate_pass_rate": 1.0,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 660,
+        "statistically_significant": false,
+        "is_regression": false
+      },
+      "CODING": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 0.0,
+        "candidate_pass_rate": 0.0,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 564,
+        "statistically_significant": false,
+        "is_regression": false
+      },
+      "BILINGUAL": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 0.8333,
+        "candidate_pass_rate": 0.8333,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 624,
+        "statistically_significant": false,
+        "is_regression": false
+      },
+      "REFLECTIVE_VOICE": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 1.0,
+        "candidate_pass_rate": 1.0,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 484,
+        "statistically_significant": false,
+        "is_regression": false
+      },
+      "MEMORY": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 0.0,
+        "candidate_pass_rate": 0.0,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 460,
+        "statistically_significant": false,
+        "is_regression": false
+      },
+      "TOOLS_AGENTS": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 1.0,
+        "candidate_pass_rate": 1.0,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 460,
+        "statistically_significant": false,
+        "is_regression": false
+      },
+      "MULTIMODAL_COMMERCE": {
+        "cases_evaluated": 6,
+        "baseline_pass_rate": 0.3333,
+        "candidate_pass_rate": 0.3333,
+        "pass_rate_delta": 0.0,
+        "baseline_latency_p50_ms": 8.5,
+        "candidate_latency_p50_ms": 8.5,
+        "candidate_cost_paisa": 552,
+        "statistically_significant": false,
+        "is_regression": false
+      }
+    }
+  },
+  "sealed_holdout_summary": {
+    "total_holdout_cases": 48,
+    "baseline_pass_rate": 0.6042,
+    "candidate_pass_rate": 0.6042,
+    "pass_rate_delta": 0.0,
+    "statistically_significant": false,
+    "is_regression": false,
+    "baseline_latency_p50_ms": 8.5,
+    "candidate_latency_p50_ms": 8.5,
+    "candidate_cost_paisa": 4528
+  }
+}

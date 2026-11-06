@@ -10,3 +10,4 @@ export * from "./creative/CreativeStudioPanel";
 export * from "./memory/MemoryKnowledgePanel";
 export * from "./agents";
 export * from "./security/SecurityCenterPanel";
+export * from "./evals/EvalStudioPanel";
