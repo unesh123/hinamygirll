@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
 import { SaaSBridgePanel } from "../../features/integrations/SaaSBridgePanel";
+import { MissionCenterPanel } from "../../components/convergence/MissionCenterPanel";
 
 /* ── Types ───────────────────────────────────────────── */
 export interface RuntimeTaskStep {
@@ -159,7 +160,7 @@ function LoadFault({ line }: { line: string }) {
 }
 
 /* ── Main Component ─────────────────────────────────── */
-export type OperateTab = "tasks" | "capabilities" | "approvals" | "reports" | "integrations";
+export type OperateTab = "missions" | "tasks" | "capabilities" | "approvals" | "reports" | "integrations";
 
 interface GeneratedDocSummary {
   docId: string;
@@ -479,6 +480,26 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
             border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))",
           }}>
             <button
+              onClick={() => setActiveTab("missions")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 6,
+                fontSize: "12px",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "missions" ? "rgba(6,182,212,0.25)" : "transparent",
+                color: activeTab === "missions" ? "#38bdf8" : "var(--text-secondary, #a1a1aa)",
+                transition: "all 150ms ease",
+              }}
+            >
+              <Sparkles size={13} />
+              Mission Center
+            </button>
+            <button
               onClick={() => setActiveTab("tasks")}
               style={{
                 display: "flex",
@@ -670,6 +691,12 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
       {/* ── Main Workspace Body ───────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* ── Tab: Approvals Queue ───────────────────────────── */}
+        {activeTab === "missions" && (
+          <div style={{ flex: 1, overflowY: "auto", padding: "16px", height: "100%" }}>
+            <MissionCenterPanel />
+          </div>
+        )}
+
         {activeTab === "approvals" && (
           <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

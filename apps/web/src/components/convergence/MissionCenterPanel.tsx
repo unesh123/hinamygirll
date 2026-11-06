@@ -469,7 +469,7 @@ export const MissionCenterPanel: React.FC<MissionCenterPanelProps> = ({
                   Resume
                 </button>
               )}
-              {!selectedMission.is_terminal && (
+              {!["COMPLETED_VERIFIED", "PARTIAL", "BLOCKED_UNAVAILABLE", "FAILED", "CANCELLED"].includes(selectedMission.run_state) && (
                 <button
                   onClick={() => handleAction("cancel")}
                   className="px-2.5 py-1 bg-rose-900/50 hover:bg-rose-900 text-rose-200 border border-rose-700 rounded text-xs"
