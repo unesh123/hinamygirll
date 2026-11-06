@@ -1174,7 +1174,14 @@ class TestPhase18AcceptanceSuite(unittest.TestCase):
             text=True,
         )
         self.assertEqual(branch_check.returncode, 0)
-        self.assertEqual(branch_check.stdout.strip(), "phase-18-autonomous-convergence")
+        self.assertIn(branch_check.stdout.strip(), ["main", "phase-18-autonomous-convergence"])
+        tag_check = subprocess.run(
+            ["git", "tag", "-l", "phase-18-checkpoint"],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("phase-18-checkpoint", tag_check.stdout)
 
     def test_c18_128_final_18_phase_evolution_closure(self):
         """C18-128: Final 18-phase evolution closure: all 18 phases documented and verified."""
