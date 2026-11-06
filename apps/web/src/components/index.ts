@@ -12,3 +12,4 @@ export * from "./agents";
 export * from "./security/SecurityCenterPanel";
 export * from "./evals/EvalStudioPanel";
 export * from "./platform/ProductionControlPanel";
+export * from "./convergence/MissionCenterPanel";

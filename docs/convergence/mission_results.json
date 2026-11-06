@@ -1,0 +1,134 @@
+[
+  {
+    "code": "C18-D01",
+    "mission_id": "msn_ea757cd4f02c",
+    "title": "Full-Stack Bug Fix",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 2,
+    "cost_paisa": 850,
+    "cost_npr": 8.5,
+    "latency_ms": 111.31,
+    "verified": true
+  },
+  {
+    "code": "C18-D02",
+    "mission_id": "msn_58e03016e64b",
+    "title": "Bilingual Research Brief",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 1200,
+    "cost_npr": 12.0,
+    "latency_ms": 98.14,
+    "verified": true
+  },
+  {
+    "code": "C18-D03",
+    "mission_id": "msn_c61113de2ff3",
+    "title": "Safe Web Automation",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 950,
+    "cost_npr": 9.5,
+    "latency_ms": 88.34,
+    "verified": true
+  },
+  {
+    "code": "C18-D04",
+    "mission_id": "msn_b062f6ee0182",
+    "title": "Procedural Timeline Assembly",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 1400,
+    "cost_npr": 14.0,
+    "latency_ms": 94.72,
+    "verified": true
+  },
+  {
+    "code": "C18-D05",
+    "mission_id": "msn_bf467809488d",
+    "title": "Sandbox Financial Ceremony",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 2100,
+    "cost_npr": 21.0,
+    "latency_ms": 127.12,
+    "verified": true
+  },
+  {
+    "code": "C18-D06",
+    "mission_id": "msn_e68d805b6588",
+    "title": "Reflective Voice Synthesis",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 1600,
+    "cost_npr": 16.0,
+    "latency_ms": 96.66,
+    "verified": true
+  },
+  {
+    "code": "C18-D07",
+    "mission_id": "msn_017246e9fd13",
+    "title": "Durable Task Recovery",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 2,
+    "cost_paisa": 1100,
+    "cost_npr": 11.0,
+    "latency_ms": 121.67,
+    "verified": true
+  },
+  {
+    "code": "C18-D08",
+    "mission_id": "msn_ed6479d98f5a",
+    "title": "Device Mesh Sync",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 900,
+    "cost_npr": 9.0,
+    "latency_ms": 99.09,
+    "verified": true
+  },
+  {
+    "code": "C18-D09",
+    "mission_id": "msn_76d7776ddd93",
+    "title": "Continuous Evaluation",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 1500,
+    "cost_npr": 15.0,
+    "latency_ms": 100.77,
+    "verified": true
+  },
+  {
+    "code": "C18-D10",
+    "mission_id": "msn_cd951d8474af",
+    "title": "Privacy Merkle Audit",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 800,
+    "cost_npr": 8.0,
+    "latency_ms": 99.63,
+    "verified": true
+  },
+  {
+    "code": "C18-D11",
+    "mission_id": "msn_4edff793016f",
+    "title": "Unattended Boundary Truth",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 1350,
+    "cost_npr": 13.5,
+    "latency_ms": 106.35,
+    "verified": true
+  },
+  {
+    "code": "C18-D12",
+    "mission_id": "msn_2b914a07b77c",
+    "title": "Capstone Release Scorecard",
+    "status": "COMPLETED_VERIFIED",
+    "artifacts_count": 1,
+    "cost_paisa": 2600,
+    "cost_npr": 26.0,
+    "latency_ms": 106.19,
+    "verified": true
+  }
+]

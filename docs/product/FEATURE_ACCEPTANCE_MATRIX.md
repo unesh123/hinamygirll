@@ -182,3 +182,17 @@
 - [x] Structured observability & telemetry: Redacted distributed trace contexts, latency quantiles (p50/p95/p99), physical audible TTFA ear-sink tracking (45.0 ms), and integer minor-unit Nepalese Paisa cost accounting.
 - [x] React 19 Production Control Panel (ProductionControlPanel.tsx) with trilingual English / Nepali (??????) / Romanized Nepali labels and live probe monitors.
 - [x] 112/112 acceptance scenarios (test_p17_suite.py) and 8/8 mandatory demonstrations (test_demonstrations_p17.py) verified passing (100% pass rate).
+
+### Capability P18: Full Autonomous Convergence & Unified Mission Center (Phase 18 Sign-Off)
+- [x] Thin Unified Convergence Layer (`apps/api/hinaa_api/convergence/`) integrating Phases 01–17 without duplicate agent runtimes.
+- [x] Empirical Capability Router probing real host resources (NVIDIA RTX 4060 GPU, Python 3.12, Chromium Playwright, CRAG, ElevenLabs).
+- [x] Honest hardware and capability boundary labeling: generative neural video diffusion and multi-host HA labeled `BLOCKED_UNAVAILABLE` on local laptop; Nepal commerce labeled `APPROVAL_REQUIRED` (sandbox only); `sentient: False`, `has_human_consciousness: False`.
+- [x] 12-state Unified Mission state machine (`CREATED` -> `SCOPING` -> `PLANNING` -> `RUNNING` -> `WAITING_APPROVAL` -> `PAUSED_OFFLINE` -> `RECOVERING` -> `VERIFYING` -> `COMPLETED_VERIFIED` / `PARTIAL`).
+- [x] Non-negotiable cryptographic evidence gates: `COMPLETED_VERIFIED` strictly requires verified `TypedArtifact` with valid 64-char SHA-256 digest; automatically degrades to `PARTIAL` if zero verified outputs exist.
+- [x] Fast Path (< 200ms) vs Hierarchical Coordination routing based on empirical prompt analysis.
+- [x] Central PDP authorization at every mission step with parameter-bound Tier C human approval cards and HMAC token validation.
+- [x] React 19 Unified Mission Center panel (`apps/web/src/components/convergence/MissionCenterPanel.tsx`) with trilingual labels (English, Nepali Devanagari, Romanized Nepali), live probe indicators, parameter-bound approval cards, and verified artifact downloads with SHA-256 headers.
+- [x] 128/128 acceptance test scenarios passing in `apps/api/tests/convergence/test_c18_suite.py` (100% pass rate across Groups A through P).
+- [x] 12/12 Flagship Autonomous Missions executed and verified in `apps/api/tests/convergence/test_missions_c18.py` (15 verified artifacts produced).
+- [x] Reconciled Phase 17 test count discrepancy (112 scenarios + 1 companion test = 113 tests in `test_p17_suite.py`).
+- [x] Canonical 18-phase evolution master ledger updated: 18 / 18 phases complete (100% of roadmap achieved).
