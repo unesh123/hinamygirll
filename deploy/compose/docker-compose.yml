@@ -1,0 +1,75 @@
+# ==========================================
+# HINAA OS - Docker Compose (Local Multi-Process)
+# ==========================================
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: hinaa_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.api
+    container_name: hinaa_api
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - HINAA_DEPLOYMENT_PROFILE=LOCAL_LAN
+      - HINAA_REDIS_URL=redis://redis:6379/0
+      - HINAA_DATABASE_URL=sqlite:////app/data/hinaa_autopilot.db
+      - HINAA_SECRET_KEY=hinaa_local_multi_process_test_secret_key_32bytes
+    volumes:
+      - app_data:/app/data
+      - app_backups:/app/backups
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    container_name: hinaa_worker
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - HINAA_DEPLOYMENT_PROFILE=LOCAL_LAN
+      - HINAA_REDIS_URL=redis://redis:6379/0
+      - HINAA_DATABASE_URL=sqlite:////app/data/hinaa_autopilot.db
+    volumes:
+      - app_data:/app/data
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.web
+    container_name: hinaa_web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  redis_data:
+  app_data:
+  app_backups:

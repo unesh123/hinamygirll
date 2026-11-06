@@ -1,0 +1,37 @@
+# ==========================================
+# HINAA OS - Caddyfile (Production Edge Reverse Proxy)
+# Auto-HTTPS, mTLS, Static SPA, API Proxy
+# ==========================================
+
+:80 {
+    encode gzip zstd
+
+    # Health probes passed directly to API service
+    handle /health/* {
+        reverse_proxy api:8000
+    }
+
+    # API endpoints
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    # WebSocket streams
+    handle /ws {
+        reverse_proxy api:8000
+    }
+
+    # Static Web Frontend
+    handle {
+        root * /srv/web
+        try_files {path} /index.html
+        file_server
+    }
+
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    }
+}

@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+node_modules
+dist
+build
+.coverage
+.pytest_cache
+*.log
+*.sqlite3
+*.db
+.env*
+!deploy

@@ -1,0 +1,60 @@
+{
+  "D17_01_local_first_offline": {
+    "status": "PASSED",
+    "verification_status": "LOCAL_VERIFIED",
+    "journal_mode": "wal",
+    "probe_liveness": "HEALTHY",
+    "probe_readiness": "HEALTHY",
+    "latency_ms": 9.59
+  },
+  "D17_02_reproducible_deployment": {
+    "status": "PASSED",
+    "deployment_files_verified": 5,
+    "schema_rejection_verified": true,
+    "latency_ms": 0.34
+  },
+  "D17_03_worker_fault_redelivery": {
+    "status": "PASSED",
+    "consequential_effects_count": 1,
+    "idempotency_enforced": true,
+    "redelivery_verified": true,
+    "latency_ms": 24.21
+  },
+  "D17_04_data_recovery": {
+    "status": "PASSED",
+    "rto_ms": 4.37,
+    "rpo_seconds": 0.01,
+    "backup_size_bytes": 65536,
+    "sha256": "af1ef54d0ec01c9373254d137f5a0501fda3d05a7a39d565d87e0e6ae5a33bb6",
+    "latency_ms": 23.67
+  },
+  "D17_05_two_device_sync": {
+    "status": "PASSED",
+    "conflict_resolved": true,
+    "resolution_strategy": "DETERMINISTIC_FIELD_RULE",
+    "tombstone_verified": true,
+    "revocation_verified": true,
+    "latency_ms": 54.29
+  },
+  "D17_06_degradation_failover": {
+    "status": "PASSED",
+    "probe_state": "DEGRADED",
+    "mutating_effects_blocked": true,
+    "latency_ms": 0.07
+  },
+  "D17_07_security_attacks": {
+    "status": "PASSED",
+    "zero_leak_sanitization": true,
+    "rogue_device_rejected": true,
+    "tenant_isolation_enforced": true,
+    "latency_ms": 33.66
+  },
+  "D17_08_real_user_journey": {
+    "status": "PASSED",
+    "requests_tracked": 1,
+    "total_cost_paisa": 25,
+    "audible_ttfa_ms": 45.0,
+    "backup_id": "bkp-c48ab074ebc7",
+    "journey_latency_ms": 18.81
+  }
+}

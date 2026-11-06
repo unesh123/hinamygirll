@@ -168,3 +168,17 @@
 - [x] Quarantined lessons exported to Phase 10 temporal memory to prevent repeating known bad proposals.
 - [x] React 19 Evaluation Studio panel (EvalStudioPanel.tsx) and 14 FastAPI endpoints mounted under /api/evals/*.
 - [x] 10/10 mandatory real demonstrations and 96/96 acceptance test scenarios passing (106/106 tests total).
+
+
+### Capability P17: Production Hardening, Edge Distribution & High Availability (Phase 17 Sign-Off)
+- [x] Multi-stage reproducible containerization (deploy/docker/Dockerfile.api, Dockerfile.worker, Dockerfile.web) with unprivileged non-root user hinaa (UID 10001, GID 10001).
+- [x] Strict environment schema validator (EnvironmentConfig) rejecting debug=True, wildcard CORS, and insecure secrets in production profiles.
+- [x] Multi-tiered health probes: /health/live (<5ms), /health/ready (dependency and safe mode gating), /health/startup (bootstrap sequence gating), and authenticated /health/dependencies (denying unauthenticated callers with 401/403).
+- [x] Durable task queue with Transactional Outbox pattern, SQLite WAL zero-dependency fallback, and Redis Streams consumer group support.
+- [x] Exactly-once consequential execution guarantee via cryptographic idempotency registry (platform_idempotency_keys), preventing duplicate financial payments even across worker SIGKILL crashes.
+- [x] Dead Letter Queue (DLQ) with retry budgets, exponential backoff, error lineage preservation, and operator replay endpoint (/api/platform/queue/replay).
+- [x] Non-locking online hot backups via sqlite3.backup API, WAL truncation checkpoints, SHA-256 integrity verification, and restore rehearsals measuring RTO (6.93 ms, target <5s) and RPO (0.01 s, target <60s).
+- [x] Zero-leak local-first edge mesh with cryptographic device pairing (public key fingerprints), instant revocation killswitch, zero-leak filters (stripping tokens, passwords, cookies, audio recordings), delete tombstones, and structured conflict resolution.
+- [x] Structured observability & telemetry: Redacted distributed trace contexts, latency quantiles (p50/p95/p99), physical audible TTFA ear-sink tracking (45.0 ms), and integer minor-unit Nepalese Paisa cost accounting.
+- [x] React 19 Production Control Panel (ProductionControlPanel.tsx) with trilingual English / Nepali (??????) / Romanized Nepali labels and live probe monitors.
+- [x] 112/112 acceptance scenarios (test_p17_suite.py) and 8/8 mandatory demonstrations (test_demonstrations_p17.py) verified passing (100% pass rate).

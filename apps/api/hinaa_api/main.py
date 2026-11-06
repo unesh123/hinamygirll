@@ -1035,6 +1035,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.pdp = get_pdp()
     from .evals.endpoints import router as evals_router
     app.include_router(evals_router)
+    from .platform.endpoints import health_router, platform_router
+    app.include_router(health_router)
+    app.include_router(platform_router)
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service

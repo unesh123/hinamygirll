@@ -1,0 +1,116 @@
+# ==========================================
+# HINAA OS - Docker Compose Production Profile
+# Hardened, Resource Capped, Non-root, Health Checked
+# ==========================================
+version: "3.8"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: hinaa_caddy_prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7-alpine
+    container_name: hinaa_redis_prod
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${HINAA_REDIS_PASSWORD:-secure_redis_password_prod}"]
+    volumes:
+      - redis_prod_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${HINAA_REDIS_PASSWORD:-secure_redis_password_prod}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.api
+    container_name: hinaa_api_prod
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - HINAA_DEPLOYMENT_PROFILE=CLOUD_PRODUCTION
+      - HINAA_REDIS_URL=redis://:${HINAA_REDIS_PASSWORD:-secure_redis_password_prod}@redis:6379/0
+      - HINAA_DATABASE_URL=sqlite:////app/data/hinaa_autopilot.db
+      - HINAA_SECRET_KEY=${HINAA_SECRET_KEY:-hinaa_production_super_secure_key_must_be_over_32_bytes_long}
+      - HINAA_DEBUG=false
+      - HINAA_TLS_ENABLED=true
+    volumes:
+      - app_prod_data:/app/data
+      - app_prod_backups:/app/backups
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8192M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    container_name: hinaa_worker_prod
+    restart: always
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - HINAA_DEPLOYMENT_PROFILE=CLOUD_PRODUCTION
+      - HINAA_REDIS_URL=redis://:${HINAA_REDIS_PASSWORD:-secure_redis_password_prod}@redis:6379/0
+      - HINAA_DATABASE_URL=sqlite:////app/data/hinaa_autopilot.db
+    volumes:
+      - app_prod_data:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4096M
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.web
+    container_name: hinaa_web_prod
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  redis_prod_data:
+  app_prod_data:
+  app_prod_backups:
+  caddy_data:
+  caddy_config:
