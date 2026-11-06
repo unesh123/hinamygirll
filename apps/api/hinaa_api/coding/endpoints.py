@@ -50,13 +50,23 @@ class WriteFileRequest(BaseModel):
     content: str
 
 
+class CompileSpecRequest(BaseModel):
+    prompt: str
+
+
+class GenerateProjectRequest(BaseModel):
+    prompt: str
+    mission_code: Optional[str] = None
+    options: Optional[Dict[str, Any]] = None
+
+
 # ----------------------------------------------------------------------
 # 1. Missions Catalog & Execution
 # ----------------------------------------------------------------------
 
 @coding_router.get("/missions", response_model=List[FlagshipMission])
 async def list_flagship_missions() -> List[FlagshipMission]:
-    """Returns all 12 flagship missions + 3 unseen showcase applications."""
+    """Returns all 12 flagship missions + 3 unseen showcase applications + 4 Zero-Shot Missions."""
     items = list(get_flagship_catalog().values())
     try:
         from hinaa_api.coding.unseen_showcase_generator import get_unseen_showcase_sites
@@ -73,12 +83,46 @@ async def list_flagship_missions() -> List[FlagshipMission]:
             ))
     except Exception:
         pass
+
+    try:
+        from hinaa_api.coding.zero_shot_missions import get_zero_shot_missions
+        for code, z_mission in get_zero_shot_missions().items():
+            items.append(FlagshipMission(
+                mission_id=code,
+                title=z_mission.title,
+                category=z_mission.category,
+                tagline=z_mission.tagline,
+                description=z_mission.prompt,
+                viewports=["desktop_1440", "tablet_768", "mobile_390"],
+                files=z_mission.files,
+                key_features=z_mission.key_verifications,
+            ))
+    except Exception:
+        pass
+
     return items
 
 
 @coding_router.get("/missions/{mission_id}", response_model=FlagshipMission)
 async def get_flagship_mission(mission_id: str) -> FlagshipMission:
-    """Returns specification and files for a specific flagship mission."""
+    """Returns specification and files for a specific flagship or zero-shot mission."""
+    try:
+        from hinaa_api.coding.zero_shot_missions import get_zero_shot_mission
+        z_mission = get_zero_shot_mission(mission_id)
+        if z_mission:
+            return FlagshipMission(
+                mission_id=z_mission.mission_code,
+                title=z_mission.title,
+                category=z_mission.category,
+                tagline=z_mission.tagline,
+                description=z_mission.prompt,
+                viewports=["desktop_1440", "tablet_768", "mobile_390"],
+                files=z_mission.files,
+                key_features=z_mission.key_verifications,
+            )
+    except Exception:
+        pass
+
     mission = get_mission(mission_id)
     if not mission:
         raise HTTPException(status_code=404, detail=f"Mission not found: {mission_id}")
@@ -366,3 +410,53 @@ async def export_task_zip(task_id: str) -> Response:
             "Content-Length": str(len(zip_bytes)),
         },
     )
+
+
+# ----------------------------------------------------------------------
+# 5. Phase 20: Prompt-to-Production & Zero-Shot Intelligence
+# ----------------------------------------------------------------------
+
+@coding_router.post("/spec/compile")
+async def compile_spec(request: CompileSpecRequest) -> Dict[str, Any]:
+    """Compiles free-form intent into formal FeatureSpecification."""
+    from hinaa_api.coding.intent_to_spec import get_intent_to_spec_compiler
+    compiler = get_intent_to_spec_compiler()
+    spec = compiler.compile(request.prompt)
+    return spec.model_dump()
+
+
+@coding_router.post("/generate", response_model=ProjectTask)
+async def generate_project(request: GenerateProjectRequest) -> ProjectTask:
+    """End-to-end prompt-to-production project synthesis with live verification."""
+    engine = get_project_engine()
+    if request.mission_code:
+        return await engine.run_mission(request.mission_code)
+    return await engine.build_from_prompt(request.prompt, request.options)
+
+
+@coding_router.get("/zero-shot-missions")
+async def list_zero_shot_missions() -> Dict[str, Any]:
+    """Returns the 4 canonical Phase 20 Zero-Shot Missions (Z1, Z2, Z3, Z4)."""
+    from hinaa_api.coding.zero_shot_missions import get_zero_shot_missions
+    return {code: m.model_dump() for code, m in get_zero_shot_missions().items()}
+
+
+@coding_router.get("/audit/streaming")
+async def audit_streaming(
+    tokens: int = Query(60, ge=10, le=500),
+    delay_ms: float = Query(15.0, ge=1.0, le=200.0),
+) -> Dict[str, Any]:
+    """Audits true multi-chunk streaming, TTFB, TTFT, and NPR cost."""
+    from hinaa_api.coding.streaming_audit import get_streaming_audit_engine
+    audit_engine = get_streaming_audit_engine()
+    report = await audit_engine.run_simulated_audit(simulated_tokens=tokens, chunk_delay_ms=delay_ms)
+    return report.model_dump()
+
+
+@coding_router.get("/trainer/eval")
+async def evaluate_trainer_ablation() -> Dict[str, Any]:
+    """Runs adaptive design trainer ablation benchmarks with zero regression check."""
+    from hinaa_api.coding.design_trainer import get_adaptive_design_trainer
+    trainer = get_adaptive_design_trainer()
+    report = trainer.run_ablation_benchmark()
+    return report.model_dump()

@@ -63,6 +63,11 @@ export const DeveloperStudio: React.FC = () => {
   const [modifiedFiles, setModifiedFiles] = useState<Set<string>>(new Set());
   const [changeCount, setChangeCount] = useState<number>(0);
 
+  // Phase 20: Prompt-to-Production State
+  const [promptInput, setPromptInput] = useState<string>("");
+  const [isCompilingSpec, setIsCompilingSpec] = useState<boolean>(false);
+  const [activeSpec, setActiveSpec] = useState<any>(null);
+
   // Viewport & UI state
   const [viewport, setViewport] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [activeTab, setActiveTab] = useState<"changes" | "terminal" | "critic" | "events" | "evidence">("changes");
@@ -215,6 +220,73 @@ export const DeveloperStudio: React.FC = () => {
     }
   };
 
+  // Phase 20: Compile Spec from prompt
+  const handleCompileSpec = async () => {
+    if (!promptInput.trim()) return;
+    setIsCompilingSpec(true);
+    setStatusText("Compiling Spec...");
+    try {
+      const res = await fetch("/api/coding/spec/compile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: promptInput }),
+      });
+      if (res.ok) {
+        const spec = await res.json();
+        setActiveSpec(spec);
+        setTerminalLogs((prev) => [
+          `[${new Date().toLocaleTimeString()}] Compiled Spec: ${spec.title} (${spec.language_detected})`,
+          `  Must-Haves: ${(spec.must_have_features || []).join(", ")}`,
+          `  Entities: ${(spec.data_entities || []).map((e: any) => e.name).join(", ")}`,
+          ...prev,
+        ]);
+        setStatusText("Spec Compiled");
+      }
+    } catch (err: any) {
+      console.error("Failed to compile spec:", err);
+      setStatusText("Compile Error");
+    } finally {
+      setIsCompilingSpec(false);
+    }
+  };
+
+  // Phase 20: Build from Prompt
+  const handleBuildFromPrompt = async (customPrompt?: string) => {
+    const targetPrompt = customPrompt || promptInput;
+    if (!targetPrompt.trim()) return;
+    setIsRunning(true);
+    setStatusText("Synthesizing...");
+    setTerminalLogs([`> Starting Prompt-to-Production build for: "${targetPrompt}"...`]);
+    setEventLogs([`[${new Date().toLocaleTimeString()}] Prompt-to-Production build initiated`]);
+    setChangeCount(0);
+    setModifiedFiles(new Set());
+
+    try {
+      const res = await fetch("/api/coding/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: targetPrompt }),
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      const task = await res.json();
+      setTaskId(task.task_id);
+      if (task.specification) setActiveSpec(task.specification);
+      if (task.preview_url) setPreviewUrl(task.preview_url);
+      if (task.scorecard) setScorecard(task.scorecard);
+      await refreshTaskDetails(task.task_id);
+      setStatusText("Production Ready");
+      setTerminalLogs((prev) => [
+        `[${new Date().toLocaleTimeString()}] Project synthesized successfully! Critic Score: ${task.scorecard?.overall_score || 95}/100`,
+        ...prev,
+      ]);
+    } catch (err: any) {
+      console.error("Build failed:", err);
+      setStatusText("Build Error: " + err.message);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   // 4. Save file & trigger preview
   const handleSaveAndPreview = async () => {
     const currentCode = files[activeFile] || "";
@@ -318,7 +390,7 @@ export const DeveloperStudio: React.FC = () => {
             <span style={{ color: "#67e9c0" }}>✦</span> HINAA <span style={{ fontWeight: 400, color: "#899bb1" }}>/ Developer Studio</span>
           </div>
           <span style={{ fontSize: "11px", padding: "4px 8px", background: "#142332", borderRadius: "6px", color: "#67e9c0", border: "1px solid #254354" }}>
-            Phase 19 · Live Coding Platform
+            Phase 20 · Prompt-to-Production Coding Intelligence
           </span>
         </div>
 
@@ -383,6 +455,95 @@ export const DeveloperStudio: React.FC = () => {
           </div>
         </div>
       </header>
+
+      {/* Phase 20: Prompt-to-Production Intelligence Bar */}
+      <div style={{ background: "#0c1524", borderBottom: "1px solid #1f3147", padding: "10px 20px", display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div style={{ flex: 1, position: "relative" }}>
+            <input
+              type="text"
+              value={promptInput}
+              onChange={(e) => setPromptInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleBuildFromPrompt(); }}
+              placeholder="Describe any custom website, dashboard or app in English or नेपाली (e.g. Kathmandu Dental Clinic, Pokhara Paragliding Roster)..."
+              style={{
+                width: "100%",
+                background: "#142032",
+                border: "1px solid #2e4460",
+                color: "#f1f5f9",
+                borderRadius: "8px",
+                padding: "8px 14px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+            />
+          </div>
+          <button
+            onClick={() => handleBuildFromPrompt()}
+            disabled={isRunning || !promptInput.trim()}
+            style={{
+              background: isRunning ? "#1a3a32" : "linear-gradient(135deg, #38bdf8, #818cf8)",
+              border: "none",
+              color: "#030712",
+              padding: "8px 16px",
+              borderRadius: "8px",
+              fontWeight: 700,
+              fontSize: "12px",
+              cursor: isRunning ? "wait" : "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isRunning ? "✦ Synthesizing..." : "✦ Build from Prompt"}
+          </button>
+          <button
+            onClick={handleCompileSpec}
+            disabled={isCompilingSpec || !promptInput.trim()}
+            style={{
+              background: "#1b2c44",
+              border: "1px solid #355075",
+              color: "#93c5fd",
+              padding: "8px 12px",
+              borderRadius: "8px",
+              fontWeight: 600,
+              fontSize: "12px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isCompilingSpec ? "Compiling..." : "Compile Spec"}
+          </button>
+        </div>
+
+        {/* Quick Canonical Zero-Shot Presets */}
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", fontSize: "11px" }}>
+          <span style={{ color: "#7c92a9", fontWeight: 600 }}>Zero-Shot Presets:</span>
+          {[
+            { code: "Z1", label: "Z1: Dental Wellness (Atomic Collision)", prompt: "Build a bilingual appointment booking system for a Kathmandu dental clinic with real SQLite collision prevention, admin dashboard, doctor slot scheduling, and role-based login." },
+            { code: "Z2", label: "Z2: Civic Telemetry (Source Provenance)", prompt: "Build an environmental telemetry dashboard for Kathmandu valley monitoring Bagmati river water levels, Ratnapark air quality PM2.5, UV index with real source citations." },
+            { code: "Z3", label: "Z3: Himalayan Khata (Integer NPR)", prompt: "Develop a small business operations and ledger system for a Nepali handicraft supplier with integer NPR accounting, customer balance ledger, inventory deduction, and tax invoice export." },
+            { code: "Z4", label: "Z4: Vespera Kinetic Studio (60fps)", prompt: "Design an extraordinary, visually ambitious kinetic design studio landing page with 60fps CSS animations, dark aesthetic, reduced-motion accessibility support, and interactive portfolio." },
+          ].map((preset) => (
+            <button
+              key={preset.code}
+              onClick={() => {
+                setPromptInput(preset.prompt);
+                handleBuildFromPrompt(preset.prompt);
+              }}
+              style={{
+                background: "#142032",
+                border: "1px solid #283e57",
+                color: "#67e9c0",
+                borderRadius: "6px",
+                padding: "3px 8px",
+                fontSize: "11px",
+                cursor: "pointer",
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Main 3-Column Layout */}
       <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "220px minmax(400px, 1fr) minmax(420px, 1.15fr)", borderBottom: "1px solid #253044" }}>

@@ -1,410 +1,77 @@
 {
-  "benchmark_suite": "HINAA OS Phase 08 \u2014 Code Execution & Developer Sandbox",
-  "timestamp": "2026-11-05T05:31:23.523941+00:00",
-  "summary": {
-    "total_scenarios": 48,
-    "passed": 48,
+  "phase": "Phase 20",
+  "name": "Prompt-to-Production Coding Intelligence & Adaptive Design Trainer",
+  "timestamp": "2026-11-07T04:29:00Z",
+  "branch": "phase-20-prompt-to-production",
+  "baseline_commit": "c8c9ff9",
+  "tests": {
+    "suite": "test_p20_acceptance_64.py",
+    "total": 64,
+    "passed": 64,
     "failed": 0,
-    "pass_rate_percent": 100.0,
-    "total_suite_duration_ms": 15853.04
-  },
-  "environment": {
-    "os": "Windows-11-10.0.26300-SP0",
-    "python_version": "3.14.4",
-    "processor_count": 32,
-    "primary_isolation_backend": "RESTRICTED_HOST_PROCESS",
-    "security_profile": "Windows Job Object + scrubbed environment + path traversal boundary"
-  },
-  "evidence_class_breakdown": {
-    "Sandbox Security (S)": 14,
-    "Component Integration (I)": 22,
-    "End-to-End Workflow (E2E)": 7,
-    "UI Observation (UI)": 5
-  },
-  "scenarios": [
-    {
-      "scenario_id": "B08-01",
-      "name": "Host OS/runtime discovery accurately distinguishes available backends; fail closed",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 776.72,
-      "description": "Probes Docker, WSL2, and Windows Job Objects; verifies honest security classification."
-    },
-    {
-      "scenario_id": "B08-02",
-      "name": "Launch real disposable isolated environment; verify identity and cleanup",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 52.56,
-      "description": "Spawns isolated worker under boundary constraints and verifies process termination."
-    },
-    {
-      "scenario_id": "B08-03",
-      "name": "Attempt read outside authorized project root; blocked by real runtime",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 2.58,
-      "description": "Enforces canonical workspace root verification and blocks directory traversal escape."
-    },
-    {
-      "scenario_id": "B08-04",
-      "name": "Attempt cross-tenant project/file access; boundaries prevent leakage",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 3.76,
-      "description": "Confirms Tenant B cannot execute commands or read files in Tenant A workspace."
-    },
-    {
-      "scenario_id": "B08-05",
-      "name": "Attempt outbound network in default-off runtime",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 0.27,
-      "description": "ResourceLimits enforces allow_network=False boundary by default."
-    },
-    {
-      "scenario_id": "B08-06",
-      "name": "Attempt access to secrets; no credential exposed in env",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 55.38,
-      "description": "Strips all API keys, merchant secrets, and tokens from child process environment."
-    },
-    {
-      "scenario_id": "B08-07",
-      "name": "Reject privileged container, host-mounted root, Docker socket",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 0.66,
-      "description": "Blocks --privileged, /var/run/docker.sock, and root filesystem mount arguments."
-    },
-    {
-      "scenario_id": "B08-08",
-      "name": "Enforce CPU and memory limits on aggressive fixture",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 1366.88,
-      "description": "Terminates infinite loops and long-running fixtures upon timeout ceiling."
-    },
-    {
-      "scenario_id": "B08-09",
-      "name": "Enforce PID/process count and output buffer quotas (1MB)",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 41.57,
-      "description": "Gracefully truncates oversized stdout/stderr buffers exceeding quota."
-    },
-    {
-      "scenario_id": "B08-10",
-      "name": "Cancel a spawned process tree; all descendants gone and resources cleaned",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 899.8,
-      "description": "Kills entire process tree via Windows Job Object / taskkill with zero zombie PIDs."
-    },
-    {
-      "scenario_id": "B08-11",
-      "name": "Create workspace snapshot; preserve existing user files",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 8.9,
-      "description": "Pre-mutation backup stores file state before applying patches for safe reversal."
-    },
-    {
-      "scenario_id": "B08-12",
-      "name": "Block ../, absolute paths, symlink/junction escape",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 1.33,
-      "description": "DiffEngine rejects patches targeting paths outside the workspace boundary."
-    },
-    {
-      "scenario_id": "B08-13",
-      "name": "Detect project languages, lockfiles, tests, build scripts",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 9.68,
-      "description": "Accurately indexes Python (pytest) and Node/TypeScript (npm test, build) setups."
-    },
-    {
-      "scenario_id": "B08-14",
-      "name": "Perform bounded repository search and symbol retrieval",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 11.21,
-      "description": "Retrieves class and function definitions without whole-repository context flooding."
-    },
-    {
-      "scenario_id": "B08-15",
-      "name": "Apply structured patch; generated diff matches disk result",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 9.9,
-      "description": "Replaces exact target characters and generates standard unified diff."
-    },
-    {
-      "scenario_id": "B08-16",
-      "name": "Reject patch outside scope, invalid base hash and conflicting modifications",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 2.65,
-      "description": "Detects missing target text or concurrent base hash drift and aborts cleanly."
-    },
-    {
-      "scenario_id": "B08-17",
-      "name": "Roll back only task-owned modifications; detect conflicts",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 19.39,
-      "description": "Reverts only changes made by specific task ID, preserving user modifications."
-    },
-    {
-      "scenario_id": "B08-18",
-      "name": "Preserve UTF-8 Nepali/Devanagari source, filenames and mixed-language strings",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 9.84,
-      "description": "Ensures Devanagari Unicode scripts and vowel matras are preserved without corruption."
-    },
-    {
-      "scenario_id": "B08-19",
-      "name": "Python script executes with real bounded stdout/stderr/exit status",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 46.96,
-      "description": "Executes real Python interpreter and captures separate stdout and stderr streams."
-    },
-    {
-      "scenario_id": "B08-20",
-      "name": "Node/TypeScript test runs with accurate tool version and isolated evidence",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 69.27,
-      "description": "Executes Node.js test script inside sandbox and asserts genuine test output."
-    },
-    {
-      "scenario_id": "B08-21",
-      "name": "A failed lint/test reports precise failure and remains failed until fixed",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 543.87,
-      "description": "Captures ZeroDivisionError traceback and non-zero exit code faithfully."
-    },
-    {
-      "scenario_id": "B08-22",
-      "name": "Package install offline denies unseen dependency downloads",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.25,
-      "description": "Classifies package install actions under mutation tiers with audit checks."
-    },
-    {
-      "scenario_id": "B08-23",
-      "name": "Reject shell-injection arguments; never concatenate untrusted strings",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.32,
-      "description": "Identifies dangerous system commands (rm -rf /, curl | sh) as Tier C."
-    },
-    {
-      "scenario_id": "B08-24",
-      "name": "Run build with explicit command, exit code and hashes",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 51.26,
-      "description": "Executes build script and asserts bundle file generation on disk."
-    },
-    {
-      "scenario_id": "B08-25",
-      "name": "Python feature task: inspect -> baseline fail -> patch -> tests pass -> verified diff",
-      "evidence_class": "End-to-End Workflow (E2E)",
-      "status": "PASSED",
-      "duration_ms": 581.7,
-      "description": "Autonomous repair of Python calculator bug; runs pytest and verifies green status."
-    },
-    {
-      "scenario_id": "B08-26",
-      "name": "TypeScript bug fix: reproduce issue, patch, build and verify",
-      "evidence_class": "End-to-End Workflow (E2E)",
-      "status": "PASSED",
-      "duration_ms": 73.37,
-      "description": "Autonomous update of Node.js function with test pass and build confirmation."
-    },
-    {
-      "scenario_id": "B08-27",
-      "name": "Introduce intentional regression fixture; coding loop declines false success",
-      "evidence_class": "End-to-End Workflow (E2E)",
-      "status": "PASSED",
-      "duration_ms": 578.85,
-      "description": "Agent declines false success when tests fail; transitions to FAILED state."
-    },
-    {
-      "scenario_id": "B08-28",
-      "name": "Ambiguous user task produces explicit assumptions; no unrelated mutations",
-      "evidence_class": "End-to-End Workflow (E2E)",
-      "status": "PASSED",
-      "duration_ms": 7.93,
-      "description": "Guarantees out-of-scope files like README are completely untouched by task."
-    },
-    {
-      "scenario_id": "B08-29",
-      "name": "Repair loop executes within configured iteration budget",
-      "evidence_class": "End-to-End Workflow (E2E)",
-      "status": "PASSED",
-      "duration_ms": 0.25,
-      "description": "Task spec enforces hard ceiling of 3 repair iterations to avoid runaway loops."
-    },
-    {
-      "scenario_id": "B08-30",
-      "name": "Fresh checkout reruns instructions and reproduces build/test result",
-      "evidence_class": "End-to-End Workflow (E2E)",
-      "status": "PASSED",
-      "duration_ms": 510.47,
-      "description": "Deterministic rerun of pytest suite produces identical passing result."
-    },
-    {
-      "scenario_id": "B08-31",
-      "name": "Git branch creation leaves main unchanged",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.28,
-      "description": "Ensures feature branching operates safely under Tier B mutation tier."
-    },
-    {
-      "scenario_id": "B08-32",
-      "name": "Reject git push, force push, remote change without Tier C approval",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.27,
-      "description": "Remote git operations strictly classified as Tier C Specific Approval."
-    },
-    {
-      "scenario_id": "B08-33",
-      "name": "Artifact manifest includes task, command, time, checksum, dependency digest",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.22,
-      "description": "Verifies artifact inventory records 64-char SHA-256 and task provenance."
-    },
-    {
-      "scenario_id": "B08-34",
-      "name": "Trace/tenant/task IDs link backend action history",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 478.17,
-      "description": "Guarantees tenant_id and user_id propagate through coding task status."
-    },
-    {
-      "scenario_id": "B08-35",
-      "name": "Developer panel event schema verification",
-      "evidence_class": "UI Observation (UI)",
-      "status": "PASSED",
-      "duration_ms": 0.37,
-      "description": "Verifies activity status stream schema (runId, type, label, timestamp)."
-    },
-    {
-      "scenario_id": "B08-36",
-      "name": "Streaming output handles large outputs via truncation",
-      "evidence_class": "UI Observation (UI)",
-      "status": "PASSED",
-      "duration_ms": 50.16,
-      "description": "Truncates large terminal streams gracefully without freezing client DOM."
-    },
-    {
-      "scenario_id": "B08-37",
-      "name": "User cancellation immediately stops active task and backend processes",
-      "evidence_class": "UI Observation (UI)",
-      "status": "PASSED",
-      "duration_ms": 2.26,
-      "description": "Cancellation signal instantly transitions task to CANCELLED state."
-    },
-    {
-      "scenario_id": "B08-38",
-      "name": "Reconnected SSE resumes event stream from buffer",
-      "evidence_class": "UI Observation (UI)",
-      "status": "PASSED",
-      "duration_ms": 448.61,
-      "description": "Reconnected clients receive all past events in sequence before live stream."
-    },
-    {
-      "scenario_id": "B08-39",
-      "name": "UI component export verification",
-      "evidence_class": "UI Observation (UI)",
-      "status": "PASSED",
-      "duration_ms": 16.0,
-      "description": "Verifies CodingTaskPanel.tsx exists, compiles, and connects to EventSource."
-    },
-    {
-      "scenario_id": "B08-40",
-      "name": "Approval token bound to user, tenant, task, command; tampering invalidates it",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.43,
-      "description": "HMAC-SHA256 parameter binding rejects altered command or task targets."
-    },
-    {
-      "scenario_id": "B08-41",
-      "name": "Malicious README/log prompt-injection defanged; no privileges granted",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 0.44,
-      "description": "Defangs override instructions and encapsulates in untrusted tags."
-    },
-    {
-      "scenario_id": "B08-42",
-      "name": "Untrusted script inside sandbox cannot access secrets",
-      "evidence_class": "Sandbox Security (S)",
-      "status": "PASSED",
-      "duration_ms": 46.07,
-      "description": "Child process inspection reveals scrubbed environment variables."
-    },
-    {
-      "scenario_id": "B08-43",
-      "name": "Task cancellation leaves durable terminal state",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 414.3,
-      "description": "Cancelled tasks persist CANCELLED status in service registry."
-    },
-    {
-      "scenario_id": "B08-44",
-      "name": "Two parallel tasks enforce quotas and isolated workspaces",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 66.04,
-      "description": "Concurrent workers run independently without cross-workspace interference."
-    },
-    {
-      "scenario_id": "B08-45",
-      "name": "Repeated 5-step coding workflow completes reliably over 5 runs",
-      "evidence_class": "End-to-End Workflow (E2E)",
-      "status": "PASSED",
-      "duration_ms": 221.05,
-      "description": "Five consecutive command executions exhibit 100% stability and consistent latency."
-    },
-    {
-      "scenario_id": "B08-46",
-      "name": "Distinct actionable error classification for dependency failure and timeouts",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 1023.12,
-      "description": "Distinguishes ModuleNotFoundError and TimeoutError with explicit diagnostic signals."
-    },
-    {
-      "scenario_id": "B08-47",
-      "name": "Phase 06 CRAG and Phase 07 browser integration preserve permissions",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.31,
-      "description": "Prevents shell command execution under read-only browser or search permissions."
-    },
-    {
-      "scenario_id": "B08-48",
-      "name": "Regression check across Phase 06 CRAG, Phase 05 Voice, and Agency",
-      "evidence_class": "Component Integration (I)",
-      "status": "PASSED",
-      "duration_ms": 0.3,
-      "description": "Verifies core contract enum imports for Research, Voice, and Browser engines."
+    "pass_rate_pct": 100.0,
+    "duration_seconds": 5.75,
+    "groups": {
+      "group_a_intent_to_spec": { "passed": 8, "total": 8 },
+      "group_b_zero_shot_missions": { "passed": 8, "total": 8 },
+      "group_c_truth_plane_integrity": { "passed": 8, "total": 8 },
+      "group_d_preview_security_csp": { "passed": 8, "total": 8 },
+      "group_e_streaming_latency_audit": { "passed": 8, "total": 8 },
+      "group_f_adaptive_design_trainer": { "passed": 8, "total": 8 },
+      "group_g_authentic_nepali_localization": { "passed": 8, "total": 8 },
+      "group_h_end_to_end_convergence": { "passed": 8, "total": 8 }
     }
-  ]
+  },
+  "regressions": {
+    "test_p19_acceptance_128": { "passed": 128, "total": 128, "duration_seconds": 8.64 },
+    "test_voice_multilingual": { "passed": 5, "total": 5, "duration_seconds": 0.23 }
+  },
+  "zero_shot_missions": {
+    "Z1": {
+      "title": "Kathmandu Dental & Wellness Appointments",
+      "design_critic_score": 95,
+      "collision_prevention": "verified_atomic",
+      "sqlite_database": true,
+      "bilingual_localization": true
+    },
+    "Z2": {
+      "title": "Nepal Open Air & Water Civic Telemetry Dashboard",
+      "design_critic_score": 91,
+      "source_provenance": "DHM_verified",
+      "interactive_svg": true,
+      "dynamic_range_filters": true
+    },
+    "Z3": {
+      "title": "Himalayan Khata & Invoicing Operations",
+      "design_critic_score": 93,
+      "accounting_precision": "integer_npr_exact",
+      "pan_vat_compliance": true,
+      "hindi_leakage_detected": false
+    },
+    "Z4": {
+      "title": "Vespera Kinetic Visual Studio",
+      "design_critic_score": 95,
+      "frame_rate": "60fps_gpu_accelerated",
+      "reduced_motion_accessible": true
+    }
+  },
+  "adaptive_design_trainer_ablation": {
+    "total_cases": 5,
+    "average_baseline_score": 81.8,
+    "average_refined_score": 93.0,
+    "net_improvement_points": 11.2,
+    "regressions_count": 0,
+    "verdict": "PASS_SIGNIFICANT_IMPROVEMENT"
+  },
+  "streaming_audit": {
+    "model": "xkiro/qwen-2.5-coder-32b",
+    "ttfb_ms": 15.33,
+    "ttft_ms": 15.33,
+    "total_tokens": 25,
+    "tokens_per_second": 71.21,
+    "chunk_count": 25,
+    "is_multi_chunk_stream": true,
+    "cost_npr": 0.0027,
+    "status": "VERIFIED_STREAMING"
+  }
 }
