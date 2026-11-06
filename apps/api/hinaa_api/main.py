@@ -1040,6 +1040,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(platform_router)
     from .convergence.endpoints import convergence_router
     app.include_router(convergence_router)
+    from .coding.endpoints import coding_router
+    app.include_router(coding_router)
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service

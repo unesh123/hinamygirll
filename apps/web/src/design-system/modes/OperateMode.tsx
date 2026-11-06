@@ -36,6 +36,7 @@ import {
 import { ApprovalCard, type ApprovalRiskLevel } from "../components/approval/ApprovalCard";
 import { SaaSBridgePanel } from "../../features/integrations/SaaSBridgePanel";
 import { MissionCenterPanel } from "../../components/convergence/MissionCenterPanel";
+import { DeveloperStudio } from "../../components/coding/DeveloperStudio";
 
 /* ── Types ───────────────────────────────────────────── */
 export interface RuntimeTaskStep {
@@ -160,7 +161,7 @@ function LoadFault({ line }: { line: string }) {
 }
 
 /* ── Main Component ─────────────────────────────────── */
-export type OperateTab = "missions" | "tasks" | "capabilities" | "approvals" | "reports" | "integrations";
+export type OperateTab = "studio" | "missions" | "tasks" | "capabilities" | "approvals" | "reports" | "integrations";
 
 interface GeneratedDocSummary {
   docId: string;
@@ -480,6 +481,26 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
             border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))",
           }}>
             <button
+              onClick={() => setActiveTab("studio")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 6,
+                fontSize: "12px",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "studio" ? "rgba(103,233,192,0.2)" : "transparent",
+                color: activeTab === "studio" ? "#67e9c0" : "var(--text-secondary, #a1a1aa)",
+                transition: "all 150ms ease",
+              }}
+            >
+              <Code size={13} />
+              Developer Studio
+            </button>
+            <button
               onClick={() => setActiveTab("missions")}
               style={{
                 display: "flex",
@@ -690,6 +711,13 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
 
       {/* ── Main Workspace Body ───────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        {/* ── Tab: Developer Studio ─────────────────────────── */}
+        {activeTab === "studio" && (
+          <div style={{ flex: 1, height: "100%", overflow: "hidden" }}>
+            <DeveloperStudio />
+          </div>
+        )}
+
         {/* ── Tab: Approvals Queue ───────────────────────────── */}
         {activeTab === "missions" && (
           <div style={{ flex: 1, overflowY: "auto", padding: "16px", height: "100%" }}>
