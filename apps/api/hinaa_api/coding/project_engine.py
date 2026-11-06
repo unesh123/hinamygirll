@@ -281,6 +281,10 @@ class AutonomousProjectEngine:
         # 7. Generate evidence manifest
         evidence = self.generate_evidence(task_id)
         task.evidence_manifest = evidence
+        try:
+            (ws_path / "evidence_manifest.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+        except Exception:
+            pass
         await self.emit(task_id, ws_id, EVENT_ARTIFACT_VERIFIED, {
             "manifest": evidence,
             "score": scorecard.overall_score,
@@ -424,6 +428,8 @@ class AutonomousProjectEngine:
             "scorecard": task.scorecard,
             "preview_url": task.preview_url,
             "verified": True,
+            "phase": "Phase 19",
+            "total_bytes": sum(Path(root, f).stat().st_size for root, _, files in os.walk(ws_path) for f in files),
         }
 
     def export_zip(self, task_id: str) -> bytes:

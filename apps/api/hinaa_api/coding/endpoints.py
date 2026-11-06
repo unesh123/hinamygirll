@@ -56,8 +56,24 @@ class WriteFileRequest(BaseModel):
 
 @coding_router.get("/missions", response_model=List[FlagshipMission])
 async def list_flagship_missions() -> List[FlagshipMission]:
-    """Returns all 12 flagship missions available for live coding."""
-    return list(get_flagship_catalog().values())
+    """Returns all 12 flagship missions + 3 unseen showcase applications."""
+    items = list(get_flagship_catalog().values())
+    try:
+        from hinaa_api.coding.unseen_showcase_generator import get_unseen_showcase_sites
+        for site_id, site in get_unseen_showcase_sites().items():
+            items.append(FlagshipMission(
+                mission_id=site.site_id,
+                title=site.name,
+                category=site.category,
+                tagline=site.tagline,
+                description=site.description,
+                viewports=["desktop_1440", "tablet_768", "mobile_390"],
+                files=site.files,
+                key_features=site.key_features,
+            ))
+    except Exception:
+        pass
+    return items
 
 
 @coding_router.get("/missions/{mission_id}", response_model=FlagshipMission)

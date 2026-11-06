@@ -175,7 +175,7 @@ interface GeneratedDocSummary {
   createdAt: string;
 }
 
-export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab } = {}) {
+export function OperateMode({ initialTab = "studio" }: { initialTab?: OperateTab } = {}) {
   const [activeTab, setActiveTab] = useState<OperateTab>(initialTab);
   const [tasks, setTasks] = useState<RuntimeTask[]>([]);
   const [tools, setTools] = useState<RuntimeToolCapability[]>([]);

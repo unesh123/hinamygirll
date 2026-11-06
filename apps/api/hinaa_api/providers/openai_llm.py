@@ -584,6 +584,16 @@ class OpenAILLMProvider:
                 plan.thinking = first_decoder.thinking
             timing.mark("plan_parsed")
             timing.mark("plan_validated")
+            if holder.get("resolved_model"):
+                actual_model = str(holder["resolved_model"])
+                plan.resolvedModel = actual_model
+                if holder.get("fallback_used"):
+                    plan.fallback = True
+                    plan.fallbackReason = str(
+                        holder.get("fallback_reason") or f"Failed over to {actual_model}"
+                    )
+            elif not plan.resolvedModel:
+                plan.resolvedModel = self._model
         except HinaaError:
             raise
         except Exception as error:
@@ -592,9 +602,10 @@ class OpenAILLMProvider:
         stages["provider_events"] = provider_events
         latency_ms = int((perf_counter() - started) * 1000)
         self._circuit_breaker.record_success(latency_ms)
+        resolved_brain_model = holder.get("resolved_model") or self._model
         return ProviderResult(
             plan,
-            f"{self._provider_id}:{self._model}",
+            f"{self._provider_id}:{resolved_brain_model}",
             latency_ms,
             stages=stages,
         )
@@ -813,8 +824,16 @@ class OpenAILLMProvider:
                             if not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
                                 stream_failed_early = True
                             elif streamed_any:
-                                if finish_reason_holder is not None and not finish_reason_holder.get("value"):
-                                    finish_reason_holder["value"] = "stop"
+                                if finish_reason_holder is not None:
+                                    if not finish_reason_holder.get("value"):
+                                        finish_reason_holder["value"] = "stop"
+                                    finish_reason_holder["resolved_model"] = candidate_model
+                                    if candidate_model != primary_model:
+                                        finish_reason_holder["fallback_used"] = True
+                                        finish_reason_holder["fallback_reason"] = (
+                                            f"Candidate '{primary_model}' was unavailable or slow; "
+                                            f"seamlessly failed over to '{candidate_model}'."
+                                        )
                                 if in_thought:
                                     yield "</think>\n\n"
                                 return

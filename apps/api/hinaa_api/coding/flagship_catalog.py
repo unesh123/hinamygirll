@@ -1026,5 +1026,25 @@ FLAGSHIP_MISSIONS = get_flagship_catalog()
 
 
 def get_mission(mission_id: str) -> Optional[FlagshipMission]:
-    """Retrieve a flagship mission by ID."""
-    return get_flagship_catalog().get(mission_id)
+    """Retrieve a flagship or unseen showcase mission by ID."""
+    catalog = get_flagship_catalog()
+    if mission_id in catalog:
+        return catalog[mission_id]
+    try:
+        from hinaa_api.coding.unseen_showcase_generator import get_unseen_showcase_sites
+        unseen = get_unseen_showcase_sites()
+        if mission_id in unseen:
+            site = unseen[mission_id]
+            return FlagshipMission(
+                mission_id=site.site_id,
+                title=site.name,
+                category=site.category,
+                tagline=site.tagline,
+                description=site.description,
+                viewports=["desktop_1440", "tablet_768", "mobile_390"],
+                files=site.files,
+                key_features=site.key_features,
+            )
+    except Exception:
+        pass
+    return None

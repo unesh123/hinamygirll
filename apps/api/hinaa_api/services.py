@@ -5025,7 +5025,13 @@ class ConversationService:
                     history,
                     prompt,
                 )
-                resolved_model = served_model or resolved_model
+                resolved_model = getattr(result.value, "resolvedModel", None) or served_model or resolved_model
+                if getattr(result.value, "fallback", False):
+                    is_fallback = True
+                    fallback_reason = getattr(result.value, "fallbackReason", None) or fallback_reason
+                elif request.brainModel and resolved_model and request.brainModel != resolved_model:
+                    is_fallback = True
+                    fallback_reason = f"Requested model '{request.brainModel}' resolved to fallback model '{resolved_model}'."
                 self._record_brain_call(attempted_brain, ok=True, model=served_model)
                 if request.providerMode == "mock" and self.cross_session_retriever and user_id:
                     try:
@@ -5096,7 +5102,13 @@ class ConversationService:
                             history,
                             prompt,
                         )
-                    resolved_model = served_model or resolved_model
+                    resolved_model = getattr(result.value, "resolvedModel", None) or served_model or resolved_model
+                    if getattr(result.value, "fallback", False):
+                        is_fallback = True
+                        fallback_reason = getattr(result.value, "fallbackReason", None) or fallback_reason
+                    elif request.brainModel and resolved_model and request.brainModel != resolved_model:
+                        is_fallback = True
+                        fallback_reason = f"Requested model '{request.brainModel}' resolved to fallback model '{resolved_model}'."
                     self._record_brain_call(attempted_brain, ok=True, model=served_model)
                     retry_succeeded = True
                 except Exception as retry_err:
@@ -5938,7 +5950,13 @@ class ConversationService:
                     # built from the request said "claude" for weeks while a flash-tier
                     # gateway wrote every word.
                     resolved_provider = getattr(provider, "id", None) or resolved_provider
-                    resolved_model = served_model or resolved_model
+                    resolved_model = getattr(result.value, "resolvedModel", None) or served_model or resolved_model
+                    if getattr(result.value, "fallback", False):
+                        is_fallback = True
+                        fallback_reason = getattr(result.value, "fallbackReason", None) or fallback_reason
+                    elif request.brainModel and resolved_model and request.brainModel != resolved_model:
+                        is_fallback = True
+                        fallback_reason = f"Requested model '{request.brainModel}' resolved to fallback model '{resolved_model}'."
                 else:
                     # Mock / non-streaming path: deltas are synthetic after full plan.
                     timing.mark("provider_client_ready")

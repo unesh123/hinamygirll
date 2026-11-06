@@ -3597,6 +3597,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return statuses
 
+    @app.get("/v1/providers/xkiro/models")
+    @app.get("/api/v1/providers/xkiro/models")
+    async def get_xkiro_models(refresh: bool = False) -> dict[str, Any]:
+        """Dynamically retrieve models from xKiro GET /v1/models with verified metadata."""
+        from .providers.xkiro_catalog import get_xkiro_catalog_manager
+        cat = get_xkiro_catalog_manager(active_settings.active_xkiro_base_url or "https://api.xkiro.com/v1")
+        key = active_settings.active_xkiro_key.get_secret_value() if active_settings.active_xkiro_key else None
+        models = await cat.get_models(api_key=key, force_refresh=refresh)
+        return {
+            "provider": "xkiro",
+            "count": len(models),
+            "default_model": cat.default_model(),
+            "models": models,
+        }
+
     @app.get("/v1/commands")
     @app.get("/api/v1/commands")
     async def command_registry() -> dict[str, Any]:

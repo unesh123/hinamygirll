@@ -282,7 +282,13 @@ export function ModelControlBar({
     if (id === "agnes-2.5-flash") return "Agnes 2.5 Flash";
     if (id === "nemotron-3.5-lightning-free") return "Nemotron 3.5 Lightning (Free)";
     if (id === "laguna-s-2.1") return "Laguna S 2.1";
+    if (id === "mistralai/codestral-2508") return "Codestral 2508 (Fast Free)";
+    if (id === "mistralai/ministral-14b") return "Ministral 14B (Fast Free)";
+    if (id === "mistralai/mistral-large-2512") return "Mistral Large 2512 (Free)";
+    if (id === "mistralai/ministral-8b") return "Ministral 8B (Free)";
     if (id === "qwen/qwen3.8-max:free") return "Qwen 3.8 Max (Free)";
+    if (id === "qwen/qwen3.7-max:free") return "Qwen 3.7 Max (Free)";
+    if (id === "cohere/command-a-reasoning") return "Cohere Command A (Reasoning)";
     if (id === "qwen/qwen3.7-flash:free") return "Qwen 3.7 Flash (Free)";
     if (id === "deepseek-v4-flash-free") return "DeepSeek V4 Flash (Free)";
     if (id === "gpt-6-luna-free") return "GPT-6 Luna (Free)";

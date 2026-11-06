@@ -1511,9 +1511,11 @@ class Settings(BaseSettings):
 
     def resolve_xkiro_model(self, requested: str | None = None) -> str:
         model = (requested or "").strip() or self.active_xkiro_model
-        if "*" not in self.xkiro_allowed_models and model not in self.xkiro_allowed_models:
+        from .providers.xkiro_catalog import get_xkiro_catalog_manager
+        cat = get_xkiro_catalog_manager(self.active_xkiro_base_url or "https://api.xkiro.com/v1")
+        if not cat.is_model_valid(model) and model not in self.xkiro_allowed_models and "*" not in self.xkiro_allowed_models:
             allowed = ", ".join(self.xkiro_allowed_models)
-            raise ValueError(f"XKiro model is not in XKIRO_ALLOWED_MODELS: {allowed}")
+            raise ValueError(f"XKiro model '{model}' is not in verified catalog or XKIRO_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

@@ -9,7 +9,7 @@ from .context import (
     build_user_block,
 )
 from .depth import depth_guidance, infer_response_depth
-from .language import LANGUAGE_LAYER, language_hint
+from .language import LANGUAGE_LAYER, get_language_layer, language_hint
 from .models import PromptInput, PromptLayer, PromptPackage
 from .followup import resolve_followup_policy
 from .professional_answer import professional_answer_layer
@@ -260,7 +260,7 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             name="language",
             priority=4,
             trusted=True,
-            text=f"{LANGUAGE_LAYER}\n{language_hint(inp.language)}\n"
+            text=f"{get_language_layer(inp.language)}\n{language_hint(inp.language)}\n"
             f"(language_policy_version={LANGUAGE_POLICY_VERSION})",
         ),
         PromptLayer(
