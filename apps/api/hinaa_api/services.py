@@ -67,9 +67,11 @@ from .voice_profiles import resolve_calibration, resolve_voice
 from .run_ledger import get_run_ledger
 from .reply_guard import check_reply
 from .voice_fallback import (
+    clear_voice_cooldown,
     fallback_voice_id,
     is_fallback_worthy,
     note_voice_failure,
+    note_voice_success,
     voice_on_cooldown,
 )
 
@@ -7155,6 +7157,7 @@ class ConversationService:
                     model_id=model_id,
                     rate=rate,
                 )
+            clear_voice_cooldown(_ELEVENLABS_PROVIDER)
             ledger.record_tts(
                 provider="elevenlabs",
                 voice_id=voice_id,

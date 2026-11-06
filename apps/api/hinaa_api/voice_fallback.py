@@ -35,7 +35,7 @@ _FALLBACK_STATUSES = frozenset(
 # hears as "her voice is broken". Ten minutes is long enough to stop that
 # stutter on a burst of turns and short enough to pick up a topped-up account
 # without a restart.
-_COOLDOWN_SECONDS = 600.0
+_COOLDOWN_SECONDS = 30.0
 _cooldowns: dict[str, float] = {}
 _COOLDOWN_FILE = Path(__file__).resolve().parents[2] / ".runtime" / "live" / "voice_cooldown.json"
 
@@ -122,3 +122,15 @@ def clear_voice_cooldown(provider: str | None = None) -> None:
     else:
         _cooldowns.pop(provider, None)
         _save_persisted_cooldowns(_cooldowns)
+
+
+def note_voice_success(provider: str) -> None:
+    """Clear any recorded cooldown on successful vendor reply."""
+    _cooldowns.pop(provider, None)
+    try:
+        persisted = _load_persisted_cooldowns()
+        if provider in persisted:
+            persisted.pop(provider, None)
+            _save_persisted_cooldowns(persisted)
+    except Exception:
+        pass

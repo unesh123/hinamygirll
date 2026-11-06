@@ -960,7 +960,11 @@ class ElevenLabsSpeechStream:
             self._enqueue_sentinel()
             return
 
-        alignment = _parse_alignment(payload.get("alignment"))
+        alignment = _parse_alignment(
+            payload.get("alignment")
+            or payload.get("normalizedAlignment")
+            or payload.get("normalized_alignment")
+        )
         echo = payload.get("text") if isinstance(payload.get("text"), str) else ""
         audio_base64 = payload.get("audio")
         audio = b""
@@ -1031,32 +1035,64 @@ class ElevenLabsSpeechStream:
 def _parse_alignment(raw: Any) -> SpeechAlignment | None:
     """Vendor alignment payload → timing, or None when it is not usable.
 
-    Field names differ between the socket and the REST paths (`characters` vs
-    `chars`), and a length mismatch is corruption rather than a short list, so it
-    is dropped instead of silently mis-timing her mouth.
+    Handles both ElevenLabs REST ('character_start_times_seconds', 'character_end_times_seconds')
+    and WebSocket ('characterStartTimesSeconds', 'characterEndTimesSeconds' or 'charStartTimesMs', 'charDurationsMs')
+    formats. Converts seconds to milliseconds so the avatar's mouth accurately follows spoken audio.
     """
     if not isinstance(raw, dict):
         return None
     characters = raw.get("characters") or raw.get("chars")
-    starts = raw.get("charStartTimesMs")
-    durations = raw.get("charDurationsMs")
+    if not isinstance(characters, (list, tuple)) or not characters:
+        return None
+
+    # Try seconds format first (standard ElevenLabs with-timestamps schema)
+    raw_starts_sec = (
+        raw.get("character_start_times_seconds")
+        or raw.get("characterStartTimesSeconds")
+    )
+    raw_ends_sec = (
+        raw.get("character_end_times_seconds")
+        or raw.get("characterEndTimesSeconds")
+    )
     if (
-        not isinstance(characters, list)
-        or not isinstance(starts, list)
-        or not isinstance(durations, list)
-        or not characters
-        or len(characters) != len(starts)
-        or len(characters) != len(durations)
+        isinstance(raw_starts_sec, (list, tuple))
+        and isinstance(raw_ends_sec, (list, tuple))
+        and len(raw_starts_sec) == len(characters)
+        and len(raw_ends_sec) == len(characters)
     ):
-        return None
-    try:
-        return SpeechAlignment(
-            characters=tuple(str(char) for char in characters),
-            start_times_ms=tuple(int(value) for value in starts),
-            durations_ms=tuple(int(value) for value in durations),
-        )
-    except (TypeError, ValueError):
-        return None
+        try:
+            starts_ms = tuple(int(round(float(s) * 1000)) for s in raw_starts_sec)
+            durations_ms = tuple(
+                max(0, int(round((float(e) - float(s)) * 1000)))
+                for s, e in zip(raw_starts_sec, raw_ends_sec, strict=True)
+            )
+            return SpeechAlignment(
+                characters=tuple(str(c) for c in characters),
+                start_times_ms=starts_ms,
+                durations_ms=durations_ms,
+            )
+        except (TypeError, ValueError):
+            pass
+
+    # Try direct millisecond format (charStartTimesMs / charDurationsMs)
+    starts = raw.get("charStartTimesMs") or raw.get("start_times_ms")
+    durations = raw.get("charDurationsMs") or raw.get("durations_ms")
+    if (
+        isinstance(starts, (list, tuple))
+        and isinstance(durations, (list, tuple))
+        and len(characters) == len(starts)
+        and len(characters) == len(durations)
+    ):
+        try:
+            return SpeechAlignment(
+                characters=tuple(str(char) for char in characters),
+                start_times_ms=tuple(int(round(float(value))) for value in starts),
+                durations_ms=tuple(int(round(float(value))) for value in durations),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    return None
 
 
 class ElevenLabsWebSocketStreamingProvider(TTSProvider):
@@ -1538,7 +1574,10 @@ class VoicePerformancePlanner:
             stability = max(0.30, min(0.48, stability - 0.04))
             similarity = min(0.92, max(0.82, similarity + 0.08))
             style_intensity = min(0.60, max(0.38, style_intensity + 0.14))
-            pace = min(1.10, max(0.96, pace + 0.04))
+            if mode == "warm":
+                pace = min(0.95, pace)
+            else:
+                pace = min(1.10, max(0.96, pace + 0.04))
 
         return {
             "deliveryMode": mode,

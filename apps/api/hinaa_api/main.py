@@ -6529,22 +6529,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .voice_performance import speech_text_for_tts
 
         started = perf_counter()
-        provider = service.router.tts(body.providerMode, body.companionId, body.voiceEngine)
-        if not isinstance(provider, ElevenLabsHTTPStreamingProvider):
-            result = await service.synthesize(body)
-            final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
-            alignment: list[dict] | None = None
-            provider_name = result.provider
-        else:
+        if (
+            service.settings.elevenlabs_configured
+            and body.providerMode not in {"mock", "local"}
+            and body.voiceEngine in {None, "auto", "elevenlabs"}
+        ):
             text = speech_text_for_tts(body.text) or body.text
             voice_id = (
                 service.settings.elevenlabs_hiro_voice_id
                 if body.companionId == "hiro"
                 else service.settings.elevenlabs_hinaa_voice_id
             )
+            provider = ElevenLabsHTTPStreamingProvider(service.router.elevenlabs_config())
             try:
                 audio_bytes, speech_alignment, _ms = await provider.synthesize_timed(
-                    text, voice=voice_id
+                    text,
+                    voice=voice_id,
+                    model_id=service.settings.elevenlabs_tts_model_fast,
                 )
                 final_audio, media_type = ensure_wav_or_mp3(audio_bytes, sample_rate=24_000)
                 alignment = (
@@ -6561,11 +6562,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     else None
                 )
                 provider_name = "elevenlabs"
-            except Exception:
+            except Exception as timed_err:
+                logger.warning("ElevenLabs timed synthesis fallback: %s", timed_err)
                 result = await service.synthesize(body)
                 final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
                 alignment = None
                 provider_name = result.provider
+        else:
+            result = await service.synthesize(body)
+            final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+            alignment = None
+            provider_name = result.provider
         filename = "hinaa-turn.mp3" if media_type == "audio/mpeg" else "hinaa-turn.wav"
         alignment_header = base64.b64encode(
             _json.dumps(alignment or []).encode("utf-8")
