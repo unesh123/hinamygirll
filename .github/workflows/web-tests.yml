@@ -52,6 +52,9 @@ jobs:
         run: pnpm build
         working-directory: apps/web
 
+      - name: Install FFmpeg (creative timeline export tests)
+        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+
       - name: Install Playwright browser for API tests
         run: python -m playwright install chromium
 
