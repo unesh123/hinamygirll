@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import logging
 import re
 import time
@@ -2115,8 +2116,10 @@ class ConversationService:
         this to the prompt so she says she cannot keep it, rather than
         measuring a stored fact she never stored.
         """
-        owner_id = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
-        can_keep = self.memory_service is not None or True
+        # user_id is already the dev subject when dev auth is on, so None means an
+        # unauthenticated caller; never file their facts under the owner's account.
+        owner_id = user_id
+        can_keep = user_id is not None and self.memory_service is not None
         try:
             self.memory.learn_from_message(request.sessionId, request.text)
             self._persist_learned_memories(owner_id, request.sessionId)
@@ -2249,6 +2252,35 @@ class ConversationService:
             developer_message="; ".join(attempts) or "no speech-to-text provider configured",
         ) from None
 
+    _WEB_DESTINATIONS = {
+        "netflix": "https://www.netflix.com",
+        "youtube": "https://www.youtube.com",
+        "google": "https://www.google.com",
+    }
+
+    @classmethod
+    def _direct_web_destination(cls, text: str) -> str | None:
+        """URL for "open <known site | url>" commands, else None.
+
+        A desktop application name ("open Google Chrome") is not a destination.
+        """
+        lowered = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", (text or "").casefold()).strip()
+        lead = r"^\s*(?:please\s+)?(?:open|navigate to|go to|browse to|launch|खोलो|खोल्नुहोस्)\s+"
+        if not re.search(lead, lowered):
+            return None
+        if not re.search(r"\b(https?://\S+|website|url|page|site|netflix|youtube|google)\b", lowered):
+            return None
+        target = re.sub(r"(?i)^\s*(?:please\s+)?(?:open|navigate to|go to|browse to|launch)\s+", "", text or "").strip()
+        explicit_url = re.search(r"https?://[^\s]+", target)
+        if explicit_url:
+            return explicit_url.group(0)
+        if re.search(r"\b(?:chrome|edge|firefox|brave|opera|app|application|desktop)\b", target, re.I):
+            return None
+        return next(
+            (url for name, url in cls._WEB_DESTINATIONS.items() if re.search(rf"\b{name}\b", target, re.IGNORECASE)),
+            None,
+        )
+
     def _inject_deterministic_tool_intents(
         self,
         text: str,
@@ -2283,8 +2315,51 @@ class ConversationService:
         # Detect artifact follow-up questions (e.g., "where is the pdf file?")
         self._detect_artifact_lookup(plain_text, plan)
 
+        # Explanations, negations, quoted examples and capability questions are
+        # conversation, never a work order -- decided before any local action
+        # is injected from this sentence.
+        lower_text = plain_text.casefold().strip()
+        unquoted = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", lower_text).strip()
+        is_meta_inquiry = bool(
+            re.search(
+                r"^\s*(?:explain|why\s+did|how\s+does|how\s+to|can\s+hinaa|is\s+it\s+possible)\b",
+                lower_text,
+                re.I,
+            )
+        )
+        is_local_action_negated = bool(
+            re.search(
+                r"\b(?:do\s+not|don'?t|dont|never|stop|cancel|abort)\s+(?:you\s+)?(?:please\s+)?"
+                r"(?:open|launch|start|run|close|navigate|browse|go\s+to)\b",
+                unquoted,
+            )
+        )
+        # A command that only exists inside quotes ("the phrase 'open X' is an
+        # example") is a mention; one that leads the sentence is an order.
+        is_quoted_mention = (
+            unquoted != lower_text
+            and not re.match(
+                r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+|pls\s+|kindly\s+)?"
+                r"(?:open|launch|start|run|close|navigate|browse|go\s+to|switch\s+to)\b",
+                lower_text,
+            )
+        )
+        is_local_action_conversational = (
+            is_meta_inquiry
+            or is_local_action_negated
+            or is_quoted_mention
+            or bool(re.search(r"\b(?:may|might|maybe|perhaps|someday|later)\b", unquoted))
+        )
+        direct_web_destination = (
+            None if is_local_action_conversational else self._direct_web_destination(plain_text)
+        )
+
         # Deterministic OS / Computer Operator Action Injection
-        if not any(t.toolName == "computer_operator" for t in plan.toolRequests):
+        if (
+            not is_local_action_conversational
+            and direct_web_destination is None
+            and not any(t.toolName == "computer_operator" for t in plan.toolRequests)
+        ):
             from .tools.intent_gate import sanction_tools
             sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
             if sanction.allowed and "computer_operator" in sanction.allowed:
@@ -2299,7 +2374,10 @@ class ConversationService:
                 ))
 
         # Deterministic Autonomous Browser Task / Navigation Injection
-        if not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in plan.toolRequests):
+        if (
+            not is_local_action_conversational
+            and not any(t.toolName in {"browser_execute_task", "browser_navigate", "browser_cloud_agent"} for t in plan.toolRequests)
+        ):
             from .tools.intent_gate import sanction_tools
             sanction = sanction_tools(plain_text, known_subjects=CHARACTER_ENTITY_MAP)
             if sanction.allowed and "browser_execute_task" in sanction.allowed:
@@ -2348,8 +2426,6 @@ class ConversationService:
                             tr.parameters["references"] = raw_atts
         
         # Continue with existing deterministic intent detection on plain text
-        lower_text = plain_text.casefold().strip()
-        unquoted = re.sub(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]", "", lower_text).strip()
         is_tool_aborted = bool(
             re.search(
                 r"""(?ix)
@@ -2369,13 +2445,6 @@ class ConversationService:
         if is_tool_aborted:
             return
 
-        is_meta_inquiry = bool(
-            re.search(
-                r"^\s*(?:explain|why\s+did|how\s+does|how\s+to|can\s+hinaa|is\s+it\s+possible)\b",
-                lower_text,
-                re.I,
-            )
-        )
         if is_meta_inquiry:
             return
 
@@ -3063,22 +3132,8 @@ class ConversationService:
             plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.8, valence=0.8, arousal=0.5)
 
-        browser_command = is_command(
-            [r"^\s*(please\s+)?(open|navigate to|go to|browse to|launch|खोलो|खोल्नुहोस्)\b"],
-            target=r"\b(https?://\S+|website|url|page|site|netflix|youtube|google)\b",
-        )
-        if browser_command and not any(t.toolName in {"browser_navigate", "browser_execute_task"} for t in plan.toolRequests):
-            prompt_str = re.sub(r"(?i)^\s*(?:please\s+)?(?:open|navigate to|go to|browse to|launch)\s+", "", text).strip()
-            target = prompt_str or text
-            known_destinations = {
-                "netflix": "https://www.netflix.com",
-                "youtube": "https://www.youtube.com",
-                "google": "https://www.google.com",
-            }
-            destination = next((url for name, url in known_destinations.items() if re.search(rf"\b{name}\b", target, re.IGNORECASE)), None)
-            explicit_url = re.search(r"https?://[^\s]+", target)
-            if explicit_url:
-                destination = explicit_url.group(0)
+        if not any(t.toolName in {"browser_navigate", "browser_execute_task"} for t in plan.toolRequests):
+            destination = self._direct_web_destination(text)
             if destination:
                 # A direct destination is a single owned navigation, not an
                 # autonomous browser sub-agent task.  It creates one page only.

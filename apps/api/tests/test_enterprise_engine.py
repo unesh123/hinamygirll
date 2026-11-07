@@ -142,7 +142,9 @@ def test_resilient_provider_router():
 
 
 @pytest.mark.asyncio
-async def test_cognitive_kernel_enterprise_turn():
+async def test_cognitive_kernel_enterprise_turn(monkeypatch):
+    # The turn plans a real "open calc"; rehearse it instead of driving the desktop.
+    monkeypatch.setenv("HINAA_COMPUTER_DRY_RUN", "1")
     temp_dir = tempfile.mkdtemp()
     try:
         policy = EnterprisePolicyEngine()
@@ -161,8 +163,14 @@ async def test_cognitive_kernel_enterprise_turn():
             session_id="sess_ent_001",
         )
 
-        assert run.status in ("completed", "executing")
+        # Launching an app is Tier 3 (process execution). /v1/cognitive/runs is reachable
+        # through the public tunnel, so the kernel must not self-approve it.
         assert run.goal.goal_type == "computer_use"
+        operator_steps = [n for n in run.plan.nodes if n.tool_or_skill == "computer_operator"]
+        assert operator_steps, "kernel should plan a computer_operator step"
+        assert all(
+            (n.result or {}).get("code") == "EXPLICIT_USER_APPROVAL_REQUIRED" for n in operator_steps
+        )
         assert len(lake.query_events(user_id="enterprise_tester")) >= 1
         assert policy.verify_audit_integrity() is True
     finally:
