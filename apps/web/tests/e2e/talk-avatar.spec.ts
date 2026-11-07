@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { isolateSettings } from "./helpers";
 
+// Quarantined: the surface under test is not reachable in the app.
+test.fixme(true, "TalkMode (Voice language / Avatar framing / hinaa-stage) is no longer mounted: the Talk nav entry became Runway 3D. Re-target these checks once the talk surface is restored or replaced.");
+
 test("keeps full-body avatar framing readable with captions enabled", async ({
   page,
 }, testInfo) => {
