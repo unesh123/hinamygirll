@@ -95,7 +95,7 @@ export class BackendConversationProvider implements ConversationProvider {
     if (request.persona_mode) {
       payload.persona_mode = request.persona_mode;
     }
-    if (request.history && request.history.length > 0) {
+    if (request.history) {
       payload.history = request.history;
     }
     if (request.imageUrl) {

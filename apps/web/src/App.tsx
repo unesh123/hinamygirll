@@ -48,7 +48,7 @@ import { withSpeechFallback } from "./features/audio/speechFallback";
 import { synthesizeSpeechStream } from "./features/audio/streamingSpeechAudio";
 import { useLiveConversation } from "./features/audio/useLiveConversation";
 import { useVSeeFace } from "./features/audio/useVSeeFace";
-import { companionProfiles, type CompanionId, type CompanionState } from "./features/companion/types";
+import { companionProfiles, type CompanionId, type CompanionState, type TranscriptMessage } from "./features/companion/types";
 import { useCompanionController } from "./features/companion/useCompanionController";
 import { useLiveVision } from "./features/vision/useLiveVision";
 import { DesktopWalkingPet } from "./features/desktop/DesktopWalkingPet";
@@ -841,10 +841,17 @@ export default function App() {
   }, [playback.playing, playbackSession]);
 
   /* ─── Submit ─────────────────────────────────────────── */
-  const submit = useCallback((event?: any, overrideText?: string, attachmentRole?: AttachmentRole) => {
+  const submit = useCallback((
+    event?: any,
+    overrideText?: string,
+    attachmentRole?: AttachmentRole,
+    resend?: { historyBase: TranscriptMessage[]; imageUrl?: string },
+  ) => {
     if (event && "preventDefault" in event) event.preventDefault();
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
-    if (!textToSend && !attachedImage) return;
+    // A resend replays a past message, so it must not consume the composer's draft or attachment.
+    const imageData = resend ? (resend.imageUrl ?? null) : attachedImage;
+    if (!textToSend && !imageData) return;
     // Typed barge-in: a message that arrives while she is speaking stops her
     // mid-sentence — during a live voice session too. The old guard returned
     // early whenever live mode was active, so her previous reply played to
@@ -862,10 +869,11 @@ export default function App() {
     void unlockAudio({ replay: false });
     interruptPlayback();
     const timingTurn = runtimeMeasurements.beginTurn();
-    const text = textToSend || (attachedImage ? "Look at this image" : "");
-    const imageData = attachedImage;
-    setInput("");
-    setAttachedImage(null);
+    const text = textToSend || (imageData ? "Look at this image" : "");
+    if (!resend) {
+      setInput("");
+      setAttachedImage(null);
+    }
     void (async () => {
       const mode = controller.routing.activeMode || "agent-router";
       const companionId = controller.companionId;
@@ -971,6 +979,7 @@ export default function App() {
         responseMode: requestResponseMode,
         persona_mode: personaMode,
         voiceEngine: effectiveEngine,
+        historyBase: resend?.historyBase,
         onSentenceChunk: phrase => {
           if (playback.muted) return;
           queue.enqueue(phrase);
@@ -995,6 +1004,24 @@ export default function App() {
       }
     })();
   }, [input, live.active, live.interruptSpeech, controller, playback, attachedImage, interruptPlayback, requestResponseMode, voiceEngine]);
+
+  /** Answer the latest user message again, dropping everything after it from the context. */
+  const regenerateLatest = useCallback(() => {
+    const transcript = controller.messages;
+    let index = transcript.length - 1;
+    while (index >= 0 && transcript[index].role !== "user") index -= 1;
+    if (index < 0) return;
+    const target = transcript[index];
+    submit(undefined, target.text, undefined, { historyBase: transcript.slice(0, index), imageUrl: target.imageUrl ?? undefined });
+  }, [controller.messages, submit]);
+
+  /** Replace a user message and continue the conversation from that point. */
+  const editAndResend = useCallback((messageId: string, text: string) => {
+    const transcript = controller.messages;
+    const index = transcript.findIndex((message) => message.id === messageId);
+    if (index < 0 || transcript[index].role !== "user") return;
+    submit(undefined, text, undefined, { historyBase: transcript.slice(0, index), imageUrl: transcript[index].imageUrl ?? undefined });
+  }, [controller.messages, submit]);
 
   useEffect(() => {
     const handleExplain = (evt: Event) => {
@@ -1505,6 +1532,9 @@ export default function App() {
                 providerHealth={routing.activeMode ? providers.getHealth(routing.activeMode as any) : "checking"}
                 providerLatencyMs={null}
                 brainRecovery={brainRecovery}
+                onRetry={regenerateLatest}
+                onRegenerate={regenerateLatest}
+                onEditMessage={editAndResend}
                 onSelectProvider={(mode, modelId) => {
                   const concrete = mode === "auto" ? "auto" : providerModeFromId(mode);
                   if (!concrete) return;

@@ -165,6 +165,11 @@ export interface SendTextOptions {
   voiceEngine?: string;
   onSentenceChunk?: (sentence: string, isFirst: boolean) => void;
   persona_mode?: string;
+  /**
+   * Resend from this transcript prefix (regenerate / edit): it replaces the visible
+   * conversation and is the turn's entire context, even when empty.
+   */
+  historyBase?: TranscriptMessage[];
 }
 
 export interface CompanionController {
@@ -255,6 +260,10 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     } catch {}
     return [createMessage("assistant", companionProfiles.hinaa.greeting)];
   });
+  // sendText is memoized without `messages`, so it reads the live transcript from here;
+  // a captured `messages` would send a stale history after any re-memoization.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   const prevConvoIdRef = useRef(conversationId);
   useEffect(() => {
@@ -554,8 +563,10 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       activeTurnId.current = turnId;
       const abortController = new AbortController();
       currentAbort.current = abortController;
+      const historyBase = options?.historyBase;
+      const priorMessages = historyBase ?? messagesRef.current;
       setMessages((current) => [
-        ...current,
+        ...(historyBase ?? current),
         createMessage("user", text, {
           imageUrl: options?.imageUrl,
           attachments: options?.attachments,
@@ -605,7 +616,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             ? new BackendConversationProvider(turnMode === "mock" ? "claude" : turnMode)
             : provider.current;
 
-        const historyPayload = messages
+        const historyPayload = priorMessages
           .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.text === "string" && m.text.trim().length > 0)
           .slice(-30)
           .map(m => ({ role: m.role, content: m.text }));
@@ -625,7 +636,8 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           reference_images: options?.reference_images,
           attachments: options?.attachments,
           persona_mode: options?.persona_mode,
-          history: historyPayload,
+          // An empty resend context is still sent so the server can't fall back to stored turns.
+          history: historyPayload.length > 0 || historyBase ? historyPayload : undefined,
         })) {
           if (activeTurnId.current !== turnId || abortController.signal.aborted) return undefined;
           if (event.type === "thinking") {
