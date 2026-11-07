@@ -125,6 +125,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Vite's lazy-import helper otherwise lands in whichever vendor chunk uses it first
+          // (it was vendor-mermaid), making every lazy import preload ~4 MB of mermaid + elkjs.
+          if (id.includes("vite/preload-helper")) return "vite-preload";
           if (!id.includes("node_modules")) return undefined;
           const normalized = id.replace(/\\/g, "/");
           const packagePath = normalized.split("/node_modules/").pop() ?? "";
@@ -155,12 +158,6 @@ export default defineConfig({
           }
           if (packageName.startsWith("@clerk/")) {
             return "vendor-auth";
-          }
-          if (packageName === "mermaid" || packageName.startsWith("@mermaid-js/")) {
-            return "vendor-mermaid";
-          }
-          if (packageName === "elkjs") {
-            return "vendor-elkjs";
           }
           if (
             [
@@ -197,7 +194,10 @@ export default defineConfig({
           if (packageName === "katex") {
             return "vendor-katex";
           }
-          return "vendor-common";
+          // No catch-all group: forcing every other package into one startup chunk pulled
+          // lazily-used libraries (mermaid's dependencies, Vite's lazy-import helper) into
+          // the initial download. Rolldown splits the rest by actual import graph.
+          return undefined;
         },
       },
     },
