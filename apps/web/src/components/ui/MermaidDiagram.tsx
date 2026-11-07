@@ -1,15 +1,28 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
-import mermaid from "mermaid";
+import type { Mermaid } from "mermaid";
 
-let mermaidInitialized = false;
+// Mermaid (plus elkjs) is ~4 MB, so load it the first time a diagram renders
+// instead of on every page load.
+let mermaidLoad: Promise<Mermaid> | null = null;
 
-function ensureMermaidInit() {
-  if (mermaidInitialized) return;
+function loadMermaid(): Promise<Mermaid> {
+  mermaidLoad ??= import("mermaid").then(({ default: mermaid }) => {
+    initMermaid(mermaid);
+    return mermaid;
+  }).catch((err) => {
+    mermaidLoad = null;
+    throw err;
+  });
+  return mermaidLoad;
+}
+
+function initMermaid(mermaid: Mermaid) {
   try {
     mermaid.initialize({
       startOnLoad: false,
       theme: "base",
-      securityLevel: "loose",
+      // Diagrams are model-authored; "strict" encodes HTML in labels and disables click handlers.
+      securityLevel: "strict",
       fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
       fontSize: 14,
       themeVariables: {
@@ -56,7 +69,6 @@ function ensureMermaidInit() {
         useMaxWidth: true,
       },
     });
-    mermaidInitialized = true;
   } catch (err) {
     console.warn("[Mermaid] Initialization warning:", err);
   }
@@ -163,7 +175,6 @@ export const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiag
   };
 
   useEffect(() => {
-    ensureMermaidInit();
     const cleanCode = code.trim();
     if (!cleanCode) return;
 
@@ -172,6 +183,8 @@ export const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiag
 
     async function renderChart() {
       try {
+        const mermaid = await loadMermaid();
+        if (!isMounted) return;
         const { svg } = await mermaid.render(renderId, cleanCode);
         if (isMounted) {
           // Inject strictly scoped styles into the SVG header for maximum contrast without leaking to page
