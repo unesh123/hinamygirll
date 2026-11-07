@@ -157,6 +157,7 @@ async def test_editor_launch_has_real_errors_and_workspace(monkeypatch):
     monkeypatch.setattr(cls, "observe", lambda: operator.GeneralPerception(active_window_title="Test window"))
     monkeypatch.setattr(operator.platform, "system", lambda: "Windows")
     monkeypatch.setenv("HINAA_PREFERRED_EDITOR", "antigravity")
+    monkeypatch.delenv("WORKSPACE_ROOT", raising=False)
     calls = []
     def launch(args, **kwargs):
         calls.append((args, kwargs))
@@ -165,7 +166,7 @@ async def test_editor_launch_has_real_errors_and_workspace(monkeypatch):
     result = await cls.open_application("my editor")
     assert result.success and not result.verified
     assert "Google.Antigravity" in calls[0][0][-1]
-    assert "HINAMYGIRL" in calls[0][0][-1]
+    assert str(operator.Path(operator.__file__).resolve().parents[4]) in calls[0][0][-1]
     assert calls[0][1]["check"] is True
     def fail(*args, **kwargs):
         raise subprocess.CalledProcessError(1, "test-launcher")

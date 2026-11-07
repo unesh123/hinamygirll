@@ -44,6 +44,9 @@ def test_configured_explabs_key_routes_to_gateway():
     mock_settings.active_explabs_base_url = "https://api.experientiallabs.ai/v1"
     mock_settings.active_explabs_model = "claude-opus-5.5"
     mock_settings.resolve_explabs_model.return_value = "claude-opus-5.5"
+    mock_settings.active_cavoti_key = SecretStr("cavoti-test-token-12345")
+    mock_settings.active_cavoti_base_url = "https://cavoti.example/v1"
+    mock_settings.resolve_cavoti_model.return_value = "claude-opus-5.5"
 
     router = ProviderRouter.__new__(ProviderRouter)
     router.settings = mock_settings
@@ -63,11 +66,14 @@ def test_configured_explabs_key_routes_to_gateway():
     assert provider_exp._base_url == "https://api.experientiallabs.ai/v1"
     assert provider_exp._provider_id == "experiential"
 
-    # Test via cavoti mode with claude-opus-5.5
+    # Cavoti serves its own claude-opus-5.5 catalog entry (d551124): an explicit
+    # cavoti selection must stay on the Cavoti gateway, not divert to Experiential.
     provider_cavoti = router.llm(mode="cavoti", brain_model="claude-opus-5.5")
     assert isinstance(provider_cavoti, OpenAILLMProvider)
     assert provider_cavoti._model == "claude-opus-5.5"
-    assert provider_cavoti._base_url == "https://api.experientiallabs.ai/v1"
+    assert provider_cavoti._base_url == "https://cavoti.example/v1"
+    assert provider_cavoti._provider_id == "cavoti"
+    assert provider_cavoti._key == "cavoti-test-token-12345"
 
 
 def test_openai_llm_gateway_recognition():

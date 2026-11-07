@@ -132,29 +132,77 @@ CANONICAL_MODELS: dict[str, CreativeModel] = {
 
 
 class CreativeModelRegistry:
-    """Model registry for legacy creative models and credit calculations."""
+    """Model registry enforcing canonical pricing, pacing recommendations, and a strict video ban."""
+
+    _ALIASES = {
+        "flux-schnell": "flux-fast",
+        "flux-dev": "flux-1",
+        "mystic": "mystic-2.5",
+        "upscale": "upscale-2x",
+    }
+
+    @staticmethod
+    def _video_forbidden() -> HinaaError:
+        return HinaaError(
+            "VIDEO_GENERATION_FORBIDDEN",
+            "Video generation is strictly disabled on HINAA OS to preserve credits and prevent unauthorized video compute.",
+            status_code=403,
+        )
 
     @staticmethod
     def get_model(model_id: str) -> CreativeModel:
         clean = (model_id or "").strip().lower()
+        if "video" in clean:
+            raise CreativeModelRegistry._video_forbidden()
+        clean = CreativeModelRegistry._ALIASES.get(clean, clean)
         if clean not in CANONICAL_MODELS:
-            raise HinaaError("MODEL_NOT_FOUND", f"Model '{model_id}' is not registered in the canonical catalog.")
+            raise HinaaError(
+                "MODEL_NOT_FOUND",
+                f"Model '{model_id}' is not registered in the canonical catalog.",
+                status_code=404,
+            )
         return CANONICAL_MODELS[clean]
 
     @staticmethod
-    def list_models() -> list[CreativeModel]:
-        return list(CANONICAL_MODELS.values())
+    def list_models(category: str | None = None) -> list[CreativeModel]:
+        models = list(CANONICAL_MODELS.values())
+        if category:
+            models = [m for m in models if m.category == category]
+        return models
 
     @staticmethod
-    def calculate_upscale_credits(width: int, height: int, scale: float = 2.0) -> int:
-        pixels = width * height * (scale**2)
-        if pixels <= 1024 * 1024:
-            return 5
-        if pixels <= 2048 * 2048:
-            return 10
-        if pixels <= 4096 * 4096:
-            return 20
-        return 40
+    def recommend_model(task: str, pacing_mode: str = "balanced") -> CreativeModel:
+        task_lower = (task or "").lower()
+        if "video" in task_lower:
+            raise CreativeModelRegistry._video_forbidden()
+
+        if "upscale" in task_lower:
+            return CANONICAL_MODELS["upscale-2x"]
+        if "relight" in task_lower or "light" in task_lower:
+            return CANONICAL_MODELS["relight"]
+
+        if pacing_mode == "economy":
+            if "draft" in task_lower or "quick" in task_lower or "preview" in task_lower:
+                return CANONICAL_MODELS["classic-fast"]
+            return CANONICAL_MODELS["flux-fast"]
+
+        if pacing_mode == "use-it-wisely":
+            return CANONICAL_MODELS["mystic-2.5"]
+
+        if pacing_mode == "quality":
+            if "masterpiece" in task_lower or "final" in task_lower:
+                return CANONICAL_MODELS["mystic-2.5"]
+            return CANONICAL_MODELS["flux-1"]
+
+        if "draft" in task_lower or "fast" in task_lower:
+            return CANONICAL_MODELS["classic-fast"]
+        return CANONICAL_MODELS["flux-fast"]
+
+    @staticmethod
+    def calculate_upscale_credits(width: int, height: int, scale_factor: float = 2.0) -> int:
+        """Estimate dynamic upscale credits from output megapixels (5 credits/MP, minimum 5)."""
+        output_pixels = (width * scale_factor) * (height * scale_factor)
+        return max(5, int(output_pixels / 1_000_000.0 * 5.0))
 
 
 class CreativeRegistry:

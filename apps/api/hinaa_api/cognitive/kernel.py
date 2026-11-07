@@ -266,7 +266,16 @@ class CognitiveKernel:
             if step.tool_or_skill == "computer_operator":
                 try:
                     from ..tools.computer_operator import execute_computer_operator
-                    res = await execute_computer_operator(step.parameters)
+                    from ..tools.policy import ActionRiskTier, classify_computer_operator_action
+
+                    # The step was sanctioned by the intent gate from this turn's
+                    # own imperative and allowed by the PEP above, so it carries
+                    # the user's approval -- except Tier 4 (send, delete, publish),
+                    # which still needs a separate confirmation.
+                    op_params = dict(step.parameters)
+                    if classify_computer_operator_action(op_params.get("action", ""), op_params) < ActionRiskTier.TIER_4_DESTRUCTIVE:
+                        op_params.update({"confirmed": True, "approvalSource": "user"})
+                    res = await execute_computer_operator(op_params)
                     step.result = res
                     step.error = _tool_result_error(res)
                     step.status = "failed" if step.error else "completed"
