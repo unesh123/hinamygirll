@@ -60,6 +60,10 @@ class GenerateProjectRequest(BaseModel):
     options: Optional[Dict[str, Any]] = None
 
 
+class ChangeTaskRequest(BaseModel):
+    change_prompt: str
+
+
 # ----------------------------------------------------------------------
 # 1. Missions Catalog & Execution
 # ----------------------------------------------------------------------
@@ -100,12 +104,45 @@ async def list_flagship_missions() -> List[FlagshipMission]:
     except Exception:
         pass
 
+    try:
+        from hinaa_api.coding.phase21_flagships import get_all_phase21_missions
+        for code, p_mission in get_all_phase21_missions().items():
+            items.append(FlagshipMission(
+                mission_id=code,
+                title=p_mission.title,
+                category=p_mission.category,
+                tagline=p_mission.tagline,
+                description=p_mission.prompt,
+                viewports=["desktop_1440", "tablet_768", "mobile_390"],
+                files=p_mission.files,
+                key_features=p_mission.key_verifications,
+            ))
+    except Exception:
+        pass
+
     return items
 
 
 @coding_router.get("/missions/{mission_id}", response_model=FlagshipMission)
 async def get_flagship_mission(mission_id: str) -> FlagshipMission:
     """Returns specification and files for a specific flagship or zero-shot mission."""
+    try:
+        from hinaa_api.coding.phase21_flagships import get_phase21_mission
+        p21_m = get_phase21_mission(mission_id)
+        if p21_m:
+            return FlagshipMission(
+                mission_id=p21_m.mission_code,
+                title=p21_m.title,
+                category=p21_m.category,
+                tagline=p21_m.tagline,
+                description=p21_m.prompt,
+                viewports=["desktop_1440", "tablet_768", "mobile_390"],
+                files=p21_m.files,
+                key_features=p21_m.key_verifications,
+            )
+    except Exception:
+        pass
+
     try:
         from hinaa_api.coding.zero_shot_missions import get_zero_shot_mission
         z_mission = get_zero_shot_mission(mission_id)
@@ -460,3 +497,64 @@ async def evaluate_trainer_ablation() -> Dict[str, Any]:
     trainer = get_adaptive_design_trainer()
     report = trainer.run_ablation_benchmark()
     return report.model_dump()
+
+
+# ----------------------------------------------------------------------
+# 7. Phase 21: Task Lifecycle, Midway Requirement Changes & Sandbox Probe
+# ----------------------------------------------------------------------
+
+@coding_router.post("/tasks/{task_id}/change", response_model=ProjectTask)
+async def update_task_requirements(task_id: str, request: ChangeTaskRequest) -> ProjectTask:
+    """Applies midway requirement change, running schema migrations and emitting events."""
+    engine = get_project_engine()
+    try:
+        return await engine.apply_midway_change(task_id, request.change_prompt)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error applying midway change: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@coding_router.post("/tasks/{task_id}/pause", response_model=ProjectTask)
+async def pause_task(task_id: str) -> ProjectTask:
+    """Pauses active task execution."""
+    engine = get_project_engine()
+    try:
+        return await engine.pause_task(task_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@coding_router.post("/tasks/{task_id}/resume", response_model=ProjectTask)
+async def resume_task(task_id: str) -> ProjectTask:
+    """Resumes paused task execution."""
+    engine = get_project_engine()
+    try:
+        return await engine.resume_task(task_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@coding_router.post("/tasks/{task_id}/cancel", response_model=ProjectTask)
+async def cancel_task(task_id: str) -> ProjectTask:
+    """Cancels task execution."""
+    engine = get_project_engine()
+    try:
+        return await engine.cancel_task(task_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@coding_router.get("/sandbox/capabilities")
+async def get_sandbox_capabilities() -> Dict[str, Any]:
+    """Probes host sandbox boundaries, returning true platform capabilities."""
+    engine = get_project_engine()
+    return engine.get_host_sandbox_status()
+
+
+@coding_router.get("/phase21-missions")
+async def list_p21_missions() -> Dict[str, Any]:
+    """Returns the 6 Flagship Missions (M1 to M6) for Phase 21."""
+    from hinaa_api.coding.phase21_flagships import get_all_phase21_missions
+    return {code: m.model_dump() for code, m in get_all_phase21_missions().items()}

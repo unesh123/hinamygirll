@@ -217,6 +217,10 @@ class DeveloperEventStore:
 
             return event
 
+    async def get_events(self, task_id: str, since_seq: int = 0) -> List[DeveloperEvent]:
+        """Alias for get_events_after with async interface for callers."""
+        return self.get_events_after(task_id, after_seq=since_seq)
+
     def get_events_after(self, task_id: str, after_seq: int = 0) -> List[DeveloperEvent]:
         """Fetches historical events from database starting strictly after after_seq."""
         events: List[DeveloperEvent] = []

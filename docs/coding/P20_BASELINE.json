@@ -1,0 +1,65 @@
+{
+  "baseline_phase": "Phase 20",
+  "generated_at": "2026-11-07T05:28:00Z",
+  "git_provenance": {
+    "branch": "phase-20-prompt-to-production",
+    "head_commit": "67d880a16f4eab74c0add02d51b64bf6ca0ca68c",
+    "annotated_tag": "phase-20-checkpoint",
+    "tag_object_hash": "c70928a6506259be34b0169baeb809e22566f36d",
+    "tag_target_commit": "67d880a16f4eab74c0add02d51b64bf6ca0ca68c",
+    "reconciliation_verdict": "CONFIRMED_IDENTICAL",
+    "reconciliation_notes": "The tag object hash c70928a points directly to commit 67d880a. Annotated tags possess their own git object hash distinct from the commit they encapsulate. Both references denote the exact same codebase state."
+  },
+  "verified_test_suites": {
+    "test_p20_acceptance_64": {
+      "total": 64,
+      "passed": 64,
+      "failed": 0,
+      "duration_seconds": 3.52,
+      "command": "python -m pytest apps/api/tests/coding/test_p20_acceptance_64.py"
+    },
+    "test_p19_acceptance_128": {
+      "total": 128,
+      "passed": 128,
+      "failed": 0,
+      "duration_seconds": 4.24,
+      "command": "python -m pytest apps/api/tests/coding/test_p19_acceptance_128.py"
+    },
+    "test_s15_suite": {
+      "total": 80,
+      "passed": 80,
+      "failed": 0,
+      "duration_seconds": 24.49,
+      "command": "python -m pytest apps/api/tests/security/test_s15_suite.py"
+    },
+    "test_voice_multilingual": {
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "duration_seconds": 0.23,
+      "command": "python -m pytest apps/api/tests/test_voice_multilingual.py"
+    }
+  },
+  "baseline_metrics": {
+    "streaming_audit": {
+      "ttfb_ms": 15.33,
+      "ttft_ms": 15.33,
+      "total_tokens": 25,
+      "tokens_per_second": 71.21,
+      "cost_npr": 0.0027,
+      "multi_chunk_verified": true
+    },
+    "adaptive_design_trainer_holdout_5": {
+      "baseline_average_score": 81.8,
+      "refined_average_score": 93.0,
+      "net_improvement_delta": 11.2,
+      "regressions_count": 0
+    },
+    "zero_shot_missions": {
+      "Z1_dental_clinic": { "critic_score": 95, "sqlite_db": true, "atomic_collision": true },
+      "Z2_civic_telemetry": { "critic_score": 91, "provenance_cited": true, "svg_trends": true },
+      "Z3_himalayan_khata": { "critic_score": 93, "integer_npr": true, "vat_invoicing": true },
+      "Z4_vespera_kinetic": { "critic_score": 95, "60fps_css": true, "reduced_motion": true }
+    }
+  }
+}

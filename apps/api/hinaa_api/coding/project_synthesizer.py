@@ -23,6 +23,11 @@ from hinaa_api.coding.zero_shot_missions import (
     get_zero_shot_mission,
     get_zero_shot_missions,
 )
+from hinaa_api.coding.phase21_flagships import (
+    Phase21Mission,
+    get_phase21_mission,
+    get_all_phase21_missions,
+)
 
 
 class SynthesizedProject(BaseModel):
@@ -47,8 +52,39 @@ class AutonomousProjectSynthesizer:
         if spec is None:
             spec = self.compiler.compile(prompt)
 
-        # Check if the prompt directly targets one of the 4 canonical Zero-Shot Missions
+        # Check if the prompt directly targets one of the Phase 21 Flagship Missions (M1 to M6)
         prompt_lower = prompt.lower()
+        if "m1" in prompt_lower or ("flight" in prompt_lower and "helicopter" in prompt_lower) or ("rescue" in prompt_lower and "dispatcher" in prompt_lower):
+            m1 = get_phase21_mission("M1")
+            if m1:
+                return self._from_phase21_mission(m1, spec)
+
+        if "m2" in prompt_lower or ("thangka" in prompt_lower and "wholesale" in prompt_lower) or ("bronze" in prompt_lower and "ledger" in prompt_lower):
+            m2 = get_phase21_mission("M2")
+            if m2:
+                return self._from_phase21_mission(m2, spec)
+
+        if "m3" in prompt_lower or ("flood" in prompt_lower and "warning" in prompt_lower) or ("hydrological" in prompt_lower and "dhm" in prompt_lower) or ("river" in prompt_lower and "telemetry" in prompt_lower):
+            m3 = get_phase21_mission("M3")
+            if m3:
+                return self._from_phase21_mission(m3, spec)
+
+        if "m4" in prompt_lower or ("lumbini" in prompt_lower and "audio" in prompt_lower) or ("spatial audio" in prompt_lower) or ("soundscape" in prompt_lower and "kinetic" in prompt_lower):
+            m4 = get_phase21_mission("M4")
+            if m4:
+                return self._from_phase21_mission(m4, spec)
+
+        if "m5" in prompt_lower or ("medical council" in prompt_lower) or ("nmc" in prompt_lower and "specialty" in prompt_lower) or ("licensing" in prompt_lower and "cpd" in prompt_lower):
+            m5 = get_phase21_mission("M5")
+            if m5:
+                return self._from_phase21_mission(m5, spec)
+
+        if "m6" in prompt_lower or ("everest" in prompt_lower and "logistics" in prompt_lower) or ("yak" in prompt_lower and "porter" in prompt_lower) or ("khumbu" in prompt_lower and "roster" in prompt_lower):
+            m6 = get_phase21_mission("M6")
+            if m6:
+                return self._from_phase21_mission(m6, spec)
+
+        # Check if the prompt directly targets one of the 4 canonical Zero-Shot Missions
         if "z1" in prompt_lower or ("dental" in prompt_lower and "appointment" in prompt_lower) or ("clinic" in prompt_lower and "collision" in prompt_lower):
             z1 = get_zero_shot_mission("Z1")
             if z1:
@@ -97,6 +133,50 @@ class AutonomousProjectSynthesizer:
             has_sqlite_database=mission.has_sqlite_database,
             is_zero_shot_mission=True,
             mission_code=mission.mission_code,
+        )
+
+    def _from_phase21_mission(self, mission: Phase21Mission, spec: FeatureSpecification) -> SynthesizedProject:
+        files = dict(mission.files)
+        schema_sql = files.get("schema.sql")
+        backend_script = mission.backend_script
+        if backend_script and "server.py" not in files:
+            files["server.py"] = backend_script
+
+        if "README.md" not in files:
+            files["README.md"] = self._generate_readme(mission.title, spec, files)
+
+        return SynthesizedProject(
+            title=mission.title,
+            specification=mission.specification,
+            files=files,
+            backend_script=backend_script,
+            schema_sql=schema_sql,
+            has_sqlite_database=mission.has_sqlite_database,
+            is_zero_shot_mission=True,
+            mission_code=mission.mission_code,
+        )
+
+    def apply_requirement_delta(self, existing_project: SynthesizedProject, change_prompt: str) -> SynthesizedProject:
+        """Applies a midway requirement change and generates schema migrations and updated code."""
+        delta_spec = self.compiler.compile_delta(existing_project.specification, change_prompt)
+        updated_files = dict(existing_project.files)
+
+        if delta_spec.schema_migrations:
+            migration_block = "\n\n-- Midway Dynamic Requirement Schema Migration (v2)\n" + "\n".join(delta_spec.schema_migrations)
+            updated_files["schema.sql"] = updated_files.get("schema.sql", "") + migration_block
+
+        if "README.md" in updated_files:
+            updated_files["README.md"] += f"\n\n## Midway Requirement Update (v{delta_spec.version})\n- Change request: {change_prompt}\n- Applied migrations: {len(delta_spec.schema_migrations)}\n"
+
+        return SynthesizedProject(
+            title=existing_project.title,
+            specification=delta_spec,
+            files=updated_files,
+            backend_script=existing_project.backend_script,
+            schema_sql=updated_files.get("schema.sql"),
+            has_sqlite_database=True,
+            is_zero_shot_mission=existing_project.is_zero_shot_mission,
+            mission_code=existing_project.mission_code,
         )
 
     def _synthesize_custom(self, prompt: str, spec: FeatureSpecification) -> SynthesizedProject:

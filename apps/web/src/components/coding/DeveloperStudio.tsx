@@ -68,6 +68,11 @@ export const DeveloperStudio: React.FC = () => {
   const [isCompilingSpec, setIsCompilingSpec] = useState<boolean>(false);
   const [activeSpec, setActiveSpec] = useState<any>(null);
 
+  // Phase 21: Task lifecycle & midway change state
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [midwayPrompt, setMidwayPrompt] = useState<string>("");
+  const [isApplyingChange, setIsApplyingChange] = useState<boolean>(false);
+
   // Viewport & UI state
   const [viewport, setViewport] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [activeTab, setActiveTab] = useState<"changes" | "terminal" | "critic" | "events" | "evidence">("changes");
@@ -287,6 +292,53 @@ export const DeveloperStudio: React.FC = () => {
     }
   };
 
+  // Phase 21: Task Lifecycle & Midway Requirement Update Handlers
+  const handleTogglePause = async () => {
+    if (!taskId) return;
+    try {
+      const endpoint = isPaused ? `/api/coding/tasks/${taskId}/resume` : `/api/coding/tasks/${taskId}/pause`;
+      const res = await fetch(endpoint, { method: "POST" });
+      if (res.ok) {
+        setIsPaused(!isPaused);
+        setStatusText(isPaused ? "Running" : "Paused");
+        setEventLogs((prev) => [`[${new Date().toLocaleTimeString()}] Task ${isPaused ? "resumed" : "paused"}`, ...prev]);
+      }
+    } catch (err) {
+      console.error("Error toggling pause:", err);
+    }
+  };
+
+  const handleApplyMidwayChange = async () => {
+    if (!taskId || !midwayPrompt.trim()) return;
+    setIsApplyingChange(true);
+    setStatusText("Applying Change...");
+    try {
+      const res = await fetch(`/api/coding/tasks/${taskId}/change`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ change_prompt: midwayPrompt }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        if (updated.specification) setActiveSpec(updated.specification);
+        if (updated.scorecard) setScorecard(updated.scorecard);
+        setTerminalLogs((prev) => [
+          `[${new Date().toLocaleTimeString()}] Applied midway change: "${midwayPrompt}"`,
+          `  Plan version: ${updated.specification?.plan_version || 2}`,
+          ...prev,
+        ]);
+        setMidwayPrompt("");
+        await refreshTaskDetails(taskId);
+        setStatusText("Change Applied");
+      }
+    } catch (err) {
+      console.error("Error applying midway change:", err);
+      setStatusText("Change Failed");
+    } finally {
+      setIsApplyingChange(false);
+    }
+  };
+
   // 4. Save file & trigger preview
   const handleSaveAndPreview = async () => {
     const currentCode = files[activeFile] || "";
@@ -390,7 +442,7 @@ export const DeveloperStudio: React.FC = () => {
             <span style={{ color: "#67e9c0" }}>✦</span> HINAA <span style={{ fontWeight: 400, color: "#899bb1" }}>/ Developer Studio</span>
           </div>
           <span style={{ fontSize: "11px", padding: "4px 8px", background: "#142332", borderRadius: "6px", color: "#67e9c0", border: "1px solid #254354" }}>
-            Phase 20 · Prompt-to-Production Coding Intelligence
+            Phase 21 · Autonomous Product Engineering
           </span>
         </div>
 
@@ -440,13 +492,65 @@ export const DeveloperStudio: React.FC = () => {
           </button>
 
           {taskId && (
-            <button
-              onClick={handleDownloadZip}
-              style={{ background: "#1f334a", border: "1px solid #3d5875", color: "#93c5fd", padding: "8px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer" }}
-              title="Download project ZIP archive"
-            >
-              ⬇ Export ZIP
-            </button>
+            <>
+              <button
+                onClick={handleTogglePause}
+                style={{
+                  background: isPaused ? "#b45309" : "#1f293d",
+                  border: "1px solid #3b4a62",
+                  color: isPaused ? "#fef3c7" : "#e6effe",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                {isPaused ? "▶ Resume" : "⏸ Pause"}
+              </button>
+
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Midway requirement update..."
+                  value={midwayPrompt}
+                  onChange={(e) => setMidwayPrompt(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleApplyMidwayChange(); }}
+                  style={{
+                    background: "#141f30",
+                    border: "1px solid #2c3e55",
+                    color: "#edf1f9",
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    width: "180px",
+                  }}
+                />
+                <button
+                  onClick={handleApplyMidwayChange}
+                  disabled={isApplyingChange || !midwayPrompt.trim()}
+                  style={{
+                    background: "#2563eb",
+                    border: "none",
+                    color: "#ffffff",
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {isApplyingChange ? "..." : "Apply"}
+                </button>
+              </div>
+
+              <button
+                onClick={handleDownloadZip}
+                style={{ background: "#1f334a", border: "1px solid #3d5875", color: "#93c5fd", padding: "8px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer" }}
+                title="Download project ZIP archive"
+              >
+                ⬇ Export ZIP
+              </button>
+            </>
           )}
 
           <div style={{ border: "1px solid #30564e", background: "#15362e", color: "#84ffcf", padding: "6px 10px", borderRadius: "999px", fontSize: "11px", display: "flex", alignItems: "center", gap: "6px" }}>

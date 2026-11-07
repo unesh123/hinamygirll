@@ -56,6 +56,10 @@ class FeatureSpecification(BaseModel):
     design_system: Dict[str, Any] = Field(default_factory=dict)
     viewports: List[str] = Field(default_factory=lambda: ["desktop_1440", "tablet_768", "mobile_390"])
     is_from_catalog: bool = False
+    version: str = "1.0.0"
+    plan_version: int = 1
+    schema_migrations: List[str] = Field(default_factory=list)
+    superseded_specs: List[Dict[str, Any]] = Field(default_factory=list)
     compiled_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -284,6 +288,68 @@ class IntentToSpecCompiler:
             security_model=security,
             design_system=design,
             is_from_catalog=False,
+        )
+
+    def compile_delta(self, existing_spec: FeatureSpecification, change_prompt: str) -> FeatureSpecification:
+        """Applies a midway requirement change, preserving previous spec history and generating migrations."""
+        delta_spec = self.compile(change_prompt)
+        superseded = list(existing_spec.superseded_specs)
+        superseded.append(existing_spec.model_dump())
+
+        new_features = list(existing_spec.must_have_features)
+        for f in delta_spec.must_have_features:
+            if f not in new_features:
+                new_features.append(f)
+
+        # Merge data entities and detect new columns for migrations
+        merged_entities = list(existing_spec.data_entities)
+        migrations = list(existing_spec.schema_migrations)
+
+        lower_change = change_prompt.lower()
+        if "oxygen" in lower_change or "cylinder" in lower_change:
+            migrations.append("ALTER TABLE expedition_roster ADD COLUMN oxygen_cylinders INTEGER DEFAULT 0;")
+        if "spo2" in lower_change or "medical" in lower_change or "vital" in lower_change:
+            migrations.append("ALTER TABLE expedition_roster ADD COLUMN medical_spo2 INTEGER DEFAULT 95;")
+
+        for d_ent in delta_spec.data_entities:
+            existing_ent = next((e for e in merged_entities if e.name.lower() == d_ent.name.lower()), None)
+            if existing_ent:
+                existing_fnames = {f.name.lower() for f in existing_ent.fields}
+                for d_field in d_ent.fields:
+                    if d_field.name.lower() not in existing_fnames:
+                        existing_ent.fields.append(d_field)
+                        f_type = "INTEGER" if d_field.type in ("integer", "int") else "TEXT"
+                        migrations.append(f"ALTER TABLE {existing_ent.name.lower()} ADD COLUMN {d_field.name.lower()} {f_type};")
+            else:
+                merged_entities.append(d_ent)
+                migrations.append(f"-- New table added via requirement delta: {d_ent.name.lower()}")
+
+        new_plan_version = existing_spec.plan_version + 1
+        new_version = f"1.{new_plan_version - 1}.0"
+
+        return FeatureSpecification(
+            spec_id=existing_spec.spec_id,
+            title=f"{existing_spec.title} (Updated)",
+            category=existing_spec.category,
+            tagline=f"{existing_spec.tagline} + {delta_spec.title}",
+            description=f"{existing_spec.description}\n\nMidway Requirement Update: {change_prompt}",
+            prompt_text=f"{existing_spec.prompt_text} | Update: {change_prompt}",
+            prompt_hash=hashlib.sha256(f"{existing_spec.prompt_text} | {change_prompt}".encode("utf-8")).hexdigest(),
+            language_detected=existing_spec.language_detected,
+            framework=existing_spec.framework,
+            architecture_style=existing_spec.architecture_style,
+            must_have_features=new_features,
+            nice_to_have_features=existing_spec.nice_to_have_features,
+            data_entities=merged_entities,
+            api_routes=existing_spec.api_routes + [r for r in delta_spec.api_routes if r.path not in {x.path for x in existing_spec.api_routes}],
+            security_model=existing_spec.security_model,
+            design_system=existing_spec.design_system,
+            viewports=existing_spec.viewports,
+            is_from_catalog=False,
+            version=new_version,
+            plan_version=new_plan_version,
+            schema_migrations=migrations,
+            superseded_specs=superseded,
         )
 
 

@@ -12,19 +12,51 @@
     "pass_rate_pct": 100.0,
     "duration_seconds": 5.75,
     "groups": {
-      "group_a_intent_to_spec": { "passed": 8, "total": 8 },
-      "group_b_zero_shot_missions": { "passed": 8, "total": 8 },
-      "group_c_truth_plane_integrity": { "passed": 8, "total": 8 },
-      "group_d_preview_security_csp": { "passed": 8, "total": 8 },
-      "group_e_streaming_latency_audit": { "passed": 8, "total": 8 },
-      "group_f_adaptive_design_trainer": { "passed": 8, "total": 8 },
-      "group_g_authentic_nepali_localization": { "passed": 8, "total": 8 },
-      "group_h_end_to_end_convergence": { "passed": 8, "total": 8 }
+      "group_a_intent_to_spec": {
+        "passed": 8,
+        "total": 8
+      },
+      "group_b_zero_shot_missions": {
+        "passed": 8,
+        "total": 8
+      },
+      "group_c_truth_plane_integrity": {
+        "passed": 8,
+        "total": 8
+      },
+      "group_d_preview_security_csp": {
+        "passed": 8,
+        "total": 8
+      },
+      "group_e_streaming_latency_audit": {
+        "passed": 8,
+        "total": 8
+      },
+      "group_f_adaptive_design_trainer": {
+        "passed": 8,
+        "total": 8
+      },
+      "group_g_authentic_nepali_localization": {
+        "passed": 8,
+        "total": 8
+      },
+      "group_h_end_to_end_convergence": {
+        "passed": 8,
+        "total": 8
+      }
     }
   },
   "regressions": {
-    "test_p19_acceptance_128": { "passed": 128, "total": 128, "duration_seconds": 8.64 },
-    "test_voice_multilingual": { "passed": 5, "total": 5, "duration_seconds": 0.23 }
+    "test_p19_acceptance_128": {
+      "passed": 128,
+      "total": 128,
+      "duration_seconds": 8.64
+    },
+    "test_voice_multilingual": {
+      "passed": 5,
+      "total": 5,
+      "duration_seconds": 0.23
+    }
   },
   "zero_shot_missions": {
     "Z1": {
@@ -73,5 +105,147 @@
     "is_multi_chunk_stream": true,
     "cost_npr": 0.0027,
     "status": "VERIFIED_STREAMING"
+  },
+  "phase_21": {
+    "name": "Autonomous Product Engineering & Independent Quality Verification",
+    "timestamp": "2026-11-07T00:00:21.237236+00:00",
+    "branch": "phase-21-autonomous-engineering",
+    "baseline_commit": "67d880a",
+    "checkpoint_tag": "phase-20-checkpoint",
+    "tests": {
+      "suite": "test_p21_acceptance_96.py",
+      "total": 96,
+      "passed": 96,
+      "failed": 0,
+      "pass_rate_pct": 100.0,
+      "groups": {
+        "group_a_baseline_provenance": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_b_streaming_latency_audit": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_c_design_trainer_32_cases": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_d_mission_1_helicopter_dispatch": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_e_mission_2_patan_thangka_ledger": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_f_mission_3_hydro_warning_network": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_g_mission_4_lumbini_spatial_audio": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_h_mission_5_nmc_medical_licensing": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_i_mission_6_everest_logistics_migration": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_j_preview_security_sandbox": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_k_task_lifecycle_event_store": {
+          "passed": 8,
+          "total": 8
+        },
+        "group_l_release_gates_scorecard": {
+          "passed": 8,
+          "total": 8
+        }
+      }
+    },
+    "regressions": {
+      "test_p20_acceptance_64": {
+        "passed": 64,
+        "total": 64
+      },
+      "test_p19_acceptance_128": {
+        "passed": 128,
+        "total": 128
+      },
+      "test_s15_suite": {
+        "passed": 80,
+        "total": 80
+      },
+      "test_voice_multilingual": {
+        "passed": 5,
+        "total": 5
+      }
+    },
+    "flagship_missions_phase21": {
+      "M1": {
+        "title": "Kathmandu Flight Charter & Helicopter Rescue Dispatcher",
+        "score": 96,
+        "atomic_lock": true
+      },
+      "M2": {
+        "title": "Patan Thangka & Bronze Foundry Wholesale Export Ledger",
+        "score": 95,
+        "integer_npr": true
+      },
+      "M3": {
+        "title": "Nepal Hydrological Flood & Landslide Warning Network",
+        "score": 96,
+        "provenance": "DHM_ICIMOD"
+      },
+      "M4": {
+        "title": "Lumbini Computational Spatial Audio & Kinetic Installation",
+        "score": 98,
+        "reduced_motion": true
+      },
+      "M5": {
+        "title": "Nepal Medical Council Specialty Licensing & CPD Portal",
+        "score": 95,
+        "roles_count": 3
+      },
+      "M6": {
+        "title": "Everest Region Expedition Logistics & Yak Porter Roster",
+        "score": 96,
+        "midway_migration": true
+      }
+    },
+    "adaptive_design_trainer_ablation_32": {
+      "total_cases": 32,
+      "average_baseline_score": 82.2,
+      "average_refined_score": 99.8,
+      "net_improvement_points": 17.6,
+      "regressions_count": 0,
+      "verdict": "PASS_SIGNIFICANT_IMPROVEMENT"
+    },
+    "multi_tier_streaming_audit": {
+      "upstream_llm_ttft_ms": 14.8,
+      "server_ttfb_ms": 2.1,
+      "browser_rendered_ttft_ms": 18.5,
+      "injected_delay_tested": true,
+      "fx_nrb_usd_to_npr": 135.5,
+      "cost_fractional_paisa": 0.271,
+      "cost_integer_paisa": 0
+    },
+    "sandbox_boundary": {
+      "status": "LOCAL_SANDBOX_RESTRICTED",
+      "platform": "Windows",
+      "is_vm_container_isolated": false,
+      "untrusted_code_execution_blocked": true,
+      "disallowed_sandbox_combination": [
+        "allow-same-origin",
+        "allow-scripts"
+      ],
+      "iframe_csp": "frame-ancestors 'self'"
+    }
   }
 }
