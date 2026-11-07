@@ -3241,6 +3241,25 @@ class ConversationService:
                 parameters={"query": prompt_str or text},
             ))
 
+    async def _nepal_facts_block(self, request: TurnRequest) -> str:
+        """Official NRB exchange rates when he asks about currency; '' otherwise or when NRB is unreachable."""
+        if request.providerMode == "mock":
+            return ""
+        try:
+            from .nepal_forex import nepal_forex_block
+
+            return await asyncio.wait_for(nepal_forex_block(request.text), timeout=8.0)
+        except Exception:
+            logger.debug("NRB forex grounding skipped", exc_info=True)
+            return ""
+
+    @staticmethod
+    def _with_nepal_facts(nepal_facts: str, live_search_block: str) -> str:
+        # Official figures lead so they outrank conflicting search snippets.
+        if not nepal_facts:
+            return live_search_block
+        return f"{nepal_facts}\n\n{live_search_block}" if live_search_block else nepal_facts
+
     def _turn_history(self, request: TurnRequest) -> list[tuple[str, str]]:
         """Conversation context for this turn.
 
@@ -4785,6 +4804,8 @@ class ConversationService:
             logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
             _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
 
+        nepal_facts_block = await self._nepal_facts_block(request)
+
         # Real-time pre-turn live web search grounding. Trivial FAST turns
         # never hit search (§39: simple chat must not suffer or pay for it).
         grounded_sources: list[Any] = []
@@ -4957,6 +4978,7 @@ class ConversationService:
                     approved = approved + tuple(f"[Past Interaction]: {ep}" for ep in adv_mem["recalled_episodes"])
             except Exception:
                 logger.debug("Advanced memory retrieval failed in create_plan", exc_info=True)
+        live_search_block = self._with_nepal_facts(nepal_facts_block, live_search_block)
         # B2.1 §1 — canonical context selection BEFORE assembly. The compiler
         # (not the assembler/providers) decides which turns reach the model.
         route_decision, _route_meta = self._route_context_for_turn(request, user_id, d_state)
@@ -5698,6 +5720,8 @@ class ConversationService:
             logger.debug("Context routing failed — defaulting to STANDARD", exc_info=True)
             _route_decision, _route_meta = None, {"profile": "STANDARD", "routes": ["HOT"]}
 
+        nepal_facts_block = await self._nepal_facts_block(request)
+
         # Real-time pre-turn live web search grounding. Trivial FAST turns
         # never hit search (§39: simple chat must not suffer or pay for it).
         grounded_sources: list[Any] = []
@@ -5827,6 +5851,7 @@ class ConversationService:
                     approved = approved + tuple(f"[Past Interaction]: {ep}" for ep in adv_mem["recalled_episodes"])
             except Exception:
                 logger.debug("Advanced memory retrieval failed in create_plan", exc_info=True)
+        live_search_block = self._with_nepal_facts(nepal_facts_block, live_search_block)
         # B2.1 §1 — canonical context selection BEFORE assembly (realtime path).
         route_decision_rt, _route_meta_rt = self._route_context_for_turn(request, user_id, d_state)
         history, selection_meta_rt = self._compile_turn_context(
