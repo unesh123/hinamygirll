@@ -15,7 +15,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, Tuple
 from playwright.async_api import Download, Page
 
 logger = logging.getLogger("hinaa.browser.files")

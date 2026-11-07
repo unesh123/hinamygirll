@@ -13,6 +13,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -183,6 +184,17 @@ class RestrictedProcessAdapter(SandboxAdapter):
 
         return sanitized
 
+    @staticmethod
+    def _resolve_executable(executable: str) -> str:
+        """Run bare `python` with the host interpreter.
+
+        PATH may resolve `python` to a system interpreter without the app's
+        dependencies (e.g. an inactive venv, or no `python` alias on Linux).
+        """
+        if executable.lower() in {"python", "python3", "python.exe"}:
+            return sys.executable or executable
+        return executable
+
     async def run_command(
         self,
         cmd_args: List[str],
@@ -230,7 +242,7 @@ class RestrictedProcessAdapter(SandboxAdapter):
         try:
             # Spawn process without shell=True to prevent shell interpolation
             proc = await asyncio.create_subprocess_exec(
-                cmd_args[0],
+                self._resolve_executable(cmd_args[0]),
                 *cmd_args[1:],
                 cwd=str(cwd),
                 env=clean_env,

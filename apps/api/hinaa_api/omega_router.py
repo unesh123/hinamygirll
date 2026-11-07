@@ -262,7 +262,7 @@ async def terminal_status(request: Request) -> Dict[str, Any]:
     import os
     from .tools.terminal_hands import _wsl_distributions
     verdict = tool_policy.decide("terminal_hands", request.app.state.settings, request.headers.get("host"))
-    distributions = await asyncio.to_thread(_wsl_distributions) if os.name == "nt" else []
+    distributions = await asyncio.to_thread(_wsl_distributions)
     return {"execution_allowed": verdict.permitted,
             "runtimes": ["powershell", "cmd"] if os.name == "nt" else ["linux"],
             "wsl_distributions": distributions,

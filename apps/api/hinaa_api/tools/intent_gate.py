@@ -1084,7 +1084,7 @@ def _sanction_single(
         else:
             app_match = re.search(r"\b(?:open|launch|start|run)\s+([a-zA-Z0-9_\-\.\s]+)", raw, re.IGNORECASE)
             app_target = app_match.group(1).strip() if app_match else raw
-            trailing_fluff = r"(?i)\s+(?:on\s+my\s+pc|on\s+my\s+computer|on\s+pc|on\s+desktop|in\s+my\s+pc|for\s+me|app|application|browser|software|program|please|now|window)$"
+            trailing_fluff = r"(?i)\s+(?:on\s+my\s+(?:pc|computer|machine|laptop)|on\s+pc|on\s+desktop|in\s+my\s+pc|for\s+me|app|application|browser|software|program|please|now|window)$"
             while re.search(trailing_fluff, app_target):
                 app_target = re.sub(trailing_fluff, "", app_target).strip()
             sanction.parameters["computer_operator"] = {"action": "open_application", "target": app_target}

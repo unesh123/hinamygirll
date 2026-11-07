@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from collections.abc import Awaitable, Callable
 from time import perf_counter
+from typing import Any
 
 from ..audio import pcm_to_wav, synthesize_placeholder_wav, validate_wav
 from ..config import Settings

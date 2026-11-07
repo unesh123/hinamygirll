@@ -574,6 +574,9 @@ class ContextCompiler:
         # recency dominate), so the gate uses direct lexical overlap instead.
         _RELEVANCE_FLOOR = 0.34  # ≥ 2 of 5+ query words matched
         _HOT_RECENCY_FLOOR = 0.45  # ≈ the newest 6 turns of the working set
+        # Conversation never goes amnesic mid-thread: the last 24 messages are always
+        # kept; only older turns must earn their place through the relevance gate.
+        _CONTINUITY_WINDOW = 24
         # Content words only — "what exactly did I say about PostgreSQL?" must
         # score on "postgresql", not be diluted by interrogative stopwords.
         _GATE_STOPWORDS = frozenset({
@@ -596,7 +599,11 @@ class ContextCompiler:
                 if _gate_words and item_words
                 else 0.0
             )
-            if item.source_type in ("recent_turn", "message") or lexical >= _RELEVANCE_FLOOR or item.recency >= _HOT_RECENCY_FLOOR:
+            in_continuity_window = (
+                item.source_type in ("recent_turn", "message")
+                and item.provenance.get("age_turns", _CONTINUITY_WINDOW + 1) <= _CONTINUITY_WINDOW
+            )
+            if in_continuity_window or lexical >= _RELEVANCE_FLOOR or item.recency >= _HOT_RECENCY_FLOOR:
                 kept_optional.append(item)
             else:
                 item.exclusion_reason = "Cold/no-relevant content — below §36 gate"

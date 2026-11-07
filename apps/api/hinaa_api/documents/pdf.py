@@ -18,6 +18,7 @@ import io
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from fpdf import FPDF
 from fpdf.fonts import FontFace
