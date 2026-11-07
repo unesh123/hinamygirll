@@ -21,6 +21,8 @@ import shutil
 import sys
 import tempfile
 import time
+from pathlib import Path
+
 import pytest
 
 from hinaa_api.autopilot.contracts import (
@@ -54,6 +56,8 @@ from hinaa_api.autopilot.security import (
 )
 from hinaa_api.autopilot.service import AutopilotService
 from hinaa_api.autopilot.store import AutopilotStore, StaleFencingTokenError
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 from hinaa_api.autopilot.worker import AutopilotScheduler, AutopilotWorker
 from hinaa_api.autopilot.workflows import WorkflowExecutor
 
@@ -74,7 +78,7 @@ def test_a13_01_scheduler_inventory():
 
 def test_a13_02_checkpoint_verification():
     """Verify Phase 12 checkpoint baseline."""
-    assert os.path.exists("docs/evolution/PHASE_13_BASELINE_AUDIT.md")
+    assert (REPO_ROOT / "docs/evolution/PHASE_13_BASELINE_AUDIT.md").exists()
 
 
 def test_a13_03_authoritative_job_id_reconciliation():
@@ -1432,10 +1436,10 @@ def test_a13_78_comparative_benchmark_modes():
 
 def test_a13_79_regression_suite_verification():
     """Run regression verification across previous modules."""
-    assert os.path.exists("apps/api/tests/agents/test_h12_suite.py")
-    assert os.path.exists("apps/api/tests/memory/test_m10_suite.py")
+    assert (REPO_ROOT / "apps/api/tests/agents/test_h12_suite.py").exists()
+    assert (REPO_ROOT / "apps/api/tests/memory/test_m10_suite.py").exists()
 
 
 def test_a13_80_complete_evidence_manifest():
     """Validate presence of all Phase 13 required architecture, runbook, and audit evidence."""
-    assert os.path.exists("docs/evolution/PHASE_13_BASELINE_AUDIT.md")
+    assert (REPO_ROOT / "docs/evolution/PHASE_13_BASELINE_AUDIT.md").exists()
