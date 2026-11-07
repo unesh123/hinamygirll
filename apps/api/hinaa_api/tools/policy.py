@@ -62,6 +62,7 @@ IRREVERSIBLE_EXTERNAL_TOOLS: frozenset[str] = frozenset(
         "github_create_pull_request",
         "github_create_issue",
         "user_preference_update",
+        "phone_call_user",
     }
 )
 

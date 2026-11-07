@@ -55,6 +55,7 @@ from .brain_ledger import (
 )
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .reminder_scheduler import run_scheduler as run_reminder_scheduler
+from .telephony.router import is_webhook_path as is_telephony_webhook
 from .realtime import RealtimeGateway
 from .run_ledger import get_run_ledger
 from .services import ConversationService
@@ -1037,6 +1038,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .security.pdp import get_pdp
     app.include_router(security_router)
     app.state.pdp = get_pdp()
+    from .telephony.router import build_telephony_router
+    app.include_router(build_telephony_router(active_settings, service, memory_service, conversation_auth))
     app.state.settings = active_settings
     app.state.service = service
     app.state.memory_service = memory_service
@@ -1164,6 +1167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 active_settings.auth_mode == "clerk"
                 and request.method != "OPTIONS"
                 and request.url.path not in _exempt_paths
+                and not is_telephony_webhook(request.url.path)
                 and not request.url.path.startswith(("/api/telemetry", "/v1/telemetry", "/api/agency", "/v1/agency", "/api/neural-lab", "/v1/neural-lab", "/api/identity", "/v1/identity", "/api/personality", "/v1/personality"))
             ):
                 try:
