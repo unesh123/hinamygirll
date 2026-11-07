@@ -9,6 +9,12 @@ from hinaa_api.tools.prodcamp import (
     CreateFeatureParams,
 )
 
+@pytest.fixture(autouse=True)
+def fake_prodcamp_key(monkeypatch):
+    # The tools refuse to call out without a key; HTTP itself is mocked below.
+    monkeypatch.setenv("PRODCAMP_API_KEY", "test-key-not-real")
+
+
 @pytest.mark.asyncio
 async def test_prodcamp_list_features_mock():
     mock_resp = MagicMock()
@@ -52,3 +58,15 @@ async def test_prodcamp_create_feature_mock():
         res = await prodcamp_create_feature(CreateFeatureParams(name="Realtime Voice Streaming"))
         assert "Roadmap Feature Created in ProdCamp" in str(res)
         assert "#999" in str(res)
+
+
+@pytest.mark.asyncio
+async def test_prodcamp_requires_api_key(monkeypatch):
+    monkeypatch.delenv("PRODCAMP_API_KEY", raising=False)
+    monkeypatch.delenv("ProdCamp_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "hinaa_api.tools.prodcamp._get_api_key_and_base_url",
+        lambda: (None, "https://app.prodcamp.com/api/v1"),
+    )
+    res = await prodcamp_list_features(ListFeaturesParams())
+    assert "API key is not configured" in str(res)

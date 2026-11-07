@@ -1,0 +1,16 @@
+{
+  "workflow": "repo_health_monitor",
+  "target_path": ".",
+  "test_command": [
+    "/tmp/hoplite/workspace/apps/api/.venv/bin/python",
+    "-c",
+    "print('Sandbox OK')"
+  ],
+  "exit_code": 0,
+  "status": "PASSED",
+  "duration_ms": 15.904903411865234,
+  "summary": "Sandbox OK",
+  "patch_suggestion": null,
+  "pushed_to_remote": false,
+  "timestamp_utc": 1794014960.0245714
+}
