@@ -726,3 +726,22 @@ class Reminder(Base):
 
 
 
+
+
+class PhoneCall(Base):
+    """One telephone call, inbound or outbound, with its transcript."""
+
+    __tablename__ = "phone_calls"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    call_sid: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    direction: Mapped[str] = mapped_column(String(10))  # outbound, inbound
+    to_number: Mapped[str] = mapped_column(String(32), default="")
+    from_number: Mapped[str] = mapped_column(String(32), default="")
+    status: Mapped[str] = mapped_column(String(24), default="initiated")
+    reason: Mapped[str] = mapped_column(Text(), default="")
+    transcript_json: Mapped[str] = mapped_column(Text(), default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
