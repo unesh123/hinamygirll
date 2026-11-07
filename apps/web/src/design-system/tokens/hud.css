@@ -1,0 +1,123 @@
+/* ═══════════════════════════════════════════════════════════════
+   Design System v2 — single token source for the new shell + HUD.
+   Dark is the default; [data-theme="light"] overrides. Legacy tokens
+   (colors.css etc.) stay for old surfaces; new code uses --ds-*.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="dark"] {
+  --ds-bg: #05080f;
+  --ds-bg-raised: #0a1019;
+  --ds-surface: #0d1522;
+  --ds-surface-2: #131e30;
+  --ds-surface-hover: #172338;
+  --ds-border: rgb(120 190 255 / 0.16);
+  --ds-border-strong: rgb(120 190 255 / 0.34);
+  --ds-text: #e8f1ff;
+  --ds-text-muted: #a3b4cc;
+  --ds-text-faint: #8396b0;
+  --ds-accent: #22d3ee;
+  --ds-accent-strong: #67e8f9;
+  --ds-accent-ink: #031318;
+  --ds-accent-soft: rgb(34 211 238 / 0.12);
+  --ds-accent-2: #f472b6;
+  --ds-success: #34d399;
+  --ds-warning: #fbbf24;
+  --ds-danger: #f87171;
+  --ds-overlay: rgb(2 6 12 / 0.72);
+  --ds-glow: 0 0 28px rgb(34 211 238 / 0.35);
+  --ds-grid: rgb(120 190 255 / 0.05);
+  --ds-orb-core: #e6fdff;
+  --ds-orb-mid: #22d3ee;
+  --ds-orb-edge: #0e7490;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --ds-bg: #f4f7fb;
+  --ds-bg-raised: #ffffff;
+  --ds-surface: #ffffff;
+  --ds-surface-2: #eef3f9;
+  --ds-surface-hover: #e6edf6;
+  --ds-border: rgb(15 40 80 / 0.14);
+  --ds-border-strong: rgb(15 40 80 / 0.3);
+  --ds-text: #0b1626;
+  --ds-text-muted: #435068;
+  --ds-text-faint: #5b6a82;
+  --ds-accent: #0e7490;
+  --ds-accent-strong: #155e75;
+  --ds-accent-ink: #ffffff;
+  --ds-accent-soft: rgb(14 116 144 / 0.1);
+  --ds-accent-2: #be185d;
+  --ds-success: #047857;
+  --ds-warning: #b45309;
+  --ds-danger: #b91c1c;
+  --ds-overlay: rgb(15 30 55 / 0.45);
+  --ds-glow: 0 0 20px rgb(14 116 144 / 0.22);
+  --ds-grid: rgb(15 40 80 / 0.05);
+  --ds-orb-core: #ffffff;
+  --ds-orb-mid: #22b8d6;
+  --ds-orb-edge: #0e7490;
+  color-scheme: light;
+}
+
+:root {
+  /* Typography scale */
+  --ds-font-sans: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+  --ds-font-mono: "Space Mono", "JetBrains Mono", ui-monospace, monospace;
+  --ds-fs-xs: 0.75rem;
+  --ds-fs-sm: 0.8125rem;
+  --ds-fs-md: 0.9375rem;
+  --ds-fs-lg: 1.125rem;
+  --ds-fs-xl: 1.5rem;
+  --ds-fs-2xl: 2rem;
+
+  /* Spacing (4px base) */
+  --ds-space-1: 0.25rem;
+  --ds-space-2: 0.5rem;
+  --ds-space-3: 0.75rem;
+  --ds-space-4: 1rem;
+  --ds-space-5: 1.5rem;
+  --ds-space-6: 2rem;
+  --ds-space-8: 3rem;
+
+  /* Radius */
+  --ds-radius-sm: 6px;
+  --ds-radius-md: 10px;
+  --ds-radius-lg: 16px;
+  --ds-radius-pill: 999px;
+
+  /* Elevation */
+  --ds-elev-1: 0 1px 2px rgb(0 0 0 / 0.25);
+  --ds-elev-2: 0 8px 24px rgb(0 0 0 / 0.3);
+  --ds-elev-3: 0 24px 64px rgb(0 0 0 / 0.45);
+
+  /* Motion */
+  --ds-dur-fast: 120ms;
+  --ds-dur-base: 220ms;
+  --ds-dur-slow: 480ms;
+  --ds-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --ds-focus-ring: 0 0 0 2px var(--ds-bg), 0 0 0 4px var(--ds-accent);
+  --ds-legacy-surface: #0a0d14; /* legacy dashboards are dark-only */
+}
+
+[data-theme="light"] {
+  --ds-elev-1: 0 1px 2px rgb(15 40 80 / 0.08);
+  --ds-elev-2: 0 8px 24px rgb(15 40 80 / 0.12);
+  --ds-elev-3: 0 24px 64px rgb(15 40 80 / 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-dur-fast: 0ms;
+    --ds-dur-base: 0ms;
+    --ds-dur-slow: 0ms;
+  }
+}
+
+[data-reduced-motion="true"] {
+  --ds-dur-fast: 0ms;
+  --ds-dur-base: 0ms;
+  --ds-dur-slow: 0ms;
+}

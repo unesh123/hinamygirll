@@ -31,7 +31,7 @@ export interface MilestoneItem {
 export interface PlanVersionItem {
   plan_version_id: string;
   goal_id: string;
-  version_number: int;
+  version_number: number;
   edges: string[][];
   reason_for_change?: string;
   verification_reserve_paisa: number;
