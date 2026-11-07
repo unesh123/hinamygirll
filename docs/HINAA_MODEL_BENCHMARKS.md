@@ -1,4 +1,7 @@
 # HINAA NEURAL LAB — COMPREHENSIVE MODEL BENCHMARKS & EVALUATION REPORT
+
+> **Status (2026-11-07): these figures were never measured.** They were hardcoded in `neural_lab/training/pipeline.py` and `neural_lab/evaluation/benchmarks.py`; no adapter has been trained. Training now returns `BLOCKED` and the benchmark returns `NOT_EVALUATED`. Treat this page as a plan, not results.
+
 **Framework**: HINAA Neural Lab Benchmark Suite (`apps/api/hinaa_api/neural_lab/evaluation/benchmarks.py`)  
 **Base Model**: `Qwen/Qwen2.5-1.5B-Instruct` (Quantized 4-bit NF4)  
 **Adapter Candidate**: `hinaa-core-v1.0.0` (LoRA $r=16, \alpha=32$)  

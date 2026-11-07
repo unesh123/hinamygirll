@@ -123,3 +123,5 @@ apps/data/browser_downloads/
 # Files the API test suite writes into apps/api when run from there
 apps/api/output_*.txt
 apps/api/workspace/
+# Neural Lab experiment outputs (written by /v1/neural-lab/train)
+apps/api/hinaa_api/neural_lab/experiments/

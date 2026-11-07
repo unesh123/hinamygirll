@@ -100,10 +100,7 @@ def test_model_registry_and_vram_filtering():
     assert "Qwen/Qwen2.5-7B-Instruct" not in rec_ids
 
 
-def test_training_experiment_pipeline():
-    # The pipeline requires the optional training stack; CI does not install it.
-    pytest.importorskip("peft")
-    pytest.importorskip("transformers")
+def test_training_reports_blocked_instead_of_fabricating_a_run():
     with tempfile.TemporaryDirectory() as tmp_dir:
         pipeline = TrainingPipelineManager(experiments_root=tmp_dir)
         exp = pipeline.create_experiment(
@@ -112,37 +109,26 @@ def test_training_experiment_pipeline():
         )
         assert exp.status == "CONFIGURED"
 
-        # Run training loop
         finished_exp = pipeline.run_training_experiment(exp.experiment_id)
-        assert finished_exp.status == "COMPLETED"
-        assert finished_exp.metrics.final_train_loss == 0.418
-        assert finished_exp.metrics.peak_vram_mb == 2840.0
-        assert len(finished_exp.metrics.train_loss_history) == 6
-
-        # Check adapter output directory
-        adapter_cfg = os.path.join(finished_exp.output_dir, "adapter", "adapter_config.json")
-        adapter_weights = os.path.join(finished_exp.output_dir, "adapter", "adapter_model.safetensors")
-        assert os.path.exists(adapter_cfg)
-        assert os.path.exists(adapter_weights)
+        assert finished_exp.status == "BLOCKED"
+        assert finished_exp.error_message
+        # No invented loss curves, VRAM figures or weights.
+        assert finished_exp.metrics.train_loss_history == []
+        assert finished_exp.metrics.final_train_loss is None
+        assert finished_exp.metrics.peak_vram_mb is None
+        assert not os.path.exists(os.path.join(finished_exp.output_dir, "adapter", "adapter_model.safetensors"))
+        assert os.path.exists(os.path.join(finished_exp.output_dir, "experiment_result.json"))
 
 
-def test_model_benchmarking_comparison():
+def test_benchmark_claims_nothing_without_a_trained_adapter():
     report = run_model_benchmark_comparison(
         base_model_id="Qwen/Qwen2.5-1.5B-Instruct",
         adapter_name="hinaa-core-v1",
     )
-    assert report.recommendation == "APPROVED_FOR_DEPLOYMENT"
-    assert report.net_improvement_pct > 25.0
-    assert len(report.dimensions) == 8
-
-    # Check key metric: Repetitive filler dropped significantly
-    filler_dim = next(d for d in report.dimensions if d.name == "Repetitive Filler & Romantic Loop Rate")
-    assert filler_dim.fine_tuned_score < 3.0
-    assert filler_dim.delta_improvement_pct > 90.0
-
-    # Check key metric: Hallucinated action claims dropped significantly
-    hallucination_dim = next(d for d in report.dimensions if d.name == "Unverified / Hallucinated Action Claim Rate")
-    assert hallucination_dim.fine_tuned_score < 3.0
+    assert report.recommendation == "NOT_EVALUATED"
+    assert report.dimensions == []
+    assert report.net_improvement_pct == 0.0
+    assert "No evaluation has been run" in report.summary_verdict
 
 
 def test_adapter_management_and_ollama_export():
