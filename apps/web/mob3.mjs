@@ -1,0 +1,11 @@
+import { chromium } from "@playwright/test";
+const browser = await chromium.launch({ args: ["--use-gl=angle","--use-angle=swiftshader","--enable-unsafe-swiftshader"] });
+const ctx = await browser.newContext({ viewport:{width:390,height:844}, hasTouch:true, isMobile:true });
+const page = await ctx.newPage(); page.setDefaultTimeout(90000);
+await page.goto("http://127.0.0.1:4192/",{waitUntil:"domcontentloaded"});
+await page.waitForTimeout(3000);
+await page.evaluate(()=>document.querySelector('[aria-label="More options"]').click());
+await page.waitForTimeout(6000);
+console.log(await page.evaluate(()=>[...document.querySelectorAll('button')].map(b=>b.textContent.trim()).filter(Boolean).join("|")));
+await page.screenshot({path:`/tmp/verify/ui2/after-mob-More.png`,timeout:90000,animations:"disabled"});
+await browser.close();
