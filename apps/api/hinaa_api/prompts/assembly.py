@@ -33,10 +33,24 @@ from .versioning import (
 )
 
 
+NO_DURABLE_MEMORY_NOTE = (
+    "MEMORY IS NOT ATTACHED TO THIS CONVERSATION. Nothing you learn here can be kept "
+    "after it ends. When he asks you to remember something, use it for this "
+    "conversation and say plainly that you cannot keep it between chats right now. "
+    "Never claim you saved, locked or stored it."
+)
+
+
 def _approved_memory_layer(inp: PromptInput) -> str:
-    """The approved persistent memory blocks."""
+    """The approved blocks, plus the truth about whether they can grow.
+
+    A turn with no signed-in owner, or on an instance with no memory store, has
+    nowhere to write; without this note she claims to have saved things she did not.
+    """
     blocks = build_memory_block(inp.approved_memory_blocks)
-    return blocks
+    if inp.durable_memory:
+        return blocks
+    return f"{blocks}\n\n{NO_DURABLE_MEMORY_NOTE}".strip()
 
 
 ATTACHMENT_ROLE_GUIDANCE = {

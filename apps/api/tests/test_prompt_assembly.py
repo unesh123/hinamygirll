@@ -36,6 +36,7 @@ def test_layer_order_and_canaries_are_stable() -> None:
         "safety",
         "product_identity",
         "companion_identity",
+        "persona_mode",
         "language",
         "personality",
         "response_mode",
