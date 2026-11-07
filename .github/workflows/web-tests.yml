@@ -2,6 +2,8 @@ name: web-tests
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 concurrency:
   group: web-tests-${{ github.ref }}

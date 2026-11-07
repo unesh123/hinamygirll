@@ -1,1 +1,0 @@
-Place a licensed avatar.glb file here. Do not commit unlicensed character assets.
