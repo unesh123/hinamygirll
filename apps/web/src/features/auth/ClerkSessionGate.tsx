@@ -1,7 +1,8 @@
 import { SignInButton, useAuth, useClerk } from "@clerk/react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ArrowRight, LockKeyhole, RefreshCw, Sparkles } from "lucide-react";
-import App, { ClerkFetchInterceptor } from "../../App";
+import { ClerkFetchInterceptor } from "../../App";
+import ShellApp from "../../shell/ShellApp";
 import { defaultAvatarPresentation } from "../avatar/avatarPresentation";
 import { resolveApiBase } from "../../lib/apiBase";
 import { signedInGateCopy, signedOutGateCopy } from "./sessionGateCopy";
@@ -120,7 +121,7 @@ export function ClerkSessionGate() {
   }, [adminBypass, checkConnection, isSignedIn]);
 
   if ((isLoaded && isSignedIn && access === "allowed") || adminBypass) {
-    return <><ClerkFetchInterceptor /><App /></>;
+    return <><ClerkFetchInterceptor /><ShellApp /></>;
   }
 
   const copy = isSignedIn ? signedInGateCopy(access) : signedOutGateCopy();

@@ -1,0 +1,86 @@
+/* HUD primitives — consume --ds-* tokens only. */
+.ds-panel {
+  position: relative;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-elev-1);
+  color: var(--ds-text);
+}
+.ds-panel__head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-bottom: 1px solid var(--ds-border);
+  font-size: var(--ds-fs-xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ds-text-muted);
+  font-family: var(--ds-font-mono);
+}
+.ds-panel__body { padding: var(--ds-space-4); }
+.ds-panel--glass { background: color-mix(in srgb, var(--ds-surface) 78%, transparent); backdrop-filter: blur(14px); }
+.ds-corner { position: absolute; width: 12px; height: 12px; border: 0 solid var(--ds-accent); pointer-events: none; opacity: 0.85; }
+.ds-corner--tl { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 3px; }
+.ds-corner--tr { top: -1px; right: -1px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 3px; }
+.ds-corner--bl { bottom: -1px; left: -1px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 3px; }
+.ds-corner--br { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 3px; }
+
+.ds-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--ds-space-2);
+  min-height: 34px; padding: 0 var(--ds-space-3);
+  font: 600 var(--ds-fs-sm)/1 var(--ds-font-sans);
+  border-radius: var(--ds-radius-md); border: 1px solid transparent; cursor: pointer;
+  transition: background var(--ds-dur-fast) var(--ds-ease), border-color var(--ds-dur-fast) var(--ds-ease), box-shadow var(--ds-dur-fast) var(--ds-ease);
+}
+.ds-btn:focus-visible, .ds-focusable:focus-visible { outline: none; box-shadow: var(--ds-focus-ring); }
+.ds-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ds-btn--primary { background: var(--ds-accent); color: var(--ds-accent-ink); }
+.ds-btn--primary:hover:not(:disabled) { background: var(--ds-accent-strong); box-shadow: var(--ds-glow); }
+.ds-btn--secondary { background: var(--ds-surface-2); color: var(--ds-text); border-color: var(--ds-border); }
+.ds-btn--secondary:hover:not(:disabled) { background: var(--ds-surface-hover); border-color: var(--ds-border-strong); }
+.ds-btn--ghost { background: transparent; color: var(--ds-text-muted); }
+.ds-btn--ghost:hover:not(:disabled) { background: var(--ds-surface-hover); color: var(--ds-text); }
+.ds-btn--danger { background: transparent; color: var(--ds-danger); border-color: var(--ds-danger); }
+.ds-btn--icon { width: 34px; padding: 0; }
+.ds-btn[aria-pressed="true"] { background: var(--ds-accent-soft); color: var(--ds-accent); border-color: var(--ds-accent); }
+
+.ds-badge {
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: var(--ds-radius-pill);
+  font: 600 var(--ds-fs-xs)/1.4 var(--ds-font-sans); border: 1px solid var(--ds-border); color: var(--ds-text-muted); background: var(--ds-surface-2);
+}
+.ds-badge--success { color: var(--ds-success); border-color: currentColor; background: transparent; }
+.ds-badge--warning { color: var(--ds-warning); border-color: currentColor; background: transparent; }
+.ds-badge--danger { color: var(--ds-danger); border-color: currentColor; background: transparent; }
+.ds-badge--accent { color: var(--ds-accent); border-color: currentColor; background: var(--ds-accent-soft); }
+.ds-badge__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.ds-kbd {
+  display: inline-block; min-width: 20px; padding: 1px 6px; text-align: center;
+  font: 600 var(--ds-fs-xs)/1.5 var(--ds-font-mono); color: var(--ds-text-muted);
+  background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-bottom-width: 2px; border-radius: var(--ds-radius-sm);
+}
+
+.ds-stat .ds-panel__body { padding: var(--ds-space-3) var(--ds-space-4); }
+.ds-stat__label { font: 600 var(--ds-fs-xs)/1.2 var(--ds-font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ds-text-faint); }
+.ds-stat__value { margin-top: 4px; font: 700 var(--ds-fs-xl)/1.1 var(--ds-font-sans); color: var(--ds-text); font-variant-numeric: tabular-nums; }
+.ds-stat__unit { margin-left: 4px; font-size: var(--ds-fs-sm); color: var(--ds-text-muted); font-weight: 500; }
+.ds-stat__hint { margin-top: 4px; font-size: var(--ds-fs-xs); color: var(--ds-text-muted); }
+
+/* Glow orb */
+.ds-orb { position: relative; display: inline-grid; place-items: center; aspect-ratio: 1; --orb-level: 0; }
+.ds-orb__halo, .ds-orb__core, .ds-orb__ring { position: absolute; border-radius: 50%; }
+.ds-orb__halo { inset: -18%; background: radial-gradient(circle, color-mix(in srgb, var(--ds-orb-mid) 55%, transparent) 0%, transparent 68%); opacity: calc(0.35 + var(--orb-level) * 0.65); transform: scale(calc(0.9 + var(--orb-level) * 0.35)); transition: transform 90ms linear, opacity 90ms linear; }
+.ds-orb__core { inset: 18%; background: radial-gradient(circle at 35% 30%, var(--ds-orb-core), var(--ds-orb-mid) 55%, var(--ds-orb-edge) 100%); box-shadow: 0 0 calc(24px + var(--orb-level) * 40px) var(--ds-orb-mid); transform: scale(calc(0.94 + var(--orb-level) * 0.16)); transition: transform 90ms linear, box-shadow 90ms linear; }
+.ds-orb__ring { inset: 6%; border: 1px solid color-mix(in srgb, var(--ds-orb-mid) 60%, transparent); }
+.ds-orb__ring--2 { inset: 0; border-style: dashed; opacity: 0.5; }
+.ds-orb[data-state="idle"] .ds-orb__core { animation: ds-breathe 4.2s ease-in-out infinite; }
+.ds-orb[data-state="listening"] .ds-orb__ring { animation: ds-pulse 1.6s ease-out infinite; }
+.ds-orb[data-state="thinking"] .ds-orb__ring--2 { animation: ds-spin 3s linear infinite; }
+.ds-orb[data-state="thinking"] .ds-orb__core { animation: ds-breathe 1.2s ease-in-out infinite; }
+.ds-orb[data-state="speaking"] .ds-orb__ring { animation: ds-pulse 0.9s ease-out infinite; }
+.ds-orb[data-static="true"], .ds-orb[data-static="true"] * { animation: none !important; transition: none !important; }
+@keyframes ds-breathe { 50% { transform: scale(1.05); } }
+@keyframes ds-pulse { from { transform: scale(0.92); opacity: 0.9; } to { transform: scale(1.28); opacity: 0; } }
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ds-orb, .ds-orb * { animation: none !important; transition: none !important; }
+}
+.ds-particles { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

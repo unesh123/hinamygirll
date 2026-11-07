@@ -13,6 +13,29 @@
   --font-control-cursive: "Caveat", "Reenie Beanie", cursive;
 }
 
+/* Design System v2: expose --ds-* tokens as Tailwind utilities (bg-ds-surface, text-ds-muted, ...). */
+@theme inline {
+  --color-ds-bg: var(--ds-bg);
+  --color-ds-surface: var(--ds-surface);
+  --color-ds-surface-2: var(--ds-surface-2);
+  --color-ds-border: var(--ds-border);
+  --color-ds-text: var(--ds-text);
+  --color-ds-muted: var(--ds-text-muted);
+  --color-ds-accent: var(--ds-accent);
+  --color-ds-accent-2: var(--ds-accent-2);
+  --color-ds-success: var(--ds-success);
+  --color-ds-warning: var(--ds-warning);
+  --color-ds-danger: var(--ds-danger);
+  --radius-ds-sm: var(--ds-radius-sm);
+  --radius-ds-md: var(--ds-radius-md);
+  --radius-ds-lg: var(--ds-radius-lg);
+  --shadow-ds-1: var(--ds-elev-1);
+  --shadow-ds-2: var(--ds-elev-2);
+  --shadow-ds-3: var(--ds-elev-3);
+  --font-ds-sans: var(--ds-font-sans);
+  --font-ds-mono: var(--ds-font-mono);
+}
+
 /* ═══════════════════════════════════════════════════════
    HINAA — Sakura OS Design System
    Light neutral surfaces · Sakura rose accent · Semantic tokens

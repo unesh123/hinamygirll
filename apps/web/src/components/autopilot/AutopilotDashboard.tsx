@@ -41,6 +41,7 @@ export interface JobItem {
   consumed_paisa: number;
   artifacts: Array<{ name: string; path: string }>;
   trace_id: string;
+  metadata?: { goal?: string } & Record<string, unknown>;
 }
 
 export interface NotificationItem {
