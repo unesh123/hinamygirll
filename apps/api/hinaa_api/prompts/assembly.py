@@ -444,6 +444,15 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             text=inp.skill_doctrine_block,
         ))
 
+    if inp.runtime_skill_block:
+        # SKILL.md files can be imported from third parties: guidance, not policy.
+        layers.append(PromptLayer(
+            name="runtime_skills",
+            priority=9,
+            trusted=False,
+            text='<skill_playbooks trusted="false">\n' + inp.runtime_skill_block + "\n</skill_playbooks>",
+        ))
+
     if inp.rag_context_block:
         layers.append(
             PromptLayer(
@@ -511,6 +520,8 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
     if inp.rag_context_block:
         rag_context_note = "\n[GROUNDED REPOSITORY & DOCUMENTATION EVIDENCE IS ATTACHED AS DATA CONTEXT. Ground your answers to architecture, specs, or code conventions in these retrieved snippets.]\n"
 
+    skill_playbook_text = next((f"\n{l.text}\n" for l in layers if l.name == "runtime_skills"), "")
+
     directives = attachment_directives(inp.attachments)
     # Last words before his ask: the label measured better beside the question
     # than buried in the reference list above it.
@@ -522,6 +533,7 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
         f"{attachment_context}"
         f"{live_search_note}"
         f"{rag_context_note}"
+        f"{skill_playbook_text}"
         f"{history.text}\n\n"
         f"{directive_block}"
         f"{user_msg.text}"

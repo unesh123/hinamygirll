@@ -5003,6 +5003,7 @@ class ConversationService:
                     logger.debug("RAG context formatting failed in create_plan", exc_info=True)
 
         from .prompts.skill_doctrine import doctrine_for_turn
+        from .skills.loader import skill_block_for_turn
         skill_doctrine_block = doctrine_for_turn(
             request.text,
             is_voice=request.responseMode == "concise_voice",
@@ -5023,6 +5024,9 @@ class ConversationService:
             history_preselected=True,
             allowed_tools=allowed_tools,
             skill_doctrine_block=skill_doctrine_block,
+            runtime_skill_block=(
+                "" if request.responseMode == "concise_voice" else skill_block_for_turn(request.text)
+            ),
         )
         self._log_prompt_meta(
             request.sessionId,
@@ -5885,6 +5889,7 @@ class ConversationService:
             else self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
         )
         from .prompts.skill_doctrine import doctrine_for_turn
+        from .skills.loader import skill_block_for_turn
         prompt = build_turn_prompt(
             request=request,
             history=history,
@@ -5900,6 +5905,7 @@ class ConversationService:
             history_preselected=True,
             allowed_tools=live_allowed_tools,
             skill_doctrine_block=doctrine_for_turn(request.text, is_voice=is_voice_turn),
+            runtime_skill_block="" if is_voice_turn else skill_block_for_turn(request.text),
         )
         timing.mark("prompt_built")
         self._log_prompt_meta(
