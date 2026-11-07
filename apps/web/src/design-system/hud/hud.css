@@ -42,6 +42,7 @@
 .ds-btn[aria-pressed="true"] { background: var(--ds-accent-soft); color: var(--ds-accent); border-color: var(--ds-accent); }
 
 .ds-badge {
+  white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: var(--ds-radius-pill);
   font: 600 var(--ds-fs-xs)/1.4 var(--ds-font-sans); border: 1px solid var(--ds-border); color: var(--ds-text-muted); background: var(--ds-surface-2);
 }

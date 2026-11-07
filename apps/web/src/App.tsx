@@ -64,6 +64,7 @@ import { pickRecoveryBrain } from "./features/providers/utils/resolveProviderSel
 import { providerModeFromId } from "./features/providers/utils/providerLabels";
 import { SettingsV6, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
 import type { NavSection } from "./design-system/layout/NavigationRail";
+import { orbStateFrom, useShellBridge } from "./shell/useShellBridge";
 
 import { ActivityPanel, type AgentStep } from "./components/ui/ActivityPanel";
 import { ActionChips, type ActionChip } from "./components/ui/ActionChips";
@@ -1302,6 +1303,35 @@ export default function App() {
     (live.active && !playback.playing)
       ? (live.status === "paused" ? "idle" : "listening")
       : (playback.playing ? "speaking" : mapCompanionState(controller.state));
+
+  useShellBridge({
+    sakuraView,
+    setSakuraView,
+    theme: settings.appearance.theme,
+    setTheme: (theme) => setAppearance({ theme }),
+    agent: {
+      state: orbStateFrom(liveCompanionState),
+      level: live.active ? live.microphoneLevel : playback.playing ? 0.5 : 0,
+      voiceActive: live.active,
+      streamingText: controller.streamingText || "",
+      lastText: controller.activePlan?.spokenText || controller.activePlan?.displayText || null,
+      steps: agentSteps.map((step) => ({ id: step.id, label: step.label, status: step.status })),
+      model: routing.activeModel ?? null,
+    },
+    commands: {
+      "new-chat": handleNewChat,
+      "start-voice": () => { interruptPlayback(); live.start(); },
+      "stop-voice": () => live.stop(),
+      "open-settings": () => setSettingsOpen(true),
+      "open-memory": () => setMemoryOpen(true),
+      "open-terminal": () => openTerminalHands(),
+      "toggle-history": () => setHistoryOpen((open) => !open),
+      "open-projects": openProjectWorkspace,
+      "open-image-studio": openImageStudio,
+      "open-models": () => setSakuraView("models"),
+      "open-operate": () => setSakuraView("operate"),
+    },
+  });
 
   // Voice Lab — developer-only diagnostic route
   const isVoiceLab = typeof window !== "undefined" && window.location.pathname === "/dev/voice-lab";
