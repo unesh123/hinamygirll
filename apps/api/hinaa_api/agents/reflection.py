@@ -7,6 +7,7 @@ Never bypasses quarantine; all staged items require review before permanent memo
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 
 from .contracts import TaskResult, TaskSpec, TaskStatus
