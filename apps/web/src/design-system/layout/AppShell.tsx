@@ -1,9 +1,17 @@
 import { useState, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, History, Sun, Moon, X } from "lucide-react";
+import { Plus, History, Sun, Moon, X, LayoutGrid, Cpu, FileText, Settings } from "lucide-react";
 import { NavigationRail, type NavSection } from "./NavigationRail";
 import { MobileNavigation } from "./MobileNavigation";
 import { ConversationSidebar } from "./ConversationSidebar";
+
+// Sections without a bottom-tab slot stay reachable on phones through the More sheet.
+const MORE_DESTINATIONS: Array<{ id: NavSection; label: string; icon: typeof Cpu }> = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutGrid },
+  { id: "models", label: "Models", icon: Cpu },
+  { id: "reports", label: "Reports", icon: FileText },
+  { id: "settings", label: "Settings", icon: Settings },
+];
 
 interface AppShellProps {
   children: ReactNode;
@@ -236,6 +244,32 @@ export function AppShell({
                   <span>Conversation History</span>
                 </button>
               )}
+              {MORE_DESTINATIONS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => handleNavigate(id)}
+                  aria-current={activeSection === id ? "page" : undefined}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    background: activeSection === id
+                      ? "var(--accent-pale, rgba(236, 72, 153, 0.12))"
+                      : isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
+                    color: "inherit",
+                    border: "none",
+                    fontWeight: 600,
+                    fontSize: 14,
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon size={18} />
+                  <span>{label}</span>
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={() => {
