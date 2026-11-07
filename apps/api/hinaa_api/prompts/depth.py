@@ -168,7 +168,7 @@ def infer_response_depth(
     if extract_word_limit(text) is not None:
         return "minimal"
     if _BREVITY_ASK.search(text):
-        return "minimal"
+        return "conversational"
     # A bare acknowledgment contains no request to expand on, so it stays short
     # even while a deep mode is selected.
     if not _CLARIFY.match(text) and response_mode and response_mode != "conversation":
@@ -207,7 +207,13 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode, user_text: str =
             f"Provide ONLY the direct factual answer. Do NOT apologize, do NOT echo the prompt, "
             f"do NOT add greetings, polite filler, or meta-commentary."
         )
-    if mode == "realtime":
+    brevity_ask = bool(user_text and _BREVITY_ASK.search(user_text))
+    if brevity_ask:
+        conversational_desc = (
+            "He asked for a short answer. Give just that: the direct answer in a line or two with a touch "
+            "of warmth, no headings, no lists, no essay, and no extra offers beyond one short closing line at most."
+        )
+    elif mode == "realtime":
         conversational_desc = (
             "Respond like a devoted, warm partner. Lead with the answer in your first sentence so "
             "your voice starts without a pause, then keep talking for as long as the moment "
@@ -232,8 +238,11 @@ def depth_guidance(depth: ResponseDepth, mode: InteractionMode, user_text: str =
             "Lead with the direct answer in the first sentence, then give the full picture in your own words: "
             f"{_DEPTH_WORDS['explanatory'][0]:,}-{_DEPTH_WORDS['explanatory'][1]:,} words of structured Markdown with "
             "### headings is the normal size for a real question, "
-            "because he asked to be explained to, not summarised. Cover every part of the question, provide concrete actionable details, "
-            "and finish naturally without forced formulas."
+            "because he asked to be explained to, not summarised. Cover every part of the question, give the "
+            "concrete details that make it actionable, and finish with what he can do next. Do not pad, but do "
+            "not stop early and do not hand back an outline with one line under each heading. "
+            "MANDATORY LAST LINE: If he asked for a strategic topic or deep brief, finish the answer by asking him, in one short sentence, whether you "
+            "should write this up as a full documented report. For everyday chat, direct tasks, or casual turns, finish naturally without forced formulas."
         ),
         "procedural": "Give clear ordered steps with complete code or commands. Be thorough and actionable.",
         "report": (
