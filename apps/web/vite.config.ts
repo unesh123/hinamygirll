@@ -125,6 +125,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Vite's lazy-import helper otherwise lands in whichever vendor chunk uses it first
+          // (it was vendor-mermaid), making every lazy import preload ~4 MB of mermaid + elkjs.
+          if (id.includes("vite/preload-helper")) return "vendor-react";
           if (!id.includes("node_modules")) return undefined;
           const normalized = id.replace(/\\/g, "/");
           const packagePath = normalized.split("/node_modules/").pop() ?? "";
