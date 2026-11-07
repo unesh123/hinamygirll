@@ -1,3 +1,5 @@
+import { isGlbUrl, type ModelCapabilityKind } from "./face/capability";
+
 export interface AvatarDefinition {
   id: string;
   name: string;
@@ -5,6 +7,15 @@ export interface AvatarDefinition {
   fileUrl: string;
   companionId: "hinaa" | "hiro";
   defaultForCompanion?: boolean;
+  /** File format; inferred from the URL when omitted. */
+  format?: "vrm" | "glb";
+  /**
+   * Declared face capability. Runtime detection from the loaded model's expression/morph
+   * names is authoritative; this lets UIs and docs describe a model before it loads.
+   */
+  capability?: ModelCapabilityKind;
+  /** Models marked non-commercial must be replaced before any public demo or release. */
+  license?: "non-commercial" | "licensed" | "unverified";
 }
 
 export const DEFAULT_COMPANION_ID = "hinaa-original";
@@ -18,6 +29,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Default Hinaa companion with pink ribbons and cat ears",
     fileUrl: "/models/hinaa-original.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "unverified",
     defaultForCompanion: true,
   },
   {
@@ -26,6 +39,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Default Hinaa companion with pink ribbons and cat ears",
     fileUrl: "/models/hinaa-original.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "unverified",
   },
   {
     id: "hinaa-classic",
@@ -33,6 +48,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Classic Hinaa VRoid companion avatar",
     fileUrl: "/models/hinaa.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "non-commercial",
   },
   {
     id: "hinaa-schoolgirl",
@@ -40,6 +57,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Anime school uniform model with lightweight geometry",
     fileUrl: "/models/AvatarSample_E.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "unverified",
   },
   {
     id: "hinaa-casual",
@@ -47,6 +66,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Modern casual streetwear avatar",
     fileUrl: "/models/model_5447.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "unverified",
   },
   {
     id: "hinaa-kimono",
@@ -54,6 +75,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Traditional festive Japanese kimono avatar",
     fileUrl: "/models/model_6164.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "unverified",
   },
   {
     id: "hinaa-cyber",
@@ -61,6 +84,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Futuristic sci-fi companion model",
     fileUrl: "/models/model_7903.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "non-commercial",
   },
   {
     id: "hinaa-idol",
@@ -68,6 +93,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Pop idol stage costume avatar",
     fileUrl: "/models/model_7441.vrm",
     companionId: "hinaa",
+    capability: "vrm-preset",
+    license: "unverified",
   },
   {
     id: "hiro-default",
@@ -75,6 +102,8 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
     description: "Companion avatar for Hiro voice profile",
     fileUrl: "/models/AvatarSample_E.vrm",
     companionId: "hiro",
+    capability: "vrm-preset",
+    license: "unverified",
     defaultForCompanion: true,
   },
 ];
@@ -132,4 +161,17 @@ export function readAvatarSelection(storage: Pick<Storage, "getItem" | "setItem"
   const url = resolveValidAvatarModel(storage.getItem(LEGACY_AVATAR_SELECTION_KEY));
   try { persistAvatarSelection(storage, url); } catch { /* Storage may be read-only. */ }
   return url;
+}
+
+export function getAvatarFormat(url: string): "vrm" | "glb" {
+  const entry = AVATAR_REGISTRY.find((a) => a.fileUrl === url);
+  if (entry?.format) return entry.format;
+  return isGlbUrl(url) ? "glb" : "vrm";
+}
+
+/** Add a model at runtime or from a deployment-specific module (e.g. a licensed realistic GLB). */
+export function registerAvatar(def: AvatarDefinition): void {
+  const index = AVATAR_REGISTRY.findIndex((a) => a.id === def.id);
+  if (index >= 0) AVATAR_REGISTRY[index] = def;
+  else AVATAR_REGISTRY.push(def);
 }

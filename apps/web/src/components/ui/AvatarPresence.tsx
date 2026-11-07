@@ -83,6 +83,11 @@ import {
 import { rollBlinkShapeSpec } from "../../features/avatar/blinkShape";
 
 import { SpeechPlaybackContext, sampleSpeechPlayback } from "../../features/audio/speechPlaybackBridge";
+import { getLipSyncAnalyser } from "../../features/audio/speechAnalyserTap";
+import { FaceEngine, detectModelCapability, emotionsFromAffect, applyVrmFaceFrame, readEnvironmentQuality } from "../../features/avatar/face";
+import { GlbHumanAvatar } from "../../features/avatar/GlbHumanAvatar";
+import { HumanLightingRig } from "../../features/avatar/HumanLightingRig";
+import { getAvatarFormat } from "../../features/avatar/avatarRegistry";
 
 import { optimizeVrm, DEFAULT_KEEP_EXPRESSIONS } from "../../features/avatar/vrmOptimizer";
 
@@ -828,6 +833,7 @@ function Model({
   const fingerRestQRef = useRef<Partial<Record<FingerBoneName, THREE.Quaternion>>>({});
 
   const smoothEnergyRef = useRef(0);
+  const faceEngineRef = useRef<{ vrm: VRM; engine: FaceEngine } | null>(null);
 
   const convoEnergyRef = useRef(0);
 
@@ -2288,8 +2294,34 @@ function Model({
 
 
 
-    // Let VRM expression/spring-bone systems update first.
 
+    // Face engine: audio-driven lip-sync, ARKit/PerfectSync extras and micro-expressions.
+    if (em) {
+      let fe = faceEngineRef.current;
+      if (!fe || fe.vrm !== vrm) {
+        const capability = detectModelCapability({ isVrm: true, names: Object.keys(em.expressionMap ?? {}) });
+        fe = {
+          vrm,
+          engine: new FaceEngine({
+            capability,
+            reducedMotion: typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
+          }),
+        };
+        faceEngineRef.current = fe;
+      }
+      const frame = fe.engine.update(realDt, {
+        emotions: emotionsFromAffect(affectiveProfile),
+        speaking: isSpeakingNow,
+        listening: !!isListening,
+        thinking: state === "thinking",
+        speechEnergy: smoothEnergyRef.current,
+        analyser: isSpeakingNow ? getLipSyncAnalyser() : null,
+      });
+      applyVrmFaceFrame(frame, fe.engine.capability, {
+        em, set, vowelPreset: VRM_PRESET, mouthWeights: mouthW.current,
+      });
+    }
+    // Let VRM expression/spring-bone systems update first.
     vrm.update(dt);
 
 
@@ -4300,6 +4332,8 @@ export function AvatarPresence({
   const [modelLoadState, setModelLoadState] = useState<"loading" | "ready" | "failed">("loading");
 
   const [modelAttempt, setModelAttempt] = useState(0);
+  const isGlb = !!modelUrl && getAvatarFormat(modelUrl) === "glb";
+  const renderQuality = useMemo(() => readEnvironmentQuality(isGlb), [isGlb]);
 
   const [anatomy, setAnatomy] = useState<AnatomyFrame | undefined>();
 
@@ -4441,13 +4475,15 @@ export function AvatarPresence({
         style={{ position:"absolute", inset:0, zIndex:1 }}
 
         frameloop={renderVisible ? "always" : "never"}
-        dpr={1}
+        dpr={isGlb ? renderQuality.dpr : 1}
+        shadows={renderQuality.shadows ? "soft" : false}
 
         performance={{ min: 0.75, debounce: 150 }}
 
-        gl={{ antialias: false, alpha: true, powerPreference: "default", depth: true, stencil: false }}
+        gl={{ antialias: !renderQuality.lowPower, alpha: true, powerPreference: "default", depth: true, stencil: false }}
 
         onCreated={({ gl }) => {
+          if (isGlb) { gl.toneMapping = THREE.AgXToneMapping; gl.toneMappingExposure = 1; }
 
           gl.domElement.addEventListener("webglcontextlost", e => {
 
@@ -4492,6 +4528,7 @@ export function AvatarPresence({
 
           {/* Streamlined cinematic lighting */}
 
+          {isGlb ? <HumanLightingRig quality={renderQuality} /> : <>
           <ambientLight intensity={0.9} color="#fffef8" />
 
           <directionalLight position={[1.5, 3, 2.5]} intensity={1.3} color="#fffcf0" castShadow={false} />
@@ -4499,10 +4536,26 @@ export function AvatarPresence({
           <pointLight position={[-1.5, 2.0, 1.8]} intensity={0.65} color="#ffd4df" />
 
           <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.4]} />
+          <HumanLightingRig quality={renderQuality} realistic={false} rimOnly /></>}
 
 
 
-          <Model
+          {isGlb ? (
+            <GlbHumanAvatar
+              url={modelUrl}
+              presentation={presentation ?? defaultAvatarPresentation(modelUrl)}
+              state={state}
+              speakingRef={spkRef}
+              jawEnergy={jaw}
+              speechBridge={effectiveSpeechBridge}
+              expressionText={expressionText}
+              planEmotion={typeof plan?.emotion === "string" ? plan.emotion : plan?.emotion?.primary}
+              reducedMotion={renderQuality.reducedMotion}
+              castShadows={renderQuality.shadows}
+              onAnatomyFrame={applyAnatomy}
+              onLoadState={setModelLoadState}
+            />
+          ) : <Model
 
             speechBridge={effectiveSpeechBridge}
 
@@ -4540,7 +4593,7 @@ export function AvatarPresence({
 
             liveStatus={liveStatus}
 
-          />
+          />}
 
 
 
@@ -4570,7 +4623,7 @@ export function AvatarPresence({
 
   }, [
 
-    modelUrl, webglFailed, modelAttempt, state, renderVisible, mode, anatomy,
+    modelUrl, webglFailed, modelAttempt, state, renderVisible, mode, anatomy, isGlb, renderQuality,
 
     isWalking, spkRef, expressionText, plan, liveStatus, jaw, vEvts, aStart,
 
