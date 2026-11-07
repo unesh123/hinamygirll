@@ -53,7 +53,7 @@ def test_layer_order_and_canaries_are_stable() -> None:
     assert package.safety_policy_version == SAFETY_POLICY_VERSION
     assert "explicitly artificial" in package.system_instruction.lower()
     assert "IMMUTABLE SAFETY" in package.system_instruction
-    assert "ACTIVE LANGUAGES (NEPALI, HINDI AND ENGLISH)" in package.system_instruction
+    assert "MATCH HIS LANGUAGE (ENGLISH, NEPALI, HINDI)" in package.system_instruction
     assert (
         "AssistantTurnPlan" in package.system_instruction
         or "OUTPUT CONTRACT" in package.system_instruction

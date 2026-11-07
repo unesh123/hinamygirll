@@ -30,6 +30,7 @@ import {
   Eye,
   Footprints,
   Volume2,
+  Pencil,
 } from "lucide-react";
 import { useLiveVision } from "../../features/vision/useLiveVision";
 import { downloadMarkdownPdf, downloadMarkdownPptx } from "../../features/documents/exportPdf";
@@ -233,6 +234,10 @@ interface WorkModeProps {
   brainRecovery?: RecoveryBrain | null;
   onSelectProvider?: (mode: string, modelId?: string) => void;
   onRetry?: () => void;
+  /** Re-answer the latest user message from the transcript before it. */
+  onRegenerate?: () => void;
+  /** Replace a user message with new text and answer again from there. */
+  onEditMessage?: (messageId: string, text: string) => void;
   onOpenLibrary?: () => void;
   onOpenImages?: () => void;
   providerOptions?: any[];
@@ -309,6 +314,8 @@ export function WorkMode({
   brainRecovery,
   onSelectProvider,
   onRetry,
+  onRegenerate,
+  onEditMessage,
   providerOptions,
   getModelOptions,
   imageEngine,
@@ -340,6 +347,20 @@ export function WorkMode({
     }
     return deduped;
   }, [messages]);
+
+  const lastAssistantId = useMemo(() => {
+    const last = deduplicatedMessages[deduplicatedMessages.length - 1];
+    const hasUserTurn = deduplicatedMessages.some((m) => m.role === "user");
+    return last?.role === "assistant" && hasUserTurn ? last.id : undefined;
+  }, [deduplicatedMessages]);
+  const canRegenerate = Boolean(onRegenerate) && !isThinking && !streamingText;
+  // WorkMessage's memo ignores callback identity, so hand it ref-backed stable callbacks.
+  const regenerateRef = useRef(onRegenerate);
+  regenerateRef.current = onRegenerate;
+  const editRef = useRef(onEditMessage);
+  editRef.current = onEditMessage;
+  const stableRegenerate = useCallback(() => regenerateRef.current?.(), []);
+  const stableEdit = useCallback((messageId: string, text: string) => editRef.current?.(messageId, text), []);
   // Real capability discovery: providers + models actually configured on the
   // backend. The composer's model menu renders from this, so the user always
   // sees exactly what the runtime can answer with (never a fabricated list).
@@ -1421,7 +1442,13 @@ export function WorkMode({
           {/* Messages (Deduplicated & memoized for butter-smooth 120fps streaming) */}
           {!showWelcome &&
             deduplicatedMessages.map((msg) => (
-              <WorkMessage key={msg.id} message={msg} isDark={isDark} />
+              <WorkMessage
+                key={msg.id}
+                message={msg}
+                isDark={isDark}
+                onRegenerate={canRegenerate && msg.id === lastAssistantId ? stableRegenerate : undefined}
+                onEdit={onEditMessage && msg.role === "user" ? stableEdit : undefined}
+              />
             ))}
 
           {partialTranscript && (
@@ -1908,6 +1935,8 @@ export const WorkMessage = React.memo(function WorkMessage({
   isSearchingLive,
   searchQueryLive,
   isDark = false,
+  onRegenerate,
+  onEdit,
 }: {
   message: TranscriptMessage;
   isStreaming?: boolean;
@@ -1915,6 +1944,8 @@ export const WorkMessage = React.memo(function WorkMessage({
   isSearchingLive?: boolean;
   searchQueryLive?: string;
   isDark?: boolean;
+  onRegenerate?: () => void;
+  onEdit?: (messageId: string, text: string) => void;
 }) {
   const isUser = message.role === "user";
   const attachmentRole = ATTACHMENT_ROLES.find(
@@ -1922,6 +1953,13 @@ export const WorkMessage = React.memo(function WorkMessage({
   );
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
+  const [editDraft, setEditDraft] = useState<string | null>(null);
+  const submitEdit = () => {
+    const next = editDraft?.trim();
+    if (!next || !onEdit) return;
+    setEditDraft(null);
+    if (next !== message.text.trim()) onEdit(message.id, next);
+  };
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingPptx, setExportingPptx] = useState(false);
 
@@ -2333,7 +2371,33 @@ export const WorkMessage = React.memo(function WorkMessage({
           />
         )}
 
-        {isUser ? (
+        {isUser && editDraft !== null ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 280 }}>
+            <textarea
+              aria-label="Edit message"
+              autoFocus
+              value={editDraft}
+              onChange={(event) => setEditDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setEditDraft(null);
+                else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  submitEdit();
+                }
+              }}
+              rows={Math.min(8, Math.max(2, editDraft.split("\n").length))}
+              style={{ width: "100%", resize: "vertical", background: "rgba(255,255,255,0.12)", color: "inherit", border: "1px solid rgba(255,255,255,0.35)", borderRadius: 10, padding: "8px 10px", font: "inherit" }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" onClick={() => setEditDraft(null)} style={{ background: "transparent", color: "inherit", border: "1px solid rgba(255,255,255,0.4)", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}>
+                Cancel
+              </button>
+              <button type="button" onClick={submitEdit} disabled={!editDraft.trim()} style={{ background: "#ffffff", color: "#1a232b", border: "none", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                Send
+              </button>
+            </div>
+          </div>
+        ) : isUser ? (
           message.text
         ) : cleanText ? (
           <ResponseEnvelopeRenderer rawText={cleanText} streaming={isStreaming} />
@@ -2350,9 +2414,20 @@ export const WorkMessage = React.memo(function WorkMessage({
       </div>
 
       {/* User message timestamp underneath on right */}
-      {isUser && message.createdAt && (
-        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-          {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+      {isUser && (message.createdAt || onEdit) && editDraft === null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={() => setEditDraft(message.text)}
+              aria-label="Edit message"
+              title="Edit message"
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", display: "flex", alignItems: "center", padding: 2 }}
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+          {message.createdAt && new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       )}
 
@@ -2391,21 +2466,25 @@ export const WorkMessage = React.memo(function WorkMessage({
           >
             <Copy size={13} />
           </button>
-          <button
-            type="button"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "#94a3b8",
-              display: "flex",
-              alignItems: "center",
-              padding: 2,
-            }}
-            title="Regenerate"
-          >
-            <RefreshCw size={13} />
-          </button>
+          {onRegenerate && (
+            <button
+              type="button"
+              onClick={onRegenerate}
+              aria-label="Regenerate response"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "#94a3b8",
+                display: "flex",
+                alignItems: "center",
+                padding: 2,
+              }}
+              title="Regenerate"
+            >
+              <RefreshCw size={13} />
+            </button>
+          )}
         </div>
       )}
 
@@ -2422,6 +2501,9 @@ export const WorkMessage = React.memo(function WorkMessage({
   if (prev.isSearchingLive !== next.isSearchingLive) return false;
   if (prev.searchQueryLive !== next.searchQueryLive) return false;
   if (prev.isDark !== next.isDark) return false;
+  // Callbacks are ref-stable from WorkMode, so only their presence can change.
+  if (!prev.onRegenerate !== !next.onRegenerate) return false;
+  if (!prev.onEdit !== !next.onEdit) return false;
   if (prev.message.id !== next.message.id) return false;
   if (prev.message.text !== next.message.text) return false;
   if (prev.message.plan !== next.message.plan) return false;

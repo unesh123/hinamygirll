@@ -25,3 +25,5 @@ beautifulsoup4==4.15.0
 playwright==1.63.0
 exa-py==2.25.0
 tzdata==2026.5
+# Bikram Sambat conversion for Nepal date grounding (prompts/assembly.py)
+nepali-datetime==1.0.8.5

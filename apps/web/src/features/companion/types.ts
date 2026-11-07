@@ -86,7 +86,7 @@ export const companionProfiles: Record<
     name: "HINAA",
     label: "Intelligent assistant",
     greeting:
-      "Hey babe! Main tumhare saath hoon. Talk or text me anytime—batao, what's on your mind today?",
+      "Hey babe! I'm right here with you. Talk or text me anytime, in English, Nepali or Hindi. What's on your mind today?",
     accent: "mint",
   },
   hiro: {

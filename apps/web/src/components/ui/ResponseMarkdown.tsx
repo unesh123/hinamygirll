@@ -1,6 +1,10 @@
 import React, { memo, useEffect, useRef, useState, useDeferredValue, type ReactNode } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import rehypeHighlight from "rehype-highlight";
+import "katex/dist/katex.min.css";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { LiveArtifactPreview } from "./LiveArtifactPreview";
 import "./ResponseMarkdown.css";
@@ -67,13 +71,13 @@ const components: Components = {
   code: ({ className, children, ...props }) => {
     const match = /language-(\w+)/.exec(className || "");
     const lang = match ? match[1].toLowerCase() : "";
-    const raw = String(children).replace(/\n$/, "");
 
+    // These languages are excluded from highlighting, so children is still a plain string.
     if (lang === "mermaid") {
-      return <MermaidDiagram code={raw} />;
+      return <MermaidDiagram code={String(children).replace(/\n$/, "")} />;
     }
     if (lang === "html" || lang === "svg") {
-      return <LiveArtifactPreview code={raw} language={lang} />;
+      return <LiveArtifactPreview code={String(children).replace(/\n$/, "")} language={lang} />;
     }
     return <code className={className} {...props}>{children}</code>;
   },
@@ -96,12 +100,49 @@ function closeStreamingFences(text: string): string {
   return `${text}\n\`\`\``;
 }
 
-const REMARK_PLUGINS = [remarkGfm];
+/**
+ * Single-dollar inline math stays enabled (`$x^2$` is how models write math), but
+ * remark-math has no Pandoc-style rule, so "costs $5 and $10" would become math.
+ * Escape a `$` that opens a bare number token (outside code) so currency stays text.
+ */
+const CODE_SPANS = /(^(?:```|~~~)[^\n]*\n[\s\S]*?(?:^(?:```|~~~)[^\n]*$|(?![\s\S]))|`[^`\n]*`)/gm;
+const CURRENCY_DOLLAR = /(?<![\\$\w])\$(?=\d[\d,]*(?:\.\d+)?(?:[\s.,;:!?)]|$))/g;
+export function protectCurrencyDollars(text: string): string {
+  if (!text.includes("$")) return text;
+  return text.split(CODE_SPANS).map((part, i) => (i % 2 ? part : part.replace(CURRENCY_DOLLAR, "\\$"))).join("");
+}
+
+/**
+ * Many models write LaTeX as \( … \) and \[ … \], which Markdown would render as
+ * literal parentheses. Convert them (outside code) to the $ / $$ forms remark-math reads.
+ * Display math must sit on its own lines so escaped brackets in prose (a\[0\]) are untouched.
+ */
+const DISPLAY_MATH = /^[ \t]*\\\[([\s\S]+?)\\\][ \t]*$/gm;
+const INLINE_MATH = /\\\((.+?)\\\)/g;
+export function normalizeMathDelimiters(text: string): string {
+  if (!text.includes("\\(") && !text.includes("\\[")) return text;
+  return text
+    .split(CODE_SPANS)
+    .map((part, i) =>
+      i % 2 ? part : part.replace(DISPLAY_MATH, (_m, body: string) => `$$\n${body.trim()}\n$$`).replace(INLINE_MATH, (_m, body: string) => `$${body.trim()}$`),
+    )
+    .join("");
+}
+
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+// Math runs first so ```math fences are rendered by KaTeX, not highlighted. KaTeX never throws
+// (errors render inline in errorColor), which keeps partial `$$` blocks safe while streaming.
+// highlight.js: common subset only; diagram/artifact fences stay plain for their dedicated renderers.
+const REHYPE_PLUGINS: NonNullable<React.ComponentProps<typeof Markdown>["rehypePlugins"]> = [
+  [rehypeKatex, { errorColor: "#e11d74" }],
+  [rehypeHighlight, { plainText: ["mermaid", "html", "svg"] }],
+];
 
 /** CommonMark parses unfinished fences without dropping the final streamed line. */
 export const ResponseMarkdown = memo(function ResponseMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
   // Defer markdown re-parsing during rapid streaming so scroll/input stay responsive
   const deferredText = useDeferredValue(text);
-  const display = streaming ? closeStreamingFences(deferredText) : deferredText;
-  return <div className="response-markdown" data-streaming={streaming ? "true" : undefined}><Markdown remarkPlugins={REMARK_PLUGINS} skipHtml urlTransform={responseUrlTransform} components={components}>{display}</Markdown></div>;
+  // Currency is protected first so converted \( … \) math is never mistaken for a price.
+  const display = normalizeMathDelimiters(protectCurrencyDollars(streaming ? closeStreamingFences(deferredText) : deferredText));
+  return <div className="response-markdown" data-streaming={streaming ? "true" : undefined}><Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} skipHtml urlTransform={responseUrlTransform} components={components}>{display}</Markdown></div>;
 });
