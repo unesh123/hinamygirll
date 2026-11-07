@@ -11,7 +11,6 @@ import {
   Sun,
   Moon,
   Settings,
-  Sparkles,
   Plus,
   Mic,
 } from "lucide-react";
@@ -208,6 +207,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <button
             type="button"
             data-testid="mode-chat"
+            aria-pressed={executiveMode === "chat"}
+            title="Chat"
             onClick={() => handleModeClick("chat")}
             style={{
               display: "inline-flex",
@@ -225,12 +226,14 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             }}
           >
             <MessageSquare size={12} color={executiveMode === "chat" ? "#00d4ff" : undefined} />
-            <span>Chat</span>
+            <span className="topbar-v6__mode-label">Chat</span>
           </button>
 
           <button
             type="button"
             data-testid="mode-deep-reasoning"
+            aria-pressed={executiveMode === "deep-reasoning"}
+            title="Deep Reasoning"
             onClick={() => handleModeClick("deep-reasoning")}
             style={{
               display: "inline-flex",
@@ -248,12 +251,14 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             }}
           >
             <Brain size={12} color={executiveMode === "deep-reasoning" ? "#ec4899" : undefined} />
-            <span>Deep Reasoning</span>
+            <span className="topbar-v6__mode-label">Deep Reasoning</span>
           </button>
 
           <button
             type="button"
             data-testid="mode-report"
+            aria-pressed={executiveMode === "report"}
+            title="Report"
             onClick={() => handleModeClick("report")}
             style={{
               display: "inline-flex",
@@ -271,12 +276,14 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             }}
           >
             <FileText size={12} color={executiveMode === "report" ? "#f59e0b" : undefined} />
-            <span>Report</span>
+            <span className="topbar-v6__mode-label">Report</span>
           </button>
 
           <button
             type="button"
             data-testid="mode-research"
+            aria-pressed={executiveMode === "research"}
+            title="Research"
             onClick={() => handleModeClick("research")}
             style={{
               display: "inline-flex",
@@ -294,7 +301,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             }}
           >
             <Search size={12} color={executiveMode === "research" ? "#10b981" : undefined} />
-            <span>Research</span>
+            <span className="topbar-v6__mode-label">Research</span>
           </button>
         </div>
       </div>
@@ -370,7 +377,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             }}
           >
             <Mic size={13} strokeWidth={2.5} style={{ color: "#ec4899" }} />
-            <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span className="topbar-v6__voice-label" style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {activeVoiceObj.id === "elevenlabs" ? "💖 Aisha (ElevenLabs)" : activeVoiceObj.label}
             </span>
             <ChevronDown size={11} style={{ opacity: 0.7, transform: voiceDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
@@ -487,6 +494,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <button
             type="button"
             data-testid="topbar-new-chat-btn"
+            className="topbar-v6__new-chat"
+            aria-label="New chat"
             onClick={onNewChat}
             title="Start new conversation (⌘N / Ctrl+N)"
             style={{
@@ -506,50 +515,15 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             }}
           >
             <Plus size={13} strokeWidth={2.5} />
-            <span>New Chat</span>
+            <span className="topbar-v6__label">New Chat</span>
           </button>
         )}
-
-        {/* Runway 3D Showroom */}
-        <button
-          type="button"
-          data-testid="topbar-showroom-btn"
-          onClick={() => onModeChange(currentMode === "showroom" ? "work" : "showroom")}
-          title="DICH Haute-Couture 3D Runway Showroom"
-          style={{
-            height: 32,
-            padding: "0 12px",
-            borderRadius: 9999,
-            border: currentMode === "showroom"
-              ? "1.5px solid #00d4ff"
-              : isDark
-              ? "1px solid rgba(255, 255, 255, 0.12)"
-              : "1px solid #e2e8f0",
-            background: currentMode === "showroom"
-              ? "rgba(0, 212, 255, 0.15)"
-              : isDark
-              ? "rgba(255, 255, 255, 0.06)"
-              : "#ffffff",
-            color: currentMode === "showroom" ? "#00d4ff" : isDark ? "#ffffff" : "#475569",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-            boxShadow: currentMode === "showroom" ? "0 0 12px rgba(0, 212, 255, 0.3)" : "none",
-            transition: "all 0.12s ease",
-          }}
-        >
-          <Sparkles size={13} color={currentMode === "showroom" ? "#00d4ff" : "#ec4899"} />
-          <span>Runway 3D</span>
-        </button>
 
         <button type="button" className="workspace-connection" onClick={() => void refetch()}
           title="Refresh workspace connection" aria-label={`Workspace ${runtime.backendConnected ? "connected" : loading ? "connecting" : "offline"}. Refresh connection.`}
           style={{ display:"flex", alignItems:"center", gap:5, border:"1px solid currentColor", borderRadius:20, padding:"5px 8px", background:"transparent", fontSize:10, color:runtime.backendConnected ? "#87cba9" : "#d6ab87", cursor:"pointer" }}>
           <span style={{ width:5, height:5, background:"currentColor", borderRadius:"50%" }} />
-          <span>{runtime.backendConnected ? "Connected" : loading ? "Connecting" : "Offline"}</span>
+          <span className="topbar-v6__label">{runtime.backendConnected ? "Connected" : loading ? "Connecting" : "Offline"}</span>
         </button>
         {/* Search */}
         <button

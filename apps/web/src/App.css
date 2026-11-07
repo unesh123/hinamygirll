@@ -3991,7 +3991,7 @@ body {
 @media(max-width:768px) {
   .topbar-v6__left { flex:1; overflow:hidden; }
   .topbar-v6__modes { max-width:100%; }
-  .topbar-v6__actions [data-testid="topbar-new-chat-btn"], .topbar-v6__actions [data-testid="topbar-showroom-btn"] { display:none !important; }
+  .topbar-v6__actions [data-testid="topbar-new-chat-btn"] { display:none !important; }
   .topbar-v6__modes button { padding:4px 6px !important; }
 }
 
@@ -4120,3 +4120,52 @@ body {
   min-width: 0;
   min-height: 0;
 }
+
+/* ══ Executive top bar: one line at every desktop width ═════════════════
+   Lower-priority items condense as the bar narrows instead of wrapping:
+   breadcrumb -> New Chat/Connected labels -> inactive mode labels. */
+.topbar-v6 button,
+.topbar-v6 .topbar-v6__breadcrumb span { white-space: nowrap; }
+.topbar-v6__left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.topbar-v6__modes { flex-shrink: 0; }
+.topbar-v6__actions { flex: 0 1 auto; min-width: 0; gap: 8px; }
+.topbar-v6__actions > * { flex-shrink: 0; }
+.topbar-v6 .model-selector-v7__label { max-width: 120px; }
+.topbar-v6__voice-label { max-width: 130px; }
+.topbar-v6__new-chat { flex-shrink: 0; }
+
+@media (min-width: 769px) and (max-width: 1500px) {
+  .topbar-v6__breadcrumb { display: none !important; }
+  .topbar-v6__new-chat { width: 32px; padding: 0 !important; justify-content: center; }
+  .topbar-v6__new-chat .topbar-v6__label,
+  .workspace-connection .topbar-v6__label { display: none; }
+  .workspace-connection { padding: 6px !important; }
+}
+@media (min-width: 769px) and (max-width: 1180px) {
+  .topbar-v6__mode-label { display: none; }
+  .topbar-v6__modes button[aria-pressed="true"] .topbar-v6__mode-label { display: inline; }
+  .topbar-v6__voice-label { max-width: 84px; }
+}
+@media (min-width: 769px) and (max-width: 940px) {
+  .topbar-v6__voice-label { display: none; }
+  .topbar-v6 .model-selector-v7__label { max-width: 72px; }
+}
+
+/* Phones: keep every control reachable inside 390px */
+@media (max-width: 768px) {
+  .topbar-v6__actions { gap: 4px; min-width: 0; }
+  .topbar-v6__actions > .topbar-v6__actions-voice,
+  .topbar-v6__actions [data-testid="topbar-voice-engine-btn"] { padding: 0 8px !important; }
+  .topbar-v6__voice-label,
+  .topbar-v6__label { display: none; }
+  .topbar-v6 .model-selector-v7__label { max-width: 64px; }
+  .topbar-v6__actions [aria-label="Search"], .topbar-v6__actions button[title^="Search"] { display: none; }
+}
+
+/* Operate: tab labels never wrap; pink text must stay legible on light surfaces */
+:root { --pink-text: #be185d; }
+[data-theme="dark"], .dark { --pink-text: #f472b6; }
+.operate-tabs button { white-space: nowrap; flex-shrink: 0; }
+.operate-tabbar { min-width: 0; }
+.operate-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+@media (max-width: 1500px) { .operate-subtitle { display: none; } }
