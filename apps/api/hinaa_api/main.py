@@ -126,6 +126,15 @@ class DocumentPdfBody(BaseModel):
     subtitle: Annotated[str, Field(max_length=240)] | None = None
 
 
+class VisionReactBody(BaseModel):
+    frame: str
+    consent: bool = False
+    sessionId: str | None = None
+    context: str | None = None
+    sedentaryMinutes: float | None = None
+    storeObservations: bool = False
+
+
 class VisionObserveBody(BaseModel):
     frame: str
     query: str | None = None
@@ -5500,6 +5509,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conversation_id=body.conversationId,
             companion_id=body.companionId or "hinaa",
         )
+
+    @app.post("/v1/vision/react")
+    @app.post("/api/v1/vision/react")
+    async def react_to_vision_frame(body: VisionReactBody):
+        """Consent-gated webcam frame -> structured in-character reaction. Frames are never stored."""
+        from .intelligence import companion_vision as cv
+
+        if not body.consent:
+            raise HTTPException(status_code=403, detail="Camera consent is required.")
+        try:
+            return await cv.companion_vision_service.react(
+                body.frame,
+                session_id=body.sessionId or "default",
+                context=body.context or "",
+                sedentary_minutes=body.sedentaryMinutes,
+                store_observations=body.storeObservations,
+            )
+        except cv.FrameTooLarge:
+            raise HTTPException(status_code=413, detail="Frame exceeds 300KB cap.")
+        except cv.InvalidFrame as err:
+            raise HTTPException(status_code=400, detail=str(err))
 
     @app.get("/v1/companion/briefing")
     @app.get("/api/v1/companion/briefing")
