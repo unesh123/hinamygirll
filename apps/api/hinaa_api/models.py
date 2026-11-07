@@ -272,7 +272,9 @@ class TurnRequest(BaseModel):
     attachment_ids: list[str] = Field(default_factory=list, validation_alias=AliasChoices("attachment_ids", "attachmentIds"))
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     reference_images: list[str] = Field(default_factory=list, validation_alias=AliasChoices("reference_images", "referenceImages"))
-    history: list[dict[str, Any]] = Field(default_factory=list)
+    # None: client sent no context, use server-stored turns. []: the client says there is none
+    # (e.g. regenerating or editing the first message), so stale stored turns must not leak in.
+    history: list[dict[str, Any]] | None = None
 
     @field_validator("providerMode", mode="before")
     @classmethod
