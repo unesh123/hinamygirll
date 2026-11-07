@@ -14,6 +14,8 @@ Verifies:
 from __future__ import annotations
 
 import os
+import time
+
 import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -66,8 +68,20 @@ async def test_contract_1_gate_first_chat_has_no_tools(service: ConversationServ
         assert len(res.value.toolRequests) == 0, f"Chat turn '{text}' should not have toolRequests"
 
 
+@pytest.fixture
+def kathmandu_machine_clock(monkeypatch):
+    """Reminder rows store the wall clock of the machine's local zone, so pin it."""
+    monkeypatch.setenv("TZ", "Asia/Kathmandu")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
 @pytest.mark.asyncio
-async def test_contract_2_real_reminders_persist_db_row(service: ConversationService, test_settings: Settings):
+async def test_contract_2_real_reminders_persist_db_row(
+    service: ConversationService, test_settings: Settings, kathmandu_machine_clock
+):
     """REMINDER_CREATE schedules a real database row in Asia/Kathmandu timezone without Siri."""
     req = TurnRequest(
         text="remind me tomorrow at 8 to call Sile",

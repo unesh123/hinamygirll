@@ -38,8 +38,8 @@ class SystemResourceSpec(BaseModel):
 
 
 class FrameworkReadinessSpec(BaseModel):
-    torch_version: str
-    torch_cuda_available: bool
+    torch_version: Optional[str] = None  # None: torch is not installed (optional dependency)
+    torch_cuda_available: bool = False
     transformers_version: Optional[str] = None
     peft_version: Optional[str] = None
     accelerate_version: Optional[str] = None
@@ -129,10 +129,19 @@ def run_system_audit() -> TrainingReadinessReport:
         except ImportError:
             return None
 
-    import torch
+    # torch is a heavy optional training dependency; report it honestly when absent or broken.
+    torch_version: Optional[str] = None
+    torch_cuda = False
+    try:
+        import torch
+        torch_version = torch.__version__
+        torch_cuda = bool(torch.cuda.is_available())
+    except Exception:
+        torch_version = None
+
     fw_spec = FrameworkReadinessSpec(
-        torch_version=torch.__version__,
-        torch_cuda_available=torch.cuda.is_available(),
+        torch_version=torch_version,
+        torch_cuda_available=torch_cuda,
         transformers_version=_pkg_version("transformers"),
         peft_version=_pkg_version("peft"),
         accelerate_version=_pkg_version("accelerate"),
@@ -197,16 +206,42 @@ def run_system_audit() -> TrainingReadinessReport:
     else:
         recommendations.append("Dedicated GPU with >= 8 GB VRAM recommended for QLoRA training.")
 
-    if not fw_spec.torch_cuda_available:
+    required_libs = {
+        "torch": fw_spec.torch_version,
+        "transformers": fw_spec.transformers_version,
+        "peft": fw_spec.peft_version,
+        "accelerate": fw_spec.accelerate_version,
+        "datasets": fw_spec.datasets_version,
+    }
+    missing = [name for name, version in required_libs.items() if version is None]
+    if missing:
+        recommendations.append(
+            "Training dependencies not installed: " + ", ".join(missing) + ". "
+            "Install them in a dedicated training environment before running local fine-tuning."
+        )
+    elif not fw_spec.torch_cuda_available:
         recommendations.append(
             "Current active Python environment uses PyTorch CPU build. "
             "For full local GPU backpropagation training, run training jobs via torch+cu124 wheel or Ollama GGUF fine-tuning."
         )
 
-    recommendations.append(
-        "Local inference pipeline is verified: Ollama is running on port 11434 with Spark-X2.5-1.7B and Mistral models. "
-        "Adapters trained in the Neural Lab can be exported to GGUF and imported directly into Ollama."
-    )
+    if local_engine_spec.ollama_api_reachable:
+        model_names = ", ".join(m["name"] for m in installed_models if m.get("name")) or "no models"
+        recommendations.append(
+            f"Local inference pipeline is verified: Ollama is reachable on port 11434 ({model_names}). "
+            "Adapters trained in the Neural Lab can be exported to GGUF and imported directly into Ollama."
+        )
+    else:
+        recommendations.append(
+            "Ollama is not reachable on port 11434; local inference of exported adapters is unavailable."
+        )
+
+    if fw_spec.torch_version is None:
+        overall_readiness = "UNSUPPORTED"
+    elif missing:
+        overall_readiness = "OPTIMIZATION_REQUIRED"
+    else:
+        overall_readiness = "READY"
 
     return TrainingReadinessReport(
         gpu=gpu_spec,
@@ -214,6 +249,6 @@ def run_system_audit() -> TrainingReadinessReport:
         frameworks=fw_spec,
         local_engine=local_engine_spec,
         cloud_vs_local_boundary=boundaries,
-        overall_readiness="READY",
+        overall_readiness=overall_readiness,
         recommendations=recommendations,
     )
