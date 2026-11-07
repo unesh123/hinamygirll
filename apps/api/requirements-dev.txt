@@ -12,4 +12,6 @@ beautifulsoup4==4.15.0
 playwright==1.63.0
 exa-py==2.25.0
 tzdata==2026.5
+# Browser test fixture server (tests/browser/fixture_server.py)
+aiohttp==3.14.5
 

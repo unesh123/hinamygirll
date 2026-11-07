@@ -47,7 +47,7 @@ export function AppShell({
   const isDark = externalIsDark !== undefined ? externalIsDark : internalIsDark;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const toggleTheme = externalToggleTheme ?? useCallback(() => {
+  const internalToggleTheme = useCallback(() => {
     setInternalIsDark((prev) => {
       const next = !prev;
       document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
@@ -57,6 +57,7 @@ export function AppShell({
       return next;
     });
   }, []);
+  const toggleTheme = externalToggleTheme ?? internalToggleTheme;
 
   const handleNavigate = useCallback((section: NavSection) => {
     if (onNavigate) {

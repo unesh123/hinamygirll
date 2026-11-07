@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from hinaa_api.config import Settings
 
 

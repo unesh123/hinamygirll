@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import shutil
+import sys
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, model_validator
 from playwright.async_api import async_playwright, Browser, Page
@@ -86,6 +87,11 @@ async def _get_page() -> Page:
 
                 headless_env = os.environ.get("HINAA_BROWSER_HEADLESS", "").lower()
                 is_headless = headless_env in ("true", "1", "yes")
+                if not headless_env and sys.platform.startswith("linux") and not (
+                    os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+                ):
+                    # A headed browser cannot start without a display server.
+                    is_headless = True
 
                 launch_options: dict[str, Any] = {"headless": is_headless}
                 if executable:

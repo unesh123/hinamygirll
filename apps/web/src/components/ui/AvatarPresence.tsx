@@ -833,7 +833,9 @@ function Model({
 
   // AudioContext ref — populated lazily from global on first frame
 
-  const speechBridge = speechBridgeProp ?? useContext(SpeechPlaybackContext);
+  const contextSpeechBridge = useContext(SpeechPlaybackContext);
+
+  const speechBridge = speechBridgeProp ?? contextSpeechBridge;
 
   const planEmotionStr = typeof plan?.emotion === "string" ? plan.emotion : plan?.emotion?.primary;
 
@@ -4415,6 +4417,169 @@ export function AvatarPresence({
 
 
 
+  const jaw    = jawEnergy      ?? _zeroRef  as React.MutableRefObject<number>;
+
+  const spkRef = speakingRef    ?? _falseRef as React.MutableRefObject<boolean>;
+
+  const vEvts  = visemeEvents   ?? _emptyRef as React.MutableRefObject<VisemeEvent[]>;
+
+  const aStart = audioStartTimeRef ?? _startRef as React.MutableRefObject<number>;
+
+  // Computed before the "hidden" early return so the hook order never changes.
+  const avatarCanvas = useMemo(() => {
+
+    if (!modelUrl || webglFailed) return null;
+
+    return (
+
+      <Canvas
+
+        key={`${modelUrl}:${modelAttempt}`}
+
+        fallback={<AvatarFallback state={state} />}
+
+        style={{ position:"absolute", inset:0, zIndex:1 }}
+
+        frameloop={renderVisible ? "always" : "never"}
+        dpr={1}
+
+        performance={{ min: 0.75, debounce: 150 }}
+
+        gl={{ antialias: false, alpha: true, powerPreference: "default", depth: true, stencil: false }}
+
+        onCreated={({ gl }) => {
+
+          gl.domElement.addEventListener("webglcontextlost", e => {
+
+            e.preventDefault();
+
+            setWebglFailed(true);
+
+          }, { once: true });
+
+        }}
+
+      >
+
+
+        <AdaptiveAvatarResolution />
+
+        <Suspense fallback={<ModelSkeletonLoader />}>
+
+          <Cam
+
+            mode={mode}
+
+            modelUrl={modelUrl}
+
+            anatomy={anatomy}
+
+            isWalking={isWalking}
+
+            state={state}
+
+            speakingRef={spkRef}
+
+            expressionText={expressionText}
+
+            plan={plan}
+
+            liveStatus={liveStatus}
+
+          />
+
+
+
+          {/* Streamlined cinematic lighting */}
+
+          <ambientLight intensity={0.9} color="#fffef8" />
+
+          <directionalLight position={[1.5, 3, 2.5]} intensity={1.3} color="#fffcf0" castShadow={false} />
+
+          <pointLight position={[-1.5, 2.0, 1.8]} intensity={0.65} color="#ffd4df" />
+
+          <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.4]} />
+
+
+
+          <Model
+
+            speechBridge={effectiveSpeechBridge}
+
+            state={state}
+
+            jawEnergy={jaw}
+
+            speakingRef={spkRef}
+
+            visemeEvents={vEvts}
+
+            audioStartTimeRef={aStart}
+
+            url={modelUrl}
+
+            presentation={presentation ?? defaultAvatarPresentation(modelUrl || "/models/hinaa-original.vrm")}
+
+            faceExpressions={faceExpressions}
+
+            faceBones={faceBones}
+
+            faceTrackingActive={faceTrackingActive}
+
+            trackingCalibration={trackingCalibration}
+
+            expressionText={expressionText}
+
+            onAnatomyFrame={applyAnatomy}
+
+            onLoadState={setModelLoadState}
+
+            isWalking={isWalking}
+
+            plan={plan}
+
+            liveStatus={liveStatus}
+
+          />
+
+
+
+          {/* ContactShadows re-renders the scene every frame by default
+
+              (frames=Infinity). Baking once at mount costs a fraction and
+
+              removes a full shadow pass from the frame loop. */}
+
+          <ContactShadows
+
+            resolution={128} scale={2.8} blur={2.5}
+
+            opacity={0.12} far={1.5} frames={1}
+
+            position={[0, -0.02, 0]} color="#8B6080"
+
+          />
+
+          <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.3]} />
+
+        </Suspense>
+
+      </Canvas>
+
+    );
+
+  }, [
+
+    modelUrl, webglFailed, modelAttempt, state, renderVisible, mode, anatomy,
+
+    isWalking, spkRef, expressionText, plan, liveStatus, jaw, vEvts, aStart,
+
+    presentation, faceExpressions, faceBones, faceTrackingActive,
+
+    trackingCalibration, applyAnatomy
+
+  ]);
+
   if (mode === "hidden") return null;
 
 
@@ -4429,13 +4594,6 @@ export function AvatarPresence({
 
 
 
-  const jaw    = jawEnergy      ?? _zeroRef  as React.MutableRefObject<number>;
-
-  const spkRef = speakingRef    ?? _falseRef as React.MutableRefObject<boolean>;
-
-  const vEvts  = visemeEvents   ?? _emptyRef as React.MutableRefObject<VisemeEvent[]>;
-
-  const aStart = audioStartTimeRef ?? _startRef as React.MutableRefObject<number>;
 
 
 
@@ -4449,159 +4607,7 @@ export function AvatarPresence({
 
 
 
-      {useMemo(() => {
-
-        if (!modelUrl || webglFailed) return null;
-
-        return (
-
-          <Canvas
-
-            key={`${modelUrl}:${modelAttempt}`}
-
-            fallback={<AvatarFallback state={state} />}
-
-            style={{ position:"absolute", inset:0, zIndex:1 }}
-
-            frameloop={renderVisible ? "always" : "never"}
-            dpr={1}
-
-            performance={{ min: 0.75, debounce: 150 }}
-
-            gl={{ antialias: false, alpha: true, powerPreference: "default", depth: true, stencil: false }}
-
-            onCreated={({ gl }) => {
-
-              gl.domElement.addEventListener("webglcontextlost", e => {
-
-                e.preventDefault();
-
-                setWebglFailed(true);
-
-              }, { once: true });
-
-            }}
-
-          >
-
-
-            <AdaptiveAvatarResolution />
-
-            <Suspense fallback={<ModelSkeletonLoader />}>
-
-              <Cam
-
-                mode={mode}
-
-                modelUrl={modelUrl}
-
-                anatomy={anatomy}
-
-                isWalking={isWalking}
-
-                state={state}
-
-                speakingRef={spkRef}
-
-                expressionText={expressionText}
-
-                plan={plan}
-
-                liveStatus={liveStatus}
-
-              />
-
-
-
-              {/* Streamlined cinematic lighting */}
-
-              <ambientLight intensity={0.9} color="#fffef8" />
-
-              <directionalLight position={[1.5, 3, 2.5]} intensity={1.3} color="#fffcf0" castShadow={false} />
-
-              <pointLight position={[-1.5, 2.0, 1.8]} intensity={0.65} color="#ffd4df" />
-
-              <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.4]} />
-
-
-
-              <Model
-
-                speechBridge={effectiveSpeechBridge}
-
-                state={state}
-
-                jawEnergy={jaw}
-
-                speakingRef={spkRef}
-
-                visemeEvents={vEvts}
-
-                audioStartTimeRef={aStart}
-
-                url={modelUrl}
-
-                presentation={presentation ?? defaultAvatarPresentation(modelUrl || "/models/hinaa-original.vrm")}
-
-                faceExpressions={faceExpressions}
-
-                faceBones={faceBones}
-
-                faceTrackingActive={faceTrackingActive}
-
-                trackingCalibration={trackingCalibration}
-
-                expressionText={expressionText}
-
-                onAnatomyFrame={applyAnatomy}
-
-                onLoadState={setModelLoadState}
-
-                isWalking={isWalking}
-
-                plan={plan}
-
-                liveStatus={liveStatus}
-
-              />
-
-
-
-              {/* ContactShadows re-renders the scene every frame by default
-
-                  (frames=Infinity). Baking once at mount costs a fraction and
-
-                  removes a full shadow pass from the frame loop. */}
-
-              <ContactShadows
-
-                resolution={128} scale={2.8} blur={2.5}
-
-                opacity={0.12} far={1.5} frames={1}
-
-                position={[0, -0.02, 0]} color="#8B6080"
-
-              />
-
-              <hemisphereLight args={["#fff0e8", "#d8b8e4", 0.3]} />
-
-            </Suspense>
-
-          </Canvas>
-
-        );
-
-      }, [
-
-        modelUrl, webglFailed, modelAttempt, state, renderVisible, mode, anatomy,
-
-        isWalking, spkRef, expressionText, plan, liveStatus, jaw, vEvts, aStart,
-
-        presentation, faceExpressions, faceBones, faceTrackingActive,
-
-        trackingCalibration, applyAnatomy
-
-      ])}
+      {avatarCanvas}
 
 
 

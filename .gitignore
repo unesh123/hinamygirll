@@ -119,3 +119,7 @@ apps/api/hinaa_api/data/circuit_breakers*.json
 
 apps/data/browser_artifacts/
 apps/data/browser_downloads/
+
+# Files the API test suite writes into apps/api when run from there
+apps/api/output_*.txt
+apps/api/workspace/
