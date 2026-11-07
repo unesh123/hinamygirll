@@ -960,7 +960,8 @@ class RealtimeGateway:
                         # concurrently and delivers in order.
                         schedule_phrase(phrase_text)
 
-            turn_lang = "hi-IN" if session.hello.language in ("auto", "mixed") else session.hello.language
+            # Auto voice turns stay "mixed" so she mirrors the speaker; forcing hi-IN made Nepali speech get Hindi replies.
+            turn_lang = "mixed" if session.hello.language in ("auto", "mixed") else session.hello.language
             plan_result = await self.service.create_live_plan(
                 TurnRequest(
                     sessionId=session.hello.sessionId,

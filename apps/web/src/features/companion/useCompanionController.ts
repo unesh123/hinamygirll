@@ -15,6 +15,7 @@ import {
 } from "./types";
 import type { ProviderRuntimeSelection } from "../providers/utils/resolveProviderSelection";
 import type { ActiveLanguagePolicy } from "../settings/types/settings";
+import { resolveConversationLocale } from "../audio/languagePolicy";
 import { resolveToolOutcome } from "../tools/toolOutcome";
 import {
   deserializeAssistantTurn,
@@ -226,10 +227,10 @@ export interface CompanionControllerOptions {
   autoRunTools?: boolean;
 }
 
-function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy): "en-US" | "hi-IN" {
-  if (policy === "hi-IN") return "hi-IN";
-  if (policy === "en-US") return "en-US";
-  return /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-US";
+// Auto policies must not guess Hindi for all Devanagari (Nepali is Devanagari too) or English for all
+// Latin text (Romanized Nepali/Hindi): unknowns stay "mixed" so she mirrors his language.
+function resolveTurnLanguage(text: string, policy: ActiveLanguagePolicy) {
+  return resolveConversationLocale(text, policy);
 }
 
 export function useCompanionController({ conversationId, routing, languagePolicy, autoRunTools = false }: CompanionControllerOptions): CompanionController {

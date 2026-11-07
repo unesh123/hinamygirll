@@ -11,7 +11,7 @@ import { useCompanionController } from "./useCompanionController";
 
 const routing = { activeMode: "claude", useBackend: true } as unknown as ProviderRuntimeSelection;
 
-type StreamBody = { text: string; history?: Array<{ role: string; content: string }> };
+type StreamBody = { text: string; language?: string; history?: Array<{ role: string; content: string }> };
 
 function replyStream(reply: string): Response {
   const plan = buildMockPlan(reply, "hinaa");
@@ -46,8 +46,8 @@ describe("conversation history sent with each turn", () => {
     vi.unstubAllGlobals();
   });
 
-  function renderController() {
-    return renderHook(() => useCompanionController({ routing, languagePolicy: "en-US" }));
+  function renderController(languagePolicy: "en-US" | "auto" = "en-US") {
+    return renderHook(() => useCompanionController({ routing, languagePolicy }));
   }
 
   it("includes the previous exchange in the next turn", async () => {
@@ -95,5 +95,26 @@ describe("conversation history sent with each turn", () => {
       await result.current.sendText("again", { historyBase: [] });
     });
     expect(turnBodies[0].history).toEqual([]);
+  });
+
+  it.each([
+    ["मलाई यो project बुझाउनुहोस्", "ne-NP"],
+    ["मुझे यह project समझाओ", "hi-IN"],
+    ["k cha babe, malai help gara", "mixed"],
+    ["Explain the deploy plan", "mixed"],
+  ])("labels %s as %s under the auto policy so Nepali is never sent as Hindi", async (text, expected) => {
+    const { result } = renderController("auto");
+    await act(async () => {
+      await result.current.sendText(text);
+    });
+    expect(turnBodies[0].language).toBe(expected);
+  });
+
+  it("keeps a fixed English policy", async () => {
+    const { result } = renderController("en-US");
+    await act(async () => {
+      await result.current.sendText("मलाई help गर");
+    });
+    expect(turnBodies[0].language).toBe("en-US");
   });
 });
