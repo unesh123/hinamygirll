@@ -2,9 +2,9 @@
 
 **Architecture**: Autonomous Multimodal AI Operating System  
 
-**Current Status**: Phases 01–13 COMPLETE | Phase 14 NEXT UP  
+**Current Status**: Phases 01–15 COMPLETE | Phase 15B (Creative AI) and 16 NEXT UP  
 
-**Last Updated**: November 5, 2026  
+**Last Updated**: November 7, 2026  
 
 
 
@@ -56,7 +56,7 @@
 
 | **15** | Security, Permissions & Governance Guardrails | **COMPLETE** | 100% | [docs/security/PHASE_15_REPORT.md](file:///c:/Users/unesh/OneDrive/all%20my%20cloud%20stroge/Desktop/APPS/HINAMYGIRL/docs/security/PHASE_15_REPORT.md) |
 
-| **15** | Creative AI & Multimodal Synthesis | PENDING | 0% | ComfyUI image/video pipelines, avatar sync |
+| **15B** | Creative AI & Multimodal Synthesis | PENDING (blocked on a running ComfyUI) | 0% | ComfyUI image/video pipelines, avatar sync |
 
 | **16** | Self-Improvement & Continuous Eval Harness | PENDING | 0% | Benchmark suites, automated prompt regression |
 
@@ -638,5 +638,14 @@ etrieval.py): Blends FTS5 lexical ranking (0.45), dense vector cosine similarity
 
 ### PHASE 15 — Security, Permissions & Governance Guardrails
 
-- **Status**: **NEXT UP**
+- **Status**: **COMPLETE**
+- **Report**: [`docs/security/PHASE_15_REPORT.md`](security/PHASE_15_REPORT.md)
 - **Objectives**: Granular multi-tenant RBAC, operator approval token workflows, hardware-isolated secrets, audit trail tamper-evidence.
+
+---
+
+## Phase Completion Gate (added November 7, 2026)
+
+A phase is only **COMPLETE** when the **entire** backend suite (`cd apps/api && pytest`) and the web suite (`pnpm typecheck && pnpm test`) pass in CI (`.github/workflows/web-tests.yml`), not just that phase's own acceptance suite.
+
+On November 7, 2026 a full run from a fresh clone showed 66 backend failures that the per-phase reports had not caught (undeclared dependencies, tests tied to a single Windows machine, local-only git tags, and real regressions in persona prompts, tool-intent routing and creative endpoints). `web-tests` CI had been red since September 2026. Those failures were fixed in the same change that added this gate.
