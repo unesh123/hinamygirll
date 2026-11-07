@@ -75,6 +75,7 @@ import { VmcControlPanel } from "./components/ui/VmcControlPanel";
 import type { PowerUp } from "./components/ui/PowerUpMentions";
 import { hinaaUIController, type HinaaUIAction } from "./features/ui-control/HinaaUIController";
 import { DesktopTitleBar } from "./features/desktop/DesktopTitleBar";
+import { CameraPip, useCompanionVision, type VisionReaction } from "./features/vision/companionVision";
 import { FloatingCompanionIsland } from "./features/desktop/FloatingCompanionIsland";
 
 const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
@@ -1299,6 +1300,23 @@ export default function App() {
     }
   };
 
+  // Webcam reactions surface as Hina's own line, so the avatar's expression
+  // director and TTS treat them exactly like a normal reply.
+  const { setMessages: setTranscript } = controller;
+  const handleVisionReaction = useCallback((reaction: VisionReaction) => {
+    const text = reaction.remark.trim();
+    if (!text) return;
+    setTranscript((prev) => [...prev, {
+      id: `vision-${Date.now()}`,
+      role: "assistant",
+      conversationId: activeConversationId,
+      text,
+      createdAt: new Date().toISOString(),
+    }]);
+    window.dispatchEvent(new CustomEvent("hinaa:speak-text", { detail: { text } }));
+  }, [setTranscript, activeConversationId]);
+  const vision = useCompanionVision({ sessionId: activeConversationId, onReaction: handleVisionReaction });
+
   const liveCompanionState: "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error" =
     (live.active && !playback.playing)
       ? (live.status === "paused" ? "idle" : "listening")
@@ -1330,6 +1348,7 @@ export default function App() {
       "open-image-studio": openImageStudio,
       "open-models": () => setSakuraView("models"),
       "open-operate": () => setSakuraView("operate"),
+      "toggle-vision": () => vision.setConsent(!vision.consent),
     },
   });
 
@@ -1369,6 +1388,7 @@ export default function App() {
       <SidebarProvider defaultExpanded={false}>
         <div className="hinaa-shell">
           <DesktopTitleBar />
+          <CameraPip stream={vision.stream} onStop={() => vision.setConsent(false)} />
         {/* ─── Aurora Veil ambient layer (Arena AI) ────────────── */}
         {!isMobile && <AuroraVeil state={controller.state} />}
         <div className="hinaa-cursor-dot" aria-hidden="true" id="hinaa-cursor-dot" />

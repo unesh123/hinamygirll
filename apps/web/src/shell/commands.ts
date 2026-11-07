@@ -52,6 +52,7 @@ export function buildCommands(navigate: (path: string) => void, pathname: string
     { id: "new-chat", group: "Actions", label: "New chat", keywords: "conversation reset", run: hostAction("new-chat") },
     { id: "start-voice", group: "Actions", label: "Start voice", keywords: "talk microphone listen", run: hostAction("start-voice", "companion") },
     { id: "stop-voice", group: "Actions", label: "Stop voice", keywords: "mute microphone", run: hostAction("stop-voice") },
+    { id: "toggle-vision", group: "Actions", label: "Toggle camera awareness", keywords: "webcam vision see camera", run: hostAction("toggle-vision", "companion") },
     { id: "open-settings", group: "Actions", label: "Open settings", keywords: "preferences", run: hostAction("open-settings") },
     { id: "open-terminal", group: "Actions", label: "Open terminal", keywords: "shell hands", run: hostAction("open-terminal") },
     { id: "toggle-history", group: "Actions", label: "Toggle conversation history", keywords: "search past chats", run: hostAction("toggle-history") },

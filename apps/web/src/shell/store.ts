@@ -157,7 +157,7 @@ export const shell = {
 
 export type AppCommandName =
   | "new-chat" | "start-voice" | "stop-voice" | "open-settings" | "open-memory"
-  | "open-terminal" | "toggle-history" | "open-projects" | "open-image-studio" | "open-models" | "open-operate";
+  | "open-terminal" | "toggle-history" | "open-projects" | "open-image-studio" | "open-models" | "open-operate" | "toggle-vision";
 
 type AppCommandMap = Partial<Record<AppCommandName, () => void>>;
 
