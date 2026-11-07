@@ -9,7 +9,7 @@ import pytest
 from hinaa_api.config import Settings
 from hinaa_api.main import create_app
 from hinaa_api.models import AssistantTurnPlan
-from hinaa_api.prompts import assemble_prompt
+from hinaa_api.prompts import PromptPackage, assemble_prompt
 from hinaa_api.prompts.models import PromptInput
 from hinaa_api.providers.base import ProviderResult
 from hinaa_api.providers.openai_llm import OpenAILLMProvider

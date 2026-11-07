@@ -15,7 +15,7 @@ import re
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Any, Sequence
 
 
 # Regex to detect freeform LLM-generated sources/references sections at the end of text
