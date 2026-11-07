@@ -206,8 +206,12 @@ class TestUntestedIsNotHealthy:
     def test_a_row_no_brain_reports_to_is_not_pinned_untested(self) -> None:
         # `gemini-live` shares the Gemini credential and no provider ever names
         # itself that, so a ledger-only rule would leave it untested forever.
+        # Audio-session reachability is never probed, so the row reports its
+        # configuration honestly as "degraded" (unverified), not "healthy" (8cd0f19).
         with TestClient(create_app(MULTI_BRAIN)) as client:
-            assert _row(client, "gemini-live")["state"] == "healthy"
+            row = _row(client, "gemini-live")
+        assert row["state"] == "degraded"
+        assert "unverified" in row["userMessage"].lower()
 
     def test_a_brain_without_a_credential_is_reported_not_configured(self) -> None:
         # Measured on a deployment with no keys: the row says the variable is

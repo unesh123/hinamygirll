@@ -316,4 +316,10 @@ def get_worktree_manager(workspace_root: Optional[str] = None) -> GitWorktreeMan
     global _global_worktree_manager
     if _global_worktree_manager is None:
         _global_worktree_manager = GitWorktreeManager(workspace_root=workspace_root)
+        return _global_worktree_manager
+    # An explicit, different root must not be served the singleton bound to another repo.
+    if workspace_root is not None and (
+        str(Path(workspace_root).resolve()) != _global_worktree_manager.workspace_root
+    ):
+        return GitWorktreeManager(workspace_root=workspace_root)
     return _global_worktree_manager

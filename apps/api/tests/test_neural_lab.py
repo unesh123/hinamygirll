@@ -21,21 +21,33 @@ def test_training_readiness_audit():
     assert report.local_engine is not None
     assert report.cloud_vs_local_boundary is not None
 
-    # Check GPU detection
+    # Check GPU detection (hardware varies by machine; only check internal consistency)
     if report.gpu:
-        assert "RTX 4060" in report.gpu.name or "GeForce" in report.gpu.name
-        assert report.gpu.vram_total_mb > 7000
-        assert report.gpu.qlora_suitable is True
+        assert report.gpu.vram_total_mb > 0
+        assert report.gpu.qlora_suitable is (report.gpu.vram_total_mb >= 7000)
 
-    # Check installed frameworks
-    assert report.frameworks.torch_version is not None
-    assert report.frameworks.transformers_version is not None
-    assert report.frameworks.peft_version is not None
-    assert report.frameworks.accelerate_version is not None
-    assert report.frameworks.datasets_version is not None
+    fw = report.frameworks
+    required = [
+        fw.torch_version,
+        fw.transformers_version,
+        fw.peft_version,
+        fw.accelerate_version,
+        fw.datasets_version,
+    ]
+    if fw.torch_version is None:
+        # torch is an optional heavy dependency: the audit must say so instead of crashing.
+        assert fw.torch_cuda_available is False
+        assert report.overall_readiness == "UNSUPPORTED"
+        assert any("torch" in rec for rec in report.recommendations)
+    elif all(v is not None for v in required):
+        assert report.overall_readiness == "READY"
+    else:
+        assert report.overall_readiness == "OPTIMIZATION_REQUIRED"
 
-    # Check local engine
-    assert report.local_engine.ollama_installed is True
+    # Local engine reflects what is actually installed on this machine
+    if report.local_engine.ollama_installed is False:
+        assert report.local_engine.ollama_api_reachable is False
+        assert report.local_engine.installed_models == []
 
 
 def test_dataset_builder_and_manifest():
@@ -89,6 +101,9 @@ def test_model_registry_and_vram_filtering():
 
 
 def test_training_experiment_pipeline():
+    # The pipeline requires the optional training stack; CI does not install it.
+    pytest.importorskip("peft")
+    pytest.importorskip("transformers")
     with tempfile.TemporaryDirectory() as tmp_dir:
         pipeline = TrainingPipelineManager(experiments_root=tmp_dir)
         exp = pipeline.create_experiment(
