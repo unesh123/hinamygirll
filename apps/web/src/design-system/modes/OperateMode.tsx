@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { AlertTriangle } from "lucide-react";
 import { describeResponseFailure, describeThrownFailure, singleLine } from "../../lib/turnFailure";
-import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
+import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Globe,
@@ -214,7 +214,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
     try {
       setIsLoadingDocs(true);
       const res = await fetch("/api/v1/generated-docs", {
-        headers: { "X-HINAA-Dev-User": HINAA_DEV_USER },
+        headers: hinaaIdentityHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -253,7 +253,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
   const fetchTasks = useCallback(async () => {
     setIsLoadingTasks(true);
     try {
-      const res = await fetch("/v1/tasks?include_completed=true&limit=100");
+      const res = await fetch("/v1/tasks?include_completed=true&limit=100", { headers: hinaaIdentityHeaders() });
       if (res.ok) {
         const data = await res.json();
         setTasks(Array.isArray(data) ? data : []);
@@ -272,7 +272,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
   const fetchTools = useCallback(async () => {
     setIsLoadingTools(true);
     try {
-      const res = await fetch("/v1/tools");
+      const res = await fetch("/v1/tools", { headers: hinaaIdentityHeaders() });
       if (res.ok) {
         const data = await res.json();
         const mapped: RuntimeToolCapability[] = (Array.isArray(data) ? data : []).map((t: any) => ({
@@ -294,7 +294,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
   /* ── Fetch Task Events ─────────────────────────────── */
   const fetchTaskEvents = useCallback(async (taskId: string) => {
     try {
-      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/events`);
+      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/events`, { headers: hinaaIdentityHeaders() });
       if (res.ok) {
         const data = await res.json();
         setTaskEvents(data.events || []);
@@ -322,7 +322,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
   /* ── Task Actions ──────────────────────────────────── */
   const handlePauseTask = async (taskId: string) => {
     try {
-      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/pause`, { method: "POST" });
+      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/pause`, { method: "POST", headers: hinaaIdentityHeaders() });
       if (res.ok) {
         showNotice(`Task ${taskId.slice(0, 8)} paused`);
         fetchTasks();
@@ -334,7 +334,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
 
   const handleResumeTask = async (taskId: string) => {
     try {
-      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/resume`, { method: "POST" });
+      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/resume`, { method: "POST", headers: hinaaIdentityHeaders() });
       if (res.ok) {
         showNotice(`Task ${taskId.slice(0, 8)} resumed`);
         fetchTasks();
@@ -346,7 +346,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
 
   const handleCancelTask = async (taskId: string) => {
     try {
-      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST", headers: hinaaIdentityHeaders() });
       if (res.ok) {
         showNotice(`Task ${taskId.slice(0, 8)} cancelled`);
         fetchTasks();
@@ -361,7 +361,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
     try {
       const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/steer`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...hinaaIdentityHeaders() },
         body: JSON.stringify({ instruction: steerInput.trim() }),
       });
       if (res.ok) {
@@ -377,7 +377,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
 
   const handleApproveWaitingTask = async (taskId: string) => {
     try {
-      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/continue`, { method: "POST" });
+      const res = await fetch(`/v1/tasks/${encodeURIComponent(taskId)}/continue`, { method: "POST", headers: hinaaIdentityHeaders() });
       if (res.ok) {
         showNotice(`Task approved and resumed execution`);
         fetchTasks();
@@ -453,7 +453,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                 padding: "1px 6px",
                 borderRadius: "999px",
                 background: "rgba(236,72,153,0.15)",
-                color: "#f472b6",
+                color: "var(--pink-text, #be185d)",
                 fontWeight: 600,
                 border: "1px solid rgba(236,72,153,0.3)",
                 whiteSpace: "nowrap",
@@ -462,7 +462,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
               </span>
             </div>
             {!isMobile && (
-              <div style={{ fontSize: "11px", color: "var(--text-tertiary, #a1a1aa)" }}>
+              <div className="operate-subtitle" style={{ fontSize: "11px", color: "var(--text-tertiary, #a1a1aa)" }}>
                 Durable execution, action gates & tool orchestration
               </div>
             )}
@@ -470,8 +470,8 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
         </div>
 
         {/* Tab Controls & Refresh */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, overflowX: isMobile ? "auto" : "visible", maxWidth: "100%" }}>
-          <div style={{
+        <div className="operate-tabbar" style={{ display: "flex", alignItems: "center", gap: 6, overflowX: isMobile ? "auto" : "visible", maxWidth: "100%" }}>
+          <div className="operate-tabs" style={{
             display: "flex",
             padding: 2,
             background: "var(--bg-surface-raised, rgba(255,255,255,0.05))",
@@ -491,7 +491,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                 border: "none",
                 cursor: "pointer",
                 background: activeTab === "tasks" ? "var(--bg-surface-active, rgba(255,255,255,0.15))" : "transparent",
-                color: activeTab === "tasks" ? "#fff" : "var(--text-secondary, #a1a1aa)",
+                color: activeTab === "tasks" ? "var(--text-primary, #fff)" : "var(--text-secondary, #a1a1aa)",
                 transition: "all 150ms ease",
               }}
             >
@@ -520,7 +520,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                 border: "none",
                 cursor: "pointer",
                 background: activeTab === "approvals" ? "rgba(236,72,153,0.2)" : "transparent",
-                color: activeTab === "approvals" ? "#f472b6" : "var(--text-secondary, #a1a1aa)",
+                color: activeTab === "approvals" ? "var(--pink-text, #be185d)" : "var(--text-secondary, #a1a1aa)",
                 transition: "all 150ms ease",
               }}
             >
@@ -553,7 +553,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                 border: "none",
                 cursor: "pointer",
                 background: activeTab === "reports" ? "var(--bg-surface-active, rgba(255,255,255,0.15))" : "transparent",
-                color: activeTab === "reports" ? "#fff" : "var(--text-secondary, #a1a1aa)",
+                color: activeTab === "reports" ? "var(--text-primary, #fff)" : "var(--text-secondary, #a1a1aa)",
                 transition: "all 150ms ease",
               }}
             >
@@ -584,7 +584,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                 border: "none",
                 cursor: "pointer",
                 background: activeTab === "capabilities" ? "var(--bg-surface-active, rgba(255,255,255,0.15))" : "transparent",
-                color: activeTab === "capabilities" ? "#fff" : "var(--text-secondary, #a1a1aa)",
+                color: activeTab === "capabilities" ? "var(--text-primary, #fff)" : "var(--text-secondary, #a1a1aa)",
                 transition: "all 150ms ease",
               }}
             >
@@ -613,7 +613,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                 border: "none",
                 cursor: "pointer",
                 background: activeTab === "integrations" ? "var(--bg-surface-active, rgba(255,255,255,0.15))" : "transparent",
-                color: activeTab === "integrations" ? "#fff" : "var(--text-secondary, #a1a1aa)",
+                color: activeTab === "integrations" ? "var(--text-primary, #fff)" : "var(--text-secondary, #a1a1aa)",
                 transition: "all 150ms ease",
               }}
             >
@@ -1249,7 +1249,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                         padding: "7px 10px",
                         borderRadius: 8,
                         background: "rgba(236,72,153,0.16)",
-                        color: "#f472b6",
+                        color: "var(--pink-text, #be185d)",
                         fontSize: "11px",
                         fontWeight: 650,
                         textDecoration: "none",
@@ -1454,7 +1454,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
                         const isRequired = selectedTool.requiredParameters?.includes(paramName);
                         return (
                           <div key={paramName}>
-                            <span style={{ color: "#f472b6", fontWeight: isRequired ? "bold" : "normal" }}>
+                            <span style={{ color: "var(--pink-text, #be185d)", fontWeight: isRequired ? "bold" : "normal" }}>
                               {paramName}{isRequired ? "*" : ""}
                             </span>
                             <span style={{ color: "#71717a" }}>: {schema.type || "any"}</span>
@@ -1482,7 +1482,7 @@ export function OperateMode({ initialTab = "tasks" }: { initialTab?: OperateTab 
 function TaskStatusBadge({ status }: { status: string }) {
   const configs: Record<string, { bg: string; color: string; label: string }> = {
     running: { bg: "rgba(59,130,246,0.15)", color: "#60a5fa", label: "Running" },
-    waiting_user: { bg: "rgba(236,72,153,0.15)", color: "#f472b6", label: "Needs Approval" },
+    waiting_user: { bg: "rgba(236,72,153,0.15)", color: "var(--pink-text, #be185d)", label: "Needs Approval" },
     paused: { bg: "rgba(245,158,11,0.15)", color: "#fbbf24", label: "Paused" },
     completed: { bg: "rgba(34,197,94,0.15)", color: "#4ade80", label: "Completed" },
     failed: { bg: "rgba(239,68,68,0.15)", color: "#f87171", label: "Failed" },
