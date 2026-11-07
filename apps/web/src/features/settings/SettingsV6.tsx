@@ -388,7 +388,7 @@ export function SettingsV6({
             {activeTab === "general" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>General Settings</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>General Settings</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Configure core system behavior, conversation language, and automation policies.
                   </p>
@@ -401,7 +401,7 @@ export function SettingsV6({
             {activeTab === "appearance" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Appearance & Themes</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Appearance & Themes</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Customize visual theme, motion ergonomics, and companion avatar styling.
                   </p>
@@ -413,7 +413,7 @@ export function SettingsV6({
             {activeTab === "voice" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Voice & Audio Pipeline</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Voice & Audio Pipeline</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Real-time speech synthesis, microphone input calibration, and VMC face tracking.
                   </p>
@@ -491,7 +491,7 @@ export function SettingsV6({
             {activeTab === "models" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Intelligence & Providers</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Intelligence & Providers</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Frontier intelligence providers, CX Gateway routing, and LLM model selections.
                   </p>
@@ -508,7 +508,7 @@ export function SettingsV6({
             {activeTab === "media" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Media & Image Studio</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Media & Image Studio</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Configure generative image pipelines, OpenAI-compatible proxy keys, models, and ComfyUI.
                   </p>
@@ -520,7 +520,7 @@ export function SettingsV6({
             {activeTab === "memory" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Memory & Auto-Learning</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Memory & Auto-Learning</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Manage learned facts, conversation memory candidates, and privacy isolation.
                   </p>
@@ -575,7 +575,7 @@ export function SettingsV6({
             {activeTab === "tools" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Tools & Permissions</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Tools & Permissions</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Tool registry status, risk levels, and permission escalation policies.
                   </p>
@@ -608,7 +608,7 @@ export function SettingsV6({
             {activeTab === "github" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>GitHub Integration</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>GitHub Integration</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Workspace source control, issue tracking, and automated commit management.
                   </p>
@@ -663,7 +663,7 @@ export function SettingsV6({
             {activeTab === "integrations" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Local Service Integrations</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Local Service Integrations</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     Client workstation desktop services. Localhost services operate as Desktop Bridges and are never directly queried from remote server runtimes.
                   </p>
@@ -757,7 +757,7 @@ export function SettingsV6({
             {activeTab === "developer" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
-                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600 }}>Developer & Telemetry</h3>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 600, color: "#fff" }}>Developer & Telemetry</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                     System health diagnostics, server logs, and live SSE event inspection.
                   </p>
