@@ -301,7 +301,7 @@ describe("URLs that earn the Clerk token", () => {
         if (String(url).endsWith("/stream")) {
           return new Response(JSON.stringify({ type: "audio", audioBase64: "AAAAAA==", sampleRate: 24_000, text: "a", alignment: [] }) + "\n" + JSON.stringify({type:"done"}) + "\n", {headers:{"Content-Type":"application/x-ndjson"}});
         }
-        return new Response(new Blob(["audio"], {type:"audio/mpeg"}), { headers: {"X-HINAA-Provider":"elevenlabs"} });
+        return new Response(new TextEncoder().encode("audio"), { headers: {"Content-Type":"audio/mpeg","X-HINAA-Provider":"elevenlabs"} });
       }
       return Response.json({}, {status:404});
     });
