@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from datetime import datetime, timezone
 
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -1558,6 +1559,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def stream_browser_task_events(task_id: str) -> StreamingResponse:
         """Streams real-time action events and state transitions via SSE."""
         from .browser import BrowserAutomationService, BrowserTaskEvent
+        from .browser.action_schema import BrowserTaskState
         service: BrowserAutomationService = getattr(app.state, "browser_service", None)
         if not service:
             raise HTTPException(status_code=404, detail="Browser service not initialized")
@@ -1752,11 +1754,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/creative/jobs")
     @app.post("/v1/creative/jobs")
-    async def submit_creative_job(spec: Any = Body(...), request: Request = None) -> dict[str, Any]:
-        """Submits a creative studio job (image, edit/inpaint, video timeline export)."""
+    async def submit_creative_job(spec: Any = Body(...), request: Request = None) -> Any:
+        """Submits a creative studio job (image, edit/inpaint, video timeline export).
+
+        Payloads carrying ``operation`` use the Phase 09 pipeline. Legacy
+        ``{prompt, model}`` payloads use the credit-priced Magnific job store;
+        the model registry rejects any video model with 403 before any provider call.
+        """
+        from pydantic import ValidationError
+
         from .creative import creative_service, CreativeJobSpec
+        if not isinstance(spec, (dict, CreativeJobSpec)):
+            raise HTTPException(status_code=422, detail="Creative job body must be a JSON object")
+        if isinstance(spec, dict) and "operation" not in spec:
+            try:
+                legacy = CreativeJobBody.model_validate(spec)
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
+            model = CreativeModelRegistry.get_model(legacy.model)
+            legacy_job = await creative_jobs.create_job(legacy.prompt, model.id, model.cost_credits)
+            return JSONResponse(status_code=201, content=legacy_job.to_dict())
         if isinstance(spec, dict):
-            spec = CreativeJobSpec.model_validate(spec)
+            try:
+                spec = CreativeJobSpec.model_validate(spec)
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
         tenant_id = request.headers.get("X-Tenant-ID", spec.tenant_id or "default_tenant") if request else spec.tenant_id
         user_id = request.headers.get("X-User-ID", spec.user_id or "default_user") if request else spec.user_id
         spec.tenant_id = tenant_id
@@ -2397,12 +2419,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/v1/creative/estimate")
     async def post_creative_estimate(body: CreativeEstimateBody) -> dict[str, Any]:
         return _creative_estimate(body.model, body.width, body.height, body.scale)
-
-    @app.post("/v1/creative/jobs", status_code=201)
-    async def create_creative_job(body: CreativeJobBody) -> dict[str, Any]:
-        model = CreativeModelRegistry.get_model(body.model)
-        job = await creative_jobs.create_job(body.prompt, model.id, model.cost_credits)
-        return job.to_dict()
 
     @app.get("/v1/local-services/comfyui")
     @app.get("/api/v1/local-services/comfyui")
@@ -5482,12 +5498,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/companion/briefing")
     async def get_companion_briefing(request: Request, companion_id: str = "hinaa"):
         """Generate a contextual, proactive morning/work briefing."""
-        user_id = "dev_user"
-        try:
-            auth = _require_auth(request)
-            user_id = auth.user_id
-        except Exception:
-            pass
+        user_id = _resolve_user_id(request) or "dev_user"
         from .intelligence.proactive_briefing import generate_proactive_briefing
         return await generate_proactive_briefing(
             user_id=user_id,

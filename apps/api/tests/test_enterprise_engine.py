@@ -142,7 +142,9 @@ def test_resilient_provider_router():
 
 
 @pytest.mark.asyncio
-async def test_cognitive_kernel_enterprise_turn():
+async def test_cognitive_kernel_enterprise_turn(monkeypatch):
+    # The turn plans a real "open calc"; rehearse it instead of driving the desktop.
+    monkeypatch.setenv("HINAA_COMPUTER_DRY_RUN", "1")
     temp_dir = tempfile.mkdtemp()
     try:
         policy = EnterprisePolicyEngine()
