@@ -89,6 +89,8 @@ class PromptInput(StrictModel):
     # Per-turn operating doctrine (skill packs): trusted policy, selected by
     # intent; empty for casual chat so simple turns never pay the token cost.
     skill_doctrine_block: str = ""
+    # Bodies of the top runtime-selected SKILL.md files; untrusted-zone guidance.
+    runtime_skill_block: str = ""
     # B2.1 §4: history already selected/budgeted by the canonical ContextCompiler.
     # The assembler must render it verbatim (FORMAT_ONLY) — no further truncation,
     # no independent selection. Legacy callers (offline eval suite) leave False.

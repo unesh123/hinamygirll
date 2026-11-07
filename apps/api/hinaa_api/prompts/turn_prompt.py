@@ -37,6 +37,7 @@ def build_turn_prompt(
     durable_memory: bool = True,
     allowed_tools: tuple[str, ...] | None = None,
     skill_doctrine_block: str = "",
+    runtime_skill_block: str = "",
 ) -> PromptPackage:
     inp = PromptInput(
         companion_id=request.companionId,
@@ -59,6 +60,7 @@ def build_turn_prompt(
         history_preselected=history_preselected,
         allowed_tools=allowed_tools,
         skill_doctrine_block=skill_doctrine_block,
+        runtime_skill_block=runtime_skill_block,
         persona_mode=request.persona_mode,
     )
     return assemble_prompt(inp)
