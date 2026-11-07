@@ -12,7 +12,9 @@ from hinaa_api.tools.registry import registry
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    # Loopback Host: tools/policy.py denies machine-touching tools to public-origin
+    # requests, and TestClient's default "testserver" host reads as one.
+    return TestClient(app, base_url="http://127.0.0.1:8000")
 
 
 @pytest.mark.asyncio

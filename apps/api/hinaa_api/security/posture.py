@@ -69,7 +69,11 @@ class HostPostureGuard:
         else:
             isolation_level = HostIsolationLevel.UNTRUSTED_BLOCKED
             can_untrusted = False
-            details = "No kernel isolation container detected. Untrusted code execution is strictly blocked."
+            details = (
+                "No kernel isolation container detected. "
+                "Honest posture: can_execute_untrusted_code=False. "
+                "Untrusted code execution is strictly blocked."
+            )
 
         return HostIsolationProbeResult(
             isolation_level=isolation_level,
