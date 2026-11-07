@@ -259,7 +259,9 @@ async def clean_room_loop_handler(params: CleanRoomRebuildParams) -> dict[str, A
                 cwd=workspace,
                 allowed_root=workspace,
                 timeout_seconds=60.0,
-                env_overrides={"PYTHONPATH": str(workspace)},
+                # A repair can keep the file's size and mtime second (e.g. "+" -> "-"),
+                # so a cached .pyc would re-run the broken code.
+                env_overrides={"PYTHONPATH": str(workspace), "PYTHONDONTWRITEBYTECODE": "1"},
             )
         )
         last_output = (outcome.stdout + "\n" + outcome.stderr).strip()[-2000:]
