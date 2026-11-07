@@ -24,7 +24,6 @@ import { PersonaModeSelector, type PersonaMode } from "./features/persona";
 import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComposer";
 import type { AttachmentRole } from "./design-system/chat/ComposerV6";
 import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
-import { ShowroomMode } from "./design-system/modes/ShowroomMode";
 import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
@@ -77,6 +76,8 @@ import { DesktopTitleBar } from "./features/desktop/DesktopTitleBar";
 import { FloatingCompanionIsland } from "./features/desktop/FloatingCompanionIsland";
 
 const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
+// Runway 3D pulls in three.js and the VRM loader; keep it out of the startup bundle.
+const ShowroomMode = lazy(() => import("./design-system/modes/ShowroomMode").then((module) => ({ default: module.ShowroomMode })));
 const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
 const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((module) => ({ default: module.MemoryPanel })));
 const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
@@ -1572,6 +1573,7 @@ export default function App() {
             )}
 
             {sakuraView === "showroom" && (
+              <Suspense fallback={lazyPanelFallback}>
               <ShowroomMode
                 isDark={isDark}
                 onEnterWorkspace={() => setSakuraView("work")}
@@ -1598,6 +1600,7 @@ export default function App() {
                 isMuted={playback.muted}
                 onToggleMute={playback.toggleMute}
               />
+              </Suspense>
             )}
 
             {sakuraView === "vault" && (
