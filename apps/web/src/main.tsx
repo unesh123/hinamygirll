@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import "./design-system/global.css";
 import App from "./App.tsx";
 import { installStaleBuildRecovery } from "./lib/staleBuildRecovery";
+import { installDevIdentityFetch } from "./lib/devIdentityFetch";
 import { ClerkSessionGate } from "./features/auth/ClerkSessionGate";
 // Aurora Veil must arrive after App.css (and its imports) so the elevation
 // layer refines every surface without fighting the base stylesheet.
@@ -33,6 +34,7 @@ const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 import { initGlobalUiSounds } from "./lib/uiSound";
 
 installStaleBuildRecovery();
+if (authMode !== "clerk") installDevIdentityFetch(import.meta.env.VITE_HINAA_API_BASE_URL);
 initGlobalUiSounds();
 if (authMode === "clerk" && !PUBLISHABLE_KEY) throw new Error("The private workspace needs its Clerk publishable key.");
 
