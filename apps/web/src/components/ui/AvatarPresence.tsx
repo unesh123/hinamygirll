@@ -1,6 +1,7 @@
 import {runtimeMeasurements} from "../../features/telemetry/runtimeMeasurements";
 
-import { sampleConversationMotion } from "../../features/avatar/conversationalMotion";
+import { sampleConversationMotion, sampleArmGesture, type ArmGesture } from "../../features/avatar/conversationalMotion";
+import { fitDistance, framesHands, handsFramingSpan } from "../../features/avatar/companionFraming";
 
 /**
 
@@ -209,7 +210,21 @@ function cameraFromAnatomy(mode: PresenceMode, fallback: CameraPreset, frame?: A
 
     const targetY = (top + bottom) / 2;
 
-    return { pos: [x, targetY, distanceFor(top, bottom, 38)], target: [x, targetY, 0], fov: 38 };
+    const distance = framesHands(aspect) ? fitDistance(top - bottom, frame.width ?? 0, 38, aspect) : distanceFor(top, bottom, 38);
+
+    return { pos: [x, targetY, distance], target: [x, targetY, 0], fov: 38 };
+
+  }
+
+  if (framesHands(aspect)) {
+
+    // Tall companion docks: frame waist-up so resting and gesturing hands stay visible.
+
+    const span = handsFramingSpan(frame, portraitTop);
+
+    const targetY = (span.top + span.bottom) / 2;
+
+    return { pos: [x, targetY, fitDistance(span.top - span.bottom, frame.width ?? 0, portraitFov, aspect)], target: [x, targetY, 0], fov: portraitFov };
 
   }
 
@@ -872,6 +887,8 @@ function Model({
   const stateEmotion = useMemo(() => emotionFor(state), [state]);
 
   const motionPose = useMemo(() => ({pitch:0,yaw:0,roll:0,arm:0,wrist:0}), []);
+  const armGestureL = useMemo<ArmGesture>(() => ({ upperFwd: 0, upperOut: 0, elbow: 0, twist: 0, wristFlex: 0, wristDev: 0, wristTwist: 0 }), []);
+  const armGestureR = useMemo<ArmGesture>(() => ({ upperFwd: 0, upperOut: 0, elbow: 0, twist: 0, wristFlex: 0, wristDev: 0, wristTwist: 0 }), []);
 
   const gestureEnergy = useRef(0);
 
@@ -3022,6 +3039,8 @@ function Model({
     const bodyGain = (1 + affectiveProfile.arousal * 0.35) * (1 - affectiveProfile.drowsy * 0.55);
 
     const bodyConvo = convo * bodyGain;
+    sampleArmGesture(t.current + ((window as any).__gt ?? 0), bodyConvo, 1, armGestureL);
+    sampleArmGesture(t.current + ((window as any).__gt ?? 0), bodyConvo, -1, armGestureR);
 
     const bodyDroop = affectiveProfile.drowsy * 0.09 + Math.max(0, -affectiveProfile.valence) * 0.07;
 
@@ -3058,9 +3077,8 @@ function Model({
       const isLeft = boneName.startsWith("left");
 
       const side = isLeft ? 1 : -1;
-
-
-
+      const gest = isLeft ? armGestureL : armGestureR;
+      const gestWeight = 1 - Math.min(1, wWeight);
       let rotX = 0, rotY = 0, rotZ = 0;
 
 
@@ -3162,6 +3180,8 @@ function Model({
           rotY = -side * bodyConvo * (isLeft ? 0.14 : 0.22) * (0.8 + 0.3 * cadence);
 
           rotZ = -side * bodyConvo * (isLeft ? 0.06 : 0.10) + idleArmRoll;
+          rotY += -side * gest.upperFwd * gestWeight;
+          rotZ += -side * gest.upperOut * gestWeight;
 
         }
 
@@ -3254,6 +3274,8 @@ function Model({
           rotX = bodyConvo * 0.16 * (0.8 + 0.25 * cadence) - bodyDroop * 0.5 + idleForearmPitch;
 
           rotZ = side * bodyConvo * (isLeft ? 0.28 : 0.42) * (0.85 + 0.25 * cadence) * (1 - affectiveProfile.drowsy * 0.4);
+          rotY += -side * gest.elbow * gestWeight;
+          rotX += side * gest.twist * gestWeight;
 
         }
 
@@ -3336,6 +3358,9 @@ function Model({
           rotZ = -side * bodyConvo * (isLeft ? 0.07 : 0.14) * (isLeft ? Math.cos(t.current * 1.7) : Math.cos(t.current * 2.1 + 0.4));
 
           rotY = side * bodyConvo * (isLeft ? 0.05 : 0.12) * cadence;
+          rotY += -side * gest.wristFlex * gestWeight;
+          rotZ += side * gest.wristDev * gestWeight;
+          rotX += side * gest.wristTwist * gestWeight;
 
         }
 
