@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from ..nepal_calendar import bikram_sambat_label, nepal_now
+
 from .companions import companion_identity_layer
 from .persona_modes import get_persona_layer, persona_length_hint
 from .context import (
@@ -190,10 +192,23 @@ def _product_identity_layer(voice: bool = False, allowed_tools: tuple[str, ...] 
     now = datetime.now(timezone.utc)
     formatted_date = now.strftime("%A, %B %d, %Y")
     formatted_time = now.strftime("%H:%M UTC")
+    npt = nepal_now(now)
+    bs_label = bikram_sambat_label(npt)
+    nepal_lines = (
+        f"- Nepal Time (NPT, UTC+05:45): {npt.strftime('%A, %B %d, %Y at %H:%M')}. "
+        "Use Nepal time for 'today', 'now', 'aaja', 'bihana/beluka' unless he names another place.\n"
+    )
+    if bs_label:
+        nepal_lines += (
+            f"- Bikram Sambat (Nepal's official calendar) today: {bs_label}. "
+            "When he asks the date in Nepali or about 'gate', 'mahina', 'sal', festivals or official dates, answer in BS "
+            "(and give AD too when useful).\n"
+        )
     return (
         f"{PRODUCT_IDENTITY_LAYER}\n\n"
         f"TEMPORAL GROUNDING & CURRENT OPERATIONAL ERA:\n"
         f"- Current Reference Time: {formatted_date} at {formatted_time}.\n"
+        f"{nepal_lines}"
         f"- Current Year: {now.year}.\n"
         f"- Operational Mandate: Today is {formatted_date}. You are operating in real-time in {now.year}. "
         f"Never assume or state that the year is 2023 or 2024. Your internal pre-training cutoff date is in the past. "

@@ -3241,6 +3241,23 @@ class ConversationService:
                 parameters={"query": prompt_str or text},
             ))
 
+    def _turn_history(self, request: TurnRequest) -> list[tuple[str, str]]:
+        """Conversation context for this turn.
+
+        A client-sent history is authoritative, even when empty: regenerate and
+        edit truncate the transcript, so stored turns must not leak back in.
+        """
+        if request.history is None:
+            return self._resolve_session_history(request.sessionId, request.conversationId)
+        return [
+            (
+                str(h.get("role") or "user"),
+                safe_extract_display_text(str(h.get("content") or h.get("text") or "")),
+            )
+            for h in request.history
+            if isinstance(h, dict) and (h.get("content") or h.get("text"))
+        ]
+
     def _resolve_session_history(
         self,
         session_id: str | None,
@@ -4629,17 +4646,7 @@ class ConversationService:
         dialogue_state_block = ""
         live_search_block = ""
 
-        if request.history:
-            session_history = [
-                (
-                    str(h.get("role") or "user"),
-                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
-                )
-                for h in request.history
-                if isinstance(h, dict) and (h.get("content") or h.get("text"))
-            ]
-        else:
-            session_history = self._resolve_session_history(request.sessionId, request.conversationId)
+        session_history = self._turn_history(request)
 
         # Gate First: evaluate intent before running LLM or routing
         from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
@@ -4928,17 +4935,7 @@ class ConversationService:
                 pass
 
         durable_memory = self._capture_turn_facts(request, user_id)
-        if request.history:
-            history = [
-                (
-                    str(h.get("role") or "user"),
-                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
-                )
-                for h in request.history
-                if isinstance(h, dict) and (h.get("content") or h.get("text"))
-            ]
-        else:
-            history = self._resolve_session_history(request.sessionId, request.conversationId)
+        history = self._turn_history(request)
         effective_user = user_id or getattr(self.settings, "dev_auth_subject", None) or "local-dev-user"
         approved = self._approved_blocks(effective_user)
         session_memories = _dedupe_session_facts(
@@ -5564,17 +5561,7 @@ class ConversationService:
         dialogue_state_block = ""
         live_search_block = ""
 
-        if request.history:
-            session_history = [
-                (
-                    str(h.get("role") or "user"),
-                    safe_extract_display_text(str(h.get("content") or h.get("text") or ""))
-                )
-                for h in request.history
-                if isinstance(h, dict) and (h.get("content") or h.get("text"))
-            ]
-        else:
-            session_history = self._resolve_session_history(request.sessionId, request.conversationId)
+        session_history = self._turn_history(request)
 
         # Gate First: evaluate intent before running LLM or routing
         from hinaa_intent_gate import Intent as HinaaIntent, decide as decide_intent
