@@ -107,6 +107,6 @@ Empirically audited via `run_system_audit()`:
 | `/api/neural-lab/audit` | `GET` | Hardware, VRAM, PyTorch, and Ollama readiness report |
 | `/api/neural-lab/models` | `GET` | Base model catalog and hardware suitability specs |
 | `/api/neural-lab/datasets` | `GET` | Manifest and domain breakdown of training datasets |
-| `/api/neural-lab/train` | `POST` | Execute SFT/QLoRA training experiment |
-| `/api/neural-lab/benchmark` | `GET` | Comparative benchmark report and deployment recommendation |
+| `/api/neural-lab/train` | `POST` | Create a training experiment; returns `BLOCKED` with the reason until the training loop is implemented |
+| `/api/neural-lab/benchmark` | `GET` | Comparative benchmark report; returns `NOT_EVALUATED` until an adapter has been trained |
 | `/api/neural-lab/adapters` | `GET` | List versioned adapters, active adapter, and Modelfiles |

@@ -1,4 +1,7 @@
 # HINAA NEURAL LAB — TRAINING EXPERIMENTS & RECIPES
+
+> **Status (2026-11-07): these figures were never measured.** They were hardcoded in `neural_lab/training/pipeline.py` and `neural_lab/evaluation/benchmarks.py`; no adapter has been trained. Training now returns `BLOCKED` and the benchmark returns `NOT_EVALUATED`. Treat this page as a plan, not results.
+
 **System**: HINAA Neural Lab Training Pipeline (`apps/api/hinaa_api/neural_lab/training/pipeline.py`)  
 **GPU Acceleration**: NVIDIA GeForce RTX 4060 Laptop GPU (8,188 MiB VRAM, Compute Capability 8.9)  
 **Precision**: 4-bit NF4 Quantization + LoRA Adapter in FP16/BF16  
