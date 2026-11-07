@@ -476,7 +476,8 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
             animate={{ opacity: 1, y: 0 }}
             style={{
               position: "absolute",
-              bottom: 12,
+              // Sits above the status dock (.iris-waveform-stage) instead of covering it.
+              bottom: 72,
               left: 12,
               right: 12,
               padding: "10px 14px",
@@ -488,7 +489,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
               fontSize: "11px",
               lineHeight: 1.45,
               color: isDark ? "#f4f4f5" : "#17191c",
-              maxHeight: 72,
+              maxHeight: 104,
               overflowY: "auto",
               zIndex: 15,
             }}
