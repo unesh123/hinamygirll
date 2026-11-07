@@ -1,3 +1,4 @@
+import { isGlbUrl } from "./face/capability";
 export type AvatarPoseMode = "relaxed" | "original";
 
 export type AvatarPresentation = {
@@ -31,6 +32,7 @@ const KNOWN_PRESENTATIONS: Record<string, AvatarPresentation> = {
 export function defaultAvatarPresentation(modelUrl: string): AvatarPresentation {
   const known = KNOWN_PRESENTATIONS[modelUrl];
   if (known) return { ...known };
+  if (isGlbUrl(modelUrl)) return { rotationY: 0, offsetY: 0, scale: 1, poseMode: "original" };
   // Imported models commonly look backward after their VRM-version conversion.
   // The browser can reverse this in one click; we never rewrite their binary.
   return { rotationY: Math.PI, offsetY: 0, scale: 1, poseMode: "relaxed" };

@@ -45,3 +45,10 @@ avatar if the network sample can't load.
   for personal use (check the version you exported with).
 - Record the exact licence, provenance, and checksum in
   `docs/ASSET_LICENSES.md` before shipping — see the existing entries there.
+
+## Public-demo warning and GLB humans
+
+`hinaa.vrm` (and its duplicate `model_7903.vrm`) is **non-commercial**. Replace the default
+with a licensed model before any public demo or release. For a realistic human, drop a GLB with
+ARKit-52 morph targets here and register it; see `docs/avatar-pipeline.md` for sourcing,
+required blendshape names, and gltf-transform meshopt + KTX2 compression.

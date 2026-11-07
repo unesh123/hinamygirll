@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createLipSyncTimeline, textToVisemeEvents, getActiveViseme, type VisemeEvent } from "./textToViseme";
 import { idleSpeechPlayback, type SpeechPlaybackBridge } from "./speechPlaybackBridge";
+import { publishSpeechAnalyser } from "./speechAnalyserTap";
 import { WebAudioSpeechTimingSource, BrowserSpeechTimingSource } from "./speechTimingSource";
 
 export interface PlaybackController {
@@ -125,6 +126,7 @@ export function useAudioPlayback(): PlaybackController {
     contextRef.current = context;
     masterRef.current = master;
     analyserRef.current = analyser;
+    publishSpeechAnalyser(analyser);
     return context;
   }, []);
 
@@ -1137,6 +1139,7 @@ export function useAudioPlayback(): PlaybackController {
       contextRef.current = null;
       masterRef.current = null;
       analyserRef.current = null;
+      publishSpeechAnalyser(null);
       if (typeof window !== "undefined") {
         delete (window as any).__hinaaAudioCtx;
       }
