@@ -71,7 +71,10 @@ def test_warm_mode_is_persona_warm() -> None:
     # and a real style/warmth contribution, not the old flat defaults.
     assert hinaa["stability"] <= 0.42
     assert hinaa["style_intensity"] >= 0.30
-    assert hinaa["pace"] <= 0.95  # slightly slower = more tender
+    # Lively anime cadence floors Hinaa at 0.96 (Phase 13 tuning); warm must
+    # still sit below her neutral pace to read as tender.
+    assert hinaa["pace"] <= 0.97
+    assert hinaa["pace"] < planner.plan_delivery("neutral", "hinaa")["pace"]
     assert hinaa["similarity"] >= 0.75  # voice identity stays consistent
 
     # Per-companion bias: Hinaa speaks warmer/softer than Hiro.

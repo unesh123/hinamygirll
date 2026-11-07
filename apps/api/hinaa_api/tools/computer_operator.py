@@ -257,7 +257,9 @@ class NativeComputerOperator:
             except Exception:
                 pass
 
-            # Synthesize key accessibility landmarks from active title & process
+        # Synthesize key accessibility landmarks from active title & process.
+        # Off Windows there is no desktop to read, so only a rehearsal gets them.
+        if platform.system() == "Windows" or cls._dry_run():
             ax_elements = [
                 AXElement(role="window", name=active_title, is_focused=True, bounds={"x": 0, "y": 0, "w": screen_w, "h": screen_h}),
                 AXElement(role="button", name="Close", bounds={"x": screen_w - 45, "y": 0, "w": 45, "h": 30}),
@@ -832,7 +834,8 @@ class NativeComputerOperator:
             cleaned = os.getenv("HINAA_PREFERRED_EDITOR", "antigravity")
         resolved = app_aliases.get(cleaned.lower(), cleaned)
 
-        if system == "Windows":
+        # A dry run only rehearses the launch, so it needs no Windows shell.
+        if system == "Windows" or cls._dry_run():
             try:
                 if resolved.startswith("http://") or resolved.startswith("https://") or resolved.startswith("spotify:") or resolved.startswith("ms-settings:") or resolved.startswith("microsoft.windows."):
                     if not cls._dry_run():
@@ -1603,12 +1606,19 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
         # Validate direct path format strictly: must start with drive, cannot contain illegal chars
         if re.match(r'^[a-zA-Z]:[\\/][^<>:"|?*\n\r]*$', raw_target) and not any(c in raw_target[3:] for c in ('?', '*', '"', '<', '>', '|', ':')):
             dest_path = Path(raw_target)
+        elif os.name != "nt" and raw_target.startswith("/") and not re.search(r'[<>:"|?*\x00-\x1f]', raw_target):
+            # POSIX absolute path: honor it as-is instead of inventing a drive.
+            dest_path = Path(raw_target)
         else:
-            if not drive_letter:
-                drive_letter = "E" if os.path.exists("E:\\") else "C"
             if not folder_name:
                 folder_name = "New Folder"
-            dest_path = Path(f"{drive_letter}:\\{folder_name}")
+            if os.name != "nt":
+                # No drive letters off Windows; "C:\\x" would be a literal directory name.
+                dest_path = Path.home() / folder_name
+            else:
+                if not drive_letter:
+                    drive_letter = "E" if os.path.exists("E:\\") else "C"
+                dest_path = Path(f"{drive_letter}:\\{folder_name}")
 
         try:
             dest_path.mkdir(parents=True, exist_ok=True)
