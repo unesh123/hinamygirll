@@ -125,3 +125,14 @@ apps/api/output_*.txt
 apps/api/workspace/
 # Neural Lab experiment outputs (written by /v1/neural-lab/train)
 apps/api/hinaa_api/neural_lab/experiments/
+
+# Runtime data and local debug output written by the API (never commit user data)
+apps/api/data/renders/
+apps/api/data/*.txt
+apps/api/data/*.err
+apps/api/persona_check_output.txt
+# Root-level screenshots / installers from local sessions
+/*.png
+/*.exe
+apps/web/*.png
+apps/web/scratch/
