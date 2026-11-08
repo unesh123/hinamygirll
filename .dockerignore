@@ -18,3 +18,23 @@
 **/data/
 **/exports/
 **/uploads/
+
+# Alembic migrations (run by `alembic upgrade head` inside the API image)
+!apps/api/alembic.ini
+!apps/api/alembic/
+!apps/api/alembic/**
+
+# Reviewer compose stack: static web build (infra/compose/web.Dockerfile)
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!packages/
+!packages/**
+!apps/web/
+!apps/web/**
+!apps/desktop/package.json
+!infra/
+!infra/compose/
+!infra/compose/**
+**/node_modules/
+**/dist/

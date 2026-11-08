@@ -1,0 +1,72 @@
+name: api-postgres
+
+# Runs the API test suite against a real Postgres 16 (tests default to SQLite).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: api-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api-postgres:
+    name: API tests on Postgres 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hinaa
+          POSTGRES_PASSWORD: hinaa-ci-only
+          POSTGRES_DB: hinaa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hinaa -d hinaa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # tests/conftest.py honours this and truncates tables between tests.
+      HINAA_TEST_DATABASE_URL: postgresql+psycopg://hinaa:hinaa-ci-only@localhost:5432/hinaa_test
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: apps/api/requirements-dev.txt
+
+      - name: Install API dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Install FFmpeg and Playwright browser (some suite modules need them)
+        working-directory: .
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+          python -m playwright install --with-deps chromium
+
+      - name: Persistence, migrations, Alembic and copy-tool tests
+        run: >-
+          pytest tests/test_postgres_support.py tests/agents tests/autopilot tests/goals
+          tests/security tests/memory -p no:cacheprovider
+
+      - name: Alembic upgrade head on empty Postgres (CLI smoke)
+        env:
+          HINAA_DATABASE_URL: postgresql+psycopg://hinaa:hinaa-ci-only@localhost:5432/postgres
+        run: |
+          alembic upgrade head
+          alembic current
+
+      - name: Full API suite on Postgres
+        run: pytest -p no:cacheprovider
