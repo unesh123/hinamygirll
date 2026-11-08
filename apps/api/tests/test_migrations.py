@@ -23,12 +23,12 @@ from hinaa_api.persistence.orm import (
 def test_migrations_fresh_database():
     engine = make_engine("sqlite+pysqlite:///:memory:")
     applied = run_migrations(engine)
-    assert applied == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017"]
+    assert applied == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018"]
 
     status = get_migration_status(engine)
-    assert len(status["applied"]) == 17
+    assert len(status["applied"]) == 18
     assert len(status["pending"]) == 0
-    assert status["current_version"] == "0017"
+    assert status["current_version"] == "0018"
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
@@ -79,13 +79,13 @@ def test_migrations_fresh_database():
 def test_migrations_idempotency():
     engine = make_engine("sqlite+pysqlite:///:memory:")
     applied_first = run_migrations(engine)
-    assert len(applied_first) == 17
+    assert len(applied_first) == 18
 
     applied_second = run_migrations(engine)
     assert applied_second == []
 
     status = get_migration_status(engine)
-    assert len(status["applied"]) == 17
+    assert len(status["applied"]) == 18
     assert len(status["pending"]) == 0
 
 

@@ -1074,6 +1074,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .productivity.router import build_productivity_router
     for _prod_prefix in ("/v1/productivity", "/api/v1/productivity"):
         app.include_router(build_productivity_router(active_settings, conversation_auth), prefix=_prod_prefix)
+    from .orgs.gate import OrgGate
+    from .orgs.router import build_org_router
+    org_gate = OrgGate(active_settings, memory_service, conversation_auth)
+    for _org_prefix in ("/v1/org", "/api/v1/org"):
+        app.include_router(build_org_router(org_gate), prefix=_org_prefix)
     from .news.router import build_news_router
     from .social.router import build_social_router
     for _news_prefix in ("/v1/news", "/api/v1/news"):
@@ -4498,6 +4503,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_def = registry.get_tool(body.toolName)
         if not tool_def:
             raise HTTPException(status_code=404, detail="Tool not found")
+        org_gate.authorize_tool(request, body.toolName)
         verdict = tool_policy.decide(body.toolName, active_settings, request.headers.get("host"))
         if not verdict.permitted:
             raise HinaaError(verdict.code, verdict.message, 403, False, True)

@@ -57,9 +57,62 @@ class AuthContext:
     user_id: str
     auth_subject: str
     mode: str
+    org_id: str | None = None
+    role: str | None = None
+    permissions: frozenset[str] = frozenset()
+    api_key_id: str | None = None
+
+    def has(self, permission: str) -> bool:
+        return permission in self.permissions
 
 
 def resolve_auth(
+    request: Request,
+    settings: Settings,
+    memory: MemoryService,
+    authorization: str | None = None,
+    x_hinaa_dev_user: str | None = None,
+    *,
+    allow_default_subject: bool = False,
+) -> AuthContext:
+    """Authenticate, then attach the caller's organisation, role and permissions.
+
+    `Authorization: Bearer hk_...` is an org-scoped API key; everything else goes
+    through the configured mode and lands in the user's personal (or X-HINAA-Org) org.
+    """
+    from dataclasses import replace
+
+    from ..orgs import service as org_service
+    from ..orgs.permissions import permissions_for
+
+    factory = org_service.factory_of(settings, memory)
+    bearer = (authorization or request.headers.get("Authorization") or "").strip()
+    if bearer[:10].lower() == "bearer hk_":
+        key = org_service.authenticate_api_key(factory, settings, bearer[7:].strip())
+        return AuthContext(
+            user_id=key.user_id,
+            auth_subject=key.auth_subject,
+            mode="api_key",
+            org_id=key.org_id,
+            role=key.role,
+            permissions=key.scopes,
+            api_key_id=key.key_id,
+        )
+    base = _resolve_identity(
+        request, settings, memory, authorization, x_hinaa_dev_user, allow_default_subject=allow_default_subject
+    )
+    client = getattr(request, "client", None)
+    org_id, role = org_service.resolve_org_role(
+        factory,
+        base.user_id,
+        request.headers.get("X-HINAA-Org"),
+        settings,
+        {"ip": client.host if client else None},
+    )
+    return replace(base, org_id=org_id, role=role, permissions=permissions_for(role))
+
+
+def _resolve_identity(
     request: Request,
     settings: Settings,
     memory: MemoryService,

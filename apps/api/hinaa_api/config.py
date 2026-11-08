@@ -812,6 +812,7 @@ class Settings(BaseSettings):
     magnific_video_generation_enabled: bool = Field(False, alias="MAGNIFIC_VIDEO_GENERATION_ENABLED")
     video_mode: str = Field("auto_economy", alias="VIDEO_MODE")
     hinaa_allowed_user_ids: str | None = Field(None, alias="HINAA_ALLOWED_USER_IDS")
+    api_key_pepper: SecretStr | None = Field(None, alias="HINAA_API_KEY_PEPPER")
     cx_gateway_quota_url: str | None = Field(None, alias="CX_GATEWAY_QUOTA_URL")
     cx_gateway_quota_key: SecretStr | None = Field(None, alias="CX_GATEWAY_QUOTA_KEY")
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")

@@ -337,6 +337,16 @@ def _migration_0017_news_and_social(engine: Engine) -> None:
                     conn.execute(text(f"ALTER TABLE content_posts ADD COLUMN {name} {ddl}"))
 
 
+def _migration_0018_identity(engine: Engine) -> None:
+    """Organisations, memberships, scoped API keys and the hash-chained audit log."""
+    from ..orgs.models import IDENTITY_TABLES
+
+    existing = set(inspect(engine).get_table_names())
+    for table in IDENTITY_TABLES:
+        if table.name not in existing:
+            table.create(engine, checkfirst=True)
+
+
 MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0001", "initial_schema", _migration_0001_initial_schema),
     ("0002", "explicit_memories_expires_at", _migration_0002_explicit_memories_expires_at),
@@ -355,6 +365,7 @@ MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0015", "reminder_place_call", _migration_0015_reminder_place_call),
     ("0016", "productivity_tables", _migration_0016_productivity_tables),
     ("0017", "news_and_social", _migration_0017_news_and_social),
+    ("0018", "identity", _migration_0018_identity),
 ]
 
 
