@@ -34,6 +34,10 @@ class ToolRegistry:
         self._tools[tool_def.name] = tool_def
         self._handlers[tool_def.name] = handler
     
+    def unregister(self, name: str) -> None:
+        self._tools.pop(name, None)
+        self._handlers.pop(name, None)
+
     def get_tool(self, name: str) -> ToolDefinition | None:
         return self._tools.get(name)
         

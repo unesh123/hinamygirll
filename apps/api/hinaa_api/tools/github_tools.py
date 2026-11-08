@@ -47,7 +47,7 @@ class _GithubClient:
         }
 
     def _repo(self, repo: str | None) -> str:
-        resolved = repo or get_settings().github_default_repo
+        resolved = repo or _implicit_repo()
         if not resolved or not _REPO_RE.match(resolved):
             raise HinaaError(
                 "GITHUB_REPO_INVALID",
@@ -82,6 +82,54 @@ class _GithubClient:
 
     async def put_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         return await self._request("PUT", path, json=body)
+
+
+def _active_repos() -> list[str]:
+    try:
+        from ..integrations_hub.github_repos import get_active_repos
+
+        return get_active_repos()
+    except Exception:
+        return []
+
+
+def _implicit_repo() -> str | None:
+    """Repo to use when the model named none: the one selected repo, else the default.
+
+    With several selected repos and no default, guessing would act on the wrong
+    one, so the error names the choices instead.
+    """
+    active = _active_repos()
+    if len(active) == 1:
+        return active[0]
+    default = get_settings().github_default_repo
+    if default:
+        return default
+    if len(active) > 1:
+        raise HinaaError(
+            "GITHUB_REPO_AMBIGUOUS",
+            "Several repositories are active; pass repo as one of: " + ", ".join(active),
+            400,
+            True,
+        )
+    return None
+
+
+def repo_param_description() -> str:
+    active = _active_repos()
+    if len(active) == 1:
+        return f"Repository as 'owner/name'. Defaults to the selected repo {active[0]}."
+    if active:
+        return "Repository as 'owner/name'. Choose one of the selected repos: " + ", ".join(active)
+    return "Repository as 'owner/name'. Falls back to the configured default repo."
+
+
+def refresh_repo_hints() -> None:
+    """Point every GitHub tool's `repo` parameter at the current selection."""
+    description = repo_param_description()
+    for tool in registry.get_all_tools():
+        if tool.name.startswith("github_") and "repo" in tool.parameters:
+            tool.parameters = {**tool.parameters, "repo": {"type": "string", "description": description}}
 
 
 def _safe_api_error(response: httpx.Response) -> str:

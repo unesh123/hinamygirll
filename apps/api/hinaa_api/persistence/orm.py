@@ -717,6 +717,8 @@ class Reminder(Base):
     at: Mapped[datetime] = mapped_column(DateTime(), index=True)
     timezone_name: Mapped[str] = mapped_column(String(64), default="")
     status: Mapped[str] = mapped_column(String(20), default="scheduled")  # scheduled, fired, cancelled, missed
+    # Nullable so rows written before the column existed read as "no call".
+    place_call: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

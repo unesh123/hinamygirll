@@ -159,6 +159,16 @@ def local_effects_permitted(settings: "Settings", host_header: str | None) -> bo
 def decide(tool_name: str, settings: "Settings", host_header: str | None) -> Verdict:
     """Gate a tool on its real effect, before any caller-supplied approval is read."""
     from ..integrations.remote_pc import remote_tool_allowed
+    if tool_name.startswith("mcp__") and not local_effects_permitted(settings, host_header):
+        from ..integrations_hub.mcp_agent_tools import is_stdio_tool
+
+        if is_stdio_tool(tool_name):
+            return Verdict(
+                False,
+                "LOCAL_TOOL_NOT_PERMITTED",
+                f"{tool_name} runs a command on the computer hosting HINAA, so it is limited to "
+                "requests made on that machine.",
+            )
     if tool_name in LOCAL_EFFECT_TOOLS and remote_tool_allowed(tool_name):
         return Verdict(True)
     if tool_name in LOCAL_EFFECT_TOOLS and not local_effects_permitted(settings, host_header):

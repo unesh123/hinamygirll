@@ -486,6 +486,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if step.operation_type == OperationType.TOOL:
             if not step.tool_name:
                 raise HinaaError("TOOL_UNAVAILABLE", "Tool name required for tool step", 400)
+            from .tools.dynamic_tools import sync_dynamic_tools
+            sync_dynamic_tools()
             tool_def = registry.get_tool(step.tool_name)
             if not tool_def:
                 raise HinaaError("TOOL_UNAVAILABLE", f"Tool {step.tool_name} not found", 404)
@@ -4345,6 +4347,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/v1/tools")
     @app.get("/api/v1/tools")
     async def list_tools() -> list[dict[str, Any]]:
+        from .tools.dynamic_tools import sync_dynamic_tools
+        sync_dynamic_tools()
         tools = registry.get_all_tools()
         return [
             {
@@ -4364,6 +4368,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/v1/tools/execute")
     @app.post("/api/v1/tools/execute")
     async def execute_tool(request: Request, body: ToolRequest) -> dict[str, Any]:
+        from .tools.dynamic_tools import sync_dynamic_tools
+        sync_dynamic_tools()
         tool_def = registry.get_tool(body.toolName)
         if not tool_def:
             raise HTTPException(status_code=404, detail="Tool not found")
@@ -4430,7 +4436,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         handler = registry._handlers.get(body.toolName)
         if not handler:
             raise HTTPException(status_code=500, detail="Tool handler not registered")
-            
+
+        from .integrations_hub import mcp_agent_tools
+        _mcp_token = mcp_agent_tools.set_user_approved(bool(is_user_approved))
         try:
             import inspect
             from typing import get_type_hints
@@ -4572,6 +4580,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 True,
                 False,
             ) from None
+        finally:
+            mcp_agent_tools.reset_user_approved(_mcp_token)
 
     @app.post("/v1/terminal/execute")
     @app.post("/api/v1/terminal/execute")

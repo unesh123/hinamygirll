@@ -292,6 +292,17 @@ def _migration_0014_reminders(engine: Engine) -> None:
         logger.info("Applied migration: created table reminders")
 
 
+def _migration_0015_reminder_place_call(engine: Engine) -> None:
+    """Adds the nullable place_call flag to reminders created before proactive calls."""
+    inspector = inspect(engine)
+    if "reminders" in set(inspector.get_table_names()):
+        cols = [c["name"] for c in inspector.get_columns("reminders")]
+        if "place_call" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE reminders ADD COLUMN place_call BOOLEAN"))
+            logger.info("Applied migration: added place_call to reminders")
+
+
 MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0001", "initial_schema", _migration_0001_initial_schema),
     ("0002", "explicit_memories_expires_at", _migration_0002_explicit_memories_expires_at),
@@ -307,6 +318,7 @@ MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0012", "selected_asset_state", _migration_0012_selected_asset_state),
     ("0013", "conversation_episodes", _migration_0013_conversation_episodes),
     ("0014", "reminders", _migration_0014_reminders),
+    ("0015", "reminder_place_call", _migration_0015_reminder_place_call),
 ]
 
 

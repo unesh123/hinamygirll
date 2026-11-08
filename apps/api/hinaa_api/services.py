@@ -3342,6 +3342,24 @@ class ConversationService:
         gate_intent,
         history: list[tuple[str, str]] | None = None,
     ) -> tuple[str, ...]:
+        """Built-in whitelist plus the enabled MCP servers' cached tools."""
+        base = self._builtin_turn_tool_whitelist(text, gate_intent, history=history)
+        try:
+            from .integrations_hub.mcp_agent_tools import names_for_turn
+            from .tools.dynamic_tools import sync_dynamic_tools
+
+            sync_dynamic_tools()
+            extra = names_for_turn(text, always=bool(base))
+        except Exception:
+            return base
+        return tuple(dict.fromkeys((*base, *extra)))
+
+    def _builtin_turn_tool_whitelist(
+        self,
+        text: str,
+        gate_intent,
+        history: list[tuple[str, str]] | None = None,
+    ) -> tuple[str, ...]:
         """The tools his own words earned for this turn, decided before any brain speaks.
 
         Both the prompt and the executed plan are cut from this one set. When the
