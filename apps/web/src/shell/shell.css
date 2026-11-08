@@ -87,6 +87,11 @@
   .shell-bar { gap: var(--ds-space-2); }
   .shell-bar__nav { display: none; }
   .shell-bar__hide-sm { display: none; }
+  .shell-bar__tools { flex: none; }
+}
+@media (max-width: 480px) {
+  .shell-mode__label { display: none; }
+  .shell-mode__opt { padding: 6px 10px; }
 }
 
 /* Productivity page */
