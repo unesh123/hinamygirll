@@ -796,6 +796,13 @@ class Settings(BaseSettings):
     cx_gateway_quota_key: SecretStr | None = Field(None, alias="CX_GATEWAY_QUOTA_KEY")
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
     reminder_scheduler_enabled: bool = Field(True, alias="HINAA_REMINDER_SCHEDULER_ENABLED")
+    news_scheduler_enabled: bool = Field(True, alias="HINAA_NEWS_SCHEDULER_ENABLED")
+    news_tick_seconds: float = Field(300.0, gt=0, le=3600, alias="HINAA_NEWS_TICK_SECONDS")
+    google_oauth_client_id: str | None = Field(None, alias="GOOGLE_OAUTH_CLIENT_ID")
+    google_oauth_client_secret: SecretStr | None = Field(None, alias="GOOGLE_OAUTH_CLIENT_SECRET")
+    google_oauth_redirect_uri: str | None = Field(None, alias="GOOGLE_OAUTH_REDIRECT_URI")
+    social_token_key: SecretStr | None = Field(None, alias="HINAA_SOCIAL_TOKEN_KEY")
+    social_media_root: str | None = Field(None, alias="HINAA_SOCIAL_MEDIA_ROOT")
     productivity_currency: str = Field("NPR", min_length=3, max_length=3, alias="HINAA_PRODUCTIVITY_CURRENCY")
     reminder_tick_seconds: float = Field(20.0, gt=0, le=600, alias="HINAA_REMINDER_TICK_SECONDS")
     # Catch-up after downtime is a feature; announcing yesterday's appointment

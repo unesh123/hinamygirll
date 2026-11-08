@@ -18,6 +18,8 @@ from . import github_tools
 from . import github_mcp_tool
 from . import reminder
 from . import productivity
+from . import news
+from . import social
 from . import phone_call
 from . import terminal_hands
 from . import browser_cloud

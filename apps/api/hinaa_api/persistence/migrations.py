@@ -314,6 +314,29 @@ def _migration_0016_productivity_tables(engine: Engine) -> None:
             logger.info("Applied migration: created table %s", table.name)
 
 
+def _migration_0017_news_and_social(engine: Engine) -> None:
+    """News watchlists/digests, encrypted social tokens, publish log, content-post media columns."""
+    from .orm import NewsDigest, NewsWatchlist, SocialPublishLog, SocialToken
+
+    existing = set(inspect(engine).get_table_names())
+    for table in (NewsWatchlist.__table__, NewsDigest.__table__, SocialToken.__table__, SocialPublishLog.__table__):
+        if table.name not in existing:
+            table.create(engine, checkfirst=True)
+            logger.info("Applied migration: created table %s", table.name)
+    inspector = inspect(engine)
+    if "content_posts" in set(inspector.get_table_names()):
+        cols = {c["name"] for c in inspector.get_columns("content_posts")}
+        for name, ddl in (
+            ("media_path", "VARCHAR(500)"),
+            ("publish_privacy", "VARCHAR(20)"),
+            ("external_id", "VARCHAR(100)"),
+            ("external_url", "VARCHAR(300)"),
+        ):
+            if name not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE content_posts ADD COLUMN {name} {ddl}"))
+
+
 MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0001", "initial_schema", _migration_0001_initial_schema),
     ("0002", "explicit_memories_expires_at", _migration_0002_explicit_memories_expires_at),
@@ -331,6 +354,7 @@ MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0014", "reminders", _migration_0014_reminders),
     ("0015", "reminder_place_call", _migration_0015_reminder_place_call),
     ("0016", "productivity_tables", _migration_0016_productivity_tables),
+    ("0017", "news_and_social", _migration_0017_news_and_social),
 ]
 
 
