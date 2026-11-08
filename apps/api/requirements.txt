@@ -10,6 +10,8 @@ httpx==0.28.1
 websockets>=13,<16
 SQLAlchemy==2.0.43
 alembic==1.16.5
+psycopg[binary]==3.3.8
+psycopg-pool==3.3.3
 anthropic==0.84.0
 clerk-backend-api==7.0.0
 reportlab==4.4.5
