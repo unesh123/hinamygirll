@@ -551,6 +551,7 @@ class Settings(BaseSettings):
     telephony_allowed_numbers: str = Field("", alias="HINAA_TELEPHONY_ALLOWED_NUMBERS")
     telephony_max_calls_per_hour: int = Field(5, ge=0, le=1000, alias="HINAA_TELEPHONY_MAX_CALLS_PER_HOUR")
     telephony_max_call_turns: int = Field(40, ge=1, le=500, alias="HINAA_TELEPHONY_MAX_CALL_TURNS")
+    telephony_proactive: bool = Field(False, alias="HINAA_TELEPHONY_PROACTIVE")
     telephony_user_id: str = Field("", alias="HINAA_TELEPHONY_USER_ID")
     telephony_speech_language: str = Field("en-US", alias="HINAA_TELEPHONY_SPEECH_LANGUAGE")
     telephony_say_voice: str = Field("Polly.Joanna", alias="HINAA_TELEPHONY_SAY_VOICE")

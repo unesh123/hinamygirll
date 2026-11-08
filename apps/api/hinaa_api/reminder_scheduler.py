@@ -14,11 +14,12 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy import select
 
 from .config import Settings, get_settings
+from .errors import HinaaError
 from .persistence.db import get_session_factory
 from .persistence.orm import Conversation, Message, Reminder
 from .tools.reminder import display_time
@@ -78,7 +79,9 @@ def fire_due(*, settings: Optional[Settings] = None, now: Optional[datetime] = N
                     )
                 )
                 delivered = True
-            fired.append({**outcome, "status": "fired", "delivered": delivered})
+            fired.append(
+                {**outcome, "status": "fired", "delivered": delivered, "call": bool(row.place_call)}
+            )
         session.commit()
 
     if fired:
@@ -90,6 +93,44 @@ def fire_due(*, settings: Optional[Settings] = None, now: Optional[datetime] = N
             sum(1 for item in fired if item["status"] == "missed"),
         )
     return fired
+
+
+async def place_due_calls(
+    fired: list[dict[str, Any]],
+    *,
+    settings: Settings,
+    caller: Optional[Callable[..., Awaitable[dict[str, Any]]]] = None,
+) -> list[dict[str, Any]]:
+    """Phone for each fired reminder flagged ``call``, when proactive calls are on.
+
+    Opt-in, never when telephony is unconfigured, and placement goes through
+    ``place_outbound_call`` so the allow-list and hourly cap still decide. A
+    refused or failed call is logged and never raises into the scheduler.
+    """
+    wanted = [item for item in fired if item.get("status") == "fired" and item.get("call")]
+    if not wanted or not settings.telephony_proactive:
+        return []
+    from .telephony import twilio
+
+    if twilio.missing_settings(settings):
+        logger.info("Proactive reminder call skipped: telephony is not configured")
+        return []
+    if caller is None:
+        from .telephony.calls import place_outbound_call as caller
+
+    results: list[dict[str, Any]] = []
+    for item in wanted:
+        try:
+            placed = await caller(settings, reason=f"Reminder: {item['title']}")
+            logger.info("Reminder %s call placed (%s)", item["id"], placed.get("status"))
+            results.append({"id": item["id"], "called": True})
+        except HinaaError as error:
+            logger.warning("Reminder %s call not placed: %s", item["id"], error.code)
+            results.append({"id": item["id"], "called": False, "code": error.code})
+        except Exception:
+            logger.warning("Reminder %s call failed", item["id"], exc_info=True)
+            results.append({"id": item["id"], "called": False, "code": "CALL_FAILED"})
+    return results
 
 
 async def run_scheduler(
@@ -105,7 +146,7 @@ async def run_scheduler(
     """
     while not stop.is_set():
         try:
-            fire_due(settings=settings)
+            await place_due_calls(fire_due(settings=settings), settings=settings)
         except Exception:
             logger.warning("Reminder scheduler tick failed; retrying next tick", exc_info=True)
         try:

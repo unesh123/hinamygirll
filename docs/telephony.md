@@ -32,6 +32,10 @@ Calling Hina's Twilio number follows the same loop; only numbers on the allow-li
 
 `GET /v1/telephony/status` reports `configured` and which variables are missing.
 
+## Proactive calls (opt-in)
+
+Set `HINAA_TELEPHONY_PROACTIVE=true` to let a due reminder ring you. Only reminders created with `call: true` (the `reminder.create` tool takes a `call` flag; Hina sets it only when you ask to be phoned) place a call, with the reminder text as the opening reason. Calls go through the same path as `phone_call_user`, so the allow-list and hourly cap still apply, nothing is attempted when telephony is not configured, and each outcome is logged by the `hinaa.reminders` logger. Missed reminders (older than the grace window) never call. Default is off.
+
 ## Security
 
 - Every webhook validates `X-Twilio-Signature` (HMAC-SHA1 over public URL + sorted POST params); bad or missing signature returns 403. Only `/voice`, `/gather`, `/status-callback` and `/audio/<token>` skip user auth. Audio uses a 192-bit random token that expires in 10 minutes.

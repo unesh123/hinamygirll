@@ -35,6 +35,7 @@ class ReminderCreateParams(BaseModel):
     at: str
     userId: Optional[str] = None
     conversationId: Optional[str] = None
+    call: bool = False
 
 
 def parse_at(value: Any) -> datetime:
@@ -81,6 +82,7 @@ def as_public(row: Reminder, *, now: datetime | None = None) -> dict[str, Any]:
         "timezone": row.timezone_name,
         "display": display_time(row.at, now=now),
         "status": row.status,
+        "call": bool(row.place_call),
         "conversationId": row.conversation_id,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
     }
@@ -98,6 +100,7 @@ def schedule_reminder(
     title: str,
     at: Any,
     conversation_id: str | None = None,
+    call: bool = False,
     settings: Optional[Settings] = None,
 ) -> dict[str, Any]:
     """Persist one reminder. A database that refuses to store it raises, because
@@ -116,6 +119,7 @@ def schedule_reminder(
         at=moment,
         timezone_name=LOCAL_ZONE_NAME,
         status="scheduled",
+        place_call=bool(call),
     )
     try:
         with _factory(settings)() as session:
@@ -188,6 +192,7 @@ async def handle_create(params: ReminderCreateParams) -> dict[str, Any]:
         title=params.title,
         at=params.at,
         conversation_id=params.conversationId,
+        call=params.call,
     )
     result["status"] = "success"
     return result
@@ -200,6 +205,10 @@ reminder_create_def = ToolDefinition(
     parameters={
         "title": {"type": "string", "description": "What to remind him about, in his own words."},
         "at": {"type": "string", "description": "ISO local time to fire, e.g. 2026-09-24T16:00."},
+        "call": {
+            "type": "boolean",
+            "description": "Phone him when it is due (only works when proactive calls are enabled). Use only if he asked to be called.",
+        },
     },
     required_parameters=["title", "at"],
     # The standing-consent allowlist in /v1/tools/execute does not name this
