@@ -20,7 +20,7 @@ import { useCapabilities } from "../../features/providers/hooks/useCapabilities"
 import { DynamicIslandCompanion, type DynamicIslandCompanionProps } from "./DynamicIslandCompanion";
 import { VOICE_ENGINES } from "./ModelControlBar";
 
-export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault" | "models";
+export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault" | "models" | "companion";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
 
 export interface TopBarV6Props {
@@ -181,7 +181,8 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
               chat: "Chat",
               work: "Chat",
               talk: "Talk",
-              showroom: "Runway 3D",
+              showroom: "Runway 3D",
+              companion: "Companion",
               operate: "Dashboard",
               dashboard: "Dashboard",
               models: "Models",

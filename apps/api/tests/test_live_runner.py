@@ -102,3 +102,19 @@ def test_desktop_probe_sends_token_and_requires_ready_status(tmp_path, monkeypat
     monkeypatch.setattr(runner.urllib.request, "urlopen", open_request)
     assert runner.desktop_probe() is True
     assert seen == {"authorization": "Bearer " + token, "timeout": 2}
+
+
+def test_republishes_after_repeated_public_failures_with_healthy_tunnel():
+    failures: dict[str, int] = {}
+    results = [runner.should_republish(failures, True, True, False) for _ in range(runner.PUBLIC_FAILURE_THRESHOLD)]
+    assert results == [False] * (runner.PUBLIC_FAILURE_THRESHOLD - 1) + [True]
+    assert failures["public"] == 0
+
+
+def test_no_republish_when_public_is_healthy_or_tunnel_is_down():
+    failures = {"public": 2}
+    assert runner.should_republish(failures, True, True, True) is False
+    assert failures["public"] == 0
+    for _ in range(5):
+        assert runner.should_republish(failures, False, True, False) is False
+        assert runner.should_republish(failures, True, False, False) is False

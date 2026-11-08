@@ -25,7 +25,7 @@ describe("Integrations hub", () => {
         { service_id: "github", display_name: "GitHub", category: "developer", connected: true, status_text: "Token set", capabilities: ["pr"] },
         { service_id: "notion", display_name: "Notion", category: "docs", connected: false, status_text: "No key", capabilities: [] },
       ] } },
-      "/v1/skills": { body: { skills: [
+      "/api/skills": { body: { skills: [
         { id: "s1", name: "Summarize PDF", description: "Digest long documents", category: "docs" },
         { id: "s2", name: "Deploy site", description: "Ship to Vercel", category: "dev" },
       ] } },
@@ -78,7 +78,7 @@ describe("Integrations hub", () => {
   });
 
   it("shows an empty state when the endpoint returns nothing", async () => {
-    mockApi({ "/v1/integrations": { body: { integrations: [] } }, "/v1/skills": { body: [] } });
+    mockApi({ "/v1/integrations": { body: { integrations: [] } }, "/api/skills": { body: [] } });
     render(<IntegrationsPage />);
     expect(await screen.findByText("No connectors yet.")).toBeInTheDocument();
     expect(await screen.findByText("No skills yet.")).toBeInTheDocument();

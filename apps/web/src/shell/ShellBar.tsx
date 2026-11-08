@@ -20,12 +20,13 @@ export function ModeSwitch() {
           type="button"
           role="radio"
           aria-checked={mode === id}
+          aria-label={label}
           className="shell-mode__opt ds-focusable"
           data-active={mode === id}
           onClick={() => { shell.setMode(id); navigate(MODE_PATHS[id]); }}
         >
           <Icon size={14} aria-hidden="true" />
-          <span>{label}</span>
+          <span className="shell-mode__label">{label}</span>
         </button>
       ))}
     </div>
@@ -50,7 +51,7 @@ export function ShellBar() {
       </nav>
       <div className="shell-bar__tools">
         <Button variant="secondary" onClick={() => shell.setPalette(true)} aria-label="Open command palette" aria-keyshortcuts="Control+K Meta+K">
-          <Search size={14} aria-hidden="true" /> <span className="shell-bar__hide-sm">Search</span> <Kbd>Ctrl K</Kbd>
+          <Search size={14} aria-hidden="true" /> <span className="shell-bar__hide-sm">Search</span> <Kbd className="shell-bar__hide-sm">Ctrl K</Kbd>
         </Button>
         {mode === "workspace" && (
           <Button variant="ghost" icon aria-label="Toggle inspector" aria-pressed={inspectorOpen} onClick={() => shell.setInspector(!inspectorOpen)}>

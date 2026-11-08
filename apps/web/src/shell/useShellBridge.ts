@@ -33,8 +33,8 @@ export function useShellBridge({ sakuraView, setSakuraView, theme, setTheme, age
   // shell mode → host view
   useEffect(() => {
     if (!hosted) return;
-    if (mode === "companion") set("showroom");
-    else if (viewRef.current === "showroom") set("work");
+    if (mode === "companion") set("companion");
+    else if (viewRef.current === "companion") set("work");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, hosted]);
 
@@ -44,8 +44,8 @@ export function useShellBridge({ sakuraView, setSakuraView, theme, setTheme, age
     if (prevView.current === sakuraView) return;
     prevView.current = sakuraView;
     if (!hosted) return;
-    if (sakuraView === "showroom") shell.setMode("companion");
-    else if (sakuraView === "work") shell.setMode("workspace");
+    if (sakuraView === "companion") shell.setMode("companion");
+    else if (sakuraView === "work" || sakuraView === "showroom") shell.setMode("workspace");
   }, [sakuraView, hosted]);
 
   // theme: shell → settings, settings → shell

@@ -30,6 +30,19 @@
   --ds-orb-core: #e6fdff;
   --ds-orb-mid: #22d3ee;
   --ds-orb-edge: #0e7490;
+  /* Companion stage: layered dusk sky, glass, bokeh */
+  --ds-cs-sky-top: #0b1030;
+  --ds-cs-sky-mid: #2a1747;
+  --ds-cs-sky-low: #6b2d5c;
+  --ds-cs-sky-horizon: #f0a1a8;
+  --ds-cs-bokeh-a: rgb(244 114 182 / 0.55);
+  --ds-cs-bokeh-b: rgb(103 232 249 / 0.4);
+  --ds-cs-bokeh-c: rgb(253 224 171 / 0.45);
+  --ds-cs-glass: rgb(10 14 32 / 0.5);
+  --ds-cs-glass-strong: rgb(10 14 32 / 0.72);
+  --ds-cs-glass-border: rgb(255 255 255 / 0.16);
+  --ds-cs-text: #fdf6ff;
+  --ds-cs-text-soft: rgb(253 246 255 / 0.74);
   color-scheme: dark;
 }
 
@@ -58,6 +71,18 @@
   --ds-orb-core: #ffffff;
   --ds-orb-mid: #22b8d6;
   --ds-orb-edge: #0e7490;
+  --ds-cs-sky-top: #a9b9ee;
+  --ds-cs-sky-mid: #e3c3ec;
+  --ds-cs-sky-low: #f7c9d3;
+  --ds-cs-sky-horizon: #fde6c9;
+  --ds-cs-bokeh-a: rgb(244 114 182 / 0.4);
+  --ds-cs-bokeh-b: rgb(125 211 252 / 0.45);
+  --ds-cs-bokeh-c: rgb(255 237 190 / 0.6);
+  --ds-cs-glass: rgb(255 255 255 / 0.5);
+  --ds-cs-glass-strong: rgb(255 255 255 / 0.76);
+  --ds-cs-glass-border: rgb(255 255 255 / 0.7);
+  --ds-cs-text: #2a1740;
+  --ds-cs-text-soft: rgb(42 23 64 / 0.72);
   color-scheme: light;
 }
 

@@ -25,6 +25,7 @@ import { DEFAULT_POWER_UPS, type PowerUpId } from "./design-system/chat/ChatComp
 import type { AttachmentRole } from "./design-system/chat/ComposerV6";
 import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
 import { ShowroomMode } from "./design-system/modes/ShowroomMode";
+import { CompanionStage } from "./design-system/modes/CompanionStage";
 import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
@@ -1348,6 +1349,7 @@ export default function App() {
       "open-image-studio": openImageStudio,
       "open-models": () => setSakuraView("models"),
       "open-operate": () => setSakuraView("operate"),
+      "open-showroom": () => setSakuraView("showroom"),
       "toggle-vision": () => vision.setConsent(!vision.consent),
     },
   });
@@ -1619,6 +1621,32 @@ export default function App() {
 
             {sakuraView === "operate" && (
               <OperateMode key={operateTab} initialTab={operateTab} />
+            )}
+
+            {sakuraView === "companion" && (
+              <CompanionStage
+                avatarModel={avatarModel}
+                avatarPresentation={avatarPresentation}
+                companionName={companionProfiles[controller.companionId]?.name || "Hina"}
+                companionState={liveCompanionState}
+                plan={controller.activePlan}
+                messages={controller.messages}
+                streamingText={controller.streamingText}
+                partialTranscript={controller.partialTranscript}
+                jawEnergy={playback.jawEnergy}
+                speakingRef={playback.playingRef}
+                visemeEvents={playback.visemeEvents}
+                audioStartTimeRef={playback.audioStartTimeRef}
+                isVoiceActive={live.active}
+                microphoneLevel={live.microphoneLevel}
+                visionEnabled={vision.consent}
+                onStartVoice={() => { interruptPlayback(); live.start(); }}
+                onStopVoice={() => live.stop()}
+                onToggleVision={() => vision.setConsent(!vision.consent)}
+                onOpenMemory={() => setMemoryOpen(true)}
+                onOpenWorkspace={() => setSakuraView("work")}
+                onSendText={(text: string) => submit(undefined, text)}
+              />
             )}
 
             {sakuraView === "showroom" && (

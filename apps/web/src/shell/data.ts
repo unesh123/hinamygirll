@@ -85,7 +85,7 @@ export function useConnectors() {
   return { ...res, status: primary.status === "missing" && fallback.status === "loading" && fallback.data === null ? ("loading" as ApiStatus) : res.status, reload };
 }
 
-export const useSkills = () => useMapped(useApiJson<unknown>("/v1/skills"), ["skills", "items"], normalizeSkill);
+export const useSkills = () => useMapped(useApiJson<unknown>("/api/skills"), ["skills", "items"], normalizeSkill);
 export const useMcpServers = () => useMapped(useApiJson<unknown>("/v1/mcp/servers"), ["servers", "items"], normalizeMcpServer);
 export const useTools = () =>
   useMapped(useApiJson<unknown>("/v1/tools"), ["tools", "items"], (raw): ToolInfo => ({

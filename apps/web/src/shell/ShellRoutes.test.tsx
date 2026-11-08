@@ -37,14 +37,15 @@ describe("shell router", () => {
     shell.reset();
     renderAt("/");
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/companion"));
-    expect(await screen.findByTestId("companion-hud")).toBeInTheDocument();
+    expect(await screen.findByTestId("legacy-app")).toBeInTheDocument();
+    expect(getShellState().mode).toBe("companion");
   });
 
   it("hosts the legacy app on /workspace and syncs the mode from the URL", async () => {
     renderAt("/workspace");
     expect(await screen.findByTestId("legacy-app")).toBeInTheDocument();
     expect(getShellState().mode).toBe("workspace");
-    expect(screen.queryByTestId("companion-hud")).not.toBeInTheDocument();
+
   });
 
   it("lazy-loads page routes", async () => {
@@ -60,7 +61,8 @@ describe("shell router", () => {
     expect(screen.getByTestId("where")).toHaveTextContent("/companion");
     expect(localStorage.getItem(MODE_STORAGE_KEY)).toBe("companion");
     expect(screen.getByTestId("legacy-app")).toBe(host);
-    expect(await screen.findByTestId("companion-hud")).toBeInTheDocument();
+    expect(await screen.findByTestId("legacy-app")).toBeInTheDocument();
+    expect(getShellState().mode).toBe("companion");
   });
 
   it("toggles the mode with Ctrl+.", async () => {

@@ -143,6 +143,21 @@ def tunnel_origin(path: Path) -> str | None:
         return None
 
 
+PUBLIC_FAILURE_THRESHOLD = 3
+
+
+def should_republish(failures: dict[str, int], tunnel_ok: bool, published: bool, public_ok: bool) -> bool:
+    """True after repeated public failures while our tunnel is healthy and already published."""
+    if not (tunnel_ok and published) or public_ok:
+        failures["public"] = 0
+        return False
+    failures["public"] = failures.get("public", 0) + 1
+    if failures["public"] >= PUBLIC_FAILURE_THRESHOLD:
+        failures["public"] = 0
+        return True
+    return False
+
+
 def repoint(origin: str) -> None:
     for path in (ROOT / "vercel.json", WEB / "vercel.json", ROOT / ".vercel/output/config.json"):
         if path.exists():
@@ -349,6 +364,10 @@ class Runner:
                 deploy_error = "Deployment failed; inspect .runtime/live/deploy.log"
                 self.publish_retry = time.monotonic() + 120
         public_ok = bool(self.published and probe("https://hinaa-workspace.vercel.app/health/live", api=True))
+        if self.deploy and should_republish(self.failures, tunnel_ok, bool(self.published), public_ok):
+            # Production was replaced (e.g. a Git deploy of main with a stale tunnel); publish again.
+            print("Public site lost its backend route; republishing to the healthy tunnel.", flush=True)
+            self.published = None
         self.write_state(api_ok, web_ok, tunnel_ok, "online" if public_ok else "starting" if self.public else "local", deploy_error)
 
     def write_state(self, api_ok, web_ok, tunnel_ok, status, error):
