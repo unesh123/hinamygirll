@@ -25,6 +25,7 @@ from typing import Any, Literal
 import httpx
 
 from ..config import Settings
+from ..ops import genai
 from .anthropic_direct import AnthropicDirectProvider
 from .blocks import extract_text_from_canonical_blocks, normalize_anthropic_block
 from .fabric import ModelRouter, TaskType
@@ -249,6 +250,15 @@ class ClaudeBrain:
         return payload
 
     async def run(
+        self, messages: list[dict[str, Any]], *, route: ClaudeRoute, **kwargs: Any
+    ) -> ClaudeBrainResult:
+        """Traced entry point: one ``invoke_agent`` span per turn."""
+        with genai.agent_turn(
+            agent_name="hina", provider=genai.PROVIDER_ANTHROPIC, model=route.model
+        ):
+            return await self._run(messages, route=route, **kwargs)
+
+    async def _run(
         self,
         messages: list[dict[str, Any]],
         *,
@@ -315,16 +325,19 @@ class ClaudeBrain:
             name = str(use.get("name", ""))
             params = use.get("input") if isinstance(use.get("input"), dict) else {}
             status: Literal["ok", "error", "pending_confirmation"] = "ok"
-            try:
-                outcome = await executor(name, dict(params))
-                if isinstance(outcome, dict):
-                    if outcome.get("status") == PENDING_CONFIRMATION:
-                        status = PENDING_CONFIRMATION
-                    elif outcome.get("error"):
-                        status = "error"
-            except Exception as exc:  # a tool failure is data for the model, not a crash
-                logger.warning("tool %s failed: %s", name, type(exc).__name__)
-                outcome, status = {"error": f"{name} failed: {exc}"}, "error"
+            with genai.tool_call(name=name, call_id=use.get("id"), arguments=params) as tcall:
+                try:
+                    outcome = await executor(name, dict(params))
+                    if isinstance(outcome, dict):
+                        if outcome.get("status") == PENDING_CONFIRMATION:
+                            status = PENDING_CONFIRMATION
+                        elif outcome.get("error"):
+                            status = "error"
+                except Exception as exc:  # a tool failure is data for the model, not a crash
+                    logger.warning("tool %s failed: %s", name, type(exc).__name__)
+                    outcome, status = {"error": f"{name} failed: {exc}"}, "error"
+                tcall.set_outcome(status)
+                tcall.set_result(outcome)
             result.tool_events.append(ToolEvent(name, str(use.get("id")), status, dict(params)))
             block: dict[str, Any] = {
                 "type": "tool_result",

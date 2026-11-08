@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env.local"
@@ -660,6 +660,8 @@ class Settings(BaseSettings):
     rate_limit_expensive_per_minute: int = Field(30, ge=0, alias="HINAA_RATE_LIMIT_EXPENSIVE_PER_MINUTE")
     trust_proxy: bool = Field(False, alias="HINAA_TRUST_PROXY")
     otel_enabled: bool = Field(False, alias="HINAA_OTEL_ENABLED")
+    otel_sampler_ratio: float = Field(1.0, ge=0.0, le=1.0, alias="HINAA_OTEL_SAMPLER_RATIO")
+    otel_capture_content: bool = Field(False, alias="HINAA_OTEL_CAPTURE_CONTENT")
     sentry_dsn: SecretStr | None = Field(None, alias="SENTRY_DSN")
     max_audio_bytes: int = 4 * 1024 * 1024
     max_audio_seconds: float = 20.0
@@ -931,6 +933,13 @@ class Settings(BaseSettings):
     @classmethod
     def blank_is_unset(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("otel_enabled", "otel_sampler_ratio", "otel_capture_content", mode="before")
+    @classmethod
+    def blank_otel_uses_default(cls, value: object, info: ValidationInfo) -> object:
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[info.field_name].default  # type: ignore[index]
+        return value
 
     @property
     def rate_limit_active(self) -> bool:
