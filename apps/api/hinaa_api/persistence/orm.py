@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 from sqlalchemy import (
     BigInteger,
+    Date,
     Boolean,
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -744,6 +747,62 @@ class PhoneCall(Base):
     reason: Mapped[str] = mapped_column(Text(), default="")
     transcript_json: Mapped[str] = mapped_column(Text(), default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ContentPost(Base):
+    """One slot in the weekly social-media calendar.
+
+    `scheduled_for` is a wall-clock time like `Reminder.at`; an idea may have none yet.
+    """
+
+    __tablename__ = "content_posts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    platform: Mapped[str] = mapped_column(String(20), default="other")
+    title: Mapped[str] = mapped_column(String(200))
+    caption: Mapped[str] = mapped_column(Text(), default="")
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(), index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="idea")
+    tags: Mapped[str] = mapped_column(Text(), default="")  # comma separated
+    notes: Mapped[str] = mapped_column(Text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SalesRecord(Base):
+    __tablename__ = "sales_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    occurred_on: Mapped[date] = mapped_column(Date(), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="NPR")
+    source: Mapped[str] = mapped_column(String(80), default="")
+    customer: Mapped[str] = mapped_column(String(120), default="")
+    product: Mapped[str] = mapped_column(String(120), default="")
+    notes: Mapped[str] = mapped_column(Text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(20), default="planning")
+    priority: Mapped[str] = mapped_column(String(10), default="medium")  # low, medium, high
+    due_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    next_action: Mapped[str] = mapped_column(Text(), default="")
+    notes: Mapped[str] = mapped_column(Text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

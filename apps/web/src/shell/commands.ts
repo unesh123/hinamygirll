@@ -15,6 +15,7 @@ export const PAGE_ROUTES = [
   { path: "/security", label: "Security", keywords: "permissions audit approvals posture" },
   { path: "/integrations", label: "Integrations", keywords: "connectors skills mcp tools" },
   { path: "/memory", label: "Memory", keywords: "real memory about preferences projects" },
+  { path: "/productivity", label: "Productivity", keywords: "content calendar posts sales projects tasks revenue" },
 ] as const;
 
 /** Whether the legacy conversation host is on screen (workspace/companion routes). */

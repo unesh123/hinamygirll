@@ -1057,6 +1057,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .security.pdp import get_pdp
     app.include_router(security_router)
     app.state.pdp = get_pdp()
+    from .productivity.router import build_productivity_router
+    for _prod_prefix in ("/v1/productivity", "/api/v1/productivity"):
+        app.include_router(build_productivity_router(active_settings, conversation_auth), prefix=_prod_prefix)
     from .telephony.router import build_telephony_router
     app.include_router(build_telephony_router(active_settings, service, memory_service, conversation_auth))
     app.state.settings = active_settings
