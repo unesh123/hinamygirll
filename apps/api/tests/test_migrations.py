@@ -26,7 +26,7 @@ def test_migrations_fresh_database():
     assert applied == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017"]
 
     status = get_migration_status(engine)
-    assert len(status["applied"]) == 16
+    assert len(status["applied"]) == 17
     assert len(status["pending"]) == 0
     assert status["current_version"] == "0017"
 
