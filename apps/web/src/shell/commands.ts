@@ -59,6 +59,7 @@ export function buildCommands(navigate: (path: string) => void, pathname: string
     { id: "toggle-history", group: "Actions", label: "Toggle conversation history", keywords: "search past chats", run: hostAction("toggle-history") },
     { id: "open-projects", group: "Actions", label: "Open local projects", keywords: "files workspace", run: hostAction("open-projects") },
     { id: "open-image-studio", group: "Actions", label: "Open image studio", keywords: "generate pictures", run: hostAction("open-image-studio") },
+    { id: "open-showroom", group: "Actions", label: "Open Showroom", keywords: "runway catwalk 3d outfits", run: hostAction("open-showroom") },
     { id: "toggle-theme", group: "Actions", label: resolveIsDark(getShellState().theme) ? "Switch to light theme" : "Switch to dark theme", keywords: "appearance dark light", run: () => shell.toggleTheme() },
     { id: "panel-plan", group: "Panels", label: "Open Plan / Run timeline", keywords: "steps inspector", run: panel("plan") },
     { id: "panel-tools", group: "Panels", label: "Open Tools panel", keywords: "inspector", run: panel("tools") },

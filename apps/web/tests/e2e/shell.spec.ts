@@ -18,7 +18,9 @@ test("workspace mode loads with chat composer and the mode switch", async ({ pag
 test("companion mode loads with the core HUD and persists across reloads", async ({ page }) => {
   await page.goto("/companion");
   await expect(page.getByRole("radio", { name: /Companion/ })).toBeChecked();
-  await expect(page.getByTestId("companion-hud")).toBeVisible();
+  await expect(page.getByTestId("companion-stage")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /^Message/ })).toBeVisible();
+  await expect(page.locator(".dich-showroom-root")).toHaveCount(0);
   await page.goto("/");
   await expect(page).toHaveURL(/\/companion$/);
 });
@@ -27,7 +29,7 @@ test("mode switch navigates between modes", async ({ page }) => {
   await page.goto("/workspace");
   await page.getByRole("radio", { name: /Companion/ }).click();
   await expect(page).toHaveURL(/\/companion$/);
-  await expect(page.getByTestId("companion-hud")).toBeVisible();
+  await expect(page.getByTestId("companion-stage")).toBeVisible();
   await page.getByRole("radio", { name: /Workspace/ }).click();
   await expect(page).toHaveURL(/\/workspace$/);
 });
