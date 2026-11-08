@@ -796,6 +796,7 @@ class Settings(BaseSettings):
     cx_gateway_quota_key: SecretStr | None = Field(None, alias="CX_GATEWAY_QUOTA_KEY")
     persistence_enabled: bool = Field(True, alias="HINAA_PERSISTENCE_ENABLED")
     reminder_scheduler_enabled: bool = Field(True, alias="HINAA_REMINDER_SCHEDULER_ENABLED")
+    productivity_currency: str = Field("NPR", min_length=3, max_length=3, alias="HINAA_PRODUCTIVITY_CURRENCY")
     reminder_tick_seconds: float = Field(20.0, gt=0, le=600, alias="HINAA_REMINDER_TICK_SECONDS")
     # Catch-up after downtime is a feature; announcing yesterday's appointment
     # this morning as if it were news is not.
