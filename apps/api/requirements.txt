@@ -21,7 +21,7 @@ opencv-python-headless==5.0.0.93
 numpy==2.5.4
 pillow==13.0.0
 
-pypdf==6.19.0
+pypdf==6.21.4
 beautifulsoup4==4.15.0
 playwright==1.63.0
 exa-py==2.25.0

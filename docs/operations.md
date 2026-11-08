@@ -78,4 +78,4 @@ Not pinned in `requirements.txt` to keep the image small. To enable, install `op
 
 ## CI
 
-`.github/workflows/security.yml` runs `pip-audit` (non-blocking until the open advisories are triaged), a gitleaks working-tree scan (`.gitleaks.toml` allowlists test fixtures, docs and example env files), and a `docker build` check with `push: false`. Last local `pip-audit` run found 18 advisories, all in `pypdf 6.19.0` (fixed in 6.21.4).
+`.github/workflows/security.yml` runs `pip-audit` as a blocking gate, a gitleaks working-tree scan (`.gitleaks.toml` allowlists test fixtures, docs and example env files), and a `docker build` check with `push: false`. `pypdf` was bumped to 6.21.4 to clear the 18 advisories reported against 6.19.0.
