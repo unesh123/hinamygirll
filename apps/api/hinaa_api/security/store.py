@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from hinaa_api.persistence import sqlcompat
 from hinaa_api.security.contracts import (
     ApprovalCeremonyToken,
     AuditEvent,
@@ -30,11 +31,14 @@ class SecurityStore:
     """Thread-safe SQLite store for security audit logs, approval tokens, and revocations."""
 
     def __init__(self, db_path: Optional[Path] = None) -> None:
-        self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
+        self._pg = sqlcompat.pg_target(db_path, is_default=db_path is None)
+        self.db_path = Path(db_path) if db_path and not str(db_path).startswith("postgres") else DEFAULT_DB_PATH
         self._lock = threading.RLock()
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        if self._pg:
+            return sqlcompat.connect_pg(self._pg)  # type: ignore[return-value]
         conn = sqlite3.connect(
             str(self.db_path),
             timeout=30.0,

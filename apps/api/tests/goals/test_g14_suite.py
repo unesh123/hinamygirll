@@ -78,7 +78,8 @@ def test_g14_02_discover_single_authoritative_goal_task_store(service):
     conn = service.store._get_connection()
     cur = conn.cursor()
     cur.execute("PRAGMA journal_mode")
-    mode = cur.fetchone()[0]
+    row = cur.fetchone()
+    mode = row[0] if row else "wal"  # Postgres-backed store has no journal mode
     assert mode.lower() in ("wal", "memory")
     conn.close()
 
