@@ -26,6 +26,29 @@ RATE_LIMITED = Counter(
 BODY_REJECTED = Counter(
     "hinaa_body_too_large_total", "Requests rejected for exceeding the body limit", registry=REGISTRY
 )
+LLM_REQUESTS = Counter(
+    "hinaa_llm_requests_total", "LLM requests", ["provider", "model", "outcome"], registry=REGISTRY
+)
+LLM_LATENCY = Histogram(
+    "hinaa_llm_request_duration_seconds",
+    "LLM request latency",
+    ["provider", "model"],
+    buckets=(0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 40, 80, 160),
+    registry=REGISTRY,
+)
+LLM_TOKENS = Counter(
+    "hinaa_llm_tokens_total", "LLM tokens", ["provider", "model", "type"], registry=REGISTRY
+)
+TOOL_CALLS = Counter(
+    "hinaa_tool_calls_total", "Agent tool executions", ["tool", "outcome"], registry=REGISTRY
+)
+TOOL_LATENCY = Histogram(
+    "hinaa_tool_duration_seconds",
+    "Agent tool execution latency",
+    ["tool"],
+    buckets=(0.01, 0.05, 0.25, 1, 2.5, 5, 15, 30, 60, 120, 300),
+    registry=REGISTRY,
+)
 PROCESS_START = Gauge(
     "hinaa_process_start_time_seconds", "Unix start time of the API process", registry=REGISTRY
 )

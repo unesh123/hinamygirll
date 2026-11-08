@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+import re
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
+
+from .context import request_id_var, trace_id_var
+from .otel import current_ids, setup_tracing
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -51,37 +55,81 @@ def init_sentry(settings: Settings) -> bool:
     except ImportError:
         logger.warning("SENTRY_DSN is set but sentry-sdk is not installed; skipping Sentry")
         return False
+    from .. import __version__
+
     sentry_sdk.init(
         dsn=settings.sentry_dsn.get_secret_value(),
         environment=settings.environment,
+        release=f"hinaa-api@{__version__}",
         send_default_pii=False,
+        include_local_variables=False,
+        max_request_body_size="never",
         traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0")),
+        before_send=scrub_sentry_event,
+        before_send_transaction=scrub_sentry_event,
+        before_breadcrumb=scrub_breadcrumb,
     )
     return True
 
 
-def init_otel(app: FastAPI, settings: Settings) -> bool:
-    if not settings.otel_enabled:
-        return False
-    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
-        logger.warning("HINAA_OTEL_ENABLED is true but OTEL_EXPORTER_OTLP_ENDPOINT is unset; skipping")
-        return False
-    try:
-        from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    except ImportError:
-        logger.warning("OpenTelemetry packages are not installed; skipping (see docs/operations.md)")
-        return False
-    provider = TracerProvider(
-        resource=Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", "hinaa-api")})
-    )
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
-    FastAPIInstrumentor.instrument_app(app, excluded_urls="/metrics,/health.*,/readyz")
-    HTTPXClientInstrumentor().instrument()
-    return True
+_SENSITIVE_KEY = re.compile(
+    r"authorization|cookie|api[-_]?key|x-api-key|token|secret|password|passwd|credential|session|dsn|signature",
+    re.IGNORECASE,
+)
+_SENSITIVE_VALUE = re.compile(
+    r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}|\b(sk|pk|rk|gsk|xai)-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{30,}"
+)
+FILTERED = "[Filtered]"
+
+
+def _scrub(value: Any, depth: int = 0) -> Any:
+    if depth > 12:
+        return FILTERED
+    if isinstance(value, dict):
+        return {
+            k: FILTERED if isinstance(k, str) and _SENSITIVE_KEY.search(k) else _scrub(v, depth + 1)
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_scrub(v, depth + 1) for v in value]
+    if isinstance(value, str):
+        return _SENSITIVE_VALUE.sub(FILTERED, value)
+    return value
+
+
+def scrub_sentry_event(event: dict[str, Any], hint: Any = None) -> dict[str, Any]:
+    """Drop credentials/PII from a Sentry event and tie it to the active trace."""
+    request = event.get("request")
+    if isinstance(request, dict):
+        request.pop("cookies", None)
+        request.pop("data", None)
+        request.pop("env", None)
+    user = event.get("user")
+    if isinstance(user, dict):
+        event["user"] = {"id": user["id"]} if user.get("id") else {}
+    event = _scrub(event)
+    tags = event.setdefault("tags", {})
+    ids = current_ids()
+    trace_id = ids[0] if ids else trace_id_var.get()
+    if trace_id and trace_id != "-":
+        tags.setdefault("trace_id", trace_id)
+    if ids:
+        tags.setdefault("span_id", ids[1])
+    request_id = request_id_var.get()
+    if request_id != "-":
+        tags.setdefault("request_id", request_id)
+    return event
+
+
+def scrub_breadcrumb(crumb: dict[str, Any], hint: Any = None) -> dict[str, Any]:
+    return _scrub(crumb)
+
+
+def init_otel(
+    app: FastAPI,
+    settings: Settings,
+    *,
+    session_factory: Any = None,
+    span_exporter: Any = None,
+) -> bool:
+    return setup_tracing(app, settings, session_factory=session_factory, span_exporter=span_exporter)

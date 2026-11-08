@@ -5,6 +5,8 @@ import logging
 import time
 from typing import Any
 import httpx
+
+from ..ops import genai
 from ..config import Settings
 from .base import ProviderResult
 
@@ -96,11 +98,19 @@ class AnthropicDirectProvider:
             raise ValueError("ANTHROPIC_API_KEY is not configured.")
         client = self._client or httpx.AsyncClient(timeout=timeout_s)
         try:
-            resp = await client.post(
-                f"{self.base_url}/messages", headers=self.request_headers(api_key), json=payload
-            )
-            resp.raise_for_status()
-            return resp.json()
+            with genai.llm_call(
+                provider=genai.PROVIDER_ANTHROPIC,
+                model=payload.get("model"),
+                max_tokens=payload.get("max_tokens"),
+            ) as call:
+                call.set_input(payload.get("messages"), payload.get("system"))
+                resp = await client.post(
+                    f"{self.base_url}/messages", headers=self.request_headers(api_key), json=payload
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                call.record_anthropic_response(data)
+                return data
         finally:
             if not self._client:
                 await client.aclose()

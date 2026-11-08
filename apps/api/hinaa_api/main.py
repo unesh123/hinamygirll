@@ -57,7 +57,8 @@ from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_mode
 from .reminder_scheduler import run_scheduler as run_reminder_scheduler
 from .news.scheduler import run_scheduler as run_news_scheduler
 from .telephony.router import is_webhook_path as is_telephony_webhook
-from .ops import metrics
+from .ops import genai, metrics
+from .ops.health import check_database
 from .ops.context import configure_logging, user_id_var
 from .ops.middleware import BodyLimitMiddleware, ObservabilityMiddleware
 from .ops.ratelimit import EXEMPT_PATHS as RATE_EXEMPT_PATHS
@@ -1308,7 +1309,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expose_headers=["X-Correlation-ID", "X-Request-Id", "Retry-After", "X-HINAA-Provider", "X-HINAA-Latency-Ms", "X-Trace-Id", "traceparent", "Server-Timing"],
     )
     app.add_middleware(ObservabilityMiddleware)
-    init_otel(app, active_settings)
+    init_otel(app, active_settings, session_factory=session_factory)
 
     @app.get("/health/live")
     @app.get("/api/health")
@@ -2676,8 +2677,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             vmc_bridge.remove_client(ws)
 
-    @app.get("/health")
     @app.get("/healthz")
+    async def process_liveness() -> dict[str, str]:
+        # Liveness only: never touches the DB or providers.
+        return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.get("/health")
     async def health_alias() -> JSONResponse:
         return await readiness()
 
@@ -2694,7 +2699,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             missing = active_settings.missing_real_configuration()
         else:
             missing = []
-        ready = not missing
+        database = await check_database(session_factory)
+        ready = not missing and database["ok"]
         # The HTTP code stays a readiness contract: only absent configuration
         # fails it. `status` is held to a higher bar than "the env vars exist",
         # because a deployment whose configured brain never answered used to report
@@ -2709,7 +2715,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "requestedServed": routing["requestedServed"],
                 "fallback": routing["fallback"],
                 "routing": routing["reason"],
-                "missingConfiguration": missing if not ready else [],
+                "missingConfiguration": missing,
+                "database": database,
                 "persistenceEnabled": active_settings.persistence_enabled,
                 "authMode": active_settings.auth_mode,
                 "authSafety": auth_safety_report(active_settings),
@@ -4696,7 +4703,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     parsed_params = param_type(**parsed_params)
 
             owner = _resolved_tool_owner(server_user_id)
-            return await _execute_registered_tool(tool_def, handler, parsed_params, body, owner)
+            with genai.tool_call(name=body.toolName, call_id=body.id):
+                return await _execute_registered_tool(tool_def, handler, parsed_params, body, owner)
         except HinaaError:
             raise
         except Exception:

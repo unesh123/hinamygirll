@@ -139,3 +139,6 @@ apps/web/scratch/
 
 # Test runs launched from apps/api write here
 apps/api/apps/
+
+# local observability stack secret
+infra/observability/prometheus/metrics_token
