@@ -285,20 +285,24 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             return HinaaError(code="PROVIDER_UNAVAILABLE", status_code=500, message=str(e))
         return HinaaError(code="PROVIDER_RESPONSE_INVALID", status_code=500, message=str(e))
 
+    def _messages_request(self, prompt: PromptPackage, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Kwargs for the SDK call; plain pass-through for non-Claude gateways."""
+        return {
+            "model": self._model,
+            "max_tokens": _llm_budget_tokens(prompt),
+            "system": prompt.system_instruction,
+            "messages": messages,
+        }
+
     async def _stream_text(
         self, prompt: PromptPackage, finish_reason_holder: dict[str, str | None] | None = None
     ) -> AsyncIterator[str]:
-        system = prompt.system_instruction
         messages = _anthropic_messages(prompt)
+        request = self._messages_request(prompt, messages)
         started = perf_counter()
 
         try:
-            async with self.anthropic_client.messages.stream(
-                model=self._model,
-                max_tokens=_llm_budget_tokens(prompt),
-                system=system,
-                messages=messages
-            ) as stream:
+            async with self.anthropic_client.messages.stream(**request) as stream:
                 async for text in stream.text_stream:
                     yield text
                 if finish_reason_holder is not None:
@@ -313,17 +317,12 @@ class AgentRouterAnthropicProvider(OpenAILLMProvider):
             raise self._map_anthropic_error(e)
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
-        system = prompt.system_instruction
         messages = _anthropic_messages(prompt)
+        request = self._messages_request(prompt, messages)
         started = perf_counter()
 
         try:
-            response = await self.anthropic_client.messages.create(
-                model=self._model,
-                max_tokens=_llm_budget_tokens(prompt),
-                system=system,
-                messages=messages
-            )
+            response = await self.anthropic_client.messages.create(**request)
             visible_text, _ = normalize_anthropic_response(response)
             self._circuit_breaker.record_success(int((perf_counter() - started) * 1000))
             return visible_text
@@ -470,8 +469,42 @@ class ClaudeLLMProvider(AgentRouterAnthropicProvider):
 
     id = "claude"
 
-    def __init__(self, api_key: str, model: str, base_url: str) -> None:
+    def __init__(
+        self, api_key: str, model: str, base_url: str, *, auto_route: bool = False, settings: Any = None
+    ) -> None:
         super().__init__(api_key, model, base_url, provider_id=self.id)
+        # auto_route: no model was chosen explicitly, so pick fast/default/deep per turn.
+        self.auto_route = auto_route
+        self._settings = settings
+
+    def _messages_request(self, prompt: PromptPackage, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        from ..config import get_settings
+        from .claude_brain import (
+            ClaudeRoute,
+            build_system_blocks,
+            build_thinking_params,
+            route_turn,
+        )
+
+        settings = self._settings or get_settings()
+        max_tokens = _llm_budget_tokens(prompt)
+        text = getattr(prompt, "raw_user_text", None) or str(getattr(prompt, "user_contents", ""))
+        if self.auto_route:
+            has_files = bool(getattr(prompt, "attachments", None))
+            route = route_turn(text, settings, has_attachments=has_files)
+        else:
+            route = ClaudeRoute("default", self._model, False, "explicit-model")
+        request: dict[str, Any] = {"model": route.model, "messages": messages}
+        if route.thinking:
+            fragment, max_tokens = build_thinking_params(route.model, settings, max_tokens)
+            request["thinking"] = fragment["thinking"]
+            if "output_config" in fragment:
+                request["extra_body"] = {"output_config": fragment["output_config"]}
+        request["max_tokens"] = max_tokens
+        system_blocks = build_system_blocks(prompt.system_instruction, settings)
+        if system_blocks:
+            request["system"] = system_blocks
+        return request
 
 
 # Backward-compatible public name for OpenAI-compatible Agent Router models.

@@ -25,7 +25,13 @@ DEFAULT_LOCAL_DATABASE_URL = f"sqlite+pysqlite:///{Path.home() / '.hinaa' / 'hin
 # Official Anthropic defaults remain the safe default. The documented mwapi
 # gateway publishes a different catalog; aliases preserve stale local browser
 # preferences during the transition instead of sending unsupported model IDs.
+# Current IDs per https://platform.claude.com/docs/en/about-claude/models/overview;
+# the dated 4.x entries stay so previously saved selections keep resolving.
+CLAUDE_DEFAULT_MODEL = "claude-sonnet-5-5"
+CLAUDE_DEEP_MODEL = "claude-opus-5-5"
+CLAUDE_FAST_MODEL = "claude-haiku-5-5"
 OFFICIAL_CLAUDE_DEFAULT_MODELS = (
+    "claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5,"
     "claude-sonnet-4-20250514,claude-opus-4-20250514,claude-3-5-haiku-20241022"
 )
 MWAPI_CLAUDE_DEFAULT_MODELS = (
@@ -94,7 +100,21 @@ class Settings(BaseSettings):
     # auto uses the evidenced Claude-compatible Bearer route for mwapi.dev;
     # choose anthropic or openai-compatible explicitly to override.
     claude_protocol: Literal["auto", "anthropic", "openai-compatible"] = Field("auto", alias="HINAA_CLAUDE_PROTOCOL")
-    claude_model: str = Field("claude-sonnet-4-20250514", alias="HINAA_CLAUDE_MODEL")
+    # HINAA_CLAUDE_MODEL stays the backward-compatible override of the default tier.
+    claude_model: str | None = Field(None, alias="HINAA_CLAUDE_MODEL")
+    claude_model_default: str = Field(CLAUDE_DEFAULT_MODEL, alias="HINAA_CLAUDE_MODEL_DEFAULT")
+    claude_model_deep: str = Field(CLAUDE_DEEP_MODEL, alias="HINAA_CLAUDE_MODEL_DEEP")
+    claude_model_fast: str = Field(CLAUDE_FAST_MODEL, alias="HINAA_CLAUDE_MODEL_FAST")
+    claude_thinking_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field(
+        "high", alias="HINAA_CLAUDE_THINKING_EFFORT"
+    )
+    # Only used for pre-adaptive models that still take manual extended thinking.
+    claude_thinking_budget_tokens: int = Field(8000, ge=1024, alias="HINAA_CLAUDE_THINKING_BUDGET_TOKENS")
+    claude_tool_max_steps: int = Field(8, ge=1, le=32, alias="HINAA_CLAUDE_TOOL_MAX_STEPS")
+    claude_api_version: str = Field("2026-10-21", alias="HINAA_CLAUDE_API_VERSION")
+    claude_prompt_cache_ttl: Literal["5m", "1h"] = Field("5m", alias="HINAA_CLAUDE_PROMPT_CACHE_TTL")
+    # With a Claude key and no explicit HINAA_PROVIDER_MODE, Claude is the brain.
+    claude_prefer_when_keyed: bool = Field(True, alias="HINAA_CLAUDE_PREFER_WHEN_KEYED")
     claude_allowed_models_raw: str = Field(
         OFFICIAL_CLAUDE_DEFAULT_MODELS,
         alias="HINAA_CLAUDE_ALLOWED_MODELS",
@@ -1004,7 +1024,24 @@ class Settings(BaseSettings):
 
     @property
     def active_claude_model(self) -> str:
-        return self._normalize_claude_model(self.claude_model)
+        return self._normalize_claude_model(self.claude_model or self.claude_model_default)
+
+    def claude_tier_model(self, tier: Literal["fast", "default", "deep"]) -> str:
+        if tier == "fast":
+            return self._normalize_claude_model(self.claude_model_fast)
+        if tier == "deep":
+            return self._normalize_claude_model(self.claude_model_deep)
+        return self.active_claude_model
+
+    @model_validator(mode="after")
+    def _prefer_claude_when_keyed(self) -> "Settings":
+        if (
+            "provider_mode" not in self.model_fields_set
+            and self.claude_prefer_when_keyed
+            and self.claude_configured
+        ):
+            self.provider_mode = "claude"
+        return self
 
     @property
     def claude_allowed_models(self) -> list[str]:
