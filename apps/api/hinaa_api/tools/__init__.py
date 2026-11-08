@@ -31,6 +31,7 @@ from . import coding_agent_tool
 from . import treg_gateway
 from . import ugc_trend_extractor
 from . import html_anime
+from . import lyric_video_tool
 from . import mobile_artemis
 from . import clean_room_loop
 from . import subagent_fork

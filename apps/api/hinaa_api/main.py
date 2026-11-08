@@ -1915,6 +1915,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         job = await creative_service.cancel_job(job_id, tenant_id)
         return {"jobId": job.job_id, "status": job.state.value}
 
+    @app.post("/api/creative/lyric-video")
+    @app.post("/v1/creative/lyric-video")
+    async def submit_lyric_video(spec: dict[str, Any] = Body(...), request: Request = None) -> Any:
+        """Starts a deterministic motion-graphics lyric-video render (async job)."""
+        from pydantic import ValidationError
+
+        from .creative.lyric_video import LyricVideoSpec
+        from .creative.lyric_video.jobs import lyric_video_service
+        try:
+            parsed = LyricVideoSpec.model_validate(spec)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
+        job = await lyric_video_service.submit(
+            parsed,
+            tenant_id=request.headers.get("X-Tenant-ID", "default_tenant"),
+            user_id=request.headers.get("X-User-ID", "default_user"),
+        )
+        return JSONResponse(status_code=202, content=job.to_dict())
+
+    @app.get("/api/creative/lyric-video/{job_id}")
+    @app.get("/v1/creative/lyric-video/{job_id}")
+    async def get_lyric_video(job_id: str, request: Request) -> dict[str, Any]:
+        from .creative.lyric_video.jobs import lyric_video_service
+        return lyric_video_service.get(job_id, request.headers.get("X-Tenant-ID", "default_tenant")).to_dict()
+
+    @app.post("/api/creative/lyric-video/{job_id}/cancel")
+    @app.post("/v1/creative/lyric-video/{job_id}/cancel")
+    async def cancel_lyric_video(job_id: str, request: Request) -> dict[str, Any]:
+        from .creative.lyric_video.jobs import lyric_video_service
+        return (await lyric_video_service.cancel(job_id, request.headers.get("X-Tenant-ID", "default_tenant"))).to_dict()
+
     @app.post("/api/creative/jobs/{job_id}/retry")
     @app.post("/v1/creative/jobs/{job_id}/retry")
     async def retry_creative_job(job_id: str, request: Request) -> dict[str, Any]:
