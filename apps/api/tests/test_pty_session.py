@@ -2,6 +2,7 @@
 Tests for HINAA Persistent Bidirectional Streaming PTY Session Manager.
 """
 
+import asyncio
 import os
 import sys
 import time
@@ -46,7 +47,14 @@ async def test_pty_session_run_basic_command(tmp_path):
 
         assert res["success"] is True
         assert res["session_id"] == session_id
-        assert "HINAA_PTY_STREAM_OK" in res["output"]
+        # The handler returns once output settles; on a loaded runner that can be
+        # bash's startup banner, before the echo lands. Poll the session briefly.
+        output = res["output"]
+        deadline = time.time() + 10
+        while "HINAA_PTY_STREAM_OK" not in output and time.time() < deadline:
+            await asyncio.sleep(0.1)
+            output = session.read_delta(since_timestamp=0.0)
+        assert "HINAA_PTY_STREAM_OK" in output
     finally:
         mgr.close(session_id)
 
