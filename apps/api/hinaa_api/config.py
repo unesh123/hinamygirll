@@ -626,6 +626,21 @@ class Settings(BaseSettings):
         ],
         alias="HINAA_ALLOWED_ORIGINS",
     )
+    # Extra explicit origins (merged with HINAA_ALLOWED_ORIGINS) and the preview
+    # deployment pattern. Unset regex -> project-scoped Vercel previews; "" disables.
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list, alias="HINAA_CORS_ORIGINS")
+    cors_origin_regex: str | None = Field(None, alias="HINAA_CORS_ORIGIN_REGEX")
+    log_format: Literal["text", "json"] = Field("text", alias="HINAA_LOG_FORMAT")
+    metrics_token: SecretStr | None = Field(None, alias="HINAA_METRICS_TOKEN")
+    max_body_bytes: int = Field(25 * 1024 * 1024, ge=0, alias="HINAA_MAX_BODY_BYTES")
+    max_upload_bytes: int = Field(600 * 1024 * 1024, ge=0, alias="HINAA_MAX_UPLOAD_BYTES")
+    # None = auto: on in production, off elsewhere (dev/tests) unless set explicitly.
+    rate_limit_enabled: bool | None = Field(None, alias="HINAA_RATE_LIMIT_ENABLED")
+    rate_limit_per_minute: int = Field(600, ge=0, alias="HINAA_RATE_LIMIT_PER_MINUTE")
+    rate_limit_expensive_per_minute: int = Field(30, ge=0, alias="HINAA_RATE_LIMIT_EXPENSIVE_PER_MINUTE")
+    trust_proxy: bool = Field(False, alias="HINAA_TRUST_PROXY")
+    otel_enabled: bool = Field(False, alias="HINAA_OTEL_ENABLED")
+    sentry_dsn: SecretStr | None = Field(None, alias="SENTRY_DSN")
     max_audio_bytes: int = 4 * 1024 * 1024
     max_audio_seconds: float = 20.0
     # Media (STT/TTS) calls fail fast — an 8s budget is plenty for a single
@@ -883,7 +898,18 @@ class Settings(BaseSettings):
             )
         return self
 
-    @field_validator("allowed_origins", "clerk_authorized_parties", mode="before")
+    @field_validator("rate_limit_enabled", "sentry_dsn", "metrics_token", mode="before")
+    @classmethod
+    def blank_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @property
+    def rate_limit_active(self) -> bool:
+        if self.rate_limit_enabled is not None:
+            return self.rate_limit_enabled
+        return self.environment.lower() == "production"
+
+    @field_validator("allowed_origins", "cors_origins", "clerk_authorized_parties", mode="before")
     @classmethod
     def split_origins(cls, value: object) -> object:
         if isinstance(value, str):

@@ -1,0 +1,17 @@
+title = "Hinaa gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake keys used by test fixtures, docs and example env files"
+paths = [
+  '''apps/api/tests/.*''',
+  '''apps/api/test_.*\.py''',
+  '''apps/web/(src|e2e|tests?)/.*\.(test|spec)\.[tj]sx?''',
+  '''\.env\.example''',
+  '''\.env\.production\.example''',
+  '''pnpm-lock\.yaml''',
+  '''apps/api/uv\.lock''',
+  '''docs/.*''',
+]
