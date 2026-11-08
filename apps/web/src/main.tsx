@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import "./design-system/global.css";
 import ShellApp from "./shell/ShellApp";
 import { installStaleBuildRecovery } from "./lib/staleBuildRecovery";
+import { installLocalIdentityFetch } from "./lib/hinaaIdentity";
 import { ClerkSessionGate } from "./features/auth/ClerkSessionGate";
 // Aurora Veil must arrive after App.css (and its imports) so the elevation
 // layer refines every surface without fighting the base stylesheet.
@@ -35,6 +36,8 @@ import { initGlobalUiSounds } from "./lib/uiSound";
 installStaleBuildRecovery();
 initGlobalUiSounds();
 if (authMode === "clerk" && !PUBLISHABLE_KEY) throw new Error("The private workspace needs its Clerk publishable key.");
+// Clerk mode authorizes through ClerkFetchInterceptor; local mode needs the dev identity on every API call.
+if (!(authMode === "clerk" && PUBLISHABLE_KEY)) installLocalIdentityFetch(String(import.meta.env.VITE_HINAA_API_BASE_URL || ""));
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
